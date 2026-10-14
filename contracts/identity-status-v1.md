@@ -2,7 +2,7 @@
 
 Status is identity-owned, transport-neutral descriptive data. It is neither
 endpoint presence, permission to dispatch, nor evidence that a request is running
-or complete. There is one current record per identity UUID, outside Office layout,
+or complete. There is one current record per identity UUID, outside presentation layout,
 appearance profiles and free-form metadata. All callers use the same core service
 and SQLite repository; no room-specific copies or status event log are required.
 
@@ -16,7 +16,7 @@ tmt identity status rm --identity Alice
 
 Each operation accepts `--identity`. Omission uses the existing verified caller
 resolver, never the first/last identity. An explicit identity works outside tmux
-and without Office installed or running. Saved and active temporary identities
+and without any extension installed or running. Saved and active temporary identities
 are eligible; reporting status does not change lifetime, binding or membership.
 
 `set` replaces the complete record: activity is 1–160 UTF-8 bytes, optional mood
@@ -32,7 +32,7 @@ The host samples the update time and atomically stores activity, mood,
 and renews expiry, even for identical text. This is last-writer-wins descriptive
 state, not the conditional document-edit protocol. A failed validation or inactive
 identity check writes nothing. `clear` is idempotent. Neither operation changes
-identity creation/update time, Office profile revision, requests or replies.
+identity creation/update time, appearance profile revision, requests or replies.
 
 `show` returns `{identityId, status}`. A present status contains `activity`, nullable
 `mood`, `updatedAtMs`, `expiresAtMs`, and derived `stale`. Absence is `status: null`.
@@ -41,14 +41,14 @@ retired identities are errors, distinct from an active identity with no status.
 At `now >= expiresAtMs` the record is stale. A clock earlier than the recorded
 update also fails closed as stale. Reading never deletes or renews a record.
 
-## Lifecycle and Office projection
+## Lifecycle and consumer projection
 
 Promotion keeps the UUID and record. Unbinding/offline saved identities keep
 their status; presence is displayed independently. Retirement hides status from
 active projections and prevents updates. Reusing a retired name creates a new
 UUID with no inherited status. Existing requests and content are untouched.
 
-Office reads this canonical record, not a status embedded in the map/profile.
+Consumers read this canonical record, not a status embedded in the map/profile.
 Show one short activity/mood cue for fresh status, with reply-ready attention
 taking precedence. Details show exact text, update/expiry times and a stale label;
 stale text must not appear as current activity. Merely sending work never sets
@@ -99,5 +99,5 @@ Verify byte/control/duration boundaries, exact expiry and clock rollback, atomic
 replacement and clear, restart persistence, temporary-to-saved promotion,
 retirement/name reuse, explicit and inferred caller resolution, no tmux probe for
 explicit selection, JSON/human/help output, and invalid-input preservation.
-CLI-to-Office tests must prove one durable record drives both views, expiration
+Consumer projection tests must prove one durable record drives both views, expiration
 removes only the current cue, and reply attention wins without modifying status.

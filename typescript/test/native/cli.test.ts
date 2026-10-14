@@ -88,15 +88,7 @@ describe('native grammar process contract', () => {
       writeFileSync(sandbox.globalConfig, '{broken configuration');
       const before = fileSnapshot(sandbox.root);
       const tmuxBaseline = readFileSync(tripwire, 'utf8');
-      for (const command of [
-        ['office'],
-        ['office', 'board'],
-        ['office', 'block', 'apply'],
-        ['talk'],
-        ['x', 'listen'],
-        ['config', 'set'],
-        ['name'],
-      ]) {
+      for (const command of [['talk'], ['x', 'listen'], ['config', 'set'], ['name']]) {
         for (const argv of [
           [...command, '-h'],
           [...command, '--help'],

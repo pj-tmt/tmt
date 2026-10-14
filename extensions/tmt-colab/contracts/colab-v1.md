@@ -13,8 +13,7 @@ colab MUST use that API rather than redefine it. The
 [remote-client byte rules](../../../contracts/remote-channel-v1.md#bytes-ids-and-the-fixed-m1-suite)
 own LP framing, list framing, exact UTF-8 and canonical binary encodings. Only
 those byte primitives are reused here; the [channel boundary](#channel-boundary)
-names the sections that move to remote. Extension contracts and vectors remain under this extension,
-following the [Office contract convention](../../tmt-office/contracts/README.md#single-source-of-truth).
+names the sections that move to remote. Extension contracts and vectors remain under this extension.
 
 Inputs are the [owning design](https://github.com/wkh237/tmt/issues/828#issuecomment-5932303929)
 (revision 9, including the lead's baseline, decoder and trusted UI decisions), its
@@ -276,8 +275,7 @@ fence agent effects.
 
 Local acceptance precedes Firestore, then Cloudflare. Background service mode,
 a per-page dashboard record store and official installation/release registration
-are outside v1. `serve` runs in the foreground. A future background lifecycle
-must follow Office's start/stop/status shape.
+are outside v1. `serve` runs in the foreground.
 
 ## Canonical values and cryptographic suite
 
@@ -3138,8 +3136,12 @@ is refused. The existing wrap verifier still checks the cryptographic recipient/
 this uid projection supplies no key authority. An owner's second machine reads its own wrap
 as recipient. Queries do not disclose another recipient's wraps.
 
-The mapping enables future native carrier consumption; this declaration does not implement the
-serve sync loop, native activation, signing bootstrap or cloud attachments. V1 cloud sync does
+The native sealed-document codecs map these seven resources to canonical REST fields and
+page-bound IDs. One dormant client shares the object bus reader and ordered request counter;
+Changed notices coalesce as hints, and a terminal interest keeps its slot until confirmed
+cancellation or generation close. Transport checksums do not authenticate payloads. Neither
+the declaration nor these codecs enable cloud sync: the serve sync loop, native activation,
+signing bootstrap and cloud attachments are not implemented by this foundation. V1 cloud sync does
 not refresh log expiry: the existing Rules permit an owner expiry-only refresh, but the log
 mapping deliberately exposes no put, so entries age out at their `expiresAt`. A long-lived
 page needing log refresh requires a Remote follow-up, not a hidden compatibility path.

@@ -83,26 +83,18 @@ describe('countMigrations', () => {
     );
     expect(countMigrations(cli)).toBe(cliRegion.match(/^ {4}migration!\(/gm)?.length);
     expect(countMigrations(cli)).toBeGreaterThan(20);
-
-    const office = read('extensions/tmt-office/rust/tmt-office-storage/src/schema.rs');
-    const officeRegion = office.slice(
-      office.indexOf('const MIGRATIONS'),
-      office.indexOf('\n];', office.indexOf('const MIGRATIONS'))
-    );
-    expect(countMigrations(office)).toBe(officeRegion.match(/^ {4}\("/gm)?.length);
-    expect(countMigrations(office)).toBeGreaterThan(0);
   });
 });
 
 describe('the component map names each component’s migration files', () => {
   const map = parseComponentMap(read('.github/components.json'));
 
-  it('lists a tracked source file the component owns, with entries, for CLI and Office only', () => {
+  it('lists a tracked source file the component owns, with entries, for CLI only', () => {
     const byName = Object.fromEntries(
       map.components.map((component) => [component.name, component])
     );
     expect(byName.cli.migrations).toHaveLength(1);
-    expect(byName.office.migrations).toHaveLength(1);
+    expect(Object.hasOwn(byName, 'office')).toBe(false);
     expect(byName.ops.migrations).toEqual([]);
     for (const component of map.components) {
       for (const file of component.migrations) {
@@ -148,7 +140,7 @@ describe('checkChannel', () => {
   it.each([
     ['cli', 'v5.0.0-alpha.9'],
     ['cli', 'v5.0.0-alpha.10'],
-    ['office', 'tmt-office-v0.1.0-alpha.4'],
+    ['remote', 'tmt-remote-v0.1.0-alpha.4'],
     ['ops', 'tmt-ops-v0.1.0-alpha.2'],
   ])('lets the alpha release %s %s publish automatically', (product, tag) => {
     expect(checkChannel({ product, tag }).ok).toBe(true);
@@ -158,7 +150,7 @@ describe('checkChannel', () => {
     ['cli', 'v5.0.0', 'stable'],
     ['cli', 'v5.1.3', 'stable'],
     ['ops', 'tmt-ops-v0.1.0', 'stable'],
-    ['office', 'tmt-office-v1.0.0', 'stable'],
+    ['remote', 'tmt-remote-v1.0.0', 'stable'],
     ['cli', 'v5.0.0-beta.1', 'beta'],
     ['cli', 'v5.0.0-rc.1', 'release candidate'],
     ['ops', 'tmt-ops-v0.1.0-beta.2', 'beta'],

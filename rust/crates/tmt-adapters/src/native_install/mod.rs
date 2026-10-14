@@ -261,12 +261,6 @@ fn activate_with_local_schema(
     mut checkpoint: impl FnMut() -> io::Result<()>,
     mut local_schema: impl FnMut() -> io::Result<Vec<pr_catalog::DatabaseSchema>>,
 ) -> io::Result<InstallReport> {
-    if request.product.requires_release_verifier() && request.verifier.is_none() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "This product's releases require a verifier; refusing publication.",
-        ));
-    }
     let candidate_identity = request
         .provenance
         .as_ref()

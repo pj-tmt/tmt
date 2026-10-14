@@ -1,4 +1,3 @@
-import { RETIRED_E2E_FILES } from '../../scripts/e2e-shards.mjs';
 import { defineConfig } from 'vite-plus';
 
 export default defineConfig({
@@ -6,7 +5,7 @@ export default defineConfig({
     clearMocks: false,
     pool: 'threads',
     include: ['test/e2e/**/*.e2e.test.ts'],
-    exclude: ['node_modules', 'dist', ...RETIRED_E2E_FILES.map((file) => `test/e2e/${file}`)],
+    exclude: ['node_modules', 'dist'],
     fileParallelism: false,
     testTimeout: 15_000,
     hookTimeout: 5_000,

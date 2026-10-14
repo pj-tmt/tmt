@@ -60,7 +60,7 @@ pub(super) fn install(
                 channel,
                 pin: PinAction::Preserve,
             },
-            crate::office_facade::release_verifier(product),
+            None,
             checkpoint,
         ),
         (None, None) if current.is_some() => native_install::upgrade_product(
@@ -71,7 +71,7 @@ pub(super) fn install(
                 exact,
                 unpin: false,
             },
-            crate::office_facade::release_verifier(product),
+            None,
             checkpoint,
         )
         .map(|report| report.installation)
@@ -84,7 +84,7 @@ pub(super) fn install(
                 channel,
                 exact,
             },
-            crate::office_facade::release_verifier(product),
+            None,
             checkpoint,
         ),
         _ => {

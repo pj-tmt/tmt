@@ -75,7 +75,7 @@ fn plan() -> Value {
     json!({
         "products": [],
         "pending": [
-            {"product": "office", "version": "1.0.0", "selected": "1.1.0"},
+            {"product": "digest", "version": "1.0.0", "selected": "1.1.0"},
             {"product": "ops", "version": "1.0.0", "selected": "1.1.0"},
         ],
     })
@@ -87,7 +87,7 @@ fn new_executable_plans_and_applies_exact_consented_versions_with_partial_failur
         (plan(), 0),
         (
             json!({"products": [
-                {"product": "office", "status": "failed", "error": {"code": "EXTENSION_UPGRADE_FAILED", "message": "new verifier refused"}},
+                {"product": "digest", "status": "failed", "error": {"code": "EXTENSION_UPGRADE_FAILED", "message": "new verifier refused"}},
                 {"product": "ops", "status": "changed", "version": "1.1.0"},
             ]}),
             1,
@@ -149,11 +149,11 @@ fn apply_report_must_match_selected_products_versions_and_exit_status() {
     for reply in [
         json!({"products": []}),
         json!({"products": [
-            {"product": "office", "status": "changed", "version": "1.1.0"},
+            {"product": "digest", "status": "changed", "version": "1.1.0"},
             {"product": "ops", "status": "changed", "version": "9.9.9"},
         ]}),
         json!({"products": [
-            {"product": "office", "status": "failed", "error": {"code": "REFUSED", "message": "no"}},
+            {"product": "digest", "status": "failed", "error": {"code": "REFUSED", "message": "no"}},
             {"product": "ops", "status": "changed", "version": "1.1.0"},
         ]}),
     ] {

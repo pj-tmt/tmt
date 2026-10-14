@@ -270,11 +270,7 @@ fn repair_using(
     if product == Product::Cli {
         return Err(invalid("Repair is only supported for official extensions."));
     }
-    if product.requires_release_verifier() && verifier.is_none() {
-        return Err(invalid(
-            "This product's releases require a verifier; refusing publication.",
-        ));
-    }
+
     checkpoint()?;
     let layout = Layout::existing_product(prefix, product)?;
     let observed = {

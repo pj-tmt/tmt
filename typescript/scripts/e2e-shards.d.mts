@@ -10,7 +10,6 @@ export interface FileShard {
 }
 
 export const FULL_E2E_SHARDS: number;
-export const RETIRED_E2E_FILES: readonly string[];
 export function loadShardWeights(text?: string): ShardWeights;
 export function listE2eFiles(directory?: URL): string[];
 export function splitE2eFiles(

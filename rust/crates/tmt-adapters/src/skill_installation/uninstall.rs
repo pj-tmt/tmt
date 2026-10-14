@@ -1,6 +1,5 @@
-//! Removes everything skill installation published: owners' links through
-//! their own records, then core's and Office's bundled links, then the stores
-//! and records themselves. A path that no longer links into TMT's store is
+//! Removes current managed guidance while retaining retired installations.
+//! Historical skill links, source generations and owner records stay in place. A path that no longer links into TMT's store is
 //! kept and reported, never removed.
 
 use super::{
@@ -42,6 +41,67 @@ fn candidates(env: &ProviderEnvironment, global: &Path) -> io::Result<BTreeSet<P
         .collect())
 }
 
+/// Historical targets are preservation evidence only, never removal authority.
+fn retained_targets(env: &ProviderEnvironment, global: &Path) -> io::Result<BTreeSet<PathBuf>> {
+    let names = &tmt_core::skill_catalog::HISTORICAL_BUNDLE_NAMES[2..];
+    let mut targets = registry::read(global)?;
+    targets.retain(|target| {
+        target
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| names.contains(&name))
+    });
+    let mut roots: Vec<_> = Registry::builtin()
+        .iter()
+        .map(|driver| env.locations(driver).skills)
+        .collect();
+    roots.push(env.universal_skills());
+    for root in roots {
+        for name in names {
+            let target = root.join(name);
+            if files::exists(&target)? {
+                targets.insert(target);
+            }
+        }
+    }
+    for (name, owned_targets) in owned::owned_targets(global)? {
+        if names.contains(&name.as_str()) {
+            targets.extend(owned_targets);
+        }
+    }
+    targets.extend(owned::owned_by(global, "office")?.into_values().flatten());
+    Ok(targets)
+}
+
+/// Historical records and backing trees remain preservation evidence even
+/// without any targets or source content. This grants no ownership.
+fn retained_installation(global: &Path, assets: &SkillAssets) -> io::Result<bool> {
+    if owned::owners(global)?.iter().any(|(name, owner)| {
+        owner == "office"
+            || tmt_core::skill_catalog::HISTORICAL_BUNDLE_NAMES[2..].contains(&name.as_str())
+    }) {
+        return Ok(true);
+    }
+    if !files::exists(assets.root())? {
+        return Ok(false);
+    }
+    if files::exists(&assets.root().join("owners/office"))? {
+        return Ok(true);
+    }
+    for generation in fs::read_dir(assets.root())? {
+        let generation = generation?;
+        if !generation.file_type()?.is_dir() {
+            continue;
+        }
+        for name in &tmt_core::skill_catalog::HISTORICAL_BUNDLE_NAMES[2..] {
+            if files::exists(&generation.path().join(name))? {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
+}
+
 /// Read-only: what [`uninstall`] would remove and keep.
 pub fn plan_uninstall(env: &ProviderEnvironment, global: &Path) -> io::Result<SkillsRemoval> {
     let mut plan = SkillsRemoval::default();
@@ -49,8 +109,14 @@ pub fn plan_uninstall(env: &ProviderEnvironment, global: &Path) -> io::Result<Sk
     if !files::exists(&global)? {
         return Ok(plan);
     }
+    let retained = retained_targets(env, &global)?;
+    plan.kept.extend(retained.iter().cloned());
     for (_, targets) in owned::owned_targets(&global)? {
-        plan.removed.extend(targets);
+        plan.removed.extend(
+            targets
+                .into_iter()
+                .filter(|target| !retained.contains(target)),
+        );
     }
     let assets = SkillAssets::new(&global);
     for target in candidates(env, &global)? {
@@ -69,12 +135,20 @@ pub fn uninstall(env: &ProviderEnvironment, global: &Path) -> io::Result<SkillsR
     if !files::exists(&global)? {
         return Ok(removal);
     }
+    let retained = retained_targets(env, &global)?;
+    removal.kept.extend(retained.iter().cloned());
     for owner in owned::owners(&global)?
         .into_values()
         .collect::<BTreeSet<_>>()
+        .into_iter()
+        .filter(|owner| owner != "office")
     {
-        let report =
-            owned::remove_owned(None, &global, &owner, None).map_err(|failure| failure.cause)?;
+        let report = owned::remove_owned_retaining(
+            &global,
+            &owner,
+            &tmt_core::skill_catalog::HISTORICAL_BUNDLE_NAMES[2..],
+        )
+        .map_err(|failure| failure.cause)?;
         removal.removed.extend(report.removed);
         removal.kept.extend(report.kept);
     }
@@ -91,7 +165,13 @@ pub fn uninstall(env: &ProviderEnvironment, global: &Path) -> io::Result<SkillsR
         }
         Ok(())
     })?;
-    // Every link into the store is gone; the store and records go with it.
+    // Removed current intents are forgotten; historical intents and sources remain.
+    // Retention requires no digest admission because it authorizes no deletion.
+    if !retained.is_empty() || retained_installation(&global, &assets)? {
+        files::with_lock(&global, || registry::forget(&global, &removal.removed))?;
+        return Ok(removal);
+    }
+    // No retired installation remains; dispose of the owned store and records.
     for record in [
         registry::path(&global),
         owned::registry_path(&global),

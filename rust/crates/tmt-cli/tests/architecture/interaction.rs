@@ -11,12 +11,9 @@ use std::collections::BTreeSet;
 use syn::visit::{self, Visit};
 
 /// Files that still decide interactivity on their own. Later #485 slices move
-/// core, then Office; the list only shrinks.
-pub const MIGRATING: &[(&str, &str)] = &[
-    ("tmt-cli", "consent.rs"),
-    ("tmt-cli", "skill_reminder.rs"),
-    ("tmt-office-command", "office_command.rs"),
-];
+/// core; the list only shrinks.
+pub const MIGRATING: &[(&str, &str)] =
+    &[("tmt-cli", "consent.rs"), ("tmt-cli", "skill_reminder.rs")];
 
 /// Files in the guarded crates that test a terminal themselves.
 pub fn findings(sources: &[Source]) -> BTreeSet<(String, String)> {

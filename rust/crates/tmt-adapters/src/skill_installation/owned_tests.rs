@@ -1,6 +1,6 @@
 use super::{
-    OwnedSkill, ProviderEnvironment, Refusal, inspect_local_drift, install, install_office,
-    install_owned, owned::validate, owners, refresh, refusal, remove_owned,
+    OwnedSkill, ProviderEnvironment, Refusal, inspect_local_drift, install_owned, owned::validate,
+    owners, refusal, remove_owned,
 };
 use crate::test_support::TestDirectory;
 use std::{
@@ -122,96 +122,6 @@ fn api_names_refuse_unmanaged_targets_and_force_preserves_a_backup() {
 }
 
 #[test]
-fn office_links_published_before_owners_existed_are_adopted_without_force() {
-    let (_directory, env, global, root) = fixture();
-    install(&env, &global, None, None, false).unwrap();
-    install_office(&env, &global, false).unwrap();
-    let office = root.join("tmt-office");
-    let core_link = fs::read_link(&office).unwrap();
-
-    let adopted = install_owned(
-        &env,
-        &global,
-        "office",
-        &[
-            skill("tmt-office", "office from its release"),
-            skill("tmt-prop-create", "props"),
-            skill("tmt-avatar-create", "avatars"),
-        ],
-        false,
-    )
-    .unwrap();
-    assert_eq!(
-        adopted.published.len(),
-        3,
-        "one target per name, no duplicates"
-    );
-    assert!(
-        adopted
-            .published
-            .iter()
-            .all(|item| item.changed && item.backup.is_none())
-    );
-    assert_ne!(fs::read_link(&office).unwrap(), core_link);
-    assert_eq!(read_skill(&office), "office from its release");
-    assert_eq!(owners(&global).unwrap()["tmt-prop-create"], "office");
-    // Core's own skills are untouched and core refresh sees no extension names.
-    assert!(fs::symlink_metadata(root.join("tmt")).unwrap().is_symlink());
-    let refreshed = refresh(&global).unwrap();
-    assert!(refreshed.conflicts.is_empty());
-    assert_eq!(
-        refreshed.skipped.len(),
-        3,
-        "held names are skipped, not refreshed"
-    );
-    // Core's Office facade leaves the adopted names to their owner.
-    let facade = install_office(&env, &global, false).unwrap();
-    assert!(facade.installed.is_empty());
-    assert_eq!(read_skill(&office), "office from its release");
-}
-
-#[test]
-fn only_office_adopts_core_office_links_without_force() {
-    let (_directory, env, global, root) = fixture();
-    install(&env, &global, None, None, false).unwrap();
-    install_office(&env, &global, false).unwrap();
-    let office = root.join("tmt-office");
-    let core_link = fs::read_link(&office).unwrap();
-
-    let refused = install_owned(
-        &env,
-        &global,
-        "squad",
-        &[skill("tmt-office", "squad's office")],
-        false,
-    )
-    .unwrap_err();
-    assert_eq!(
-        claimed(&refused.cause),
-        Some(("tmt-office".into(), "core".into()))
-    );
-    assert!(refused.report.published.is_empty());
-    assert_eq!(fs::read_link(&office).unwrap(), core_link);
-    assert!(!global.join("skill-owners.json").exists());
-
-    let forced = install_owned(
-        &env,
-        &global,
-        "squad",
-        &[skill("tmt-office", "squad's office")],
-        true,
-    )
-    .unwrap();
-    assert!(forced.published[0].changed);
-    assert!(
-        forced.published[0].backup.is_none(),
-        "a managed link is relinked"
-    );
-    assert_eq!(read_skill(&office), "squad's office");
-    assert_eq!(owners(&global).unwrap()["tmt-office"], "squad");
-}
-
-#[test]
 fn removal_by_owner_keeps_other_owners_and_anything_the_user_replaced() {
     let (_directory, env, global, root) = fixture();
     install_owned(
@@ -228,7 +138,7 @@ fn removal_by_owner_keeps_other_owners_and_anything_the_user_replaced() {
     fs::create_dir(&replaced).unwrap();
     fs::write(replaced.join("SKILL.md"), b"user copy").unwrap();
 
-    let removed = remove_owned(None, &global, "squad", None).unwrap();
+    let removed = remove_owned(&global, "squad", None).unwrap();
     assert_eq!(removed.removed, [root.join("tmt-ops")]);
     assert_eq!(removed.kept, std::slice::from_ref(&replaced));
     assert!(!root.join("tmt-ops").exists());
@@ -238,7 +148,7 @@ fn removal_by_owner_keeps_other_owners_and_anything_the_user_replaced() {
     assert_eq!(remaining.len(), 1);
     assert_eq!(remaining["tmt-office"], "office");
     assert!(
-        remove_owned(None, &global, "squad", None)
+        remove_owned(&global, "squad", None)
             .unwrap()
             .removed
             .is_empty(),
@@ -266,7 +176,7 @@ fn removal_by_name_leaves_the_owners_other_skills_and_other_owners_alone() {
         vec!["Tmux-Squad".to_string()],
         vec!["tmux-squad".to_string(), "tmux-squad".to_string()],
     ] {
-        let error = remove_owned(None, &global, "squad", Some(&bad)).unwrap_err();
+        let error = remove_owned(&global, "squad", Some(&bad)).unwrap_err();
         assert!(matches!(refusal(&error.cause), Some(Refusal::Invalid(_))));
         assert_eq!(owners(&global).unwrap(), before);
         assert!(root.join("tmux-squad").exists());
@@ -274,7 +184,6 @@ fn removal_by_name_leaves_the_owners_other_skills_and_other_owners_alone() {
 
     // Names the owner does not hold, or another owner holds, are nothing to remove.
     let none = remove_owned(
-        None,
         &global,
         "squad",
         Some(&["tmt-office".to_string(), "missing".to_string()]),
@@ -283,7 +192,7 @@ fn removal_by_name_leaves_the_owners_other_skills_and_other_owners_alone() {
     assert!(none.removed.is_empty() && none.kept.is_empty());
     assert_eq!(owners(&global).unwrap(), before);
 
-    let removed = remove_owned(None, &global, "squad", Some(&["tmux-squad".to_string()])).unwrap();
+    let removed = remove_owned(&global, "squad", Some(&["tmux-squad".to_string()])).unwrap();
     assert_eq!(removed.removed, [root.join("tmux-squad")]);
     assert!(removed.kept.is_empty());
     assert!(!root.join("tmux-squad").exists());
@@ -293,14 +202,14 @@ fn removal_by_name_leaves_the_owners_other_skills_and_other_owners_alone() {
     assert_eq!(remaining.len(), 2);
     assert_eq!(remaining["tmt-ops"], "squad");
     assert!(
-        remove_owned(None, &global, "squad", Some(&["tmux-squad".to_string()]))
+        remove_owned(&global, "squad", Some(&["tmux-squad".to_string()]))
             .unwrap()
             .removed
             .is_empty(),
         "repeat is a no-op"
     );
     // Without a selection the owner's remaining skill goes as before.
-    let rest = remove_owned(None, &global, "squad", None).unwrap();
+    let rest = remove_owned(&global, "squad", None).unwrap();
     assert_eq!(rest.removed, [root.join("tmt-ops")]);
 }
 
@@ -404,7 +313,7 @@ fn guided_setup_links_recorded_extension_skills_into_new_roots_once() {
     assert_eq!(read_skill(&new_root.join("tmt-ops")), "v1");
     assert!(super::plan_owned(&global, &roots).unwrap().is_empty());
     // Recorded, so removing the owner removes the new link too.
-    let removed = remove_owned(None, &global, "squad", None).unwrap();
+    let removed = remove_owned(&global, "squad", None).unwrap();
     assert!(removed.removed.contains(&new_root.join("tmt-ops")));
 }
 
@@ -415,7 +324,7 @@ fn recorded_owner_retires_dangling_generations_without_removing_a_changed_target
     let target = &report.published[0].target;
     let source = fs::read_link(target).unwrap();
     fs::remove_dir_all(source.parent().unwrap()).unwrap();
-    let removed = remove_owned(None, &global, "squad", None).unwrap();
+    let removed = remove_owned(&global, "squad", None).unwrap();
     assert_eq!(removed.removed, vec![target.clone()]);
     assert!(removed.kept.is_empty());
     assert!(!fs::exists(target).unwrap());
@@ -425,7 +334,7 @@ fn recorded_owner_retires_dangling_generations_without_removing_a_changed_target
     fs::remove_file(target).unwrap();
     fs::create_dir(target).unwrap();
     fs::write(target.join("SKILL.md"), b"user directory").unwrap();
-    let kept = remove_owned(None, &global, "squad", None).unwrap();
+    let kept = remove_owned(&global, "squad", None).unwrap();
     assert_eq!(kept.kept, vec![root.join("tmt-ops")]);
     assert_eq!(
         fs::read(target.join("SKILL.md")).unwrap(),
@@ -463,7 +372,7 @@ fn ops_migration_preserves_recorded_custom_targets_without_discovering_providers
     assert_eq!(read_skill(&root.join("tmt-ops")), "Ops lead");
     assert_eq!(read_skill(&custom.with_file_name("tmt-ops")), "Ops lead");
     assert!(!deleted.exists(), "removed links do not renew consent");
-    let recorded = super::owned_by(None, &global, "ops").unwrap();
+    let recorded = super::owned_by(&global, "ops").unwrap();
     assert_eq!(recorded["tmt-ops"].len(), 2);
     assert!(
         !owners(&global)
@@ -538,7 +447,7 @@ fn ops_migration_recovers_after_the_renamed_link_was_published_and_old_link_remo
     )
     .unwrap();
     assert_eq!(
-        super::owned_by(None, &global, "ops").unwrap()["tmt-ops"],
+        super::owned_by(&global, "ops").unwrap()["tmt-ops"],
         [root.join("tmt-ops")]
     );
     assert!(!owners(&global).unwrap().contains_key("tmt-squad"));

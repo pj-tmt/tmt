@@ -3,14 +3,14 @@
   "files": [
     {
       "path": "dist/remote-firebase-v1.js",
-      "sha256": "21444c466e32990df771902b7ed6ef51257090f9627407095385846b9af82401",
-      "length": 93337,
+      "sha256": "9ddecea7d71f8d3f9dcf43caf5752656cb0e64c963facc2068415f2852ed01be",
+      "length": 647493,
       "firebaseVersion": "13.0.0"
     },
     {
       "path": "dist/THIRD-PARTY-NOTICES.txt",
-      "sha256": "c91eef37e9f36ede3b58975716bce55bec7d4ea13975e20deb76b12d8d7a916c",
-      "length": 15256,
+      "sha256": "f900058e97457be98213733ececb1d6059c27179eb5c277162b1461accaeefe3",
+      "length": 17136,
       "firebaseVersion": "13.0.0"
     }
   ]

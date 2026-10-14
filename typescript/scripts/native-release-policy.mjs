@@ -16,7 +16,6 @@ const PRODUCTS = {
   // Covers the reported pre-companion installation in #1454. Older receipt
   // readability is not a claim that every older release has an upgrade proof.
   cli: { tagPrefix: 'v', prerelease: false, latest: true, upgradeFloor: 'v5.0.0-alpha.150' },
-  office: { tagPrefix: 'tmt-office-v', prerelease: true, latest: false },
   ops: { tagPrefix: 'tmt-ops-v', prerelease: true, latest: false },
   // Retain the predecessor tag/archive identity; no new Squad releases are admitted.
   squad: { tagPrefix: 'tmt-squad-v', prerelease: true, latest: false, retired: true },
@@ -87,7 +86,7 @@ export function upgradeSupportFloor(product) {
   return PRODUCTS[product].upgradeFloor ?? null;
 }
 
-/** The archive name prefix of a product's bundle: `tmt-cli-<target>.tar.gz`, `tmt-office-...`. */
+/** The archive name prefix of a product's bundle: `tmt-cli-<target>.tar.gz`, `tmt-ops-...`. */
 export function archivePrefix(product) {
   releasePolicy(product);
   return product === 'cli' ? 'tmt-cli' : `tmt-${product}`;
@@ -108,7 +107,7 @@ export function publishFlags(product) {
   return ['--draft=false', `--prerelease=${policy.prerelease}`, `--latest=${policy.latest}`];
 }
 
-/** The product whose tag this is (`v5.0.0-alpha.9`, `tmt-office-v0.1.0-alpha.4`), or undefined. */
+/** The product whose tag this is (`v5.0.0-alpha.9`, `tmt-ops-v0.1.0-alpha.4`), or undefined. */
 export function productOfTag(tag) {
   return Object.entries(PRODUCTS).find(
     ([, policy]) =>

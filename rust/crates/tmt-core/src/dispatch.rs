@@ -8,7 +8,7 @@ pub const MAX_RECIPIENTS: usize = 64;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DispatchInput {
-    /// Selected by a trusted adapter, never by Office's untrusted JSON envelope.
+    /// Selected by a trusted adapter, never by an untrusted JSON envelope.
     pub originator: crate::request::Originator,
     pub kind: crate::request::RequestKind,
     pub operation_id: String,

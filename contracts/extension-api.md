@@ -7,7 +7,7 @@ printf '%s\n' '{"version":1,"operation":"capabilities","input":{}}' |
   "$TMT_EXECUTABLE" api
 ```
 
-No Office installation is required. Capabilities list supported operations and
+No extension installation is required. Capabilities list supported operations and
 byte bounds without creating state. Close stdin within five seconds. Exit 0
 means the operation returned a resource; exit 1 returns
 `{"error":{"code":"...","message":"..."}}`. This is a local same-user

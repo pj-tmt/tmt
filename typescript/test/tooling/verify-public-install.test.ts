@@ -915,7 +915,6 @@ describe('public standalone driver smoke', () => {
       '0.1.0-alpha.0',
       new Uint8Array(),
       'driver-herdr',
-      undefined,
       {},
       archiveName
     );
@@ -964,7 +963,6 @@ describe('public standalone driver smoke', () => {
       '0.1.0-alpha.0',
       new Uint8Array(),
       'driver-herdr',
-      undefined,
       {},
       archiveName
     );

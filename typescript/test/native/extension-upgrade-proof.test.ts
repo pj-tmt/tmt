@@ -23,9 +23,7 @@ type Artifact = Awaited<ReturnType<typeof createArtifact>>;
 
 // The proof's verifier drives the newest published CLI, so it may only use what that CLI has. The
 // driver here is the freshly built CLI behind a native fixture that records its public commands.
-// Ops/Remote/Colab: the Office installer also checks that the executable reports the version it is
-// installed as, which a built `tmt-office` can do for one version only; the verifier builds the
-// same commands for every extension.
+// Independent extension fixtures exercise versioned archives and the published CLI driver.
 describe('extension upgrade proof against the real CLI', () => {
   // The driver is the newest published CLI: today's, carrying its companion, or one released
   // before companions existed (5.0.0-alpha.39), read against its own manifest.
@@ -66,7 +64,6 @@ describe('extension upgrade proof against the real CLI', () => {
             version,
             new Uint8Array(),
             product,
-            undefined,
             shipsSkills(product) ? { [`tmt-${product}/SKILL.md`]: 'agent skill\n' } : {}
           );
         const previous = await artifact('previous', '0.1.0-alpha.1', extension);

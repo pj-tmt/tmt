@@ -41,9 +41,10 @@ Writes validate the whole existing document, preserve comments and unknown field
 serialize extension writers, and atomically replace the file with private permissions.
 Invalid input, invalid files and failed Core discovery leave settings unchanged.
 
-The extension remains unpublished. Member writes save configuration; the
-[minute tick](digest-tick-v1.md) applies it and offers Core delivery opportunities.
-No skill or managed installation is shipped by this settings surface.
+The official Digest extension is installed through `tmt extension install digest --skills`.
+Member writes save configuration; the [minute tick](digest-tick-v1.md) applies it
+and offers Core delivery opportunities. `tmt digest skill` prints its bundled
+usage guidance; settings writes do not install or start it.
 
 ## Status document
 
@@ -72,7 +73,7 @@ Each row contains:
 | `statsObservedAtMs`          | Core observation timestamp for the held snapshot, or null when unavailable.                                                                         |
 | `nextSendAtMs`               | Configured interval deadline of the oldest held message, or null without a known interval deadline.                                                 |
 | `timeToSendMs`               | Zero when the interval flushCount threshold is reached; otherwise `max(0, nextSendAtMs - observedAtMs)`. Null when required inputs are unavailable. |
-| `savings`                    | Null without usable history; otherwise the [savings projection](#savings). Unavailable estimates are never zero.                 |
+| `savings`                    | Null without usable history; otherwise the [savings projection](#savings). Unavailable estimates are never zero.                                    |
 | `labels`                     | Ordered ready-made labels defined below.                                                                                                            |
 
 `oldestHeldAgeMs` and `deliveredDigests` are additive nullable row fields from the same Core stats observation. The counter is cumulative Core evidence, not a selected-window total.
@@ -167,7 +168,8 @@ they are consumer examples, never commands to run during fixture verification.
 `status --json --window 24h|7d|lifetime` selects one window (default `24h`).
 The additive `savings` object is `{method, window, fromMs, throughMs,
 estimatedInputTokensAvoided, avoidedSeparateDeliveries, complete, gap}`.
-Cost and percent are absent. `method` is `context-input-avoided-v1`.
+It also contains additive nullable `cost` and `percent` fields defined under
+[Valuation](#valuation). `method` is `context-input-avoided-v1`.
 The [normative vectors](vectors/savings-v1.json) fix the event formula.
 
 For a confirmed delivered sealed batch of N original hold references, the
@@ -200,10 +202,62 @@ count. Gap precedence is coverage/counter/clock before event arithmetic/context.
 A covered empty window is zero. Off mode preserves history. Missing, unreadable,
 unsupported or invalid stores produce `savings: null`; status never repairs them.
 
+## Valuation
+
+The [normative valuation vectors](vectors/valuation-v1.json) fix quotes and ratios.
+Valuation never changes the parent token figure, checkpoint or completeness. Each
+valuation is independently null when its required evidence is unavailable; older
+producers may omit these additive fields. Consumers must label cost as an estimate
+**at list price**, never as money saved or a historical bill.
+
+`cost` is null or `{usdMicros, modelId, modelObservedAtMs, pricingVersion,
+usdMicrosPerMillionInputTokens, assumption:"uncached-input"}`. It quotes the
+parent `estimatedInputTokensAvoided` at the latest evidenced completed-request
+model's standard base uncached input list price. The model comes from public
+`consumption.history`'s `latest.consumption`, never the starting/resume model or a
+provider transcript. Its timestamp records model evidence, not the savings event's
+model. It may postdate the parent savings checkpoint. Missing/unsupported models,
+prices or tokens, future model evidence, and unsafe arithmetic produce null;
+known zero tokens produce zero only with a supported evidenced model. Quotes round
+to the nearest micro-dollar, half upward, using checked wide intermediates.
+
+The offline table is owned by `rust/tmt-digest/src/pricing.rs`. A successful status
+document also contains additive root `pricing: {version, asOf, basis,
+models:[{modelId, usdMicrosPerMillionInputTokens, source}]}` metadata, acquired with
+the same status call. `basis` is `standard-base-input`; `source` is the official
+source URL and `asOf` is the verification date. Version `2026-10-14` includes only
+canonical `claude-opus-5-5`, `claude-sonnet-5-5`, `gpt-6-sol`, and `gpt-6.1-sol`.
+There are no aliases or fallback rates. This fixed assumption excludes cached
+input, cache writes, fast/regional/long-context modifiers, negotiated discounts,
+subscription allowances and historical price reconstruction. Status performs no
+network price lookup. Updating rates requires a new verified table version.
+
+`percent` is null or `{basisPoints, estimatedInputTokensAvoided,
+observedInputTokens, fromMs, throughMs}`. It is available only for `24h` and `7d`;
+**lifetime percent is always null**. Its interval uses whole closed minutes inside
+the parent window: `fromMs = ceil(parent.fromMs / 60000) * 60000`,
+`throughMs = floor(parent.throughMs / 60000) * 60000`. Empty intervals are null.
+The numerator includes confirmed events in `(fromMs, throughMs]`, separately
+from the parent's potentially larger token interval. The denominator is observed
+input in minute buckets `[fromMs, throughMs)` plus that numerator. Output is
+excluded; cache read/write counts are already subsets of input and are not added.
+Every minute must have complete, continuous source coverage with no gaps, and the
+parent token evidence must be complete. Missing, expired or evicted minutes are
+unknown, never zero. Source totals are snapshots, never cumulative seeds or
+guessed deltas. A positive denominator and known zero numerator produce zero;
+a zero denominator or unsafe sum produces null. Basis points round
+`10000 * avoided / (observedInput + avoided)` to nearest integer, half upward.
+
+Consumers aggregate only compatible method/window and exact interval pairs by
+summing their numerators and observed inputs, then calculating the ratio. They
+never sum or average percentages, and must expose partial member coverage.
+Ops owns the separate display/toggle consumer; this producer adds no UI.
+
 ## History
 
 The existing [tick](digest-tick-v1.md) owns collection through public
-`digest.checklist.history`; it never opens Core storage or provider files.
+`digest.checklist.history` and `consumption.history`; it never opens Core storage
+or provider files.
 Each identity's first successful collection atomically records the observed
 sequence/counter as its baseline and start time; prior settlements are excluded.
 This avoids presenting pre-collection activity as lifetime savings.
@@ -216,7 +270,9 @@ Interrupted reads/writes resume from the durable cursor. Collection failure
 never offers delivery or changes Core's uncertainty/admission rules.
 
 Private evidence lives at `<dataRoot>/digest/history/history.sqlite` (public
-`storage.root` discovery), schema version 1. Directories are 0700, files 0600;
+`storage.root` discovery), schema version 2. Read-only status accepts schema 1 with null valuations and
+never migrates it; the next writer atomically adds usage tables and advances the
+version while preserving settlement cursors and lifetime totals. Directories are 0700, files 0600;
 nonprivate paths, symlinks and unsupported schema versions are refused. Events
 retain content-free IDs, settlement/claim/collection timestamps, original arrival
 inputs, outcome/opportunity, formula version, nullable estimate and nullable
@@ -224,9 +280,20 @@ inputs, outcome/opportunity, formula version, nullable estimate and nullable
 transport tokens or provider locators. Current collection does not invent a
 Digest decision for a Core settlement.
 
-Tick maintenance expires raw events 30 days after collection, including when no members remain. A 24 MiB raw-input budget evicts oldest
-events with explicit recent-window coverage loss while preserving compact lifetime
-totals. SQLite uses at most 32 MiB, reserving another 32 MiB of the 64 MiB store
+Each history opportunity also reads one ten-minute public usage window per member,
+with at most 120 five-second buckets. Only complete whole minutes are retained;
+partial edge minutes wait for a later read. Overlapping/restarted reads replace
+minute snapshots rather than add them, allowing coverage to improve without
+double-counting. Missing more than ten minutes of tick collection leaves gaps;
+there is no catch-up reconstruction from cumulative totals. Minute rows and the
+source watermark/latest model commit atomically. They store only identity,
+minute/collection timestamps, nullable input totals and model provenance.
+
+Tick maintenance expires raw events 30 days after collection and usage minutes
+after 30 days of event time, including when no members remain. A shared 24 MiB
+raw-input budget accounts for event input bytes and 128 bytes per usage minute;
+it evicts oldest evidence with explicit recent-window coverage loss while
+preserving compact lifetime settlement totals. SQLite uses at most 32 MiB, reserving another 32 MiB of the 64 MiB store
 budget for its rollback journal. Compact totals/cursors remain within that bound;
 capacity exhaustion fails atomically rather than resetting them. One raw event
 is bounded to 1 MiB; oversized member histories retain explicit incomplete evidence.

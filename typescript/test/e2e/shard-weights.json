@@ -44,8 +44,6 @@
     "marked-binding.e2e.test.ts": 2,
     "multi-server.e2e.test.ts": 8,
     "notes-path.e2e.test.ts": 4,
-    "office-command.e2e.test.ts": 48,
-    "office-consent.e2e.test.ts": 1,
     "ops-reminder.e2e.test.ts": 2,
     "ops.e2e.test.ts": 32,
     "pane-badge.e2e.test.ts": 9,

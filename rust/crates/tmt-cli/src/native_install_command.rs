@@ -59,7 +59,7 @@ pub fn execute(
         channel,
         pin,
     };
-    let verifier = crate::office_facade::release_verifier(product);
+    let verifier = None;
     let report = match native_install::install_product(product, request, verifier, || {
         if interrupt.is_interrupted() {
             Err(io::Error::new(

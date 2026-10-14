@@ -10,9 +10,7 @@ RUN test -n "$TARGET_TRIPLE" && rustup target add "$TARGET_TRIPLE"
 WORKDIR /workspace
 COPY rust/ rust/
 COPY drivers/herdr/rust/ drivers/herdr/rust/
-COPY extensions/tmt-office/rust/ extensions/tmt-office/rust/
 COPY skills/ skills/
-COPY extensions/tmt-office/skills/ extensions/tmt-office/skills/
 # Workspace member: Cargo must load its manifest even when not building it.
 COPY extensions/tmt-ops/ extensions/tmt-ops/
 COPY extensions/tmt-remote/rust/ extensions/tmt-remote/rust/
@@ -31,10 +29,7 @@ COPY scripts/native-cargo.sh scripts/build-native-artifact.sh scripts/
 COPY dist-workspace.toml LICENSE ./
 COPY typescript/package.json typescript/pnpm-lock.yaml typescript/pnpm-workspace.yaml typescript/
 COPY design/browser-ui/package.json design/browser-ui/package.json
-COPY extensions/tmt-office/typescript/apps/office/package.json extensions/tmt-office/typescript/apps/office/package.json
-COPY extensions/tmt-office/typescript/apps/office/ extensions/tmt-office/typescript/apps/office/
 COPY contracts/ contracts/
-COPY extensions/tmt-office/contracts/ extensions/tmt-office/contracts/
 RUN cd rust && cargo fetch --locked
 RUN scripts/build-native-artifact.sh "$TARGET_TRIPLE" "$PRODUCT" > native-manifest.json
 
@@ -45,7 +40,6 @@ RUN npm install --global pnpm@10.33.0
 WORKDIR /verification
 COPY typescript/package.json typescript/pnpm-lock.yaml typescript/pnpm-workspace.yaml typescript/
 COPY design/browser-ui/package.json design/browser-ui/package.json
-COPY extensions/tmt-office/typescript/apps/office/package.json extensions/tmt-office/typescript/apps/office/package.json
 RUN cd typescript && pnpm --filter tmt install --frozen-lockfile --ignore-scripts
 COPY .github/components.json .github/components.json
 COPY typescript/test/e2e/shard-weights.json typescript/test/e2e/shard-weights.json
@@ -61,7 +55,6 @@ COPY scripts/native-bootstrap.sh scripts/native-bootstrap.sh
 COPY skills/tmt/SKILL.md expected-skill.md
 COPY skills/tmt/SKILL.md skills/tmt/SKILL.md
 COPY skills/tmt-inbox/SKILL.md skills/tmt-inbox/SKILL.md
-COPY extensions/tmt-office/skills/tmt-office/SKILL.md extensions/tmt-office/skills/tmt-office/SKILL.md
 # Squad archives are compared byte for byte with these sources (--skills).
 COPY extensions/tmt-ops/skills/ expected-squad-skills/
 COPY --from=build /workspace/native-manifest.json ./

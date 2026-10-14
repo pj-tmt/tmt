@@ -8,3 +8,4 @@ export type {
   MetadataBarrierOptions,
   E2EFixtureOptions,
 } from './harness/types.js';
+export { readCompleteJsonLines } from './harness/readiness.js';

@@ -3,6 +3,7 @@
 mod core;
 mod grammar;
 mod history;
+mod pricing;
 mod settings;
 mod status;
 mod tick;

@@ -28,7 +28,7 @@ fn core_help_flag_uses_shared_factory_wording() {
     for path in [
         vec![],
         vec!["run".into()],
-        vec!["office".into(), "board".into(), "ls".into()],
+        vec!["identity".into(), "meta".into(), "ls".into()],
     ] {
         let mut command = grammar::help_command(&path).unwrap();
         let actual = command
@@ -79,10 +79,10 @@ fn every_public_command_has_scoped_help_without_required_operands() {
 #[test]
 fn help_uses_public_ownership_and_resolves_aliases() {
     let mut command =
-        grammar::help_command(&["office".into(), "board".into(), "list".into()]).unwrap();
+        grammar::help_command(&["identity".into(), "meta".into(), "list".into()]).unwrap();
     let text = command.render_long_help().to_string();
-    assert!(text.contains("tmt office board ls"));
-    assert!(text.contains("--general"));
+    assert!(text.contains("tmt identity meta ls"));
+    assert!(text.contains("--identity"));
     assert!(!text.contains("--detach"));
     assert!(!text.contains("--wait"));
     assert_eq!(
@@ -90,7 +90,7 @@ fn help_uses_public_ownership_and_resolves_aliases() {
         Invocation::Help(vec!["ls".into()])
     );
     assert!(grammar::help_command(&["__native-install".into()]).is_err());
-    assert!(parse(&arguments(&["help", "office", "not-a-command"])).is_err());
+    assert!(parse(&arguments(&["help", "identity", "not-a-command"])).is_err());
     assert!(crate::parser::parse_core(&arguments(&["not-a-command", "--help"])).is_err());
     assert_eq!(
         parse(&arguments(&["not-a-command", "--help"]))
@@ -109,10 +109,10 @@ fn help_uses_public_ownership_and_resolves_aliases() {
 fn unknown_help_topics_point_to_the_nearest_public_parent() {
     for (path, parent) in [
         (vec!["nosuch"], "tmt"),
-        (vec!["office", "not-a-command"], "tmt office"),
+        (vec!["identity", "not-a-command"], "tmt identity"),
         (
-            vec!["office", "board", "list", "nosuch"],
-            "tmt office board ls",
+            vec!["identity", "meta", "list", "nosuch"],
+            "tmt identity meta ls",
         ),
         (vec!["__native-install"], "tmt"),
     ] {
@@ -171,7 +171,7 @@ fn notes_help_identifies_the_shared_file_and_explicit_creation_boundary() {
         .to_string();
     assert!(text.contains("Saved identities only"));
     assert!(text.contains("Edit the returned Markdown file directly"));
-    assert!(text.contains("Office reads never create missing notes"));
+    assert!(text.contains("Reads never create missing notes"));
     assert!(text.contains("--identity"));
 }
 
@@ -198,8 +198,8 @@ fn help_respects_data_boundaries_and_machine_mode() {
         ));
     }
     for argv in [
-        vec!["office", "--help", "--json"],
-        vec!["help", "office", "--json"],
+        vec!["identity", "--help", "--json"],
+        vec!["help", "identity", "--json"],
     ] {
         let error = parse(&arguments(&argv)).unwrap_err();
         assert_eq!(error.code, "JSON_UNSUPPORTED");
@@ -232,9 +232,9 @@ fn help_with_json_rejects_machine_output_before_required_operands() {
 }
 
 #[test]
-fn bare_office_groups_report_usage_instead_of_panicking() {
-    for group in ["block", "profile", "prop", "avatar", "board", "extension"] {
-        let error = parse(&arguments(&["office", group])).unwrap_err();
+fn bare_identity_groups_report_usage_instead_of_panicking() {
+    for group in ["meta", "status"] {
+        let error = parse(&arguments(&["identity", group])).unwrap_err();
         assert_eq!(error.code, "USAGE_ERROR");
         assert!(error.message.contains("subcommand"), "{error:?}");
     }
@@ -244,7 +244,7 @@ fn bare_office_groups_report_usage_instead_of_panicking() {
 fn help_does_not_accept_unrelated_or_unknown_options() {
     for argv in [
         vec!["--json", "--help", "--timeout", "1s"],
-        vec!["office", "--help", "--detach"],
+        vec!["identity", "--help", "--detach"],
         vec!["talk", "--help", "--unknown"],
         vec!["talk", "--help", "--wait"],
         vec!["run", "--help", "--json", "--unknown"],
@@ -259,9 +259,9 @@ fn help_does_not_accept_unrelated_or_unknown_options() {
 fn explicit_value_options_must_not_be_left_empty_before_help() {
     for mut argv in [
         vec!["talk", "--identity", "--help"],
-        vec!["office", "start", "--port", "--help"],
-        vec!["office", "board", "list", "--repo", "--help"],
-        vec!["office", "--prefix", "--help"],
+        vec!["reply", "--file", "--help"],
+        vec!["install", "--dir", "--help"],
+        vec!["extension", "install", "--prefix", "--help"],
     ] {
         assert_eq!(parse(&arguments(&argv)).unwrap_err().code, "USAGE_ERROR");
         argv.push("--json");
@@ -273,22 +273,21 @@ fn explicit_value_options_must_not_be_left_empty_before_help() {
 
 #[test]
 fn public_help_preserves_required_subcommands_and_argument_groups() {
-    let mut board = grammar::help_command(&["office".into(), "board".into()]).unwrap();
-    assert!(board.render_long_help().to_string().contains("<COMMAND>"));
-    let mut post =
-        grammar::help_command(&["office".into(), "board".into(), "post".into()]).unwrap();
-    for id in ["board-category", "board-body"] {
-        assert!(
-            post.get_groups()
-                .any(|group| group.get_id() == id && group.is_required_set())
-        );
-    }
-    let text = post.render_long_help().to_string();
+    let mut identity = grammar::help_command(&["identity".into()]).unwrap();
     assert!(
-        text.contains("<--repo <repo>|--general|--room <room>>"),
-        "{text}"
+        identity
+            .render_long_help()
+            .to_string()
+            .contains("<COMMAND>")
     );
-    assert!(text.contains("<--body <body>|--file <file>>"), "{text}");
+    let mut inspect = grammar::help_command(&["channel".into(), "inspect".into()]).unwrap();
+    assert!(
+        inspect
+            .get_groups()
+            .any(|group| group.get_id() == "enrollment" && group.is_required_set())
+    );
+    let text = inspect.render_long_help().to_string();
+    assert!(text.contains("<target|--binding <binding>>"), "{text}");
 }
 
 #[test]

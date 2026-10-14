@@ -1,8 +1,6 @@
 import type { CargoWorkspace } from './cargo-workspace.mjs';
 export interface CiAreas {
   readonly native: boolean;
-  readonly office: boolean;
-  readonly nativeOffice: boolean;
 }
 
 export interface ComponentMap {
@@ -46,7 +44,7 @@ export interface ComponentMap {
   readonly rules: readonly {
     readonly id: string;
     readonly why: string;
-    readonly consumers: readonly ('native' | 'office')[];
+    readonly consumers: readonly 'native'[];
     readonly globs: readonly string[];
     readonly patterns: readonly RegExp[];
   }[];
@@ -105,7 +103,6 @@ export function explainCiSelection(
   map?: ComponentMap
 ): readonly CiSelectionRow[];
 export function selectCiAreas(paths: readonly string[], map?: ComponentMap): CiAreas;
-export function selectOfficeBrowser(paths: readonly string[], map?: ComponentMap): boolean;
 export function selectColabHarness(paths: readonly string[], map?: ComponentMap): boolean;
 export function selectColabApp(paths: readonly string[], map?: ComponentMap): boolean;
 export function selectRemoteFirestore(paths: readonly string[]): boolean;
@@ -125,7 +122,6 @@ export function nativeGatePasses(
 export function rustGatePasses(
   scope: string,
   results: readonly string[],
-  officeSelected: string,
   map?: ComponentMap
 ): boolean;
 export function e2eGatePasses(scope: string, results: E2eShardResults, map?: ComponentMap): boolean;
@@ -155,4 +151,4 @@ export function runCiScope(
   }
 ): void;
 export function ciGatePasses(selected: string, results: readonly string[]): boolean;
-export const RUST_WORKERS: readonly ['clippy', 'tests', 'office', 'process', 'msrv'];
+export const RUST_WORKERS: readonly ['clippy', 'tests', 'process', 'msrv'];

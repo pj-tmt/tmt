@@ -281,11 +281,104 @@ fn selected_savings_windows_read_private_history_without_changing_it() {
             assert_eq!(row["savings"]["complete"], true);
         }
         assert!(row["savings"].get("estimatedCostUsd").is_none());
-        assert!(row["savings"].get("percent").is_none());
+        assert!(row["savings"]["percent"].is_null());
+        assert!(row["savings"]["cost"].is_null());
         assert_eq!(fs::read(&file).unwrap(), before);
         assert_eq!(fs::metadata(&file).unwrap().modified().unwrap(), modified);
         assert_eq!(fs::read_dir(&directory).unwrap().count(), 1);
     }
     let invalid = fixture.run_args(&["status", "--json", "--window", "30d"]);
     assert_eq!(invalid.status.code(), Some(2));
+}
+
+#[test]
+fn valuation_status_is_read_only_and_matches_day_week_and_lifetime_bounds() {
+    let fixture = Fixture::new();
+    let through = (std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64
+        / 60000)
+        * 60000;
+    let directory = fixture.0.join("state/digest/history");
+    fs::create_dir_all(&directory).unwrap();
+    for path in [fixture.0.join("state/digest"), directory.clone()] {
+        fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let file = directory.join("history.sqlite");
+    let mut database = rusqlite::Connection::open(&file).unwrap();
+    database.execute_batch("PRAGMA user_version=2; CREATE TABLE members(id TEXT, started INTEGER, through INTEGER, counter INTEGER, pending INTEGER, tokens INTEGER, avoided INTEGER, gap TEXT, raw_from INTEGER); CREATE TABLE events(identity_id TEXT, settled INTEGER, tokens INTEGER, avoided INTEGER, gap TEXT); CREATE TABLE gaps(identity_id TEXT, from_ms INTEGER, through_ms INTEGER, reason TEXT); CREATE TABLE usage_state(id TEXT, through INTEGER, model_id TEXT, observed INTEGER); CREATE TABLE usage_minutes(identity_id TEXT, minute INTEGER, collected INTEGER, input_tokens INTEGER);").unwrap();
+    database
+        .execute(
+            "INSERT INTO members VALUES(?1,?2,?3,1,0,2700,1,NULL,?2)",
+            rusqlite::params![ID, through - 10 * 86400000, through],
+        )
+        .unwrap();
+    database
+        .execute(
+            "INSERT INTO events VALUES(?1,?2,2700,1,NULL)",
+            rusqlite::params![ID, through - 1000],
+        )
+        .unwrap();
+    database
+        .execute(
+            "INSERT INTO usage_state VALUES(?1,?2,'gpt-6.1-sol',?2)",
+            rusqlite::params![ID, through],
+        )
+        .unwrap();
+    let tx = database.transaction().unwrap();
+    for minute in ((through - 7 * 86400000)..through).step_by(60000) {
+        tx.execute(
+            "INSERT INTO usage_minutes VALUES(?1,?2,?3,120)",
+            rusqlite::params![ID, minute, through],
+        )
+        .unwrap();
+    }
+    tx.commit().unwrap();
+    drop(database);
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o600)).unwrap();
+    let before = fs::read(&file).unwrap();
+    let modified = fs::metadata(&file).unwrap().modified().unwrap();
+    for (index, window) in ["24h", "7d", "lifetime"].into_iter().enumerate() {
+        fixture.write(&format!("stats.{}.json",index*2+1),json!({"stats":[{"identityId":ID,"heldCount":0,"observedAtMs":through,"oldestHeldAgeMs":null,"deliveredDigests":1}]}));
+        let output = fixture.run_args(&["status", "--json", "--window", window]);
+        assert!(output.status.success(), "{:?}", output.stderr);
+        let document: Value = serde_json::from_slice(&output.stdout).unwrap();
+        let savings = &document["members"][0]["savings"];
+        assert_eq!(savings["estimatedInputTokensAvoided"], 2700);
+        assert_eq!(savings["cost"]["usdMicros"], 5400);
+        assert_eq!(savings["cost"]["modelObservedAtMs"], through);
+        assert_eq!(document["pricing"]["version"], "2026-10-14");
+        if window == "lifetime" {
+            assert!(savings["percent"].is_null());
+        } else {
+            let minutes = if window == "24h" { 1440 } else { 10080 };
+            let expected_points = if window == "24h" { 154 } else { 22 };
+            assert_eq!(
+                savings["percent"],
+                json!({"basisPoints":expected_points,"estimatedInputTokensAvoided":2700,"observedInputTokens":minutes*120,"fromMs":through-minutes*60000,"throughMs":through})
+            );
+        }
+        assert_eq!(fs::read(&file).unwrap(), before);
+        assert_eq!(fs::metadata(&file).unwrap().modified().unwrap(), modified);
+        assert_eq!(fs::read_dir(&directory).unwrap().count(), 1);
+    }
+    assert_eq!(
+        fixture
+            .calls()
+            .iter()
+            .filter(|call| call.as_str() == "api")
+            .count(),
+        6
+    );
+    for index in 1..=6 {
+        let request: Value = serde_json::from_slice(
+            &fs::read(fixture.0.join(format!("request.{index}.json"))).unwrap(),
+        )
+        .unwrap();
+        assert!(matches!(
+            request["operation"].as_str(),
+            Some("digest.stats.show" | "storage.root")
+        ));
+    }
 }

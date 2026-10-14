@@ -206,55 +206,64 @@ mod tests {
 
     #[test]
     fn prior_framed_bundles_require_the_complete_unchanged_inventory() {
+        // Fixed historical fixture inventory, independently of the active catalog.
+        let names = [
+            MAIN,
+            "tmt-inbox",
+            "tmt-office",
+            "tmt-prop-create",
+            "tmt-avatar-create",
+        ];
         for count in [2, 3, 4, 5] {
             let temp = TestDirectory::new();
             let global = temp.path.join("global");
             let root = temp.path.join("skills");
-            let layout = &super::super::catalog::BUNDLED[..count];
-            let prior_main = b"---\nname: tmux-team\n---\nPrior bundled core guidance.\n";
-            let bytes = |skill: &super::super::catalog::BundledSkill| {
-                if skill.name == MAIN {
-                    prior_main.as_slice()
-                } else {
-                    skill.bytes
-                }
-            };
+            let layout = &names[..count];
+            let bytes = |name: &str| format!("Prior bundled {name} guidance.\n").into_bytes();
             let mut framed = Vec::new();
-            for skill in layout {
-                framed.extend_from_slice(&(bytes(skill).len() as u64).to_be_bytes());
-                framed.extend_from_slice(bytes(skill));
+            for name in layout {
+                let body = bytes(name);
+                framed.extend_from_slice(&(body.len() as u64).to_be_bytes());
+                framed.extend_from_slice(&body);
             }
             let version = global
                 .join("skill-assets")
                 .join(tmt_core::content_digest::sha256(&framed));
-            for skill in layout {
-                let name = if skill.name == MAIN { NAME } else { skill.name };
-                let source = version.join(name);
-                fs::create_dir_all(&source).unwrap();
-                fs::write(source.join("SKILL.md"), bytes(skill)).unwrap();
+            for name in layout {
+                let directory = version.join(if *name == MAIN { NAME } else { name });
+                fs::create_dir_all(&directory).unwrap();
+                fs::write(directory.join("SKILL.md"), bytes(name)).unwrap();
             }
             let assets = SkillAssets::new(&global);
             assert!(assets.owns_retired(&version.join(NAME)));
             fs::write(version.join("tmt-inbox/SKILL.md"), b"edited peer").unwrap();
             assert!(!assets.owns_retired(&version.join(NAME)));
-            fs::write(version.join("tmt-inbox/SKILL.md"), layout[1].bytes).unwrap();
+            fs::write(version.join("tmt-inbox/SKILL.md"), bytes("tmt-inbox")).unwrap();
+            fs::write(version.join("tmt-inbox/unexpected.md"), b"extra").unwrap();
+            assert!(!assets.owns_retired(&version.join(NAME)));
+            fs::remove_file(version.join("tmt-inbox/unexpected.md")).unwrap();
             fs::create_dir_all(&root).unwrap();
-            for skill in layout {
-                let name = if skill.name == MAIN { NAME } else { skill.name };
-                std::os::unix::fs::symlink(version.join(name), root.join(name)).unwrap();
-                registry::remember(&global, [root.join(name)]).unwrap();
+            for name in layout {
+                let old = if *name == MAIN { NAME } else { name };
+                std::os::unix::fs::symlink(version.join(old), root.join(old)).unwrap();
+                registry::remember(&global, [root.join(old)]).unwrap();
             }
             let report = refresh(&global).unwrap();
-            assert_eq!(report.refreshed.len(), count);
+            assert_eq!(report.refreshed.len(), 2);
+            assert_eq!(report.skipped.len(), count - 2);
             assert!(!files::exists(&root.join(NAME)).unwrap());
-            for skill in layout {
+            for name in &layout[..2] {
                 assert_eq!(
-                    fs::read(root.join(skill.name).join("SKILL.md")).unwrap(),
-                    skill.bytes
+                    fs::read(root.join(name).join("SKILL.md")).unwrap(),
+                    super::super::bundled_skill_named(name).unwrap()
                 );
-                assert_ne!(
-                    fs::read_link(root.join(skill.name)).unwrap(),
-                    version.join(skill.name)
+                assert_ne!(fs::read_link(root.join(name)).unwrap(), version.join(name));
+            }
+            for name in &layout[2..] {
+                assert_eq!(fs::read_link(root.join(name)).unwrap(), version.join(name));
+                assert_eq!(
+                    fs::read(root.join(name).join("SKILL.md")).unwrap(),
+                    bytes(name)
                 );
             }
         }

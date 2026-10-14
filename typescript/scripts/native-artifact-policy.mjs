@@ -9,7 +9,6 @@ import { isProductRetired } from './native-release-policy.mjs';
 
 const executables = {
   cli: 'tmt',
-  office: 'tmt-office',
   ops: 'tmt-ops',
   squad: 'tmt-squad', // Published predecessor archives remain verifiable.
   remote: 'tmt-remote',
@@ -28,7 +27,6 @@ const executables = {
  */
 const companions = {
   cli: ['tmt-driver-herdr'],
-  office: [],
   ops: [],
   squad: [],
   remote: [],

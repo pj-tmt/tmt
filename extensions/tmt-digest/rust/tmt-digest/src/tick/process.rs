@@ -104,6 +104,14 @@ impl TickProcess {
                 self.errors.push(message);
             }
         }
+        if let Some(store) = &mut self.history
+            && let Err(error) = crate::history::collect_usage(&self.core, store, id, self.boundary)
+        {
+            let message = format!("{id}: {} ({})", error.message, error.code);
+            if !self.errors.contains(&message) {
+                self.errors.push(message);
+            }
+        }
     }
     fn flush(&mut self, id: &str) -> Result<(), Error> {
         if self.failed.contains(id) || !self.within_minute()? {

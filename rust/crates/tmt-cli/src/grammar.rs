@@ -80,9 +80,6 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
     ] {
         root = root.arg(option(id).global(true));
     }
-    root = root.subcommand(crate::office_facade::grammar::grammar().after_help(
-        "To install, update or remove any official extension, see: tmt extension --help",
-    ));
     root = root.subcommand(storage(spec!(
         "api",
         "Versioned JSON extension interface (one request on stdin)",

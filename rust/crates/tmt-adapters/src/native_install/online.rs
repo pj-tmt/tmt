@@ -407,7 +407,7 @@ mod tests {
         let prefix = directory.path.join("prefix");
         let mut calls = 0;
         let error = install_release_with(
-            Product::Office,
+            Product::Digest,
             ReleaseInstallRequest { prefix: &prefix, target: "aarch64-apple-darwin", channel: Channel::Alpha, exact: None },
             Some(&|_: &Path, _: &semver::Version| Ok(())),
             || Ok(()),
@@ -415,7 +415,7 @@ mod tests {
                 calls += 1;
                 assert_eq!(
                     url,
-                    "https://raw.githubusercontent.com/pj-tmt/tmt/release-index/channels/office/alpha.json"
+                    "https://raw.githubusercontent.com/pj-tmt/tmt/release-index/channels/digest/alpha.json"
                 );
                 Err(io::Error::new(io::ErrorKind::NotFound, "pointer missing"))
             },
@@ -523,7 +523,7 @@ mod tests {
         let directory = TestDirectory::new();
         let prefix = directory.path.join("prefix");
         let error = install_release_with(
-            Product::Office,
+            Product::Digest,
             ReleaseInstallRequest {
                 prefix: &prefix,
                 target: "aarch64-apple-darwin",

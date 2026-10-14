@@ -35,9 +35,9 @@ fn hidden_subcommand_suggestions_are_filtered_without_hiding_public_candidates()
             Some("Run tmt help to see the commands and options.")
         );
         let public = parse_error(if json {
-            &["office", "--json", "uninstal"]
+            &["extension", "--json", "uninstal"]
         } else {
-            &["office", "uninstal"]
+            &["extension", "uninstal"]
         });
         assert!(public.message.contains("'install'"));
         assert!(public.message.contains("'uninstall'"));

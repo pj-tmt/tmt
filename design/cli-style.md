@@ -2,7 +2,7 @@
 
 This document owns how TMT's command-line output and help look. Browser
 surfaces follow the [browser interface style](gui-style.md). Every CLI (core
-`tmt`, `tmt-ops` and `tmt-office`) follows it. The only implementation is the
+`tmt` and `tmt-ops`) follows it. The only implementation is the
 `rust/crates/tmt-cli-style` crate. It depends on no TMT crate, so any CLI can
 depend on it. Rules are enforced by tests, not by review.
 
@@ -556,7 +556,7 @@ entries. The first two lists are empty when #436 closes, the interaction list wh
   core does not import an extension grammar. Non-command prose and bundled
   `learn` guidance are labeled separately, rather than treated as hints.
 
-- **Output guard** (the architecture test). In `tmt-cli`, `tmt-office-command`
+- **Output guard** (the architecture test). In `tmt-cli`
   and `tmt-ops`, production code may not:
   - call `print!`, `println!`, `eprint!` or `eprintln!`;
   - reach `std::io::stdout` or `std::io::stderr` in any form, including an

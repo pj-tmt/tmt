@@ -47,10 +47,7 @@ pub fn inspect_local_drift(env: &ProviderEnvironment, global: &Path) -> io::Resu
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        skill_installation::{install, install_office},
-        test_support::TestDirectory,
-    };
+    use crate::{skill_installation::install, test_support::TestDirectory};
     use std::fs;
 
     #[test]
@@ -83,29 +80,5 @@ mod tests {
             b"invalid"
         );
         assert!(!global.join("state.db").exists());
-    }
-
-    #[test]
-    fn optional_office_art_drift_is_reported_only_after_its_target_exists() {
-        let root = TestDirectory::new();
-        let home = root.path.join("home");
-        fs::create_dir(&home).unwrap();
-        let global = root.path.join("global");
-        let env = ProviderEnvironment::from_parts(home.clone(), root.path.clone(), Vec::new(), []);
-        install(&env, &global, None, None, false).unwrap();
-        assert!(inspect_local_drift(&env, &global).unwrap().is_empty());
-        install_office(&env, &global, false).unwrap();
-        assert!(inspect_local_drift(&env, &global).unwrap().is_empty());
-
-        let target = home.join(".agents/skills/tmt-office");
-        fs::remove_file(&target).unwrap();
-        std::os::unix::fs::symlink(home.join("missing-office-skill"), &target).unwrap();
-        let avatar_target = home.join(".agents/skills/tmt-avatar-create");
-        fs::remove_file(&avatar_target).unwrap();
-        std::os::unix::fs::symlink(home.join("missing-avatar-skill"), &avatar_target).unwrap();
-        assert_eq!(
-            inspect_local_drift(&env, &global).unwrap(),
-            vec![target, avatar_target]
-        );
     }
 }

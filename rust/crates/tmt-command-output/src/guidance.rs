@@ -1,4 +1,4 @@
-//! Shared skill-install report presentation for core and Office commands.
+//! Shared skill-install report presentation for Core and extension commands.
 
 use serde_json::{Value, json};
 use std::io::{self, Write};

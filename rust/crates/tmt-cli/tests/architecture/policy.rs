@@ -14,18 +14,10 @@ use syn::{
 const DEV_DEPENDENCIES: &[(&str, &str, Option<&str>)] = &[
     ("tmt-cli", "tmt-adapters", None), // dependency-compiled test isolation
     ("tmt-command-output", "tmt-adapters", None), // dependency-compiled test isolation
-    ("tmt-office", "tmt-adapters", None), // dependency-compiled test isolation
-    ("tmt-office-command", "tmt-adapters", None), // dependency-compiled test isolation
-    ("tmt-office-service", "tmt-adapters", None), // dependency-compiled test isolation
-    ("tmt-office-storage", "tmt-adapters", None), // dependency-compiled test isolation
-    ("tmt-office-pairing", "tmt-adapters", None), // dependency-compiled test isolation
     ("tmt-adapters", "tmt-test-support", None), // Codex executable stand-ins
     ("tmt-cli", "tmt-test-support", None), // target-resolution executable stand-in
     ("tmt-ops", "tmt-test-support", None), // executable stand-ins with local readiness
-    ("tmt-office", "tmt-test-support", None), // local-service core executable stand-ins
     ("tmt-colab", "tmt-test-support", None), // decoder executable stand-ins
-    ("tmt-office-command", "tmt-test-support", None), // opt-in ETXTBSY stress comparison
-    ("tmt-adapters", "tmt-office-model", None), // storage migration model fixtures
     ("tmt-adapters", "nix", Some("cfg(unix)")), // subprocess and pipe fixtures
     ("tmt-adapters", "rcgen", Some("cfg(unix)")), // release HTTP TLS certificates
     ("tmt-adapters", "rustls", Some("cfg(unix)")), // release HTTP TLS server
@@ -35,20 +27,12 @@ const DEV_DEPENDENCIES: &[(&str, &str, Option<&str>)] = &[
     ("tmt-cli", "toml_edit", None),    // audited unsafe-boundary manifest policy
     ("tmt-test-support", "serde_json", None), // native recording driver configuration
     ("tmt-cli", "syn", None),          // architecture AST checks
-    ("tmt-cli", "tmt-office-model", None), // Office parser fixtures
     ("tmt-cli", "tmt-driver-protocol", None), // Herdr driver conformance harness
     ("tmt-cli", "nix", Some("cfg(unix)")), // stdin signal and observer readiness fixtures
     ("tmt-cli", "rusqlite", Some("cfg(unix)")), // request-observer SQL oracle
     ("tmt-cli-style", "crossterm", None), // table terminal-style assertions
     ("tmt-cli-style", "insta", None),  // rendering snapshots
     ("tmt-cli-style", "serde_json", None), // theme serialization assertions
-    ("tmt-office", "png", None),       // whiteboard image fixtures
-    ("tmt-office", "rusqlite", None),  // whiteboard and world SQL oracles
-    ("tmt-office", "tmt-office-storage", None), // in-process props fixtures
-    ("tmt-office-command", "flate2", None), // compressed release archive fixtures
-    ("tmt-office-command", "png", None), // whiteboard image fixtures
-    ("tmt-office-command", "tar", None), // release archive fixtures
-    ("tmt-office-storage", "png", None), // stored image fixtures
     ("tmt-test-support", "signal-hook", None), // native Colab verifier fixture shutdown
 ];
 
@@ -67,17 +51,6 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "icu_normalizer",
             "icu_locale_core",
             "sha2",
-        ],
-        "tmt-office-model" => &[
-            "tmt-core",
-            "serde",
-            "serde_json",
-            "base64",
-            "png",
-            "url",
-            "sha2",
-            "uuid",
-            "semver",
         ],
         // Adapters run host drivers through the protocol crate (#570).
         "tmt-adapters" => &[
@@ -107,23 +80,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "signal-hook",
             "sha2",
         ],
-        "tmt-office" => &[
-            "tmt-office-model",
-            "tmt-office-command",
-            "tmt-office-pairing",
-            "tmt-office-service",
-            "tmt-office-storage",
-            "tmt-core",
-            "tmt-adapters",
-            "base64",
-            "getrandom",
-            "httparse",
-            "serde",
-            "serde_json",
-            "uuid",
-        ],
         "tmt-cli" => &[
-            "tmt-office-command",
             "tmt-command-output",
             "tmt-cli-style",
             "tmt-core",
@@ -168,64 +125,6 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         // driver protocol; it depends on nothing.
         "tmt-host-grammar" => &[],
         "tmt-sys" => &["libc"],
-        // The command crate also owns the companion invocation boundary and the
-        // Office release verifier it hands to native installation.
-        "tmt-office-command" => &[
-            "tmt-core",
-            "tmt-office-model",
-            "tmt-adapters",
-            "tmt-office-service",
-            "tmt-command-output",
-            "clap",
-            "semver",
-            "serde",
-            "serde_json",
-            "uuid",
-        ],
-        // Office-owned storage reaches core only through the public config and
-        // file-lock owners; it reads the core database directly only to migrate.
-        // `nix` measures free space before the switch backup.
-        "tmt-office-storage" => &[
-            "tmt-adapters",
-            "tmt-office-pairing",
-            "tmt-office-service",
-            "tmt-core",
-            "tmt-office-model",
-            "rusqlite",
-            "base64",
-            "nix",
-            "serde",
-            "sha2",
-            "serde_json",
-            "uuid",
-        ],
-        // The loopback service lifecycle and receipt, shared by the commands,
-        // Office storage and the companion; no credential store.
-        "tmt-office-service" => &[
-            "tmt-adapters",
-            "tmt-office-model",
-            "nix",
-            "serde",
-            "serde_json",
-            "uuid",
-        ],
-        // Pairing owns the OS credential vault and the paired-service HTTP
-        // transport; no core crate depends on it.
-        "tmt-office-pairing" => &[
-            "tmt-adapters",
-            "tmt-core",
-            "tmt-office-model",
-            "base64",
-            "getrandom",
-            "keyring-core",
-            "zbus-secret-service-keyring-store",
-            "apple-native-keyring-store",
-            "serde",
-            "serde_json",
-            "ureq",
-            "url",
-            "uuid",
-        ],
         // Squad is a public-interface consumer: it reaches TMT only through
         // commands and `tmt api`. Reviewed neutral leaves carry no core behavior.
         "tmt-ops" => &[
@@ -611,29 +510,11 @@ impl<'ast> Visit<'ast> for Facts {
 
 fn owns_declarations(source: &Source) -> bool {
     source.package == "tmt-core"
-        || (source.package == "tmt-office-model" && source.file.starts_with("office_"))
         || (source.package == "tmt-cli" && source.file == "invocation.rs")
         || (source.package == "tmt-command-output" && source.file == "lib.rs")
 }
 
-// Office extension crates consume the Office model; core crates never do.
-fn office_consumer(source: &Source) -> bool {
-    matches!(
-        source.package.as_str(),
-        "tmt-office-command" | "tmt-office-storage" | "tmt-office-pairing" | "tmt-office-service"
-    )
-}
-
-/// Office modules still declared in core crates while #355 extracts them. The
-/// list only shrinks: a core crate may not add an `office_*` module.
-const CORE_OFFICE_MODULES: &[&str] = &[
-    // tmt-cli: the `tmt office` facade and the Office release verifier it
-    // lends core's installers (`tmt extension`, `__native-install`), removed
-    // with PR B.
-    "office_facade",
-];
-
-/// Core crates never own Office modules beyond the retained list above.
+/// Retired Office modules cannot return to core crates.
 fn core_office_module(source: &Source) -> Option<String> {
     if !["tmt-core", "tmt-adapters", "tmt-cli", "tmt-command-output"]
         .contains(&source.package.as_str())
@@ -641,7 +522,7 @@ fn core_office_module(source: &Source) -> Option<String> {
         return None;
     }
     let module = source.file.split(['/', '.']).next()?;
-    (module.starts_with("office_") && !CORE_OFFICE_MODULES.contains(&module)).then(|| {
+    (module.starts_with("office_")).then(|| {
         format!(
             "{}/{}: core crates cannot declare Office module {module}",
             source.package, source.file
@@ -690,10 +571,7 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
         for d in &facts.declarations {
             // Public free functions in core are policy entrypoints. Methods and
             // command-local execute/run helpers do not become reserved names.
-            if !d.public
-                || (d.function
-                    && !["tmt-core", "tmt-office-model"].contains(&source.package.as_str()))
-            {
+            if !d.public || (d.function && source.package != "tmt-core") {
                 continue;
             }
             let owner = format!("{}/{}", source.package, source.file);
@@ -729,8 +607,7 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
             // diagnostic per competing owner instead of reporting both ways.
             if owns_declarations(source)
                 && d.public
-                && (!d.function
-                    || ["tmt-core", "tmt-office-model"].contains(&source.package.as_str()))
+                && (!d.function || source.package == "tmt-core")
             {
                 continue;
             }
@@ -743,8 +620,7 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
         for path in &facts.references {
             let root = path.first().map(String::as_str).unwrap_or_default();
             let module = path.get(1).map(String::as_str).unwrap_or_default();
-            let model = source.package == "tmt-office-model";
-            if source.package == "tmt-core" || model {
+            if source.package == "tmt-core" {
                 let pure_std = [
                     "borrow",
                     "boxed",
@@ -769,12 +645,6 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                     "string",
                     "vec",
                 ];
-                let model_value = model
-                    && ((module == "sync" && path.get(2).is_some_and(|p| p == "OnceLock"))
-                        || (module == "io"
-                            && path
-                                .get(2)
-                                .is_some_and(|p| ["Error", "Cursor"].contains(&p.as_str()))));
                 // The approved drivers' host syntax, written once at start (#570).
                 let host_registry = source.package == "tmt-core"
                     && source.file == "host.rs"
@@ -786,7 +656,6 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                     module == "time" && path.get(2).is_some_and(|name| name == "Duration");
                 if (root == "std"
                     && !pure_std.contains(&module)
-                    && !model_value
                     && !host_registry
                     && !duration_value)
                     || ["print", "println", "eprint", "eprintln", "dbg"].contains(&root)
@@ -796,15 +665,6 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                         path.join("::")
                     ));
                 }
-            }
-            if model
-                && root == "tmt_core"
-                && !["dispatch", "limits", "content_digest", "repository_id"].contains(&module)
-            {
-                violations.push(format!(
-                    "{location}: Office model cannot acquire core runtime responsibilities via {}",
-                    path.join("::")
-                ));
             }
             // The Herdr driver runs only as its own executable. Its standalone
             // main calls the library entrypoint. The CLI archive carries that
@@ -818,10 +678,7 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                     "{location}: tmt_driver_herdr belongs only to the tmt-driver-herdr bin"
                 ));
             }
-            if root == "tmt_office_model"
-                && source.package != "tmt-office"
-                && !office_consumer(source)
-            {
+            if root == "tmt_office_model" {
                 violations.push(format!(
                     "{location}: unreviewed Office dependency {}",
                     path.join("::")
@@ -1010,10 +867,9 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
             }
             if root == "tmt_office_command"
                 && ["tmt-core", "tmt-adapters", "tmt-cli"].contains(&source.package.as_str())
-                && !(source.package == "tmt-cli" && source.file == "office_facade.rs")
             {
                 violations.push(format!(
-                    "{location}: Office commands must be reached through the reserved facade: {}",
+                    "{location}: Office commands are retired: {}",
                     path.join("::")
                 ));
             }
@@ -1023,14 +879,9 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                 let parsing = grammar_owner
                     || ["parser.rs", "diagnostics.rs", "invocation.rs"]
                         .contains(&source.file.as_str());
-                let office_registration = module == "office_facade"
-                    && path.get(2).is_some_and(|part| {
-                        ["grammar", "parser", "invocation"].contains(&part.as_str())
-                    });
                 if parsing
                     && (root == "tmt_adapters"
                         || (["crate", "super"].contains(&root)
-                            && !office_registration
                             && !["grammar", "parser", "diagnostics", "invocation"]
                                 .contains(&module)))
                 {

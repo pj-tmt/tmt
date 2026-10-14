@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Proves an extension release (Office, Ops, Remote, Colab or Digest) upgrades from its previous published release with
+// Proves an extension release (Ops, Remote, Colab or Digest) upgrades from its previous published release with
 // their real archives: same-product proofs use one newest published CLI; squad -> ops uses
 // a pre-registration CLI for Squad and the newest supporting CLI for Ops. Install through
 // `tmt extension install <extension>`, then the candidate over it, in an isolated home, state and
@@ -44,7 +44,7 @@ export function extensionUpgradeOptions(args) {
   });
   for (const name of OPTIONS) assert(values[name], `--${name} is required`);
   assert(
-    ['office', 'ops', 'remote', 'colab', 'digest'].includes(values.product),
+    ['ops', 'remote', 'colab', 'digest'].includes(values.product),
     'Only extension products have this proof'
   );
   if (PREVIOUS_DRIVER_OPTIONS.some((name) => values[name] !== undefined)) {

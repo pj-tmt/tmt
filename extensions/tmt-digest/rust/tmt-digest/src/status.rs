@@ -35,6 +35,7 @@ pub fn execute(window: crate::history::Window) -> Result<Value, Error> {
     }
     let now = crate::tick::now_ms()?;
     let mut document = project(&settings, &identities, &stats, now)?;
+    document["pricing"] = crate::pricing::table();
     let history = core
         .data_root()
         .ok()

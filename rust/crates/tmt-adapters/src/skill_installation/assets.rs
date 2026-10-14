@@ -1,6 +1,6 @@
 //! One embedded authored source, materialized without a checkout dependency.
 
-use super::catalog::{self, BUNDLED, MAIN, PRIOR_LAYOUTS};
+use super::catalog::{self, BUNDLED, MAIN};
 use crate::bounded_file;
 use std::{
     collections::BTreeMap,
@@ -9,6 +9,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use tmt_core::content_digest::sha256 as digest;
+use tmt_core::skill_catalog::HISTORICAL_BUNDLE_NAMES;
 use uuid::Uuid;
 
 fn framed_digest<B: AsRef<[u8]>>(parts: &[B]) -> String {
@@ -73,23 +74,25 @@ fn inventory(version: &Path) -> io::Result<Vec<String>> {
     Ok(names)
 }
 
-/// The source bytes of the first `count` bundled skills, in digest order,
+/// The source bytes of a fixed current or historical inventory, in digest order,
 /// when the version directory holds exactly those skills.
 fn layout_bytes(version: &Path, count: usize) -> io::Result<Vec<Vec<u8>>> {
     named_layout_bytes(version, count, MAIN)
 }
 
 fn named_layout_bytes(version: &Path, count: usize, main: &str) -> io::Result<Vec<Vec<u8>>> {
-    let layout = &BUNDLED[..count];
-    let name = |skill: &catalog::BundledSkill| if skill.name == MAIN { main } else { skill.name };
-    let mut expected: Vec<&str> = layout.iter().map(name).collect();
+    let layout: Vec<&str> = HISTORICAL_BUNDLE_NAMES[..count]
+        .iter()
+        .map(|&name| if name == MAIN { main } else { name })
+        .collect();
+    let mut expected = layout.clone();
     expected.sort_unstable();
     if inventory(version)? != expected {
         return Err(invalid(version));
     }
     layout
         .iter()
-        .map(|skill| source_bytes(&version.join(name(skill))))
+        .map(|name| source_bytes(&version.join(name)))
         .collect()
 }
 
@@ -158,14 +161,10 @@ impl SkillAssets {
             });
         }
         // The current layout, then each earlier one that held this skill.
-        let contains = |count: usize| {
-            BUNDLED[..count]
-                .iter()
-                .any(|skill| skill.name == source_name)
-        };
+        let contains = |count: usize| HISTORICAL_BUNDLE_NAMES[..count].contains(&source_name);
         if [BUNDLED.len()]
             .into_iter()
-            .chain(PRIOR_LAYOUTS)
+            .chain([5, 4, 3])
             .filter(|count| contains(*count))
             .any(|count| {
                 layout_bytes(version, count).is_ok_and(|bytes| framed_digest(&bytes) == expected)
@@ -203,15 +202,11 @@ impl SkillAssets {
         if expected.len() != 64 || !expected.bytes().all(|byte| byte.is_ascii_hexdigit()) {
             return false;
         }
-        [BUNDLED.len()]
-            .into_iter()
-            .chain(PRIOR_LAYOUTS)
-            .any(|count| {
-                named_layout_bytes(version, count, super::retired::NAME)
-                    .is_ok_and(|bytes| framed_digest(&bytes) == expected)
-            })
-            || (inventory(version).is_ok_and(|names| names == [super::retired::NAME])
-                && source_bytes(source).is_ok_and(|bytes| digest(&bytes) == expected))
+        [BUNDLED.len()].into_iter().chain([5, 4, 3]).any(|count| {
+            named_layout_bytes(version, count, super::retired::NAME)
+                .is_ok_and(|bytes| framed_digest(&bytes) == expected)
+        }) || (inventory(version).is_ok_and(|names| names == [super::retired::NAME])
+            && source_bytes(source).is_ok_and(|bytes| digest(&bytes) == expected))
     }
 
     /// Called while the installer lock is held. Existing sources are never

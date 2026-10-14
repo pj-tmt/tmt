@@ -12,12 +12,8 @@ const codeTargets = [
   'vitest.config.ts',
   'package.json',
   '../.github/workflows/ci.yml',
-  '../.github/workflows/office-browser.yml',
   '../.github/components.json',
   '../.github/release-parity.json',
-  '../extensions/tmt-office/typescript/services/office/firebase.json',
-  '../extensions/tmt-office/typescript/services/office/compose.yaml',
-  '../extensions/tmt-office/contracts/*.json',
 ];
 const docsTargets = [
   '../AGENTS.md',
@@ -31,9 +27,6 @@ const docsTargets = [
   '../contracts/extension-serve-v1.md',
   '../.agents/skills/**/*.md',
   '../.github/pull_request_template.md',
-  '../extensions/tmt-office/docs/**/*.md',
-  '../extensions/tmt-office/typescript/services/office/README.md',
-  '../extensions/tmt-office/contracts/*.md',
   '../extensions/tmt-colab/contracts/*.md',
 ];
 

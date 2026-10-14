@@ -1,10 +1,96 @@
 //! Schema-17 upgrade preserves exact catalog content and rolls back atomically.
 use super::*;
 use crate::{storage::Storage, test_support::TestDirectory};
-use tmt_office_model::codec::office_prop;
+// Frozen schema-17 input from builtin-props-v1.tmtprop.json, Git blob d03b9a9b406059ff675ac30f77e8d8f4a8d1c708.
+// Kept as migration evidence after its product/model retirement; no decoder generates expectations.
+const PACK: &[u8] = br###"{
+  "formatVersion": 1,
+  "label": "Office built-ins",
+  "credit": "tmux-team",
+  "license": "MIT",
+  "palette": [
+    "#00000000",
+    "#24313aff",
+    "#dca77dff",
+    "#f1c999ff",
+    "#4f8f5bff",
+    "#83c56fff",
+    "#b65d66ff",
+    "#d98b8fff"
+  ],
+  "props": [
+    {
+      "key": "desk",
+      "label": "Desk",
+      "footprint": { "width": 4, "height": 2 },
+      "pixels": [
+        "0000000000000000",
+        "0011111111111100",
+        "0122222222222210",
+        "0133333333333310",
+        "0011111111111100",
+        "0011000000001100",
+        "0011000000001100",
+        "0000000000000000"
+      ]
+    },
+    {
+      "key": "chair",
+      "label": "Chair",
+      "footprint": { "width": 2, "height": 2 },
+      "pixels": [
+        "00111100",
+        "01222210",
+        "01233210",
+        "01222210",
+        "00111100",
+        "00011000",
+        "00100100",
+        "00000000"
+      ]
+    },
+    {
+      "key": "plant",
+      "label": "Plant",
+      "footprint": { "width": 2, "height": 2 },
+      "pixels": [
+        "00011000",
+        "00515500",
+        "05555550",
+        "00545500",
+        "00044000",
+        "00133100",
+        "00122100",
+        "00011000"
+      ]
+    },
+    {
+      "key": "rug",
+      "label": "Rug",
+      "footprint": { "width": 6, "height": 4 },
+      "pixels": [
+        "0011111111111100",
+        "0166666666666610",
+        "0167777777777610",
+        "0167666666677610",
+        "0167666666677610",
+        "0167777777777610",
+        "0166666666666610",
+        "0011111111111100"
+      ]
+    }
+  ]
+}
+"###;
+const DIGEST: &str = "sha256:5aa6a2d239d7111586abc06be799b2a1ec2ca46619752a90ae08a13e414afb6a";
+const PROP_COUNT: i64 = 4;
 
 #[test]
 fn prop_bound_upgrade_preserves_content_and_rolls_back_on_history_failure() {
+    assert_eq!(
+        tmt_core::content_digest::sha256(PACK),
+        "a63b9c1b1c375c125b3a8508c75441634cea489e4d17cc01dd77c6403a6a3314"
+    );
     let directory = TestDirectory::new();
     let path = directory.path.join("schema17.db");
     let mut old = Connection::open(&path).unwrap();
@@ -13,13 +99,11 @@ fn prop_bound_upgrade_preserves_content_and_rolls_back_on_history_failure() {
     for (index, migration) in MIGRATIONS[9..17].iter().enumerate() {
         apply_version(&mut old, index as u32 + 10, migration).unwrap();
     }
-    let pack = office_prop::builtin_pack();
-    let prop = &pack.pack().props[0];
     let layout = serde_json::json!({
         "version": 2,
         "objects": [{
-            "prop": format!("{}/{}", pack.digest(), prop.key),
-            "footprint": prop.footprint,
+            "prop": "sha256:5aa6a2d239d7111586abc06be799b2a1ec2ca46619752a90ae08a13e414afb6a/desk",
+            "footprint": {"width": 4, "height": 2},
             "x": 4, "y": 5, "rotation": 0
         }]
     })
@@ -30,7 +114,7 @@ fn prop_bound_upgrade_preserves_content_and_rolls_back_on_history_failure() {
     ).unwrap();
     old.execute(
         "INSERT INTO office_prop_packs VALUES (?, ?, ?, 7, 123)",
-        params![pack.digest(), pack.bytes(), pack.pack().props.len() as i64],
+        params![DIGEST, PACK, PROP_COUNT],
     )
     .unwrap();
     old.execute_batch(
@@ -77,7 +161,7 @@ fn prop_bound_upgrade_preserves_content_and_rolls_back_on_history_failure() {
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .unwrap();
-    assert_eq!(preserved, (pack.bytes().to_vec(), layout.clone()));
+    assert_eq!(preserved, (PACK.to_vec(), layout.clone()));
     observer
         .execute_batch("DROP TRIGGER reject_eighteenth")
         .unwrap();
@@ -90,16 +174,7 @@ fn prop_bound_upgrade_preserves_content_and_rolls_back_on_history_failure() {
         "SELECT digest, bytes, prop_count, installed_revision, installed_at_ms FROM office_prop_packs",
         [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
     ).unwrap();
-    assert_eq!(
-        row,
-        (
-            pack.digest().into(),
-            pack.bytes().to_vec(),
-            pack.pack().props.len() as i64,
-            7,
-            123
-        )
-    );
+    assert_eq!(row, (DIGEST.into(), PACK.to_vec(), PROP_COUNT, 7, 123));
     let revision: i64 = connection
         .query_row("SELECT revision FROM office_prop_catalog", [], |row| {
             row.get(0)

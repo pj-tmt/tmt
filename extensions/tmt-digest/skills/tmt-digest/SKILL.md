@@ -27,6 +27,14 @@ flushCount = 10
 
 Member commands save configuration. They do not start a timer or immediately change Core's delivery policy. The next tick applies them.
 
+## Batch updates for a lead
+
+Use a cadence agreed for the work: for example, `5m` for short routine batches or `20m` while a lead reviews a larger change. `tmt digest lead 20m` saves a recurring interval; it does not end a focus session after twenty minutes. Run the minute tick as described below. When the work ends, `tmt digest lead off` clears the interval at the next tick. `default` restores the global default, which may itself be an interval. `tmt focus lead` shows the lead's pane.
+
+Ordinary automatic sends held by Digest return queued with remaining time. Preserve the request ID and wait for the recipient's reply. Remaining time describes the current hold window, not a delivery promise; a turn boundary or the flush threshold can offer delivery sooner, while readiness and approval can delay it. The recorded owner and `--urgent` bypass Digest only. Keep routine updates in the batch; use urgency for a time-sensitive intervention that cannot wait for the batch. No urgency flag bypasses channel, readiness or approval checks.
+
+The recipient receives one checklist with the original reply commands and receipt for each eligible request, plus result-inspection commands for completed replies. Use those commands for each item; reading or receiving the checklist does not acknowledge X. Follow a printed read/cursor for overflow. After an uncertain handoff, inspect Core's state and retain the original request IDs; Core owns settlement and the checklist must not be replayed.
+
 ## Run the minute tick
 
 ```bash
@@ -43,7 +51,7 @@ Successful ticks print nothing. Invalid settings, unavailable Core and delivery 
 
 ## Read status
 
-`tmt digest status --json` returns one read-only document for all saved identities, with resolved modes, held-message counts and ready-made labels. Use `--window 24h|7d|lifetime` (default 24h) for estimated context-input tokens avoided. Lifetime starts when Digest begins collecting; unavailable or incomplete evidence is never zero. This is a gross estimate, not billed tokens or turns saved. It does not tick, deliver messages or change settings.
+`tmt digest status --json` returns one read-only document for all saved identities, with resolved modes, held-message counts and ready-made labels. Use `--window 24h|7d|lifetime` (default 24h) for estimated context-input tokens avoided. Lifetime starts when Digest begins collecting; unavailable or incomplete evidence is never zero. This is a gross estimate, not billed tokens or turns saved. Additive `cost` quotes the latest evidenced model at standard base uncached input list price; label it as an estimate at list price, never money saved. `percent` matches whole closed-minute input evidence for 24h or 7d; lifetime percent is null. Missing prices, models or coverage remain null. It does not tick, deliver messages or change settings.
 
 ## Inspect help and the skill
 

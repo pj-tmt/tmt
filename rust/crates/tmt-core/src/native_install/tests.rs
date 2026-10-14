@@ -314,14 +314,13 @@ fn ops_is_a_fixed_extension_product_and_former_names_are_not_selectable() {
         Product::ALL,
         [
             Product::Cli,
-            Product::Office,
             Product::Ops,
             Product::Remote,
             Product::Colab,
             Product::Digest
         ]
     );
-    for former in ["squad", "sq", "tmt-squad", "tmt-sq"] {
+    for former in ["squad", "sq", "tmt-squad", "tmt-sq", "office", "tmt-office"] {
         assert_eq!(Product::parse(former), None);
         assert!(
             !Product::ALL
@@ -389,7 +388,6 @@ fn remote_is_an_official_product_without_companions_or_an_office_probe() {
         ]
     );
     assert!(remote.companions().is_empty());
-    assert!(!remote.requires_release_verifier());
 }
 
 #[test]
@@ -417,7 +415,6 @@ fn colab_uses_the_settled_flat_archive_contract_without_an_office_probe() {
         ]
     );
     assert!(colab.companions().is_empty());
-    assert!(!colab.requires_release_verifier());
 }
 
 #[test]
@@ -431,7 +428,6 @@ fn the_cli_accepts_either_prerelease_flag_on_an_alpha_and_extensions_match_exact
     assert!(Product::Cli.accepts_prerelease_flag(&stable, false));
     assert!(!Product::Cli.accepts_prerelease_flag(&stable, true));
     for extension in [
-        Product::Office,
         Product::Ops,
         Product::Remote,
         Product::Colab,
@@ -466,7 +462,6 @@ fn digest_has_an_independent_namespace_and_ordinary_extension_inventory() {
     assert!(digest.companions().is_empty());
     assert!(digest.former().is_none());
     assert!(digest.post_upgrade_check().is_none());
-    assert!(!digest.requires_release_verifier());
 }
 
 #[test]

@@ -2,7 +2,7 @@
 //!
 //! Core declares itself explicitly at startup; no file name is inspected, so a
 //! CLI installed under any name (`tmt`, `tmux-team`) hands its own path down.
-//! A process that is not core (the Office companion's direct mode) declares
+//! A process outside Core declares
 //! nothing and passes along the `tmt` that launched it.
 
 use std::ffi::OsString;

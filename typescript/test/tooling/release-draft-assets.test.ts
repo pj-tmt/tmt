@@ -60,8 +60,8 @@ function bundle(product: string, tag: string) {
   }
   const policy = {
     cli: { tagPrefix: 'v', prerelease: false, latest: true, flags: ['--latest=true'] },
-    office: {
-      tagPrefix: 'tmt-office-v',
+    digest: {
+      tagPrefix: 'tmt-digest-v',
       prerelease: true,
       latest: false,
       flags: ['--prerelease', '--latest=false'],
@@ -176,12 +176,12 @@ describe('bundleFiles', () => {
     expect(() => bundleFiles('cli', three, 'v5.0.0-alpha.9')).toThrow('found 3');
     expect(() =>
       bundleFiles(
-        'office',
+        'digest',
         {
           ...manifest('tmt-ops-v0.1.0-alpha.4', 'ops'),
-          announcement_tag: 'tmt-office-v0.1.0-alpha.4',
+          announcement_tag: 'tmt-digest-v0.1.0-alpha.4',
         },
-        'tmt-office-v0.1.0-alpha.4'
+        'tmt-digest-v0.1.0-alpha.4'
       )
     ).toThrow('Unexpected archive');
   });
@@ -253,12 +253,12 @@ describe('attachBundle', () => {
   });
 
   it('attaches an extension bundle without installers, under its own tag', () => {
-    const fake = fakeApi([draft('tmt-office-v0.1.0-alpha.4')]);
+    const fake = fakeApi([draft('tmt-digest-v0.1.0-alpha.4')]);
     const { uploaded } = attach(
       fake,
-      bundle('office', 'tmt-office-v0.1.0-alpha.4'),
-      'tmt-office-v0.1.0-alpha.4',
-      'office'
+      bundle('digest', 'tmt-digest-v0.1.0-alpha.4'),
+      'tmt-digest-v0.1.0-alpha.4',
+      'digest'
     );
     expect(uploaded).toHaveLength(7);
     expect(uploaded.at(-1)).toBe('release-publication.json');
@@ -343,8 +343,8 @@ describe('attachBundle', () => {
       attach(fakeApi([draft('v5.0.0-alpha.9', ['release-publication.json'])]), directory)
     ).toThrow('already carries a bundle');
     expect(() =>
-      attach(fakeApi([draft('v5.0.0-alpha.9')]), directory, 'v5.0.0-alpha.9', 'office')
-    ).toThrow('is not a office tag');
+      attach(fakeApi([draft('v5.0.0-alpha.9')]), directory, 'v5.0.0-alpha.9', 'digest')
+    ).toThrow('is not a digest tag');
   });
 
   it('refuses a bundle for another tag, a marker that is not the policy, and a missing file', () => {

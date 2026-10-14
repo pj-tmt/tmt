@@ -139,7 +139,7 @@ pub fn resolve_historical_room<R: RoomRepository>(
     }
 }
 
-/// Creation is explicit and does not enroll the caller or materialize Office facilities.
+/// Creation is explicit and does not enroll the caller or materialize extension facilities.
 pub fn create<R: RoomRepository>(
     repository: &mut R,
     name: String,

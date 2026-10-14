@@ -1,66 +1,8 @@
-//! Commands that do not yet follow the help style, with the rules each still
-//! breaks. #436 PR 2a migrates the core commands; Office's commands stay
-//! listed until #355 resumes. The list only shrinks and is empty at the end:
-//! the guard fails when a listed command already follows the style.
+//! Commands still migrating to the shared help style. The guard rejects stale entries.
 
-use tmt_cli_style::audit::Rule::{self, *};
+use tmt_cli_style::audit::Rule;
 
-pub const MIGRATING: &[(&str, &[Rule])] = &[
-    // Office, reached through the reserved facade (#355).
-    ("tmt office", &[Template, Examples]),
-    ("tmt office avatar", &[Template, Examples]),
-    ("tmt office avatar install", &[Template, Examples]),
-    ("tmt office avatar ls", &[Template, Examples]),
-    ("tmt office avatar preview", &[Template, Examples]),
-    ("tmt office avatar rm", &[Template, Examples]),
-    ("tmt office avatar show", &[Template, Examples]),
-    ("tmt office avatar validate", &[Template, Examples]),
-    ("tmt office block", &[Template, Examples]),
-    ("tmt office block apply", &[Template, Examples]),
-    ("tmt office block show", &[Template, Examples]),
-    ("tmt office board", &[Template, Examples]),
-    ("tmt office board rm", &[Template, Examples]),
-    ("tmt office board edit", &[Template, Examples]),
-    ("tmt office board ls", &[Template, Examples]),
-    ("tmt office board post", &[Template, Examples]),
-    ("tmt office board reply", &[Template, Examples]),
-    ("tmt office board show", &[Template, Examples]),
-    ("tmt office extension", &[Template, Examples]),
-    ("tmt office extension validate", &[Template, Examples]),
-    ("tmt office inspect", &[Template, Examples]),
-    ("tmt office install", &[Template, Examples]),
-    ("tmt office layout", &[Template, Examples]),
-    ("tmt office layout apply", &[Template, Examples]),
-    ("tmt office layout show", &[Template, Examples]),
-    ("tmt office pair", &[Template, Examples]),
-    ("tmt office profile", &[Template, Examples]),
-    ("tmt office profile apply", &[Template, Examples]),
-    ("tmt office profile show", &[Template, Examples]),
-    ("tmt office prop", &[Template, Examples]),
-    ("tmt office prop install", &[Template, Examples]),
-    ("tmt office prop ls", &[Template, Examples]),
-    ("tmt office prop preview", &[Template, Examples]),
-    ("tmt office prop rm", &[Template, Examples]),
-    ("tmt office prop show", &[Template, Examples]),
-    ("tmt office prop validate", &[Template, Examples]),
-    ("tmt office start", &[Template, Examples]),
-    ("tmt office status", &[Template, Examples]),
-    ("tmt office stop", &[Template, Examples]),
-    ("tmt office storage", &[Template, Examples]),
-    ("tmt office storage migrate", &[Template, Examples]),
-    ("tmt office storage status", &[Template, Examples]),
-    ("tmt office sync", &[Template, Examples]),
-    ("tmt office rm", &[Template, Examples]),
-    ("tmt office unpair", &[Template, Examples]),
-    ("tmt office upgrade", &[Template, Examples]),
-    ("tmt office whiteboard", &[Template, Examples]),
-    ("tmt office whiteboard snapshot", &[Template, Examples]),
-    (
-        "tmt office whiteboard snapshot export",
-        &[Template, Examples],
-    ),
-    ("tmt office whiteboard snapshot show", &[Template, Examples]),
-];
+pub const MIGRATING: &[(&str, &[Rule])] = &[];
 
 /// Hidden subcommands, each with why: they are protocol entry points that
 /// TMT itself, a provider, a shell or an installer invokes, or a retired name.

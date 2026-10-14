@@ -101,34 +101,35 @@ function runGitFiles(): string[] {
   return result.stdout.split('\0').filter(Boolean);
 }
 const sha = 'a'.repeat(40);
-const office = (name: string) => `extensions/tmt-office/rust/tmt-office-${name}/src/lib.rs`;
-
-it.each(['model', 'command', 'service'])(
-  'attributes the linked Office %s crate to CLI in both cut and project sweep',
-  (name) => {
-    const path = office(name);
-    expect(releasedComponentsForPath(path, map, workspace).map((c) => c.name)).toContain('cli');
-    expect(affectedProducts([path], map, workspace).products).toEqual(['cli', 'office']);
-    expect(
-      attributeCutCommits(
-        [{ sha, message: 'fix: linked Office crate', files: [path] }],
-        map,
-        'cli',
-        workspace
-      )
-    ).toHaveLength(1);
-  }
-);
-it.each([
-  office('storage'),
-  office('pairing'),
-  'extensions/tmt-office/rust/tmt-office/src/main.rs',
-  'rust/crates/tmt-test-support/src/lib.rs',
-])('does not attribute runtime-only or dev-only path %s to CLI', (path) => {
+const colab = 'extensions/tmt-colab/rust/tmt-colab/src/main.rs';
+const cli = 'rust/crates/tmt-cli/src/main.rs';
+it('attributes retained Colab model code to its normal consumer rather than the CLI dev consumer', () => {
+  const path = 'extensions/tmt-colab/rust/tmt-colab-model/src/lib.rs';
+  expect(releasedComponentsForPath(path, map, workspace).map((c) => c.name)).toEqual(['tmt-colab']);
+  expect(affectedProducts([path], map, workspace).products).toEqual(['colab']);
+  expect(
+    attributeCutCommits(
+      [{ sha, message: 'fix: linked model', files: [path] }],
+      map,
+      'colab',
+      workspace
+    )
+  ).toHaveLength(1);
+  expect(
+    attributeCutCommits(
+      [{ sha, message: 'fix: linked model', files: [path] }],
+      map,
+      'cli',
+      workspace
+    )
+  ).toEqual([]);
+});
+it('does not attribute a dev-only crate to CLI', () => {
+  const path = 'rust/crates/tmt-test-support/src/lib.rs';
   expect(releasedComponentsForPath(path, map, workspace).map((c) => c.name)).not.toContain('cli');
   expect(
     attributeCutCommits(
-      [{ sha, message: 'fix: private change', files: [path] }],
+      [{ sha, message: 'fix: test helper', files: [path] }],
       map,
       'cli',
       workspace
@@ -140,18 +141,14 @@ it('preserves Herdr attribution and CI selection', () => {
     affectedProducts(['drivers/herdr/rust/tmt-driver-herdr/src/lib.rs'], map, workspace).products
   ).toEqual(['driver-herdr']);
   const before = JSON.parse(source);
-  delete before.components.office.releaseStatus;
+  delete before.components['browser-addon'].releaseStatus;
   delete before.components['tmt-test-support'].releaseStatus;
   delete before.components['colab-app'].releaseConsumers;
   delete before.components['colab-client'].releaseConsumers;
   // Release ownership must not change CI selection, including the pre-activation map.
   before.components['tmt-colab'].release = false;
   before.components['tmt-remote'].release = false;
-  const paths = [
-    office('model'),
-    office('storage'),
-    'extensions/tmt-colab/typescript/app/src/main.ts',
-  ];
+  const paths = [cli, colab, 'extensions/tmt-colab/typescript/app/src/main.ts'];
   expect(selectCiAreas(paths, map)).toEqual(
     selectCiAreas(paths, parseComponentMap(JSON.stringify(before)))
   );
@@ -198,7 +195,11 @@ describe('explicit private delivery status', () => {
     prs: new Map([['pr', { number: 1, mergeCommit: { oid: sha } } as ClosingPr]]),
     issues: new Map([['issue', new Set(['pr'])]]),
   };
-  const evidence = (paths: string[], componentMap = map) =>
+  const parked = JSON.parse(source);
+  parked.components['tmt-colab'].release = false;
+  parked.components['tmt-colab'].releaseStatus = 'parked';
+  const parkedColab = parseComponentMap(JSON.stringify(parked));
+  const evidence = (paths: string[], componentMap = parkedColab) =>
     deriveEvidence(
       [item],
       closing,
@@ -214,15 +215,15 @@ describe('explicit private delivery status', () => {
       waiting: [],
     });
   });
-  it('marks Office-only waits Done with the agreed note', () => {
-    expect(evidence([office('storage')])).toMatchObject({
+  it('marks Colab-only waits Done with the agreed note', () => {
+    expect(evidence([colab])).toMatchObject({
       status: 'Done',
-      text: 'ships with the first Office release',
-      waiting: ['Awaiting office'],
+      text: 'ships with the first Colab release',
+      waiting: ['Awaiting colab'],
     });
   });
   it('names each parked product actually waited on without adding unrelated parked products', () => {
-    const value = JSON.parse(source);
+    const value = structuredClone(parked);
     value.components['tmt-remote'].release = false;
     value.components['tmt-remote'].releaseStatus = 'parked';
     const parkedMap = parseComponentMap(JSON.stringify(value));
@@ -232,20 +233,18 @@ describe('explicit private delivery status', () => {
       text: 'ships with the first Remote release',
       waiting: ['Awaiting remote'],
     });
-    expect(evidence([office('storage')], parkedMap)?.text).toBe(
-      'ships with the first Office release'
-    );
-    expect(evidence([remote, office('storage')], parkedMap)).toMatchObject({
+    expect(evidence([colab], parkedMap)?.text).toBe('ships with the first Colab release');
+    expect(evidence([remote, colab], parkedMap)).toMatchObject({
       status: 'Done',
-      text: 'ships with the first Office release\nships with the first Remote release',
-      waiting: ['Awaiting office', 'Awaiting remote'],
+      text: 'ships with the first Colab release\nships with the first Remote release',
+      waiting: ['Awaiting colab', 'Awaiting remote'],
     });
-    expect(evidence([remote, office('model')], parkedMap)).toMatchObject({
+    expect(evidence([remote, cli], parkedMap)).toMatchObject({
       status: 'Merged',
       text: '',
     });
   });
-  it('retains published CLI evidence when Office is the sole remaining wait', () => {
+  it('retains published CLI evidence when Colab is the sole remaining wait', () => {
     const row = deriveEvidence(
       [item],
       closing,
@@ -259,30 +258,30 @@ describe('explicit private delivery status', () => {
       ],
       {
         validateTags: () => {},
-        paths: () => [office('model')],
+        paths: () => [cli, colab],
         containingTags: () => new Set(['v5.0.0-alpha.1']),
       },
-      map,
+      parkedColab,
       workspace
     ).get('issue');
     expect(row).toMatchObject({
       status: 'Done',
-      text: 'tmt-cli 5.0.0-alpha.1\nships with the first Office release',
-      waiting: ['Awaiting office'],
+      text: 'tmt-cli 5.0.0-alpha.1\nships with the first Colab release',
+      waiting: ['Awaiting colab'],
     });
   });
-  it('keeps Office plus CLI awaiting Merged', () => {
-    expect(evidence([office('model')])).toMatchObject({
+  it('keeps Colab plus CLI awaiting Merged', () => {
+    expect(evidence([cli, colab])).toMatchObject({
       status: 'Merged',
       text: '',
-      waiting: ['Awaiting cli', 'Awaiting office'],
+      waiting: ['Awaiting cli', 'Awaiting colab'],
     });
   });
   it.each([
     'extensions/tmt-colab/rust/tmt-colab/src/main.rs',
     'extensions/tmt-remote/rust/tmt-remote/src/main.rs',
   ])('keeps activated products Merged until their containing release publishes: %s', (path) => {
-    expect(evidence([path])?.status).toBe('Merged');
+    expect(evidence([path], map)?.status).toBe('Merged');
   });
   it('does not turn missing path evidence into Done', () => {
     expect(evidence([])?.status).toBe('Merged');

@@ -8,9 +8,6 @@
 pub enum Group {
     /// Core's own skills; their names are reserved from every owner.
     Core,
-    /// Office's skills, bundled before owners existed; owner `office`
-    /// adopts them without force.
-    Office,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -24,9 +21,8 @@ pub const MAIN: &str = "tmt";
 /// Core's focused inbox skill, published beside the main one.
 pub const INBOX: &str = "tmt-inbox";
 
-/// The current bundle in digest order: the bundle digest frames the skills
-/// in this order, so a new skill is appended, never inserted.
-pub static BUNDLED: [BundledName; 5] = [
+/// The current core-only bundle in digest order.
+pub static BUNDLED: [BundledName; 2] = [
     BundledName {
         name: MAIN,
         group: Group::Core,
@@ -35,18 +31,17 @@ pub static BUNDLED: [BundledName; 5] = [
         name: INBOX,
         group: Group::Core,
     },
-    BundledName {
-        name: "tmt-office",
-        group: Group::Office,
-    },
-    BundledName {
-        name: "tmt-prop-create",
-        group: Group::Office,
-    },
-    BundledName {
-        name: "tmt-avatar-create",
-        group: Group::Office,
-    },
+];
+
+/// Fixed historical bundle inventory, used only to verify older source generations.
+/// Retired names are absent from the bundled catalog; this metadata never
+/// authorizes publication or adoption through the generic owner-supplied API.
+pub const HISTORICAL_BUNDLE_NAMES: [&str; 5] = [
+    MAIN,
+    INBOX,
+    "tmt-office",
+    "tmt-prop-create",
+    "tmt-avatar-create",
 ];
 
 #[cfg(test)]

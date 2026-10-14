@@ -1114,7 +1114,7 @@ function validateSyncInterest(context, interest) {
 }
 //#endregion
 //#region src/sealed-sync.ts
-/** Proposed extension-scoped sealed-document ports. No provider, credentials or factory. */
+/** Extension-scoped sealed-document ports and pure binding. No credential storage. */
 var identity = /^[A-Za-z0-9_+-]{1,128}$/;
 var documentId = /^[A-Za-z0-9_+-]{1,256}$/;
 function valid$2(condition) {
@@ -2031,300 +2031,6 @@ function remoteRegistryPage(blocked = () => "") {
 	};
 }
 //#endregion
-//#region src/firebase-auth.ts
-/** One hosted Auth owner; provider-native answers are not local machine-signed receipts. */
-function mapped(error) {
-	if (error instanceof ClientError || error instanceof RefusalError) return error;
-	const code = typeof error === "object" && error !== null && "code" in error ? error.code : void 0;
-	if (code === "remote/auth-pending") return new RefusalError("REMOTE_STATE_UNAVAILABLE");
-	if (code === "auth/operation-not-allowed") return new RefusalError("REMOTE_SCOPE_DENIED");
-	if (code === "auth/too-many-requests") return new RefusalError("REMOTE_RATE_LIMITED");
-	return new ClientError("transport_failure", "Firebase authentication could not be confirmed.");
-}
-async function bounded$1(action) {
-	const controller = new AbortController();
-	let timer;
-	const deadline = new Promise((_, reject) => {
-		timer = setTimeout(() => {
-			controller.abort();
-			reject(new ClientError("timeout", "Firebase authentication check timed out."));
-		}, HOSTED_BOOTSTRAP_MS);
-	});
-	try {
-		return await Promise.race([action(controller.signal), deadline]);
-	} finally {
-		clearTimeout(timer);
-	}
-}
-/** Ports are internal test edges; the browser entry supplies same-origin fetch and lazy import. */
-async function connectHosted(link, declaration, deps) {
-	let port;
-	try {
-		port = await bounded$1(async (signal) => {
-			await verifyHostedDeclaration(declaration);
-			const config = await verifyHostedLink(link, deps.origin);
-			await confirmHostedConfig(config, deps.origin, deps.fetch, signal);
-			if (signal.aborted) throw new ClientError("timeout", "Hosted bootstrap timed out.");
-			const module = await deps.load().catch(() => {
-				throw new RefusalError("REMOTE_STATE_UNAVAILABLE");
-			});
-			if (signal.aborted) throw new ClientError("timeout", "Hosted bootstrap timed out.");
-			const initialized = await module.initialize(config);
-			if (signal.aborted) {
-				await initialized.close();
-				throw new ClientError("timeout", "Hosted bootstrap timed out.");
-			}
-			return initialized;
-		});
-	} catch (error) {
-		throw mapped(error);
-	}
-	let closed = false;
-	let pending;
-	let closing;
-	const live = () => {
-		if (closed) throw new RefusalError("REMOTE_CLOSED");
-	};
-	return {
-		signInAnonymous() {
-			live();
-			if (!pending) pending = bounded$1(async (signal) => {
-				try {
-					const uid = await port.signInAnonymous();
-					live();
-					if (signal.aborted) throw new ClientError("timeout", "Firebase authentication check timed out.");
-					if (typeof uid !== "string" || uid.length === 0 || uid.length > 128) throw new ClientError("unverifiable_response", "Firebase identity could not be confirmed.");
-					return uid;
-				} catch (error) {
-					throw mapped(error);
-				}
-			}).finally(() => {
-				pending = void 0;
-			});
-			return pending;
-		},
-		async signOut() {
-			live();
-			if (pending) throw new RefusalError("REMOTE_STATE_UNAVAILABLE");
-			try {
-				await bounded$1(() => port.signOut());
-				live();
-			} catch (error) {
-				throw mapped(error);
-			}
-		},
-		close() {
-			closed = true;
-			closing ??= port.close().catch((error) => {
-				throw mapped(error);
-			});
-			return closing;
-		}
-	};
-}
-//#endregion
-//#region src/session-reopen.ts
-var ReopenSessionError = class extends Error {
-	reason;
-	detail;
-	cause;
-	constructor(reason, detail, cause) {
-		super(`Remote session admission: ${reason} (${detail}).`);
-		this.reason = reason;
-		this.detail = detail;
-		this.name = "ReopenSessionError";
-		this.cause = cause;
-	}
-};
-var DEADLINE = 2e4;
-var ATTEMPT = 4e3;
-var DELAYS = [
-	250,
-	500,
-	1e3
-];
-var runtime = {
-	now: () => performance.now(),
-	later: (callback, ms) => setTimeout(callback, ms),
-	clear: (timer) => clearTimeout(timer),
-	jitter: () => crypto.getRandomValues(/* @__PURE__ */ new Uint32Array(1))[0] / 4294967296
-};
-function active(signal) {
-	if (signal?.aborted) throw new ReopenSessionError("transient", "cancelled");
-}
-/** Bounds even a provider that ignores AbortSignal; abandoned work cannot publish a Session. */
-function bounded(action, ms, owner, clock) {
-	return new Promise((resolve, reject) => {
-		const child = new AbortController();
-		const end = clock.now() + ms;
-		let settled = false;
-		let timer;
-		const finish = (value, error) => {
-			if (settled) return;
-			settled = true;
-			if (timer !== void 0) clock.clear(timer);
-			owner?.removeEventListener("abort", cancel);
-			child.abort();
-			if (error !== void 0) reject(error);
-			else if (clock.now() >= end) reject(new ReopenSessionError("unreachable", "budget-exhausted"));
-			else resolve(value);
-		};
-		const cancel = () => finish(void 0, new ReopenSessionError("transient", "cancelled"));
-		if (owner?.aborted) return cancel();
-		owner?.addEventListener("abort", cancel, { once: true });
-		timer = clock.later(() => finish(void 0, new ReopenSessionError("unreachable", "budget-exhausted")), ms);
-		Promise.resolve().then(() => action(child.signal)).then((value) => finish(value), (error) => finish(void 0, error));
-	});
-}
-async function boundedAdmission(attempt, signal, clock = runtime) {
-	const end = clock.now() + DEADLINE;
-	let last = new ReopenSessionError("unreachable", "budget-exhausted");
-	let ambiguous = false;
-	for (let index = 0; index < 4; index++) {
-		active(signal);
-		const remaining = end - clock.now();
-		if (remaining <= 0) break;
-		try {
-			const value = await bounded(attempt, Math.min(ATTEMPT, remaining), signal, clock);
-			active(signal);
-			return value;
-		} catch (error) {
-			if (!(error instanceof ReopenSessionError)) throw new ReopenSessionError("transient", "admission-unconfirmed");
-			if ([
-				"capacity",
-				"mismatch",
-				"unpaired",
-				"revoked",
-				"expired"
-			].includes(error.reason) || ["cancelled", "unverifiable-response"].includes(error.detail)) throw error;
-			last = error;
-			ambiguous ||= error.reason === "unconfirmed";
-		}
-		const delay = DELAYS[index];
-		if (delay === void 0) break;
-		const wait = Math.min(Math.floor(delay + delay * .25 * clock.jitter()), end - clock.now());
-		if (wait <= 0) break;
-		try {
-			await bounded((waiting) => new Promise((resolve) => {
-				const timer = clock.later(() => {
-					waiting.removeEventListener("abort", cancel);
-					resolve();
-				}, wait);
-				const cancel = () => clock.clear(timer);
-				waiting.addEventListener("abort", cancel, { once: true });
-			}), end - clock.now(), signal, clock);
-		} catch (error) {
-			active(signal);
-			if (!(error instanceof ReopenSessionError) || error.detail === "cancelled") throw error;
-			break;
-		}
-	}
-	active(signal);
-	throw new ReopenSessionError(ambiguous ? "unconfirmed" : last.reason, "budget-exhausted");
-}
-//#endregion
-//#region src/firestore.ts
-var deploy = "tmt remote deploy firestore";
-var firestoreReasons = {
-	project: {
-		"not-configured": ["No Firebase project is set up.", true],
-		"access-lost": ["tmt can no longer reach the Firebase project.", true],
-		"not-checked": ["The Firebase project has not been checked.", false]
-	},
-	"sign-in": {
-		"provider-disabled": ["Sign-in is not enabled for the project.", true],
-		"permission-missing": ["This account isn't allowed to turn on sign-in for the project.", false],
-		"not-checked": ["Sign-in has not been checked.", false]
-	},
-	rules: {
-		"not-deployed": ["Firestore rules are not deployed.", true],
-		"out-of-date": ["Firestore rules are out of date.", true],
-		partial: ["Firestore rules are only partly deployed.", true],
-		"not-checked": ["Firestore rules have not been checked.", false]
-	},
-	"plan-tier": {
-		"paid-plan-required": ["This needs a paid Firebase plan.", false],
-		"not-checked": ["The Firebase plan has not been checked.", false]
-	},
-	quota: {
-		"headroom-low": ["Today's free Firebase quota is almost used up.", false],
-		exhausted: ["Today's free Firebase quota is used up.", false],
-		"not-checked": ["The free Firebase quota has not been checked.", false]
-	},
-	support: { "not-implemented": ["This isn't available in this release yet.", false] }
-};
-var firestoreSpecs = [
-	["sharing", [
-		"project",
-		"sign-in",
-		"rules",
-		"plan-tier",
-		"quota"
-	]],
-	["operations", ["plan-tier", "support"]],
-	["attachments", [
-		"support",
-		"project",
-		"rules",
-		"quota"
-	]]
-];
-function requireValid(condition) {
-	if (!condition) throw new Error("Invalid Firestore readiness response.");
-}
-function object$1(value) {
-	requireValid(typeof value === "object" && value !== null && !Array.isArray(value));
-	return value;
-}
-function keys(row, expected) {
-	requireValid(Object.keys(row).length === expected.length && expected.every((key) => Object.hasOwn(row, key)));
-}
-function parseFirestoreLayers(value) {
-	requireValid(Array.isArray(value));
-	if (!value.length) return [];
-	requireValid(value.length === firestoreSpecs.length);
-	for (const [index, [layer, items]] of firestoreSpecs.entries()) {
-		const row = object$1(value[index]);
-		keys(row, [
-			"layer",
-			"state",
-			"prerequisites"
-		]);
-		requireValid(row.layer === layer && Array.isArray(row.prerequisites) && row.prerequisites.length === items.length);
-		const states = [];
-		for (const [i, item] of items.entries()) {
-			const entry = object$1(row.prerequisites[i]);
-			requireValid(entry.item === item && [
-				"enabled",
-				"not-enabled",
-				"unknown"
-			].includes(entry.state));
-			states.push(entry.state);
-			if (entry.state === "enabled") {
-				keys(entry, ["item", "state"]);
-				continue;
-			}
-			const reason = typeof entry.reason === "string" && Object.hasOwn(firestoreReasons[item], entry.reason) ? firestoreReasons[item][entry.reason] : void 0;
-			requireValid(reason && entry.state === "unknown" === (entry.reason === "not-checked"));
-			requireValid(entry.reason !== "paid-plan-required" || layer === "operations");
-			keys(entry, reason[1] ? [
-				"item",
-				"state",
-				"reason",
-				"next"
-			] : [
-				"item",
-				"state",
-				"reason"
-			]);
-			requireValid(entry.next === (reason[1] ? deploy : void 0));
-		}
-		const aggregate = states.includes("not-enabled") ? "not-enabled" : states.includes("unknown") ? "unknown" : "enabled";
-		requireValid(row.state === aggregate);
-	}
-	return value;
-}
-//#endregion
 //#region src/budget.ts
 var budget_exports = /* @__PURE__ */ __exportAll({
 	ACTIVE_SECONDS_PER_DAY: () => ACTIVE_SECONDS_PER_DAY,
@@ -2604,6 +2310,909 @@ function parsePublishedLimits(value) {
 		"limits",
 		"guard"
 	]) || value.plan !== "no-cost" || value.resetsAt !== "pacific-midnight" || typeof value.readOn !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value.readOn) || !object(value.limits) || !keys(value.limits, publishedLimitRows.map((row) => row[0])) || !Object.values(value.limits).every((n) => typeof n === "number" && Number.isSafeInteger(n) && n > 0) || !object(value.guard) || !keys(value.guard, ["warnPercent", "refusePercent"]) || !Number.isSafeInteger(value.guard.warnPercent) || !Number.isSafeInteger(value.guard.refusePercent) || !(value.guard.warnPercent > 0 && value.guard.warnPercent < value.guard.refusePercent && value.guard.refusePercent <= 100)) throw new Error("Invalid Firestore budget response.");
+	return value;
+}
+var unavailable$2 = () => ({ code: "REMOTE_STATE_UNAVAILABLE" });
+function syncCallLive(call) {
+	if (call.signal.aborted || !Number.isFinite(call.deadlineAtMs) || Date.now() >= call.deadlineAtMs) throw unavailable$2();
+}
+/** Bound every injected await even if a fake or provider ignores its AbortSignal. */
+async function syncWait(call, action) {
+	syncCallLive(call);
+	let timer;
+	let abort;
+	const end = new Promise((_, reject) => {
+		abort = () => reject(unavailable$2());
+		call.signal.addEventListener("abort", abort, { once: true });
+		timer = setTimeout(abort, Math.max(0, call.deadlineAtMs - Date.now()));
+	});
+	try {
+		return await Promise.race([action(), end]);
+	} finally {
+		clearTimeout(timer);
+		if (abort) call.signal.removeEventListener("abort", abort);
+	}
+}
+/** Keep caller guard failures in the frozen refusal vocabulary; never expose its exception text. */
+async function admitSync(guard, cost, call) {
+	try {
+		await syncWait(call, () => guard.admit(Object.freeze(cost)));
+	} catch (error) {
+		if (typeof error === "object" && error !== null && "code" in error && error.code === "REMOTE_BUDGET_EXHAUSTED" && "resetAtMs" in error && typeof error.resetAtMs === "number" && Number.isFinite(error.resetAtMs) && error.resetAtMs >= 0 && "retryAfterMs" in error && typeof error.retryAfterMs === "number" && Number.isFinite(error.retryAfterMs) && error.retryAfterMs >= 0) throw {
+			code: "REMOTE_BUDGET_EXHAUSTED",
+			resetAtMs: error.resetAtMs,
+			retryAfterMs: error.retryAfterMs
+		};
+		throw unavailable$2();
+	}
+}
+/** The owner fence checks its uid/project/generation after every asynchronous boundary. */
+function syncHttp(context, guard, fetcher, live) {
+	const base = `https://firestore.googleapis.com/v1/projects/${context.config.projectId}/databases/(default)/documents`;
+	return async (operation, path, body, call, reads) => {
+		const check = () => {
+			live();
+			syncCallLive(call);
+		};
+		check();
+		if (body !== void 0 && new TextEncoder().encode(body).byteLength > 397312) throw { code: "REMOTE_INPUT_INVALID" };
+		await admitSync(guard, {
+			operation,
+			reads,
+			writes: operation === "commit" ? 1 : 0,
+			rulesLookupsPerDocument: 3
+		}, call);
+		check();
+		const credential = await syncWait(call, () => context.auth.token(call));
+		check();
+		if ("state" in credential) throw credential;
+		if (credential.projectId !== context.config.projectId || credential.uid !== context.uid || credential.expiresAtMs <= Date.now() || !Number.isFinite(credential.expiresAtMs) || !/^[\x21-\x7e]{1,16384}$/.test(credential.token)) throw unavailable$2();
+		const controller = new AbortController();
+		const abort = () => controller.abort();
+		call.signal.addEventListener("abort", abort, { once: true });
+		const timer = setTimeout(abort, Math.max(0, call.deadlineAtMs - Date.now()));
+		let sent = false;
+		try {
+			check();
+			const url = operation === "read" ? `${base}/${path.split("/").map(encodeURIComponent).join("/")}` : `${base}${operation === "query" && path ? "/" + path.split("/").map(encodeURIComponent).join("/") : ""}:${operation === "query" ? "runQuery" : "commit"}`;
+			sent = true;
+			const response = await syncWait(call, () => fetcher(url, {
+				method: operation === "read" ? "GET" : "POST",
+				headers: {
+					Authorization: `Bearer ${credential.token}`,
+					"Content-Type": "application/json"
+				},
+				body,
+				signal: controller.signal,
+				redirect: "error",
+				credentials: "omit",
+				cache: "no-store"
+			}));
+			check();
+			if (controller.signal.aborted) throw unavailable$2();
+			const reader = response.body?.getReader();
+			if (!reader) throw unavailable$2();
+			const chunks = [];
+			let length = 0;
+			try {
+				for (;;) {
+					const chunk = await syncWait(call, () => reader.read());
+					check();
+					if (controller.signal.aborted) throw unavailable$2();
+					if (chunk.done) break;
+					length += chunk.value.byteLength;
+					if (length > 397312) throw unavailable$2();
+					chunks.push(chunk.value);
+				}
+			} finally {
+				reader.cancel().catch(() => {});
+				reader.releaseLock();
+			}
+			check();
+			const bytes = new Uint8Array(length);
+			let offset = 0;
+			for (const chunk of chunks) {
+				bytes.set(chunk, offset);
+				offset += chunk.byteLength;
+			}
+			const value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+			check();
+			return {
+				kind: "response",
+				status: response.status,
+				value
+			};
+		} catch {
+			if (operation === "commit" && sent) return { kind: "unknown" };
+			throw unavailable$2();
+		} finally {
+			clearTimeout(timer);
+			call.signal.removeEventListener("abort", abort);
+		}
+	};
+}
+//#endregion
+//#region src/firebase-sync-query.ts
+/** Finite stream/discovery REST pages. Only callers own logical delivery positions. */
+var unavailable$1 = () => ({ code: "REMOTE_STATE_UNAVAILABLE" });
+var invalid$1 = () => ({ code: "REMOTE_INPUT_INVALID" });
+function createSyncQuery(context, http, resource, document, status, live) {
+	const base = `projects/${context.config.projectId}/databases/(default)/documents/`;
+	let continuationKey;
+	const key = () => continuationKey ??= crypto.subtle.generateKey({
+		name: "HMAC",
+		hash: "SHA-256"
+	}, false, ["sign", "verify"]);
+	const encodeContinuation = async (binding, last, deadline) => {
+		const bytes = new TextEncoder().encode(JSON.stringify({
+			binding,
+			last,
+			deadline
+		}));
+		const signature = new Uint8Array(await crypto.subtle.sign("HMAC", await key(), bytes));
+		const token = `${base64url(bytes)}.${base64url(signature)}`;
+		if (token.length > 1024) throw unavailable$1();
+		return token;
+	};
+	const decodeContinuation = async (token, binding) => {
+		try {
+			const parts = token.split(".");
+			if (parts.length !== 2) throw invalid$1();
+			const size = Math.floor(parts[0].length * 6 / 8);
+			const bytes = base64urlBytes(parts[0], size);
+			if (!await crypto.subtle.verify("HMAC", await key(), new Uint8Array(base64urlBytes(parts[1], 32)), new Uint8Array(bytes))) throw invalid$1();
+			const row = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+			if (row.binding !== binding || typeof row.deadline !== "number" || Date.now() >= row.deadline || typeof row.last !== "string") throw invalid$1();
+			live();
+			return row.last;
+		} catch {
+			throw invalid$1();
+		}
+	};
+	return async (request, call) => {
+		const q = structuredClone(request);
+		const ordinary = q.shape === "stream";
+		if (ordinary) validateSyncQuery(context, q.query);
+		else validateSyncDiscovery(context, q.query);
+		const r = resource(q.query.resource);
+		const mapping = r.sync.query;
+		const limit = Math.max(1, Math.min(256, Math.floor(397312 / (r.maxObjectBytes + 4096))));
+		const filters = Object.entries(q.query.scope).map(([fieldPath, value]) => ({ fieldFilter: {
+			field: { fieldPath },
+			op: "EQUAL",
+			value
+		} }));
+		if (ordinary) {
+			if (q.query.cursor) filters.push({ fieldFilter: {
+				field: { fieldPath: mapping.seqField },
+				op: "GREATER_THAN",
+				value: { integerValue: String(q.query.cursor.seq) }
+			} });
+		} else if (mapping.discovery.seqEquals !== null) filters.push({ fieldFilter: {
+			field: { fieldPath: mapping.seqField },
+			op: "EQUAL",
+			value: { integerValue: mapping.discovery.seqEquals }
+		} });
+		const segments = `x/${context.extension}/${r.path}`.split("/");
+		const collectionId = segments.pop();
+		const parent = segments.join("/");
+		const structuredQuery = {
+			from: [{ collectionId }],
+			where: { compositeFilter: {
+				op: "AND",
+				filters
+			} },
+			orderBy: [{
+				field: { fieldPath: ordinary ? mapping.seqField : "__name__" },
+				direction: "ASCENDING"
+			}],
+			limit
+		};
+		const bound = call;
+		const binding = JSON.stringify([
+			context.config.projectId,
+			context.declarationDigest,
+			context.space,
+			q.query.resource,
+			q.shape === "discovery" ? q.query.shape : "",
+			Object.entries(q.query.scope).sort(([a], [b]) => a < b ? -1 : 1)
+		]);
+		const queryBody = structuredQuery;
+		if (q.shape === "discovery" && q.query.continuation) {
+			const last = await syncWait(bound, () => decodeContinuation(q.query.continuation, binding));
+			if (!last.startsWith(`${base}${parent}/${collectionId}/`) || !/^[A-Za-z0-9_+-]{1,256}$/.test(last.slice(`${base}${parent}/${collectionId}/`.length))) throw invalid$1();
+			live();
+			syncCallLive(bound);
+			queryBody.startAt = {
+				values: [{ referenceValue: last }],
+				before: false
+			};
+		}
+		const response = await http("query", parent, JSON.stringify({ structuredQuery: queryBody }), bound, limit);
+		if (response.kind === "unknown" || response.status !== 200) {
+			if (response.kind !== "unknown") status(response.status);
+			throw unavailable$1();
+		}
+		if (!Array.isArray(response.value) || response.value.length > limit + 1) throw unavailable$1();
+		const documents = [];
+		for (const row of response.value) {
+			if (typeof row !== "object" || row === null || Object.keys(row).some((key) => ![
+				"document",
+				"readTime",
+				"skippedResults",
+				"transaction",
+				"done"
+			].includes(key))) throw unavailable$1();
+			if ("document" in row) documents.push(await document(row.document, r));
+		}
+		if (documents.length > limit) throw unavailable$1();
+		for (const d of documents) {
+			const fields = validateSyncFields(d.bytes);
+			if (!Object.entries(q.query.scope).every(([key, value]) => JSON.stringify(fields[key]) === JSON.stringify(value))) throw unavailable$1();
+		}
+		live();
+		syncCallLive(bound);
+		if (ordinary) {
+			let position = q.query.cursor?.seq ?? 0;
+			for (const d of documents) {
+				const fields = validateSyncFields(d.bytes);
+				const sequence = Number(fields[mapping.seqField].integerValue);
+				if (sequence !== position + 1) throw {
+					code: "REMOTE_STATE_UNAVAILABLE",
+					state: "catch-up-required"
+				};
+				position = sequence;
+			}
+			return {
+				shape: "stream",
+				page: {
+					documents,
+					...documents.length ? { cursor: {
+						stream: q.query.stream,
+						seq: position
+					} } : {}
+				}
+			};
+		}
+		let continuation;
+		if (documents.length === limit) {
+			const last = `${base}${syncDocumentPath(context, documents.at(-1).target)}`;
+			continuation = await syncWait(bound, () => encodeContinuation(binding, last, bound.deadlineAtMs));
+			live();
+			syncCallLive(bound);
+		}
+		return {
+			shape: "discovery",
+			page: {
+				documents,
+				...continuation ? { continuation } : {}
+			}
+		};
+	};
+}
+//#endregion
+//#region src/firebase-sealed-sync.ts
+/** Bound sealed-document owner. REST data and push hints share identity, never delivery progress. */
+var tab = {
+	writes: 0,
+	listeners: 0,
+	streams: /* @__PURE__ */ new Set()
+};
+var unavailable = () => ({ code: "REMOTE_STATE_UNAVAILABLE" });
+var invalid = () => ({ code: "REMOTE_INPUT_INVALID" });
+var canonicalFields = (value) => JSON.stringify(Object.fromEntries(Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)));
+var digest = async (bytes) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new Uint8Array(bytes))), (b) => b.toString(16).padStart(2, "0")).join("");
+function createSealedSync(context, guard, fetcher, wake, ownerLive, page = { listeners: 0 }, onClose = () => {}) {
+	let closed = false;
+	const subscriptions = /* @__PURE__ */ new Set();
+	const calls = /* @__PURE__ */ new Set();
+	const live = () => {
+		ownerLive();
+		if (closed) throw unavailable();
+	};
+	const http = syncHttp(context, guard, fetcher, live);
+	const base = `projects/${context.config.projectId}/databases/(default)/documents/`;
+	const resource = (name) => {
+		const r = context.resources.find((r) => r.name === name);
+		if (!r) throw invalid();
+		return r;
+	};
+	const invoke = async (call, action) => {
+		live();
+		syncCallLive(call);
+		const controller = new AbortController();
+		const abort = () => controller.abort();
+		call.signal.addEventListener("abort", abort, { once: true });
+		calls.add(controller);
+		try {
+			return await action({
+				...call,
+				signal: controller.signal
+			});
+		} finally {
+			calls.delete(controller);
+			call.signal.removeEventListener("abort", abort);
+		}
+	};
+	const document = async (value, r) => {
+		if (typeof value !== "object" || value === null || !("name" in value) || !("fields" in value) || typeof value.name !== "string" || typeof value.fields !== "object" || value.fields === null || Array.isArray(value.fields)) throw unavailable();
+		const prefix = `${base}x/${context.extension}/${r.path}/`;
+		if (!value.name.startsWith(prefix)) throw unavailable();
+		const id = value.name.slice(prefix.length);
+		const bytes = new TextEncoder().encode(canonicalFields(value.fields));
+		const d = {
+			target: {
+				resource: r.name,
+				id
+			},
+			bytes,
+			digest: await digest(bytes)
+		};
+		live();
+		await validateSyncDocument(context, d, "read");
+		live();
+		return d;
+	};
+	const status = (code) => {
+		if (code === 401 || code === 403) throw { code: "REMOTE_SCOPE_DENIED" };
+		if (code === 429) {
+			const result = classifyProviderExhausted({ mutation: false }, Date.now()).outcome;
+			if (result.outcome === "refused") throw {
+				code: "REMOTE_BUDGET_EXHAUSTED",
+				resetAtMs: result.resetAtMs,
+				retryAfterMs: result.retryAfterMs
+			};
+		}
+		throw unavailable();
+	};
+	const runQuery = createSyncQuery(context, http, resource, document, status, live);
+	return Object.freeze({
+		context,
+		read(target, call) {
+			const path = syncDocumentPath(context, target);
+			const r = resource(target.resource);
+			if (!r.sync) throw unavailable();
+			return invoke(call, async (bound) => {
+				const response = await http("read", path, void 0, bound, 1);
+				if (response.kind === "unknown") throw unavailable();
+				if (response.status === 404) return void 0;
+				if (response.status !== 200) status(response.status);
+				const d = await document(response.value, r);
+				if (d.target.id !== target.id) throw unavailable();
+				syncCallLive(bound);
+				return d;
+			});
+		},
+		query(request, call) {
+			return invoke(call, (bound) => runQuery(request, bound));
+		},
+		async publish(mutation, call) {
+			const desired = mutation.mode === "delete" ? structuredClone(mutation) : {
+				mode: mutation.mode,
+				document: {
+					...mutation.document,
+					target: { ...mutation.document.target },
+					bytes: new Uint8Array(mutation.document.bytes)
+				}
+			};
+			await validateSyncMutation(context, desired);
+			live();
+			syncCallLive(call);
+			const target = desired.mode === "delete" ? desired.target : desired.document.target;
+			const r = resource(target.resource);
+			const fields = desired.mode === "delete" ? void 0 : validateSyncFields(desired.document.bytes);
+			const stream = fields && r.sync.query ? fields[r.sync.query.streamField].stringValue : target.id;
+			const streamKey = JSON.stringify([
+				context.config.projectId,
+				context.uid,
+				stream
+			]);
+			if (tab.streams.has(streamKey) || tab.writes >= 4) throw { code: "REMOTE_RATE_LIMITED" };
+			tab.streams.add(streamKey);
+			tab.writes++;
+			try {
+				const name = `${base}${syncDocumentPath(context, target)}`;
+				const write = desired.mode === "delete" ? { delete: name } : {
+					update: {
+						name,
+						fields
+					},
+					...desired.mode === "create" ? { currentDocument: { exists: false } } : {}
+				};
+				return await invoke(call, async (bound) => {
+					const response = await http("commit", "", JSON.stringify({ writes: [write] }), bound, 0);
+					if (response.kind === "unknown") return response;
+					if (response.status === 409 && desired.mode === "create" && typeof response.value === "object" && response.value !== null && "error" in response.value && typeof response.value.error === "object" && response.value.error !== null && "status" in response.value.error && response.value.error.status === "ALREADY_EXISTS") {
+						const existing = await http("read", syncDocumentPath(context, target), void 0, bound, 1);
+						if (existing.kind === "unknown" || existing.status !== 200) return { kind: "unknown" };
+						const actual = await document(existing.value, r);
+						live();
+						syncCallLive(bound);
+						if (actual.digest === desired.document.digest) return { kind: "already-present" };
+						throw {
+							code: "REMOTE_STATE_UNAVAILABLE",
+							state: "conflict"
+						};
+					}
+					if (response.status === 200 && typeof response.value === "object" && response.value !== null && "writeResults" in response.value && Array.isArray(response.value.writeResults) && response.value.writeResults.length === 1 && "commitTime" in response.value && typeof response.value.commitTime === "string" && Number.isFinite(Date.parse(response.value.commitTime))) return { kind: "confirmed" };
+					return { kind: "unknown" };
+				});
+			} finally {
+				tab.streams.delete(streamKey);
+				tab.writes--;
+			}
+		},
+		async subscribe(interest, call) {
+			const boundInterest = structuredClone(interest);
+			validateSyncInterest(context, boundInterest);
+			if (new TextEncoder().encode(JSON.stringify(boundInterest.scope)).byteLength > 397312) throw invalid();
+			live();
+			syncCallLive(call);
+			if (page.listeners >= 3 || tab.listeners >= 12) throw { code: "REMOTE_RATE_LIMITED" };
+			let ended = false, dirty = false, failed = false;
+			let pending;
+			let stop;
+			const publish = () => {
+				if (ended || closed) return;
+				try {
+					live();
+				} catch {
+					failed = true;
+				}
+				if (pending) {
+					const p = pending;
+					pending = void 0;
+					if (failed) p.reject(unavailable());
+					else {
+						dirty = false;
+						p.resolve({ kind: "changed" });
+					}
+				}
+			};
+			const subscription = {
+				async next(nextCall) {
+					if (ended || failed || closed) throw unavailable();
+					try {
+						live();
+					} catch {
+						throw unavailable();
+					}
+					if (nextCall.signal.aborted) throw {
+						code: "REMOTE_STATE_UNAVAILABLE",
+						state: "cancelled"
+					};
+					if (!Number.isFinite(nextCall.deadlineAtMs)) throw unavailable();
+					if (Date.now() >= nextCall.deadlineAtMs) throw {
+						code: "REMOTE_STATE_UNAVAILABLE",
+						state: "deadline"
+					};
+					if (pending) return Promise.reject({ code: "REMOTE_RATE_LIMITED" });
+					if (dirty) {
+						dirty = false;
+						return Promise.resolve({ kind: "changed" });
+					}
+					return new Promise((resolve, reject) => {
+						const controller = setTimeout(() => {
+							pending?.reject({
+								code: "REMOTE_STATE_UNAVAILABLE",
+								state: "deadline"
+							});
+							pending = void 0;
+						}, Math.max(0, nextCall.deadlineAtMs - Date.now()));
+						const abort = () => {
+							pending?.reject({
+								code: "REMOTE_STATE_UNAVAILABLE",
+								state: "cancelled"
+							});
+							pending = void 0;
+						};
+						nextCall.signal.addEventListener("abort", abort, { once: true });
+						const cleanup = () => {
+							clearTimeout(controller);
+							nextCall.signal.removeEventListener("abort", abort);
+						};
+						pending = {
+							resolve(change) {
+								cleanup();
+								resolve(change);
+							},
+							reject(error) {
+								cleanup();
+								reject(error);
+							}
+						};
+					});
+				},
+				close() {
+					if (ended) return;
+					ended = true;
+					stop?.();
+					subscriptions.delete(subscription);
+					tab.listeners--;
+					page.listeners--;
+					pending?.reject(unavailable());
+					pending = void 0;
+				}
+			};
+			subscriptions.add(subscription);
+			tab.listeners++;
+			page.listeners++;
+			try {
+				await admitSync(guard, {
+					operation: "listen",
+					reads: null,
+					writes: 0,
+					rulesLookupsPerDocument: 3,
+					listener: {
+						initialTail: "all-matching-documents",
+						deliveries: "including-own-writes",
+						catchUp: "additional-rest-reads",
+						reconnects: "fresh-query-cost"
+					}
+				}, call);
+				live();
+				syncCallLive(call);
+				const credential = await syncWait(call, () => context.auth.token(call));
+				live();
+				syncCallLive(call);
+				if ("state" in credential || credential.projectId !== context.config.projectId || credential.uid !== context.uid || !Number.isFinite(credential.expiresAtMs) || credential.expiresAtMs <= Date.now()) throw unavailable();
+				stop = await syncWait(call, async () => {
+					const detach = await wake.listen(context, boundInterest, () => {
+						dirty = true;
+						publish();
+					}, () => {
+						failed = true;
+						publish();
+						subscription.close();
+					});
+					if (ended || closed || call.signal.aborted || Date.now() >= call.deadlineAtMs) {
+						detach();
+						throw unavailable();
+					}
+					return detach;
+				});
+				live();
+				syncCallLive(call);
+				if (ended) throw unavailable();
+				return subscription;
+			} catch (error) {
+				subscription.close();
+				throw error;
+			}
+		},
+		close() {
+			if (closed) return;
+			closed = true;
+			for (const controller of calls) controller.abort();
+			for (const s of subscriptions) s.close();
+			onClose();
+		}
+	});
+}
+//#endregion
+//#region src/firebase-auth.ts
+/** One hosted Auth owner; provider-native answers are not local machine-signed receipts. */
+var hostedPage = { listeners: 0 };
+function mapped(error) {
+	if (error instanceof ClientError || error instanceof RefusalError) return error;
+	const code = typeof error === "object" && error !== null && "code" in error ? error.code : void 0;
+	if (code === "remote/auth-pending") return new RefusalError("REMOTE_STATE_UNAVAILABLE");
+	if (code === "auth/operation-not-allowed") return new RefusalError("REMOTE_SCOPE_DENIED");
+	if (code === "auth/too-many-requests") return new RefusalError("REMOTE_RATE_LIMITED");
+	return new ClientError("transport_failure", "Firebase authentication could not be confirmed.");
+}
+async function bounded$1(action) {
+	const controller = new AbortController();
+	let timer;
+	const deadline = new Promise((_, reject) => {
+		timer = setTimeout(() => {
+			controller.abort();
+			reject(new ClientError("timeout", "Firebase authentication check timed out."));
+		}, HOSTED_BOOTSTRAP_MS);
+	});
+	try {
+		return await Promise.race([action(controller.signal), deadline]);
+	} finally {
+		clearTimeout(timer);
+	}
+}
+/** Ports are internal test edges; the browser entry supplies same-origin fetch and lazy import. */
+async function connectHosted(link, declaration, deps) {
+	let port;
+	let verifiedConfig;
+	const frozenDeclaration = { ...declaration };
+	try {
+		port = await bounded$1(async (signal) => {
+			await verifyHostedDeclaration(frozenDeclaration);
+			const config = await verifyHostedLink(link, deps.origin);
+			verifiedConfig = config;
+			await confirmHostedConfig(config, deps.origin, deps.fetch, signal);
+			if (signal.aborted) throw new ClientError("timeout", "Hosted bootstrap timed out.");
+			const module = await deps.load().catch(() => {
+				throw new RefusalError("REMOTE_STATE_UNAVAILABLE");
+			});
+			if (signal.aborted) throw new ClientError("timeout", "Hosted bootstrap timed out.");
+			const initialized = await module.initialize(config);
+			if (signal.aborted) {
+				await initialized.close();
+				throw new ClientError("timeout", "Hosted bootstrap timed out.");
+			}
+			return initialized;
+		});
+	} catch (error) {
+		throw mapped(error);
+	}
+	let closed = false;
+	let uid;
+	let generation = 0;
+	const syncOwners = /* @__PURE__ */ new Set();
+	let pending;
+	let closing;
+	const live = () => {
+		if (closed) throw new RefusalError("REMOTE_CLOSED");
+	};
+	return Object.freeze({
+		async sealedSync(space, guard) {
+			live();
+			if (!uid || !port.syncAuth || !port.wake) throw new RefusalError("REMOTE_STATE_UNAVAILABLE");
+			if (!guard || typeof guard.admit !== "function") throw new RefusalError("REMOTE_INPUT_INVALID");
+			const identity = uid, stamp = generation;
+			const fence = () => {
+				live();
+				if (stamp !== generation || uid !== identity) throw new RefusalError("REMOTE_STATE_UNAVAILABLE");
+				port.assertSyncIdentity?.(identity);
+			};
+			const context = await bindSyncContext(verifiedConfig, frozenDeclaration, space, port.syncAuth(identity));
+			fence();
+			const bound = createSealedSync(context, guard, deps.fetch, port.wake, fence, hostedPage, () => syncOwners.delete(bound));
+			syncOwners.add(bound);
+			return bound;
+		},
+		signInAnonymous() {
+			live();
+			if (!pending) pending = bounded$1(async (signal) => {
+				try {
+					const signedIn = await port.signInAnonymous();
+					live();
+					if (signal.aborted) throw new ClientError("timeout", "Firebase authentication check timed out.");
+					if (typeof signedIn !== "string" || signedIn.length === 0 || signedIn.length > 128) throw new ClientError("unverifiable_response", "Firebase identity could not be confirmed.");
+					uid = signedIn;
+					return signedIn;
+				} catch (error) {
+					throw mapped(error);
+				}
+			}).finally(() => {
+				pending = void 0;
+			});
+			return pending;
+		},
+		async signOut() {
+			live();
+			if (pending) throw new RefusalError("REMOTE_STATE_UNAVAILABLE");
+			generation++;
+			uid = void 0;
+			for (const owner of syncOwners) owner.close();
+			syncOwners.clear();
+			try {
+				await bounded$1(() => port.signOut());
+				live();
+			} catch (error) {
+				throw mapped(error);
+			}
+		},
+		close() {
+			closed = true;
+			generation++;
+			uid = void 0;
+			for (const owner of syncOwners) owner.close();
+			syncOwners.clear();
+			closing ??= port.close().catch((error) => {
+				throw mapped(error);
+			});
+			return closing;
+		}
+	});
+}
+//#endregion
+//#region src/session-reopen.ts
+var ReopenSessionError = class extends Error {
+	reason;
+	detail;
+	cause;
+	constructor(reason, detail, cause) {
+		super(`Remote session admission: ${reason} (${detail}).`);
+		this.reason = reason;
+		this.detail = detail;
+		this.name = "ReopenSessionError";
+		this.cause = cause;
+	}
+};
+var DEADLINE = 2e4;
+var ATTEMPT = 4e3;
+var DELAYS = [
+	250,
+	500,
+	1e3
+];
+var runtime = {
+	now: () => performance.now(),
+	later: (callback, ms) => setTimeout(callback, ms),
+	clear: (timer) => clearTimeout(timer),
+	jitter: () => crypto.getRandomValues(/* @__PURE__ */ new Uint32Array(1))[0] / 4294967296
+};
+function active(signal) {
+	if (signal?.aborted) throw new ReopenSessionError("transient", "cancelled");
+}
+/** Bounds even a provider that ignores AbortSignal; abandoned work cannot publish a Session. */
+function bounded(action, ms, owner, clock) {
+	return new Promise((resolve, reject) => {
+		const child = new AbortController();
+		const end = clock.now() + ms;
+		let settled = false;
+		let timer;
+		const finish = (value, error) => {
+			if (settled) return;
+			settled = true;
+			if (timer !== void 0) clock.clear(timer);
+			owner?.removeEventListener("abort", cancel);
+			child.abort();
+			if (error !== void 0) reject(error);
+			else if (clock.now() >= end) reject(new ReopenSessionError("unreachable", "budget-exhausted"));
+			else resolve(value);
+		};
+		const cancel = () => finish(void 0, new ReopenSessionError("transient", "cancelled"));
+		if (owner?.aborted) return cancel();
+		owner?.addEventListener("abort", cancel, { once: true });
+		timer = clock.later(() => finish(void 0, new ReopenSessionError("unreachable", "budget-exhausted")), ms);
+		Promise.resolve().then(() => action(child.signal)).then((value) => finish(value), (error) => finish(void 0, error));
+	});
+}
+async function boundedAdmission(attempt, signal, clock = runtime) {
+	const end = clock.now() + DEADLINE;
+	let last = new ReopenSessionError("unreachable", "budget-exhausted");
+	let ambiguous = false;
+	for (let index = 0; index < 4; index++) {
+		active(signal);
+		const remaining = end - clock.now();
+		if (remaining <= 0) break;
+		try {
+			const value = await bounded(attempt, Math.min(ATTEMPT, remaining), signal, clock);
+			active(signal);
+			return value;
+		} catch (error) {
+			if (!(error instanceof ReopenSessionError)) throw new ReopenSessionError("transient", "admission-unconfirmed");
+			if ([
+				"capacity",
+				"mismatch",
+				"unpaired",
+				"revoked",
+				"expired"
+			].includes(error.reason) || ["cancelled", "unverifiable-response"].includes(error.detail)) throw error;
+			last = error;
+			ambiguous ||= error.reason === "unconfirmed";
+		}
+		const delay = DELAYS[index];
+		if (delay === void 0) break;
+		const wait = Math.min(Math.floor(delay + delay * .25 * clock.jitter()), end - clock.now());
+		if (wait <= 0) break;
+		try {
+			await bounded((waiting) => new Promise((resolve) => {
+				const timer = clock.later(() => {
+					waiting.removeEventListener("abort", cancel);
+					resolve();
+				}, wait);
+				const cancel = () => clock.clear(timer);
+				waiting.addEventListener("abort", cancel, { once: true });
+			}), end - clock.now(), signal, clock);
+		} catch (error) {
+			active(signal);
+			if (!(error instanceof ReopenSessionError) || error.detail === "cancelled") throw error;
+			break;
+		}
+	}
+	active(signal);
+	throw new ReopenSessionError(ambiguous ? "unconfirmed" : last.reason, "budget-exhausted");
+}
+//#endregion
+//#region src/firestore.ts
+var deploy = "tmt remote deploy firestore";
+var firestoreReasons = {
+	project: {
+		"not-configured": ["No Firebase project is set up.", true],
+		"access-lost": ["tmt can no longer reach the Firebase project.", true],
+		"not-checked": ["The Firebase project has not been checked.", false]
+	},
+	"sign-in": {
+		"provider-disabled": ["Sign-in is not enabled for the project.", true],
+		"permission-missing": ["This account isn't allowed to turn on sign-in for the project.", false],
+		"not-checked": ["Sign-in has not been checked.", false]
+	},
+	rules: {
+		"not-deployed": ["Firestore rules are not deployed.", true],
+		"out-of-date": ["Firestore rules are out of date.", true],
+		partial: ["Firestore rules are only partly deployed.", true],
+		"not-checked": ["Firestore rules have not been checked.", false]
+	},
+	"plan-tier": {
+		"paid-plan-required": ["This needs a paid Firebase plan.", false],
+		"not-checked": ["The Firebase plan has not been checked.", false]
+	},
+	quota: {
+		"headroom-low": ["Today's free Firebase quota is almost used up.", false],
+		exhausted: ["Today's free Firebase quota is used up.", false],
+		"not-checked": ["The free Firebase quota has not been checked.", false]
+	},
+	support: { "not-implemented": ["This isn't available in this release yet.", false] }
+};
+var firestoreSpecs = [
+	["sharing", [
+		"project",
+		"sign-in",
+		"rules",
+		"plan-tier",
+		"quota"
+	]],
+	["operations", ["plan-tier", "support"]],
+	["attachments", [
+		"support",
+		"project",
+		"rules",
+		"quota"
+	]]
+];
+function requireValid(condition) {
+	if (!condition) throw new Error("Invalid Firestore readiness response.");
+}
+function object$1(value) {
+	requireValid(typeof value === "object" && value !== null && !Array.isArray(value));
+	return value;
+}
+function keys(row, expected) {
+	requireValid(Object.keys(row).length === expected.length && expected.every((key) => Object.hasOwn(row, key)));
+}
+function parseFirestoreLayers(value) {
+	requireValid(Array.isArray(value));
+	if (!value.length) return [];
+	requireValid(value.length === firestoreSpecs.length);
+	for (const [index, [layer, items]] of firestoreSpecs.entries()) {
+		const row = object$1(value[index]);
+		keys(row, [
+			"layer",
+			"state",
+			"prerequisites"
+		]);
+		requireValid(row.layer === layer && Array.isArray(row.prerequisites) && row.prerequisites.length === items.length);
+		const states = [];
+		for (const [i, item] of items.entries()) {
+			const entry = object$1(row.prerequisites[i]);
+			requireValid(entry.item === item && [
+				"enabled",
+				"not-enabled",
+				"unknown"
+			].includes(entry.state));
+			states.push(entry.state);
+			if (entry.state === "enabled") {
+				keys(entry, ["item", "state"]);
+				continue;
+			}
+			const reason = typeof entry.reason === "string" && Object.hasOwn(firestoreReasons[item], entry.reason) ? firestoreReasons[item][entry.reason] : void 0;
+			requireValid(reason && entry.state === "unknown" === (entry.reason === "not-checked"));
+			requireValid(entry.reason !== "paid-plan-required" || layer === "operations");
+			keys(entry, reason[1] ? [
+				"item",
+				"state",
+				"reason",
+				"next"
+			] : [
+				"item",
+				"state",
+				"reason"
+			]);
+			requireValid(entry.next === (reason[1] ? deploy : void 0));
+		}
+		const aggregate = states.includes("not-enabled") ? "not-enabled" : states.includes("unknown") ? "unknown" : "enabled";
+		requireValid(row.state === aggregate);
+	}
 	return value;
 }
 //#endregion

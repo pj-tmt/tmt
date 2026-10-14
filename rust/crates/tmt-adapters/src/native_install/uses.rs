@@ -141,11 +141,11 @@ pub fn valid_feature(text: &str) -> bool {
 }
 
 /// An installable official extension named `name`, other than `owner` when one
-/// is given (Office is frozen, the CLI is not an extension).
+/// is given (the CLI is not an extension).
 pub fn extension_named(name: &str, owner: Option<Product>) -> Option<Product> {
     Product::ALL
         .into_iter()
-        .filter(|product| !matches!(product, Product::Cli | Product::Office))
+        .filter(|product| !matches!(product, Product::Cli))
         .find(|product| product.as_str() == name && Some(*product) != owner)
 }
 
@@ -314,7 +314,7 @@ pub struct Affected {
 pub fn affected(prefix: &Path, target: Product, result: Option<&Version>) -> Vec<Affected> {
     Product::ALL
         .into_iter()
-        .filter(|product| !matches!(product, Product::Cli | Product::Office) && *product != target)
+        .filter(|product| !matches!(product, Product::Cli) && *product != target)
         .flat_map(|owner| {
             statuses(owner, prefix)
                 .unwrap_or_default()
@@ -408,7 +408,7 @@ mod tests {
             ),
             ("unknown extension", with("remote", "nothing")),
             ("the cli is not an extension", with("remote", "cli")),
-            ("frozen extension", with("remote", "office")),
+            ("retired extension", with("remote", "office")),
             ("itself", with("remote", "colab")),
             ("range operator", with(">=0.1.0-alpha.1", "^0.1.0")),
             ("exact version", with(">=0.1.0-alpha.1", "0.1.0")),
