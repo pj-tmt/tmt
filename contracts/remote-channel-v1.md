@@ -2022,19 +2022,21 @@ adapter or change LocalFs startup: accounting still opens fail-closed.
 **Activation and compatibility.** A capable installed Colab invokes the hidden host protocol
 `tmt remote __activate --extension <name> --deadline-ms <absolute Unix milliseconds> --json`
 through its existing supervisor subprocess owner and its own timeout. It is absent from help,
-completions and the handbook. Success is exactly `{"generation":"<lowercase UUIDv4>"}`;
+completions and the handbook. Success is exactly `{"generation":"<lowercase UUIDv4>","project":"<project id>"}`;
+the validated project is the registered native factory's startup selection, not a deploy-record
+projection or another status read.
 failures exit nonzero with `{"error":{"code":"<code>","message":"<message>","state":"deadline"}}`
 (the state member appears only for deadline). Codes reuse `REMOTE_NOT_RUNNING` for absent/refused
 socket, `REMOTE_STATE_UNSAFE` for an unsafe/foreign-owned path, `REMOTE_STATE_UNAVAILABLE` with
-state `deadline`, and `REMOTE_SERVE_OUTDATED` for unsupported or the exact legacy unknown-op
-refusal. Other typed refusals pass through, including `REMOTE_SCOPE_DENIED` for an undeclared
+state `deadline`, and `REMOTE_SERVE_OUTDATED` for unsupported, the exact legacy unknown-op
+refusal or a valid old three-member activation success: restart the door, never guess a project. Other typed refusals pass through, including `REMOTE_SCOPE_DENIED` for an undeclared
 extension. An already-spent deadline causes no I/O. Root discovery and the single control
 exchange share the caller's bound; no scan, state creation, restart or fallback occurs.
 
 Only Remote discovers/adopts its private control address. Colab neither derives that path
 nor reads Remote records or imports Remote types. The CLI sends exactly
 `{"op":"sync.activate","extension":"colab","version":3}` internally, with success
-`{"activated":true,"version":3,"generation":"<lowercase UUIDv4>"}`. An unsupported version
+`{"activated":true,"version":3,"generation":"<lowercase UUIDv4>","project":"<project id>"}`. An unsupported version
 is `REMOTE_CONTROL_UNSUPPORTED`; malformed/extra input is `REMOTE_INPUT_INVALID`.
 The extension must be in the existing enabled Local declaration list and have a registered
 factory. Activation uses the existing bounded single-flight setup owner; a failed candidate

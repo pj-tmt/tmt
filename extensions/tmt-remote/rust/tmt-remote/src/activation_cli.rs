@@ -11,6 +11,7 @@ use tmt_remote::{
     control::{self, ActivationFailure},
     core::CoreClient,
     error::RemoteError,
+    object_service::NativeActivationInfo,
     state::Layout,
 };
 
@@ -52,7 +53,7 @@ fn deadline(value: &str) -> Result<Instant, ActivationFailure> {
         ))
         .ok_or_else(invalid)
 }
-fn activate(args: &ArgMatches) -> Result<String, ActivationFailure> {
+fn activate(args: &ArgMatches) -> Result<NativeActivationInfo, ActivationFailure> {
     let extension = args.get_one::<String>("extension").ok_or_else(invalid)?;
     if !tmt_remote::canonical::extension_name(extension)
         || !args.get_flag("json")
@@ -91,7 +92,10 @@ fn activate(args: &ArgMatches) -> Result<String, ActivationFailure> {
 }
 pub(super) fn run(args: &ArgMatches) -> ExitCode {
     let (value, exit) = match activate(args) {
-        Ok(generation) => (json!({"generation":generation}), ExitCode::SUCCESS),
+        Ok(reply) => (
+            json!({"generation":reply.generation,"project":reply.project}),
+            ExitCode::SUCCESS,
+        ),
         Err(ActivationFailure::Deadline) => (
             json!({"error":{"code":"REMOTE_STATE_UNAVAILABLE","message":"Native sync activation deadline elapsed.","state":"deadline"}}),
             ExitCode::FAILURE,

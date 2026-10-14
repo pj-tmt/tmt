@@ -29,7 +29,7 @@ use tmt_extension_objects::{
 
 mod activation;
 mod readiness;
-pub use activation::{NativeActivation, Reactivation};
+pub use activation::{NativeActivation, NativeActivationInfo, Reactivation};
 pub use readiness::ObjectReadiness;
 
 mod config;

@@ -6,7 +6,7 @@ use crate::{
     devices::{Devices, device_json},
     error::RemoteError,
     firestore_limits,
-    object_service::ObjectReadiness,
+    object_service::{NativeActivationInfo, ObjectReadiness},
     pairing::{End, Pairing, PairingEvent},
     readiness::{self, FirestoreEvidenceSource, NotConfigured},
     state::Serving,
@@ -363,8 +363,10 @@ fn session(
                     "Native sync activation is unavailable.",
                 )
             })?;
-            let generation = native.activate_native(name, Instant::now() + REQUEST_WAIT)?;
-            Ok(json!({"activated":true,"version":3,"generation":generation}))
+            let reply = native.activate_native(name, Instant::now() + REQUEST_WAIT)?;
+            Ok(
+                json!({"activated":true,"version":3,"generation":reply.generation,"project":reply.project}),
+            )
         })()),
         Some("status") if request == json!({"op":"status"}) => Some(Ok(json!({
             "running":true, "origin":door.door.origin, "path":door.door.prefix,
@@ -887,7 +889,7 @@ pub fn activate_native_until(
     remote_directory: &Path,
     extension: &str,
     deadline: Instant,
-) -> Result<String, ActivationFailure> {
+) -> Result<NativeActivationInfo, ActivationFailure> {
     if Instant::now() >= deadline {
         return Err(ActivationFailure::Deadline);
     }
@@ -909,19 +911,44 @@ pub fn activate_native_until(
         }
     })?
     .ok_or_else(|| ActivationFailure::Refused(not_running()))?;
-    if answer.as_object().is_none_or(|row| row.len() != 3)
-        || answer["activated"] != json!(true)
-        || answer["version"] != json!(3)
+    let row = answer
+        .as_object()
+        .ok_or_else(|| ActivationFailure::Refused(io_error("invalid native activation reply")))?;
+    if answer["activated"] != json!(true) || answer["version"] != json!(3) {
+        return Err(ActivationFailure::Refused(io_error(
+            "invalid native activation reply",
+        )));
+    }
+    let generation = answer["generation"]
+        .as_str()
+        .filter(|value| canonical::uuid(value).is_ok())
+        .ok_or_else(|| {
+            ActivationFailure::Refused(io_error("invalid native activation generation"))
+        })?;
+    if row.len() == 3
+        && row
+            .keys()
+            .all(|key| ["activated", "version", "generation"].contains(&key.as_str()))
+    {
+        return Err(ActivationFailure::Refused(outdated_serve()));
+    }
+    if row.len() != 4
+        || !row
+            .keys()
+            .all(|key| ["activated", "version", "generation", "project"].contains(&key.as_str()))
     {
         return Err(ActivationFailure::Refused(io_error(
             "invalid native activation reply",
         )));
     }
-    answer["generation"]
+    let project = answer["project"]
         .as_str()
-        .filter(|value| canonical::uuid(value).is_ok())
-        .map(str::to_owned)
-        .ok_or_else(|| ActivationFailure::Refused(io_error("invalid native activation generation")))
+        .filter(|value| crate::deploy_run::project_ok(value))
+        .ok_or_else(|| ActivationFailure::Refused(io_error("invalid native activation project")))?;
+    Ok(NativeActivationInfo {
+        generation: generation.to_owned(),
+        project: project.to_owned(),
+    })
 }
 
 /// Absence is a transport observation, distinct from a connected peer's
