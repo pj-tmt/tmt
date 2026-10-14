@@ -22,8 +22,11 @@ fn limit() -> Instant {
     Instant::now() + Duration::from_secs(3)
 }
 fn pair() -> (ObjectChannel, Bus) {
+    pair_version(false)
+}
+fn pair_version(sync: bool) -> (ObjectChannel, Bus) {
     let mut accepted = None;
-    let link = negotiate(limit(), || {
+    let mut connect = || {
         let (remote, extension) = UnixStream::pair().unwrap();
         let interrupt = extension.try_clone().unwrap();
         assert!(
@@ -51,8 +54,13 @@ fn pair() -> (ObjectChannel, Bus) {
                 generation: Uuid4::parse(GENERATION).unwrap(),
             },
         ))
-    })
-    .unwrap();
+    };
+    let link = if sync {
+        let (stream, offer) = connect().unwrap();
+        tmt_extension_objects::negotiate_sync(stream, &offer, limit()).unwrap()
+    } else {
+        negotiate(limit(), connect).unwrap()
+    };
     (
         accepted.unwrap().join().unwrap(),
         Bus::start(link, Budgets::contract(), Caps::contract(), None).unwrap(),
@@ -1064,4 +1072,323 @@ fn actual_reader_ticket_keeps_read_identity_under_an_owner_session_origin() {
     jobs.close();
     drop(channel);
     assert!(remote.recv(Some(limit())).is_err());
+}
+
+#[test]
+fn sealed_and_object_requests_share_the_reader_and_counter() {
+    use tmt_extension_objects::sync;
+    let (channel, remote) = pair_version(true);
+    let client = channel.client();
+    assert!(client.supports_sync().unwrap());
+    let caller = client.clone();
+    let bind = thread::spawn(move || {
+        caller.sealed_request(
+            sync::Call::Bind {
+                project: "fixture".into(),
+                extension: "colab".into(),
+                declaration_digest: "aa".repeat(32),
+                space: "space".into(),
+            },
+            limit(),
+        )
+    });
+    let ChannelFrame::Sync(sync::Frame::Request {
+        request_id,
+        generation,
+        call,
+        ..
+    }) = remote.recv_channel_stamped(Some(limit())).unwrap().frame
+    else {
+        panic!("sync request")
+    };
+    assert_eq!(request_id, "1");
+    remote
+        .send_channel(&ChannelFrame::Sync(sync::Frame::Result {
+            version: 1,
+            generation,
+            request_id: request_id.clone(),
+            method: call.method(),
+            outcome: sync::Outcome::Binding {
+                context: sync::BoundContext {
+                    id: "22222222-2222-4222-8222-222222222222".into(),
+                    project: "fixture".into(),
+                    extension: "colab".into(),
+                    declaration_digest: "aa".repeat(32),
+                    space: "space".into(),
+                    uid: "owner".into(),
+                },
+            },
+        }))
+        .unwrap();
+    assert!(matches!(
+        bind.join().unwrap().unwrap().1,
+        sync::Outcome::Binding { .. }
+    ));
+    let owner = Arc::new(Current(AtomicBool::new(true), AtomicUsize::new(0)));
+    let caller = client.clone();
+    let object =
+        thread::spawn(move || caller.request(Origin::LocalExtension, config(), owner, limit()));
+    let req = receive(&remote);
+    assert_eq!(req.request_id.get(), 2);
+    assert_eq!(
+        admit(&remote, &req, 1, Checkpoint::Acquire, None).decision,
+        Decision::Allow
+    );
+    finish(
+        &remote,
+        req,
+        Outcome::Failure(tmt_extension_objects::ErrorCode::Denied),
+    );
+    assert!(object.join().unwrap().is_ok());
+    drop(channel);
+    assert!(
+        client
+            .sealed_request(
+                sync::Call::Bind {
+                    project: "fixture".into(),
+                    extension: "colab".into(),
+                    declaration_digest: "aa".repeat(32),
+                    space: "space".into(),
+                },
+                limit()
+            )
+            .is_err()
+    );
+}
+
+#[test]
+fn a_legacy_channel_refuses_sealed_calls_without_losing_objects() {
+    use tmt_extension_objects::sync;
+    let (channel, remote) = pair();
+    let client = channel.client();
+    assert!(!client.supports_sync().unwrap());
+    assert!(matches!(
+        client.sealed_request(
+            sync::Call::Bind {
+                project: "fixture".into(),
+                extension: "colab".into(),
+                declaration_digest: "aa".repeat(32),
+                space: "space".into(),
+            },
+            limit()
+        ),
+        Err(Error::Wire(Fault::UnsupportedSync))
+    ));
+    let owner = Arc::new(Current(AtomicBool::new(true), AtomicUsize::new(0)));
+    let object =
+        thread::spawn(move || client.request(Origin::LocalExtension, config(), owner, limit()));
+    let req = receive(&remote);
+    assert_eq!(
+        req.request_id.get(),
+        1,
+        "unsupported sync never consumes an object request ID"
+    );
+    finish(
+        &remote,
+        req,
+        Outcome::Failure(tmt_extension_objects::ErrorCode::Denied),
+    );
+    assert!(object.join().unwrap().is_ok());
+    assert!(channel.active());
+}
+
+fn sealed_answer(
+    client: &Client,
+    remote: &Bus,
+    call: tmt_extension_objects::sync::Call,
+    answer: impl FnOnce(&str) -> tmt_extension_objects::sync::Outcome,
+) -> (Counter, tmt_extension_objects::sync::Outcome) {
+    use tmt_extension_objects::sync;
+    let caller = client.clone();
+    let request = thread::spawn(move || caller.sealed_request(call, limit()));
+    let ChannelFrame::Sync(sync::Frame::Request {
+        request_id,
+        generation,
+        call,
+        ..
+    }) = remote.recv_channel_stamped(Some(limit())).unwrap().frame
+    else {
+        panic!("sync request")
+    };
+    remote
+        .send_channel(&ChannelFrame::Sync(sync::Frame::Result {
+            version: 1,
+            generation,
+            method: call.method(),
+            outcome: answer(&request_id),
+            request_id,
+        }))
+        .unwrap();
+    request.join().unwrap().unwrap()
+}
+fn sealed_binding(client: &Client, remote: &Bus) -> String {
+    use tmt_extension_objects::sync;
+    let context = sync::BoundContext {
+        id: "22222222-2222-4222-8222-222222222222".into(),
+        project: "fixture".into(),
+        extension: "colab".into(),
+        declaration_digest: "aa".repeat(32),
+        space: "space".into(),
+        uid: "owner".into(),
+    };
+    let id = context.id.clone();
+    sealed_answer(
+        client,
+        remote,
+        sync::Call::Bind {
+            project: context.project.clone(),
+            extension: context.extension.clone(),
+            declaration_digest: context.declaration_digest.clone(),
+            space: context.space.clone(),
+        },
+        |_| sync::Outcome::Binding { context },
+    );
+    id
+}
+#[test]
+fn changed_coalesces_and_terminal_interests_stay_until_confirmed_cancel() {
+    use tmt_extension_objects::sync;
+    let (channel, remote) = pair_version(true);
+    let client = channel.client();
+    let binding = sealed_binding(&client, &remote);
+    let scope =
+        serde_json::Map::from_iter([("space".into(), serde_json::json!({"stringValue":"space"}))]);
+    let (subscription, _) = sealed_answer(
+        &client,
+        &remote,
+        sync::Call::Subscribe {
+            binding: binding.clone(),
+            interest: sync::Interest {
+                resource: "log".into(),
+                scope,
+            },
+        },
+        |id| sync::Outcome::Subscribed { id: id.into() },
+    );
+    for seq in 1..=2 {
+        remote
+            .send_channel(&ChannelFrame::Sync(sync::Frame::Notice {
+                version: 1,
+                generation: GENERATION.into(),
+                subscription_id: subscription.to_string(),
+                sequence: seq.to_string(),
+                notice: sync::InterestNotice::Changed,
+            }))
+            .unwrap();
+    }
+    // The following result joins the reader past both notices without a sleep.
+    sealed_answer(
+        &client,
+        &remote,
+        sync::Call::Read {
+            binding: binding.clone(),
+            target: sync::Target {
+                resource: "log".into(),
+                id: "record".into(),
+            },
+        },
+        |_| sync::Outcome::Read { document: None },
+    );
+    assert_eq!(
+        client.sealed_notice(subscription).unwrap(),
+        Some(sync::InterestNotice::Changed)
+    );
+    assert_eq!(client.sealed_notice(subscription).unwrap(), None);
+    let failure = sync::Error {
+        code: sync::Code::Unavailable,
+        state: Some(sync::State::Revoking),
+        reset_at_ms: None,
+        retry_after_ms: None,
+    };
+    remote
+        .send_channel(&ChannelFrame::Sync(sync::Frame::Notice {
+            version: 1,
+            generation: GENERATION.into(),
+            subscription_id: subscription.to_string(),
+            sequence: "3".into(),
+            notice: sync::InterestNotice::Terminal {
+                error: failure.clone(),
+            },
+        }))
+        .unwrap();
+    sealed_answer(
+        &client,
+        &remote,
+        sync::Call::Read {
+            binding: binding.clone(),
+            target: sync::Target {
+                resource: "log".into(),
+                id: "record".into(),
+            },
+        },
+        |_| sync::Outcome::Read { document: None },
+    );
+    for _ in 0..2 {
+        assert_eq!(
+            client.sealed_notice(subscription).unwrap(),
+            Some(sync::InterestNotice::Terminal {
+                error: failure.clone()
+            })
+        );
+    }
+    sealed_answer(
+        &client,
+        &remote,
+        sync::Call::Cancel {
+            binding: binding.clone(),
+            subscription_id: subscription.to_string(),
+        },
+        |_| sync::Outcome::Error {
+            error: failure.clone(),
+        },
+    );
+    assert!(
+        client.sealed_notice(subscription).unwrap().is_some(),
+        "refused cancel retains slot"
+    );
+    sealed_answer(
+        &client,
+        &remote,
+        sync::Call::Cancel {
+            binding,
+            subscription_id: subscription.to_string(),
+        },
+        |_| sync::Outcome::Cancelled {
+            id: subscription.to_string(),
+        },
+    );
+    assert!(client.sealed_notice(subscription).is_err());
+    assert!(channel.active());
+}
+
+#[test]
+fn closing_a_generation_joins_the_reader_and_wakes_an_interest_waiter() {
+    use tmt_extension_objects::sync;
+    let (channel, remote) = pair_version(true);
+    let client = channel.client();
+    let binding = sealed_binding(&client, &remote);
+    let (subscription, _) = sealed_answer(
+        &client,
+        &remote,
+        sync::Call::Subscribe {
+            binding,
+            interest: sync::Interest {
+                resource: "log".into(),
+                scope: serde_json::Map::new(),
+            },
+        },
+        |id| sync::Outcome::Subscribed { id: id.into() },
+    );
+    assert_eq!(
+        client
+            .sealed_notice_until(subscription, Instant::now())
+            .unwrap(),
+        None
+    );
+    let caller = client.clone();
+    let wait = thread::spawn(move || caller.sealed_notice_until(subscription, limit()));
+    drop(channel);
+    assert!(matches!(wait.join().unwrap(), Err(Error::Unavailable)));
+    assert!(client.sealed_notice(subscription).is_err());
+    assert!(remote.recv_channel_stamped(Some(limit())).is_err());
 }
