@@ -15,6 +15,7 @@ mod activation;
 #[cfg(test)]
 mod fixture;
 mod interests;
+mod publisher;
 #[cfg(test)]
 mod tests;
 mod worker;

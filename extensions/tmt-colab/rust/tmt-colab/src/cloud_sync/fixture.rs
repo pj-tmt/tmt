@@ -152,3 +152,127 @@ pub(crate) fn activated() -> Result<Activation, ActivationFailure> {
 pub(crate) fn within() -> std::time::Instant {
     limit()
 }
+
+/// An in-memory Firestore for the publisher: create-only conflicts, whole-field puts, and
+/// scripted effects that are lost, acknowledged-but-unseen, or refused.
+#[derive(Default)]
+pub(crate) struct Faults {
+    /// The next create is stored, but its answer is lost: `Published::Unknown`.
+    pub unknown_after_store: bool,
+    /// The next create is not stored and its answer is lost.
+    pub unknown_without_store: bool,
+    pub refuse_next: Option<sync::Error>,
+}
+#[derive(Clone, Default)]
+pub(crate) struct Firestore {
+    pub docs: Arc<
+        Mutex<
+            std::collections::BTreeMap<
+                (String, String),
+                serde_json::Map<String, serde_json::Value>,
+            >,
+        >,
+    >,
+    pub faults: Arc<Mutex<Faults>>,
+    /// Every publish and read in arrival order: (kind, resource, id).
+    pub log: Arc<Mutex<Vec<(&'static str, String, String)>>>,
+}
+impl Firestore {
+    pub(crate) fn answer(&self, call: &sync::Call, request_id: &str) -> sync::Outcome {
+        match call {
+            sync::Call::Read { target, .. } => {
+                self.log
+                    .lock()
+                    .unwrap()
+                    .push(("read", target.resource.clone(), target.id.clone()));
+                if let Some(error) = self.faults.lock().unwrap().refuse_next.take() {
+                    return sync::Outcome::Error { error };
+                }
+                let document = self
+                    .docs
+                    .lock()
+                    .unwrap()
+                    .get(&(target.resource.clone(), target.id.clone()))
+                    .map(|fields| seal(&target.resource, &target.id, fields.clone()));
+                sync::Outcome::Read { document }
+            }
+            sync::Call::Publish { mutation, .. } => {
+                let (kind, document) = match mutation {
+                    sync::Mutation::Create { document } => ("create", document),
+                    sync::Mutation::Put { document } => ("put", document),
+                    sync::Mutation::Delete { .. } => panic!("no delete"),
+                };
+                self.log.lock().unwrap().push((
+                    kind,
+                    document.target.resource.clone(),
+                    document.target.id.clone(),
+                ));
+                let mut faults = self.faults.lock().unwrap();
+                if let Some(error) = faults.refuse_next.take() {
+                    return sync::Outcome::Error { error };
+                }
+                let key = (document.target.resource.clone(), document.target.id.clone());
+                let mut docs = self.docs.lock().unwrap();
+                if kind == "create" && faults.unknown_without_store {
+                    faults.unknown_without_store = false;
+                    return sync::Outcome::Published {
+                        status: sync::Published::Unknown,
+                    };
+                }
+                let status = match (kind, docs.get(&key)) {
+                    ("create", Some(existing)) if *existing == document.fields => {
+                        sync::Published::AlreadyPresent
+                    }
+                    ("create", Some(_)) => {
+                        return sync::Outcome::Error {
+                            error: sync::Error {
+                                code: sync::Code::Unavailable,
+                                state: Some(sync::State::Conflict),
+                                reset_at_ms: None,
+                                retry_after_ms: None,
+                            },
+                        };
+                    }
+                    _ => {
+                        docs.insert(key, document.fields.clone());
+                        sync::Published::Confirmed
+                    }
+                };
+                if kind == "create" && faults.unknown_after_store {
+                    faults.unknown_after_store = false;
+                    return sync::Outcome::Published {
+                        status: sync::Published::Unknown,
+                    };
+                }
+                sync::Outcome::Published { status }
+            }
+            other => friendly(other, request_id),
+        }
+    }
+}
+pub(crate) fn document(resource: &str, id: &str, pairs: &[(&str, &str)]) -> sync::Document {
+    let fields: serde_json::Map<String, serde_json::Value> = pairs
+        .iter()
+        .map(|(k, v)| ((*k).into(), serde_json::json!({"stringValue": v})))
+        .collect();
+    seal(resource, id, fields)
+}
+/// A document whose digest is the SHA-256 of its canonical fields, as the bus requires.
+pub(crate) fn seal(
+    resource: &str,
+    id: &str,
+    fields: serde_json::Map<String, serde_json::Value>,
+) -> sync::Document {
+    let digest = tmt_extension_objects::Sha256Hex::from_bytes(tmt_colab_model::crypto::digest(
+        &serde_json::to_vec(&fields).unwrap(),
+    ))
+    .to_string();
+    sync::Document {
+        target: sync::Target {
+            resource: resource.into(),
+            id: id.into(),
+        },
+        fields,
+        digest,
+    }
+}
