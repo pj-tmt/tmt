@@ -2,7 +2,7 @@
 use super::*;
 use crate::sealed_sync::SealedSyncPort;
 use tmt_extension_objects::{ChannelFrame, sync as wire};
-static NOTES: [Extension; 1] = [declared("notes", ObjectDeclaration::Local)];
+pub(super) static NOTES: [Extension; 1] = [declared("notes", ObjectDeclaration::Local)];
 #[test]
 fn a_selected_legacy_version_is_a_typed_native_activation_refusal() {
     use std::io::{Read, Write};
@@ -69,7 +69,7 @@ fn send(peer: &Peer, id: u64, call: wire::Call) {
     }))
     .unwrap();
 }
-fn outcome(peer: &Peer) -> wire::Outcome {
+pub(super) fn outcome(peer: &Peer) -> wire::Outcome {
     let buses = peer.buses.lock().unwrap();
     match buses
         .last()
@@ -155,7 +155,7 @@ fn native_shutdown_joins_idle_provider_interests_before_releasing_the_channel() 
     );
     assert!(peer.saw_close(0));
 }
-fn registration(
+pub(super) fn registration(
     fake: Arc<super::super::sync::tests::Fake>,
     calls: Arc<AtomicUsize>,
 ) -> super::super::sync::Registration {
@@ -176,7 +176,7 @@ fn registration(
     )
     .unwrap()
 }
-fn bind(peer: &Peer, fake: &super::super::sync::tests::Fake) -> String {
+pub(super) fn bind(peer: &Peer, fake: &super::super::sync::tests::Fake) -> String {
     let ctx = fake.context();
     send(
         peer,
@@ -193,7 +193,7 @@ fn bind(peer: &Peer, fake: &super::super::sync::tests::Fake) -> String {
         _ => panic!("bind"),
     }
 }
-fn subscribe(peer: &Peer, binding: String) {
+pub(super) fn subscribe(peer: &Peer, binding: String) {
     send(
         peer,
         2,

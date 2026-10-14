@@ -173,6 +173,12 @@ pub(in crate::board) fn render_frame(
         .enumerate()
         .take(usize::from(limits.height))
     {
+        app.hits.borrow_mut().push(super::app::Hit {
+            x: limits.x,
+            y: limits.y + offset as u16,
+            width: limits.width,
+            target: super::app::HitTarget::Quota,
+        });
         strip::paint_left(
             frame.buffer_mut(),
             ratatui::layout::Rect::new(limits.x, limits.y + offset as u16, limits.width, 1),

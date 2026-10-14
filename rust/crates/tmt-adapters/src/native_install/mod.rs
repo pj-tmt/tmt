@@ -6,7 +6,9 @@ pub mod handoff;
 mod online;
 mod post_upgrade;
 pub use former_prefix::{in_moved_prefix, retained_former_hint};
-pub use post_upgrade::post_upgrade_hint;
+pub use post_upgrade::{
+    POST_UPGRADE_RESTART_BOUND, PostUpgradeObservation, observe_before_upgrade, post_upgrade_hint,
+};
 mod remove;
 pub use online::{
     ReleaseInstallRequest, default_install_prefix, install_release, latest_release_version,

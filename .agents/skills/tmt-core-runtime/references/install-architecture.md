@@ -112,15 +112,16 @@ or optional `paneRenameHints` JSON array, never upgrade failure, retirement, re-
 - Receipts anchor to the installation prefix and current executable, not `ConfigPaths.global_dir`.
   Failed validation or cancellation keeps the previous release and receipt; a post-activation
   skill failure reports partial completion, not an atomic transaction.
-- `Product::post_upgrade_check` declares optional read-only observations after an actual version
-  replacement. The adapter queries the captured verified executable with a two-second process
-  budget and bounded output, outside the install lock. Remote status produces one restart notice
-  for running, legacy-outdated or unknown evidence; it never stops or starts a door. Initial
-  installs, unchanged versions (including pin/channel-only changes), skipped pins, stopped doors
-  and other products stay quiet. CLI success exposes `restartHint` (under product `details` in
-  bulk upgrades); post-activation failure retains the notice in `error.suggestion`. Standalone
-  and bulk human output render it once, including skill-settlement warnings. Finish active pairing
-  and held approvals before manually restarting; legacy doors require Ctrl-C in their terminal.
+- `Product::post_upgrade_check` declares Remote's post-replacement lifecycle step. The CLI
+  captures one read-only running observation through the verified existing executable before
+  replacement and passes it through success/partial failure. Only an actual replacement of a
+  previously observed running Remote calls the captured replacement's `restart --json --no-open`,
+  outside the install lock with captured Core context and stripped secrets. Core never signals
+  or starts a stopped Remote. Remote owns safety, cutover and typed outcomes in the
+  [lifecycle contract](../../../../contracts/remote-channel-v1.md#local-cli-discovery). Success
+  and existing deferred/failed hints retain the notice through skills settlement; stopped,
+  initial and unchanged installs stay quiet. The parent keeps its JSON child silent and adds
+  the one adapter-owned restart bound to its apply deadline only for a pending Remote replacement.
 
 ## Former product replacement
 
@@ -260,8 +261,8 @@ the move is a bootstrap reinstall.
   at `ls`. One bad entry never fails the listing or changes its exit status; install and upgrade
   still refuse on it.
 - Remote and Colab use the same manifest and receipt under independent `lib/tmt-remote` and
-  `lib/tmt-colab` namespaces; install, removal and upgrade never run their `serve` command or
-  open their private data roots.
+  `lib/tmt-colab` namespaces; installation/removal never run `serve` or open private data roots.
+  Remote’s separate post-upgrade lifecycle command owns any replacement serve.
 - `install --repair` (`native_install::repair`) admits only safe owned layouts with no-follow
   regular files, re-acquires the exact recorded artifact with matching provenance and digests and
   keeps version, channel and pin; `RepairRequired` carries the single quoted hint to the CLI.

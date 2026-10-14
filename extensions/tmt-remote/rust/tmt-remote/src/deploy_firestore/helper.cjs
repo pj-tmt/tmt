@@ -40,6 +40,47 @@ function keys(value, expected) {
   )
     fail('provider-rejected');
 }
+// Canonical identity ignores provider name/state and the implicit final __name__.
+function indexSpec(index) {
+  if (
+    !index ||
+    !Array.isArray(index.fields) ||
+    index.fields.length < 2 ||
+    index.fields.length > 100 ||
+    !['COLLECTION', 'COLLECTION_GROUP'].includes(index.queryScope)
+  )
+    fail('unknown');
+  const fields = index.fields.map((field) => {
+    if (
+      !field ||
+      typeof field.fieldPath !== 'string' ||
+      !field.fieldPath ||
+      field.fieldPath.length > 1500
+    )
+      fail('unknown');
+    if (field.arrayConfig === 'CONTAINS')
+      return { fieldPath: field.fieldPath, arrayConfig: 'CONTAINS' };
+    if (!['ASCENDING', 'DESCENDING'].includes(field.order)) fail('unknown');
+    return { fieldPath: field.fieldPath, order: field.order };
+  });
+  if (fields.at(-1).fieldPath === '__name__' && fields.at(-1).order === fields.at(-2).order)
+    fields.pop();
+  return JSON.stringify({ queryScope: index.queryScope, fields });
+}
+function compositeInput(index) {
+  keys(index, ['collectionGroup', 'queryScope', 'fields']);
+  if (!/^[a-z0-9_-]{1,64}$/.test(index.collectionGroup) || index.queryScope !== 'COLLECTION')
+    fail('provider-rejected');
+  indexSpec(index);
+  for (const field of index.fields) {
+    keys(field, ['fieldPath', 'order']);
+    if (!/^[A-Za-z][A-Za-z0-9]{0,63}$/.test(field.fieldPath) || field.order !== 'ASCENDING')
+      fail('provider-rejected');
+  }
+  if (index.fields.length > 9) fail('provider-rejected');
+  if (new Set(index.fields.map((field) => field.fieldPath)).size !== index.fields.length)
+    fail('provider-rejected');
+}
 function validate(request) {
   keys(request, ['version', 'operation', 'input', 'account', 'budgetMs']);
   if (
@@ -76,10 +117,12 @@ function validate(request) {
           'bytesBase64',
           'source',
         ],
-      ])
+      ]),
     ),
     'live-rules': ['project'],
-    'index-budget': ['project', 'fields'],
+    'index-budget': ['project', 'fields', 'composites'],
+    'observe-composite': ['project', 'index'],
+    'apply-composite': ['project', 'index'],
     'observe-database': ['project', 'location'],
     'apply-database': ['project', 'location'],
     'observe-sign-in': ['project', 'provider'],
@@ -109,11 +152,16 @@ function validate(request) {
       i.fields.length > 200 ||
       i.fields.some(
         (field) =>
-          typeof field !== 'string' || !/^[a-z0-9_-]{1,64}\/[A-Za-z][A-Za-z0-9]{0,63}$/.test(field)
+          typeof field !== 'string' || !/^[a-z0-9_-]{1,64}\/[A-Za-z][A-Za-z0-9]{0,63}$/.test(field),
       ) ||
       new Set(i.fields).size !== i.fields.length)
   )
     fail('provider-rejected');
+  if (i.index !== undefined) compositeInput(i.index);
+  if (i.composites !== undefined) {
+    if (!Array.isArray(i.composites) || i.composites.length > 200) fail('provider-rejected');
+    i.composites.forEach(compositeInput);
+  }
   if (request.operation.endsWith('-hosting')) {
     if (
       !/^[0-9a-f]{64}$/.test(i.planDigest) ||
@@ -267,7 +315,7 @@ async function execute(request, deps) {
     const actual = await deps.http(
       'https://www.googleapis.com/oauth2/v3/userinfo',
       { method: 'GET', headers: { Authorization: `Bearer ${credential.token}` } },
-      deadline
+      deadline,
     );
     if (
       actual.status !== 200 ||
@@ -294,7 +342,7 @@ async function execute(request, deps) {
     method = 'GET',
     body,
     absent = false,
-    callDeadline = deadline
+    callDeadline = deadline,
   ) {
     const earlierEffect = effect;
     if (method !== 'GET') {
@@ -311,7 +359,7 @@ async function execute(request, deps) {
         },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       },
-      callDeadline
+      callDeadline,
     );
     if (absent && reply.status === 404) return null;
     if (reply.status < 200 || reply.status >= 300) {
@@ -328,7 +376,7 @@ async function execute(request, deps) {
     for (let page = 0; page < PAGES; page++) {
       const result = await api(
         service,
-        `${route}${route.includes('?') ? '&' : '?'}pageSize=${service === 'hosting' && key === 'versions' ? 100 : 200}${token ? `&pageToken=${encodeURIComponent(token)}` : ''}`
+        `${route}${route.includes('?') ? '&' : '?'}pageSize=${service === 'hosting' && key === 'versions' ? 100 : 200}${token ? `&pageToken=${encodeURIComponent(token)}` : ''}`,
       );
       if (!result || (result[key] !== undefined && !Array.isArray(result[key]))) fail('unknown');
       if ((result[key] ?? []).length > 200) fail('unknown');
@@ -350,7 +398,7 @@ async function execute(request, deps) {
       return Object.fromEntries(
         Object.keys(value)
           .sort()
-          .map((k) => [k, normalize(value[k])])
+          .map((k) => [k, normalize(value[k])]),
       );
     return value;
   }
@@ -383,7 +431,7 @@ async function execute(request, deps) {
   async function publicConfig(appId) {
     const config = await api(
       'firebase',
-      `projects/${project}/webApps/${encodeURIComponent(appId)}/config`
+      `projects/${project}/webApps/${encodeURIComponent(appId)}/config`,
     );
     if (
       config.projectId !== project ||
@@ -403,7 +451,7 @@ async function execute(request, deps) {
       `projects/${project}/sites/${project}`,
       'GET',
       undefined,
-      true
+      true,
     );
     if (site === null)
       return {
@@ -429,7 +477,7 @@ async function execute(request, deps) {
         files.length > 256 ||
         files.some(
           (f) =>
-            f.status !== 'ACTIVE' || !/^[0-9a-f]{64}$/.test(f.hash) || typeof f.path !== 'string'
+            f.status !== 'ACTIVE' || !/^[0-9a-f]{64}$/.test(f.hash) || typeof f.path !== 'string',
         )
       )
         fail('unknown');
@@ -482,7 +530,7 @@ async function execute(request, deps) {
         `projects/${project}/sites/${project}`,
         'GET',
         undefined,
-        true
+        true,
       );
       if (site?.appId && site.appId !== app.id) fail('unknown');
       await publicConfig(app.id);
@@ -525,7 +573,7 @@ async function execute(request, deps) {
       }
       const versions = await pages('hosting', `sites/${project}/versions`, 'versions');
       const matches = versions.filter(
-        (v) => stable(v.labels) === stable(labels) && stable(v.config) === stable(h.content.config)
+        (v) => stable(v.labels) === stable(labels) && stable(v.config) === stable(h.content.config),
       );
       if (matches.length > 1) fail('unknown');
       if (!matches.length) return null;
@@ -538,7 +586,7 @@ async function execute(request, deps) {
       const listed = await pages(
         'hosting',
         `${resource(cp.version, `sites/${project}/versions/`)}/files`,
-        'files'
+        'files',
       );
       if (listed.length > 256 || new Set(listed.map((f) => f.path)).size !== listed.length)
         fail('unknown');
@@ -597,7 +645,7 @@ async function execute(request, deps) {
         `projects/${project}/sites/${project}`,
         'GET',
         undefined,
-        true
+        true,
       );
       if (site !== null) {
         if (site.name !== `projects/${project}/sites/${project}` || site.defaultUrl !== h.publicUrl)
@@ -687,7 +735,7 @@ async function execute(request, deps) {
           },
           body: bytes,
         },
-        deadline
+        deadline,
       );
       if (result.status !== 200) fail(fault(result, result.body));
       return reply('done');
@@ -717,7 +765,7 @@ async function execute(request, deps) {
         'hosting',
         `sites/${project}/releases?versionName=${encodeURIComponent(cp.version)}`,
         'POST',
-        {}
+        {},
       );
       if (!(await exactLive())) fail('unknown');
       return reply('done');
@@ -794,6 +842,46 @@ async function execute(request, deps) {
       return true;
     return sha(source) === i.replacedDigest;
   }
+  async function compositeInventory() {
+    const listed = await pages('firestore', `${database}/collectionGroups/-/indexes`, 'indexes');
+    const names = new Set();
+    for (const index of listed) {
+      if (
+        typeof index.name !== 'string' ||
+        !index.name.startsWith(`${database}/collectionGroups/`) ||
+        !/^projects\/[^/]+\/databases\/[^/]+\/collectionGroups\/[^/]+\/indexes\/[^/]+$/.test(
+          index.name,
+        ) ||
+        names.has(index.name) ||
+        !Array.isArray(index.fields) || index.fields.length === 0 || index.fields.length > 100 ||
+        index.fields.some((field) => !field || typeof field.fieldPath !== 'string') ||
+        !['COLLECTION', 'COLLECTION_GROUP', 'COLLECTION_RECURSIVE'].includes(index.queryScope)
+      )
+        fail('unknown');
+      names.add(index.name);
+      // Count every live index, including foreign array/vector/API configurations.
+    }
+    return listed;
+  }
+  function matchingIndexes(listed, index) {
+    const key = indexSpec(index),
+      parent = `${database}/collectionGroups/${index.collectionGroup}/indexes/`;
+    return listed.filter(
+      (row) =>
+        row.name.startsWith(parent) &&
+        (!row.apiScope || row.apiScope === 'ANY_API') &&
+        row.queryScope === index.queryScope &&
+        Array.isArray(row.fields) &&
+        !row.fields.some((field) => field.arrayConfig || field.vectorConfig) &&
+        indexSpec(row) === key,
+    );
+  }
+  function compositeState(matches, apply) {
+    if (matches.some((row) => row.state === 'READY')) return apply ? 'done' : 'adopted';
+    if (matches.some((row) => row.state === 'CREATING')) return 'building';
+    if (matches.some((row) => row.state === 'NEEDS_REPAIR')) fail('provider-rejected');
+    fail('unknown');
+  }
   try {
     if (['observe-hosting', 'apply-hosting', 'verify-hosting'].includes(r.operation))
       return await hosting();
@@ -810,12 +898,12 @@ async function execute(request, deps) {
           : await pages(
               'firestore',
               `${database}/collectionGroups/-/fields?filter=${encodeURIComponent('indexConfig.usesAncestorConfig=false OR ttlConfig:*')}`,
-              'fields'
+              'fields',
             );
       const unique = new Set(configured.map((x) => x.name));
       if (
         configured.some(
-          (x) => typeof x.name !== 'string' || !x.name.startsWith(`${database}/collectionGroups/`)
+          (x) => typeof x.name !== 'string' || !x.name.startsWith(`${database}/collectionGroups/`),
         ) ||
         unique.size !== configured.length
       )
@@ -825,6 +913,13 @@ async function execute(request, deps) {
         unique.add(`${database}/collectionGroups/${collection}/fields/${name}`);
       }
       if (unique.size > 200) fail('quota-exceeded');
+      const composites = present === null ? [] : await compositeInventory();
+      const missing = new Set(
+        i.composites
+          .filter((index) => !matchingIndexes(composites, index).length)
+          .map((index) => `${index.collectionGroup}/${indexSpec(index)}`),
+      );
+      if (composites.length + missing.size > 200) fail('quota-exceeded');
       return 'within-budget';
     }
     if (r.operation.endsWith('database')) {
@@ -862,7 +957,7 @@ async function execute(request, deps) {
           `projects/${project}/defaultSupportedIdpConfigs/google.com`,
           'GET',
           undefined,
-          true
+          true,
         );
         return google?.enabled === true
           ? r.operation.startsWith('apply')
@@ -877,6 +972,24 @@ async function execute(request, deps) {
         signIn: { anonymous: { enabled: true } },
       });
       return 'done';
+    }
+    if (r.operation.endsWith('-composite')) {
+      const listed = await compositeInventory(),
+        matches = matchingIndexes(listed, i.index);
+      if (matches.length) return compositeState(matches, r.operation.startsWith('apply'));
+      if (r.operation.startsWith('observe')) return 'absent';
+      if (listed.length >= 200) fail('quota-exceeded');
+      await api(
+        'firestore',
+        `${database}/collectionGroups/${i.index.collectionGroup}/indexes`,
+        'POST',
+        {
+          queryScope: i.index.queryScope,
+          fields: i.index.fields,
+        },
+      );
+      const observed = matchingIndexes(await compositeInventory(), i.index);
+      return compositeState(observed, true);
     }
     if (r.operation.endsWith('index')) {
       const name = `${database}/collectionGroups/${i.collection}/fields/${i.field}`;
@@ -893,7 +1006,7 @@ async function execute(request, deps) {
           x.queryScope === 'COLLECTION' &&
           x.fields?.length === 1 &&
           x.fields[0].fieldPath === i.field &&
-          x.fields[0].order === order
+          x.fields[0].order === order,
       );
       if (matched) {
         if (matched.state === 'CREATING')
@@ -905,7 +1018,7 @@ async function execute(request, deps) {
       const configured = await pages(
         'firestore',
         `${database}/collectionGroups/-/fields?filter=${encodeURIComponent('indexConfig.usesAncestorConfig=false OR ttlConfig:*')}`,
-        'fields'
+        'fields',
       );
       const unique = new Set(configured.map((x) => x.name));
       if (configured.some((x) => typeof x.name !== 'string') || unique.size !== configured.length)
@@ -915,9 +1028,9 @@ async function execute(request, deps) {
       const indexes = existing.indexConfig.indexes.map((x) =>
         Object.fromEntries(
           Object.entries(x).filter(([key]) =>
-            ['queryScope', 'fields', 'apiScope', 'density', 'multikey', 'unique'].includes(key)
-          )
-        )
+            ['queryScope', 'fields', 'apiScope', 'density', 'multikey', 'unique'].includes(key),
+          ),
+        ),
       );
       indexes.push({ queryScope: 'COLLECTION', fields: [{ fieldPath: i.field, order }] });
       await api('firestore', `${name}?updateMask=indexConfig`, 'PATCH', {
@@ -940,7 +1053,7 @@ async function execute(request, deps) {
         if (
           !Array.isArray(candidate?.source?.files) ||
           candidate.source.files.some(
-            (f) => typeof f.name !== 'string' || typeof f.content !== 'string'
+            (f) => typeof f.name !== 'string' || typeof f.content !== 'string',
           )
         )
           fail('unknown');
@@ -976,7 +1089,7 @@ async function execute(request, deps) {
         latest === null ? 'POST' : 'PATCH',
         latest === null
           ? { name: release, rulesetName: found }
-          : { release: { name: release, rulesetName: found }, updateMask: 'rulesetName' }
+          : { release: { name: release, rulesetName: found }, updateMask: 'rulesetName' },
       );
       if ((await liveRules()) !== i.source) fail('unknown');
       return 'done';
@@ -1000,7 +1113,7 @@ async function run(raw, root, deps) {
     const deadline = Date.now() + request.budgetMs;
     const result = await execute(
       request,
-      deps ?? { credential: credentials(root), http: fetchJson, deadline }
+      deps ?? { credential: credentials(root), http: fetchJson, deadline },
     );
     const output = { version: 1, result };
     if (Buffer.byteLength(JSON.stringify(output)) > BYTES) fail('unknown');

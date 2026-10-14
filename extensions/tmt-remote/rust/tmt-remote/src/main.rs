@@ -42,6 +42,16 @@ const STOP: CommandSpec = CommandSpec {
     outputs: OutputModes::HumanAndJson,
     details: "Uses the same shutdown path as Ctrl-C/SIGTERM. Keeps pairings and grants.\nWaits at most 40 seconds for the lifecycle lease after acknowledgment; never signals a PID.",
 };
+const RESTART: CommandSpec = CommandSpec {
+    name: "restart",
+    summary: "Restart an idle background Remote at the same endpoint",
+    examples: &[Example {
+        command: "tmt remote restart --json --no-open",
+        note: "Let Remote admit and perform one restart",
+    }],
+    outputs: OutputModes::HumanAndJson,
+    details: "Foreground, legacy and busy services are left running. Uses the existing stop and startup bounds; never signals a discovered PID or retries an uncertain restart.",
+};
 const LINK: CommandSpec = CommandSpec {
     name: "link",
     summary: "Print the remote link",
@@ -243,6 +253,7 @@ fn grammar() -> Command {
         .subcommand(tmt_cli_style::command(&CommandSpec { name: "rm", summary: "Remove only a remote reference", examples: &[Example { command: "tmt remote rm test --json", note: "Keep deploy history and cloud resources" }], outputs: OutputModes::HumanAndJson, details: "Removing the default leaves it pointing to a removed remote until you change default-remote." }).arg(Arg::new("name").required(true)))
         .subcommand(tmt_cli_style::command(&LINK).arg(Arg::new("project").long("project").help("Project deployed from this machine")))
         .subcommand(tmt_cli_style::command(&STOP))
+        .subcommand(tmt_cli_style::command(&RESTART).arg(Arg::new("no-open").long("no-open").action(ArgAction::SetTrue).help("Keep browser opening suppressed")))
         .subcommand(
             tmt_cli_style::command(&STATUS)
                 .arg(
@@ -434,6 +445,9 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
     }
     if name == "stop" {
         return stop_command(arguments.get_flag("json"));
+    }
+    if name == "restart" {
+        return serve::restart(arguments.get_flag("json"));
     }
     if name == "settings" {
         return settings_command(arguments);

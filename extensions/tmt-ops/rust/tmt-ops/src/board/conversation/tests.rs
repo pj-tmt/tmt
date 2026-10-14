@@ -571,11 +571,19 @@ fn switching_shell_with_a_link_keeps_response_and_effective_link_hint() {
             .iter()
             .map(|cell| cell.symbol())
             .collect::<String>();
-        assert!(
-            text.contains("https://example.test/pr (press o - open $link)"),
-            "{tab:?}: {text}"
-        );
-        assert!(text.contains("worker line 089"), "{tab:?}: {text}");
+        if tab == OpsTab::Digest {
+            assert!(text.contains("Details"), "{text}");
+            assert!(
+                !text.contains("worker line 089"),
+                "Digest shows status details"
+            );
+        } else {
+            assert!(
+                text.contains("https://example.test/pr (press o - open $link)"),
+                "{tab:?}: {text}"
+            );
+            assert!(text.contains("worker line 089"), "{tab:?}: {text}");
+        }
         assert_eq!(app.workspace.selected.as_ref(), Some(&selected));
         assert!(app.conversation.borrow().pane.is_some());
     }

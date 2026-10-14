@@ -47,6 +47,9 @@ fn append(owner: &OwnerDoor, operations: Arc<Operations>, wire: &Value) -> Value
     owner.verify_reply(&serde_json::from_slice(&bytes).unwrap(), wire)
 }
 fn control(owner: &OwnerDoor, operations: Arc<Operations>) -> Control {
+    restart_control(owner, operations).0
+}
+fn restart_control(owner: &OwnerDoor, operations: Arc<Operations>) -> (Control, Arc<AtomicBool>) {
     let pairing = Arc::new(Pairing::new(
         owner.machine.clone(),
         owner.window.clone(),
@@ -64,7 +67,8 @@ fn control(owner: &OwnerDoor, operations: Arc<Operations>) -> Control {
         Arc::clone(&owner.sessions),
         operations,
     ));
-    Control::start(
+    let stopped = Arc::new(AtomicBool::new(false));
+    let control = Control::start_with_views(
         &owner._serving,
         pairing,
         devices,
@@ -73,9 +77,89 @@ fn control(owner: &OwnerDoor, operations: Arc<Operations>) -> Control {
             prefix: "/r/test".into(),
         },
         Some(approval),
-        Arc::new(AtomicBool::new(false)),
+        Arc::clone(&stopped),
+        control::StatusViews {
+            restart: Some(control::RestartView {
+                background: true,
+                registrations: control::registrations(&[]),
+            }),
+            ..Default::default()
+        },
     )
-    .unwrap()
+    .unwrap();
+    (control, stopped)
+}
+
+#[test]
+fn restart_pending_hold_defers_without_changing_the_original() {
+    restart_hold(false);
+}
+#[test]
+fn restart_interactive_preview_defers_and_can_still_confirm_once() {
+    restart_hold(true);
+}
+fn restart_hold(preview_first: bool) {
+    use std::sync::atomic::Ordering;
+    let owner = OwnerDoor::with_policy(
+        tmt_remote::store::SUPPORTED_SCOPES
+            .iter()
+            .map(|s| (*s).into())
+            .collect(),
+        "hold",
+    );
+    let core = Core::new();
+    let operations = core.operations();
+    let session = owner.open();
+    let id = uuid_v4().unwrap();
+    assert_eq!(
+        append(
+            &owner,
+            Arc::clone(&operations),
+            &wire(
+                &owner,
+                &session,
+                1,
+                &id,
+                &uuid_v4().unwrap(),
+                "retain this hold"
+            )
+        ),
+        json!({"state":"held","operationId":id})
+    );
+    let (control, stopped) = restart_control(&owner, operations);
+    let mut approval = control::connect(&owner._serving.layout().directory).unwrap();
+    approval
+        .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+        .unwrap();
+    let mut events = BufReader::new(approval.try_clone().unwrap());
+    if preview_first {
+        writeln!(approval, "{}", json!({"op":"approve","operationId":id})).unwrap();
+        assert_eq!(line(&mut events)["event"], "held");
+    }
+    let before = fs::read(owner._serving.layout().directory.join("remote.db")).unwrap();
+    assert!(
+        !control::request_restart_stop(&owner._serving.layout().directory, &owner.window).unwrap()
+    );
+    assert!(!stopped.load(Ordering::Acquire));
+    assert_eq!(
+        fs::read(owner._serving.layout().directory.join("remote.db")).unwrap(),
+        before
+    );
+    assert!(core.calls().is_empty());
+    if !preview_first {
+        writeln!(approval, "{}", json!({"op":"approve","operationId":id})).unwrap();
+        assert_eq!(line(&mut events)["event"], "held");
+    }
+    writeln!(approval, "{}", json!({"op":"confirm"})).unwrap();
+    let ended = line(&mut events);
+    assert_eq!(ended["state"], "accepted");
+    assert_eq!(ended["operationId"], id);
+    assert_eq!(core.sends(), 1);
+    assert!(
+        control::request_restart_stop(&owner._serving.layout().directory, &owner.window).unwrap()
+    );
+    assert!(stopped.load(Ordering::Acquire));
+    control.stop();
 }
 fn line(reader: &mut BufReader<std::os::unix::net::UnixStream>) -> Value {
     let mut line = String::new();

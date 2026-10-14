@@ -37,8 +37,10 @@ uses shared TUI Outline, Strip and Scrolls for the dense tree and squad detail;
 only rows admitted to the scroll viewport build text spans. The full stable tree
 retains scroll length and row indices for selection and hit mapping. WP1 retains
 conversation, editor, drafts, reply reader and send authority.
-Overview owns global attention/usage/limits. Agents and Digest use the selected
-squad's appearance and contextual detail. Auto/Side/Stack is an Ops preference,
+Overview owns global attention and usage. Digest projects the supplier-owned
+status snapshot and UUID-deduplicated member list through `digest_dashboard`;
+the canonical workspace roster still owns membership and action admission.
+Agents and Digest use the selected squad's appearance and contextual detail. Auto/Side/Stack is an Ops preference,
 not a second editor or a revival of factory board views. An explicit message
 focuses the selected agent's conversation: compact Overview opens Agents, while
 wide Overview retains its shared pane. A retained Reader moves to Agents when
@@ -89,7 +91,11 @@ In-place reload carries shell choice, expanded room UUIDs, pool expansion and th
 exact selected target in resume version 3. A removed target stays missing.
 A retired HOME cursor or detail invalidates the reload hint and is consumed
 without opening a surface; bounded private-file and symlink checks remain.
-Workspace forms block reload until their operation/result is dismissed. The old
+Workspace forms and the read-only subscription details modal block reload until
+dismissed. Quota row clicks and the Actions menu open the same modal; the
+configurable `quota-details` action has no default key. The modal retains the
+selected UUID and consumes close before base dispatch. Shared ScrollState owns
+its current viewport, wheel/page scrolling and resize clamping. The old
 HOME display cache is not admitted as a new shell frame.
 
 ## Usage and verification
@@ -98,7 +104,10 @@ HOME display cache is not admitted as a new shell frame.
 missing differs from measured zero, uncovered evidence is partial, sampling off
 has no token cells, and model metadata is best effort. Provider pace/trend remains
 a derived current-cycle observation, not a persisted field or new acquisition.
-See the meter reference for coverage, time fences and trend thresholds.
+See the meter reference for coverage, time fences and trend thresholds. Overview
+and Digest share the same admitted per-window quota bars: remaining percent,
+labelled reset and measured weekly pace. Complete source timestamps and unknown
+evidence stay in on-demand details; paint and input perform no acquisition.
 
 `board::app::workspace::tests` covers authority, modal lifecycle, pointer geometry,
 reload and scoped appearance. `board::workspace::tests` covers pure membership,

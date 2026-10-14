@@ -27,7 +27,7 @@
       "",
       "",
       "────────────────────────────────────────────────────────────────",
-      "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  , settings  / search  ctrl-r refresh  tab pane  down next  ? help  q quit"
+      "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  ? help  q quit"
     ],
     "hits": "[Hit { y: 4, x: 1, width: 62, row: 0 }, Hit { y: 5, x: 1, width: 62, row: 1 }, Hit { y: 6, x: 1, width: 62, row: 2 }]"
   },

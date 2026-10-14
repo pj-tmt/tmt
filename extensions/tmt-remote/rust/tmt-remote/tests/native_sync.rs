@@ -343,6 +343,105 @@ fn query_uses_exact_scope_and_contiguous_sequence_not_lexical_ids() {
     );
 }
 #[test]
+fn actual_native_query_builders_are_covered_by_the_composed_indexes() {
+    // Shared with browser coverage; rules.rs independently composes this artifact.
+    let indexes: Value =
+        serde_json::from_str(include_str!("fixtures/sealed_sync/index-coverage.json")).unwrap();
+    let script = Arc::new(Script::new(vec![
+        Ok(response(200, json!([]))),
+        Ok(response(200, json!([]))),
+        Ok(response(200, json!([{ "document": remote_document(1) }]))),
+        Ok(response(200, json!([]))),
+    ]));
+    let (client, _) = native_client(script.clone(), auth());
+    let cancel = AtomicBool::new(false);
+    let io = io(&cancel);
+    let mut initial = stream(0);
+    initial.cursor = None;
+    ready(client.query(&SyncQueryRequest::Stream(initial), &io)).unwrap();
+    ready(client.query(&query(1), &io)).unwrap();
+    let SyncQueryPage::Discovery(first) = ready(client.query(&discovery(None), &io)).unwrap()
+    else {
+        panic!("wrong discovery page")
+    };
+    ready(client.query(&discovery(Some(first.continuation.unwrap())), &io)).unwrap();
+    let requests = script.requests.lock().unwrap();
+    assert_eq!(requests.len(), 4);
+    for (i, (_, url, body)) in requests.iter().enumerate() {
+        assert_eq!(
+            url,
+            "https://firestore.googleapis.com/v1/projects/demo-remote-1/databases/(default)/documents/x/notes:runQuery"
+        );
+        let q = &body["structuredQuery"];
+        assert_eq!(q["from"], json!([{ "collectionId": "rows" }]));
+        assert_eq!(q["where"]["compositeFilter"]["op"], "AND");
+        let filters = q["where"]["compositeFilter"]["filters"].as_array().unwrap();
+        if i < 2 {
+            assert_eq!(
+                q["orderBy"],
+                json!([{ "field": { "fieldPath": "counter" }, "direction": "ASCENDING" }])
+            );
+            let mut equality: Vec<_> = filters
+                .iter()
+                .filter(|f| f["fieldFilter"]["op"] == "EQUAL")
+                .map(|f| f["fieldFilter"]["field"]["fieldPath"].as_str().unwrap())
+                .collect();
+            equality.sort();
+            assert_eq!(equality, ["streamKey", "tenant"]);
+            let ranges: Vec<_> = filters
+                .iter()
+                .filter(|f| f["fieldFilter"]["op"] != "EQUAL")
+                .cloned()
+                .collect();
+            // Native initializes the logical position at zero even without a cursor.
+            assert_eq!(
+                ranges,
+                vec![json!({ "fieldFilter": {
+                "field": { "fieldPath": "counter" }, "op": "GREATER_THAN",
+                "value": { "integerValue": i.to_string() }
+            } })]
+            );
+            assert!(q.get("startAt").is_none());
+            let mut fields: Vec<_> = equality
+                .iter()
+                .map(|f| json!({ "fieldPath": f, "order": "ASCENDING" }))
+                .collect();
+            fields.push(json!({ "fieldPath": q["orderBy"][0]["field"]["fieldPath"], "order": q["orderBy"][0]["direction"] }));
+            assert!(indexes["indexes"].as_array().unwrap().contains(&json!({ "collectionGroup": q["from"][0]["collectionId"], "queryScope": "COLLECTION", "fields": fields })), "actual stream query has no composed composite index");
+        } else {
+            // Equality-only discovery/name order is covered by index merging.
+            let mut actual = filters.clone();
+            actual.sort_by_key(|f| {
+                f["fieldFilter"]["field"]["fieldPath"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned()
+            });
+            assert_eq!(
+                actual,
+                vec![
+                    json!({ "fieldFilter": { "field": { "fieldPath": "counter" }, "op": "EQUAL", "value": { "integerValue": "1" } } }),
+                    json!({ "fieldFilter": { "field": { "fieldPath": "tenant" }, "op": "EQUAL", "value": { "stringValue": "fixture-space" } } }),
+                ]
+            );
+            assert_eq!(
+                q["orderBy"],
+                json!([{ "field": { "fieldPath": "__name__" }, "direction": "ASCENDING" }])
+            );
+            if i == 2 {
+                assert!(q.get("startAt").is_none());
+            } else {
+                assert_eq!(
+                    q["startAt"],
+                    json!({ "values": [{ "referenceValue": remote_document(1)["name"] }], "before": false })
+                );
+            }
+        }
+    }
+    assert_eq!(indexes["indexes"].as_array().unwrap().len(), 1);
+}
+
+#[test]
 fn a_gap_or_wrong_scope_never_discloses_a_partial_page() {
     for (body, error) in [
         (
@@ -825,6 +924,10 @@ fn count_first_probe_and_count_difference_emit_once_over_all_streams() {
         assert_eq!(filters.len(), 1);
         assert_eq!(filters[0]["fieldFilter"]["field"]["fieldPath"], "tenant");
         assert_eq!(filters[0]["fieldFilter"]["op"], "EQUAL");
+        // The actual page-interest COUNT uses equality-only index merging.
+        assert_eq!(query["from"], json!([{ "collectionId": "rows" }]));
+        assert_eq!(query["where"]["compositeFilter"]["op"], "AND");
+        assert!(query.get("startAt").is_none());
         assert!(query.get("limit").is_none());
         assert!(query.get("orderBy").is_none());
         assert_eq!(

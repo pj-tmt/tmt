@@ -1,6 +1,6 @@
 use super::*;
 use crate::process::{CommandError, CommandOutput};
-use std::cell::Cell;
+use std::cell::RefCell;
 
 #[test]
 fn partial_failure_evidence_requires_an_actual_activation_report() {
@@ -34,36 +34,46 @@ fn partial_failure_evidence_requires_an_actual_activation_report() {
     );
 }
 
-struct Status<'a> {
-    calls: Cell<u32>,
-    result: &'a str,
+struct Remote<'a> {
+    status: &'a str,
+    restart: &'a str,
+    calls: RefCell<Vec<String>>,
     failure: Option<CommandFailure>,
     cleanup_failed: bool,
 }
-
-impl CommandRunner for Status<'_> {
+impl CommandRunner for Remote<'_> {
     fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
-        self.calls.set(self.calls.get() + 1);
         assert_eq!(request.program, "/usr/bin/env");
         assert_eq!(
-            request.args,
+            &request.args[..5],
             [
                 "-u",
                 "GH_TOKEN",
                 "-u",
                 "GITHUB_TOKEN",
-                "TMT_EXECUTABLE=/verified/core with spaces/tmt",
-                "/verified/release with spaces/tmt-remote",
-                "status",
-                "--json",
+                "TMT_EXECUTABLE=/verified/core with spaces/tmt"
             ]
         );
+        let command = request.args[6].to_str().unwrap();
+        self.calls.borrow_mut().push(command.into());
         assert!(request.input.is_empty());
         assert!(request.deadline > Instant::now());
-        assert!(request.deadline <= Instant::now() + BUDGET);
         assert_eq!(request.max_output_bytes, 64 * 1024);
+        let (bytes, budget) = match command {
+            "status" => {
+                assert_eq!(&request.args[6..], ["status", "--json"]);
+                (self.status, BUDGET)
+            }
+            "restart" => {
+                assert_eq!(&request.args[6..], ["restart", "--json", "--no-open"]);
+                assert_eq!(request.args[5], "/verified/release with spaces/tmt-remote");
+                (self.restart, POST_UPGRADE_RESTART_BOUND)
+            }
+            _ => panic!("Core never calls stop or serve"),
+        };
+        assert!(request.deadline <= Instant::now() + budget);
         let output = CommandOutput {
-            stdout: self.result.as_bytes().to_vec(),
+            stdout: bytes.as_bytes().to_vec(),
             stderr: b"never expose child diagnostics".to_vec(),
         };
         match self.failure {
@@ -81,16 +91,15 @@ impl CommandRunner for Status<'_> {
         }
     }
 }
-
-fn status(result: &str) -> Status<'_> {
-    Status {
-        calls: Cell::new(0),
-        result,
+fn remote<'a>(status: &'a str, restart: &'a str) -> Remote<'a> {
+    Remote {
+        status,
+        restart,
+        calls: RefCell::new(vec![]),
         failure: None,
         cleanup_failed: false,
     }
 }
-
 fn report(changed: bool) -> InstallReport {
     InstallReport {
         executable: "/unselected/bin/tmt-remote".into(),
@@ -99,56 +108,101 @@ fn report(changed: bool) -> InstallReport {
         changed,
     }
 }
-
-fn hint(runner: &Status<'_>) -> Option<&'static str> {
-    let value = observe(
+const CORE: &str = "/verified/core with spaces/tmt";
+const LIVE: &str = r#"{"running":true,"origin":"http://127.0.0.1:49152","path":"/r/prefix"}"#;
+fn hint(runner: &Remote<'_>) -> Option<&'static str> {
+    let before = capture(
+        Product::Remote,
+        Path::new("/verified/old release/tmt-remote"),
+        Some(Path::new(CORE)),
+        runner,
+    );
+    observe(
         Product::Remote,
         &report(true),
         true,
-        Some(Path::new("/verified/core with spaces/tmt")),
+        Some(Path::new(CORE)),
+        before,
         runner,
-    );
-    assert_eq!(
-        runner.calls.get(),
-        1,
-        "one bounded status check, no stop or serve"
-    );
-    value
+    )
 }
-
 #[test]
-fn only_an_actual_replacement_of_a_declared_product_checks_status() {
-    let runner = status("invalid");
+fn replaced_running_remote_uses_its_restart_owner_and_reports_success() {
+    let runner = remote(
+        LIVE,
+        r#"{"outcome":"restarted","reason":null,"additive":true}"#,
+    );
+    assert_eq!(hint(&runner), Some(RESTARTED));
+    assert_eq!(*runner.calls.borrow(), ["status", "restart"]);
+}
+#[test]
+fn only_actual_replacement_admits_the_restart() {
+    let runner = remote("invalid", "invalid");
     for product in Product::ALL {
-        assert_eq!(observe(product, &report(true), false, None, &runner), None);
-        assert_eq!(observe(product, &report(false), true, None, &runner), None);
+        assert_eq!(
+            observe(
+                product,
+                &report(true),
+                false,
+                None,
+                PostUpgradeObservation::Running,
+                &runner
+            ),
+            None
+        );
+        assert_eq!(
+            observe(
+                product,
+                &report(false),
+                true,
+                None,
+                PostUpgradeObservation::Running,
+                &runner
+            ),
+            None
+        );
         if product != Product::Remote {
-            assert_eq!(observe(product, &report(true), true, None, &runner), None);
+            assert_eq!(
+                capture(product, Path::new("/must-not-run"), None, &runner),
+                PostUpgradeObservation::NotApplicable
+            );
+            assert_eq!(
+                observe(
+                    product,
+                    &report(true),
+                    true,
+                    None,
+                    PostUpgradeObservation::Running,
+                    &runner
+                ),
+                None
+            );
         }
     }
-    assert_eq!(runner.calls.get(), 0);
+    assert!(runner.calls.borrow().is_empty());
     assert_eq!(
-        observe(Product::Remote, &report(true), true, None, &runner),
+        observe(
+            Product::Remote,
+            &report(true),
+            true,
+            None,
+            PostUpgradeObservation::Running,
+            &runner
+        ),
         Some(UNKNOWN)
     );
-    assert_eq!(runner.calls.get(), 0);
 }
-
 #[test]
-fn running_stopped_and_changed_shapes_remain_distinct() {
-    assert_eq!(
-        hint(&status(
-            r#"{"running":true,"origin":"http://127.0.0.1:49152","path":"/r/prefix"}"#
-        )),
-        Some(RUNNING)
-    );
-    for value in [
+fn stopped_and_unknown_pre_observations_never_restart() {
+    for status in [
         r#"{"running":false,"lastPort":null}"#,
-        r#"{"running":false,"lastPort":49152}"#,
+        r#"{"running":false,"lastPort":49152,"additive":true}"#,
     ] {
-        assert_eq!(hint(&status(value)), None);
+        let runner = remote(status, "must not run");
+        assert_eq!(hint(&runner), None);
+        assert_eq!(*runner.calls.borrow(), ["status"]);
     }
-    for value in [
+    for status in [
         "invalid",
         "[]",
         r#"{"running":false}"#,
@@ -157,8 +211,106 @@ fn running_stopped_and_changed_shapes_remain_distinct() {
         r#"{"running":"false","lastPort":null}"#,
         r#"{"running":true}"#,
     ] {
-        assert_eq!(hint(&status(value)), Some(UNKNOWN));
+        let runner = remote(status, "must not run");
+        assert_eq!(hint(&runner), Some(UNKNOWN));
+        assert_eq!(*runner.calls.borrow(), ["status"]);
     }
+    assert_eq!(
+        remote_status(r#"{"running":true,"origin":"x","path":"y","extra":1}"#.as_bytes()),
+        PostUpgradeObservation::Running
+    );
+}
+#[test]
+fn fixed_restart_outcomes_preserve_success_quiet_and_fallbacks() {
+    for (reply, expected) in [
+        (r#"{"outcome":"not-running","reason":null}"#, None),
+        (r#"{"outcome":"deferred","reason":"busy"}"#, Some(RUNNING)),
+        (
+            r#"{"outcome":"deferred","reason":"foreground","extra":1}"#,
+            Some(RUNNING),
+        ),
+        (
+            r#"{"outcome":"deferred","reason":"legacy"}"#,
+            Some(OUTDATED),
+        ),
+        (
+            r#"{"outcome":"unconfirmed","reason":"candidate"}"#,
+            Some(UNKNOWN),
+        ),
+        (
+            r#"{"outcome":"unconfirmed","reason":"startup"}"#,
+            Some(UNKNOWN),
+        ),
+        (
+            r#"{"outcome":"unconfirmed","reason":"unknown"}"#,
+            Some(UNKNOWN),
+        ),
+        (r#"{"outcome":"restarted"}"#, Some(UNKNOWN)),
+        (r#"{"outcome":"restarted","reason":"busy"}"#, Some(UNKNOWN)),
+        (r#"{"outcome":true,"reason":null}"#, Some(UNKNOWN)),
+        (
+            r#"{"outcome":"deferred","reason":"invalid"}"#,
+            Some(UNKNOWN),
+        ),
+        ("invalid", Some(UNKNOWN)),
+    ] {
+        assert_eq!(hint(&remote(LIVE, reply)), expected);
+    }
+}
+#[test]
+fn lost_or_malformed_restart_reply_is_observed_without_retry() {
+    let runner = remote(LIVE, "not a reply");
+    assert_eq!(
+        hint(&runner),
+        Some(UNKNOWN),
+        "a valid running status after uncertainty cannot prove restart completion"
+    );
+    assert_eq!(*runner.calls.borrow(), ["status", "restart", "status"]);
+    for kind in [
+        CommandFailure::Spawn,
+        CommandFailure::Timeout,
+        CommandFailure::OutputLimit,
+        CommandFailure::Io,
+        CommandFailure::Exit {
+            code: Some(1),
+            signal: None,
+        },
+    ] {
+        let mut runner = remote(LIVE, "");
+        runner.failure = Some(kind);
+        assert_eq!(
+            observe(
+                Product::Remote,
+                &report(true),
+                true,
+                Some(Path::new(CORE)),
+                PostUpgradeObservation::Running,
+                &runner
+            ),
+            Some(UNKNOWN)
+        );
+        assert_eq!(*runner.calls.borrow(), ["restart", "status"]);
+    }
+}
+#[test]
+fn legacy_requires_clean_observed_exit_and_other_failures_are_unknown() {
+    let mut runner = remote(
+        r#"{"error":{"code":"REMOTE_SERVE_OUTDATED","message":"private"}}"#,
+        "must not run",
+    );
+    runner.failure = Some(CommandFailure::Exit {
+        code: Some(1),
+        signal: None,
+    });
+    assert_eq!(hint(&runner), Some(OUTDATED));
+    assert_eq!(*runner.calls.borrow(), ["status"]);
+    runner.cleanup_failed = true;
+    assert_eq!(hint(&runner), Some(UNKNOWN));
+}
+#[test]
+fn restart_bound_matches_the_remote_phase_contract() {
+    // Remote independently pins its named phase sum in control's owner test.
+    assert_eq!(POST_UPGRADE_RESTART_BOUND, Duration::from_secs(155));
 }
 
 #[test]
@@ -167,9 +319,15 @@ fn additive_members_do_not_change_the_observed_door_state() {
         let running = format!(
             r#"{{"running":true,"origin":"http://127.0.0.1:49152","path":"/r/prefix","futureProjection":{extra}}}"#
         );
-        assert_eq!(hint(&status(&running)), Some(RUNNING));
+        assert_eq!(
+            remote_status(running.as_bytes()),
+            PostUpgradeObservation::Running
+        );
         let stopped = format!(r#"{{"running":false,"lastPort":49152,"futureProjection":{extra}}}"#);
-        assert_eq!(hint(&status(&stopped)), None);
+        assert_eq!(
+            remote_status(stopped.as_bytes()),
+            PostUpgradeObservation::Stopped
+        );
     }
 }
 
@@ -188,47 +346,10 @@ fn additive_members_cannot_supply_missing_or_mistyped_required_members() {
         r#"{"running":false,"lastPort":[],"futureProjection":true}"#,
         r#"{"running":false,"lastPort":null,"futureProjection":true"#,
     ] {
-        assert_eq!(hint(&status(value)), Some(UNKNOWN), "{value}");
+        assert_eq!(
+            remote_status(value.as_bytes()),
+            PostUpgradeObservation::Unknown,
+            "{value}"
+        );
     }
-}
-
-#[test]
-fn legacy_requires_an_observed_clean_exit_and_other_failures_are_unknown() {
-    let mut runner =
-        status(r#"{"error":{"code":"REMOTE_SERVE_OUTDATED","message":"private child output"}}"#);
-    runner.failure = Some(CommandFailure::Exit {
-        code: Some(1),
-        signal: None,
-    });
-    assert_eq!(hint(&runner), Some(OUTDATED));
-    for kind in [
-        CommandFailure::Spawn,
-        CommandFailure::Timeout,
-        CommandFailure::OutputLimit,
-        CommandFailure::Io,
-        CommandFailure::Exit {
-            code: Some(2),
-            signal: None,
-        },
-        CommandFailure::Exit {
-            code: None,
-            signal: Some(15),
-        },
-    ] {
-        let mut runner = status(runner.result);
-        runner.failure = Some(kind);
-        assert_eq!(hint(&runner), Some(UNKNOWN));
-    }
-    let mut runner = status(runner.result);
-    runner.failure = Some(CommandFailure::Exit {
-        code: Some(1),
-        signal: None,
-    });
-    runner.cleanup_failed = true;
-    assert_eq!(hint(&runner), Some(UNKNOWN));
-    assert_eq!(
-        hint(&status(runner.result)),
-        Some(UNKNOWN),
-        "error-shaped success is not an outdated door"
-    );
 }

@@ -4,10 +4,18 @@ use crate::board::app::App;
 use ratatui::{Frame, layout::Rect};
 
 pub(super) fn render(frame: &mut Frame, app: &App, body: Rect, look: crate::look::Look) {
+    if let Some(recovery) = &app.recovery
+        && recovery.active
+    {
+        recovery.render(frame, look, body);
+    }
     if let Some(checklist) = &app.checklist
         && checklist.active
     {
         checklist.render(frame, look, body);
+    }
+    if let Some(details) = &app.quota_details {
+        details.borrow_mut().render(frame, app, body);
     }
     if app.help {
         crate::board::help::render(frame, app, body);

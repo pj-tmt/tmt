@@ -5,6 +5,7 @@ pub enum OpsUiAction {
     Overview,
     Agents,
     DigestDashboard,
+    QuotaDetails,
     Inspect,
     Previous,
     Next,
@@ -20,6 +21,7 @@ pub enum OpsUiAction {
     Sort,
     ReverseSort,
     Timers,
+    WorkspaceSnapshots,
     Pin,
     Manage,
     CreateSquad,
@@ -104,6 +106,13 @@ const SPECS: &[OpsUiSpec] = &[
         20
     ),
     spec!(
+        QuotaDetails,
+        "quota-details",
+        "quota details",
+        "inspect reported subscription windows",
+        13
+    ),
+    spec!(
         Inspect,
         "inspect",
         "inspect",
@@ -149,6 +158,13 @@ const SPECS: &[OpsUiSpec] = &[
         12
     ),
     spec!(Pin, "pin", "pin", "pin or unpin the selected squad", 5),
+    spec!(
+        WorkspaceSnapshots,
+        "workspace-snapshots",
+        "snapshots",
+        "preview saved workspace snapshots and review a guarded restore",
+        12
+    ),
     spec!(Manage, "manage", "manage", "manage the selected squad", 6),
     spec!(
         CreateSquad,

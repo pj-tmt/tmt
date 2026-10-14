@@ -213,8 +213,8 @@ Colab provenance. The contract owns the parser boundary and input/output identit
 layout, then resolves Node from that launcher's absolute or env-node shebang, excluding
 relative PATH entries. The embedded helper's compatibility gate still precedes credentials.
 No-declaration output touches neither provider nor deployment record. Plan-only inventory
-checks live plus planned field configurations; effect-time allocation rechecks the ceiling.
-Installed Colab acceptance and separately authorized real-project proof wait for its command;
+checks live plus planned field configurations and composites separately; allocation rechecks each ceiling.
+Installed Colab acceptance and real-project proof still require separate owner authorization;
 running `status --layers` now reads recorded deployment evidence without a provider call.
 `DeployRecordEvidence` takes one bounded lock-free snapshot per request; missing/draft is
 empty, damaged state is unknown and never repaired. The pure `readiness::from_record`

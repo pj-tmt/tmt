@@ -12,6 +12,7 @@ use crate::{
     state::Serving,
 };
 use nix::poll::{PollFd, PollFlags, poll};
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
     fs,
@@ -38,6 +39,18 @@ pub const SOCKET: &str = "control.sock";
 const LINE_BYTES: usize = 4096;
 const REQUEST_WAIT: Duration = Duration::from_secs(5);
 
+#[cfg(test)]
+mod restart_budget_tests {
+    #[test]
+    fn named_restart_phases_match_the_adapter_bound() {
+        use crate::limits::{CORE_CALL, SERVE_STARTUP, STOP_WAIT};
+        // serve::handshake sets startup cleanup_wait to the named STOP_WAIT.
+        // Keep the independent pin beside adapters' POST_UPGRADE_RESTART_BOUND.
+        let sum = STOP_WAIT + SERVE_STARTUP + STOP_WAIT + 2 * CORE_CALL + 2 * super::REQUEST_WAIT;
+        assert_eq!(sum, std::time::Duration::from_secs(155));
+    }
+}
+
 /// The door address and route prefix a pairing link names.
 pub struct Door {
     pub origin: String,
@@ -48,6 +61,7 @@ pub struct Door {
 pub struct StatusViews {
     pub objects: ObjectReadiness,
     pub layers: Arc<dyn FirestoreEvidenceSource>,
+    pub restart: Option<RestartView>,
     /// Explicit internal native-carrier activation, separate from observations.
     pub native: Option<Arc<dyn crate::object_service::NativeActivation>>,
 }
@@ -56,9 +70,33 @@ impl Default for StatusViews {
         Self {
             objects: ObjectReadiness::default(),
             layers: Arc::new(NotConfigured),
+            restart: None,
             native: None,
         }
     }
+}
+#[derive(Clone)]
+pub struct RestartView {
+    pub background: bool,
+    pub registrations: Value,
+}
+/// Only the connected serving owner can attest to background mode and run identity.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RestartSnapshot {
+    pub background: bool,
+    pub window_id: String,
+    pub origin: String,
+    pub path: String,
+    pub registrations: Value,
+}
+pub fn registrations(extensions: &[crate::mount::Extension]) -> Value {
+    json!(extensions.iter().map(|extension| json!({
+        "name": extension.name, "tunnels": extension.tunnels,
+        "bodyBytes": extension.body_bytes, "replyBytes": extension.reply_bytes,
+        "tunnelIdleMs": extension.tunnel_idle.as_millis(),
+        "objects": match extension.objects { crate::mount::ObjectDeclaration::Local => "local", crate::mount::ObjectDeclaration::Disabled => "disabled" }
+    })).collect::<Vec<_>>())
 }
 struct RemoteControlContext {
     door: Door,
@@ -221,6 +259,50 @@ fn session(
         // Same flag as SIGTERM: foreground owns all cleanup and lease release.
         serve_stop.store(true, Ordering::Release);
         let _ = write_line(&mut stream, &json!({"stopping":true}));
+        return;
+    }
+    if request == json!({"op":"restart-snapshot"}) {
+        let value = door.views.restart.as_ref().map_or_else(
+            || json!({"error":{"code":UNSUPPORTED,"message":"Unknown control operation."}}),
+            |view| {
+                json!(RestartSnapshot {
+                    background: view.background,
+                    window_id: pairing.window_id().to_owned(),
+                    origin: door.door.origin.clone(),
+                    path: door.door.prefix.clone(),
+                    registrations: view.registrations.clone(),
+                })
+            },
+        );
+        let _ = write_line(&mut stream, &value);
+        return;
+    }
+    if request["op"] == "restart-stop" {
+        let result = (|| {
+            let view = door.views.restart.as_ref().ok_or_else(outdated_serve)?;
+            if !view.background
+                || request != json!({"op":"restart-stop","windowId":pairing.window_id()})
+                || serve_stop.load(Ordering::Acquire)
+            {
+                return Err(io_error("restart owner changed; nothing was stopped"));
+            }
+            let approval =
+                approval.ok_or_else(|| io_error("restart activity observation unavailable"))?;
+            let stopped = pairing.while_idle(|| {
+                approval.while_idle(|| {
+                    door.views.objects.while_idle(serve_stop, || {
+                        // Serving still owns the lifecycle lease; the existing in-run
+                        // locks are held briefly in offer -> live -> Store order.
+                        serve_stop.store(true, Ordering::Release);
+                    })
+                })
+            })?;
+            Ok(json!({"stopping":stopped}))
+        })();
+        let value = result.unwrap_or_else(
+            |error: RemoteError| json!({"error":{"code":error.code,"message":error.message}}),
+        );
+        let _ = write_line(&mut stream, &value);
         return;
     }
     if matches!(request["op"].as_str(), Some("approve" | "cancel")) {
@@ -658,6 +740,43 @@ pub fn request_stop(remote_directory: &Path) -> Result<bool, RemoteError> {
         ));
     }
     Ok(true)
+}
+pub fn restart_snapshot(remote_directory: &Path) -> Result<Option<RestartSnapshot>, RemoteError> {
+    let Some(answer) = request_operation(remote_directory, "restart-snapshot")? else {
+        return Ok(None);
+    };
+    let snapshot: RestartSnapshot =
+        serde_json::from_value(answer).map_err(|_| io_error("invalid restart snapshot"))?;
+    let port = snapshot
+        .origin
+        .strip_prefix("http://127.0.0.1:")
+        .and_then(|port| port.parse::<u16>().ok())
+        .filter(|port| *port != 0);
+    if !port.is_some_and(|port| snapshot.origin == format!("http://127.0.0.1:{port}"))
+        || !canonical::route_prefix(&snapshot.path)
+        || !canonical::is_core_id(&snapshot.window_id)
+        || !snapshot.registrations.is_array()
+    {
+        return Err(io_error("invalid restart snapshot"));
+    }
+    Ok(Some(snapshot))
+}
+pub fn request_restart_stop(remote_directory: &Path, window_id: &str) -> Result<bool, RemoteError> {
+    let answer = request(
+        remote_directory,
+        &json!({"op":"restart-stop","windowId":window_id}),
+    )?
+    .ok_or_else(|| io_error("restart owner disappeared; observe status before retrying"))?;
+    match answer
+        .get("stopping")
+        .and_then(Value::as_bool)
+        .filter(|_| answer.as_object().is_some_and(|fields| fields.len() == 1))
+    {
+        Some(stopping) => Ok(stopping),
+        None => Err(io_error(
+            "invalid restart acknowledgment; observe status before retrying",
+        )),
+    }
 }
 /// Sent for an operation this serve does not implement. Clients match on the
 /// code; alpha.1 serves answered `REMOTE_INPUT_INVALID` instead.

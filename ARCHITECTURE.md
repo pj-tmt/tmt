@@ -528,12 +528,12 @@ leaf neither discovers roots nor accesses core state or provider configuration.
 
 ## Remote extension pilot
 
-`extensions/tmt-remote` builds `tmt remote`. It reaches Core only through fixed public
-process/JSON calls via absolute `TMT_EXECUTABLE` and `tmt-invoke`; the module reference below
-lists them. Remote owns `<dataRoot>/remote/` through the [shared state leaf](#shared-extension-state-layout).
-Core only registers the installable product, never its listener or state. Its archive embeds
-static browser pages, checked shared/host CSS, SDK and wordlist, with no companions or skills;
-publication gates belong to the [release skill](.agents/skills/tmt-release/SKILL.md).
+`extensions/tmt-remote` builds `tmt remote`. Fixed public Core JSON calls use absolute
+`TMT_EXECUTABLE` via `tmt-invoke` (reference below). Remote owns
+`<dataRoot>/remote/` through the [state leaf](#shared-extension-state-layout).
+Core delegates restart for replaced Remote observed running; Remote owns
+[lifecycle admission](contracts/remote-channel-v1.md#local-cli-discovery), listener and state.
+Its archive embeds pages, CSS, SDK and wordlist, no companions/skills; [release gates](.agents/skills/tmt-release/SKILL.md).
 
 [`contracts/remote-channel-v1.md`](contracts/remote-channel-v1.md) owns the wire, pairing,
 sessions (reattach, caps, held work), operations, settings authority, mounts, serve lifecycle,
@@ -544,11 +544,11 @@ and mounts owner-installed extensions. [Colab](#colab-extension) is mounted at
 `/r/<prefix>/x/colab/` and otherwise reaches Remote only through the public CLI, that SDK and
 the extension object channel (`tmt-extension-objects`), never through Remote state files.
 
-`object_service` owns the lease-bound object/v3 carrier. Serve registers the selected project's
-shared Auth/runtime/factory, checkpoint and joined final flush; v3 is opt-in.
-`native_sync` owns COUNT/read budgets; Colab owns cursors. No Core state.
+`object_service` owns the leased object/v3 carrier; `firebase_auth` credentials.
+Serve registers shared project Auth/runtime/factory and owns tick/joins/flush; v3 is opt-in.
+`native_sync` owns COUNT/read budgets; Colab owns cursors. No Core state or provider carrier.
 [object-backends](.agents/skills/tmt-remote/references/object-backends.md) owns channels,
-backends and quotas. Pure declaration, Rules and Hosting feed Firestore deploy.
+backends and quotas. Declaration, index, Rules and Hosting feed Firestore deploy.
 [Remote internals](.agents/skills/tmt-remote/references/architecture-internals.md) owns module guarantees;
 [door and discovery](.agents/skills/tmt-remote/references/door-and-discovery.md) owns lifecycle,
 status and management. Shared background start is [extension-serve-v1](contracts/extension-serve-v1.md).

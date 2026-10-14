@@ -236,6 +236,7 @@ pub enum Effect {
     SaveTheme,
     Act(Request),
     Checklist(super::checklist::load::Task),
+    Recovery(super::recovery::load::Task),
 }
 
 /// What a menu entry does: run a binding, or reply to one open request.
@@ -490,24 +491,28 @@ const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Overlay {
     Workspace,
+    Recovery,
     Help,
     Settings,
     Theme,
     CronList,
     ReplyReader,
     Checklist,
+    QuotaDetails,
 }
 impl Overlay {
     fn id(self) -> tmt_tui::app::ComponentId {
         vec![
             match self {
                 Self::Workspace => "workspace-form",
+                Self::Recovery => "recovery",
                 Self::Help => "help",
                 Self::Settings => "settings",
                 Self::Theme => "theme-picker",
                 Self::CronList => "cron-list",
                 Self::ReplyReader => "reply-reader",
                 Self::Checklist => "checklist",
+                Self::QuotaDetails => "quota-details",
             }
             .into(),
         ]
@@ -535,12 +540,13 @@ pub struct Hit {
 pub enum HitTarget {
     Row(usize),
     Meter(Option<usize>),
+    Quota,
 }
 impl Hit {
     pub fn row(&self) -> Option<usize> {
         match self.target {
             HitTarget::Row(row) => Some(row),
-            HitTarget::Meter(_) => None,
+            HitTarget::Meter(_) | HitTarget::Quota => None,
         }
     }
     fn contains(&self, x: u16, y: u16) -> bool {
@@ -573,6 +579,7 @@ pub struct App {
         RefCell<Vec<(ratatui::layout::Rect, super::workspace::OpsTarget, Choice)>>,
     pub(super) timing: Option<super::timing::Ui>,
     pub(super) checklist: Option<super::checklist::Controller>,
+    pub(super) recovery: Option<super::recovery::Controller>,
     pub(super) checklist_generation: u64,
     pub(super) initial_look: Option<crate::look::Look>,
     pub(super) cron: super::cronboard::State,
@@ -610,6 +617,7 @@ pub struct App {
     pub selected: usize,
     pub notice: Option<String>,
     pub(super) migration_notice: Option<String>,
+    pub(super) quota_details: Option<RefCell<super::home::quota_detail::Details>>,
     pub help: bool,
     pub(super) help_state: RefCell<super::help::Help>,
     pub(in crate::board) overlay_focus: tmt_tui::app::FocusStack,
@@ -1861,6 +1869,15 @@ impl App {
             Choice::Action(action) => action.order(),
             _ => u8::MAX,
         });
+        if self.quota_details_available()
+            && !entries.iter().any(|entry| matches!(&entry.choice, Choice::Action(action) if action.verb == Verb::Ui(crate::action::OpsUiAction::QuotaDetails)))
+        {
+            entries.push(MenuEntry {
+                key: String::new(),
+                label: "Quota details".into(),
+                choice: Choice::Action(Action::parse("quota-details").expect("quota action")),
+            });
+        }
         entries.push(MenuEntry {
             key: String::new(),
             label: "Checklist".into(),
@@ -2456,7 +2473,7 @@ impl App {
     }
 
     pub(super) fn paste(&mut self, text: &str) -> Effect {
-        if self.checklist_shown() {
+        if self.checklist_shown() || self.recovery_shown() {
             return self
                 .overlay_event(&Event::Paste(text.to_owned()))
                 .unwrap_or(Effect::None);
@@ -2854,10 +2871,14 @@ impl App {
     fn overlay(&self) -> Option<Overlay> {
         if self.workspace_form.is_some() {
             Some(Overlay::Workspace)
+        } else if self.recovery_shown() {
+            Some(Overlay::Recovery)
         } else if self.row_details.reader.is_some() {
             Some(Overlay::ReplyReader)
         } else if self.checklist_shown() {
             Some(Overlay::Checklist)
+        } else if self.quota_details.is_some() {
+            Some(Overlay::QuotaDetails)
         } else if self.help {
             Some(Overlay::Help)
         } else if self.settings.is_some() {
@@ -2879,8 +2900,18 @@ impl App {
     ) -> Option<Effect> {
         match overlay {
             Overlay::Workspace => self.workspace_form_event(field, event),
+            Overlay::Recovery => self.recovery_event(event),
             Overlay::ReplyReader => Some(self.reader_event(event)),
             Overlay::Checklist => self.checklist_event(event),
+            Overlay::QuotaDetails => {
+                if matches!(event, Event::Key(key) if matches!(key.code, KeyCode::Esc | KeyCode::Char('q')))
+                {
+                    self.quota_details = None;
+                } else {
+                    self.quota_details.as_ref()?.borrow_mut().input(event);
+                }
+                Some(Effect::None)
+            }
             Overlay::Help => {
                 let input = self.help_state.borrow_mut().input(event);
                 match input? {
@@ -3009,6 +3040,9 @@ impl App {
         self.tab_hits.borrow_mut().clear();
         self.workspace_action_hits.borrow_mut().clear();
         self.chip_hits.borrow_mut().clear();
+        if let Some(details) = &self.quota_details {
+            details.borrow_mut().invalidate();
+        }
         if let Some(draft) = &self.workspace_form {
             draft.invalidate();
         }
@@ -3020,6 +3054,9 @@ impl App {
         }
         if let Some(checklist) = &self.checklist {
             checklist.invalidate();
+        }
+        if let Some(recovery) = &self.recovery {
+            recovery.invalidate();
         }
         if let Some(settings) = &self.settings {
             settings.surface.borrow_mut().invalidate();
@@ -3224,6 +3261,16 @@ impl App {
             }
         }
 
+        if event.kind == MouseEventKind::Down(MouseButton::Left)
+            && !self.loading()
+            && self
+                .hits
+                .borrow()
+                .iter()
+                .any(|hit| hit.contains(event.column, event.row) && hit.target == HitTarget::Quota)
+        {
+            return self.open_quota_details();
+        }
         if event.kind == MouseEventKind::Down(MouseButton::Left)
             && !self.loading()
             && self.hits.borrow().iter().any(|hit| {

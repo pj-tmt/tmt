@@ -105,6 +105,34 @@ fn pending() -> Outcome {
 }
 
 #[test]
+fn pending_upload_defers_restart_without_changing_its_accounting() {
+    let env = Env::new();
+    let (service, peer) = running(&env, bounds());
+    let original = spec(Context::LocalExtension, 7, b"keep this upload");
+    let stopped = AtomicBool::new(false);
+    let view = service.readiness();
+    assert_eq!(admitted(&peer, 1, begin(&original), &original), pending());
+    let before = service.storage.installation_usage(&io()).unwrap();
+    assert!(
+        !view
+            .while_idle(&stopped, || stopped.store(true, Ordering::Release))
+            .unwrap()
+    );
+    assert!(!stopped.load(Ordering::Acquire));
+    assert_eq!(service.storage.installation_usage(&io()).unwrap(), before);
+    assert_eq!(
+        admitted(&peer, 2, discard(), &original),
+        Outcome::Success(Success::State(State::Discarded))
+    );
+    assert!(
+        view.while_idle(&stopped, || stopped.store(true, Ordering::Release))
+            .unwrap()
+    );
+    assert!(stopped.load(Ordering::Acquire));
+    service.shutdown();
+}
+
+#[test]
 fn upload_begin_parts_commit_repeats_and_discard_keep_one_original() {
     let env = Env::new();
     let (service, peer) = running(&env, bounds());

@@ -23,6 +23,7 @@ const calls = vi.hoisted(() => ({
   terminated: 0,
   cache: [] as unknown[],
   filters: [] as unknown[],
+  queries: [] as { collection: unknown; constraints: unknown[] }[],
   listens: 0,
   detached: 0,
   changed: undefined as
@@ -65,7 +66,11 @@ vi.mock('firebase/firestore', () => ({
     calls.filters.push([field, op, value]);
     return [field, op, value];
   },
-  query: (collection: unknown, ...constraints: unknown[]) => ({ collection, constraints }),
+  query: (collection: unknown, ...constraints: unknown[]) => {
+    const built = { collection, constraints };
+    calls.queries.push(built);
+    return built;
+  },
   onSnapshot: (_query: unknown, options: unknown, changed: typeof calls.changed) => {
     assert.deepEqual(options, { includeMetadataChanges: false });
     calls.listens++;
@@ -179,6 +184,11 @@ test('shared listener uses one memory cache and exact page filters, never reads 
     ['page', '==', 'page-1'],
     ['epoch', '==', 1],
   ]);
+  // The actual Web SDK listener builder is equality-only: index merging, no seq/order/range.
+  assert.deepEqual(calls.queries.at(-1), {
+    collection: 'x/notes/rows',
+    constraints: calls.filters.slice(-3),
+  });
   // Re-register to drive the observable callback used by the first owner.
   stop2();
   const stop3 = await a.wake!.listen(

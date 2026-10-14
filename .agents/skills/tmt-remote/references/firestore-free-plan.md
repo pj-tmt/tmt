@@ -15,7 +15,7 @@ This page holds the dated numbers: recheck them before relying on them, they cha
 | Stored data; egress                                        | 1 GiB; 10 GiB per month                                                                                                                   | quotas                                                        |
 | Reset                                                      | around midnight Pacific                                                                                                                   | quotas                                                        |
 | Free databases per project                                 | exactly one                                                                                                                               | quotas                                                        |
-| Composite indexes; single-field index configs (no billing) | 200; 200 (1000; 1000 with billing, re-read 2026-10-09)                                                                                    | quotas                                                        |
+| Composite indexes; single-field index configs (no billing) | 200; 200 (1000; 1000 with billing, re-read 2026-10-14)                                                                                    | quotas                                                        |
 | Document size; Rules `get`/`exists` per request            | 1 MiB; 10 (20 batched)                                                                                                                    | quotas                                                        |
 | TTL deletes                                                | need billing                                                                                                                              | quotas                                                        |
 | Listener reads                                             | one per document added or updated in the result, one per document leaving it because it changed, a new-query charge after >30 min offline | [pricing](https://firebase.google.com/docs/firestore/pricing) |
@@ -83,13 +83,14 @@ proves Rules admission only, not Firebase provisioning or free-plan capacity.
 
 ## Provider deployment
 
-The `deploy_firestore` adapter counts all live field configurations, including
-unrelated ones, before adding a new configuration. Adding an index to an existing configuration
-preserves its other indexes and TTL policy. Bounded inventory failure refuses allocation;
-provider quota refusals use the fixed quota code, and a lost mutation reply stays unknown.
-These checks do not observe the project's daily traffic quota or prove its plan tier. Plan-only CLI inventory checks live plus planned field configurations before effects.
-Installed Colab acceptance waits for its declaration command; real-project proof also requires
-separate owner approval.
+The `deploy_firestore` adapter checks live plus missing planned single-field configurations and
+composite indexes against their separate 200-entry free-plan ceilings, including unrelated indexes.
+It preserves existing indexes and TTL policies; bounded inventory failure refuses allocation.
+Declaration-derived stream composites, index merging for discovery/page interests, digest binding and
+READY-only verification are owned by the [composition contract](../../../../contracts/remote-channel-v1.md#proposal-firestore-auth-and-rules).
+A building index leaves deployment partial; rerun the same authorized command to observe it, not recreate it.
+A lost mutation reply stays unknown. These checks neither measure daily traffic nor prove the project's tier.
+Installed Colab acceptance and real-project proof still require separate owner authorization.
 
 The settings page shows these published allowances under native Details, including the
 source-read date and 70/90 guard thresholds. They are not a measured usage percentage or

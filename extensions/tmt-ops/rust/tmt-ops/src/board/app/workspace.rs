@@ -33,7 +33,17 @@ impl App {
             return Rc::clone(rows);
         }
         self.workspace_snapshot()
-            .map(|snapshot| self.workspace.rows(&snapshot.roster, &snapshot.preferences))
+            .map(|snapshot| {
+                if self.shell.tab == OpsTab::Digest {
+                    crate::board::digest_dashboard::rows(
+                        snapshot,
+                        &self.workspace.query,
+                        self.workspace.selected.as_ref(),
+                    )
+                } else {
+                    self.workspace.rows(&snapshot.roster, &snapshot.preferences)
+                }
+            })
             .unwrap_or_default()
             .into()
     }
@@ -133,6 +143,13 @@ impl App {
         self.invalidate_frame_geometry();
     }
     pub(in crate::board) fn workspace_bindings(&self) -> Bindings {
+        let mut keys = self.workspace_effective_bindings();
+        if self.shell.tab != OpsTab::Agents || self.workspace_scope() == OpsKeyScope::Reader {
+            keys.retain(|_, action| action.verb != Verb::Ui(OpsUiAction::WorkspaceSnapshots));
+        }
+        keys
+    }
+    fn workspace_effective_bindings(&self) -> Bindings {
         let Some(snapshot) = self.workspace_snapshot() else {
             return crate::config::workspace_defaults(self.workspace_scope());
         };
@@ -174,6 +191,15 @@ impl App {
             }
         }
         let rows = self.workspace_rows();
+        if self.shell.tab == OpsTab::Digest
+            && self
+                .workspace
+                .selected
+                .as_ref()
+                .is_some_and(|target| !matches!(target, OpsTarget::Member { .. }))
+        {
+            self.workspace.selected = rows.first().map(|row| row.target.clone());
+        }
         if self.workspace.selected.is_none() {
             self.workspace.selected = rows.first().map(|row| row.target.clone());
         }
@@ -209,6 +235,7 @@ impl App {
         use OpsUiAction::*;
         match action {
             Quit => return Effect::Quit,
+            QuotaDetails => return self.open_quota_details(),
             Help => {
                 self.help_state.borrow_mut().open();
                 self.help = true;
@@ -223,6 +250,7 @@ impl App {
                 if !self.shell.select_digit(digit, self.workspace_input_owner()) {
                     return Effect::None;
                 }
+                self.workspace_reconcile();
                 self.focus = 0;
                 self.invalidate_frame_geometry();
                 return Effect::None;
@@ -248,6 +276,7 @@ impl App {
             return self.say("Loading the workspace…");
         }
         match action {
+            WorkspaceSnapshots => return self.open_recovery(),
             Previous => self.workspace_select(self.selected.saturating_sub(1)),
             Next => self.workspace_select(self.selected.saturating_add(1)),
             First => self.workspace_select(0),
@@ -263,7 +292,9 @@ impl App {
                 };
                 if matches!(target, OpsTarget::Member { .. }) {
                     if action == Inspect {
-                        self.shell.tab = OpsTab::Agents;
+                        if self.shell.tab != OpsTab::Digest {
+                            self.shell.tab = OpsTab::Agents;
+                        }
                         self.focus = 1;
                     }
                 } else {
@@ -330,8 +361,8 @@ impl App {
             Manage | CreateSquad | RemoveMembership | MoveMembership => {
                 return self.workspace_management(action);
             }
-            Overview | Agents | DigestDashboard | Help | Quit | ScrollUp | ScrollDown
-            | ScrollPageUp | ScrollPageDown | ScrollTop | ScrollBottom => {
+            Overview | Agents | DigestDashboard | QuotaDetails | Help | Quit | ScrollUp
+            | ScrollDown | ScrollPageUp | ScrollPageDown | ScrollTop | ScrollBottom => {
                 unreachable!("shell actions handled first")
             }
         }

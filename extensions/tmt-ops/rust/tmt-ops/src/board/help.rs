@@ -133,7 +133,6 @@ pub(super) fn model(app: &App) -> KeyHelp {
                     "Shift-Left/Right",
                     "old tab reorder is removed; use squad pins/sort instead",
                 ),
-                ("w", "reserved for Workspace snapshots; no list binding"),
                 (
                     "wheel",
                     "scroll the pane under the pointer without moving the selected target",
@@ -156,14 +155,17 @@ pub(super) fn model(app: &App) -> KeyHelp {
             ],
         ),
     ];
-    if app.shell.tab == super::shell::OpsTab::Overview
-        && super::home::limits_enabled(app)
+    if matches!(
+        app.shell.tab,
+        super::shell::OpsTab::Overview | super::shell::OpsTab::Digest
+    ) && super::home::limits_enabled(app)
         && app.limits.as_ref().is_none_or(|values| !values.is_empty())
     {
         sections.push(section("provider-limits", "provider limits", &[
-            ("balance", "weekly remaining share inside the bar; (7d) is the provider quota window, separate from token usage windows"),
+            ("balance", "remaining share inside each reported window bar; (7d)/(5h) are provider quota windows, separate from token usage windows"),
             ("freshness", "missing or invalid readings, or readings older than 2 hours, remain unknown; they are never zero"),
             ("warning", "a depletion estimate is shown only from measured weekly use; reset countdown, pace and trend fit only when reported and space permits"),
+            ("details", "click a quota row or choose Quota details from Actions for source timestamps, reset and pace; no new default key"),
         ]));
     }
     if let Some(snapshot) = app

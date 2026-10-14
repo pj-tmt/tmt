@@ -225,6 +225,16 @@ fn background(
     json_output: bool,
     stop: &Arc<AtomicBool>,
 ) -> Result<(), RemoteError> {
+    let ready = launch_background(port, stop)?;
+    publish(&ready, json_output, true).map_err(|_| {
+        RemoteError::new(
+            "REMOTE_READY_OUTPUT",
+            "Remote readiness output was not completed; startup may have succeeded.",
+        )
+        .with_hint("inspect tmt remote status; use tmt remote stop before starting again")
+    })
+}
+fn launch_background(port: Option<u16>, stop: &AtomicBool) -> Result<Value, RemoteError> {
     let mut args: Vec<std::ffi::OsString> = ["serve", "--foreground", "--worker"]
         .into_iter()
         .map(Into::into)
@@ -246,13 +256,124 @@ fn background(
         },
     )
     .map_err(from_startup)?;
-    publish(&ready, json_output, true).map_err(|_| {
-        RemoteError::new(
-            "REMOTE_READY_OUTPUT",
-            "Remote readiness output was not completed; startup may have succeeded.",
-        )
-        .with_hint("inspect tmt remote status; use tmt remote stop before starting again")
-    })
+    Ok(ready)
+}
+
+/// The replacement executable owns candidate admission, one safe stop and one start.
+pub(super) fn restart(json_output: bool) -> Result<(), RemoteError> {
+    let value =
+        restart_once().unwrap_or_else(|_| json!({"outcome":"unconfirmed","reason":"unknown"}));
+    let mut output = tmt_cli_style::stream::stdout(json_output);
+    if json_output {
+        writeln!(output, "{value}")?;
+    } else {
+        let terminal = output.terminal();
+        match value["outcome"].as_str() {
+            Some("restarted") => tmt_cli_style::message::success(
+                &mut output,
+                terminal,
+                "Remote restarted in the background.",
+            )?,
+            Some("not-running") => {}
+            _ => tmt_cli_style::message::warning(
+                &mut output,
+                terminal,
+                "Remote restart was not confirmed",
+                Some("inspect tmt remote status before restarting manually"),
+            )?,
+        }
+    }
+    Ok(())
+}
+fn restart_once() -> Result<Value, RemoteError> {
+    let stop = AtomicBool::new(false);
+    let core = CoreClient::discover()?;
+    let root = core.storage_root(&stop)?;
+    let Some(layout) = Layout::existing(&root)? else {
+        return Ok(json!({"outcome":"not-running","reason":null}));
+    };
+    let snapshot = match control::restart_snapshot(&layout.directory) {
+        Ok(Some(snapshot)) => snapshot,
+        Ok(None) => {
+            if let Some(lease) = layout.existing_serve_lock()? {
+                Store::stopped_port(&lease)?;
+            }
+            return Ok(json!({"outcome":"not-running","reason":null}));
+        }
+        Err(error) if error.code == "REMOTE_SERVE_OUTDATED" => {
+            return Ok(json!({"outcome":"deferred","reason":"legacy"}));
+        }
+        Err(error) => return Err(error),
+    };
+    if !snapshot.background {
+        return Ok(json!({"outcome":"deferred","reason":"foreground"}));
+    }
+    let candidate = (|| {
+        core_limits(&core, &stop)?;
+        Store::replacement_check(&layout, &snapshot)?;
+        if snapshot.registrations != control::registrations(&mount::EXTENSIONS) {
+            return Err(startup_error());
+        }
+        Ok::<_, RemoteError>(())
+    })();
+    if candidate.is_err() {
+        return Ok(json!({"outcome":"unconfirmed","reason":"candidate"}));
+    }
+    match control::request_restart_stop(&layout.directory, &snapshot.window_id) {
+        Ok(false) => return Ok(json!({"outcome":"deferred","reason":"busy"})),
+        Ok(true) => {}
+        Err(error) => {
+            // A lost reply never authorizes a second mutation. Observe once only.
+            let _ = control::status(&layout.directory, false);
+            return Err(error);
+        }
+    }
+    {
+        let _lease = layout.wait_for_release(Instant::now() + tmt_remote::limits::STOP_WAIT)?;
+        match std::fs::symlink_metadata(layout.directory.join(control::SOCKET)) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            _ => return Err(startup_error()), // Never stop a possible successor.
+        }
+    }
+    let port = snapshot
+        .origin
+        .strip_prefix("http://127.0.0.1:")
+        .and_then(|port| port.parse::<u16>().ok())
+        .ok_or_else(startup_error)?;
+    let ready = match launch_background(Some(port), &stop) {
+        Ok(ready) => ready,
+        Err(_) => return Ok(json!({"outcome":"unconfirmed","reason":"startup"})),
+    };
+    if ready["address"] != format!("{}{}", snapshot.origin, snapshot.path)
+        || ready["windowId"] == snapshot.window_id
+    {
+        return Err(startup_error());
+    }
+    Ok(json!({"outcome":"restarted","reason":null}))
+}
+
+fn core_limits(core: &CoreClient, stop: &AtomicBool) -> Result<usize, RemoteError> {
+    let capabilities = core.capabilities(stop)?;
+    if capabilities["version"] != 1
+        || capabilities["limits"]["outputBytes"]
+            .as_u64()
+            .is_none_or(|n| n == 0 || n > tmt_remote::core::OUTPUT_LIMIT as u64)
+    {
+        return Err(RemoteError::new(
+            "REMOTE_CORE_UNAVAILABLE",
+            "Core advertised an unsupported protocol or output bound.",
+        ));
+    }
+    capabilities["limits"]["inputBytes"]
+        .as_u64()
+        .filter(|n| *n > 0 && *n <= tmt_remote::limits::CORE_INPUT_BYTES as u64)
+        .map(|n| n as usize)
+        .ok_or_else(|| {
+            RemoteError::new(
+                "REMOTE_CORE_UNAVAILABLE",
+                "Core did not advertise a valid input bound.",
+            )
+        })
 }
 
 /// A failed object candidate never changes the door's readiness or starts a retry.
@@ -348,26 +469,7 @@ fn foreground_with_native(
     mut handoff: Option<&mut Handoff>,
     native: native_factory::NativeInputs<'_>,
 ) -> Result<(), RemoteError> {
-    let capabilities = core.capabilities(stop)?;
-    if capabilities["version"] != 1
-        || capabilities["limits"]["outputBytes"]
-            .as_u64()
-            .is_none_or(|n| n == 0 || n > tmt_remote::core::OUTPUT_LIMIT as u64)
-    {
-        return Err(RemoteError::new(
-            "REMOTE_CORE_UNAVAILABLE",
-            "Core advertised an unsupported protocol or output bound.",
-        ));
-    }
-    let input_limit = capabilities["limits"]["inputBytes"]
-        .as_u64()
-        .filter(|n| *n > 0 && *n <= tmt_remote::limits::CORE_INPUT_BYTES as u64)
-        .ok_or_else(|| {
-            RemoteError::new(
-                "REMOTE_CORE_UNAVAILABLE",
-                "Core did not advertise a valid input bound.",
-            )
-        })? as usize;
+    let input_limit = core_limits(&core, stop)?;
     fence(stop)?;
     let root = core.storage_root(stop)?;
     fence(stop)?;
@@ -514,6 +616,10 @@ fn foreground_with_native(
             control::StatusViews {
                 objects: readiness,
                 layers: firestore,
+                restart: Some(control::RestartView {
+                    background: handoff.is_some(),
+                    registrations: control::registrations(extensions),
+                }),
                 native: reactivation.as_ref().map(|hook| {
                     Arc::clone(hook) as Arc<dyn tmt_remote::object_service::NativeActivation>
                 }),

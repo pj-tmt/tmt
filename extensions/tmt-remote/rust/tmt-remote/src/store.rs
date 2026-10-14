@@ -51,6 +51,47 @@ pub struct Machine {
     pub route_prefix: String,
 }
 impl Store {
+    /// Candidate admission beside a live owner is read-only: no lease adoption,
+    /// migration, key publication or database repair occurs before cutoff.
+    pub fn replacement_check(
+        layout: &crate::state::Layout,
+        snapshot: &crate::control::RestartSnapshot,
+    ) -> Result<(), RemoteError> {
+        layout
+            .read_file("remote.db")?
+            .ok_or_else(|| database("missing serving database"))?;
+        let mut key = layout
+            .read("machine.key", 33)
+            .map_err(crate::state::state_error)?;
+        let valid_key = key.len() == 32;
+        key.fill(0);
+        if !valid_key {
+            return Err(database("invalid serving key"));
+        }
+        let connection = Connection::open_with_flags(
+            layout.directory.join("remote.db"),
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NOFOLLOW,
+        )
+        .map_err(database)?;
+        if migration_count(&connection)? < 6 {
+            return Err(database("candidate cannot retain the legacy route prefix"));
+        }
+        let (machine, prefix): (String, String) = connection
+            .query_row(
+                "SELECT machine_id, route_prefix FROM machine WHERE singleton=1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(database)?;
+        let port = read_port(&connection)?.ok_or_else(|| database("missing serving port"))?;
+        if !uuid_shape(&machine)
+            || prefix != snapshot.path
+            || snapshot.origin != format!("http://127.0.0.1:{port}")
+        {
+            return Err(database("serving endpoint differs from persisted records"));
+        }
+        Ok(())
+    }
     /// Opening requires the held serve lock: there is never a second opener.
     pub fn open(serving: &Serving) -> Result<Self, RemoteError> {
         let layout = serving.layout();

@@ -35,6 +35,10 @@ impl CommandRunner for Runner {
             .map(std::ffi::OsString::from)
         );
         assert!(request.deadline > Instant::now());
+        assert!(
+            request.deadline <= Instant::now() + Duration::from_secs(180),
+            "non-Remote plans retain their existing bound"
+        );
         assert_eq!(request.max_output_bytes, upgrade_all::LIMIT);
         if applying {
             let plan = Plan::parse(request.input).unwrap();
@@ -82,6 +86,70 @@ fn plan() -> Value {
 }
 
 #[test]
+fn remote_progress_requires_pending_human_terminal_output() {
+    for (pending, json, tty, expected) in [
+        (false, false, false, false),
+        (false, false, true, false),
+        (false, true, false, false),
+        (false, true, true, false),
+        (true, false, false, false),
+        (true, false, true, true),
+        (true, true, false, false),
+        (true, true, true, false),
+    ] {
+        assert_eq!(remote_progress(pending, json, tty), expected);
+    }
+}
+
+#[test]
+fn remote_pending_apply_gets_restart_budget_and_timeout_never_becomes_success() {
+    struct Deadline(RefCell<usize>);
+    impl CommandRunner for Deadline {
+        fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+            let mut calls = self.0.borrow_mut();
+            *calls += 1;
+            if *calls == 1 {
+                return Ok(CommandOutput { stdout: serde_json::to_vec(&json!({"products":[],"pending":[{"product":"remote","version":"1.0.0","selected":"1.1.0"}]})).unwrap(), stderr: vec![] });
+            }
+            assert_eq!(*calls, 2, "no apply retry after timeout");
+            assert!(
+                request.deadline
+                    >= Instant::now()
+                        + Duration::from_secs(180)
+                        + native_install::POST_UPGRADE_RESTART_BOUND
+                        - Duration::from_secs(1)
+            );
+            // Valid-looking success bytes before expiry cannot override the
+            // actual process timeout and cleanup result.
+            UnixCommandRunner.execute(CommandRequest {
+                program: std::ffi::OsStr::new("/bin/sh"),
+                args: &["-c".into(), "printf '%s' '{\"products\":[{\"product\":\"remote\",\"status\":\"changed\",\"version\":\"1.1.0\"}]}'; sleep 2".into()],
+                input: &[], deadline: Instant::now() + Duration::from_millis(20), max_output_bytes: request.max_output_bytes,
+            })
+        }
+    }
+    let runner = Deadline(RefCell::new(0));
+    let progress = RefCell::new(Vec::new());
+    let rows = upgrade_with_progress(
+        Path::new("/managed/releases/new/tmt"),
+        &runner,
+        |_| Ok(true),
+        |remote_pending| progress.borrow_mut().push(remote_pending),
+    );
+    assert_eq!(*progress.borrow(), [true]);
+    assert_eq!(*runner.0.borrow(), 2);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["status"], "failed");
+    assert_eq!(rows[0]["error"]["code"], "EXTENSION_UPGRADE_FAILED");
+    assert!(
+        rows[0]["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("Timeout")
+    );
+}
+
+#[test]
 fn new_executable_plans_and_applies_exact_consented_versions_with_partial_failure() {
     let runner = Runner::new(vec![
         (plan(), 0),
@@ -93,11 +161,18 @@ fn new_executable_plans_and_applies_exact_consented_versions_with_partial_failur
             1,
         ),
     ]);
-    let rows = upgrade_with(Path::new("/managed/releases/new/tmt"), &runner, |plan| {
-        assert_eq!(plan.pending.len(), 2);
-        assert_eq!(plan.pending[0].1, "1.0.0");
-        Ok(true)
-    });
+    let progress = RefCell::new(Vec::new());
+    let rows = upgrade_with_progress(
+        Path::new("/managed/releases/new/tmt"),
+        &runner,
+        |plan| {
+            assert_eq!(plan.pending.len(), 2);
+            assert_eq!(plan.pending[0].1, "1.0.0");
+            Ok(true)
+        },
+        |remote_pending| progress.borrow_mut().push(remote_pending),
+    );
+    assert_eq!(*progress.borrow(), [false]);
     assert_eq!(runner.inputs.borrow().len(), 2);
     assert_eq!(rows[0]["error"]["message"], "new verifier refused");
     assert_eq!(rows[1]["status"], "changed");

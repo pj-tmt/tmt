@@ -208,6 +208,20 @@ pub fn execute_with_hosting(
                 writeln!(human, "    Index: {} {}", index.field, index.direction)
                     .expect("String write");
             }
+            for index in &resource.composite_indexes {
+                let fields = index
+                    .fields
+                    .iter()
+                    .map(|field| format!("{} asc", field.field_path))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                writeln!(
+                    human,
+                    "    Composite index: {} ({fields})",
+                    index.collection_group
+                )
+                .expect("String write");
+            }
         }
     }
     for unavailable in &input.extensions.view().unavailable {

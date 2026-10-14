@@ -949,6 +949,45 @@ shutdown returns the standard Remote error document and exits nonzero. Stop neve
 signals a process by PID and never starts or migrates stopped state. A concurrent successor may
 make shutdown unconfirmed; stop does not send another request to shut down that successor.
 
+`tmt remote restart --json --no-open` performs one background-only restart. Its fixed result
+is `{outcome,reason}`: `restarted` or `not-running` with `reason:null`; `deferred` with
+`busy`, `foreground` or `legacy`; or `unconfirmed` with `candidate`, `startup` or `unknown`.
+Expected lifecycle refusals exit 0 with that typed result; malformed or lost replies are never
+restart success. Ordinary status stays unchanged. An absent/stopped owner starts nothing.
+
+The replacement checks Core capabilities, read-only schema/key/endpoint prerequisites and the
+trusted mount registrations before cutoff. The owner-only control snapshot supplies this run's
+background mode, window, origin, route and mount policy: persisted home, lease, machine route
+and bound port remain authoritative, but do not record a live generation or background mode.
+Foreground, unknown-mode and legacy owners are left running, including Colab-supervised doors.
+
+Under the held serve lease, Remote briefly checks the existing offer, live-session, Store and
+object-upload owners and sets the existing stop flag in the same control operation. An active
+pairing offer, interactive preview/confirmation, pending held approval or observed in-flight
+transfer defers without stopping or changing that work. Live-session effects, pending uploads
+and committed reads use their existing activity/accounting/transfer-holder state. The shared
+channel budget must have no outstanding admitted requests or callbacks, including a read
+awaiting disclosure; registered page interests are long-lived and do not defer restart.
+Unavailable observations cannot admit a restart.
+There is no new admission fence: work arriving in the narrow check-to-stop race can be interrupted
+as by ordinary stop. Normal pairing/approval cancellation remains unchanged.
+
+After confirmed lease/socket cleanup, one replacement worker starts on the exact old endpoint,
+with the same home/key/grants and trusted mounts, and a fresh window/sessions/cookies. There is
+no port fallback, retry, PID signalling, successor stop or rollback promise after cutoff. Stop
+and startup retain their existing 40-second and 35-second bounds and existing bounded cleanup.
+A lost acknowledgment gets one read-only status observation; inspect status before a manual
+retry, since a missing reply cannot prove that no effect occurred.
+
+Core captures one pre-upgrade running observation through the verified existing executable.
+Only actual replacement of a previously observed running Remote calls the captured replacement
+with exactly `restart --json --no-open`, outside the installation lock with the captured Core
+executable and secret-stripped environment. Initial installs, no-ops and stopped doors have no
+restart outcome or hint. Success reports `Remote upgraded and restarted in the background.`;
+deferred/failed/unknown outcomes retain the existing manual restart hints. A parent human upgrade
+prints terminal-only `Upgrading Remote…` before applying a pending Remote replacement; its JSON
+child remains silent. Colab attachment and fresh-session re-admission retain their existing owners.
+
 A supervising extension can start `tmt remote serve --json` as its child. Serve emits one readiness
 line on stdout after binding the door and control socket and recording the bound port:
 
@@ -1658,8 +1697,13 @@ shadow a built-in. Reads of the extension's own
 documents use the macros `ext.get`, `ext.exists`, `ext.getAfter` and `ext.existsAfter`, which expand to a fixed
 `x/<extension>` prefix. A condition must refer to `request.auth` or document data: `if true`, constants and time-only
 conditions are refused. A recursive wildcard is allowed only inside the wrapper. Indexes come from the plan as
-per-collection field overrides, and a TTL policy is written only when the target provisions it. A plan that needs more
-single-field index configs than the free plan allows is refused as `too-many-index-configs`, with no artifact. The device inbox, permit, chunk, response and checkpoint Rules above wait for the admission service.
+per-collection field overrides and declaration-derived collection composites: sorted equality scope fields,
+then the declared sequence field ascending, cover stream reads with or without a cursor. Equality-only page
+interests and discovery (optional sequence equality, document-name order) use Firestore index merging.
+The canonical composite union is digest-bound and deduplicated across extensions by collection ID and ordered
+fields; no extension-specific field names are built in. TTL is written only when the target provisions it.
+Either more than 200 single-field configurations or more than 200 composites without billing is refused as
+`too-many-index-configs`, with no artifact (limits checked 2026-10-14). The device inbox, permit, chunk, response and checkpoint Rules above wait for the admission service.
 
 ### Proposal: Cloudflare Worker and Durable Objects
 
@@ -2398,7 +2442,12 @@ the layer needs, the declared indexes and the composed Rules to the extension pl
 authorizes the digest of that whole envelope (account, project, deployment ID and every item above); a
 digest prefix of at least 12 hex characters names it. Steps run in a fixed order and the Rules
 release follows additive prerequisites; a declared Hosting release follows it. A final
-read-back step passes only when Rules and indexes match what was applied. Each step is observed
+read-back step passes only when Rules match and every required index is `READY`; `CREATING` stays
+building, lost or invalid evidence stays unknown, and `NEEDS_REPAIR` refuses without deleting the index.
+Composite creation is reconciled by bounded exact-spec inventory; its operation acknowledgement alone is
+not readiness. Live plus missing planned composites are counted before effects and again before allocation,
+including unrelated indexes, separately from single-field configurations. Existing records are not converted;
+a new authorized plan reconciles its required indexes. The index status-layer prerequisite is deferred. Each step is observed
 first and applied only when absent, so an exact-plan retry skips what exists and never repeats an
 effect; a provider answer lost after a possible effect is recorded `unknown` and resolved by the next
 observation, never reported as failed. An existing equivalent object is adopted and kept; nothing is
