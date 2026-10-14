@@ -274,7 +274,7 @@ fn closed_transport_consumes_once_and_machine_responses_increase() {
         "REMOTE_CLOSED"
     );
     assert!(
-        !owner._root.0.join("tmux-team.db").exists(),
+        !owner._root.0.join("tmt.db").exists(),
         "A must not create core state"
     );
 }
