@@ -424,7 +424,7 @@ page interest emits coalesced hints, never content or cursor progress. Retry `ne
 positions and same-target reconciliation, and supplies `guard.admit(cost)` before each
 REST read/query/commit or listener start. That guard reserves cost durably or throws the
 frozen budget refusal; no budget ledger is added here. Metadata counts the matching
-listener tail, deliveries including the writer's own, three Rules lookups per delivered
+listener tail, deliveries including the writer's own, the budget model's writer lookups for commits, three Rules lookups per delivered
 document, separate REST catch-up and fresh-query reconnect cost. `reads: null` means an unbounded matching initial
 listener tail, never zero reads. Native transport/credentials and Colab's relay remain
 separate slices; this API enables neither agent operations nor cloud attachment glue.

@@ -76,6 +76,23 @@ test('REST uses only the bound default database and admits before acquiring cred
   });
 });
 
+test('commit admission uses four lookups while read admission keeps three', async () => {
+  const f = fixture();
+  const http = syncHttp(f.context, f.guard, f.fetcher, () => {});
+  await http('commit', '', '{"writes":[]}', f.call(), 0);
+  await http('read', 'x/notes/rows/id+1', undefined, f.call(), 1);
+  expect(
+    f.costs.map(({ operation, rulesLookupsPerDocument }) => ({
+      operation,
+      rulesLookupsPerDocument,
+    })),
+  ).toEqual([
+    { operation: 'commit', rulesLookupsPerDocument: 4 },
+    { operation: 'read', rulesLookupsPerDocument: 3 },
+  ]);
+  expect(f.attempts).toHaveLength(2);
+});
+
 test('budget refusal, wrong identity and expired token perform no provider request', async () => {
   for (const kind of ['budget', 'uid', 'project', 'expired'] as const) {
     const f = fixture();

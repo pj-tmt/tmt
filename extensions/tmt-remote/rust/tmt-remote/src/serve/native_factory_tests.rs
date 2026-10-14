@@ -237,11 +237,11 @@ fn production_default_is_the_named_four_member_four_writer_assumption() {
     let (members, writers) = tmt_remote::firestore_budget::NATIVE_DEFAULT_MODEL;
     assert_eq!((members, writers), (4, 4));
     let model = Model::new(members, writers).unwrap();
-    assert_eq!(model.reads_per_append(), 12);
-    assert_eq!(model.daily_append_limit(), 4_166);
-    assert_eq!(model.share(), 1_041);
-    assert_eq!(model.warn_at(), 728);
-    assert_eq!(model.refuse_at(), 936);
+    assert_eq!(model.reads_per_append(), 13);
+    assert_eq!(model.daily_append_limit(), 3_846);
+    assert_eq!(model.share(), 961);
+    assert_eq!(model.warn_at(), 672);
+    assert_eq!(model.refuse_at(), 864);
 }
 
 #[test]

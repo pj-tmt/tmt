@@ -93,18 +93,18 @@ test('the constants equal the numbers read from the official pages', () => {
 });
 
 test('a hand-worked row and the named thresholds', () => {
-  // Five members, three writers: 3 + 4 x (1 + 2) = 15 reads per append; 50,000 / 15 = 3,333
-  // appends; a writer's share is 1,111, warned at 777 (70%) and refused at 999 (90%).
+  // Five members, three writers: 4 + 4 x (1 + 2) = 16 reads per append; 50,000 / 16 = 3,125
+  // appends; a writer's share is 1,041, warned at 728 (70%) and refused at 936 (90%).
   const m = model(5, 3);
   assert.deepEqual(
     [m.readsPerAppend(), m.dailyAppendLimit(), m.share(), m.warnAt(), m.refuseAt()],
-    [15, 3333, 1111, 777, 999],
+    [16, 3125, 1041, 728, 936],
   );
   assert.deepEqual(
-    [776, 777, 998, 999].map((n) => m.assess(n)),
+    [727, 728, 935, 936].map((n) => m.assess(n)),
     ['ok', 'warn', 'warn', 'refuse'],
   );
-  assert.equal(model(1, 1).readsPerAppend(), 3);
+  assert.equal(model(1, 1).readsPerAppend(), 4);
   for (const members of [1, 2, 10, 100]) {
     const alone = model(members, 1);
     assert.ok(alone.dailyAppendLimit() * alone.readsPerAppend() <= READS_PER_DAY);
@@ -135,7 +135,7 @@ test('a page the free plan cannot host is refused when the model is built', () =
       assert.ok(m.refuseAt() >= 1 && m.assess(0) === 'ok', JSON.stringify(row));
     } else assert.equal(refused(row.members, row.writers), 'free_plan_cannot_host');
   }
-  // Hand-checked for one writer: 3N reads per append, so 50,000 / 3N is 2 appends at N = 8,333.
+  // Hand-checked for one writer: 3N + 1 reads per append, so 50,000 / (3N + 1) is 2 appends at N = 8,333.
   assert.ok(model(8333, 1));
   assert.equal(refused(8334, 1), 'free_plan_cannot_host');
 });
@@ -146,16 +146,16 @@ test('the guard warns then refuses before the limit and the refusal is recoverab
   const { resetAtMs } = pacificDay(T);
   const usage = (appends: number) => ({ ...newUsage(T), appends });
   assert.deepEqual(decide(m, usage(0), T), { decision: 'allow' });
-  assert.deepEqual(decide(m, usage(776), T), { decision: 'allow' });
-  assert.deepEqual(decide(m, usage(777), T), { decision: 'warn' });
-  assert.deepEqual(decide(m, usage(998), T), { decision: 'warn' });
-  const refusal = decide(m, usage(999), T);
+  assert.deepEqual(decide(m, usage(727), T), { decision: 'allow' });
+  assert.deepEqual(decide(m, usage(728), T), { decision: 'warn' });
+  assert.deepEqual(decide(m, usage(935), T), { decision: 'warn' });
+  const refusal = decide(m, usage(936), T);
   assert.deepEqual(refusal, { decision: 'refuse', resetAtMs, retryAfterMs: resetAtMs - T });
   // Refusal comes at 90% of the share, strictly before the share and the page allowance.
   assert.ok(m.refuseAt() < m.share() && m.share() * 3 <= m.dailyAppendLimit());
   // Not silent and not permanent: after the reset the same usage is a fresh day.
-  assert.deepEqual(decide(m, usage(999), resetAtMs), { decision: 'allow' });
-  assert.deepEqual(decide(m, usage(999), resetAtMs - 1), {
+  assert.deepEqual(decide(m, usage(936), resetAtMs), { decision: 'allow' });
+  assert.deepEqual(decide(m, usage(936), resetAtMs - 1), {
     decision: 'refuse',
     resetAtMs,
     retryAfterMs: 1,

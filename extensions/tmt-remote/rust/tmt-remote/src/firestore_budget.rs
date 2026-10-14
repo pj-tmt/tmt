@@ -28,9 +28,9 @@ pub const NATIVE_DEFAULT_MODEL: (u64, u64) = (4, 4);
 /// Rules dependent documents read when a client reads: the member projection or link-device
 /// enrollment, plus the page head (Colab's design).
 pub const READ_LOOKUPS: u64 = 2;
-/// Dependent documents when a client appends: the same two plus the head read by
-/// `ext.getAfter` for the create-only sequence.
-pub const WRITE_LOOKUPS: u64 = 3;
+/// A continuing non-owner member append reads page, member, space owner and
+/// predecessor (`getAfter`). The owner skips the predecessor; model the member case.
+pub const WRITE_LOOKUPS: u64 = 4;
 /// Thresholds of the guard, one table: warn at this share of a client's modeled allowance,
 /// refuse at this one. A refusal is always recoverable (see `Refusal`) and never silent.
 pub const WARN_PERCENT: u64 = 70;

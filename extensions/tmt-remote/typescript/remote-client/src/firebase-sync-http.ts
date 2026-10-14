@@ -1,12 +1,13 @@
 /** Fixed-project REST attempts. This module never retries a possibly applied mutation. */
 import type { SyncCall, SyncContext, SyncFailure } from './sealed-sync.js';
+import { WRITE_LOOKUPS } from './budget.js';
 
 export interface SyncAdmissionCost {
   readonly operation: 'read' | 'query' | 'commit' | 'listen';
   /** Upper bound for a REST page; null means the unbounded matching listener tail below. */
   readonly reads: number | null;
   readonly writes: 0 | 1;
-  readonly rulesLookupsPerDocument: 3;
+  readonly rulesLookupsPerDocument: 3 | 4;
   /** Listen charges its full matching initial tail and every delivery, including this writer. */
   readonly listener?: {
     readonly initialTail: 'all-matching-documents';
@@ -101,7 +102,7 @@ export function syncHttp(
         operation,
         reads,
         writes: operation === 'commit' ? 1 : 0,
-        rulesLookupsPerDocument: 3,
+        rulesLookupsPerDocument: operation === 'commit' ? WRITE_LOOKUPS : 3,
       },
       call,
     );

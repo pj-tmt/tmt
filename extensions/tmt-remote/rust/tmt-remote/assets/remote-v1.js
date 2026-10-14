@@ -2043,7 +2043,7 @@ var budget_exports = /* @__PURE__ */ __exportAll({
 	REFUSE_PERCENT: () => 90,
 	WARN_PERCENT: () => 70,
 	WRITES_PER_DAY: () => WRITES_PER_DAY,
-	WRITE_LOOKUPS: () => 3,
+	WRITE_LOOKUPS: () => 4,
 	classifyProviderExhausted: () => classifyProviderExhausted,
 	decide: () => decide,
 	exhaustedIsCurrent: () => exhaustedIsCurrent,
@@ -2107,7 +2107,7 @@ var BudgetModel = class BudgetModel {
 	}
 	/** Reads one append costs the project, pessimistically: the writer's lookups, then each other listener's. */
 	readsPerAppend() {
-		return 3 + (this.members - 1) * 3;
+		return 4 + (this.members - 1) * 3;
 	}
 	/** Appends per day the free plan allows this page if it were the project's only traffic. */
 	dailyAppendLimit() {
@@ -2360,7 +2360,7 @@ function syncHttp(context, guard, fetcher, live) {
 			operation,
 			reads,
 			writes: operation === "commit" ? 1 : 0,
-			rulesLookupsPerDocument: 3
+			rulesLookupsPerDocument: operation === "commit" ? 4 : 3
 		}, call);
 		check();
 		const credential = await syncWait(call, () => context.auth.token(call));
