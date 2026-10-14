@@ -1,0 +1,216 @@
+{
+  "contract": "../digest-v1.md#valuation",
+  "description": "Independent quote/ratio results. Official standard base input rates verified 2026-10-14; these are list-price estimates, not bills. The weighted-members case sums (100 avoided,100 observed) and (100 avoided,900 observed), never averages 50% and 10%.",
+  "quotes": [
+    {
+      "name": "openai-sol",
+      "model": "gpt-6-sol",
+      "observedAtMs": 1000,
+      "tokens": 2700,
+      "expected": {
+        "usdMicros": 5400,
+        "modelId": "gpt-6-sol",
+        "modelObservedAtMs": 1000,
+        "pricingVersion": "2026-10-14",
+        "usdMicrosPerMillionInputTokens": 2000000,
+        "assumption": "uncached-input"
+      }
+    },
+    {
+      "name": "openai-sol-6.1",
+      "model": "gpt-6.1-sol",
+      "observedAtMs": 1000,
+      "tokens": 2700,
+      "expected": {
+        "usdMicros": 5400,
+        "modelId": "gpt-6.1-sol",
+        "modelObservedAtMs": 1000,
+        "pricingVersion": "2026-10-14",
+        "usdMicrosPerMillionInputTokens": 2000000,
+        "assumption": "uncached-input"
+      }
+    },
+    {
+      "name": "claude-opus",
+      "model": "claude-opus-5-5",
+      "observedAtMs": 1000,
+      "tokens": 2700,
+      "expected": {
+        "usdMicros": 10800,
+        "modelId": "claude-opus-5-5",
+        "modelObservedAtMs": 1000,
+        "pricingVersion": "2026-10-14",
+        "usdMicrosPerMillionInputTokens": 4000000,
+        "assumption": "uncached-input"
+      }
+    },
+    {
+      "name": "claude-sonnet",
+      "model": "claude-sonnet-5-5",
+      "observedAtMs": 1000,
+      "tokens": 2700,
+      "expected": {
+        "usdMicros": 5400,
+        "modelId": "claude-sonnet-5-5",
+        "modelObservedAtMs": 1000,
+        "pricingVersion": "2026-10-14",
+        "usdMicrosPerMillionInputTokens": 2000000,
+        "assumption": "uncached-input"
+      }
+    },
+    {
+      "name": "known-zero",
+      "model": "gpt-6.1-sol",
+      "observedAtMs": 1000,
+      "tokens": 0,
+      "expected": {
+        "usdMicros": 0,
+        "modelId": "gpt-6.1-sol",
+        "modelObservedAtMs": 1000,
+        "pricingVersion": "2026-10-14",
+        "usdMicrosPerMillionInputTokens": 2000000,
+        "assumption": "uncached-input"
+      }
+    },
+    {
+      "name": "unknown-model",
+      "model": "unknown",
+      "observedAtMs": 1000,
+      "tokens": 2700,
+      "expected": null
+    },
+    {
+      "name": "alias-not-guessed",
+      "model": "GPT-6.1-Sol",
+      "observedAtMs": 1000,
+      "tokens": 2700,
+      "expected": null
+    },
+    {
+      "name": "unknown-zero",
+      "model": "unknown",
+      "observedAtMs": 1000,
+      "tokens": 0,
+      "expected": null
+    },
+    {
+      "name": "unsafe-cost",
+      "model": "claude-opus-5-5",
+      "observedAtMs": 1000,
+      "tokens": 9007199254740991,
+      "expected": null
+    },
+    {
+      "name": "unsafe-input",
+      "model": "gpt-6-sol",
+      "observedAtMs": 1000,
+      "tokens": 9007199254740992,
+      "expected": null
+    },
+    {
+      "name": "unsafe-model-time",
+      "model": "gpt-6-sol",
+      "observedAtMs": 9007199254740992,
+      "tokens": 1,
+      "expected": null
+    }
+  ],
+  "ratios": [
+    {
+      "name": "counterfactual-share",
+      "avoided": 2700,
+      "observed": 7300,
+      "expected": {
+        "basisPoints": 2700,
+        "estimatedInputTokensAvoided": 2700,
+        "observedInputTokens": 7300,
+        "fromMs": 60000,
+        "throughMs": 120000
+      }
+    },
+    {
+      "name": "one-third",
+      "avoided": 1,
+      "observed": 2,
+      "expected": {
+        "basisPoints": 3333,
+        "estimatedInputTokensAvoided": 1,
+        "observedInputTokens": 2,
+        "fromMs": 60000,
+        "throughMs": 120000
+      }
+    },
+    {
+      "name": "two-thirds",
+      "avoided": 2,
+      "observed": 1,
+      "expected": {
+        "basisPoints": 6667,
+        "estimatedInputTokensAvoided": 2,
+        "observedInputTokens": 1,
+        "fromMs": 60000,
+        "throughMs": 120000
+      }
+    },
+    {
+      "name": "known-zero",
+      "avoided": 0,
+      "observed": 100,
+      "expected": {
+        "basisPoints": 0,
+        "estimatedInputTokensAvoided": 0,
+        "observedInputTokens": 100,
+        "fromMs": 60000,
+        "throughMs": 120000
+      }
+    },
+    {
+      "name": "no-observed-input",
+      "avoided": 100,
+      "observed": 0,
+      "expected": {
+        "basisPoints": 10000,
+        "estimatedInputTokensAvoided": 100,
+        "observedInputTokens": 0,
+        "fromMs": 60000,
+        "throughMs": 120000
+      }
+    },
+    {
+      "name": "zero-denominator",
+      "avoided": 0,
+      "observed": 0,
+      "expected": null
+    },
+    {
+      "name": "unsafe-denominator",
+      "avoided": 9007199254740991,
+      "observed": 1,
+      "expected": null
+    },
+    {
+      "name": "wide-intermediate",
+      "avoided": 4503599627370495,
+      "observed": 4503599627370495,
+      "expected": {
+        "basisPoints": 5000,
+        "estimatedInputTokensAvoided": 4503599627370495,
+        "observedInputTokens": 4503599627370495,
+        "fromMs": 60000,
+        "throughMs": 120000
+      }
+    },
+    {
+      "name": "weighted-members",
+      "avoided": 200,
+      "observed": 1000,
+      "expected": {
+        "basisPoints": 1667,
+        "estimatedInputTokensAvoided": 200,
+        "observedInputTokens": 1000,
+        "fromMs": 60000,
+        "throughMs": 120000
+      }
+    }
+  ]
+}

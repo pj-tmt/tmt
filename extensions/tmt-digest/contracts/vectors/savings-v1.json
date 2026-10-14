@@ -295,7 +295,9 @@
         "estimatedInputTokensAvoided": 2700,
         "avoidedSeparateDeliveries": 2,
         "complete": true,
-        "gap": null
+        "gap": null,
+        "cost": null,
+        "percent": null
       }
     },
     {
@@ -316,7 +318,9 @@
         "estimatedInputTokensAvoided": 0,
         "avoidedSeparateDeliveries": 0,
         "complete": true,
-        "gap": null
+        "gap": null,
+        "cost": null,
+        "percent": null
       }
     },
     {
@@ -337,7 +341,9 @@
         "estimatedInputTokensAvoided": null,
         "avoidedSeparateDeliveries": null,
         "complete": false,
-        "gap": "before_collection"
+        "gap": "before_collection",
+        "cost": null,
+        "percent": null
       }
     },
     {
@@ -358,7 +364,9 @@
         "estimatedInputTokensAvoided": null,
         "avoidedSeparateDeliveries": 1,
         "complete": false,
-        "gap": "missing_context"
+        "gap": "missing_context",
+        "cost": null,
+        "percent": null
       }
     },
     {
@@ -379,7 +387,9 @@
         "estimatedInputTokensAvoided": null,
         "avoidedSeparateDeliveries": null,
         "complete": false,
-        "gap": "uncollected_deliveries"
+        "gap": "uncollected_deliveries",
+        "cost": null,
+        "percent": null
       }
     },
     {
@@ -400,7 +410,9 @@
         "estimatedInputTokensAvoided": 0,
         "avoidedSeparateDeliveries": 0,
         "complete": true,
-        "gap": null
+        "gap": null,
+        "cost": null,
+        "percent": null
       }
     },
     {
@@ -421,7 +433,9 @@
         "estimatedInputTokensAvoided": null,
         "avoidedSeparateDeliveries": 2,
         "complete": false,
-        "gap": "incomplete_membership"
+        "gap": "incomplete_membership",
+        "cost": null,
+        "percent": null
       }
     }
   ]

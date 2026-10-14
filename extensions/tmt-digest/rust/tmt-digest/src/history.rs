@@ -3,10 +3,12 @@
 mod collect;
 mod model;
 mod store;
+mod usage;
 
 pub use collect::collect;
 pub use model::Window;
 pub use store::Store;
+pub use usage::collect as collect_usage;
 
 pub const MAX: u64 = 9_007_199_254_740_991;
 pub const METHOD: &str = "context-input-avoided-v1";

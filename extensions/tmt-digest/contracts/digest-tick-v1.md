@@ -65,7 +65,10 @@ The tick reconciles retained settlements once when each member is first observed
 in the invocation, and after its own flush opportunities. Core provider/talk/check
 settlements between these observations are collected by the next tick. Status
 exposes the last reconciled watermark and flags newly observed uncollected
-successful deliveries. Collection runs within the same minute deadline. Errors
+successful deliveries. Collection runs within the same minute deadline, including a bounded public
+`consumption.history` read for the private minute snapshots and latest completed
+model used by [valuation](digest-v1.md#valuation). Neither status nor tick reads
+provider files or changes Core usage retention. Collection errors
 are reported without marking the member delivery-failed or retrying delivery.
 
 Tick success produces no stdout. Invalid settings, unavailable Core, lock errors

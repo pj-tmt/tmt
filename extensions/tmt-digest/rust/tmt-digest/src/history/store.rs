@@ -13,6 +13,8 @@ use std::{
     path::Path,
 };
 
+mod usage;
+
 // Reserve half the 64 MiB budget for SQLite's rollback journal. Raw payloads leave
 // room for compact identity totals and indexes; exhausting that room fails closed.
 // Journal page headers also fit within the reserved half.
@@ -117,7 +119,7 @@ impl Store {
             } else {
                 OpenFlags::SQLITE_OPEN_READ_ONLY
             };
-        let connection = Connection::open_with_flags(&path, flags).map_err(io)?;
+        let mut connection = Connection::open_with_flags(&path, flags).map_err(io)?;
         connection
             .busy_timeout(std::time::Duration::from_millis(100))
             .map_err(io)?;
@@ -131,7 +133,7 @@ impl Store {
         let version: u64 = connection
             .pragma_query_value(None, "user_version", |row| number(row, 0))
             .map_err(io)?;
-        if version > 1 {
+        if version > 2 {
             return Err(invalid("Unsupported history schema"));
         }
         if version == 0
@@ -147,12 +149,17 @@ impl Store {
             return Err(invalid("Unrecognized history store"));
         }
         if write {
-            connection.execute_batch(&format!("PRAGMA journal_mode=DELETE; PRAGMA page_size=4096; PRAGMA max_page_count={PAGES}; PRAGMA synchronous=FULL;
+            connection.execute_batch(&format!("PRAGMA journal_mode=DELETE; PRAGMA page_size=4096; PRAGMA max_page_count={PAGES}; PRAGMA synchronous=FULL;")).map_err(io)?;
+            let tx = connection.transaction().map_err(io)?;
+            tx.execute_batch("\
                 CREATE TABLE IF NOT EXISTS members(id TEXT PRIMARY KEY, started INTEGER NOT NULL, through INTEGER NOT NULL, cursor INTEGER NOT NULL, counter INTEGER NOT NULL, pending INTEGER NOT NULL DEFAULT 0, tokens INTEGER, avoided INTEGER, gap TEXT, raw_from INTEGER NOT NULL);
                 CREATE TABLE IF NOT EXISTS events(identity_id TEXT NOT NULL, checklist_id TEXT NOT NULL, sequence INTEGER NOT NULL, settled INTEGER, collected INTEGER NOT NULL, delivered INTEGER NOT NULL, tokens INTEGER, avoided INTEGER, gap TEXT, method TEXT NOT NULL, decision TEXT, inputs TEXT NOT NULL, PRIMARY KEY(identity_id,checklist_id));
                 CREATE INDEX IF NOT EXISTS event_window ON events(identity_id,settled);
                 CREATE TABLE IF NOT EXISTS gaps(identity_id TEXT NOT NULL, from_ms INTEGER NOT NULL, through_ms INTEGER NOT NULL, reason TEXT NOT NULL, PRIMARY KEY(identity_id,reason));
-                PRAGMA user_version=1;" )).map_err(io)?;
+                ").map_err(io)?;
+            tx.execute_batch(usage::SCHEMA).map_err(io)?;
+            tx.pragma_update(None, "user_version", 2).map_err(io)?;
+            tx.commit().map_err(io)?;
         }
         if write
             && connection
@@ -162,11 +169,12 @@ impl Store {
         {
             return Err(invalid("History store cannot fit its page budget"));
         }
-        if connection
-            .pragma_query_value(None, "user_version", |row| number(row, 0))
-            .map_err(io)?
-            != 1
-        {
+        if !matches!(
+            connection
+                .pragma_query_value(None, "user_version", |row| number(row, 0))
+                .map_err(io)?,
+            1 | 2
+        ) {
             return Err(invalid("Unsupported history schema"));
         }
         Ok(Some(Self(connection)))
@@ -356,8 +364,17 @@ impl Store {
         ) {
             avoided = None;
         }
+        let (cost, percent) = Self::valuations(
+            &tx,
+            id,
+            tokens,
+            from,
+            through,
+            now,
+            window.duration().is_some(),
+        );
         Ok(
-            json!({"method":METHOD,"window":window.text(),"fromMs":from,"throughMs":through,"estimatedInputTokensAvoided":tokens,"avoidedSeparateDeliveries":avoided,"complete":gap.is_none() && tokens.is_some() && avoided.is_some(),"gap":gap}),
+            json!({"method":METHOD,"window":window.text(),"fromMs":from,"throughMs":through,"estimatedInputTokensAvoided":tokens,"avoidedSeparateDeliveries":avoided,"complete":gap.is_none() && tokens.is_some() && avoided.is_some(),"gap":gap,"cost":cost,"percent":percent}),
         )
     }
 }
@@ -372,6 +389,11 @@ fn add_gap(
     Ok(())
 }
 fn prune(tx: &rusqlite::Transaction<'_>, now: u64, raw_limit: u64) -> Result<(), Error> {
+    tx.execute(
+        "DELETE FROM usage_minutes WHERE minute<?1",
+        [now.saturating_sub(RETENTION) as i64],
+    )
+    .map_err(io)?;
     tx.execute(
         "UPDATE members SET raw_from=MAX(raw_from,?1)",
         [now.saturating_sub(RETENTION) as i64],
@@ -389,7 +411,38 @@ fn prune(tx: &rusqlite::Transaction<'_>, now: u64, raw_limit: u64) -> Result<(),
             |r| number(r, 0),
         )
         .map_err(io)?;
-    while bytes > raw_limit {
+    let mut usage_bytes = tx
+        .query_row("SELECT COUNT(*) FROM usage_minutes", [], |r| number(r, 0))
+        .map_err(io)?
+        * usage::ROW_BYTES;
+    while bytes + usage_bytes > raw_limit {
+        let usage_oldest: Option<(String, u64)> = tx
+            .query_row(
+                "SELECT identity_id,minute FROM usage_minutes ORDER BY minute LIMIT 1",
+                [],
+                |r| Ok((r.get(0)?, number(r, 1)?)),
+            )
+            .optional()
+            .map_err(io)?;
+        let event_oldest: Option<u64> = tx
+            .query_row(
+                "SELECT collected FROM events ORDER BY collected,sequence LIMIT 1",
+                [],
+                |r| number(r, 0),
+            )
+            .optional()
+            .map_err(io)?;
+        if let Some((id, minute)) = usage_oldest
+            && event_oldest.is_none_or(|time| minute <= time)
+        {
+            tx.execute(
+                "DELETE FROM usage_minutes WHERE identity_id=?1 AND minute=?2",
+                params![id, minute as i64],
+            )
+            .map_err(io)?;
+            usage_bytes = usage_bytes.saturating_sub(usage::ROW_BYTES);
+            continue;
+        }
         let (id,checklist,settled,size): (String,String,Option<u64>,u64) = tx.query_row("SELECT identity_id,checklist_id,settled,length(inputs) FROM events ORDER BY collected,sequence LIMIT 1",[],|r| Ok((r.get(0)?,r.get(1)?,optional_number(r,2)?,number(r,3)?))).map_err(io)?;
         tx.execute(
             "DELETE FROM events WHERE identity_id=?1 AND checklist_id=?2",
@@ -411,6 +464,8 @@ fn prune(tx: &rusqlite::Transaction<'_>, now: u64, raw_limit: u64) -> Result<(),
     Ok(())
 }
 
+#[cfg(test)]
+mod test_support;
 #[cfg(test)]
 #[path = "tests.rs"]
 mod tests;

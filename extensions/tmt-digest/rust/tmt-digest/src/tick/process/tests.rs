@@ -28,6 +28,7 @@ case "$*" in
  'identity ls --json') cat inventory.json ;;
  'api') input=$(cat); printf '%s\n' "$input" >> calls
    case "$input" in
+    *'"operation":"digest.checklist.history"'*) cat history.json ;;
     *'"operation":"digest.policy.show"'*) cat policies.json ;;
     *'"operation":"digest.stats.show"'*) cat stats.json ;;
     *'"operation":"digest.checklist.flush"'*)
@@ -326,5 +327,45 @@ fn unavailable_history_reports_partial_without_disabling_policy_or_authorizing_d
             .unwrap_err()
             .message
             .contains("fixture unavailable history")
+    );
+}
+
+#[test]
+fn usage_collection_failure_keeps_policy_and_delivery_admission_independent() {
+    let fixture = Fixture::new();
+    let now = super::super::now_ms().unwrap();
+    fixture.write("history.json",json!({"identityId":MEMBER,"observedAtMs":now,"throughSequence":0,"deliveredDigests":0,"checklists":[],"nextAfter":null}));
+    let store = crate::history::Store::open(&fixture.0, true).unwrap();
+    let mut port = fixture.port();
+    port.attach_history(Ok(store));
+    port.observe().unwrap();
+    assert_eq!(fixture.writes().len(), 1);
+    assert!(port.failed.is_empty());
+    port.deliver_if_current(MEMBER).unwrap();
+    assert!(port.failed.is_empty());
+    assert_eq!(
+        fixture
+            .calls()
+            .iter()
+            .filter(|line| line.contains("digest.checklist.flush"))
+            .count(),
+        1
+    );
+    let usage: Vec<Value> = fixture
+        .calls()
+        .iter()
+        .filter_map(|line| serde_json::from_str(line).ok())
+        .filter(|row: &Value| row["operation"] == "consumption.history")
+        .collect();
+    assert_eq!(usage.len(), 2);
+    assert!(
+        usage.iter().all(|row| row["input"]
+            == json!({"identityIds":[MEMBER],"windowsMs":[600000],"maxBuckets":120}))
+    );
+    assert!(
+        port.finish()
+            .unwrap_err()
+            .message
+            .contains("Invalid usage asOfMs")
     );
 }
