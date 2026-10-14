@@ -61,6 +61,13 @@ test('index prerequisite has the native four-fact meaning and strict fixed reaso
     if (reason) Object.assign(entry, { reason, next: 'tmt remote deploy firestore' });
     value[0]!.state = state;
     assert.deepEqual(parseFirestoreLayers(value), value);
+    const indexes = render(value)
+      .find('li')
+      .find((node) => node.dataset.item === 'indexes')!;
+    const status =
+      state === 'enabled' ? '✓ Enabled' : reason === 'building' ? '◌ Building' : '○ Not checked';
+    assert.ok(indexes.text().includes(status), indexes.text());
+    assert.equal(indexes.text().includes('Not enabled'), false);
     if (reason) {
       assert.ok(render(value).text().includes(indexCopy[reason]));
       assert.ok(render(value).text().includes('tmt remote deploy firestore'));

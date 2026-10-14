@@ -1024,6 +1024,11 @@ var states = {
 		"Enabled",
 		"working"
 	],
+	building: [
+		"◌",
+		"Building",
+		"waiting"
+	],
 	"not-enabled": [
 		"—",
 		"Not enabled",
@@ -1104,7 +1109,8 @@ function renderFirestore(target, access, view) {
 			for (const item of layer.prerequisites) {
 				const row = node("li");
 				row.dataset.item = item.item;
-				row.append(node("span", `${firestoreItems[item.item]}: `), mark(item.state));
+				const displayState = item.item === "indexes" && item.state !== "enabled" ? item.reason === "building" ? "building" : "unknown" : item.state;
+				row.append(node("span", `${firestoreItems[item.item]}: `), mark(displayState));
 				if (item.reason) row.append(node("p", firestoreReasons[item.item][item.reason][0]));
 				if (item.next) {
 					const nextLine = firestoreReasons[item.item][item.reason][2];

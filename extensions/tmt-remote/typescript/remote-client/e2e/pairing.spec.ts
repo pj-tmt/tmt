@@ -2894,13 +2894,13 @@ test('Firestore settings show recorded prerequisites and the approved fixture ca
     ['done', 'Enabled', undefined, undefined],
     [
       'building',
-      'Not enabled',
+      'Building',
       'Firestore indexes are still building.',
       'Wait a few minutes, then run tmt remote deploy firestore.',
     ],
     [
       'pending',
-      'Not enabled',
+      'Not checked',
       'Firestore indexes have not been verified as ready.',
       'Run tmt remote deploy firestore.',
     ],
@@ -2924,6 +2924,13 @@ test('Firestore settings show recorded prerequisites and the approved fixture ca
     await page.goto(`${origin}/settings`);
     await expect(indexItem).toContainText('Firestore indexes:');
     await expect(indexItem.locator('.firestore-state')).toContainText(mark);
+    await expect(indexItem.locator('.firestore-state [aria-hidden="true"]')).toHaveText(
+      state === 'done' ? '✓' : state === 'building' ? '◌' : '○',
+    );
+    await expect(indexItem.locator('.firestore-state')).toHaveAttribute(
+      'data-tone',
+      state === 'done' ? 'working' : 'waiting',
+    );
     if (sentence) {
       await expect(indexItem).toContainText(sentence);
       await expect(indexItem).toContainText(next!);

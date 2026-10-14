@@ -257,7 +257,7 @@ Values/sources, malformed/default warning and management capabilities come from 
 
 The explicit Firestore read adds `firestoreLayers` and `firestoreBudget` with the optional
 status projections' exact schemas, including the sharing index prerequisite and its fixed reasons/next command.
-Index evidence follows the [status-layer contract](../../../../contracts/remote-channel-v1.md#local-cli-discovery): legacy Complete records without composite evidence are unknown until an authorized deploy records it.
+Index evidence follows the [status-layer contract](../../../../contracts/remote-channel-v1.md#local-cli-discovery).
 It reads recorded setup and dated published limits, never
 provider health or actual usage, and shares the same verified Session lane. Invalid optional
 views are rejected; an old serve may refuse the new input. The settings page isolates this

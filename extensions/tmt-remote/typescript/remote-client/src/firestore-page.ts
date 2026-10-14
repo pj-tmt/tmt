@@ -4,6 +4,7 @@ import { firestoreTitles, firestoreItems, firestoreReasons } from './firestore.j
 import type { FirestoreSettingsView } from './management.js';
 const states = {
   enabled: ['✓', 'Enabled', 'working'],
+  building: ['◌', 'Building', 'waiting'],
   'not-enabled': ['—', 'Not enabled', 'review'],
   unknown: ['○', 'Not checked', 'waiting'],
 } as const;
@@ -108,7 +109,13 @@ export function renderFirestore(
       for (const item of layer.prerequisites) {
         const row = node('li');
         row.dataset.item = item.item;
-        row.append(node('span', `${firestoreItems[item.item]}: `), mark(item.state));
+        const displayState =
+          item.item === 'indexes' && item.state !== 'enabled'
+            ? item.reason === 'building'
+              ? 'building'
+              : 'unknown'
+            : item.state;
+        row.append(node('span', `${firestoreItems[item.item]}: `), mark(displayState));
         if (item.reason) row.append(node('p', firestoreReasons[item.item]![item.reason]![0]));
         if (item.next) {
           const nextLine = firestoreReasons[item.item]![item.reason!]![2];
