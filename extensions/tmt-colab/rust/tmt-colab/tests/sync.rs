@@ -13,7 +13,7 @@ use std::{
 use tmt_colab::{
     cloud_sync::{ActivePage, PageRef},
     keyring::Layout,
-    store::{Store, StreamScope},
+    store::{Accepted, Store, StreamScope},
     sync::{Access, Admission, CatchupContext, Code, Connection, Progress, Server, SyncScope},
 };
 use tmt_colab_model::{crypto, object, values};
@@ -1926,4 +1926,44 @@ fn the_page_a_peer_opens_is_the_active_page_for_cloud_sync_and_an_ack_is_not() {
         activity.wait(opened.version, Duration::ZERO).version,
         opened.version
     );
+}
+
+#[test]
+fn an_ingested_original_is_stored_and_announced_like_a_browser_append_without_a_receipt() {
+    let f = Fixture::new();
+    let mut bob = f.peer(BOB);
+    send(&mut bob, f.frame("subscribe", json!({"cursors":[]})));
+    let scope = SyncScope {
+        space: f.space.clone(),
+        page: PAGE.into(),
+        epoch: "1".into(),
+    };
+    let alice = f.alice.verifying_key().to_bytes();
+    let (_, _, bytes) = f.append(ALICE, 1, [0; 32], "content", 20);
+    assert_eq!(
+        f.server.ingest(&scope, &bytes, &alice).unwrap(),
+        Accepted::New
+    );
+    assert_eq!(f.payload(ALICE, 1), Some(bytes.clone()));
+    assert_eq!(bob.1.poll(), Progress::Advanced);
+    let broadcast = receive(&mut bob);
+    assert_eq!(broadcast["type"], "broadcast");
+    assert_eq!(broadcast["streamId"], ALICE);
+    // The same original again changes and announces nothing.
+    assert_eq!(
+        f.server.ingest(&scope, &bytes, &alice).unwrap(),
+        Accepted::Replay
+    );
+    assert_eq!(bob.1.poll(), Progress::Pending);
+    // Another device's key, another epoch and a gap are each refused, and nothing is stored.
+    let (_, _, next) = f.append(ALICE, 2, [0; 32], "own", 20);
+    let bob_key = f.bob.verifying_key().to_bytes();
+    assert!(f.server.ingest(&scope, &next, &bob_key).is_err());
+    let moved = SyncScope {
+        epoch: "2".into(),
+        ..scope.clone()
+    };
+    assert_eq!(f.server.ingest(&moved, &next, &alice), Err(Code::Invalid));
+    assert_eq!(f.payload(ALICE, 2), None);
+    assert_eq!(bob.1.poll(), Progress::Pending);
 }
