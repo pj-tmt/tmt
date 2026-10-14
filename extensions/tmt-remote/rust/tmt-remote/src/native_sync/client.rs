@@ -94,6 +94,7 @@ pub struct NativeRuntime {
     budget: Arc<dyn NativeBudgetPort>,
     pub(super) caps: Mutex<Caps>,
     exhausted: Mutex<Option<ExhaustedEvidence>>,
+    pub(super) stopped: AtomicBool,
 }
 impl NativeRuntime {
     pub fn new(
@@ -109,6 +110,19 @@ impl NativeRuntime {
             budget,
             caps: Mutex::new(Caps::default()),
             exhausted: Mutex::new(None),
+            stopped: AtomicBool::new(false),
+        }
+    }
+    /// Fence every binding of this serving project before joining its workers.
+    /// Persistence remains available until the owner releases the budget writer.
+    pub fn stop(&self) {
+        self.stopped.store(true, Ordering::SeqCst);
+    }
+    fn check(&self) -> Result<(), SyncError> {
+        if self.stopped.load(Ordering::SeqCst) {
+            Err(SyncError::Unavailable)
+        } else {
+            Ok(())
         }
     }
     fn provider_refusal(&self) -> Result<Option<Refusal>, SyncError> {
@@ -160,6 +174,7 @@ impl NativeClient {
     /// The serving UI reads this projection to show the existing 70-percent warning.
     /// It exposes no credentials, changes no allowance and performs no provider I/O.
     pub fn budget_state(&self) -> Result<Decision, SyncError> {
+        self.0.runtime.check()?;
         if let Some(refusal) = self.0.runtime.provider_refusal()? {
             return Ok(Decision::Refuse(refusal));
         }
@@ -177,10 +192,13 @@ impl NativeClient {
 pub(super) struct CallCancellation<'a> {
     pub(super) caller: &'a AtomicBool,
     pub(super) closed: &'a AtomicBool,
+    pub(super) project: &'a AtomicBool,
 }
 impl Cancellation for CallCancellation<'_> {
     fn cancelled(&self) -> bool {
-        self.caller.load(Ordering::SeqCst) || self.closed.load(Ordering::SeqCst)
+        self.caller.load(Ordering::SeqCst)
+            || self.closed.load(Ordering::SeqCst)
+            || self.project.load(Ordering::SeqCst)
     }
 }
 fn check(io: &IoBudget<'_>) -> Result<(), SyncError> {
@@ -195,6 +213,7 @@ impl Consumer {
         if self.closed.load(Ordering::SeqCst) {
             return Err(SyncError::Cancelled);
         }
+        self.runtime.check()?;
         check(io)
     }
     pub(super) fn resource(&self, name: &str) -> Result<&Resource, SyncError> {
@@ -278,6 +297,7 @@ impl Consumer {
         let cancel = CallCancellation {
             caller: io.cancelled,
             closed: &self.closed,
+            project: &self.runtime.stopped,
         };
         let response = self.runtime.http.send(&request, deadline, &cancel);
         if let Ok(response) = &response {

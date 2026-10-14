@@ -544,9 +544,9 @@ and mounts owner-installed extensions. [Colab](#colab-extension) is mounted at
 `/r/<prefix>/x/colab/` and otherwise reaches Remote only through the public CLI, that SDK and
 the extension object channel (`tmt-extension-objects`), never through Remote state files.
 
-The lease-bound `object_service` owns the `objects`/`tmt-extension-objects` carrier and injected
-v3 sync. `firebase_auth` owns credentials; `native_sync` owns COUNT wakes/read budgets;
-Colab owns cursors. Neither provider adds Core state or a carrier.
+`object_service` owns the lease-bound object/v3 carrier. Serve registers the selected project's
+shared Auth/runtime/factory, checkpoint and joined final flush; v3 is opt-in.
+`native_sync` owns COUNT/read budgets; Colab owns cursors. No Core state.
 [object-backends](.agents/skills/tmt-remote/references/object-backends.md) owns channels,
 backends and quotas. Pure declaration, Rules and Hosting feed Firestore deploy.
 [Remote internals](.agents/skills/tmt-remote/references/architecture-internals.md) owns module guarantees;

@@ -20,6 +20,10 @@ pub const READS_PER_DAY: u64 = 50_000;
 /// Spark (no-cost) Firestore document writes per day.
 pub const WRITES_PER_DAY: u64 = 20_000;
 
+/// Native's unknown-membership assumption; the owning free-plan guide explains
+/// its advisory limit. Construction still goes through `Model::new`.
+pub const NATIVE_DEFAULT_MODEL: (u64, u64) = (4, 4);
+
 /// Rules dependent documents read when a client reads: the member projection or link-device
 /// enrollment, plus the page head (Colab's design).
 pub const READ_LOOKUPS: u64 = 2;

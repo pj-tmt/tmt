@@ -32,6 +32,29 @@ fn envelope() -> Value {
         .collect::<String>();
     json!({"version":1,"extension":"colab","backend":"firestore","declaration":declaration,"declarationDigest":digest,"artifact":read("colab.rules")})
 }
+#[test]
+fn sealed_factory_capture_preserves_release_bytes_and_refuses_drift() {
+    let good = envelope();
+    let (bytes, digest) =
+        deploy_discovery::sealed_declaration("colab", &serde_json::to_vec(&good).unwrap()).unwrap();
+    assert_eq!(bytes, good["declaration"].as_str().unwrap().as_bytes());
+    assert_eq!(digest, good["declarationDigest"]);
+    for field in [
+        "extension",
+        "backend",
+        "declarationDigest",
+        "artifact",
+        "unknown",
+    ] {
+        let mut changed = good.clone();
+        changed[field] = json!("drift");
+        assert!(
+            deploy_discovery::sealed_declaration("colab", &serde_json::to_vec(&changed).unwrap())
+                .is_err(),
+            "{field}"
+        );
+    }
+}
 struct DeclaredFixture(Option<Value>, Vec<String>);
 impl DeclarationSource for DeclaredFixture {
     fn declaration(&mut self, name: &str) -> Result<Option<Vec<u8>>, DiscoveryRefusal> {
