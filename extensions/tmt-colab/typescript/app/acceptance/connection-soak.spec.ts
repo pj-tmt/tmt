@@ -352,7 +352,16 @@ test('connection soak: detached eviction and a refused new tab leave the attache
       }
     });
     expect(reason).toEqual({ code: 'REMOTE_SESSION_LIMIT', limit: 2 });
+    // Source can be visible before this tab's renderer has reported ready.
+    // Make the attached peer current before exercising its next update.
+    await second.bringToFront();
+    await expect.poll(() => second.evaluate(() => document.visibilityState)).toBe('visible');
+    await expect(second.locator('.status.live .status-label')).toHaveText('Live');
     await readSendReceive(s, 'new-tab capacity refusal');
+    // The Send/reply exercise targets the first page; return to the peer being checked.
+    await second.bringToFront();
+    await expect.poll(() => second.evaluate(() => document.visibilityState)).toBe('visible');
+    await expect(second.locator('.status.live .status-label')).toHaveText('Live');
     await expect(second.frameLocator('iframe').locator('#source')).toHaveText(
       'After new-tab capacity refusal',
     );
