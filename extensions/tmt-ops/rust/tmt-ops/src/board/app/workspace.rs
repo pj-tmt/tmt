@@ -253,14 +253,17 @@ impl App {
         {
             return;
         }
+        // Only this explicit, validated message path establishes a temporary
+        // reveal. Tab and pointer eligibility are checked before focus changes.
+        self.focus = 1;
         if self.shell.tab == OpsTab::Overview
-            && crate::board::conversation::layout::overview(self.conversation_area())
+            && self
+                .overview_placement(self.conversation_area())
                 .conversation
                 .is_none()
         {
             self.shell.tab = OpsTab::Agents;
         }
-        self.focus = 1;
         self.invalidate_frame_geometry();
     }
     pub(in crate::board) fn workspace_bindings(&self) -> Bindings {

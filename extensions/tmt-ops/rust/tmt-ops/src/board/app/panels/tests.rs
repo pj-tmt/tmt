@@ -293,3 +293,173 @@ fn pending_save_keeps_mouse_cancel_reachable_and_other_controls_disabled() {
     assert_eq!(app.notice, notice);
     assert!(app.panels_picker.is_none());
 }
+
+fn overview_with_hidden_conversation() -> App {
+    let mut app = board();
+    let mut policy = OverviewPanels::default();
+    policy.set_side_shown(false).unwrap();
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .preferences
+        .overview_panels = Some(PanelSetting::configured(policy));
+    app
+}
+
+fn paint(app: &mut App, width: u16, height: u16) {
+    use ratatui::{Terminal, backend::TestBackend};
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+    terminal
+        .draw(|frame| {
+            crate::board::view::prepare(app, frame.area());
+            crate::board::view::render(frame, app);
+        })
+        .unwrap();
+}
+
+#[test]
+fn explicit_message_reveals_the_same_selected_conversation_and_escape_keeps_its_draft() {
+    use crate::config::Pane;
+    for width in [60, 100, 139, 140, 160] {
+        let mut app = overview_with_hidden_conversation();
+        paint(&mut app, width, 36);
+        let selected = app.workspace.selected.clone();
+        assert!(app.collapsed_panes().contains(&Pane::Replies));
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(app.shell.tab, OpsTab::Overview);
+        assert_eq!(app.focused_pane(), Some(Pane::Replies));
+        paint(&mut app, width, 36);
+        let area = app.conversation.borrow().area;
+        let pane = app.conversation.borrow().pane;
+        assert_eq!(pane, app.overview_placement(area).conversation);
+        assert!(pane.is_some());
+        assert!(app.input_band.get().is_some());
+        app.key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+        assert_eq!(app.input.as_ref().unwrap().text.as_str(), "x");
+        app.invalidate_frame_geometry();
+        app.set_body_width(60);
+        paint(&mut app, 60, 18);
+        assert_eq!(app.focused_pane(), Some(Pane::Replies));
+        assert_eq!(app.workspace.selected, selected);
+        app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        paint(&mut app, 60, 18);
+        assert_eq!(app.focused_pane(), Some(Pane::Rows));
+        assert!(app.conversation.borrow().pane.is_none());
+        assert_eq!(app.workspace.selected, selected);
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(app.input.as_ref().unwrap().text.as_str(), "x");
+        assert_eq!(app.workspace.selected, selected);
+    }
+}
+
+#[test]
+fn tab_pointer_and_refresh_do_not_reveal_a_policy_hidden_conversation() {
+    use crate::config::Pane;
+    let mut app = overview_with_hidden_conversation();
+    paint(&mut app, 160, 36);
+    let selected = app.workspace.selected.clone();
+    app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    assert_eq!(app.focused_pane(), Some(Pane::Rows));
+    // Where the default right pane would have been is now part of the list.
+    app.focus_at(159, 20);
+    app.invalidate_frame_geometry();
+    app.set_body_width(160);
+    app.restore_focus();
+    paint(&mut app, 160, 36);
+    assert_eq!(app.focused_pane(), Some(Pane::Rows));
+    assert!(app.conversation.borrow().pane.is_none());
+    assert_eq!(app.workspace.selected, selected);
+}
+
+#[test]
+fn revealed_conversation_survives_preview_save_and_uses_the_existing_busy_refusal() {
+    let mut app = overview_with_hidden_conversation();
+    paint(&mut app, 160, 36);
+    let selected = app.workspace.selected.clone();
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+    app.in_flight = 1;
+    assert_eq!(
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+        Effect::None
+    );
+    assert_eq!(app.input.as_ref().unwrap().text.as_str(), "x");
+    app.open_panels();
+    assert!(app.panels_picker.is_none());
+    assert_eq!(app.workspace.selected, selected);
+    assert_eq!(app.focused_pane(), Some(crate::config::Pane::Replies));
+    app.in_flight = 0;
+    app.open_panels();
+    // Conversation is after the six ordered panel rows, selected by plain keys.
+    for _ in 0..6 {
+        app.panels_event(&key(KeyCode::Down));
+    }
+    app.panels_event(&key(KeyCode::Enter));
+    assert!(app.overview_panels().side_shown());
+    assert_eq!(app.input.as_ref().unwrap().text.as_str(), "x");
+    paint(&mut app, 100, 18);
+    app.panels_event(&key(KeyCode::End));
+    app.panels_event(&key(KeyCode::Up));
+    let Some(Effect::Act(Request::WorkspacePreferences { next, .. })) =
+        app.panels_event(&key(KeyCode::Enter))
+    else {
+        panic!("Save uses the existing preference lane")
+    };
+    assert!(
+        next.overview_panels
+            .as_ref()
+            .unwrap()
+            .effective()
+            .side_shown()
+    );
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .preferences = next;
+    app.panels_finished(Ok("Panels saved.".into()));
+    // Shown compact Conversation follows the pre-existing Agents fallback;
+    // the same mounted input and UUID draft travel with that placement.
+    app.set_body_width(100);
+    assert_eq!(app.shell.tab, OpsTab::Agents);
+    assert_eq!(app.input.as_ref().unwrap().text.as_str(), "x");
+    assert_eq!(app.workspace.selected, selected);
+}
+
+mod capture;
+
+#[test]
+fn hidden_monitor_cannot_retain_row_focus_or_a_selected_row_action() {
+    for width in [60, 100, 140, 160] {
+        let mut app = board();
+        let selected = app.workspace.selected.clone();
+        let mut policy = OverviewPanels::default();
+        policy
+            .set_shown(crate::config::OverviewPanel::Monitor, false)
+            .unwrap();
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .preferences
+            .overview_panels = Some(PanelSetting::configured(policy));
+        paint(&mut app, width, 36);
+        assert_eq!(app.focused_pane(), Some(crate::config::Pane::Replies));
+        assert!(app.collapsed_panes().contains(&crate::config::Pane::Rows));
+        assert!(!app.workspace_selection_visible());
+        assert!(app.hits.borrow().iter().all(|hit| hit.row().is_none()));
+        app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        assert_eq!(app.focused_pane(), Some(crate::config::Pane::Replies));
+        assert_eq!(app.workspace.selected, selected);
+    }
+}

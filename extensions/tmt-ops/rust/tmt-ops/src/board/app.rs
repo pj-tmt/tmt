@@ -1732,16 +1732,36 @@ impl App {
     }
 
     pub fn collapsed_panes(&self) -> BTreeSet<Pane> {
-        if self.workspace_snapshot().is_none()
-            || (self.shell.tab == super::shell::OpsTab::Overview
-                && super::conversation::layout::overview(self.conversation_area())
-                    .conversation
-                    .is_none())
-        {
-            [Pane::Replies].into()
-        } else {
-            BTreeSet::new()
+        if self.workspace_snapshot().is_none() {
+            return [Pane::Replies].into();
         }
+        let mut collapsed = BTreeSet::new();
+        match self.shell.tab {
+            super::shell::OpsTab::Overview => {
+                let placement = self.overview_placement(self.conversation_area());
+                if placement.list.is_none()
+                    || !self
+                        .overview_panels()
+                        .shown(crate::config::OverviewPanel::Monitor)
+                {
+                    collapsed.insert(Pane::Rows);
+                }
+                if placement.conversation.is_none() {
+                    collapsed.insert(Pane::Replies);
+                }
+            }
+            super::shell::OpsTab::Digest => {
+                let policy = self.digest_panels();
+                if !policy.shown(crate::config::DigestPanel::List) {
+                    collapsed.insert(Pane::Rows);
+                }
+                if !policy.side_shown() {
+                    collapsed.insert(Pane::Replies);
+                }
+            }
+            _ => {}
+        }
+        collapsed
     }
 
     pub fn set_body_width(&mut self, width: u16) {
@@ -1818,12 +1838,16 @@ impl App {
             self.focus = self.focus.min(self.focus_panes().len().saturating_sub(1));
             if self.focus == 1
                 && self.shell.tab == super::shell::OpsTab::Overview
-                && super::conversation::layout::overview(self.conversation_area())
+                && self
+                    .overview_placement(self.conversation_area())
                     .conversation
                     .is_none()
             {
                 self.shell.tab = super::shell::OpsTab::Agents;
                 self.invalidate_frame_geometry();
+            }
+            if self.collapsed_panes().contains(&self.focused()) {
+                self.next_pane();
             }
             return;
         }

@@ -55,7 +55,7 @@ impl App {
         crate::board::conversation::layout::overview_policy(
             area,
             &self.overview_panels(),
-            false,
+            self.focused() == crate::config::Pane::Replies,
         )
     }
     pub(in crate::board) fn open_panels(&mut self) -> Effect {
