@@ -325,6 +325,10 @@ jobs:
         if: needs.changes.outputs.native_scope == 'full' && needs.changes.outputs.native_sync_emulator == 'true'
         timeout-minutes: 8
         run: node extensions/tmt-remote/typescript/remote-client/test/emulator/native-qualify.mjs
+      - name: Prove Colab cloud sync between real serves and Colab Rules
+        if: needs.changes.outputs.native_scope == 'full' && needs.changes.outputs.native_sync_emulator == 'true'
+        timeout-minutes: 15
+        run: node extensions/tmt-colab/scripts/cloud-sync-emulator.mjs
       - name: Test Ops and architecture
         if: needs.changes.outputs.native_scope == 'ops'
         working-directory: rust

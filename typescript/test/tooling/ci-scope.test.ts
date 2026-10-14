@@ -2858,6 +2858,11 @@ describe('native Auth+Firestore emulator selection', () => {
     'extensions/tmt-colab/contracts/vectors/deploy-declaration-v1.firestore.rules',
     'extensions/tmt-colab/contracts/vectors/deploy-declaration-v1.firestore.indexes.json',
     'extensions/tmt-remote/typescript/remote-client/test/emulator/native-qualify.mjs',
+    'extensions/tmt-colab/scripts/cloud-sync-emulator.mjs',
+    'extensions/tmt-colab/rust/tmt-colab/src/object_channel/cloud_sync.rs',
+    'extensions/tmt-colab/rust/tmt-colab/src/object_channel/cloud_sync/inbound.rs',
+    'extensions/tmt-colab/rust/tmt-colab/src/object_channel/cloud_sync/proof/world.rs',
+    'extensions/tmt-colab/rust/tmt-colab/src/object_channel/documents/originals.rs',
     '.github/workflows/ci.yml',
   ])('selects the real native client proof for %s', (file) => {
     expect(selectNativeSyncEmulator([file])).toBe(true);
@@ -2869,6 +2874,8 @@ describe('native Auth+Firestore emulator selection', () => {
     'extensions/tmt-remote/rust/tmt-remote/src/serve.rs',
     'extensions/tmt-remote/rust/tmt-remote/src/native_sync-other/client.rs',
     'extensions/tmt-colab/contracts/vectors/deploy-declaration-v1-other.json',
+    'extensions/tmt-colab/rust/tmt-colab/src/object_channel/cloud_sync-other/inbound.rs',
+    'extensions/tmt-colab/rust/tmt-colab/src/object_channel/attach.rs',
   ])('does not select unrelated %s', (file) => {
     expect(selectNativeSyncEmulator([file])).toBe(false);
   });
@@ -2893,6 +2900,22 @@ describe('native Auth+Firestore emulator selection', () => {
     expect(runner).toContain('runInPrivateWorld');
     expect(runner).toContain("'127.0.0.1'");
     expect(runner).toContain('1 passed; 0 failed; 0 ignored;');
+    expect(runner).not.toContain('docker');
+  });
+  it('runs the Colab cloud sync proof after the native one, from a script that names exactly its two scenarios', () => {
+    const ci = readFileSync(new URL('../../../.github/workflows/ci.yml', import.meta.url), 'utf8');
+    const job = ci.split('\n  native-workspace-tests:\n')[1].split('\n  native-process-tests:')[0];
+    expect(job.indexOf('native-qualify.mjs')).toBeLessThan(
+      job.indexOf('extensions/tmt-colab/scripts/cloud-sync-emulator.mjs')
+    );
+    const runner = readFileSync(
+      new URL('../../../extensions/tmt-colab/scripts/cloud-sync-emulator.mjs', import.meta.url),
+      'utf8'
+    );
+    expect(runner).toContain('runInPrivateWorld');
+    expect(runner).toContain("'--ignored'");
+    expect(runner).toContain('2 passed; 0 failed; 0 ignored;');
+    expect(runner).toContain("host: '127.0.0.1'");
     expect(runner).not.toContain('docker');
   });
 });
