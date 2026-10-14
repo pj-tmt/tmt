@@ -26,6 +26,13 @@ read-only. Native Session reads use registration/readers' actual context and eli
 addressed wraps or owner-signed public keys; browser history keys are opaque addressed-wrap
 handles. `object_channel.rs` owns the raw handshake on the existing MountSocket,
 fresh public Remote discovery and replacement/join of each neutral Bus generation.
+The dormant sealed-document client shares that generation's one dispatcher and
+ordered request counter with objects. `object_channel/sealed.rs` correlates sync
+results, coalesces Changed hints and retains terminal interests until confirmed
+cancellation or generation close. `object_channel/documents.rs` maps Colab fields to
+canonical REST Values and page-bound IDs; checksums and routing metadata confer
+no admission. The public opaque SealedClient has no standalone constructor.
+These codecs do not activate a provider or wire cloud sync into serve.
 Its `admission` module captures the actual peer, current native context, exact
 request and reference/target; `peer` serializes bounded original-ID calls without
 retries. Reader tickets take precedence over a paired cookie and never upload.

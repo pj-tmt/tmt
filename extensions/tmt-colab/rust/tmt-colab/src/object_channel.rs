@@ -13,18 +13,20 @@ use std::{
     time::Instant,
 };
 use tmt_extension_objects::{
-    Admission, Admit, Budgets, Bus, Call, Caps, Context, Counter, Decision, Expect, Fault, Frame,
-    Link, Origin, OriginPhase, Outcome, Request, Role, Uuid4, accept_head,
+    Admission, Admit, Budgets, Bus, Call, Caps, ChannelFrame, Context, Counter, Decision, Expect,
+    Fault, Frame, Link, Origin, OriginPhase, Outcome, Request, Role, Uuid4, accept_head,
 };
 
 pub(crate) mod admission;
 pub(crate) mod attach;
 mod binding;
 mod client;
+pub mod documents;
 mod history;
 pub(crate) mod namespace;
 mod peer;
 pub(crate) mod rekey;
+pub(crate) mod sealed;
 pub(crate) use client::CommittedReader;
 pub(crate) use peer::{ObjectRequest, PeerObjects};
 #[cfg(test)]
@@ -36,7 +38,7 @@ pub(crate) trait CallbackOwner: Send + Sync {
     fn decide(&self, admit: &Admit, deadline: Instant) -> Decision;
 }
 #[derive(Clone, Debug)]
-pub(crate) enum Error {
+pub enum Error {
     Unavailable,
     Wire(Fault),
 }
@@ -63,6 +65,7 @@ struct Callback {
 }
 struct State {
     pending: BTreeMap<Counter, Arc<Pending>>,
+    sealed: sealed::State,
     origins: HashSet<Uuid4>,
     callbacks: VecDeque<Callback>,
 }
@@ -93,6 +96,7 @@ impl Shared {
             for (_, pending) in std::mem::take(&mut state.pending) {
                 let _ = pending.reply.try_send(Err(Error::Unavailable));
             }
+            state.sealed.stop();
             state.origins.clear();
             state.callbacks.clear();
             self.changed.notify_all();
@@ -115,7 +119,7 @@ pub(crate) struct ObjectChannel {
     threads: Vec<JoinHandle<()>>,
 }
 #[derive(Clone)]
-pub(crate) struct Client(Arc<Shared>);
+pub struct Client(Arc<Shared>);
 impl ObjectChannel {
     /// `interrupt` is cloned from the accepted socket BEFORE leaf handshake.
     /// It is used only for shutdown, never to read/write beside the leaf's Bus.
@@ -133,6 +137,7 @@ impl ObjectChannel {
             stopped: AtomicBool::new(false),
             state: Mutex::new(State {
                 pending: BTreeMap::new(),
+                sealed: sealed::State::default(),
                 origins: HashSet::new(),
                 callbacks: VecDeque::new(),
             }),
@@ -274,7 +279,7 @@ impl Client {
             let bus = self.0.bus()?;
             {
                 let mut state = locked(&self.0.state);
-                if state.pending.len() >= Caps::contract().requests {
+                if state.pending.len() + state.sealed.pending_count() >= Caps::contract().requests {
                     return Err(Error::Unavailable);
                 }
                 state.pending.insert(request_id, pending);
@@ -320,10 +325,19 @@ fn dispatch(shared: &Arc<Shared>) {
         return;
     };
     while !shared.stopped.load(Ordering::Acquire) {
-        let Ok(received) = bus.recv_stamped(None) else {
+        let Ok(received) = bus.recv_channel_stamped(None) else {
             break;
         };
-        match received.frame {
+        let frame = match received.frame {
+            ChannelFrame::Object(frame) => frame,
+            ChannelFrame::Sync(frame) => {
+                if !sealed::dispatch(shared, frame) {
+                    break;
+                }
+                continue;
+            }
+        };
+        match frame {
             Frame::Result(result) => {
                 let pending = locked(&shared.state).pending.remove(&result.request_id);
                 let Some(pending) = pending else {
