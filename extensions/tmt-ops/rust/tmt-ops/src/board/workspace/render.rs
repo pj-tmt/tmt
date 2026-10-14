@@ -15,6 +15,7 @@ use ratatui::{
 };
 use tmt_cli_style::Role;
 use tmt_tui::components::{Modal, Placement, strip};
+use unicode_width::UnicodeWidthStr;
 
 pub(in crate::board) fn safe(text: &str) -> String {
     tmt_cli_style::table::escape(&crate::board::notes::sanitize(text))
@@ -916,6 +917,18 @@ fn roster_preview(
         },
     );
 }
+fn whole_hints(hints: &[&str], width: u16) -> String {
+    let mut shown = String::new();
+    for hint in hints {
+        let separator = if shown.is_empty() { "" } else { " · " };
+        if shown.width() + separator.width() + hint.width() <= usize::from(width) {
+            shown.push_str(separator);
+            shown.push_str(hint);
+        }
+    }
+    shown
+}
+
 pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
     let Some(draft) = app.workspace_form.as_ref().filter(|draft| draft.shown) else {
         return;
@@ -931,14 +944,8 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
             Placement::Center
         },
     };
-    let areas = modal.areas(
-        if short { frame.area() } else { body },
-        [80, 26],
-        true,
-        false,
-    );
-    modal.paint(areas, frame.buffer_mut(), &look.theme, look.depth);
-    app.input_band.set(Some(areas.outer));
+    let bounds = if short { frame.area() } else { body };
+    let probe = modal.areas(bounds, [80, 26], true, false);
     let text = match &draft.stage {
         Stage::Fields => app
             .input
@@ -964,11 +971,39 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
             } else {
                 Role::Text
             };
-            crate::board::notes::wrap(&safe(line), usize::from(areas.content.width))
+            crate::board::notes::wrap(&safe(line), usize::from(probe.content.width))
                 .into_iter()
                 .map(move |line| (line, role))
         })
         .collect();
+    let editor_rows = if draft.stage == Stage::Fields {
+        app.reference_editor().map_or(1, |editor| {
+            editor.layout(probe.content.width).lines.len().clamp(1, 6)
+        })
+    } else {
+        0
+    };
+    // Existing chrome reserves two border rows, a position and a footer row.
+    let demand_height = lines
+        .len()
+        .max(1)
+        .saturating_add(editor_rows)
+        .saturating_add(4)
+        .min(26) as u16;
+    let bounds = if short {
+        let height = bounds.height.min(demand_height);
+        Rect::new(
+            bounds.x,
+            bounds.y + (bounds.height - height) / 2,
+            bounds.width,
+            height,
+        )
+    } else {
+        bounds
+    };
+    let areas = modal.areas(bounds, [80, demand_height], true, false);
+    modal.paint(areas, frame.buffer_mut(), &look.theme, look.depth);
+    app.input_band.set(Some(areas.outer));
     if draft.stage == Stage::Fields {
         let prompt_height = (lines
             .len()
@@ -1036,7 +1071,8 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
         .map(String::as_str)
         .or(Some("cancel"));
     if draft.stage == Stage::Review {
-        let apply_enabled = areas.content.height > 1
+        let apply_label = draft.operation.as_ref().map(|operation| operation.confirm_label()).unwrap_or_default();
+        let apply_enabled = !apply_label.is_empty() && areas.content.height > 1
             && (draft.kind != super::manage::Kind::RenameMember
                 || (draft.scroll.borrow().offset() == 0
                     && lines.len() <= usize::from(areas.content.height)));
@@ -1044,7 +1080,7 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
             crate::board::buttons::Button::secondary("Cancel")
                 .focused(focused == Some("cancel"))
                 .enabled(areas.content.height > 1),
-            crate::board::buttons::Button::primary("Apply this exact operation")
+            crate::board::buttons::Button::primary(apply_label)
                 .focused(focused == Some("apply"))
                 .enabled(apply_enabled),
         ];
@@ -1060,18 +1096,23 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
             painted[0].filter(|_| areas.content.height > 1),
             painted[1].filter(|_| apply_enabled),
         ]);
-        if areas.footer.width > 37 {
+        let start = painted.iter().flatten().map(Rect::right).max()
+            .unwrap_or(areas.footer.x).saturating_add(1).min(areas.footer.right());
+        if start < areas.footer.right() {
             let hint = Rect::new(
-                areas.footer.x + 37,
+                start,
                 areas.footer.y,
-                areas.footer.width - 37,
+                areas.footer.right() - start,
                 areas.footer.height,
             );
             strip::paint_left(
                 frame.buffer_mut(),
                 hint,
                 Line::styled(
-                    "Tab read/actions · Enter select · Esc cancel",
+                    whole_hints(
+                        &["Esc cancel", "Enter select", "Tab read/actions"],
+                        hint.width,
+                    ),
                     look.role(Role::Muted),
                 ),
             );
@@ -1092,10 +1133,10 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
         )[0];
         let width = area.map_or(0, |area| area.width + 1);
         draft.controls.set([area, None]);
-        let hint = if draft.stage == Stage::Fields {
-            "Enter next · Esc cancel"
+        let hints: &[&str] = if draft.stage == Stage::Fields {
+            &["Esc cancel", "Enter next"]
         } else {
-            "Read: arrows/PgUp/PgDn · Esc close · no automatic retry"
+            &["Esc close", "Read: arrows/PgUp/PgDn", "no automatic retry"]
         };
         let remaining = Rect {
             x: areas
@@ -1109,7 +1150,7 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
         strip::paint_left(
             frame.buffer_mut(),
             remaining,
-            Line::styled(hint, look.role(Role::Muted)),
+            Line::styled(whole_hints(hints, remaining.width), look.role(Role::Muted)),
         );
     }
 }
