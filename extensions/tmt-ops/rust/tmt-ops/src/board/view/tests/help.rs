@@ -121,3 +121,64 @@ fn help_mouse_only_scrolls_its_content_and_never_activates_base_hits() {
     assert_eq!(app.selected, selected);
     assert!(app.help);
 }
+
+#[test]
+fn help_pages_by_the_painted_viewport_after_resizing_an_editor() {
+    let mut app = workspace_board();
+    let selected = app.workspace.selected.clone();
+    key(&mut app, KeyCode::Char('t'));
+    assert!(app.input.is_some());
+    app.paste("kept draft 界 e\u{301}");
+    for (width, height) in [(160, 36), (100, 36), (80, 18), (60, 8)] {
+        app.invalidate_frame_geometry();
+        app.set_body_width(width);
+        draw(&app, width, height);
+    }
+    key(&mut app, KeyCode::Esc);
+    assert!(app.input.is_none());
+    for (width, height) in [(100, 36), (80, 18), (60, 8)] {
+        app.invalidate_frame_geometry();
+        app.set_body_width(width);
+        draw(&app, width, height);
+        key(&mut app, KeyCode::Char('?'));
+        draw(&app, width, height);
+        let (page, limit) = {
+            let help = app.help_state.borrow();
+            let viewport = help.scroll.viewport();
+            if height == 8 {
+                assert_eq!(
+                    viewport.height, 0,
+                    "tiny help must not retain a stale large viewport"
+                );
+            } else {
+                assert!(
+                    viewport.height > 0,
+                    "readable help must publish its current viewport"
+                );
+            }
+            if width == 100 {
+                assert!(viewport.height > 20, "large help must publish a full page");
+            }
+            (
+                usize::from(viewport.height).saturating_sub(1).max(1),
+                help.scroll.limit(),
+            )
+        };
+        assert!(limit > 0);
+        assert_eq!(app.help_state.borrow().scroll.offset(), 0);
+        if height == 8 {
+            key(&mut app, KeyCode::Esc);
+            assert!(!app.help);
+            assert_eq!(app.workspace.selected, selected);
+            continue;
+        }
+        key(&mut app, KeyCode::PageDown);
+        assert_eq!(app.help_state.borrow().scroll.offset(), page.min(limit));
+        draw(&app, width, height);
+        key(&mut app, KeyCode::PageUp);
+        assert_eq!(app.help_state.borrow().scroll.offset(), 0);
+        key(&mut app, KeyCode::Esc);
+        assert!(!app.help);
+        assert_eq!(app.workspace.selected, selected);
+    }
+}
