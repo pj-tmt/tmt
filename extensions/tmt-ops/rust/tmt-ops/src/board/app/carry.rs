@@ -23,6 +23,8 @@ impl App {
             || self.searching
             || self.settings.is_some()
             || self.quota_details.is_some()
+            || self.usage_details.is_some()
+            || (self.usage_chart_available() && self.usage_chart.borrow().focused())
             || self.help
             || self.menu.is_some()
             || self.theme_picker.is_some()

@@ -24,6 +24,7 @@ mod mentions;
 mod menu_surface;
 mod meter;
 pub(crate) mod notes;
+mod overview;
 mod picker_surface;
 mod rate;
 mod recovery;

@@ -501,6 +501,7 @@ pub(super) enum Overlay {
     Checklist,
     QuotaDetails,
     Discovery,
+    UsageDetails,
 }
 impl Overlay {
     fn id(self) -> tmt_tui::app::ComponentId {
@@ -516,6 +517,7 @@ impl Overlay {
                 Self::Checklist => "checklist",
                 Self::QuotaDetails => "quota-details",
                 Self::Discovery => "discovery",
+                Self::UsageDetails => "usage-details",
             }
             .into(),
         ]
@@ -622,6 +624,8 @@ pub struct App {
     pub selected: usize,
     pub notice: Option<String>,
     pub(super) migration_notice: Option<String>,
+    pub(in crate::board) usage_chart: RefCell<super::overview::chart::host::State>,
+    pub(in crate::board) usage_details: Option<RefCell<super::overview::chart::detail::Details>>,
     pub(super) quota_details: Option<RefCell<super::home::quota_detail::Details>>,
     pub help: bool,
     pub(super) help_state: RefCell<super::help::Help>,
@@ -798,6 +802,7 @@ impl App {
 
     /// Replace only the board display projection. Sampling never changes public ls JSON.
     pub(super) fn project_usage(&mut self, now: Instant) {
+        self.usage_chart.get_mut().invalidate_data();
         if self.loading() {
             return;
         } // Keep the retained view's values while switching.
@@ -867,7 +872,7 @@ impl App {
             .filter(|model| !model.is_empty())
     }
 
-    fn home_meter(&self, squad: &str) -> Option<&super::meter::Meter> {
+    pub(in crate::board) fn home_meter(&self, squad: &str) -> Option<&super::meter::Meter> {
         let rate = self.view.as_ref()?.home_rate.get(squad)?;
         self.meters
             .get(squad)
@@ -1106,6 +1111,9 @@ impl App {
                 meter.sample(input.as_ref().map_err(|_| ()), now);
                 sampled = true;
             }
+        }
+        if sampled {
+            self.usage_chart.get_mut().invalidate_data();
         }
         sampled
     }
@@ -2883,6 +2891,8 @@ impl App {
             Some(Overlay::ReplyReader)
         } else if self.checklist_shown() {
             Some(Overlay::Checklist)
+        } else if self.usage_details.is_some() {
+            Some(Overlay::UsageDetails)
         } else if self.quota_details.is_some() {
             Some(Overlay::QuotaDetails)
         } else if self.discovery_shown() {
@@ -2911,6 +2921,16 @@ impl App {
             Overlay::Recovery => self.recovery_event(event),
             Overlay::ReplyReader => Some(self.reader_event(event)),
             Overlay::Checklist => self.checklist_event(event),
+            Overlay::UsageDetails => {
+                if matches!(event, Event::Key(key) if matches!(key.code, KeyCode::Esc | KeyCode::Char('q')))
+                {
+                    self.usage_details = None;
+                    self.invalidate_frame_geometry();
+                } else {
+                    self.usage_details.as_ref()?.borrow_mut().input(event);
+                }
+                Some(Effect::None)
+            }
             Overlay::QuotaDetails => {
                 if matches!(event, Event::Key(key) if matches!(key.code, KeyCode::Esc | KeyCode::Char('q')))
                 {
@@ -3035,12 +3055,19 @@ impl App {
             self.clamp();
             return Effect::None;
         }
+        if let Some(effect) = super::overview::chart::host::key(self, key) {
+            return effect;
+        }
         self.workspace_key(key)
     }
 
     /// Refuse pointer and viewport authority from a superseded frame. Offsets
     /// and drafts survive; only a new paint can publish interactive geometry.
     pub(super) fn invalidate_frame_geometry(&self) {
+        self.usage_chart.borrow_mut().invalidate_geometry();
+        if let Some(details) = &self.usage_details {
+            details.borrow_mut().invalidate();
+        }
         self.input_viewport.set(None);
         self.input_band.set(None);
         self.hits.borrow_mut().clear();
@@ -3182,6 +3209,9 @@ impl App {
 
     pub fn mouse(&mut self, event: MouseEvent, now: Instant) -> Effect {
         if event.kind == MouseEventKind::Moved {
+            if !self.modal_open() && self.input.is_none() && !self.searching {
+                super::overview::chart::host::mouse(self, event);
+            }
             self.move_pointer(event);
             return Effect::None;
         }
@@ -3242,6 +3272,11 @@ impl App {
                 self.update_mentions();
             }
             return Effect::None;
+        }
+        if !self.searching
+            && let Some(effect) = super::overview::chart::host::mouse(self, event)
+        {
+            return effect;
         }
         if !self.loading() && event.kind == MouseEventKind::Down(MouseButton::Left) {
             let workspace_action = self

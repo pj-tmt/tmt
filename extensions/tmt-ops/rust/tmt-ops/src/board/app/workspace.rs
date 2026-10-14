@@ -152,6 +152,9 @@ impl App {
                 )
             });
         }
+        if !self.usage_chart_available() {
+            keys.retain(|_, action| action.verb != Verb::Ui(OpsUiAction::UsageControls));
+        }
         keys
     }
     fn workspace_effective_bindings(&self) -> Bindings {
@@ -241,6 +244,7 @@ impl App {
         match action {
             Quit => return Effect::Quit,
             QuotaDetails => return self.open_quota_details(),
+            UsageControls => return super::super::overview::chart::host::focus(self),
             Help => {
                 self.help_state.borrow_mut().open();
                 self.help = true;
@@ -255,6 +259,7 @@ impl App {
                 if !self.shell.select_digit(digit, self.workspace_input_owner()) {
                     return Effect::None;
                 }
+                self.usage_chart.get_mut().release_focus();
                 self.workspace_reconcile();
                 self.focus = 0;
                 self.invalidate_frame_geometry();
@@ -367,8 +372,8 @@ impl App {
             Manage | CreateSquad | RemoveMembership | MoveMembership => {
                 return self.workspace_management(action);
             }
-            Overview | Agents | DigestDashboard | QuotaDetails | Help | Quit | ScrollUp
-            | ScrollDown | ScrollPageUp | ScrollPageDown | ScrollTop | ScrollBottom => {
+            Overview | Agents | DigestDashboard | QuotaDetails | UsageControls | Help | Quit
+            | ScrollUp | ScrollDown | ScrollPageUp | ScrollPageDown | ScrollTop | ScrollBottom => {
                 unreachable!("shell actions handled first")
             }
         }

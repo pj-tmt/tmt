@@ -95,6 +95,14 @@ pub(super) fn hints(app: &App, width: usize) -> String {
 }
 
 fn workspace_hints(app: &App, width: usize) -> String {
+    if app.usage_chart_available() && app.usage_chart.borrow().focused() {
+        return crate::board::view::fit(
+            "←→ choose · Enter apply/details · Tab Each/Range/buckets · Esc list · ? help",
+            width,
+        )
+        .trim_end()
+        .to_owned();
+    }
     use crate::action::{OpsUiAction, Verb};
     let bindings = app.bindings();
     let mut entries: Vec<_> = bindings

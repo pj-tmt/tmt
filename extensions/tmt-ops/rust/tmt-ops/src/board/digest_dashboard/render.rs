@@ -92,6 +92,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, mut area: Rect) {
     }
     area.y += height;
     area.height -= height;
+    area = crate::board::overview::chart::host::render(frame, app, area);
     let preference = app
         .workspace_snapshot()
         .map_or(Preference::Auto, |snapshot| {

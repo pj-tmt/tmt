@@ -109,6 +109,24 @@ and Digest share the same admitted per-window quota bars: remaining percent,
 labelled reset and measured weekly pace. Complete source timestamps and unknown
 evidence stay in on-demand details; paint and input perform no acquisition.
 
+`board::overview::chart::host` owns one session Each/Range selection for Overview
+and Digest. `u` resolves through effective bindings in their list scopes; Agents,
+Reader, search and composers retain their own input. Arrows draft a choice, Enter
+applies or inspects, Tab selects Each/Range/buckets and Esc returns to the list.
+Invalid pairs preserve both controls. Direct control and bucket hits come from
+admitted, clipped nodes; resize and source replacement revoke their authority.
+Short bodies reduce the plot before consuming the usable target list.
+
+One identity-total series uses the existing Rate rings. Details preserve exact
+half-open bounds, observed tokens, missing identities and source durations;
+click, keyboard and optional received hover share that formatter. Different
+identities' durations are agent-time, not inferred joint elapsed coverage. An
+unreported, disabled or absent common-pool source stays unknown in the canonical
+roster scope. The chart caches at most twelve interval totals and one admitted
+scene; the existing Frame retains the terminal diff. A read-only details modal
+captures the inspected evidence, scrolls through the shared component, blocks
+reload while open and closes without replaying input.
+
 `board::app::workspace::tests` covers authority, modal lifecycle, pointer geometry,
 reload and scoped appearance. `board::workspace::tests` covers pure membership,
 counts, selection and sorting. Native service tests exercise public Core and Ops

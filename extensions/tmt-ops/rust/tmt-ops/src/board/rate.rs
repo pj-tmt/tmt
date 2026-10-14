@@ -5,9 +5,10 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 
 pub(super) mod history;
+pub(super) mod series;
 
 const SAFE: u64 = 9_007_199_254_740_991;
-const SLOT_MS: u64 = 5_000;
+pub(in crate::board) const SLOT_MS: u64 = 5_000;
 
 /// Captured from the ordinary observed roster before sections duplicate/filter rows.
 #[derive(Debug, Clone)]
@@ -139,6 +140,20 @@ struct Bucket {
     gap: bool,
     /// Whole core rollup tokens cannot be split at a shorter window boundary.
     source_from: Option<u64>,
+    /// Keep source-backed duration distinct from live receipt evidence. History
+    /// padding slots carry no independent token or duration observation.
+    origin: BucketOrigin,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+enum BucketOrigin {
+    #[default]
+    Receipt,
+    // Closed history is bounded to one hour. Compact duration preserves the
+    // existing ring cell budget; unsupported duration remains unknown.
+    History {
+        covered_ms: Option<u32>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -291,12 +306,18 @@ impl Rate {
                         slot: Some(slot),
                         evidence: slice.complete,
                         gap: !slice.complete || slice.gap || slice.discontinuous,
+                        origin: BucketOrigin::History {
+                            covered_ms: Some(0),
+                        },
                         ..Default::default()
                     };
                 }
                 let bucket = &mut state.buckets[(last % self.slots as u64) as usize];
                 bucket.tokens = u128::from(slice.input_tokens) + u128::from(slice.output_tokens);
                 bucket.source_from = Some(slice.from_ms);
+                bucket.origin = BucketOrigin::History {
+                    covered_ms: u32::try_from(slice.covered_ms).ok(),
+                };
                 bucket.evidence |= slice.covered_ms > 0;
             }
             state.previous = Counter::read(&seed.latest);
