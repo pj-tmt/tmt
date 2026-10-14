@@ -1087,7 +1087,13 @@ test('a served question group records three answers and asks each recipient once
     await group.getByRole('tab').nth(1).click();
     await current().getByRole('button', { name: 'Change answer', exact: true }).click();
     await current().getByLabel('Your answer', { exact: true }).fill('One revised detail');
-    await group.getByRole('button', { name: /^Send 1 answer/ }).click();
+    // Reload restores answer history before the fresh directory has seeded recipients.
+    await group
+      .getByRole('button', {
+        name: 'Send 1 answer · to @batch-alpha, @batch-beta',
+        exact: true,
+      })
+      .click();
     await until(
       () => alpha.received().length === 2 && beta.received().length === 2,
       'one-question follow-up per recipient',
