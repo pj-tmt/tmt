@@ -79,14 +79,27 @@ cron_service` and the native `ops.test.ts` cron cases cover actor permission, lo
   draws on that thread, restores nested/unwound scopes and leaves worker/production
   clocks unchanged. These buffers are deterministic renderer evidence, not a
   frozen live-terminal clock or permission to regenerate parity.
-- Frame cost: run `cargo test --release --locked -p tmt-ops workspace_frame_cost
--- --ignored --nocapture` for the actual workspace App/render/diff path at 36 squads
-  and 150/1,000/10,000 agents. Record p50/p95 for steady, scroll and resize; compare
-  matched baseline/candidate hardware/toolchain/profile and report cells/output/CPU
-  separately. Input, scoped update, append and 1/10/100 KiB paste are additional
-  acceptance scenarios, not implied by frame timing. Budgets require owner/reviewer
-  agreement; do not invent CI SLOs. The retained `frame_timing` harness measures
-  independent crew/team row-painter phases; its replica test applies only there.
+- Frame cost: from `rust/`, run `CARGO_BUILD_JOBS=2 cargo test --release --locked
+-p tmt-ops workspace_frame_cost -- --ignored --nocapture --test-threads=2` for
+  steady, scoped update, response append, Reader scroll, real backend resize,
+  1/10/100 KiB paste and typing after paste (36 squads, 150/1,000/10,000 agents,
+  2,000 response lines, 160×36 cells). To separate event/paint/diff-and-ANSI phases,
+  run `TMT_WORKSPACE_ANSI_SAMPLES=/absolute/task-owned/samples.json
+CARGO_BUILD_JOBS=2 cargo test --release --locked -p tmt-ops workspace_ansi_phase_timing
+-- --ignored --nocapture --test-threads=2`. Run its resulting test executable
+  directly under `/usr/bin/time -lp` with the same environment and filter to
+  measure process CPU/peak footprint separately; fixture/startup cost is included.
+  The sink is memory, not a physical terminal latency measurement. Retain raw
+  samples/outliers and match baseline/candidate source, toolchain and profile.
+  The agreed local regression profile is Mac16,8, 12 logical CPUs, 48 GiB RAM,
+  macOS 26.6.2, arm64 Rust 1.98.1/LLVM 22.1.8, release opt-level 3. Event+draw
+  p95 must be ≤10/50/50 ms at 150/1,000/10,000 agents for each vector; the ANSI
+  probe's whole-process user+system CPU must be ≤6.2 s and footprint ≤51 MB.
+  Unchanged content keeps identical ANSI-byte/changed-cell vectors; approved new
+  surfaces change only their expected regions. Input/paint performs no source I/O.
+  An exceeded limit requires diagnosis or an agreed adjustment, not relabelling.
+  These are probe/profile limits, not CI gates or user-facing/cross-machine SLOs.
+  `frame_timing` remains an independent CLI crew/team row-painter harness.
 - Layout validation: `cargo test --locked -p tmt-ops layout` and the native `ops.test.ts`
   offline case cover invalid core/config inputs, located errors, the size bound and the
   human/JSON exit codes.
