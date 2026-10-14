@@ -15,7 +15,7 @@ use ratatui::{
     text::{Line, Span},
 };
 use tmt_cli_style::Role;
-use tmt_tui::components::{Modal, Outline, Placement, strip};
+use tmt_tui::components::{Modal, Placement, strip};
 
 pub(super) fn safe(text: &str) -> String {
     tmt_cli_style::table::escape(&crate::board::notes::sanitize(text))
@@ -171,23 +171,11 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
 fn tree(frame: &mut Frame, app: &App, area: Rect) {
     let look = app.look();
     let title = match app.shell.tab {
-        OpsTab::Overview => " Overview ",
-        OpsTab::Agents => " Agents ",
-        OpsTab::Digest => " Digest ",
+        OpsTab::Overview => "Overview",
+        OpsTab::Agents => "Agents",
+        OpsTab::Digest => "Digest",
     };
-    let outline = Outline {
-        title: Line::from(title),
-        border: look.role(Role::Dim),
-        title_style: look.role(Role::Muted),
-    };
-    // Decoration cannot consume the last available content rows. The shell
-    // already names the destination; short terminals keep target navigation.
-    let inside = if area.height >= 3 && area.width >= 3 {
-        outline.paint_flat(area, frame.buffer_mut());
-        outline.inner(area)
-    } else {
-        area
-    };
+    let inside = crate::board::pane_chrome::paint(frame, app, area, Pane::Rows, title);
     let rows = app.workspace_rows();
     let no_matches =
         !app.workspace.query.is_empty() && rows.iter().all(|row| row.target == OpsTarget::Pool);
@@ -234,7 +222,9 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                     }
                 }
                 let row = Rect::new(viewport.x, viewport.y + line as u16, viewport.width, 1);
-                if Some(&tree.target) == app.workspace.selected.as_ref() {
+                if app.focused() == Pane::Rows
+                    && Some(&tree.target) == app.workspace.selected.as_ref()
+                {
                     frame.buffer_mut().set_style(row, look.selection());
                 }
                 strip::paint_left(frame.buffer_mut(), row, text.clone());
@@ -373,12 +363,7 @@ fn tree_line(app: &App, row: &super::OpsTreeRow, width: u16) -> Line<'static> {
         .and_then(|raw| raw["colors"]["state"].as_str())
         .filter(|_| row.state.as_deref() != Some("waiting"))
         .map_or_else(|| look.role(role), |color| look.named(color));
-    let style = if selected {
-        look.selection()
-            .patch(look.row_span(true, state_style, true))
-    } else {
-        state_style
-    };
+    let style = crate::board::pane_chrome::row_style(app, selected, state_style);
     let count_scope = match &row.target {
         OpsTarget::Squad(room) => Some(crate::board::overview::cron_counts::CronCountScope::Room(
             room,
@@ -413,12 +398,7 @@ fn tree_line(app: &App, row: &super::OpsTreeRow, width: u16) -> Line<'static> {
         for chip in chips.into_iter().take(count) {
             line.spans.push(Span::styled(
                 chip.text,
-                if selected {
-                    look.selection()
-                        .patch(look.row_span(true, look.role(chip.role), true))
-                } else {
-                    look.role(chip.role)
-                },
+                crate::board::pane_chrome::row_style(app, selected, look.role(chip.role)),
             ));
         }
     }
@@ -485,13 +465,8 @@ fn squad_detail(frame: &mut Frame, app: &App, area: Rect) {
         .selected_row()
         .and_then(|row| row["name"].as_str())
         .unwrap_or("Selection");
-    let outline = Outline {
-        title: Line::from(safe(title)),
-        border: look.role(Role::Dim),
-        title_style: look.role(Role::Muted),
-    };
-    outline.paint_flat(area, frame.buffer_mut());
-    let mut inside = outline.inner(area);
+    let mut inside =
+        crate::board::pane_chrome::paint(frame, app, area, Pane::Replies, &safe(title));
     if let Some(target) = app.workspace.selected.as_ref().filter(|target| {
         app.workspace_selection_visible()
             && (matches!(target, OpsTarget::Squad(_))

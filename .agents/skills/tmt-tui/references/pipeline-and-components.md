@@ -107,6 +107,9 @@ Maintained module reference. Commands and admitted spellings are in [development
   borders. Their explicit `paint_flat` choice shares horizontal rules and blank
   side slots, retaining every edge reservation, title policy and inner rectangle;
   Modal also retains its full Clear/opaque mask and fixed slots.
+  Outline's opt-in `paint_flat_heavy_top` changes only the top rule's weight;
+  its existing methods, inner geometry and title escaping are unchanged. The
+  consumer supplies focus roles and title marks; the leaf holds no focus state.
 - `StatusSlot` paints the first row of a caller-reserved rectangle through `strip`,
   replacing its trailing blanks without changing layout or presenting a terminal
   frame. `StatusLabel` takes complete caller text or a prefix and elapsed `Duration`;
