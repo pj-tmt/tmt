@@ -187,6 +187,7 @@ impl Subscription for NativeSubscription {
                 let cancel = CallCancellation {
                     caller: io.cancelled,
                     closed: &self.consumer.closed,
+                    project: &self.consumer.runtime.stopped,
                 };
                 if self.next_ms > now
                     && !self

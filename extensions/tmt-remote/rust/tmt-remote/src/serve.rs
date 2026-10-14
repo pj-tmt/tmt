@@ -35,6 +35,8 @@ use tmt_remote::{
 
 use tmt_remote::limits::{SERVE_RECORD_BYTES as FRAME_BYTES, SERVE_STARTUP as STARTUP};
 
+mod native_factory;
+
 fn startup_error() -> RemoteError {
     RemoteError::new(
         "REMOTE_STARTUP_UNCONFIRMED",
@@ -434,7 +436,38 @@ fn foreground_with(
     port: Option<u16>,
     json_output: bool,
     stop: &Arc<AtomicBool>,
+    handoff: Option<&mut Handoff>,
+) -> Result<(), RemoteError> {
+    let mut declarations =
+        tmt_remote::deploy_discovery::InstalledDeclarations::at(core.executable().to_owned(), stop)
+            .map_err(|_| {
+                RemoteError::new(
+                    "REMOTE_STATE_UNAVAILABLE",
+                    "Native declarations are unavailable.",
+                )
+            })?;
+    foreground_with_native(
+        core,
+        extensions,
+        port,
+        json_output,
+        stop,
+        handoff,
+        native_factory::NativeInputs {
+            source: &mut declarations,
+            ports: native_factory::NativePorts::production(),
+        },
+    )
+}
+
+fn foreground_with_native(
+    core: CoreClient,
+    extensions: &'static [Extension],
+    port: Option<u16>,
+    json_output: bool,
+    stop: &Arc<AtomicBool>,
     mut handoff: Option<&mut Handoff>,
+    native: native_factory::NativeInputs<'_>,
 ) -> Result<(), RemoteError> {
     let input_limit = core_limits(&core, stop)?;
     fence(stop)?;
@@ -480,6 +513,26 @@ fn foreground_with(
                 None
             }
         };
+        let mut native = if let Some(objects) = &objects {
+            match native_factory::ProjectOwner::prepare(
+                objects,
+                &layout,
+                extensions,
+                native.source,
+                native.ports,
+            ) {
+                Ok(owner) => owner,
+                Err(error) => {
+                    object_warning(&format!("Native sync unavailable: {}", error.code));
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        if let Some(notice) = native.as_ref().and_then(|owner| owner.permission_notice) {
+            object_warning(notice);
+        }
         fence(stop)?;
         let machine = store.machine()?;
         let requested = port;
@@ -634,15 +687,23 @@ fn foreground_with(
         } else {
             door.run(stop, site as Arc<dyn Handler>)
         };
-        if let Some(objects) = &objects {
-            objects.shutdown();
-        }
+        let native_finish = if let Some(native) = native.take() {
+            // This fences native work, joins carrier/provider workers, then
+            // joins the minute tick and flushes before its writer/Serving end.
+            native.finish()
+        } else {
+            if let Some(objects) = &objects {
+                objects.shutdown();
+            }
+            Ok(())
+        };
+        drop(native);
         // Stopping cancels any pending pairing before state is released.
         control.stop();
         approval.cancel_pending()?;
         drop(events);
         drop(objects);
-        result
+        native_finish.and(result)
     })();
     if let (Some(diagnostic), Err(error)) = (&mut diagnostic, &result) {
         record_failure(diagnostic, error);
@@ -655,3 +716,11 @@ fn foreground_with(
 #[cfg(test)]
 #[path = "serve/tests.rs"]
 mod object_tests;
+
+#[cfg(test)]
+#[path = "serve/native_factory_tests.rs"]
+mod native_factory_tests;
+
+#[cfg(test)]
+#[path = "serve/native_serve_tests.rs"]
+mod native_serve_tests;

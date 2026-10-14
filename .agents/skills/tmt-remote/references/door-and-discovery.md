@@ -40,8 +40,9 @@ failure still forwards without an origin. The [object-backend guide](object-back
 owns the bounded single-flight lifecycle; ordinary discovery shapes are unchanged.
 The owner-only internal `sync.activate` operation uses the same hook to request v3.
 There is no public command or implicit activation on status/read/channel loss. Serve
-currently injects no native provider factory; typed unavailable preserves the existing
-Local channel. Older running doors need a restart to gain the surface, then explicit
+registers a native factory only for verified selected public config, enabled release
+declarations and an existing active Firestore sign-in. Missing/unsafe inputs refuse native
+activation without replacing the existing Local channel or disabling the ordinary door. Older running doors need a restart to gain the surface, then explicit
 re-activation, as defined by the [carrier contract](../../../../contracts/remote-channel-v1.md#native-sealed-document-carrier).
 
 ## Discovery and restart implementation
@@ -277,10 +278,13 @@ default, then this host. Failed explicit/default targeting is a typed refusal. I
 Firestore links need no local deploy record: `remote_link` returns only verified project
 and public config, optional --project must agree, and admission still belongs to the space
 owner. This resolver never grants deployment authority; deploy-only commands retain
-`owned`/`existing`. A consumer carrier and serving factory are separate integration work;
-this transport library does not activate them. Serving composition shares Auth/runtime per
-project, closes consumers and fences refresh, joins jobs, then calls `NativeRuntime.finish`
-before releasing the budget writer. `budget_state` exposes the shared warning/refusal
+`owned`/`existing`. Serve captures exact enabled release declarations via InstalledDeclarations,
+validates their declaration/admission digests and injects the factory without provider I/O.
+One selected project shares Auth/runtime, budget writer and a cancellation-wakeable minute tick;
+factory calls only bind SyncContext and construct NativeClient. The transport library does not
+activate the carrier. Checkpoint failure fences all project work. Stop fences activation/work
+and refresh, closes/joins carrier/provider jobs, joins the tick, then calls `NativeRuntime.finish`
+before releasing the budget writer and Serving lease; early setup failure uses owned cleanup. `budget_state` exposes the shared warning/refusal
 without charging or making provider requests.
 
 ## Firestore deployment
@@ -327,10 +331,10 @@ unverified records refuse with `REMOTE_LINK_UNAVAILABLE`: 'No remote link is ava
 Run tmt remote deploy firestore to create one.' The contract owns the descriptor; unsafe records
 are never reset, repaired or converted on read.
 
-Declarations come from fixed public commands of enabled installed extensions. Colab's command
-is not shipped yet, so its output is unavailable with no provider/record effect; fixture
-bytes are never a production fallback. Installed end-to-end proof waits for that command and
-separate owner authorization. Tier/quota and sharing readiness stay unknown after a deployment.
+Declarations come from fixed public commands of enabled installed extensions, including
+Colab's release command. An absent/refusing command has no provider/record effect; fixture
+bytes are never a production fallback. Real-project acceptance still requires separate owner
+authorization. Tier/quota and sharing readiness stay unknown after a deployment.
 
 The settings page's explicit Firestore read shares `StatusViews.layers`' evidence owner with
 Operations. Its bounded record snapshot happens outside live/Store locks, then the signed
