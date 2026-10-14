@@ -199,6 +199,8 @@ For offline declaration-vector regeneration, run from `rust/`:
 CARGO_BUILD_JOBS=2 cargo run --offline --locked -p tmt-remote --example compose_firestore -- /absolute/envelope.json /absolute/staging
 ```
 
+For the offline Hosting view only: `CARGO_BUILD_JOBS=2 cargo run --offline --locked -p tmt-remote --example compose_hosting -- /absolute/declaration-envelope.json /absolute/hosting-bundle-reply.json`; refusals emit one stderr code and no stdout.
+
 The input is the contract's six-field reply containing exact declaration/artifact strings.
 Staging receives `firestore.rules`, `firestore.indexes.json` and `plan.json`; stdout is a stable
 JSON digest summary. No provider, credentials or product CLI is involved. Colab reviews and copies
