@@ -1,5 +1,7 @@
 //! Session-only editor state keyed by sender and recipient identity. Routing and
 //! send admission remain in App/RowSend; a retained draft grants no permission.
+use ratatui::layout::Rect;
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use tmt_tui::components::Editor;
 
@@ -12,10 +14,16 @@ pub(super) struct Draft {
     quotes: Vec<super::response::Quote>,
 }
 pub(super) struct Projection<'a> {
+    pub key: Option<DraftKey>,
     pub recipient: &'a str,
     pub text: Option<&'a Editor>,
     pub quotes: &'a [super::response::Quote],
     pub focused: bool,
+}
+#[derive(Clone)]
+pub(super) struct SendHit {
+    pub area: Rect,
+    pub key: DraftKey,
 }
 impl Draft {
     fn from_input(input: &Input) -> Self {
@@ -29,9 +37,13 @@ impl Draft {
 pub(super) struct State {
     drafts: BTreeMap<DraftKey, Draft>,
     pending: Option<(DraftKey, Draft)>,
+    pub send_hit: RefCell<Option<SendHit>>,
 }
 
 impl State {
+    pub(super) fn invalidate(&self) {
+        *self.send_hit.borrow_mut() = None;
+    }
     pub(super) fn has_drafts(&self) -> bool {
         !self.drafts.is_empty()
     }
@@ -81,6 +93,7 @@ impl App {
                 _ => return None,
             };
             return Some(Projection {
+                key: input.draft_key.clone(),
                 recipient,
                 text: Some(&input.text),
                 quotes: &input.response_quotes,
@@ -96,6 +109,7 @@ impl App {
         );
         let draft = self.composer.drafts.get(&key);
         Some(Projection {
+            key: self.view.as_ref()?.me_id.as_ref().map(|_| key.clone()),
             recipient: row["name"].as_str()?,
             text: draft.map(|draft| &draft.text),
             quotes: draft.map_or(&[], |draft| draft.quotes.as_slice()),

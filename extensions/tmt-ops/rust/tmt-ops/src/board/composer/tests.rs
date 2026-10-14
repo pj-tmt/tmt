@@ -154,7 +154,10 @@ fn agents_composer_is_visible_idle_and_escape_keeps_the_uuid_draft_at_every_widt
         let mut app = crate::board::app::workspace::tests::board();
         let buffer = draw(&mut app, width, 18);
         let painted: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
-        assert!(painted.contains("Message worker…"), "{width}: {painted}");
+        assert!(
+            painted.contains("Message → worker") && painted.contains("Write a message…"),
+            "{width}: {painted}"
+        );
         assert!(app.input.is_none());
         assert!(app.input_band.get().unwrap().height >= 1);
         app.key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
@@ -217,5 +220,64 @@ fn clicking_idle_composer_focuses_and_send_keeps_an_empty_editor_ready() {
             app.input.as_ref().unwrap().text.as_str(),
             "a real outgoing message"
         );
+    }
+}
+
+#[test]
+fn boxed_send_is_clickable_only_on_its_current_whole_uuid_fenced_button() {
+    use ratatui::crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    for width in [160, 100, 60] {
+        let mut app = crate::board::app::workspace::tests::board();
+        draw(&mut app, width, 18);
+        let hit = app.composer.send_hit.borrow().clone().unwrap();
+        app.key(ratatui::crossterm::event::KeyEvent::new(
+            ratatui::crossterm::event::KeyCode::Char('t'),
+            KeyModifiers::NONE,
+        ));
+        app.paste("explicit button text");
+        draw(&mut app, width, 18);
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: hit.area.x,
+            row: hit.area.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        assert!(
+            matches!(app.mouse(click, std::time::Instant::now()), crate::board::app::Effect::Act(crate::board::app::Request::Talk { text, .. }) if text == "explicit button text")
+        );
+        app.in_flight = 1;
+        draw(&mut app, width, 18);
+        assert!(
+            app.composer.send_hit.borrow().is_none(),
+            "in-flight button has no authority"
+        );
+        app.invalidate_frame_geometry();
+        assert!(app.composer.send_hit.borrow().is_none());
+    }
+}
+
+#[test]
+fn low_composer_keeps_a_bordered_editable_row_and_clipped_buttons_have_no_hit() {
+    use ratatui::{Terminal, backend::TestBackend, layout::Rect};
+    for width in [1, 2, 3, 10, 14, 20] {
+        for height in [1, 2, 3, 4] {
+            let app = crate::board::app::workspace::tests::board();
+            let band = Rect::new(0, 0, width, height);
+            app.input_band.set(Some(band));
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            terminal
+                .draw(|frame| crate::board::view::waiting::inline_prompt(frame, &app, band))
+                .unwrap();
+            let editor = app.input_viewport.get().unwrap().0;
+            assert!(!editor.is_empty());
+            assert_eq!(editor.intersection(band), editor);
+            if width < 16 {
+                assert!(app.composer.send_hit.borrow().is_none());
+            }
+            if let Some(hit) = app.composer.send_hit.borrow().as_ref() {
+                assert_eq!(hit.area.width, 8);
+                assert_eq!(hit.area.intersection(band), hit.area);
+            }
+        }
     }
 }

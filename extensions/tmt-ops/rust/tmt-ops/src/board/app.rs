@@ -3324,6 +3324,7 @@ impl App {
         {
             surface.invalidate();
         }
+        self.composer.invalidate();
         self.usage_chart.borrow_mut().invalidate_geometry();
         if let Some(details) = &self.usage_details {
             details.borrow_mut().invalidate();
@@ -3510,6 +3511,37 @@ impl App {
             return Effect::None;
         }
         if event.kind == MouseEventKind::Down(MouseButton::Left) {
+            let send = self
+                .composer
+                .send_hit
+                .borrow()
+                .clone()
+                .filter(|hit| hit.area.contains((event.column, event.row).into()));
+            if let Some(hit) = send {
+                if self
+                    .composer_projection()
+                    .and_then(|projection| projection.key)
+                    .as_ref()
+                    != Some(&hit.key)
+                {
+                    return self
+                        .say("The painted message recipient changed; repaint before sending.");
+                }
+                if self.input.is_none() {
+                    self.perform(&Action::parse("talk").expect("built-in Talk action"));
+                }
+                if self
+                    .input
+                    .as_ref()
+                    .and_then(|input| input.draft_key.as_ref())
+                    == Some(&hit.key)
+                {
+                    let effect = self.input_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+                    self.update_mentions();
+                    return effect;
+                }
+                return Effect::None;
+            }
             let in_composer = self
                 .input_band
                 .get()
