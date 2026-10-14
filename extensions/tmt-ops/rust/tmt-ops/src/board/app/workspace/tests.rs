@@ -1397,9 +1397,23 @@ fn selected_member_host_uses_the_frozen_uuid_and_overview_has_membership_actions
 }
 #[test]
 fn supplied_label_role_and_choice_hit_survive_the_workspace_tree_and_digest_tab() {
+    // This assertion exercises real selection-background contrast, not the
+    // invoking terminal's fallback palette (whose Text foreground is unset).
+    for base in [tmt_cli_style::Base::Tmt, tmt_cli_style::Base::TmtLight] {
+        supplied_label_choice_hit_at_look(crate::look::Look {
+            theme: tmt_cli_style::Theme::new(base),
+            depth: tmt_cli_style::Depth::TrueColor,
+        });
+    }
+}
+
+fn supplied_label_choice_hit_at_look(look: crate::look::Look) {
     use crate::labels::{Label, Supplied};
     use tmt_cli_style::Role;
     let mut app = board();
+    let view = app.view.as_mut().unwrap();
+    view.look = look;
+    view.home.as_mut().unwrap().workspace.squad_looks.clear();
     let target = app.workspace.selected.clone().unwrap();
     app.view
         .as_mut()
@@ -1452,22 +1466,41 @@ fn supplied_label_role_and_choice_hit_survive_the_workspace_tree_and_digest_tab(
                 .draw(|frame| crate::board::view::render(frame, &app))
                 .unwrap();
             let buffer = terminal.backend().buffer();
-            let held = buffer
-                .content
-                .windows(6)
-                .find(|cells| {
-                    cells.iter().map(|cell| cell.symbol()).collect::<String>() == "1 held"
-                })
-                .unwrap();
-            assert_eq!(
-                held[0].fg,
-                app.look()
-                    .role(Role::Text)
-                    .fg
-                    .unwrap_or(ratatui::style::Color::Reset),
-                "selection contrast policy keeps words readable"
-            );
             let chips = app.chip_hits.borrow().clone();
+            let mut held = Vec::new();
+            // Locate supplier labels beside their admitted Auto choice, not an
+            // unrelated "1 held" in the Digest summary or conversation history.
+            for (area, _) in &chips {
+                for x in area.right()..width.saturating_sub(5).min(area.right() + 12) {
+                    let start = usize::from(area.y) * usize::from(width) + usize::from(x);
+                    let cells = &buffer.content[start..start + 6];
+                    if cells.iter().map(|cell| cell.symbol()).collect::<String>() == "1 held" {
+                        held.push(cells);
+                        break;
+                    }
+                }
+            }
+            assert!(!held.is_empty(), "the supplied label remains visible");
+            // At 160 columns the Agents tree clips this suffix, but its
+            // conversation header still shows the supplier's muted-role label.
+            // Selected rows use the contrast policy; other surfaces keep the role.
+            if tab != OpsTab::Agents || width == 100 {
+                assert!(
+                    held.iter()
+                        .any(|cells| Some(cells[0].bg) == look.selection().bg)
+                );
+            }
+            for cells in held {
+                let selected = Some(cells[0].bg) == look.selection().bg;
+                let role = if selected { Role::Text } else { Role::Muted };
+                let expected = look.role(role).fg.unwrap();
+                for cell in cells {
+                    assert_eq!(
+                        cell.fg, expected,
+                        "supplied label role and selection contrast: {tab:?}/{width}/{selected}"
+                    );
+                }
+            }
             assert!(!chips.is_empty());
             for (area, _) in chips {
                 // Both the tree chip and the shared conversation chip resolve the
