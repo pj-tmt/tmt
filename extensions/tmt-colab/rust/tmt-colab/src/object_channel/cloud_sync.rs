@@ -20,6 +20,8 @@ mod fixture;
 mod inbound;
 mod interests;
 mod local;
+#[cfg(test)]
+mod proof;
 mod publisher;
 mod reader;
 mod stops;
