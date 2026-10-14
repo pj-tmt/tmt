@@ -159,6 +159,11 @@ fn partial_unknown_failed_and_loading_views_do_not_apply_or_clobber_the_hint() {
         write(&scratch.file(), &saved());
         let original = fs::read(scratch.file()).unwrap();
         let mut app = cold();
+        // The dense Overview defaults to an agent. This case tests whether a
+        // pending saved hint can replace an explicit non-recipient selection.
+        app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
+        let initial_selection = app.workspace.selected.clone();
+        assert!(app.workspace_selected_member().is_none());
         let mut session = Session::load(scratch.file(), false, false);
         app.view
             .as_mut()
@@ -172,6 +177,7 @@ fn partial_unknown_failed_and_loading_views_do_not_apply_or_clobber_the_hint() {
         assert!(session.tick(&mut app, Instant::now()).1.is_none());
         assert!(session.hint.is_some());
         assert_eq!(app.shell.tab, OpsTab::Overview);
+        assert_eq!(app.workspace.selected, initial_selection);
         assert!(
             app.workspace_selected_member().is_none(),
             "pending hint grants no recipient"

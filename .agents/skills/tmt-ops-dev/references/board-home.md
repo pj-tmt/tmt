@@ -32,12 +32,17 @@ tree viewport; it does not replace the selection or claim a complete roster.
 
 ## Shell, geometry and input
 
-`board::shell` owns Overview, Agents and Digest selection. `workspace::render`
-uses shared TUI Outline, Strip and Scrolls for the dense tree and squad detail;
-only rows admitted to the scroll viewport build text spans. The full stable tree
-retains scroll length and row indices for selection and hit mapping. WP1 retains
-conversation, editor, drafts, reply reader and send authority.
-Overview owns global attention and usage. Digest projects the supplier-owned
+`board::shell` owns Overview, Agents and Digest selection. `overview::monitor`
+projects one identity row through the admitted workspace roster; `columns` solves
+its single-line tracks through shared TUI markup, and `sort` orders known values
+with missing observations last in both directions. Config owns the optional
+persisted monitor order; absent order retains needs-you priority. The bounded row
+cache is invalidated by acquisition, labels and meter/job updates, while selection
+remains a semantic UUID target. Only viewport rows build display text and hits.
+`overview::detail` discloses full values and the observed membership scope without
+adding command authority. `workspace::render` retains the Agents tree and squad
+detail. WP1 retains conversation, editor, drafts, reply reader and send authority.
+Overview also owns global attention and usage. Digest projects the supplier-owned
 status snapshot and UUID-deduplicated member list through `digest_dashboard`;
 the canonical workspace roster still owns membership and action admission.
 Agents and Digest use the selected squad's appearance and contextual detail. Auto/Side/Stack is an Ops preference,

@@ -22,11 +22,94 @@ impl OpsSort {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OverviewColumn {
+    Agent,
+    Squad,
+    State,
+    TokensPerHour,
+    Digest,
+    Cron,
+    Runtime,
+    Model,
+}
+
+impl OverviewColumn {
+    pub const ALL: [Self; 8] = [
+        Self::Agent,
+        Self::Squad,
+        Self::State,
+        Self::TokensPerHour,
+        Self::Digest,
+        Self::Cron,
+        Self::Runtime,
+        Self::Model,
+    ];
+
+    fn key(self) -> &'static str {
+        match self {
+            Self::Agent => "agent",
+            Self::Squad => "squad",
+            Self::State => "state",
+            Self::TokensPerHour => "tokens-per-hour",
+            Self::Digest => "digest",
+            Self::Cron => "cron",
+            Self::Runtime => "runtime",
+            Self::Model => "model",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OverviewDirection {
+    Ascending,
+    Descending,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OverviewSort {
+    pub column: OverviewColumn,
+    pub direction: OverviewDirection,
+}
+
+impl OverviewSort {
+    pub fn initial(column: OverviewColumn) -> Self {
+        Self {
+            column,
+            direction: if matches!(column, OverviewColumn::TokensPerHour | OverviewColumn::Cron) {
+                OverviewDirection::Descending
+            } else {
+                OverviewDirection::Ascending
+            },
+        }
+    }
+
+    pub fn reverse(self) -> Self {
+        Self {
+            direction: match self.direction {
+                OverviewDirection::Ascending => OverviewDirection::Descending,
+                OverviewDirection::Descending => OverviewDirection::Ascending,
+            },
+            ..self
+        }
+    }
+
+    pub fn next(self) -> Self {
+        let position = OverviewColumn::ALL
+            .iter()
+            .position(|column| *column == self.column)
+            .unwrap();
+        Self::initial(OverviewColumn::ALL[(position + 1) % OverviewColumn::ALL.len()])
+    }
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct OpsPreferences {
     pub pinned: BTreeSet<String>,
     pub sort: OpsSort,
     pub reversed: bool,
+    /// None retains the monitor's needs-you ordering until an explicit sort.
+    pub overview_sort: Option<OverviewSort>,
     pub layout: OpsLayout,
 }
 
@@ -49,6 +132,8 @@ pub enum OpsKeyScope {
 
 pub struct WorkspaceKeys {
     pub bindings: Bindings,
+    /// Provenance follows exactly the admitted default/global/host/section merge.
+    pub sources: std::collections::BTreeMap<String, String>,
     pub notices: Vec<String>,
 }
 
@@ -105,6 +190,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("t", "talk"),
             ("j", "jump"),
             ("o", "open"),
+            ("e", "monitor-details"),
             ("s", "sort"),
             ("S", "reverse-sort"),
             ("p", "pin"),
@@ -116,6 +202,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             entries.extend([("p", "pin"), ("m", "manage"), ("n", "create-squad")])
         }
         OpsKeyScope::Member => entries.extend([
+            ("e", "monitor-details"),
             ("t", "talk"),
             ("j", "jump"),
             ("o", "open"),
@@ -282,6 +369,25 @@ impl Config {
                         }
                     }
                 }
+                "overview_sort" => {
+                    let key = item.as_str().ok_or_else(|| {
+                        invalid("`workspace.overview_sort` must name a monitor column.")
+                    })?;
+                    let column = OverviewColumn::ALL
+                        .into_iter()
+                        .find(|column| column.key() == key)
+                        .ok_or_else(|| {
+                            invalid("`workspace.overview_sort` must name a monitor column.")
+                        })?;
+                    result.overview_sort = Some(OverviewSort::initial(column));
+                }
+                "overview_reverse" => {
+                    if !item.is_bool() {
+                        return Err(invalid(
+                            "`workspace.overview_reverse` must be true or false.",
+                        ));
+                    }
+                }
                 "reverse" => {
                     result.reversed = item
                         .as_bool()
@@ -302,6 +408,16 @@ impl Config {
                         "`workspace.{key}` is not a supported preference."
                     )));
                 }
+            }
+        }
+        if let Some(item) = table.get("overview_reverse") {
+            let Some(order) = &mut result.overview_sort else {
+                return Err(invalid(
+                    "`workspace.overview_reverse` requires `workspace.overview_sort`.",
+                ));
+            };
+            if item.as_bool() == Some(true) {
+                *order = order.reverse();
             }
         }
         Ok(result)
@@ -337,6 +453,15 @@ impl Config {
                 OpsSort::Members => "members",
             });
             document["workspace"]["reverse"] = value(next.reversed);
+            if let Some(order) = next.overview_sort {
+                document["workspace"]["overview_sort"] = value(order.column.key());
+                // Store whether the chosen column's initial direction is reversed.
+                document["workspace"]["overview_reverse"] =
+                    value(order.direction != OverviewSort::initial(order.column).direction);
+            } else if let Some(table) = document["workspace"].as_table_like_mut() {
+                table.remove("overview_sort");
+                table.remove("overview_reverse");
+            }
             document["workspace"]["layout"] = value(match next.layout {
                 OpsLayout::Auto => "auto",
                 OpsLayout::Side => "side",
@@ -352,6 +477,10 @@ impl Config {
         section: Option<&Bindings>,
     ) -> Result<WorkspaceKeys, SquadError> {
         let mut effective = defaults(scope);
+        let mut sources: std::collections::BTreeMap<_, _> = effective
+            .keys()
+            .map(|key| (key.clone(), "workspace default".into()))
+            .collect();
         let mut notices = self.workspace_migration_notices();
         let mut configured = self.configured_bindings()?;
         let hosts = self.host_bindings()?;
@@ -370,10 +499,21 @@ impl Config {
                 notices.push(error.message);
                 continue;
             }
+            let source = if section.is_some_and(|section| section.contains_key(&key)) {
+                "selected squad section.bind".to_owned()
+            } else if let Some(host) =
+                host.filter(|host| hosts.get(*host).is_some_and(|keys| keys.contains_key(&key)))
+            {
+                format!("bind.{host}.{key}")
+            } else {
+                format!("bind.{key}")
+            };
+            sources.insert(key.clone(), source);
             effective.insert(key, action);
         }
         Ok(WorkspaceKeys {
             bindings: effective,
+            sources,
             notices,
         })
     }
@@ -382,6 +522,26 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn action_provenance_tracks_only_the_admitted_effective_merge() {
+        let config =
+            config("[bind]\no = \"open {pr_link}\"\n[bind.tmux]\no = \"open {review_link}\"\n");
+        let section = [("o".into(), Action::parse("open {link}").unwrap())].into();
+        let global = config
+            .workspace_keys(OpsKeyScope::Member, None, None)
+            .unwrap();
+        assert_eq!(global.sources["o"], "bind.o");
+        let host = config
+            .workspace_keys(OpsKeyScope::Member, Some("tmux"), None)
+            .unwrap();
+        assert_eq!(host.sources["o"], "bind.tmux.o");
+        let selected = config
+            .workspace_keys(OpsKeyScope::Member, Some("tmux"), Some(&section))
+            .unwrap();
+        assert_eq!(selected.sources["o"], "selected squad section.bind");
+        assert_eq!(selected.bindings["o"].text, "open {link}");
+        assert_eq!(selected.sources["j"], "workspace default");
+    }
     fn config(text: &str) -> Config {
         Config {
             path: "/fixture/ops.toml".into(),
@@ -682,6 +842,7 @@ mod tests {
             sort: OpsSort::Attention,
             reversed: true,
             layout: OpsLayout::Stack,
+            overview_sort: None,
         };
         config.save_workspace_preferences(&expected, &next).unwrap();
         let reloaded = fixture.config();
@@ -699,6 +860,80 @@ mod tests {
             Verb::Copy
         );
     }
+    #[test]
+    fn overview_order_round_trips_every_column_and_direction_then_clears() {
+        let fixture = FileFixture::new();
+        let mut config = fixture.config();
+        assert_eq!(config.workspace_preferences().unwrap().overview_sort, None);
+        for column in OverviewColumn::ALL {
+            for order in [
+                OverviewSort::initial(column),
+                OverviewSort::initial(column).reverse(),
+            ] {
+                let expected = config.workspace_preferences().unwrap();
+                let next = OpsPreferences {
+                    overview_sort: Some(order),
+                    ..expected.clone()
+                };
+                config.save_workspace_preferences(&expected, &next).unwrap();
+                config = fixture.config();
+                assert_eq!(config.workspace_preferences().unwrap(), next);
+                assert_eq!(config.document["bind"]["j"].as_str(), Some("copy"));
+                assert_eq!(
+                    config.document["squad"]["other"]["layout"].as_str(),
+                    Some("crew")
+                );
+            }
+        }
+        let expected = config.workspace_preferences().unwrap();
+        let next = OpsPreferences {
+            overview_sort: None,
+            ..expected.clone()
+        };
+        config.save_workspace_preferences(&expected, &next).unwrap();
+        let config = fixture.config();
+        assert_eq!(config.workspace_preferences().unwrap(), next);
+        assert!(config.document["workspace"].get("overview_sort").is_none());
+        assert!(
+            config.document["workspace"]
+                .get("overview_reverse")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn overview_order_admission_and_stale_write_preserve_the_authored_file() {
+        for text in [
+            "[workspace]\noverview_sort='invented'",
+            "[workspace]\noverview_sort=7",
+            "[workspace]\noverview_reverse=true",
+            "[workspace]\noverview_sort='agent'\noverview_reverse='yes'",
+        ] {
+            let config = config(text);
+            let before = config.document.to_string();
+            assert!(config.workspace_preferences().is_err(), "{text}");
+            assert_eq!(config.document.to_string(), before);
+        }
+        let fixture = FileFixture::new();
+        let mut first = fixture.config();
+        let mut stale = fixture.config();
+        let expected = first.workspace_preferences().unwrap();
+        let next = OpsPreferences {
+            overview_sort: Some(OverviewSort::initial(OverviewColumn::TokensPerHour)),
+            ..expected.clone()
+        };
+        first.save_workspace_preferences(&expected, &next).unwrap();
+        let before = fs::read(first.path()).unwrap();
+        assert_eq!(
+            stale
+                .save_workspace_preferences(&expected, &next)
+                .unwrap_err()
+                .code,
+            "SQUAD_CONFIG_CHANGED"
+        );
+        assert_eq!(fs::read(first.path()).unwrap(), before);
+    }
+
     #[test]
     fn preference_compare_and_swap_refuses_stale_model_and_intervening_file_edits() {
         let fixture = FileFixture::new();

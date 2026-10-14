@@ -57,7 +57,7 @@ pub(in crate::board) fn board() -> App {
                     room_id: Some(ROOM.into()),
                     identity_id: MEMBER.into(),
                 },
-                json!({"id":MEMBER,"name":"worker","state":"working"}),
+                json!({"id":MEMBER,"name":"worker","state":"working","presence":"active","pane":{"location":{"host":"tmux"}}}),
             ),
         ]
         .into(),
@@ -96,6 +96,8 @@ pub(in crate::board) fn board() -> App {
         identity_id: MEMBER.into(),
     });
     app.workspace_reconcile();
+    app.invoker_tmux = true;
+    app.overview_rows.borrow_mut().clear();
     app
 }
 
@@ -1373,7 +1375,12 @@ fn no_squads_is_a_known_empty_workspace_with_an_explicit_creation_action() {
     app.workspace.selected = Some(OpsTarget::Pool);
     app.shell.tab = OpsTab::Overview;
     app.workspace_reconcile();
-    assert_eq!(app.workspace_rows()[0].count, Some(0));
+    assert!(app.workspace_rows().is_empty());
+    assert!(
+        paint(&app, 80, 24)
+            .join("\n")
+            .contains("No observed agents")
+    );
     assert_eq!(key(&mut app, KeyCode::Char('n')), Effect::None);
     assert_eq!(app.workspace_form.as_ref().unwrap().kind, Kind::Create);
 }
@@ -1390,9 +1397,23 @@ fn selected_member_host_uses_the_frozen_uuid_and_overview_has_membership_actions
 }
 #[test]
 fn supplied_label_role_and_choice_hit_survive_the_workspace_tree_and_digest_tab() {
+    // This assertion exercises real selection-background contrast, not the
+    // invoking terminal's fallback palette (whose Text foreground is unset).
+    for base in [tmt_cli_style::Base::Tmt, tmt_cli_style::Base::TmtLight] {
+        supplied_label_choice_hit_at_look(crate::look::Look {
+            theme: tmt_cli_style::Theme::new(base),
+            depth: tmt_cli_style::Depth::TrueColor,
+        });
+    }
+}
+
+fn supplied_label_choice_hit_at_look(look: crate::look::Look) {
     use crate::labels::{Label, Supplied};
     use tmt_cli_style::Role;
     let mut app = board();
+    let view = app.view.as_mut().unwrap();
+    view.look = look;
+    view.home.as_mut().unwrap().workspace.squad_looks.clear();
     let target = app.workspace.selected.clone().unwrap();
     app.view
         .as_mut()
@@ -1429,7 +1450,7 @@ fn supplied_label_role_and_choice_hit_survive_the_workspace_tree_and_digest_tab(
         app.shell.tab = tab;
         for width in [100, 160] {
             let screen = paint(&app, width, 36).join("\n");
-            let mode = if tab == OpsTab::Digest {
+            let mode = if matches!(tab, OpsTab::Digest | OpsTab::Overview) {
                 "Auto ▾"
             } else {
                 "digest Auto ▾"
@@ -1445,28 +1466,55 @@ fn supplied_label_role_and_choice_hit_survive_the_workspace_tree_and_digest_tab(
                 .draw(|frame| crate::board::view::render(frame, &app))
                 .unwrap();
             let buffer = terminal.backend().buffer();
-            let held = buffer
-                .content
-                .windows(6)
-                .find(|cells| {
-                    cells.iter().map(|cell| cell.symbol()).collect::<String>() == "1 held"
-                })
-                .unwrap();
-            assert_eq!(
-                held[0].fg,
-                app.look()
-                    .role(Role::Text)
-                    .fg
-                    .unwrap_or(ratatui::style::Color::Reset),
-                "selection contrast policy keeps words readable"
-            );
             let chips = app.chip_hits.borrow().clone();
+            let mut held = Vec::new();
+            // Locate supplier labels beside their admitted Auto choice, not an
+            // unrelated "1 held" in the Digest summary or conversation history.
+            for (area, _) in &chips {
+                for x in area.right()..width.saturating_sub(5).min(area.right() + 12) {
+                    let start = usize::from(area.y) * usize::from(width) + usize::from(x);
+                    let cells = &buffer.content[start..start + 6];
+                    if cells.iter().map(|cell| cell.symbol()).collect::<String>() == "1 held" {
+                        held.push(cells);
+                        break;
+                    }
+                }
+            }
+            assert!(!held.is_empty(), "the supplied label remains visible");
+            // At 160 columns the Agents tree clips this suffix, but its
+            // conversation header still shows the supplier's muted-role label.
+            // Selected rows use the contrast policy; other surfaces keep the role.
+            if tab != OpsTab::Agents || width == 100 {
+                assert!(
+                    held.iter()
+                        .any(|cells| Some(cells[0].bg) == look.selection().bg)
+                );
+            }
+            for cells in held {
+                let selected = Some(cells[0].bg) == look.selection().bg;
+                let role = if selected { Role::Text } else { Role::Muted };
+                let expected = look.role(role).fg.unwrap();
+                for cell in cells {
+                    assert_eq!(
+                        cell.fg, expected,
+                        "supplied label role and selection contrast: {tab:?}/{width}/{selected}"
+                    );
+                }
+            }
             assert!(!chips.is_empty());
             for (area, _) in chips {
                 // Both the tree chip and the shared conversation chip resolve the
                 // same exact membership. The whole label, including its last cell,
                 // is actionable; neighbouring text never becomes a dropdown.
                 for column in [area.x, area.right() - 1] {
+                    // Selection invalidates the previous frame's authorities.
+                    // Repaint before the next independent edge activation.
+                    terminal
+                        .draw(|frame| {
+                            crate::board::view::prepare(&mut app, frame.area());
+                            crate::board::view::render(frame, &app);
+                        })
+                        .unwrap();
                     let Effect::Act(Request::DigestOpen(ask)) = app.mouse(
                         MouseEvent {
                             kind: MouseEventKind::Down(MouseButton::Left),

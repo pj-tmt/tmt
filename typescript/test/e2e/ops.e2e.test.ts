@@ -90,7 +90,14 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
         'Enter',
       ]);
       await fixture.waitForCapture(
-        (screen) => screen.includes('OPS / UI') && screen.includes('Common pool'),
+        (screen) =>
+          screen.includes('OPS / UI') &&
+          screen.includes('Agent') &&
+          screen.includes('TOK/h') &&
+          screen.includes('Digest') &&
+          screen.includes('Cron') &&
+          screen.includes('Ben') &&
+          screen.includes('worker'),
         shell.pane
       );
       fixture.tmux(['send-keys', '-t', shell.pane, 'n']);
@@ -121,7 +128,15 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
       fixture.tmux(['send-keys', '-l', '-t', shell.pane, 'worker']);
       fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
       await fixture.waitForCapture(
-        (screen) => screen.includes('Member (@agent') && !screen.includes('worker'),
+        (screen) =>
+          screen
+            .split('\n')
+            .some(
+              (line) =>
+                line.startsWith('Create squad · Member (@agent') &&
+                line.includes('›') &&
+                !line.includes('worker')
+            ),
         shell.pane
       );
       fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
@@ -729,6 +744,12 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
   it('closes a --popup board after its jump and keeps the pane board open', async () => {
     await withE2EFixture(async (fixture) => {
       const member = await squadWithMember(fixture);
+      const listed = expectJsonResult<{
+        identities: { name: string; pane: string | null; location?: { host: string } }[];
+      }>(await fixture.runJsonCli(['ls']));
+      const observed = listed.identities.find((row) => row.name === 'auth-fix');
+      expect(observed?.pane).toBe(member);
+      expect(observed?.location?.host).toBe('tmux');
       await fixture.attachSessionClient('e2e');
       const shell = fixture.createShellPane('board');
       fixture.tmux(['select-window', '-t', shell.pane]);

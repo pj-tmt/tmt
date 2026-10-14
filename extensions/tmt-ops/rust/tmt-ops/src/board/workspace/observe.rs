@@ -9,6 +9,14 @@ use crate::{
 use crate::{squad::Squad, tab_view::Acquired};
 use serde_json::Value;
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum BindingContext {
+    Global,
+    Host(String),
+    Section(OpsTarget),
+}
+type BindingSources = BTreeMap<String, String>;
+
 #[derive(Debug, Default)]
 pub(crate) struct OpsWorkspaceSnapshot {
     pub roster: OpsRoster,
@@ -20,6 +28,8 @@ pub(crate) struct OpsWorkspaceSnapshot {
     pub keys: BTreeMap<OpsKeyScope, Bindings>,
     pub hosts: BTreeMap<String, BTreeMap<OpsKeyScope, Bindings>>,
     pub sections: BTreeMap<OpsTarget, BTreeMap<OpsKeyScope, Bindings>>,
+    pub config_path: String,
+    pub binding_sources: BTreeMap<(OpsKeyScope, BindingContext), BindingSources>,
     pub notices: Vec<String>,
 }
 
@@ -38,9 +48,18 @@ fn member(row: &Value) -> Option<OpsMember> {
     })
 }
 
+fn pool_row(row: &Value) -> Value {
+    let mut projected = row.clone();
+    if let Some(pane) = crate::squad::observed_pane(row) {
+        projected["pane"] = pane;
+    }
+    projected
+}
+
 impl OpsWorkspaceSnapshot {
     pub(crate) fn configure(&mut self, config: &Config) -> Result<(), SquadError> {
         self.preferences = config.workspace_preferences()?;
+        self.config_path = config.path().display().to_string();
         let scopes = [
             OpsKeyScope::Overview,
             OpsKeyScope::Squad,
@@ -50,6 +69,8 @@ impl OpsWorkspaceSnapshot {
         ];
         for scope in scopes {
             let keys = config.workspace_keys(scope, None, None)?;
+            self.binding_sources
+                .insert((scope, BindingContext::Global), keys.sources);
             self.keys.insert(scope, keys.bindings);
             self.notices.extend(keys.notices);
         }
@@ -57,6 +78,8 @@ impl OpsWorkspaceSnapshot {
             let mut tables = BTreeMap::new();
             for scope in scopes {
                 let keys = config.workspace_keys(scope, Some(&host), None)?;
+                self.binding_sources
+                    .insert((scope, BindingContext::Host(host.clone())), keys.sources);
                 tables.insert(scope, keys.bindings);
                 self.notices.extend(keys.notices);
             }
@@ -75,11 +98,25 @@ impl OpsWorkspaceSnapshot {
                 {
                     continue;
                 }
-                if let Some(section) = sections.iter().find(|section| section.includes(row)) {
+                if let Some((index, section)) = sections
+                    .iter()
+                    .enumerate()
+                    .find(|(_, section)| section.includes(row))
+                {
                     let host = row["pane"]["location"]["host"].as_str();
                     let mut tables = BTreeMap::new();
                     for scope in scopes {
-                        let keys = config.workspace_keys(scope, host, Some(&section.bind))?;
+                        let mut keys = config.workspace_keys(scope, host, Some(&section.bind))?;
+                        for (key, source) in &mut keys.sources {
+                            if source == "selected squad section.bind" {
+                                *source =
+                                    format!("squad.{}.section[{index}].bind.{key}", squad.name);
+                            }
+                        }
+                        self.binding_sources.insert(
+                            (scope, BindingContext::Section(target.clone())),
+                            keys.sources,
+                        );
                         tables.insert(scope, keys.bindings);
                         self.notices.extend(keys.notices);
                     }
@@ -126,7 +163,7 @@ impl OpsWorkspaceSnapshot {
                             room_id: None,
                             identity_id: identity.id.clone(),
                         },
-                        row.clone(),
+                        pool_row(row),
                     );
                     result.roster.members.insert(identity.id.clone(), identity);
                 }
@@ -196,7 +233,13 @@ impl OpsWorkspaceSnapshot {
                             room_id: Some(squad.room_id.clone()),
                             identity_id: identity.id.clone(),
                         },
-                        row.clone(),
+                        observed_member_row(
+                            row,
+                            result.rows.get(&OpsTarget::Member {
+                                room_id: None,
+                                identity_id: identity.id.clone(),
+                            }),
+                        ),
                     );
                     // Presence belongs to the global identity observation, not
                     // the roster's unknown placeholder for that same identity.
@@ -212,5 +255,66 @@ impl OpsWorkspaceSnapshot {
             result.roster.squads.push(projected);
         }
         result
+    }
+}
+
+fn observed_member_row(row: &Value, observed: Option<&Value>) -> Value {
+    let mut projected = row.clone();
+    // HOME's roster-only acquisition does not observe panes. Reuse the same
+    // global observation as the workspace presence, retaining squad metadata.
+    projected["presence"] = observed
+        .and_then(|row| row.get("presence"))
+        .cloned()
+        .unwrap_or_else(|| Value::String("unknown".into()));
+    projected["pane"] = observed
+        .and_then(|row| row.get("pane"))
+        .cloned()
+        .unwrap_or(Value::Null);
+    projected
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn pool_uses_the_same_observed_pane_as_squad_rows_for_host_actions() {
+        let mut listed = json!({"id":"uuid", "name":"worker", "presence":"active",
+            "pane":"%7", "target":"work:2.1", "cwd":"/work",
+            "location":{"host":"tmux", "session":"work", "window":"2"}});
+        let row = pool_row(&listed);
+        assert_eq!(row["pane"]["id"], "%7");
+        assert_eq!(row["pane"]["location"], listed["location"]);
+        assert_eq!(
+            crate::board::overview::actions::host(&row, true),
+            Ok("uuid")
+        );
+        listed["location"]["host"] = json!("herdr");
+        assert!(crate::board::overview::actions::host(&pool_row(&listed), true).is_err());
+        listed.as_object_mut().unwrap().remove("location");
+        assert!(pool_row(&listed)["pane"].get("location").is_none());
+        assert!(crate::board::overview::actions::host(&pool_row(&listed), true).is_err());
+        listed["pane"] = Value::Null;
+        assert!(pool_row(&listed)["pane"].is_null());
+    }
+
+    #[test]
+    fn squad_actions_reuse_global_presence_without_replacing_squad_state() {
+        let roster = json!({"id":"uuid", "state":"blocked", "presence":"unknown",
+            "pane":null, "fields":{"task":"keep squad task"}});
+        let observed = pool_row(&json!({"id":"uuid", "presence":"active", "pane":"%7",
+            "location":{"host":"tmux"}, "state":"working"}));
+        let row = observed_member_row(&roster, Some(&observed));
+        assert_eq!(
+            crate::board::overview::actions::host(&row, true),
+            Ok("uuid")
+        );
+        assert_eq!(row["state"], "blocked");
+        assert_eq!(row["fields"], roster["fields"]);
+        let absent = observed_member_row(&row, None);
+        assert_eq!(absent["presence"], "unknown");
+        assert!(absent["pane"].is_null());
+        assert!(crate::board::overview::actions::host(&absent, true).is_err());
     }
 }

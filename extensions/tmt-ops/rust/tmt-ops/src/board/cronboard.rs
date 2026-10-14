@@ -10,6 +10,7 @@ mod line;
 mod list;
 mod load;
 mod place;
+pub(in crate::board) mod preview;
 mod rows;
 mod surface;
 
@@ -49,17 +50,36 @@ pub struct State {
     pub failure: Option<String>,
     /// Successful reads so far; the first one may precede the board's own clock.
     pub reads: u32,
+    /// Derived once per admitted snapshot; shared surfaces do not recount on paint.
+    pub counts: super::overview::cron_counts::Summary,
 }
 
 impl State {
     pub fn replace(&mut self, read: Result<Cron, String>) {
         match read {
             Ok(cron) => {
+                let ids: Vec<_> = cron.jobs.iter().map(|view| view.job.id()).collect();
+                let jobs: Vec<_> = cron
+                    .jobs
+                    .iter()
+                    .zip(&ids)
+                    .map(|(view, id)| super::overview::cron_counts::Job {
+                        room: &view.job.room_id,
+                        id,
+                        owner: view.job.owner_id.as_deref(),
+                        on: view.job.state() == "on",
+                        owner_valid: !view.owner_missing,
+                    })
+                    .collect();
+                self.counts = super::overview::cron_counts::Summary::of(Some(&jobs));
                 self.cron = Some(cron);
                 self.failure = None;
                 self.reads = self.reads.saturating_add(1);
             }
-            Err(message) => self.failure = Some(message),
+            Err(message) => {
+                self.counts = super::overview::cron_counts::Summary::default();
+                self.failure = Some(message);
+            }
         }
     }
 }
@@ -85,5 +105,50 @@ impl State {
     /// The instant the shown text is relative to.
     pub fn now_ms(&self) -> i64 {
         self.cron.as_ref().map_or(0, |cron| cron.read_ms)
+    }
+}
+
+#[cfg(test)]
+mod count_tests {
+    use super::*;
+    use crate::board::overview::cron_counts::{Count, CronCountScope};
+
+    #[test]
+    fn acquired_counts_ignore_clock_and_refuse_stale_refresh_as_zero() {
+        let mut jobs = test_views(3, "squad", "room");
+        jobs[1].owner_missing = true;
+        jobs[2].job.owner_id = None;
+        jobs[2].owner_missing = true;
+        let mut state = State::default();
+        assert_eq!(state.counts.count(CronCountScope::Room("room")), None);
+        state.replace(Ok(test_cron(jobs, ClockStatus::NoClock)));
+        assert_eq!(
+            state.counts.count(CronCountScope::Room("room")),
+            Some(Count {
+                active: 1,
+                total: 3
+            })
+        );
+        assert_eq!(
+            state.counts.count(CronCountScope::Owner {
+                id: "owner-id",
+                room: None
+            }),
+            Some(Count {
+                active: 1,
+                total: 2
+            })
+        );
+        state.replace(Err("read unavailable".into()));
+        assert_eq!(state.counts.count(CronCountScope::Room("room")), None);
+        assert_eq!(state.cron.as_ref().unwrap().jobs.len(), 3);
+        state.replace(Ok(test_cron(vec![], ClockStatus::NoClock)));
+        assert_eq!(
+            state.counts.count(CronCountScope::Room("room")),
+            Some(Count {
+                active: 0,
+                total: 0
+            })
+        );
     }
 }

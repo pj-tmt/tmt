@@ -66,4 +66,10 @@ pub(super) fn render(frame: &mut Frame, app: &App, body: Rect, look: crate::look
         crate::board::settings::render(frame, overlay, look, body);
     }
     crate::board::row_detail::render_reader(frame, app, body);
+    if let Some(details) = &app.monitor_details {
+        details.render(frame, app, body);
+    }
+    if let Some(review) = &app.cron_review {
+        review.render(frame, app, body);
+    }
 }

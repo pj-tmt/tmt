@@ -401,6 +401,6 @@ impl App {
             },
             (_, None) => return self.say("The job is no longer selected; nothing written."),
         };
-        Effect::Act(Request::Cron(request))
+        self.cron_review_request(request)
     }
 }

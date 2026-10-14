@@ -7,6 +7,16 @@ use ratatui::{
 };
 use tmt_ops::cron::ClockStatus;
 
+fn acquired_state(cron: crate::board::cronboard::Cron, failure: Option<String>) -> State {
+    let mut state = State::default();
+    state.replace(Ok(cron));
+    if let Some(failure) = failure {
+        state.replace(Err(failure));
+    }
+    state.reads = 2;
+    state
+}
+
 fn jobs() -> State {
     let mut a = view("tmt-lead", "merge queue sweep", Some(NOW + 3_600_000));
     a.job.room_id = "room-a".into();
@@ -14,11 +24,7 @@ fn jobs() -> State {
     let mut b = view("tmt-ops", "worktree cleanup", None);
     b.job.room_id = "room-b".into();
     b.job.squad = "beta".into();
-    State {
-        cron: Some(cron(vec![a, b], ClockStatus::NoClock)),
-        failure: None,
-        reads: 2,
-    }
+    acquired_state(cron(vec![a, b], ClockStatus::NoClock), None)
 }
 
 fn paint(list: &List, state: &State, width: u16, height: u16) -> Vec<String> {
@@ -154,11 +160,10 @@ fn enter_opens_the_selected_job_and_a_stale_frame_never_activates_a_click() {
 
 #[test]
 fn an_empty_or_failed_read_says_so() {
-    let empty = State {
-        cron: Some(cron(vec![], ClockStatus::Unknown)),
-        failure: Some("storage unreachable".into()),
-        reads: 2,
-    };
+    let empty = acquired_state(
+        cron(vec![], ClockStatus::Unknown),
+        Some("storage unreachable".into()),
+    );
     let list = List::open_scoped(&empty, None, None);
     let text = paint(&list, &empty, 120, 8).join("\n");
     assert!(text.contains("(no jobs · n new)"), "{text}");
@@ -178,11 +183,10 @@ fn snapshots() -> serde_json::Value {
         ("two squads", jobs()),
         (
             "empty",
-            State {
-                cron: Some(cron(vec![], ClockStatus::Unknown)),
-                failure: Some("storage unreachable".into()),
-                reads: 2,
-            },
+            acquired_state(
+                cron(vec![], ClockStatus::Unknown),
+                Some("storage unreachable".into()),
+            ),
         ),
     ] {
         for width in [160u16, 100, 80] {
@@ -220,11 +224,10 @@ fn record_list_snapshots() {
 /// selected job stays painted (the list scrolls when the body is short).
 #[test]
 fn up_and_down_move_one_job_per_press_and_keep_the_selection_visible() {
-    let state = State {
-        cron: Some(cron(views(8, "alpha", "room-a"), ClockStatus::NoClock)),
-        failure: None,
-        reads: 2,
-    };
+    let state = acquired_state(
+        cron(views(8, "alpha", "room-a"), ClockStatus::NoClock),
+        None,
+    );
     let order: Vec<String> = state
         .cron
         .iter()
@@ -389,11 +392,7 @@ fn dump_list_snapshots() {
 
 #[test]
 fn scoped_title_is_inert_text_and_never_broadens_an_empty_room() {
-    let state = State {
-        cron: Some(cron(vec![], ClockStatus::Unknown)),
-        failure: None,
-        reads: 2,
-    };
+    let state = acquired_state(cron(vec![], ClockStatus::Unknown), None);
     let list = List::open_scoped(&state, Some("room-a".into()), None);
     let mut terminal = Terminal::new(TestBackend::new(100, 10)).unwrap();
     terminal

@@ -73,14 +73,32 @@ pub fn default_link(row: &Value) -> Option<&str> {
         })
 }
 
-pub fn open(link: &str, opener: Option<&[String]>) -> Result<(), String> {
-    let link = web_link(link)?;
-    let mut argv: Vec<String> = match opener {
+/// Resolve exactly the chosen field/template. An invalid first choice never
+/// substitutes another record field, and previews use the same resolver.
+pub fn resolve_open(action: &crate::action::Action, row: &Value) -> Result<String, String> {
+    let link = match action.args.first() {
+        Some(template) => template.fill(row)?,
+        None => default_link(row)
+            .ok_or("This row has no link field.")?
+            .to_owned(),
+    };
+    web_link(&link)?;
+    Ok(link)
+}
+
+pub fn open_argv(link: &str, opener: Option<&[String]>) -> Vec<String> {
+    let mut argv = match opener {
         Some(opener) => opener.to_vec(),
         None if cfg!(target_os = "macos") => vec!["open".into()],
         None => vec!["xdg-open".into()],
     };
     argv.push(link.to_owned());
+    argv
+}
+
+pub fn open(link: &str, opener: Option<&[String]>) -> Result<(), String> {
+    let link = web_link(link)?;
+    let argv = open_argv(link, opener);
     spawn(&argv)
 }
 

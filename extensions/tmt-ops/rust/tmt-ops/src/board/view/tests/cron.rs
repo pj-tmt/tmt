@@ -1,6 +1,7 @@
 //! Current workspace Timers: scoped controls, exact forms, clock and navigation.
 use super::*;
 use crate::action::Action;
+use crate::board::app::Request;
 use crate::board::cronboard::{TEST_NOW, test_cron, test_view, test_views};
 use crate::board::{
     app::workspace::tests::{MEMBER, ROOM},
@@ -164,6 +165,20 @@ fn timers_cannot_open_a_reused_name_when_the_observed_room_is_removed() {
 
 fn press(app: &mut App, code: KeyCode) -> Effect {
     app.key(KeyEvent::new(code, KeyModifiers::NONE))
+}
+
+fn reviewed_submission(app: &mut App) -> Effect {
+    let effect = press(app, KeyCode::Enter);
+    let Effect::Act(Request::CronPreview(task)) = effect else {
+        panic!("schedule must be previewed before any write: {effect:?}");
+    };
+    let (task, result) = crate::board::cronboard::preview::run(*task, TEST_NOW);
+    assert!(result.is_ok(), "{result:?}");
+    app.cron_review_ready(task, result);
+    draw(app, 100, 24);
+    press(app, KeyCode::Tab);
+    press(app, KeyCode::Tab);
+    press(app, KeyCode::Enter)
 }
 
 fn running_in(pane: &str) -> ClockStatus {
@@ -337,7 +352,7 @@ mod controls {
             press(&mut app, KeyCode::Backspace);
         }
         typed(&mut app, "daily 09:00");
-        let Effect::Act(Request::Cron(request)) = press(&mut app, KeyCode::Enter) else {
+        let Effect::Act(Request::Cron(request)) = reviewed_submission(&mut app) else {
             panic!("a changed schedule is submitted");
         };
         assert_eq!(
@@ -394,7 +409,7 @@ mod controls {
         typed(&mut app, "  spaced  ");
         press(&mut app, KeyCode::Enter);
         typed(&mut app, "  weekdays 09:00  ");
-        let Effect::Act(Request::Cron(request)) = press(&mut app, KeyCode::Enter) else {
+        let Effect::Act(Request::Cron(request)) = reviewed_submission(&mut app) else {
             panic!("a complete form is submitted");
         };
         let CronRequest::Add {
@@ -422,7 +437,7 @@ mod controls {
         }
         typed(&mut app, "carol");
         assert_eq!(
-            press(&mut app, KeyCode::Enter),
+            reviewed_submission(&mut app),
             existing(
                 &key,
                 Op::Reassign {
@@ -453,7 +468,7 @@ mod controls {
             message,
             schedule,
             ..
-        })) = press(&mut app, KeyCode::Enter)
+        })) = reviewed_submission(&mut app)
         else {
             panic!("a complete new job");
         };
@@ -550,6 +565,8 @@ fn many_jobs(count: usize) -> App {
     app.cron
         .replace(Ok(test_cron(jobs.clone(), ClockStatus::NoClock)));
     app.cron.replace(Ok(test_cron(jobs, ClockStatus::NoClock)));
+    app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
+    app.workspace_reconcile();
     app
 }
 

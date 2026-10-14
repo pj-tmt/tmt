@@ -34,6 +34,11 @@ impl App {
         if let Some(rows) = self.frame_workspace_rows.borrow().as_ref() {
             return Rc::clone(rows);
         }
+        if self.shell.tab == OpsTab::Overview
+            && let Some(snapshot) = self.workspace_snapshot()
+        {
+            return crate::board::overview::monitor::rows(self, snapshot);
+        }
         self.workspace_snapshot()
             .map(|snapshot| {
                 if self.shell.tab == OpsTab::Digest {
@@ -166,6 +171,42 @@ impl App {
         }
         keys
     }
+    pub(in crate::board) fn workspace_binding_sources(
+        &self,
+    ) -> Option<&std::collections::BTreeMap<String, String>> {
+        let snapshot = self.workspace_snapshot()?;
+        let scope = self.workspace_scope();
+        let section = self.workspace.selected.as_ref().filter(|target| {
+            snapshot
+                .sections
+                .get(*target)
+                .is_some_and(|tables| tables.contains_key(&scope))
+        });
+        let host = self
+            .selected_row()
+            .and_then(|row| row["pane"]["location"]["host"].as_str())
+            .filter(|host| {
+                snapshot
+                    .hosts
+                    .get(*host)
+                    .is_some_and(|tables| tables.contains_key(&scope))
+            });
+        let key = if let Some(target) = section {
+            (
+                scope,
+                crate::board::workspace::observe::BindingContext::Section(target.clone()),
+            )
+        } else {
+            (
+                scope,
+                host.map_or(
+                    crate::board::workspace::observe::BindingContext::Global,
+                    |host| crate::board::workspace::observe::BindingContext::Host(host.to_owned()),
+                ),
+            )
+        };
+        snapshot.binding_sources.get(&key)
+    }
     fn workspace_effective_bindings(&self) -> Bindings {
         let Some(snapshot) = self.workspace_snapshot() else {
             return crate::config::workspace_defaults(self.workspace_scope());
@@ -208,6 +249,18 @@ impl App {
             }
         }
         let rows = self.workspace_rows();
+        if self.shell.tab == OpsTab::Overview
+            && let Some(OpsTarget::Member { identity_id, .. }) = self.workspace.selected.as_ref()
+            && self.workspace_snapshot().is_some_and(|snapshot|
+                self.workspace.selected.as_ref().is_some_and(|target| snapshot.roster.contains(target)))
+            && let Some(row) = rows.iter().find(|row|
+                matches!(&row.target, OpsTarget::Member { identity_id: id, .. } if id == identity_id))
+        {
+            // Overview has one stable occurrence per identity. Entering it from
+            // another visible membership keeps the UUID; vanished targets stay
+            // missing and never acquire a replacement membership automatically.
+            self.workspace.selected = Some(row.target.clone());
+        }
         if self.shell.tab == OpsTab::Digest
             && self
                 .workspace
@@ -238,6 +291,7 @@ impl App {
         self.workspace.selected = Some(row.target.clone());
         self.workspace_reconcile();
         self.follow = true;
+        self.invalidate_frame_geometry();
     }
     fn workspace_save(&mut self, next: OpsPreferences) -> Effect {
         let Some(snapshot) = self.workspace_snapshot() else {
@@ -247,6 +301,48 @@ impl App {
             expected: snapshot.preferences.clone(),
             next,
         })
+    }
+    pub(in crate::board) fn workspace_owner_timers(
+        &mut self,
+        room: Option<String>,
+        owner: Option<String>,
+    ) -> Effect {
+        if !self.cron_shown() {
+            return self.say("Timers have not been read yet.");
+        }
+        let Some(snapshot) = self.workspace_snapshot() else {
+            return Effect::None;
+        };
+        if room
+            .as_ref()
+            .is_some_and(|id| !snapshot.roster.squads.iter().any(|s| &s.room_id == id))
+            || owner
+                .as_ref()
+                .is_some_and(|id| !snapshot.roster.members.contains_key(id))
+        {
+            return self.say("The timer scope is no longer available; select it again.");
+        }
+        self.cron_list = Some(super::super::cronboard::List::open_owner(
+            &self.cron, room, owner, None,
+        ));
+        Effect::None
+    }
+    pub(in crate::board) fn overview_sort_column(
+        &mut self,
+        column: crate::config::OverviewColumn,
+    ) -> Effect {
+        let Some(snapshot) = self.workspace_snapshot() else {
+            return Effect::None;
+        };
+        if self.shell.tab != OpsTab::Overview {
+            return Effect::None;
+        }
+        let mut next = snapshot.preferences.clone();
+        next.overview_sort = Some(match next.overview_sort {
+            Some(order) if order.column == column => order.reverse(),
+            _ => crate::config::OverviewSort::initial(column),
+        });
+        self.workspace_save(next)
     }
     pub(super) fn workspace_action(&mut self, action: OpsUiAction) -> Effect {
         use OpsUiAction::*;
@@ -269,6 +365,7 @@ impl App {
                     return Effect::None;
                 }
                 self.usage_chart.get_mut().release_focus();
+                self.conversation_return = None;
                 self.workspace_reconcile();
                 self.focus = 0;
                 self.invalidate_frame_geometry();
@@ -295,6 +392,7 @@ impl App {
             return self.say("Loading the workspace…");
         }
         match action {
+            MonitorDetails => return self.overview_details(),
             WorkspaceSnapshots => return self.open_recovery(),
             DiscoverAgents => return self.open_discovery(),
             Previous => self.workspace_select(self.selected.saturating_sub(1)),
@@ -314,6 +412,16 @@ impl App {
                     if action == Inspect {
                         if self.shell.tab != OpsTab::Digest {
                             self.shell.tab = OpsTab::Agents;
+                            if let OpsTarget::Member {
+                                room_id: Some(room),
+                                ..
+                            } = &target
+                            {
+                                self.workspace.expanded.insert(room.clone());
+                            } else {
+                                self.workspace.pool_expanded = true;
+                            }
+                            self.workspace_reconcile();
                         }
                         self.focus = 1;
                     }
@@ -338,6 +446,27 @@ impl App {
                 };
                 let mut next = snapshot.preferences.clone();
                 match action {
+                    Sort if self.shell.tab == OpsTab::Overview => {
+                        next.overview_sort = Some(next.overview_sort.map_or_else(
+                            || {
+                                crate::config::OverviewSort::initial(
+                                    crate::config::OverviewColumn::Agent,
+                                )
+                            },
+                            |order| order.next(),
+                        ))
+                    }
+                    ReverseSort if self.shell.tab == OpsTab::Overview => {
+                        next.overview_sort = Some(
+                            next.overview_sort
+                                .unwrap_or_else(|| {
+                                    crate::config::OverviewSort::initial(
+                                        crate::config::OverviewColumn::Agent,
+                                    )
+                                })
+                                .reverse(),
+                        )
+                    }
                     Sort => next.sort = next.sort.next(),
                     ReverseSort => next.reversed = !next.reversed,
                     _ if !self.workspace_selection_visible()
@@ -353,30 +482,22 @@ impl App {
                 if !self.workspace_selection_visible() {
                     return self.say("Select a visible timer scope explicitly.");
                 }
-                let scope = self
-                    .workspace
-                    .selected
-                    .as_ref()
-                    .and_then(|target| match target {
-                        OpsTarget::Squad(id)
-                        | OpsTarget::Member {
-                            room_id: Some(id), ..
-                        } => self
-                            .workspace_snapshot()?
-                            .roster
-                            .squads
-                            .iter()
-                            .find(|squad| squad.room_id == *id)
-                            .map(|squad| squad.room_id.clone()),
-                        _ => None,
-                    });
-                if !self.cron_shown() {
-                    return self.say("Timers have not been read yet.");
-                }
-                self.cron_list = Some(super::super::cronboard::List::open_scoped(
-                    &self.cron, scope, None,
-                ));
-                return Effect::None;
+                let (room, owner) = match self.workspace.selected.as_ref() {
+                    Some(OpsTarget::Squad(room)) => (Some(room.clone()), None),
+                    Some(OpsTarget::Member {
+                        room_id,
+                        identity_id,
+                    }) => (
+                        if self.shell.tab == OpsTab::Overview {
+                            None
+                        } else {
+                            room_id.clone()
+                        },
+                        Some(identity_id.clone()),
+                    ),
+                    _ => (None, None),
+                };
+                return self.workspace_owner_timers(room, owner);
             }
             RenameMember => return self.workspace_begin(Kind::RenameMember),
             Manage | CreateSquad | RemoveMembership | MoveMembership => {
@@ -423,6 +544,11 @@ impl App {
         if self.focused_pane() == Some(Pane::Replies) {
             if key.code == KeyCode::Esc {
                 self.focus = 0;
+                if let Some(tab) = self.conversation_return.take() {
+                    self.shell.tab = tab;
+                    self.workspace_reconcile();
+                }
+                self.invalidate_frame_geometry();
                 return Effect::None;
             }
             if matches!(key.code, KeyCode::Char('1' | '2' | '3')) {

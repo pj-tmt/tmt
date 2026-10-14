@@ -4969,7 +4969,15 @@ describe('verified former-board switching', () => {
             );
             expect(tmux(['display-message', '-p', '-t', board.pane, '#{pane_dead}'])).toBe('0');
             await vi.waitFor(
-              () => expect(tmux(['capture-pane', '-p', '-t', board.pane])).toContain('product · 1'),
+              () => {
+                const screen = tmux(['capture-pane', '-p', '-t', board.pane]);
+                expect(screen).toMatch(
+                  /^Agent[ \t]+Squad[ \t]+State[ \t]+TOK\/h[ \t]+Digest[ \t]+Cron[ \t]+Runtime[ \t]+Model[ \t]*$/m
+                );
+                expect(screen).toMatch(
+                  /^Ben[ \t]+product[ \t]+—[ \t]+—[ \t]+—[ \t]+◷ 0\/0[ \t]+—[ \t]+—[ \t]*$/m
+                );
+              },
               { timeout: 5000, interval: 50 }
             );
             expect(tmux(['capture-pane', '-p', '-t', board.pane])).not.toContain(

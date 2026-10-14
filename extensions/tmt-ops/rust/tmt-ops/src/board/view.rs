@@ -104,6 +104,8 @@ pub(in crate::board) fn render_frame(
     app.frame_clocks.borrow_mut().clear();
     app.chip_hits.borrow_mut().clear();
     app.workspace_action_hits.borrow_mut().clear();
+    app.overview_sort_hits.borrow_mut().clear();
+    app.cron_scope_hits.borrow_mut().clear();
     app.row_starts.borrow_mut().clear();
     app.tab_hits.borrow_mut().clear();
     app.scrolls.begin_frame();

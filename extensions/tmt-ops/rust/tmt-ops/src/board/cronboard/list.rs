@@ -35,15 +35,17 @@ type Shape = (Columns, u16, u16, String);
 
 pub(in crate::board) struct List {
     pub scope: Option<String>,
+    pub owner: Option<String>,
     surface: RefCell<picker_surface::State>,
     template: RefCell<Option<(Shape, Template<()>)>>,
 }
 
-fn list_rows(state: &State, scope: Option<&str>) -> Vec<ListRow> {
+fn list_rows(state: &State, scope: Option<&str>, owner: Option<&str>) -> Vec<ListRow> {
     state
         .cron
         .iter()
         .flat_map(|cron| cron.jobs_in(scope))
+        .filter(|job| owner.is_none_or(|id| job.job.owner_id.as_deref() == Some(id)))
         .map(|view| ListRow {
             id: row_id(&key_of(view)),
             disabled: false,
@@ -52,14 +54,25 @@ fn list_rows(state: &State, scope: Option<&str>) -> Vec<ListRow> {
 }
 
 impl List {
+    #[cfg(test)]
     pub fn open_scoped(state: &State, scope: Option<String>, selected: Option<&str>) -> Self {
+        Self::open_owner(state, scope, None, selected)
+    }
+
+    pub fn open_owner(
+        state: &State,
+        scope: Option<String>,
+        owner: Option<String>,
+        selected: Option<&str>,
+    ) -> Self {
         Self {
             surface: RefCell::new(picker_surface::State::new(
                 None,
-                list_rows(state, scope.as_deref()),
+                list_rows(state, scope.as_deref(), owner.as_deref()),
                 selected,
             )),
             scope,
+            owner,
             template: RefCell::default(),
         }
     }
@@ -103,6 +116,11 @@ impl List {
             .cron
             .iter()
             .flat_map(|cron| cron.jobs_in(self.scope.as_deref()))
+            .filter(|job| {
+                self.owner
+                    .as_deref()
+                    .is_none_or(|id| job.job.owner_id.as_deref() == Some(id))
+            })
             .collect();
         // Content height: border 2, one line per job (one for the
         // empty note), position, status and footer lines; the modal caps it.
@@ -139,6 +157,21 @@ impl List {
                     .unwrap_or_else(|| format!("room {room}"))
             ),
         };
+        let title = if let Some(owner) = &self.owner {
+            let name = state
+                .cron
+                .as_ref()
+                .and_then(|cron| {
+                    cron.jobs
+                        .iter()
+                        .find(|job| job.job.owner_id.as_ref() == Some(owner))
+                })
+                .and_then(|job| job.owner_name.as_deref())
+                .unwrap_or(owner);
+            format!("{title} · owner {}", crate::board::notes::sanitize(name))
+        } else {
+            title
+        };
         let shape = (columns, width, height, title.clone());
         let template_key = format!("{shape:?}");
         let mut template = self.template.borrow_mut();
@@ -159,7 +192,11 @@ impl List {
         // Reconcile before projecting the cursor, including when refresh removes
         // the selected job. The list remains the sole selection owner.
         let mut surface = self.surface.borrow_mut();
-        surface.reconcile(list_rows(state, self.scope.as_deref()));
+        surface.reconcile(list_rows(
+            state,
+            self.scope.as_deref(),
+            self.owner.as_deref(),
+        ));
         let selected = surface.picker.list.selected().map(str::to_owned);
         let rows = project(
             &jobs,

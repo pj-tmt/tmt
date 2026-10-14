@@ -250,15 +250,22 @@ pub fn join_presence(members: &mut [Member], listed: &Value) {
         if let Some(state) = seen["presence"].as_str() {
             member.presence = state.into();
         }
-        if seen["pane"].is_string() {
-            member.pane =
-                json!({"id": seen["pane"], "target": seen.get("target"), "cwd": seen.get("cwd")});
-            // Core's own coordinates for the pane; absent when it published none.
-            if let Some(location) = seen.get("location") {
-                member.pane["location"] = location.clone();
-            }
+        if let Some(pane) = observed_pane(seen) {
+            member.pane = pane;
         }
     }
+}
+
+/// Normalize the existing Core list observation for Ops' pane-shaped consumers.
+/// No coordinates are inferred when Core omitted them.
+pub(crate) fn observed_pane(seen: &Value) -> Option<Value> {
+    seen["pane"].as_str()?;
+    let mut pane =
+        json!({"id": seen["pane"], "target": seen.get("target"), "cwd": seen.get("cwd")});
+    if let Some(location) = seen.get("location") {
+        pane["location"] = location.clone();
+    }
+    Some(pane)
 }
 
 #[derive(Debug, Clone)]

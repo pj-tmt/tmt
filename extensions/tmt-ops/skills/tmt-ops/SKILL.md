@@ -212,7 +212,15 @@ squad workspace and the selected agent's conversation. Digest keeps the same
 identity context and existing Core-owned policy controls. A squad's theme applies
 to Agents/Digest; Overview uses the shared board theme.
 
-The dense tree keeps Common pool first, then pinned squads and the selected sort
+Overview is a one-row-per-identity monitor: Agent, Squad, State, TOK/h, Digest,
+Cron, Runtime and Model fit the available width. `e` opens full observed values,
+link/binding scopes, sources and management instructions. Click a column heading
+to toggle its order; `s` cycles columns and `S` reverses. TOK/h and Cron start
+descending; other columns ascend. Unknown values stay last in either direction,
+UUID breaks ties, and the initial order puts blocked then waiting first. This
+saved monitor order is independent of the Agents tree order.
+
+The Agents tree keeps Common pool first, then pinned squads and its selected sort
 order. Expand a squad to see its members; the lead is marked and included once in
 its count. A collapsed squad retains its worst observed member state. An identity
 in several squads keeps each squad's state and one conversation/draft by UUID.
@@ -229,7 +237,10 @@ the selected visible agent by UUID; compatible explicit bindings keep their mean
 In the Agents tree, `w` opens saved workspace snapshots;
 compatible explicit `w` bindings retain their configured meaning. Snapshots are
 not offered in Overview, Digest or conversation focus.
-`j` jumps to the selected agent's host when available; it is not tree navigation.
+`j` jumps through the observed tmux binding only from a tmux invoker; Herdr
+focus is unavailable. Standalone `j` opens the shared conversation and Esc returns.
+The header names the target and effective action; custom bindings retain their
+actual argv. `j` is not tree navigation.
 
 `ctrl-r` refreshes without discarding entered text. `/` searches. `?` help and the
 footer use the same effective binding table as dispatch: defaults, global `[bind]`,
@@ -453,9 +464,12 @@ ordinary deliveries; owner and urgent messages can still interrupt.
 ## Cron on the board
 
 `c` or the selected squad's Timers control opens the shared job list, scoped by
-room UUID. Its title names that exact squad even when empty; an unavailable room
-is labelled by UUID rather than as all squads. A selected member prefills its
-owner when creating a job. Overview and
+room UUID. Member counts show active/total jobs: Overview uses that owner across
+rooms, Agents uses the current room, and squad counts include orphan jobs. Counts
+remain unknown after a failed read. Clicking a complete count freezes its room
+and owner UUIDs; the list filters to that exact scope. Its title names the scope
+even when empty; a removed room is not treated as all rooms. A selected member
+prefills its owner when creating a job. Overview and
 Common pool do not invent a room; choose a real squad for a new job. Read failures
 retain prior jobs and their reason. `no clock` means due slots are not sent;
 `clock: checking…` is the first read. A running clock shows its holder's
@@ -464,8 +478,12 @@ retain prior jobs and their reason. `no clock` means due slots are not sent;
 The focused list owns Enter (open the job's squad), `n` new, `e` expand/collapse, `E` edit, `p`
 pause/resume, `x` send now, `o` reassign and `d` delete after confirmation. The
 workspace entry follows explicit bindings; the modal owns its scoped keys.
-Forms retain exact owner/message/schedule;
-Esc cancels. Multiline messages use the shared editor; oversized stored messages
+Forms retain exact owner/message/schedule; Esc cancels. Before create, changed
+schedule or reassignment applies, Review shows the frozen operation, up to three
+next occurrences and scheduled invocations in the next 24h. Tab reaches reading,
+Cancel and Apply; a pending or failed preview cannot apply. Dense schedules say
+at least 4096 (preview capped). This is not tokens or dollars, and depends on the
+owner and clock. Apply rechecks the original actor, room and revision. Multiline messages use the shared editor; oversized stored messages
 remain intact when editing only owner or schedule.
 
 Changes use the same permission/revision checks as the CLI: only the recorded

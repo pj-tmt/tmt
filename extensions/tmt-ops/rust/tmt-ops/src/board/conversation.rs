@@ -247,31 +247,43 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
     };
     // Effective bindings depend on logical conversation placement. Acquire them
     // before mutably borrowing the response sessions that own that placement.
-    let link = crate::effects::default_link(row)
-        .filter(|url| !url.is_empty())
-        .map(|url| {
-            let bindings = app.bindings();
-            let hint = bindings
-                .get("o")
-                .map(|action| {
-                    let action =
-                        if action.verb == crate::action::Verb::Open && action.args.is_empty() {
-                            "open $link".to_owned()
-                        } else {
-                            sanitize(&action.text)
-                        };
-                    format!(" (press o - {action})")
-                })
-                .unwrap_or_default();
+    let bindings = app.bindings();
+    let activation = bindings.get("o").map(|action| ("o", action)).or_else(|| {
+        bindings
+            .iter()
+            .find(|(_, action)| action.verb == crate::action::Verb::Open)
+            .map(|(key, action)| (key.as_str(), action))
+    });
+    let link = activation
+        .filter(|(_, action)| {
+            action.verb != crate::action::Verb::Open
+                || !action.args.is_empty()
+                || crate::effects::default_link(row).is_some()
+        })
+        .map(|(key, action)| {
+            let preview = if action.verb == crate::action::Verb::Open {
+                crate::effects::resolve_open(action, row)
+            } else {
+                super::overview::actions::link_preview(
+                    action,
+                    row,
+                    app.view.as_ref().and_then(|view| view.opener.as_deref()),
+                )
+            }
+            .unwrap_or_else(|error| format!("Unavailable: {error}"));
+            let wording = if action.verb == crate::action::Verb::Open && action.args.is_empty() {
+                "open $link"
+            } else {
+                &action.text
+            };
+            let hint = format!(" (press {key} - {})", sanitize(wording));
             let hint = super::view::fit(&hint, hint.width().min(usize::from(area.width)));
-            let url = sanitize(url);
-            let url = super::view::fit(
-                &url,
-                url.width()
-                    .min(usize::from(area.width).saturating_sub(hint.width())),
+            let text = super::view::fit(
+                &sanitize(&preview),
+                usize::from(area.width).saturating_sub(hint.width()),
             );
             Line::from(vec![
-                Span::styled(url, look.role(Role::Link)),
+                Span::styled(text, look.role(Role::Link)),
                 Span::styled(hint, look.role(Role::Dim)),
             ])
         });
@@ -289,26 +301,20 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
         .and_then(|agent| agent.model.as_deref())
         .or_else(|| row["fields"]["model"].as_str())
         .unwrap_or("–");
-    let timers = app.cron.cron.as_ref().map_or_else(
-        || "timers –".to_owned(),
-        |cron| {
-            let (active, total) = cron
-                .jobs
-                .iter()
-                .filter(|job| job.job.owner_id.as_deref() == row["id"].as_str())
-                .fold((0, 0), |(active, total), job| {
-                    (active + usize::from(job.job.pause.is_none()), total + 1)
-                });
-            format!(
-                "timers {active}/{total}{}",
-                if app.cron.failure.is_some() {
-                    " stale"
-                } else {
-                    ""
-                }
-            )
+    let room = match &target {
+        RowTarget::Workspace(super::workspace::OpsTarget::Member { room_id, .. })
+            if app.shell.tab != super::shell::OpsTab::Overview =>
+        {
+            room_id.as_deref()
+        }
+        _ => None,
+    };
+    let timers = app.cron_glyphs.label(app.cron.counts.count(
+        super::overview::cron_counts::CronCountScope::Owner {
+            id: row["id"].as_str().unwrap(),
+            room,
         },
-    );
+    ));
     let timer_text = format!(" · {timers}");
     let runtime_width = usize::from(area.width).saturating_sub(timer_text.width());
     let runtime_text = super::view::fit(
@@ -330,8 +336,8 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
             look.role(Role::Muted),
         ),
         Line::from(vec![
-            Span::styled(runtime_text, look.role(Role::Accent)),
-            Span::styled(timer_text, look.role(Role::Muted)),
+            Span::styled(runtime_text.clone(), look.role(Role::Accent)),
+            Span::styled(timer_text.clone(), look.role(Role::Muted)),
         ]),
     ];
     if !chips.is_empty() {
@@ -342,6 +348,17 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 .collect::<Vec<_>>(),
         ));
     }
+    let host_action = bindings.get("j").map(|action| ("j", action)).or_else(|| {
+        bindings
+            .iter()
+            .find(|(_, action)| action.verb == crate::action::Verb::Jump)
+            .map(|(key, action)| (key.as_str(), action))
+    });
+    let host = super::overview::actions::host_preview(row, app.invoker_tmux, host_action);
+    header.push(Line::styled(
+        super::view::fit(&sanitize(&host), usize::from(area.width)),
+        look.role(Role::Muted),
+    ));
     if let Some(link) = link {
         header.push(link);
     }
@@ -404,6 +421,23 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 }
                 x += width;
             }
+        }
+        if index == 2
+            && runtime_text.width() + timer_text.width() <= usize::from(area.width)
+            && let RowTarget::Workspace(target) = &target
+            && let super::workspace::OpsTarget::Member { identity_id, .. } = target
+        {
+            app.cron_scope_hits.borrow_mut().push(super::app::TimerHit {
+                area: Rect::new(
+                    area.right() - timers.width() as u16,
+                    area.y + index as u16,
+                    timers.width() as u16,
+                    1,
+                ),
+                target: target.clone(),
+                room: room.map(str::to_owned),
+                owner: Some(identity_id.clone()),
+            });
         }
         strip::paint_left(
             frame.buffer_mut(),
