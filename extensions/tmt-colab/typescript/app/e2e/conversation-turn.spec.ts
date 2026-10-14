@@ -91,7 +91,7 @@ async function flat(message: Locator) {
   await expect(message).toHaveCSS('border-bottom-width', '0px');
   if (chat || !agent) await expect(message).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
   else await expect(message).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
-  await expect(message).toHaveCSS('padding-top', chat ? '10px' : agent ? '16px' : '0px');
+  await expect(message).toHaveCSS('padding-top', chat || agent ? '8px' : '0px');
   expect(await message.getAttribute('data-turn-layout')).toBeNull();
   const bounds = await message.evaluate((node) => {
     const history = node.closest('.conversation-messages')!;
@@ -112,9 +112,9 @@ async function shell(window: Locator) {
   if (chat) await expect(window.locator(':scope > .conversation-window-bar')).toHaveCount(0);
   await expect(window.locator(':scope > .conversation-composer')).toHaveCount(1);
   await expect(window.locator('.conversation-composer .annotation-compose')).toHaveCount(1);
-  if (chat)
-    await expect(window.locator('.conversation-composer')).toHaveCSS('padding', '10px 14px');
-  else await expect(window.locator('.conversation-composer')).toHaveCSS('border-top-width', '0px');
+  await expect(window.locator('.conversation-composer')).toHaveCSS('padding', '8px 12px');
+  if (!chat)
+    await expect(window.locator('.conversation-composer')).toHaveCSS('border-top-width', '0px');
   for (const button of await window.locator('.conversation-composer button').all())
     await expect(button).toBeInViewport();
   const bounds = await window.evaluate((node) => {
@@ -167,7 +167,7 @@ for (const width of [1440, 390]) {
         await expect(user.locator('.conversation-author')).toHaveText('You');
         await expect(user.locator('.conversation-body')).toHaveText(request);
         await flat(user);
-        await expect(user).toHaveCSS('padding-left', surface === 'chat' ? '14px' : '0px');
+        await expect(user).toHaveCSS('padding-left', surface === 'chat' ? '12px' : '0px');
         computed[`${surface}-user`] = await styles(user);
         for (const [state, label] of [
           ['waiting', 'Waiting for Atlas'],
@@ -181,7 +181,7 @@ for (const width of [1440, 390]) {
             await expect(agent).toHaveCount(1);
             await flat(agent);
             await expect(agent).toHaveCSS('border-left-width', surface === 'chat' ? '3px' : '0px');
-            await expect(agent).toHaveCSS('padding-left', surface === 'chat' ? '11px' : '16px');
+            await expect(agent).toHaveCSS('padding-left', surface === 'chat' ? '9px' : '8px');
             await expect(agent.getByTestId('ask-reply')).toHaveText(reply);
             await expect(agent.getByTestId('ask-reply-attribution')).toHaveText(
               `Atlas · ${surface === 'chat' ? text.conversationAgent : 'AGENT'} · 5m ago`,
