@@ -48,6 +48,14 @@ fn member(row: &Value) -> Option<OpsMember> {
     })
 }
 
+fn pool_row(row: &Value) -> Value {
+    let mut projected = row.clone();
+    if let Some(pane) = crate::squad::observed_pane(row) {
+        projected["pane"] = pane;
+    }
+    projected
+}
+
 impl OpsWorkspaceSnapshot {
     pub(crate) fn configure(&mut self, config: &Config) -> Result<(), SquadError> {
         self.preferences = config.workspace_preferences()?;
@@ -155,7 +163,7 @@ impl OpsWorkspaceSnapshot {
                             room_id: None,
                             identity_id: identity.id.clone(),
                         },
-                        row.clone(),
+                        pool_row(row),
                     );
                     result.roster.members.insert(identity.id.clone(), identity);
                 }
@@ -241,5 +249,32 @@ impl OpsWorkspaceSnapshot {
             result.roster.squads.push(projected);
         }
         result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn pool_uses_the_same_observed_pane_as_squad_rows_for_host_actions() {
+        let mut listed = json!({"id":"uuid", "name":"worker", "presence":"active",
+            "pane":"%7", "target":"work:2.1", "cwd":"/work",
+            "location":{"host":"tmux", "session":"work", "window":"2"}});
+        let row = pool_row(&listed);
+        assert_eq!(row["pane"]["id"], "%7");
+        assert_eq!(row["pane"]["location"], listed["location"]);
+        assert_eq!(
+            crate::board::overview::actions::host(&row, true),
+            Ok("uuid")
+        );
+        listed["location"]["host"] = json!("herdr");
+        assert!(crate::board::overview::actions::host(&pool_row(&listed), true).is_err());
+        listed.as_object_mut().unwrap().remove("location");
+        assert!(pool_row(&listed)["pane"].get("location").is_none());
+        assert!(crate::board::overview::actions::host(&pool_row(&listed), true).is_err());
+        listed["pane"] = Value::Null;
+        assert!(pool_row(&listed)["pane"].is_null());
     }
 }
