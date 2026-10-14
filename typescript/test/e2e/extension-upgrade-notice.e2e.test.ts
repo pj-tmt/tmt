@@ -127,6 +127,7 @@ describe('post-upgrade Remote notice', () => {
           expect(expectJsonResult(await fixture.runCli(['remote', 'status', '--json']))).toEqual({
             running: false,
             lastPort: Number(new URL(String(beforeStatus.origin)).port),
+            signIn: { state: 'none', expiresAtMs: null },
           });
         } finally {
           await owner.dispose();

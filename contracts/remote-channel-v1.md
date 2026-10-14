@@ -850,7 +850,11 @@ nonzero exit. A running serve that predates `status` or `stop` (alpha.1 answered
 `REMOTE_INPUT_INVALID` "Unknown control operation."; later serves answer
 `REMOTE_CONTROL_UNSUPPORTED`) yields `REMOTE_SERVE_OUTDATED` from either command: it must be
 stopped by hand (Ctrl-C in its terminal) and started again, since `stop` cannot reach it.
-Ordinary status contains no other fields, secrets, cookies or device inventory.
+Ordinary CLI status adds the secret-free `signIn:{state,expiresAtMs}` projection; expiry is
+nullable. Credential read/ownership errors report `unreadable`, and a transient writer lock
+reports `busy`, preserving door status and a successful diagnostic exit with the existing
+message line. Explicit/default remote selection failures still refuse. No credentials,
+cookies or device inventory are exposed.
 
 `tmt remote status --machine --json` selects an optional root-local observation; `--machine`
 requires `--json`. It sends exactly `{"op":"status","machine":true}` through the same owner-only
@@ -2120,10 +2124,13 @@ carrier/provider joins before releasing the budget writer and Serving lease.
 
 ### Extension-scoped sealed-document client
 
-Browser transport is shipped; native transport and credentials land in their own slices.
+Browser transport is shipped. Native credentials and REST effects belong to `firebase_auth`
+and `native_sync`; production native registration remains a separate slice.
 
-The SDK and native types define one bound client port. The browser factory
-`HostedAuth.sealedSync(space, guard)` binds it to the existing verified anonymous Auth owner.
+The SDK and native types define one bound client port. Provider implementations are separate
+from this pure type boundary. The browser factory `HostedAuth.sealedSync(space, guard)` binds
+it to the existing verified anonymous Auth owner; the
+[native carrier](#native-sealed-document-carrier) defines the injected factory seam.
 Its context contains verified public Firebase configuration, extension, exact declaration digest,
 declared resources, space and authenticated uid. Binding validates the entire declaration before
 accepting any resource; digest or context disagreement refuses before provider access. The public
@@ -2214,9 +2221,11 @@ Subscribe takes a page-level `SyncInterest {resource,scope}`: exact query-mappin
 the stream field, without requiring discovery. It has no seed stream, cursor, continuation or
 provider-held delivery progress; one page interest counts once toward the listener caps.
 It produces only coalesced Changed wake hints or CatchUpRequired. Changed is level-triggered:
-it may be spurious but never lost; suppressing a wake requires positively observed absence
-from a successful bounded probe. Browser listeners/native polling cover later writes, not only
-first-sequence documents;
+it may be spurious but never lost. Native polling suppresses a wake only when a successful
+COUNT over the exact interest scope equals the last in-memory count and the ten-minute
+heartbeat is not due. The first probe and every count difference emit Changed; the heartbeat
+bounds equal-count delete/create swaps. Browser listeners are unchanged and cover later writes,
+not only first-sequence documents;
 terminal status is a typed refusal, not a document queue. Consumers fetch with ordinary read/query
 and alone advance their logical cursors. A gap, compaction or overflow is never a silent drop.
 Each call has caller cancellation and an absolute deadline; closing suppresses late publication.

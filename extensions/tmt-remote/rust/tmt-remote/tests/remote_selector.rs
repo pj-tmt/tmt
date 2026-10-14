@@ -6,6 +6,132 @@ use tmt_remote::{
     deploy_record::DeployRecordStore, deploy_run::DeployRecord, remote_selector as selector,
     settings,
 };
+fn public_link() -> String {
+    use base64::Engine;
+    let mut descriptor: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/remote_link/descriptor-v1.json")).unwrap();
+    descriptor.sort_all_objects();
+    format!(
+        "https://demo-remote-1.web.app/pair#{}",
+        base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(serde_json::to_vec(&descriptor).unwrap())
+    )
+}
+
+#[test]
+fn ordinary_client_imports_public_config_without_deployment_or_owner_authority() {
+    let root = Root::new();
+    let layout = root.layout();
+    tmt_remote::remote_catalog::add(&layout, "tenant", &public_link()).unwrap();
+    let selection = selector::client(&layout, Some("tenant"), None).unwrap();
+    assert_eq!(selection.project, "demo-remote-1");
+    assert_eq!(selection.public_config["projectId"], selection.project);
+    assert_eq!(selection.public_config.as_object().unwrap().len(), 4);
+    for field in [
+        "region",
+        "deploymentId",
+        "planDigest",
+        "ownerHost",
+        "uid",
+        "token",
+    ] {
+        assert!(selection.public_config.get(field).is_none());
+    }
+    assert!(!root.remote().join("deployments").exists());
+    assert!(
+        matches!(selector::owned(&layout, Some("tenant"), None), Err(e) if e.code == "REMOTE_SELECTOR_NOT_OWNED")
+    );
+    assert!(
+        matches!(selector::existing(&layout, Some("tenant"), None), Err(e) if e.code == "REMOTE_SELECTOR_NOT_OWNED")
+    );
+    assert_eq!(
+        selector::client(&layout, Some("tenant"), Some("another-project"))
+            .err()
+            .unwrap()
+            .code,
+        "REMOTE_SELECTOR_INVALID"
+    );
+    settings::set_default_remote(&root.0, "tenant").unwrap();
+    assert_eq!(
+        selector::client(&layout, None, None).unwrap().project,
+        "demo-remote-1"
+    );
+    assert_eq!(
+        selector::client(&layout, None, Some("another-project"))
+            .err()
+            .unwrap()
+            .code,
+        "REMOTE_SELECTOR_INVALID"
+    );
+}
+
+#[test]
+fn ordinary_client_never_falls_back_from_explicit_or_broken_default_selection() {
+    let root = Root::new();
+    let layout = root.layout();
+    let mut writer = DeployRecordStore::open(&layout, "demo-local-project").unwrap();
+    writer.persist(&DeployRecord::new(ID)).unwrap();
+    drop(writer);
+    assert!(
+        selector::client_status(&layout, None, None)
+            .unwrap()
+            .is_none()
+    );
+    assert!(selector::client_status(&layout, Some("demo-local-project"), None).is_err());
+    assert_eq!(
+        selector::client(&layout, Some("missing"), None)
+            .err()
+            .unwrap()
+            .code,
+        "REMOTE_SELECTOR_NOT_FOUND"
+    );
+    settings::set_default_remote(&root.0, "missing").unwrap();
+    assert_eq!(
+        selector::client(&layout, None, None).err().unwrap().code,
+        "REMOTE_SELECTOR_STALE_DEFAULT"
+    );
+    // Even --project cannot turn a broken explicit/default into an implicit host choice.
+    assert_eq!(
+        selector::client(&layout, None, Some("demo-local-project"))
+            .err()
+            .unwrap()
+            .code,
+        "REMOTE_SELECTOR_STALE_DEFAULT"
+    );
+    tmt_remote::remote_catalog::add(&layout, "tenant", &public_link()).unwrap();
+    assert_eq!(
+        selector::client(&layout, Some("tenant"), None)
+            .unwrap()
+            .project,
+        "demo-remote-1"
+    );
+    settings::set_default_remote(&root.0, "local").unwrap();
+    // A partial local deployment has no verified public config to enroll with.
+    assert_eq!(
+        selector::client(&layout, None, None).err().unwrap().code,
+        "REMOTE_LINK_UNAVAILABLE"
+    );
+}
+
+#[test]
+fn ordinary_client_revalidates_corrupt_imports_and_preserves_private_state() {
+    let root = Root::new();
+    let layout = root.layout();
+    tmt_remote::remote_catalog::add(&layout, "tenant", &public_link()).unwrap();
+    let path = root.remote().join("remotes.json");
+    let mut catalog: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    // Tamper the persisted link, rather than relying only on import admission.
+    let text = catalog
+        .to_string()
+        .replace("demo-remote-1.web.app", "wrong-project.web.app");
+    catalog = serde_json::from_str(&text).unwrap();
+    let bytes = serde_json::to_vec(&catalog).unwrap();
+    std::fs::write(&path, &bytes).unwrap();
+    assert!(selector::client(&layout, Some("tenant"), None).is_err());
+    assert_eq!(std::fs::read(&path).unwrap(), bytes);
+    assert!(!root.remote().join("firebase-auth").exists());
+}
 
 #[test]
 fn explicit_project_default_and_sole_fallback_never_choose_an_arbitrary_project() {

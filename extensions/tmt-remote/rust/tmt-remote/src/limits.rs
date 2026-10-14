@@ -1,6 +1,32 @@
 //! Door bounds from the remote-client-v1 `loopback-http` binding.
 use std::time::Duration;
 
+/// Fixed native Auth defaults. Policy settings and Keychain are later work.
+pub const FIREBASE_CREDENTIAL_BYTES: usize = 16 * 1024;
+pub const FIREBASE_CREDENTIAL_LIFETIME_MS: u64 = 365 * 86_400_000;
+pub const FIREBASE_REFRESH_LEAD_MS: u64 = 300_000;
+pub const FIREBASE_REFRESH_JITTER_MS: u64 = 60_000;
+pub const FIREBASE_ATTEMPT_MS: u64 = 5_000;
+pub const FIREBASE_SERIES_MS: u64 = 30_000;
+pub const FIREBASE_MAX_ATTEMPTS: usize = 4;
+pub const FIREBASE_RESUME_MIN_MS: u64 = 30_000;
+pub const FIREBASE_RESUME_MAX_MS: u64 = 900_000;
+pub const FIREBASE_EXPIRY_NOTICE_MS: u64 = 30 * 86_400_000;
+pub const NATIVE_BUDGET_BYTES: u64 = 4 * 1024;
+pub const NATIVE_BUDGET_FLUSH_MS: u64 = 60_000;
+pub const NATIVE_POLL_FLOOR_MS: u64 = 5_000;
+pub const NATIVE_POLL_ACTIVITY_MS: u64 = 120_000;
+pub const NATIVE_POLL_DECAY_MS: u64 = 30_000;
+pub const NATIVE_POLL_IDLE_MS: u64 = 60_000;
+pub const NATIVE_POLL_BACKOFF_MS: u64 = 900_000;
+// One provider page must fit one v3 carrier result (Core #2694 6139022039).
+pub const NATIVE_SYNC_PAGE_BYTES: usize = 397_312;
+pub const NATIVE_SYNC_FIELDS_BYTES: usize = 393_216;
+pub const NATIVE_SYNC_PAGE_DOCUMENTS: usize = 256;
+pub const NATIVE_SYNC_CONSUMER_SUBSCRIPTIONS: usize = 3;
+pub const NATIVE_SYNC_SERVE_SUBSCRIPTIONS: usize = 12;
+pub const NATIVE_SYNC_SERVE_WRITES: usize = 4;
+
 /// Concurrent unauthenticated edge connections.
 pub const SOCKETS: usize = 32;
 pub const HEADER_BYTES: usize = 8 * 1024;
@@ -164,3 +190,8 @@ pub const REMOTE_LINK_BYTES: usize = 8 * 1024;
 pub const OWNED_PROJECT_SCAN: usize = 4096;
 /// Public native catalog admission bound; browser handoff has its own policy.
 pub const REMOTE_CATALOG_BYTES: usize = 65_536;
+
+// Bound equal-count delete/create swaps without restarting active cadence.
+pub const NATIVE_SYNC_HEARTBEAT_MS: u64 = 600_000;
+// At most 256 records plus the empty page that proves run completion.
+pub const NATIVE_DISCOVERY_RUN_PAGES: u16 = 257;

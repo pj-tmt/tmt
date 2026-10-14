@@ -2702,6 +2702,7 @@ dependencies = [
  "tmt-extension-serve",
  "tmt-extension-state",
  "tmt-invoke",
+ "ureq",
 ]
 
 [[package]]

@@ -155,10 +155,40 @@ fn running_stopped_and_changed_shapes_remain_distinct() {
         r#"{"running":false,"lastPort":0}"#,
         r#"{"running":false,"lastPort":65536}"#,
         r#"{"running":"false","lastPort":null}"#,
-        r#"{"running":false,"lastPort":null,"newField":true}"#,
         r#"{"running":true}"#,
     ] {
         assert_eq!(hint(&status(value)), Some(UNKNOWN));
+    }
+}
+
+#[test]
+fn additive_members_do_not_change_the_observed_door_state() {
+    for extra in ["null", "false", "[]", r#"{"future":"opaque"}"#] {
+        let running = format!(
+            r#"{{"running":true,"origin":"http://127.0.0.1:49152","path":"/r/prefix","futureProjection":{extra}}}"#
+        );
+        assert_eq!(hint(&status(&running)), Some(RUNNING));
+        let stopped = format!(r#"{{"running":false,"lastPort":49152,"futureProjection":{extra}}}"#);
+        assert_eq!(hint(&status(&stopped)), None);
+    }
+}
+
+#[test]
+fn additive_members_cannot_supply_missing_or_mistyped_required_members() {
+    for value in [
+        r#"{"futureProjection":{"running":true,"origin":"here","path":"there"}}"#,
+        r#"{"running":null,"futureProjection":true}"#,
+        r#"{"running":"true","origin":"here","path":"there","futureProjection":true}"#,
+        r#"{"running":true,"path":"there","futureProjection":true}"#,
+        r#"{"running":true,"origin":17,"path":"there","futureProjection":true}"#,
+        r#"{"running":true,"origin":"here","futureProjection":true}"#,
+        r#"{"running":true,"origin":"here","path":false,"futureProjection":true}"#,
+        r#"{"running":false,"futureProjection":true}"#,
+        r#"{"running":false,"lastPort":"49152","futureProjection":true}"#,
+        r#"{"running":false,"lastPort":[],"futureProjection":true}"#,
+        r#"{"running":false,"lastPort":null,"futureProjection":true"#,
+    ] {
+        assert_eq!(hint(&status(value)), Some(UNKNOWN), "{value}");
     }
 }
 

@@ -115,25 +115,9 @@ pub struct PacificDay(pub i64);
 const DAY_MS: i64 = 86_400_000;
 const HOUR_MS: i64 = 3_600_000;
 
-/// Days since 1970-01-01 of a proleptic Gregorian date.
-fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
-    let y = if month <= 2 { year - 1 } else { year };
-    let era = y.div_euclid(400);
-    let yoe = y - era * 400;
-    let mp = (month + 9) % 12;
-    let doy = (153 * mp + 2) / 5 + day - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    era * 146_097 + doe - 719_468
-}
+use crate::calendar::{civil_from_days, days_from_civil};
 fn civil_year(days: i64) -> i64 {
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 };
-    yoe + era * 400 + i64::from(month <= 2)
+    civil_from_days(days).year
 }
 /// The n-th Sunday (1-based) of `month` in `year`, as a day number.
 fn nth_sunday(year: i64, month: i64, n: i64) -> i64 {
@@ -236,6 +220,105 @@ pub fn decide(model: &Model, usage: Usage, now_ms: u64) -> Decision {
             })
         }
     }
+}
+
+/// Native attempted reads in this Remote home/project's Pacific day. One owner
+/// shares it across consumers. Charging never refunds a bounded request maximum.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NativeUsage {
+    pub day: PacificDay,
+    pub reads: u64,
+}
+impl NativeUsage {
+    pub fn new(now_ms: u64) -> Self {
+        Self {
+            day: pacific_day(now_ms).0,
+            reads: 0,
+        }
+    }
+}
+
+/// Convert the shipped append share to the same conservative read units, then
+/// charge before I/O. Polls and append Rules costs consume that single share;
+/// this is not a second quota allowance or aggregate project enforcement.
+pub fn charge_native(
+    model: &Model,
+    usage: &mut NativeUsage,
+    maximum_reads: u64,
+    now_ms: u64,
+) -> Result<Decision, ModelError> {
+    if maximum_reads == 0 {
+        return Err(ModelError::OutOfRange);
+    }
+    let current = if usage.day == pacific_day(now_ms).0 {
+        *usage
+    } else {
+        NativeUsage::new(now_ms)
+    };
+    let projected = current
+        .reads
+        .checked_add(maximum_reads)
+        .ok_or(ModelError::OutOfRange)?;
+    let decision = assess_native_reads(model, projected, now_ms)?;
+    if !matches!(decision, Decision::Refuse(_)) {
+        *usage = NativeUsage {
+            reads: projected,
+            ..current
+        };
+    }
+    Ok(decision)
+}
+
+/// Read-only owner projection of the same modeled share; observing it never
+/// charges a request or treats the local counter as Google's measured usage.
+pub fn native_budget_state(
+    model: &Model,
+    usage: NativeUsage,
+    now_ms: u64,
+) -> Result<Decision, ModelError> {
+    assess_native_reads(
+        model,
+        if usage.day == pacific_day(now_ms).0 {
+            usage.reads
+        } else {
+            0
+        },
+        now_ms,
+    )
+}
+fn assess_native_reads(model: &Model, reads: u64, now_ms: u64) -> Result<Decision, ModelError> {
+    let allowance = model
+        .share()
+        .checked_mul(model.reads_per_append())
+        .ok_or(ModelError::OutOfRange)?;
+    if reads >= allowance * REFUSE_PERCENT / 100 {
+        let (_, reset_at_ms) = pacific_day(now_ms);
+        return Ok(Decision::Refuse(Refusal {
+            reset_at_ms,
+            retry_after_ms: reset_at_ms.saturating_sub(now_ms),
+        }));
+    }
+    Ok(if reads >= allowance * WARN_PERCENT / 100 {
+        Decision::Warn
+    } else {
+        Decision::Allow
+    })
+}
+
+/// Upper planning charge for one resource/hour with positive-only poll jitter.
+/// Every query is charged at its document limit plus the shared Rules bound;
+/// returning no documents does not refund it. Initial catch-up adds its own cost.
+pub fn modeled_poll_reads_per_hour(
+    document_limit: u64,
+    interval_ms: u64,
+) -> Result<u64, ModelError> {
+    if document_limit == 0 || document_limit > 256 || interval_ms == 0 {
+        return Err(ModelError::OutOfRange);
+    }
+    3_600_000_u64
+        .div_ceil(interval_ms)
+        .checked_mul(document_limit + READ_LOOKUPS)
+        .ok_or(ModelError::OutOfRange)
 }
 
 /// The provider answered `resource-exhausted`. Whether that is a refusal or an unknown

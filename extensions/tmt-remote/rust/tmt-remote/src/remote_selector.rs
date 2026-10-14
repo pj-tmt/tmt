@@ -111,24 +111,8 @@ pub fn owned(
     if let Some(reference) = explicit {
         return select(layout, reference);
     }
-    let root = layout.directory.parent().expect("Remote subtree");
-    let settings = settings::read(root)?;
-    if settings.malformed || !settings.default_valid() {
-        return Err(RemoteError::new(
-            "REMOTE_SELECTOR_UNAVAILABLE",
-            "The default remote could not be read.",
-        )
-        .with_hint("Run tmt remote settings default-remote local"));
-    }
-    if let Some(reference) = settings.default_remote() {
-        return match select(layout, reference) {
-            Err(e) if e.code == "REMOTE_SELECTOR_NOT_FOUND" => Err(RemoteError::new(
-                "REMOTE_SELECTOR_STALE_DEFAULT",
-                "The default points to a removed remote.",
-            )
-            .with_hint("Run tmt remote settings default-remote local\nRun tmt remote ls to see the remotes")),
-            result => result,
-        };
+    if let Some(reference) = default_reference(layout)? {
+        return select(layout, &reference).map_err(default_error);
     }
     fallback(layout)
 }
@@ -179,5 +163,135 @@ fn fallback(layout: &Layout) -> Result<Option<String>, RemoteError> {
         [] => Ok(None),
         [project] => Ok(Some(project.clone())),
         [first, ..] => Err(RemoteError::new("REMOTE_SELECTOR_REQUIRED", &format!("Several projects are deployed from this machine: {}", projects.join(", "))).with_hint(&format!("Run the same command with --project {first}\nRun tmt remote settings default-remote {first}"))),
+    }
+}
+
+fn default_reference(layout: &Layout) -> Result<Option<String>, RemoteError> {
+    let root = layout.directory.parent().expect("Remote subtree");
+    let settings = settings::read(root)?;
+    if settings.malformed || !settings.default_valid() {
+        return Err(RemoteError::new(
+            "REMOTE_SELECTOR_UNAVAILABLE",
+            "The default remote could not be read.",
+        )
+        .with_hint("Run tmt remote settings default-remote local"));
+    }
+    Ok(settings.default_remote().map(str::to_owned))
+}
+fn default_error(error: RemoteError) -> RemoteError {
+    if error.code == "REMOTE_SELECTOR_NOT_FOUND" {
+        RemoteError::new(
+            "REMOTE_SELECTOR_STALE_DEFAULT",
+            "The default points to a removed remote.",
+        )
+        .with_hint(
+            "Run tmt remote settings default-remote local\nRun tmt remote ls to see the remotes",
+        )
+    } else {
+        error
+    }
+}
+/// Selected public config gives an ordinary client no local deployment authority.
+pub struct ClientSelection {
+    pub project: String,
+    pub public_config: serde_json::Value,
+}
+fn client_local(layout: &Layout, project: Option<&str>) -> Result<ClientSelection, RemoteError> {
+    let project = match project {
+        Some(project) => project.to_owned(),
+        None => fallback(layout)?.ok_or_else(crate::remote_link::unavailable)?,
+    };
+    let record = deploy_record::read_project(layout, &project)?
+        .ok_or_else(crate::remote_link::unavailable)?;
+    let link = crate::remote_link::from_record(&record)?;
+    Ok(ClientSelection {
+        project,
+        public_config: crate::remote_link::public_config(&link)?,
+    })
+}
+fn client_reference(
+    layout: &Layout,
+    reference: &str,
+    project: Option<&str>,
+) -> Result<ClientSelection, RemoteError> {
+    let Some(entry) = resolve(layout, reference)? else {
+        return client_local(layout, project);
+    };
+    if entry.kind != "firestore" {
+        return Err(RemoteError::new(
+            "REMOTE_SELECTOR_KIND_UNSUPPORTED",
+            "This remote has no Firestore sign-in configuration.",
+        )
+        .with_hint("Run tmt remote ls"));
+    }
+    let selected = entry
+        .project
+        .as_deref()
+        .ok_or_else(crate::remote_link::unavailable)?;
+    if project.is_some_and(|project| project != selected) {
+        return Err(RemoteError::new(
+            "REMOTE_SELECTOR_INVALID",
+            "The --project and --remote options name different projects.",
+        )
+        .with_hint("Run the same command with matching --project and --remote options"));
+    }
+    if entry.url.is_empty() {
+        return client_local(layout, Some(selected));
+    }
+    let public_config = crate::remote_link::public_config(&entry.url)?;
+    if public_config["projectId"].as_str() != Some(selected) {
+        return Err(crate::remote_link::unavailable());
+    }
+    Ok(ClientSelection {
+        project: selected.into(),
+        public_config,
+    })
+}
+/// Ordinary-user targeting: explicit, configured default, then this host. Failed
+/// explicit/default resolution never becomes another remote or deployment input.
+pub fn client(
+    layout: &Layout,
+    explicit: Option<&str>,
+    project: Option<&str>,
+) -> Result<ClientSelection, RemoteError> {
+    client_selection(layout, explicit, project, false)?.ok_or_else(crate::remote_link::unavailable)
+}
+/// An unconfigured host can report no sign-in. Broken explicit/default targeting
+/// still refuses instead of masquerading as an unconfigured host.
+pub fn client_status(
+    layout: &Layout,
+    explicit: Option<&str>,
+    project: Option<&str>,
+) -> Result<Option<ClientSelection>, RemoteError> {
+    client_selection(layout, explicit, project, true)
+}
+fn client_selection(
+    layout: &Layout,
+    explicit: Option<&str>,
+    project: Option<&str>,
+    optional: bool,
+) -> Result<Option<ClientSelection>, RemoteError> {
+    if project.is_some_and(|p| !crate::deploy_run::project_ok(p)) {
+        return Err(RemoteError::new(
+            "REMOTE_SELECTOR_INVALID",
+            "Invalid Firestore project id.",
+        ));
+    }
+    if let Some(reference) = explicit {
+        return client_reference(layout, reference, project).map(Some);
+    }
+    if let Some(reference) = default_reference(layout)? {
+        return client_reference(layout, &reference, project)
+            .map(Some)
+            .map_err(default_error);
+    }
+    if optional && project.is_none() && deploy_record::projects(layout)?.len() != 1 {
+        return Ok(None);
+    }
+    match client_local(layout, project) {
+        Err(error) if optional && project.is_none() && error.code == "REMOTE_LINK_UNAVAILABLE" => {
+            Ok(None)
+        }
+        result => result.map(Some),
     }
 }

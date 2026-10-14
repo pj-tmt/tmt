@@ -21,6 +21,8 @@ use std::{
 mod deploy_fixture;
 #[path = "support/executable_fixture.rs"]
 mod executable_fixture;
+#[path = "cli/sync_commands.rs"]
+mod sync_commands;
 use tmt_remote::{deploy_record::DeployRecordStore, error::RemoteError};
 
 const BINARY: &str = env!("CARGO_BIN_EXE_tmt-remote");
@@ -1307,7 +1309,7 @@ fn control_stop_closes_listeners_releases_state_and_is_idempotent() {
         let available = TcpListener::bind(("127.0.0.1", port)).unwrap();
         assert_eq!(
             status_json(&pilot),
-            serde_json::json!({"running":false,"lastPort":port})
+            serde_json::json!({"running":false,"lastPort":port,"signIn":{"state":"none","expiresAtMs":null}})
         );
         let state = stopped_files(&pilot);
         assert_eq!(stop_json(&pilot), serde_json::json!({"running":false}));
@@ -1348,7 +1350,7 @@ fn status_does_not_create_remote_state_and_help_needs_no_core() {
     assert!(!pilot.root.join("calls").exists());
     assert_eq!(
         status_json(&pilot),
-        serde_json::json!({"running":false,"lastPort":null})
+        serde_json::json!({"running":false,"lastPort":null,"signIn":{"state":"none","expiresAtMs":null}})
     );
     assert!(!pilot.root.join("state").exists());
     assert_eq!(
@@ -1386,7 +1388,7 @@ fn default_port_and_exact_live_status_survive_restart_without_status_mutations()
         let database = fs::read(pilot.root.join("state/remote/remote.db")).unwrap();
         assert_eq!(
             status_json(&pilot),
-            serde_json::json!({"running":true,"origin":origin,"path":path})
+            serde_json::json!({"running":true,"origin":origin,"path":path,"signIn":{"state":"none","expiresAtMs":null}})
         );
         assert_eq!(
             fs::read(pilot.root.join("state/remote/remote.db")).unwrap(),
@@ -1396,7 +1398,7 @@ fn default_port_and_exact_live_status_survive_restart_without_status_mutations()
         let files = stopped_files(&pilot);
         assert_eq!(
             status_json(&pilot),
-            serde_json::json!({"running":false,"lastPort":port})
+            serde_json::json!({"running":false,"lastPort":port,"signIn":{"state":"none","expiresAtMs":null}})
         );
         assert_eq!(
             machine_status_json(&pilot),
@@ -1453,7 +1455,7 @@ fn busy_remembered_port_refuses_without_changing_origin_and_recovers_after_freei
         assert!(!pilot.root.join("state/remote/control.sock").exists());
         assert_eq!(
             status_json(&pilot),
-            serde_json::json!({"running":false,"lastPort":port})
+            serde_json::json!({"running":false,"lastPort":port,"signIn":{"state":"none","expiresAtMs":null}})
         );
         drop(occupied);
         let next: Value = serde_json::from_str(&start_door(&mut pilot, &[], false)).unwrap();
@@ -1540,7 +1542,7 @@ fn explicit_zero_ignores_the_remembered_port_and_explicit_busy_does_not_fallback
     );
     assert_eq!(
         status_json(&pilot),
-        serde_json::json!({"running":false,"lastPort":port})
+        serde_json::json!({"running":false,"lastPort":port,"signIn":{"state":"none","expiresAtMs":null}})
     );
     let random: Value =
         serde_json::from_str(&start_door(&mut pilot, &["--port", "0"], false)).unwrap();
@@ -1564,7 +1566,7 @@ fn explicit_zero_ignores_the_remembered_port_and_explicit_busy_does_not_fallback
     terminate(pilot.child.take().unwrap());
     assert_eq!(
         status_json(&pilot),
-        serde_json::json!({"running":false,"lastPort":port})
+        serde_json::json!({"running":false,"lastPort":port,"signIn":{"state":"none","expiresAtMs":null}})
     );
 }
 #[test]
@@ -2613,7 +2615,7 @@ fn machine_status_is_root_local_and_never_initializes_a_stopped_machine() {
         );
         assert_eq!(
             status_json(&pilot),
-            serde_json::json!({"running":true,"origin":origin,"path":path})
+            serde_json::json!({"running":true,"origin":origin,"path":path,"signIn":{"state":"none","expiresAtMs":null}})
         );
         assert_eq!(
             fs::read(pilot.root.join("state/remote/remote.db")).unwrap(),
@@ -2879,7 +2881,7 @@ fn status_layers_is_opt_in_and_empty_until_firestore_exists() {
     start_door(&mut pilot, &[], false);
     let (run, json, keys) = (status_run, status_answer, member_keys);
     let ordinary = json(&pilot, &["status", "--json"]);
-    assert_eq!(keys(&ordinary), ["running", "origin", "path"]);
+    assert_eq!(keys(&ordinary), ["running", "origin", "path", "signIn"]);
     let layers = json(&pilot, &["status", "--layers", "--json"]);
     assert_eq!(
         keys(&layers),
@@ -3129,7 +3131,7 @@ fn running_layer_status_reads_atomic_deploy_snapshots_without_the_writer_lock() 
     assert!(!layers.to_string().contains("demo-remote-1"));
     assert_eq!(
         member_keys(&status_answer(&pilot, &["status", "--json"])),
-        ["running", "origin", "path"]
+        ["running", "origin", "path", "signIn"]
     );
     assert_eq!(fs::read(&path).unwrap(), snapshot);
     // Same running process, new atomic publication, no cached allow.

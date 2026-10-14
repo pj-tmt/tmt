@@ -89,7 +89,7 @@ pub fn from_record(record: &DeployRecord) -> Result<String, RemoteError> {
     descriptor.url()
 }
 /// Strict canonical UTF-8/closed schema/checksum validation. The checksum is not authority.
-pub fn validate(url: &str) -> Result<(), RemoteError> {
+fn parse(url: &str) -> Result<Descriptor, RemoteError> {
     if url.len() > limits::REMOTE_LINK_BYTES {
         return Err(unavailable());
     }
@@ -108,18 +108,22 @@ pub fn validate(url: &str) -> Result<(), RemoteError> {
     {
         return Err(unavailable());
     }
-    Ok(())
+    Ok(descriptor)
+}
+/// Check the complete closed public reference without granting any authority.
+pub fn validate(url: &str) -> Result<(), RemoteError> {
+    parse(url).map(|_| ())
+}
+/// Only the four verified public configuration fields, never deployment identity.
+pub fn public_config(url: &str) -> Result<Value, RemoteError> {
+    serde_json::to_value(parse(url)?.public_web_config).map_err(|_| unavailable())
 }
 
 /// Public reference identity is project/app/auth domain, never catalog import authority.
 pub fn matches_record(url: &str, record: &DeployRecord) -> bool {
-    if validate(url).is_err() {
+    let Ok(descriptor) = parse(url) else {
         return false;
-    }
-    let bytes = URL_SAFE_NO_PAD
-        .decode(url.split_once('#').expect("validated fragment").1)
-        .expect("validated encoding");
-    let descriptor: Descriptor = serde_json::from_slice(&bytes).expect("validated descriptor");
+    };
     record.verified_publication().is_some_and(|publication| {
         let config = publication.public_config();
         config["projectId"] == descriptor.public_web_config.project_id
@@ -129,14 +133,7 @@ pub fn matches_record(url: &str, record: &DeployRecord) -> bool {
 }
 /// Extract a project only after validating the complete public reference.
 pub fn project(url: &str) -> Result<String, RemoteError> {
-    validate(url)?;
-    Ok(url
-        .strip_prefix("https://")
-        .expect("validated scheme")
-        .split_once(".web.app/pair#")
-        .expect("validated entry")
-        .0
-        .to_owned())
+    Ok(parse(url)?.public_web_config.project_id)
 }
 
 #[cfg(test)]

@@ -159,6 +159,120 @@ unknown, deleted/corrupt keys and opaque replies remain unconfirmed. The SDK's b
 ends only on verified proof and offers re-pair, never resending an uncertain original effect.
 Restart requires a new current-window open; it does not revive sessions or grant authority.
 
+## Native Firestore sign-in and transport
+
+The native `firebase_auth` library is separate from deployment login. It uses injected
+HTTP, clock, jitter, cancellation and credential-store ports. `tmt remote sync sign-in`
+and `sync revoke` compose them with the verified public selector; nothing opens. An active
+sign-in is reused without a network request. The space owner admits a new identity in Colab.
+Files are `remote/firebase-auth/<project>.json` plus
+the project lock, with refresh credentials only. The Remote writer uses stage/file-sync/
+rename/directory-sync under the lock and compares the captured credential before replacing
+it. The shared state leaf's directory/lock admission stays strict; only a readable owned
+credential file with loose mode is tightened to 0600, returning one notice for CLI composition.
+Owned abandoned staging is removed and directory-synced under the lock on load/purge;
+other projects stay untouched. Corrupt, unreadable, unsafe or project-disagreeing files
+never trigger another sign-up.
+Fixed limits live in `limits.rs`: 365-day access lifetime, idle expiry off, refresh 300–360 s
+early, four 5 s attempts within 30 s and 30–900 s series backoff. Token timing is monotonic;
+absolute credential expiry is checked before use and purges the secret on the next invocation.
+Stopped clients clear memory tokens and run no refresh work. Ambiguous signup is not retried
+automatically; an explicit later sign-in can create another identity. Revoke durably marks
+revoking before one delete attempt; offline/unknown keeps that state for explicit revoke
+rerun, with no normal token access. Delete/already-absent purges the local secret. No settings
+keys, Keychain integration or claims of immediate invalidation of previously issued tokens.
+
+Ordinary status adds `signIn` with `state` and nullable `expiresAtMs`. Unreadable/unsafe
+credentials report `unreadable`, and a transient writer lock reports `busy`, with the existing
+credential diagnostic line; both preserve door status and a normal exit. Explicit/default
+selection errors still refuse. Expiring human copy
+names the ISO UTC end date and says to sign in after that date, then admit the new identity.
+Command JSON uses the full uid; human output abbreviates it to eight characters. Paired
+device revocation remains `tmt remote devices revoke`, with cross-pointing help. A host
+without a published Firestore configuration still reports its ordinary door status; an
+explicit or configured-default selection failure never silently chooses another remote.
+The production `UreqHttp` adapter uses fixed Google endpoints, one attempt with a global
+deadline including body reads, no redirects or hidden retries, and each request's response
+cap. Errors never retain provider bodies, bearer tokens or refresh credentials. System time
+and random jitter are invocation-owned; cancellation fences bounded waits and late replies.
+
+Focused proof: `CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-remote --test firebase_auth`
+from `rust/`; it uses fake HTTP/time and real private files, not a project or Auth emulator.
+
+The serving `AuthOwner` implements the frozen `AuthPort`, fixes one uid, coalesces token
+requests and clips refresh attempts/waits to the caller's cancellation/deadline budget.
+Native REST requests use the same injected HTTP boundary and canonical fields codec;
+ordinary-user bearer tokens grant no owner-device or Admin authority. Provider pages are
+bounded to one 397,312-byte carrier result. The native default is one document per query,
+charged as three reads including Rules lookups; admitted fields fit 393,216 bytes. Smaller
+document packing requires the leaf's actual encoded-size validator. Finite gaps or scope
+mismatches expose no partial page. Create is immutable; put/delete require declared modes.
+Create conflicts read back the same frozen target, never resend or perform a preparation read.
+
+`native_sync` shares one attempted-read counter per Remote home/project/Pacific day under
+`remote/native-budget/<project>.json` and one serving writer lock. It charges the bounded
+maximum before each request, never refunds, and uses the existing model's 70/90-percent
+warning/refusal and Pacific midnight reset. The serving owner schedules one shared minute
+`NativeRuntime.checkpoint` tick even during provider backoff; request-time checks use that
+same flush cadence. Persistence flushes dirty state on the tick and
+when the serving owner calls `NativeRuntime.finish` at stop; abrupt owner loss can undercount only the last flush window. Unsafe,
+corrupt or externally changed state is refused, never replaced with a fresh allowance.
+
+Polling has a 5 s floor for 120 s after local publication or a received count change,
+decays to 60 s idle, adds positive jitter and bounds transient backoff to 900 s. Probe
+requests do not overlap within an interest. One `runAggregationQuery` COUNT over the exact
+regular equality scope minus stream is precharged as 1 + the two shared Rules lookups.
+There is no stream/seq filter, so counts cover initially empty pages and late seq-1 writers.
+The first probe emits Changed without recording activity; a later count difference emits
+Changed and records activity. Equal counts
+suppress Changed until a ten-minute heartbeat bounds a delete/create swap; the heartbeat
+does not reset activity. Only the last count and notice time are kept in memory; no persisted
+fingerprint, stream cursor or delivery progress. Colab alone owns catch-up positions.
+An empty finite query preserves its input cursor (including None). Provider quota exhaustion
+retains unknown mutation outcomes and stops subsequent effects until the same reset.
+
+The subscription runs no discovery scan. Consumers issue ordinary declaration-named
+Discovery queries on Changed. Their signed stateless positions bind the last document,
+scope, shape, client generation and original deadline; every continuation clips Auth/provider
+work to that deadline. A consumer run admits at most 256 records and 257 one-document pages
+including empty completion. Closing fences late results and releases the 3-consumer/12-serving
+page-interest cap. One interest counts once regardless of writers; no document event queue.
+
+Pessimistic reads per page interest/hour, before mutation traffic and backoff. Q is the number
+of one-document query pages a consumer requests per wake, including empty completion and
+consumer-issued Discovery. At the active floor every probe may observe a count change; idle
+COUNT probes cost 180/hour and heartbeat catch-up adds 18/hour per Q. The heartbeat shares an
+already due probe, not another COUNT request. The existing model gives active
+`modeled_poll_reads_per_hour(1, 5000) * (1 + Q)` and idle
+`modeled_poll_reads_per_hour(1, 60000) + modeled_poll_reads_per_hour(1, 600000) * Q`.
+
+| Q per wake | Active probe + wake queries (5 s) | Idle probes + heartbeat queries (10 min) |
+| ---------- | --------------------------------: | ---------------------------------------: |
+| 0          |                             2,160 |                                      180 |
+| 1          |                             4,320 |                                      198 |
+| 8          |                            19,440 |                                      324 |
+| 256        |                           555,120 |                                    4,788 |
+
+Initial catch-up and extra consumer queries add their actual precharged maxima. No request
+or wake refunds reads, and no periodic provider-owned Discovery cost is added.
+
+The shared guard refuses before these worst cases can spend the modeled allowance; this
+table grants no extra quota or claim about Google's measured usage. Native vectors pin
+these costs, COUNT wakes and empty completion reads. A delete has no stream fields and conservatively
+reserves its whole resource; other mutations reserve the declared stream, with 4 serving
+writes total. Opaque document IDs are never parsed into a stream. No preparation read.
+
+Ordinary-user `remote_selector::client` resolves an explicit reference, then the configured
+default, then this host. Failed explicit/default targeting is a typed refusal. Imported
+Firestore links need no local deploy record: `remote_link` returns only verified project
+and public config, optional --project must agree, and admission still belongs to the space
+owner. This resolver never grants deployment authority; deploy-only commands retain
+`owned`/`existing`. A consumer carrier and serving factory are separate integration work;
+this transport library does not activate them. Serving composition shares Auth/runtime per
+project, closes consumers and fences refresh, joins jobs, then calls `NativeRuntime.finish`
+before releasing the budget writer. `budget_state` exposes the shared warning/refusal
+without charging or making provider requests.
+
 ## Firestore deployment
 
 `tmt remote deploy firestore --project <project-id> --region <region> --sign-in anonymous --json`

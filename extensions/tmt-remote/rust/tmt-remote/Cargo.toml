@@ -36,6 +36,7 @@ tmt-extension-state.workspace = true
 tmt-extension-serve.workspace = true
 tmt-extension-objects.workspace = true
 signal-hook.workspace = true
+ureq.workspace = true
 tmt-cli-style.workspace = true
 
 [lints]

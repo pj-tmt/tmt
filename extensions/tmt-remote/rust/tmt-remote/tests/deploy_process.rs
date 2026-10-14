@@ -716,7 +716,7 @@ fn project_selection_is_local_opt_in_and_catalog_changes_never_rewrite_history()
     let ordinary = json_output(&base(&root).args(["status", "--json"]).output().unwrap());
     assert_eq!(
         ordinary,
-        serde_json::json!({"running":false, "lastPort":null})
+        serde_json::json!({"running":false, "lastPort":null,"signIn":{"state":"none","expiresAtMs":null}})
     );
     let set = base(&root)
         .args(["settings", "default-remote", "demo-remote-2", "--json"])

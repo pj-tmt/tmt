@@ -284,7 +284,7 @@ fn shipped_local_missing_listener_is_empty_and_door_readiness_is_unchanged() {
         let (origin, path, _) = address_parts(ready["address"].as_str().unwrap());
         assert_eq!(
             status_json(&pilot),
-            serde_json::json!({"running":true,"origin":origin,"path":path})
+            serde_json::json!({"running":true,"origin":origin,"path":path,"signIn":{"state":"none","expiresAtMs":null}})
         );
         let socket = origin.strip_prefix("http://").unwrap();
         assert!(
