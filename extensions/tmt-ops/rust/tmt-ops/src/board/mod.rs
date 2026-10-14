@@ -9,6 +9,7 @@ mod conversation;
 mod cronboard;
 mod derived;
 mod digest;
+mod digest_dashboard;
 #[cfg(test)]
 mod glyph_guard;
 mod help;

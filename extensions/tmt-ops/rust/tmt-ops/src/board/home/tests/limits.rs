@@ -85,7 +85,7 @@ fn the_row_holds_its_place_before_the_first_sample_and_moves_nothing_when_it_fil
         let hits_before = format!("{:?}", app.hits.borrow());
         assert!(app.set_limits(standings()));
         let after = rows(&app, width);
-        assert_eq!(index_of(&after, "Codex 78%"), pending, "{width}");
+        assert_eq!(index_of(&after, "Codex (7d) 78% left"), pending, "{width}");
         assert_eq!(index_of(&after, "worker"), body_before, "{width}");
         assert_eq!(format!("{:?}", app.hits.borrow()), hits_before);
     }
@@ -96,8 +96,10 @@ fn the_row_sits_directly_under_the_header_and_the_body_follows() {
     let mut app = app(true);
     app.set_limits(standings());
     let rows = rows(&app, 100);
-    assert_eq!(rows[index_of(&rows, "Codex 78%")], " Codex 78% (7d)");
-    assert!(index_of(&rows, "worker") > index_of(&rows, "Codex 78%"));
+    let quota = &rows[index_of(&rows, "Codex (7d) 78% left")];
+    assert!(quota.contains("reset 2d10h"), "{quota}");
+    assert!(quota.contains("pace"), "{quota}");
+    assert!(index_of(&rows, "worker") > index_of(&rows, "Codex (7d) 78% left"));
 }
 
 #[test]
@@ -107,7 +109,7 @@ fn meters_remain_at_narrow_widths_but_sampling_off_hides_them() {
     for width in [160, 100, 80, 60] {
         let shown = rows(&narrow, width);
         assert!(
-            shown.iter().any(|row| row.contains("Codex 78%")),
+            shown.iter().any(|row| row.contains("Codex (7d) 78% left")),
             "{width}: {shown:#?}"
         );
     }
@@ -157,7 +159,7 @@ fn help_explains_the_row_only_where_it_can_show() {
         .collect::<Vec<_>>()
         .join("\n");
     assert!(
-        text.contains("weekly remaining share inside the bar"),
+        text.contains("remaining share inside each reported window bar"),
         "{text}"
     );
     assert!(text.contains("older than 2 hours"), "{text}");
@@ -165,6 +167,8 @@ fn help_explains_the_row_only_where_it_can_show() {
     let mut hidden = app(true);
     hidden.shell.tab = crate::board::shell::OpsTab::Agents;
     assert!(section(&hidden).is_none());
+    hidden.shell.tab = crate::board::shell::OpsTab::Digest;
+    assert!(section(&hidden).is_some());
     hidden.shell.tab = crate::board::shell::OpsTab::Overview;
     hidden.set_limits(Vec::new());
     assert!(section(&hidden).is_none());

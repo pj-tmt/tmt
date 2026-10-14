@@ -5,6 +5,7 @@ pub enum OpsUiAction {
     Overview,
     Agents,
     DigestDashboard,
+    QuotaDetails,
     Inspect,
     Previous,
     Next,
@@ -103,6 +104,13 @@ const SPECS: &[OpsUiSpec] = &[
         "Digest",
         "show the Digest tab",
         20
+    ),
+    spec!(
+        QuotaDetails,
+        "quota-details",
+        "quota details",
+        "inspect reported subscription windows",
+        13
     ),
     spec!(
         Inspect,

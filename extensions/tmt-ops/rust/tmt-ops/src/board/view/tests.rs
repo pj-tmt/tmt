@@ -1042,7 +1042,12 @@ fn policy_chips_keep_actual_workspace_row_height_hits_and_selection_at_each_widt
                         let line = (*x..*x + *cells)
                             .map(|column| buffer[(column, *y)].symbol())
                             .collect::<String>();
-                        assert!(line.contains("digest"), "{tab:?}/{width}/{depth:?}: {line}");
+                        let label = if tab == OpsTab::Digest {
+                            "unavailable"
+                        } else {
+                            "digest"
+                        };
+                        assert!(line.contains(label), "{tab:?}/{width}/{depth:?}: {line}");
                     }
                     assert_eq!(focused.workspace.selected, plain.workspace.selected);
                 }

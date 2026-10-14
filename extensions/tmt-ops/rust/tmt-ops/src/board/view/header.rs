@@ -42,6 +42,7 @@ pub(in crate::board) fn spinner_wait(
 pub(in crate::board) enum ClockSurface {
     Labels { target: RowTarget, width: usize },
     Limits { width: u16, rows: usize },
+    QuotaDetails,
 }
 
 impl ClockSurface {
@@ -58,6 +59,10 @@ impl ClockSurface {
                     .map(|chip| chip.text.as_str())
                     .collect()
             }
+            Self::QuotaDetails => app
+                .quota_details
+                .as_ref()
+                .map_or_else(String::new, |details| details.borrow().clock_mark(app, now)),
             Self::Limits { width, rows } => {
                 crate::board::home::limit_clock_marks(app.limits.as_deref(), now, *width, *rows)
             }

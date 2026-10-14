@@ -42,7 +42,13 @@
   a 5 s limit, one read in flight, every 5 s. A document that is not version 1, has no
   member list or has a malformed row leaves that source or row unavailable; unknown additive
   fields are ignored; a label's `choose` action is checked by `labels/action.rs` and carried with the label. A failing source backs off to 60 s; its
-  last good rows stand in for 30 s, then drop. The reader sends `BoardEvent::Labels` only
+  last good rows stand in for 30 s, then drop. The same acquired snapshot carries
+  `labels::digest::Status`, the typed projection of published Digest status fields;
+  it never performs a second acquisition or reads Digest files. Unsupported or
+  malformed typed fields leave that projection unavailable without discarding valid
+  generic labels. Null counts/timestamps remain null, and source observations are
+  never replaced by retry time. A retained snapshot marks itself stale after a failed
+  read and clears that mark on recovery. The reader sends `BoardEvent::Labels` only
   when the combined result changed, `App` replaces `labels` wholesale, and painters read
   it through `board/row_chips.rs`. Supplied text never depends on the clock;
   visible digest-policy countdowns use the frame clock registry owned by
@@ -233,8 +239,8 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   member's model is not repeated. No readings means no usage row, including
   warmup; measured zero admits it without a share denominator. Narrow widths,
   disabled sampling and search with no shown sampling squads keep their height.
-- Provider limits: `board::limits` owns the HOME limits row's data and
-  `home::limits` its strip. A provider is a driver ID from the listing; no Ops
+- Provider limits: `board::limits` owns the quota data and calculations;
+  `home::limits` owns one admitted cell-fill strip reused by Overview and Digest. A provider is a driver ID from the listing; no Ops
   code spells a driver (the #440 guard). The HOME usage receipt's one `ls` also
   carries each session's `resume.consumption.rateLimits` when Core has them
   (percent used, so the board shows percent left). For a provider whose
@@ -254,9 +260,17 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   30 minutes, starts a new cycle) and needs 1 h of samples. A reading older than 2
   h, or whose week has already reset, is shown only as `no reading for <age>`.
   Only windows of about 7 days and 5 hours are shown, so the labels are exact.
-  The strip is reserved from the first HOME frame at MD and wider while the usage
-  meter is on (`Updating limits…` until the first sample), so a sample moves no
-  other row; with no provider listed or ever sampled it gives the row back.
+  While usage sampling is enabled, Overview and Digest show one row for each
+  reported weekly/short window, with a remaining-share fill, remaining percent
+  and labelled reset countdown. Weekly measured pace and its existing warning
+  fit when space permits; a short window never borrows weekly pace. Positive
+  balances below one percent retain one filled cell; known zero has none.
+  `Updating limits…` precedes the first sample; no reported providers gives the
+  rows back. Unknown/stale readings remain explicit rather than becoming zero.
+  Quota row clicks and the Actions menu disclose source timestamps, reset and
+  pace through the existing modal/scroll components, without a second source
+  read or calculation. Only admitted quota rows and modal text contribute
+  clock invalidation; reset and data replacement revoke old pointer geometry.
 - Coverage: covered readings stay numeric, including measured zero. Known nonzero
   history deltas also remain numeric lower bounds without continuous coverage;
   zero without coverage stays unavailable. Partial coverage, windows longer than available evidence and unreported members prefix
