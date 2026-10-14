@@ -1,4 +1,4 @@
-//! Remote-authored static inventory fixtures; no Colab release or provider acceptance.
+//! Remote-authored inventory and read-only Colab declaration mirror; no provider acceptance.
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -595,6 +595,40 @@ fn site_association_selects_only_an_active_same_project_public_config_and_never_
         hosting::deployment_view(&content, "demo-remote-1", ID, &inventory).unwrap_err(),
         HostingRefusal::WebAppSelection
     );
+}
+
+#[test]
+fn colab_hosting_vector_serves_its_exact_sealed_declaration_digest() {
+    let reply = include_bytes!(
+        "../../../../tmt-colab/contracts/vectors/deploy-declaration-v1.hosting.json"
+    );
+    let envelope: Value = serde_json::from_slice(reply).unwrap();
+    let (declaration, sealed_digest) =
+        tmt_remote::deploy_discovery::sealed_declaration("colab", reply).unwrap();
+    let value: Value = serde_json::from_slice(&declaration).unwrap();
+    HostingManifest::parse(&value["hosting"]).unwrap();
+    // This tiny inventory isolates the opaque-byte boundary, not Colab bundle acceptance.
+    let content = hosting::compose(&[hosting::HostingInput {
+        extension: "colab",
+        declaration: &declaration,
+        bundle: &bundle(),
+    }])
+    .unwrap()
+    .unwrap();
+    let path = "/tmt/declarations/colab.json";
+    let generated = content
+        .files()
+        .iter()
+        .find(|file| file.path == path)
+        .unwrap();
+    assert_eq!(generated.raw_digest, envelope["declarationDigest"]);
+    assert_eq!(generated.raw_digest, sealed_digest);
+    let mut served = Vec::new();
+    flate2::read::GzDecoder::new(content.gzip(path).unwrap())
+        .read_to_end(&mut served)
+        .unwrap();
+    assert_eq!(served, envelope["declaration"].as_str().unwrap().as_bytes());
+    assert_eq!(hash(&served), generated.raw_digest);
 }
 
 #[test]
