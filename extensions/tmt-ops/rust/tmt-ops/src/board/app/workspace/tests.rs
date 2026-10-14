@@ -1,3 +1,4 @@
+mod host_action;
 use super::*;
 use crate::board::workspace::{
     OpsMember, OpsObservation, OpsRoster, OpsSquad,
@@ -1235,19 +1236,13 @@ fn reader_dispatch_help_and_footer_share_effective_keys_and_preserve_overrides()
         .iter()
         .find(|section| section.id == "bindings")
         .unwrap();
-    assert!(
-        bindings.entries.iter().any(
-            |entry| entry.keys == "j" && entry.description == app.bindings()["j"].description()
-        )
-    );
-    assert!(
-        bindings.entries.iter().any(
-            |entry| entry.keys == "k" && entry.description == app.bindings()["k"].description()
-        )
-    );
+    assert!(bindings.entries.iter().any(|entry| entry.keys == "j"
+        && entry.description == app.bindings()["j"].workspace_description()));
+    assert!(bindings.entries.iter().any(|entry| entry.keys == "k"
+        && entry.description == app.bindings()["k"].workspace_description()));
     let rendered = paint(&app, 160, 36).join("\n");
     assert!(rendered.contains("j copy"), "{rendered}");
-    assert!(rendered.contains("k host"), "{rendered}");
+    assert!(rendered.contains("k focus"), "{rendered}");
     assert!(matches!(
         key(&mut app, KeyCode::Char('j')),
         Effect::Act(Request::Copy { .. })

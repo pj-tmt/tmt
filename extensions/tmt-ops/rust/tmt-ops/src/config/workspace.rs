@@ -645,6 +645,46 @@ impl Config {
         })
     }
 
+    /// The editor projects the same table as dispatch, with the concrete winning owner.
+    pub fn host_action_binding(
+        &self,
+        scope: OpsKeyScope,
+        row: Option<&Value>,
+        squad: Option<&str>,
+    ) -> Result<(Action, String), SquadError> {
+        let host = row.and_then(|row| row["pane"]["location"]["host"].as_str());
+        let sections = squad
+            .filter(|name| !name.is_empty())
+            .map(|name| self.sections(name))
+            .transpose()?
+            .unwrap_or_default();
+        let section = row.and_then(|row| {
+            sections
+                .iter()
+                .enumerate()
+                .find(|(_, section)| section.includes(row))
+        });
+        let keys = self.workspace_keys(scope, host, section.map(|(_, section)| &section.bind))?;
+        let action = keys
+            .bindings
+            .get("j")
+            .cloned()
+            .unwrap_or_else(|| Action::parse("jump").expect("host default"));
+        let mut source = keys
+            .sources
+            .get("j")
+            .cloned()
+            .unwrap_or_else(|| "workspace default".into());
+        if source == "selected squad section.bind" {
+            source = format!(
+                "squad.{}.section[{}].bind.j",
+                squad.expect("a section has a squad"),
+                section.expect("selected section source").0
+            );
+        }
+        Ok((action, source))
+    }
+
     pub fn workspace_keys(
         &self,
         scope: OpsKeyScope,
