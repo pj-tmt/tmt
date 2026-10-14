@@ -92,6 +92,74 @@ impl Access {
     }
 }
 
+/// Public project identity and the generation returned by Remote's single
+/// activation exchange. Neither value carries Firebase credentials or authority.
+pub(crate) struct SyncActivation {
+    pub project: String,
+    pub generation: tmt_extension_objects::Uuid4,
+}
+/// Called by the generation worker only after Colab's listener is accepting.
+/// The running Remote owns startup selection; no private records or fallback.
+pub(crate) fn activate_sync(deadline: Instant) -> Result<SyncActivation, RemoteFailure> {
+    let unavailable = || RemoteFailure {
+        code: "REMOTE_STATE_UNAVAILABLE".into(),
+        message: "Cloud sync unavailable.".into(),
+    };
+    let invoke = |words: &[&str]| -> Result<String, RemoteFailure> {
+        let (success, reply) =
+            crate::door::remote_call_until(words, deadline).ok_or_else(unavailable)?;
+        if success {
+            Ok(reply)
+        } else {
+            Err(RemoteFailure::parse(&reply).unwrap_or_else(unavailable))
+        }
+    };
+    let left = deadline
+        .checked_duration_since(Instant::now())
+        .ok_or_else(unavailable)?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| unavailable())?;
+    let milliseconds = now
+        .checked_add(left)
+        .and_then(|n| u64::try_from(n.as_millis()).ok())
+        .ok_or_else(unavailable)?
+        .to_string();
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Activated {
+        generation: String,
+    }
+    let activated: Activated = serde_json::from_str(&invoke(&[
+        "__activate",
+        "--extension",
+        "colab",
+        "--deadline-ms",
+        &milliseconds,
+        "--json",
+    ])?)
+    .map_err(|_| unavailable())?;
+    let generation =
+        tmt_extension_objects::Uuid4::parse(&activated.generation).map_err(|_| unavailable())?;
+    let identity: serde_json::Value =
+        serde_json::from_str(&invoke(&["status", "--layers", "--json"])?)
+            .map_err(|_| unavailable())?;
+    let project = identity["firestoreDeployment"]["project"]
+        .as_str()
+        .filter(|p| {
+            !p.is_empty()
+                && p.len() <= 64
+                && p.bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        })
+        .ok_or_else(unavailable)?
+        .to_owned();
+    Ok(SyncActivation {
+        project,
+        generation,
+    })
+}
+
 /// Owns one started door until dropped. Remote owns the port policy.
 pub struct Supervisor {
     done: Arc<AtomicBool>,
