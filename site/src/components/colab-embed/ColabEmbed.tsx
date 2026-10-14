@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./colab-embed.css";
 import { isColabShortcut, isImeConfirmation } from "./keyboard";
-import { restoreSendOperation, retainSendOperation } from "./send-operation";
+import { definitelyNotSent, restoreSendOperation, retainSendOperation } from "./send-operation";
 import type { SendOperation } from "./send-operation";
 
 type Anchor = { path: string; quote: string; page: string };
@@ -85,6 +85,7 @@ export function ColabEmbed() {
   const [mode, setMode] = useState(false);
   const [setup, setSetup] = useState(false);
   const [active, setActive] = useState<string | null>(null);
+  const [reattaching, setReattaching] = useState<string | null>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [agent, setAgent] = useState(localStorage.getItem(`${storageKey}.agent`) ?? "");
   const [remote, setRemote] = useState<string | null>(null);
@@ -103,12 +104,16 @@ export function ColabEmbed() {
   const composer = useRef<HTMLTextAreaElement>(null);
   const messages = useRef<HTMLDivElement>(null);
   // Consume a draft synchronously: React's busy render can follow another key event.
-  const submission = useRef<SendOperation | null>(restoreSendOperation(localStorage));
+  const [heldSend, setHeldSend] = useState<SendOperation | null>(() =>
+    restoreSendOperation(localStorage),
+  );
+  const submission = useRef<SendOperation | null>(heldSend);
   const commentSubmission = useRef<string | null>(null);
   const toggleMode = useCallback(() => {
     if (busy || submission.current?.pending) return;
     setMode((enabled) => !enabled);
     setActive(null);
+    setReattaching(null);
     setSetup(false);
     setHover(null);
   }, [busy]);
@@ -210,7 +215,7 @@ export function ColabEmbed() {
       if (!target || target.closest("#tmt-colab-embed") || busy) return;
       const selection = window.getSelection();
       const quote = selection?.toString().trim().slice(0, 2000) ?? "";
-      if (!quote && !event.altKey && active) {
+      if (!quote && !event.altKey && active && !reattaching) {
         setActive(null);
         setSetup(false);
         return;
@@ -223,29 +228,38 @@ export function ColabEmbed() {
             ? (selection.getRangeAt(0).commonAncestorContainer as Element)
             : node;
       const anchor = { path: elementPath(node), quote, page: location.pathname };
-      const existing = threads.find(
-        (item) =>
-          item.anchor.page === anchor.page &&
-          item.anchor.path === anchor.path &&
-          item.anchor.quote === quote,
-      );
-      if (existing) setActive(existing.id);
-      else {
-        const item: Thread = {
-          id: crypto.randomUUID(),
-          anchor,
-          turns: [],
-          draft: "",
-          resolved: false,
-        };
-        setThreads((items) => [...items, item]);
-        setActive(item.id);
+      if (reattaching) {
+        setThreads((items) =>
+          items.map((item) => (item.id === reattaching ? { ...item, anchor } : item)),
+        );
+        setActive(reattaching);
+        setReattaching(null);
+      } else {
+        const existing = threads.find(
+          (item) =>
+            item.anchor.page === anchor.page &&
+            item.anchor.path === anchor.path &&
+            item.anchor.quote === quote,
+        );
+        if (existing) setActive(existing.id);
+        else {
+          const item: Thread = {
+            id: crypto.randomUUID(),
+            anchor,
+            turns: [],
+            draft: "",
+            resolved: false,
+          };
+          setThreads((items) => [...items, item]);
+          setActive(item.id);
+        }
       }
       setSetup(false);
     };
     const escape = (event: KeyboardEvent) => {
       if (event.key === "Escape" && !busy) {
         setActive(null);
+        setReattaching(null);
         setSetup(false);
         fab.current?.focus();
       }
@@ -278,7 +292,7 @@ export function ColabEmbed() {
       document.removeEventListener("mouseup", select);
       document.removeEventListener("keydown", escape);
     };
-  }, [mode, threads, busy, active]);
+  }, [mode, threads, busy, active, reattaching]);
   async function send(toAgent: boolean) {
     if (!thread || !thread.draft.trim() || busy) return;
     const body = thread.draft.trim();
@@ -305,9 +319,8 @@ export function ColabEmbed() {
       return;
     }
     if (submission.current && !submission.current.done && submission.current.key !== key) {
-      setError(
-        "The previous send has no receipt. Restore its draft and recipient to retry the same operation. Check TMT in the terminal before restarting the preview.",
-      );
+      setHeldSend({ ...submission.current });
+      setError("An earlier send has no receipt. Check its status below before clearing it.");
       return;
     }
     const attempt =
@@ -316,6 +329,7 @@ export function ColabEmbed() {
         : { key, operationId: crypto.randomUUID(), message: "", pending: false, done: false };
     submission.current = attempt;
     submission.current.pending = true;
+    setHeldSend({ ...attempt });
     setBusy(true);
     setError("");
     try {
@@ -336,6 +350,7 @@ export function ColabEmbed() {
       turn.recipient = agents.find((item) => item.id === agent)?.name ?? "Agent";
       turn.state = "◆ Waiting for reply";
       submission.current.done = true;
+      setHeldSend(null);
       setThreads((items) =>
         items.map((item) =>
           item.id === thread.id
@@ -351,6 +366,17 @@ export function ColabEmbed() {
       );
       retainSendOperation(localStorage, attempt);
     } catch (fault) {
+      if (definitelyNotSent(fault instanceof Error && "status" in fault ? fault.status : null)) {
+        try {
+          retainSendOperation(localStorage, null);
+          submission.current = null;
+          setHeldSend(null);
+        } catch {
+          setHeldSend(submission.current ? { ...submission.current } : null);
+        }
+      } else {
+        setHeldSend(submission.current ? { ...submission.current } : null);
+      }
       setError(fault instanceof Error ? fault.message : String(fault));
     } finally {
       if (submission.current) submission.current.pending = false;
@@ -460,7 +486,13 @@ export function ColabEmbed() {
         </button>
       </div>
       {mode && hover && <div className="ce-hover" style={{ position: "fixed", ...hover }} />}
-      {mode && !active && (
+      {mode && reattaching && (
+        <div className="ce-instructions" role="status">
+          Click a component or select text to reattach this discussion.
+          <button onClick={() => setReattaching(null)}>Cancel</button>
+        </div>
+      )}
+      {mode && !active && !reattaching && (
         <div className="ce-instructions">Hover & click a component · Select text to annotate</div>
       )}
       {mode &&
@@ -603,10 +635,17 @@ export function ColabEmbed() {
           <div className="ce-messages" ref={messages}>
             <blockquote>{thread.anchor.quote || "Component annotation"}</blockquote>
             {!position && (
-              <p className="ce-warning">
-                ✗ Anchor changed. Select the content again to create a new annotation; this
-                discussion is kept.
-              </p>
+              <div className="ce-warning">
+                <p>✗ Anchor changed after a page edit. This discussion and its draft are kept.</p>
+                <button
+                  onClick={() => {
+                    setReattaching(thread.id);
+                    setActive(null);
+                  }}
+                >
+                  Reattach this discussion
+                </button>
+              </div>
             )}
             <div className="ce-turns">
               {thread.turns.map((turn) => (
@@ -646,6 +685,7 @@ export function ColabEmbed() {
                 commentSubmission.current = null;
                 if (submission.current?.done && !submission.current.pending) {
                   submission.current = null;
+                  setHeldSend(null);
                   try {
                     retainSendOperation(localStorage, null);
                   } catch {
@@ -674,6 +714,34 @@ export function ColabEmbed() {
                 }
               }}
             />
+            {heldSend && !heldSend.done && (
+              <div className="ce-send-recovery" role="status">
+                <strong>Earlier send has no receipt</strong>
+                <p>
+                  It may have reached TMT. Check the terminal before clearing this hold; your
+                  current draft will stay here.
+                </p>
+                <blockquote>
+                  {heldSend.message.split("\nYou: ").at(-1) || "Previous draft"}
+                </blockquote>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    try {
+                      retainSendOperation(localStorage, null);
+                      submission.current = null;
+                      setHeldSend(null);
+                      setError("");
+                    } catch {
+                      setError("Browser storage is unavailable. Keep this tab open.");
+                    }
+                  }}
+                >
+                  Clear blocked send
+                </button>
+              </div>
+            )}
             <div className="ce-actions">
               <button disabled={busy || !thread.draft.trim()} onClick={() => void send(false)}>
                 Comment

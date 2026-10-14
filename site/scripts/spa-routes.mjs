@@ -1,4 +1,4 @@
-// Publish only Home. Historical chapter files are redirect stubs, never app pages.
+// Publish locale Homes and the English Colab landing. Historical chapters remain redirects.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -37,6 +37,14 @@ export function writeRoutes(site, { base = "/tmt/", origin = "", hashed = false 
     }
     write(language.prefix, html);
   }
+  let colab = template.replace(/<title>[^<]*<\/title>/, "<title>Colab · Terminal Tunnel</title>");
+  if (absolute) {
+    colab = colab.replace(
+      "</head>",
+      `<link rel="canonical" href="${escape(`${homeHref("")}colab/`)}" /></head>`,
+    );
+  }
+  write("colab", colab);
   let redirects = 0;
   for (const language of [...languages, { prefix: "zh", htmlLang: "zh-Hant" }]) {
     for (const path of paths) {
@@ -55,7 +63,7 @@ export function writeRoutes(site, { base = "/tmt/", origin = "", hashed = false 
       redirects += 1;
     }
   }
-  // Unknown deep links load only the Home app, which normalizes the locale URL.
+  // Unknown deep links load the router, which normalizes them to the locale Home.
   writeFileSync(
     join(dist, "404.html"),
     template.replace("</head>", '<meta name="robots" content="noindex"></head>'),
@@ -70,6 +78,6 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     hashed: process.env.VITE_SITE_HISTORY === "hash",
   });
   console.log(
-    `spa-routes: ${result.homes} Home routes, ${result.redirects} legacy redirects and 404.html`,
+    `spa-routes: ${result.homes} Home routes, Colab landing, ${result.redirects} legacy redirects and 404.html`,
   );
 }
