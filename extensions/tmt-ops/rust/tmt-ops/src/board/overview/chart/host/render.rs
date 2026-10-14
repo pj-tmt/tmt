@@ -59,7 +59,13 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, mut area: Rect) -> 
     refresh(app, &mut state, crate::status::now_ms());
     let data = Rc::clone(state.observed.as_ref().unwrap());
     let partial = data.buckets.iter().any(|bucket| !bucket.complete());
-    let height = (area.width >= 38 && !app.usage_controls)
+    // Unknown, measured zero and empty series share compact placement; their
+    // existing summary keeps the observed/unknown and coverage distinctions.
+    let has_positive = data
+        .buckets
+        .iter()
+        .any(|bucket| bucket.tokens.is_some_and(|tokens| tokens > 0));
+    let height = (has_positive && area.width >= 38 && !app.usage_controls)
         .then(|| chart_height(app, area, partial))
         .flatten();
     if let Some(height) = height {
