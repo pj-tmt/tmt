@@ -211,6 +211,9 @@ Overview contains global attention, usage and provider limits. Agents contains t
 squad workspace and the selected agent's conversation. Digest keeps the same
 identity context and existing Core-owned policy controls. A squad's theme applies
 to Agents/Digest; Overview uses the shared board theme.
+The effective destination keys work from any non-typing pane or overlay; an
+overlay closes through its own back path before switching. Active text, search
+and completion keep `1`/`2`/`3` as input.
 
 Overview is a one-row-per-identity monitor: Agent, Squad, State, TOK/h, Digest,
 Cron, Runtime and Model fit the available width. `e` opens full observed values,
@@ -248,6 +251,10 @@ host overrides, then section overrides. Compatible explicit bindings keep their
 meaning, including an explicit `f5 = "refresh"` binding. Whole optional hints drop
 when space is short; help remains available.
 Menus, completion and editors own their keys and consume close without replay.
+Esc steps back one level and cannot be rebound; it stays at the base list.
+Default `q` quits the board body, closes or backs out of an overlay, and types in
+an editor; Ctrl-C quits globally. In Member and conversation focus, default `v`
+opens the full response reader; compatible explicit bindings still win.
 Pointer controls use only their current visible rectangles.
 
 With Agents tree focus, `a` opens Add agent; configured bindings retain
