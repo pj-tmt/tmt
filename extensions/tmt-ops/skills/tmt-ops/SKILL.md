@@ -225,7 +225,9 @@ sections only when an editor, search, completion, overlay or conversation has no
 claimed the key. `s` cycles sort and `S` reverses; `p` pins/unpins a squad, `n`
 creates a squad, `m` manages a squad or assigns a member, `x` removes only the
 selected membership, `D` opens Digest and `c` opens Timers. Member rename has no
-`r` hint or default binding. `w` is reserved for snapshots and performs no action.
+`r` hint or default binding. In the Agents tree, `w` opens saved workspace snapshots;
+compatible explicit `w` bindings retain their configured meaning. Snapshots are
+not offered in Overview, Digest or conversation focus.
 `j` jumps to the selected agent's host when available; it is not tree navigation.
 
 `ctrl-r` refreshes without discarding entered text. `/` searches. `?` help and the
@@ -235,6 +237,28 @@ meaning, including an explicit `f5 = "refresh"` binding. Whole optional hints dr
 when space is short; help remains available.
 Menus, completion and editors own their keys and consume close without replay.
 Pointer controls use only their current visible rectangles.
+
+### Saved workspace snapshots
+
+Workspace snapshots support tmux only. The list reads Core's Latest capture and
+named saves for the original socket. Selecting or opening a preview is read-only.
+Preview includes capture time, digest, topology, pane directories and literal
+recorded argv. Long detail is scrollable and paged; text never becomes a command.
+Save latest capture copies the published capture under an explicit name; it does
+not capture the current layout. Delete removes only a confirmed named save.
+
+Restore defaults to Layout only. Full mode can request eligible agent resume and
+recorded TMT command startup. Review shows the exact socket, name, digest and mode;
+Confirm submits that selection once using Core's digest guard. Existing sessions
+skip. A changed or missing snapshot requires fresh review. Enlarge the terminal
+when the exact target and Cancel/Confirm cannot fit readably.
+
+The result preserves session/window/pane mappings and each startup outcome.
+Startup requested does not prove a conversation resumed. Partial or Unknown
+results retain their explanation; created resources remain, with no automatic
+retry or rollback. Closing retains submitted work and its result. Inspect the
+original socket and live resources before deciding a further action. An open
+snapshot view, pending command or retained Unknown result defers board reload.
 
 Old squad tabs, Left/Right tab navigation, tab reorder/pick/hide, factory views and
 custom pane geometry do not select a legacy UI. The board reports located

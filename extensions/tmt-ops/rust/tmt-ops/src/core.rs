@@ -209,9 +209,19 @@ impl Core {
 
     /// Like [`Core::json`], bounded by `timeout` instead of the usual limit.
     pub fn json_within(&self, args: &[&str], timeout: Duration) -> Result<Value, SquadError> {
+        document(self.json_finished(args, timeout)?)
+    }
+
+    /// Typed consumers may receive a partial result document on a nonzero exit.
+    /// They own that command's success/error schema; ordinary calls keep theirs.
+    pub(crate) fn json_finished(
+        &self,
+        args: &[&str],
+        timeout: Duration,
+    ) -> Result<runner::Finished, SquadError> {
         let mut argv: Vec<OsString> = args.iter().map(OsString::from).collect();
         argv.push("--json".into());
-        self.call_within(&argv, b"", timeout)
+        self.finish(&argv, b"", timeout, tmt_invoke::EnvironmentPolicy::Inherit)
     }
 
     fn call(&self, argv: &[OsString], input: &[u8]) -> Result<Value, SquadError> {

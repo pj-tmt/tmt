@@ -24,6 +24,7 @@ mod meter;
 pub(crate) mod notes;
 mod picker_surface;
 mod rate;
+mod recovery;
 mod refresh;
 mod reload;
 mod response;
@@ -86,6 +87,7 @@ pub fn exit_status(signal: Option<i32>) -> u8 {
 /// with the process, and a read error disconnects the channel.
 pub(super) enum BoardEvent {
     Migration(Option<String>),
+    Recovery(recovery::load::Completed),
     Checklist(checklist::load::Completed),
     Input(Event),
     InputClosed,
@@ -337,11 +339,15 @@ fn session(
     // Hands a job to the lane and says so at once; the event that comes back says how it ended.
     let submit = |app: &mut App, job: lane::Job| {
         // An overlay opens once: a second request for one waits for the first.
-        if !matches!(job, lane::Job::Act(_)) && app.in_flight > 0 {
+        if !matches!(job, lane::Job::Act(_) | lane::Job::Recovery(_)) && app.in_flight > 0 {
             app.notice = Some("Still working on the previous request.".to_owned());
             return;
         }
-        app.notice = Some(job.progress().to_owned());
+        // Recovery's pending task owns its progress and retained result inside
+        // the modal. Do not leave a second stale progress notice on the board.
+        if !matches!(job, lane::Job::Recovery(_)) {
+            app.notice = Some(job.progress().to_owned());
+        }
         app.in_flight += 1;
         io(job);
     };
@@ -419,6 +425,11 @@ fn session(
                 app.finished_checklist(completed);
                 dirty = true;
                 Effect::None
+            }
+            Ok(BoardEvent::Recovery(completed)) => {
+                app.in_flight = app.in_flight.saturating_sub(1);
+                dirty = true;
+                app.finished_recovery(completed)
             }
             Ok(BoardEvent::Snapshot {
                 cancellation,
@@ -662,6 +673,7 @@ fn session(
                 refreshed = Instant::now();
             }
             Effect::Checklist(task) => checklist(task),
+            Effect::Recovery(task) => submit(app, lane::Job::Recovery(task)),
             Effect::Settings => submit(app, lane::Job::Open(lane::Opening::Settings)),
             Effect::SaveSetting => {
                 if app.settings.as_mut().is_some_and(|overlay| overlay.save()) {

@@ -124,6 +124,12 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
         ]),
         OpsKeyScope::Pool => entries.extend([("m", "manage"), ("n", "create-squad")]),
     }
+    if matches!(
+        scope,
+        OpsKeyScope::Squad | OpsKeyScope::Member | OpsKeyScope::Pool
+    ) {
+        entries.push(("w", "workspace-snapshots"));
+    }
     entries
         .into_iter()
         .map(|(key, action)| {
@@ -357,10 +363,6 @@ impl Config {
                 notices.push(format!("`bind.{key}` is not active in Reader focus: readers own shell digits. Its authored value and list-scope binding are preserved."));
                 continue;
             }
-            if key == "w" && scope != OpsKeyScope::Reader {
-                notices.push("`bind.w`: w is reserved for Workspace snapshots in list scopes; move this binding to another key explicitly.".into());
-                continue;
-            }
             if let Err(error) = admit_action(&action, &format!("bind.{key}")) {
                 notices.push(error.message);
                 continue;
@@ -504,15 +506,43 @@ mod tests {
         assert!(!member.contains_key("r"));
         assert_eq!(member["D"].text, "digest");
         assert_eq!(member["x"].text, "remove-membership");
-        assert!(!squad.contains_key("w"));
+        assert_eq!(squad["w"].text, "workspace-snapshots");
         assert!(!member.contains_key("A"));
         assert_eq!(overview["left"].text, "fold");
         assert_eq!(overview["right"].text, "expand");
     }
     #[test]
-    fn reserved_snapshot_and_retired_bindings_are_reported_without_rewriting_config() {
+    fn snapshot_default_yields_to_explicit_global_host_and_section_bindings() {
+        let config = config("[bind]\nw='talk'\n[bind.tmux]\nw='open'\n");
+        let section: Bindings = [("w".into(), Action::parse("copy").unwrap())].into();
+        for scope in [OpsKeyScope::Squad, OpsKeyScope::Member, OpsKeyScope::Pool] {
+            assert_eq!(defaults(scope)["w"].text, "workspace-snapshots");
+            let global = config.workspace_keys(scope, None, None).unwrap();
+            assert_eq!(global.bindings["w"].verb, Verb::Talk);
+            assert!(global.notices.is_empty());
+            assert_eq!(
+                config
+                    .workspace_keys(scope, Some("tmux"), None)
+                    .unwrap()
+                    .bindings["w"]
+                    .verb,
+                Verb::Open
+            );
+            assert_eq!(
+                config
+                    .workspace_keys(scope, Some("tmux"), Some(&section))
+                    .unwrap()
+                    .bindings["w"]
+                    .verb,
+                Verb::Copy
+            );
+        }
+        assert!(!defaults(OpsKeyScope::Overview).contains_key("w"));
+        assert!(!defaults(OpsKeyScope::Reader).contains_key("w"));
+    }
+    #[test]
+    fn retired_bindings_are_reported_without_rewriting_config() {
         for binding in [
-            "w='talk'",
             "A='ask-lead'",
             "s='home-pick'",
             "L='jump lead'",

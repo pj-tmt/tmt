@@ -236,6 +236,7 @@ pub enum Effect {
     SaveTheme,
     Act(Request),
     Checklist(super::checklist::load::Task),
+    Recovery(super::recovery::load::Task),
 }
 
 /// What a menu entry does: run a binding, or reply to one open request.
@@ -490,6 +491,7 @@ const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Overlay {
     Workspace,
+    Recovery,
     Help,
     Settings,
     Theme,
@@ -502,6 +504,7 @@ impl Overlay {
         vec![
             match self {
                 Self::Workspace => "workspace-form",
+                Self::Recovery => "recovery",
                 Self::Help => "help",
                 Self::Settings => "settings",
                 Self::Theme => "theme-picker",
@@ -573,6 +576,7 @@ pub struct App {
         RefCell<Vec<(ratatui::layout::Rect, super::workspace::OpsTarget, Choice)>>,
     pub(super) timing: Option<super::timing::Ui>,
     pub(super) checklist: Option<super::checklist::Controller>,
+    pub(super) recovery: Option<super::recovery::Controller>,
     pub(super) checklist_generation: u64,
     pub(super) initial_look: Option<crate::look::Look>,
     pub(super) cron: super::cronboard::State,
@@ -2456,7 +2460,7 @@ impl App {
     }
 
     pub(super) fn paste(&mut self, text: &str) -> Effect {
-        if self.checklist_shown() {
+        if self.checklist_shown() || self.recovery_shown() {
             return self
                 .overlay_event(&Event::Paste(text.to_owned()))
                 .unwrap_or(Effect::None);
@@ -2854,6 +2858,8 @@ impl App {
     fn overlay(&self) -> Option<Overlay> {
         if self.workspace_form.is_some() {
             Some(Overlay::Workspace)
+        } else if self.recovery_shown() {
+            Some(Overlay::Recovery)
         } else if self.row_details.reader.is_some() {
             Some(Overlay::ReplyReader)
         } else if self.checklist_shown() {
@@ -2879,6 +2885,7 @@ impl App {
     ) -> Option<Effect> {
         match overlay {
             Overlay::Workspace => self.workspace_form_event(field, event),
+            Overlay::Recovery => self.recovery_event(event),
             Overlay::ReplyReader => Some(self.reader_event(event)),
             Overlay::Checklist => self.checklist_event(event),
             Overlay::Help => {
@@ -3020,6 +3027,9 @@ impl App {
         }
         if let Some(checklist) = &self.checklist {
             checklist.invalidate();
+        }
+        if let Some(recovery) = &self.recovery {
+            recovery.invalidate();
         }
         if let Some(settings) = &self.settings {
             settings.surface.borrow_mut().invalidate();

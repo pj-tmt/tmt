@@ -39,6 +39,16 @@ square shared modal. Incidental frame cells remain Dim; receiving focus and
 selection stay distinct. Frozen row/HOME provenance and decoded fixture approval
 are owned by the verification reference.
 
+`board/recovery` owns the saved-snapshot modal's selection, private public-JSON
+projections, read coalescing, exact digest/mode confirmation and retained reports.
+Core's public workspace commands own capture, storage, live checks and effects.
+Typed recovery jobs use the existing ordered action lane and bounded Core client;
+only restore preserves completed nonzero JSON for partial-result presentation.
+The App's effective table admits snapshot actions only in Agents list focus,
+after Config binding precedence. Its modal router consumes close, and frame
+invalidation revokes pointer/confirmation geometry. Reload waits for an open view,
+pending work or retained Unknown report.
+
 ## Reload in place
 
 `board::reload::Watch` lets a running board adopt a new `tmt-ops` without losing its

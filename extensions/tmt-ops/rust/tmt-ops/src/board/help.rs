@@ -133,7 +133,6 @@ pub(super) fn model(app: &App) -> KeyHelp {
                     "Shift-Left/Right",
                     "old tab reorder is removed; use squad pins/sort instead",
                 ),
-                ("w", "reserved for Workspace snapshots; no list binding"),
                 (
                     "wheel",
                     "scroll the pane under the pointer without moving the selected target",
