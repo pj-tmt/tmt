@@ -54,17 +54,13 @@ fn main() -> io::Result<()> {
     }
     // Hosted wire fixture: its declaration digest covers these exact bytes and CSP.
     if args == ["hosting-bundle", "--json"] {
-        println!(
-            "{}",
-            r#"{"version":1,"manifestDigest":"3c0d623ce89db4005fd3877c7ded7f2252ef3521635decf8efb864a7a09b2727","files":[{"path":"/index.html","bytesBase64":"YQ=="}]}"#
-        );
+        let reply = r#"{"version":1,"manifestDigest":"3c0d623ce89db4005fd3877c7ded7f2252ef3521635decf8efb864a7a09b2727","files":[{"path":"/index.html","bytesBase64":"YQ=="}]}"#;
+        println!("{reply}");
         return Ok(());
     }
     if args == ["deploy-declaration", "--json"] {
-        println!(
-            "{}",
-            r#"{"version":1,"declaration":"{\"hosting\":{\"version\":1,\"files\":[{\"path\":\"/index.html\",\"sha256\":\"ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb\",\"length\":1,\"contentType\":\"text/html; charset=utf-8\",\"csp\":\"default-src 'none'\"}]}}","declarationDigest":"f2b228894a8cb7dd58347cd39ac5754606ce1c8ce95cf50dacad497b2eafbbe7"}"#
-        );
+        let reply = r#"{"version":1,"declaration":"{\"hosting\":{\"version\":1,\"files\":[{\"path\":\"/index.html\",\"sha256\":\"ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb\",\"length\":1,\"contentType\":\"text/html; charset=utf-8\",\"csp\":\"default-src 'none'\"}]}}","declarationDigest":"f2b228894a8cb7dd58347cd39ac5754606ce1c8ce95cf50dacad497b2eafbbe7"}"#;
+        println!("{reply}");
         return Ok(());
     }
     if args != ["serve", "--json"] {
