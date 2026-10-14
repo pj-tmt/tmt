@@ -26,6 +26,8 @@ mod sync_commands;
 use tmt_remote::{deploy_record::DeployRecordStore, error::RemoteError};
 
 const BINARY: &str = env!("CARGO_BIN_EXE_tmt-remote");
+#[path = "cli/activation.rs"]
+mod activation;
 /// Bound on a `serve` child reporting readiness. Startup runs freshly written
 /// fake-core executables, whose first exec waits behind the same assessment
 /// queue as the fixture probe.

@@ -23,11 +23,13 @@ use std::{
     sync::{Arc, Mutex, MutexGuard},
     time::{Duration, Instant},
 };
-use tmt_extension_objects::{Budget, Budgets, Bus, Caps, Fault, Offer, Uuid4, negotiate};
+use tmt_extension_objects::{
+    Budget, Budgets, Bus, Caps, Fault, Offer, Uuid4, negotiate, negotiate_sync,
+};
 
 mod activation;
 mod readiness;
-pub use activation::Reactivation;
+pub use activation::{NativeActivation, Reactivation};
 pub use readiness::ObjectReadiness;
 
 mod config;
@@ -36,6 +38,7 @@ mod namespace;
 mod observe;
 mod original;
 mod origins;
+pub mod sync;
 mod upload;
 use config::ConfigSource;
 pub use dispatch::ChannelEnd;
@@ -85,6 +88,8 @@ pub enum ActivateError {
     NotDeclared,
     /// The service was stopped.
     Stopped,
+    /// Native sync has no registered project-owner factory.
+    Unavailable,
     /// A setup candidate for the extension is already in progress.
     Busy,
     /// The installation already has its most buses.
@@ -95,6 +100,13 @@ pub enum ActivateError {
     Channel(Fault),
 }
 
+struct Setup {
+    index: usize,
+    id: ExtensionId,
+    source: ConfigSource,
+    tunnels: usize,
+    native: Option<Arc<sync::Registration>>,
+}
 struct Declared {
     name: &'static str,
     id: ExtensionId,
@@ -106,6 +118,7 @@ struct Declared {
     setup: bool,
     active: Option<Running>,
     failure: Option<ActivateError>,
+    native: Option<Arc<sync::Registration>>,
 }
 impl Declared {
     /// Whether the extension has a channel that has not ended.
@@ -206,6 +219,7 @@ impl<'s> ObjectService<'s> {
                     setup: false,
                     active: None,
                     failure: None,
+                    native: None,
                 }
             })
             .collect();
@@ -230,6 +244,40 @@ impl<'s> ObjectService<'s> {
         Some(self.storage.handle(slot.id.clone()))
     }
 
+    /// Register verified project-owner construction without opening a channel.
+    /// The production provider registers only after its independent delivery gate.
+    pub fn register_native(
+        &self,
+        name: &str,
+        registration: sync::Registration,
+    ) -> Result<(), ActivateError> {
+        let mut state = self.locked();
+        if state.stopped {
+            return Err(ActivateError::Stopped);
+        }
+        let slot = state
+            .slots
+            .iter_mut()
+            .find(|slot| slot.name == name)
+            .ok_or(ActivateError::NotDeclared)?;
+        if slot.setup || slot.native.is_some() {
+            return Err(ActivateError::Busy);
+        }
+        if registration.extension() != name {
+            return Err(ActivateError::NotDeclared);
+        }
+        slot.native = Some(Arc::new(registration));
+        Ok(())
+    }
+    /// Explicit v3 activation; it never guesses a version or falls back.
+    pub fn activate_native_until(
+        &self,
+        mounts: &Mounts,
+        name: &str,
+        deadline: Instant,
+    ) -> Result<Uuid4, ActivateError> {
+        self.activate_channel_until(mounts, name, deadline, true)
+    }
     /// Open the channel to `name` and make it the extension's active bus; the bus it
     /// replaces is closed and joined. The extension's socket is connected through
     /// `mounts` with exactly the `Host` and mount values the door sets on every request
@@ -244,12 +292,22 @@ impl<'s> ObjectService<'s> {
         name: &str,
         deadline: Instant,
     ) -> Result<Uuid4, ActivateError> {
+        self.activate_channel_until(mounts, name, deadline, false)
+    }
+    fn activate_channel_until(
+        &self,
+        mounts: &Mounts,
+        name: &str,
+        deadline: Instant,
+        native: bool,
+    ) -> Result<Uuid4, ActivateError> {
         if Instant::now() >= deadline {
             return Err(ActivateError::Channel(Fault::Timeout(
                 tmt_extension_objects::Stage::Head,
             )));
         }
-        let (index, id, source, tunnels) = self.begin_setup(name)?;
+        let prepared = self.begin_setup(name, native)?;
+        let index = prepared.index;
         #[cfg(test)]
         let hook = self.hook.lock().unwrap_or_else(|p| p.into_inner()).clone();
         #[cfg(test)]
@@ -259,9 +317,7 @@ impl<'s> ObjectService<'s> {
         let built = self.connect(
             mounts,
             name,
-            id,
-            source,
-            tunnels,
+            prepared,
             deadline.min(Instant::now() + self.bounds.setup),
         );
         #[cfg(test)]
@@ -272,10 +328,7 @@ impl<'s> ObjectService<'s> {
         }
         self.finish_setup(index, built, deadline)
     }
-    fn begin_setup(
-        &self,
-        name: &str,
-    ) -> Result<(usize, ExtensionId, ConfigSource, usize), ActivateError> {
+    fn begin_setup(&self, name: &str, native: bool) -> Result<Setup, ActivateError> {
         let mut state = self.locked();
         if state.stopped {
             return Err(ActivateError::Stopped);
@@ -285,6 +338,16 @@ impl<'s> ObjectService<'s> {
             .iter()
             .position(|slot| slot.name == name)
             .ok_or(ActivateError::NotDeclared)?;
+        let native = if native {
+            Some(
+                state.slots[index]
+                    .native
+                    .clone()
+                    .ok_or(ActivateError::Unavailable)?,
+            )
+        } else {
+            None
+        };
         if state.slots[index].setup {
             return Err(ActivateError::Busy);
         }
@@ -298,23 +361,29 @@ impl<'s> ObjectService<'s> {
             return Err(ActivateError::Capacity);
         }
         state.slots[index].setup = true;
-        Ok((
+        Ok(Setup {
             index,
-            state.slots[index].id.clone(),
-            state.slots[index].source,
-            state.slots[index].tunnels,
-        ))
+            id: state.slots[index].id.clone(),
+            source: state.slots[index].source,
+            tunnels: state.slots[index].tunnels,
+            native,
+        })
     }
     fn connect(
         &self,
         mounts: &Mounts,
         name: &str,
-        id: ExtensionId,
-        source: ConfigSource,
-        tunnels: usize,
+        prepared: Setup,
         setup: Instant,
     ) -> Result<Running, ActivateError> {
-        let link = negotiate(setup, || {
+        let Setup {
+            id,
+            source,
+            tunnels,
+            native,
+            ..
+        } = prepared;
+        let connect = || {
             let endpoint = mounts
                 .open_object_channel(name, setup)
                 .map_err(|error| Fault::Io(error.kind()))?;
@@ -330,7 +399,20 @@ impl<'s> ObjectService<'s> {
                     generation,
                 },
             ))
-        })
+        };
+        let link = if native.is_some() {
+            connect()
+                .and_then(|(stream, offer)| negotiate_sync(stream, &offer, setup))
+                .and_then(|link| {
+                    if link.version() == 3 {
+                        Ok(link)
+                    } else {
+                        Err(Fault::UnsupportedSync)
+                    }
+                })
+        } else {
+            negotiate(setup, connect)
+        }
         .map_err(|fault| match fault {
             Fault::Io(kind) => ActivateError::Connect(kind),
             fault => ActivateError::Channel(fault),
@@ -368,6 +450,7 @@ impl<'s> ObjectService<'s> {
             sessions: mounts.sessions(),
             backend: self.storage.reader(id.clone()),
             writer: self.storage.writer(id),
+            native,
         };
         Running::start(bus, launch).map_err(ActivateError::Channel)
     }

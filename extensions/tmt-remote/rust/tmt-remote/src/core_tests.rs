@@ -7,6 +7,21 @@ use std::{
 mod executable_fixture;
 
 static NEXT: AtomicUsize = AtomicUsize::new(0);
+#[test]
+fn storage_root_lookup_obeys_its_callers_deadline_and_reaps_the_probe() {
+    let fixture = Fixture::new("printf started > started; exec /bin/sleep 10");
+    let began = Instant::now();
+    let error = fixture
+        .client()
+        .storage_root_until(&AtomicBool::new(false), began + Duration::from_millis(500))
+        .unwrap_err();
+    assert_eq!(error.code, "REMOTE_CORE_UNAVAILABLE");
+    assert!(began.elapsed() < Duration::from_secs(3));
+    assert_eq!(
+        fs::read_to_string(fixture.0.join("started")).unwrap(),
+        "started"
+    );
+}
 struct Fixture(PathBuf);
 impl Fixture {
     fn new(script: &str) -> Self {

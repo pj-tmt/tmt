@@ -40,6 +40,7 @@ use tmt_core::{
     request::RequestEndpoint,
 };
 
+pub use crate::tmux::DiscoveryObservation;
 pub use crate::tmux::{
     ClientView, FocusError, Invoker, OperationOptions, PaneCosmetics, PaneRefresh,
 };
@@ -396,6 +397,23 @@ impl<R: CommandRunner + Clone> Host<R> {
 }
 
 impl<R: CommandRunner> Host<R> {
+    /// First-run inventory never initializes host metadata or invokes external drivers.
+    pub fn discover(
+        &self,
+        socket: Option<&str>,
+        pane: Option<&str>,
+        deadline: Instant,
+    ) -> Result<Option<DiscoveryObservation>, HostError> {
+        match self.primary {
+            HostKind::Tmux => self
+                .tmux
+                .discover(socket, pane, deadline)
+                .map(Some)
+                .map_err(HostError::from),
+            HostKind::External(_) => Ok(None),
+        }
+    }
+
     pub fn kind(&self) -> HostKind {
         self.primary
     }
@@ -779,6 +797,11 @@ pub struct BindingSession<'a, R> {
 }
 
 impl<R: CommandRunner> BindingSession<'_, R> {
+    pub fn with_discovery_target(mut self, target: tmt_core::discovery::DiscoveryTarget) -> Self {
+        self.tmux = self.tmux.with_discovery_target(target);
+        self
+    }
+
     /// The user's own tmux client location, required only by `focus`.
     pub fn with_invoker(mut self, invoker: Invoker) -> Self {
         self.tmux = self.tmux.with_invoker(invoker);
@@ -863,6 +886,18 @@ impl<R: CommandRunner> BindingEndpoint for BindingSession<'_, R> {
         pane_pid: u64,
     ) -> Result<Option<String>, Self::Error> {
         self.driver(server.host).pane_incarnation(pane_pid)
+    }
+}
+
+impl<R: CommandRunner> tmt_core::binding::GuardedBindingEndpoint for BindingSession<'_, R> {
+    fn discovery_target(
+        &mut self,
+        pane: &str,
+    ) -> Result<Option<tmt_core::discovery::DiscoveryTarget>, Self::Error> {
+        match self.primary {
+            HostKind::Tmux => self.tmux.discovery_target(pane).map_err(HostError::from),
+            HostKind::External(_) => Ok(None),
+        }
     }
 }
 

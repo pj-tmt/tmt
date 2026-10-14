@@ -461,6 +461,9 @@ fn foreground_with(
             control::StatusViews {
                 objects: readiness,
                 layers: firestore,
+                native: reactivation.as_ref().map(|hook| {
+                    Arc::clone(hook) as Arc<dyn tmt_remote::object_service::NativeActivation>
+                }),
             },
         )?;
         let mut mounts = Mounts::with_extensions(

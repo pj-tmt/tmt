@@ -110,8 +110,7 @@ describe('binding publication, reconciliation and presentation', { concurrent: f
       });
       await fixture.waitFor(
         () =>
-          !settled &&
-          processTreeHasOpenFile(observer.pid, path.join(fixture.globalDir, 'tmux-team.db')),
+          !settled && processTreeHasOpenFile(observer.pid, path.join(fixture.globalDir, 'tmt.db')),
         900,
         'native observer to open the locked database'
       );

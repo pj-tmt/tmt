@@ -43,13 +43,21 @@ impl CoreClient {
     }
     /// Absolute core data root; remote state and extension sockets live beneath it.
     pub fn storage_root(&self, stop: &AtomicBool) -> Result<PathBuf, RemoteError> {
-        let reply = self.call(
+        self.storage_root_until(stop, Instant::now() + crate::limits::CORE_CALL)
+    }
+    /// Read-only root discovery clipped to the caller's absolute operation bound.
+    pub fn storage_root_until(
+        &self,
+        stop: &AtomicBool,
+        deadline: Instant,
+    ) -> Result<PathBuf, RemoteError> {
+        let reply = self.call_until(
             &["api"],
             json!({"version":1,"operation":"storage.root","input":{}})
                 .to_string()
                 .as_bytes(),
             stop,
-            crate::limits::CORE_CALL,
+            deadline.min(Instant::now() + crate::limits::CORE_CALL),
             64 * 1024,
         )?;
         reply["dataRoot"]

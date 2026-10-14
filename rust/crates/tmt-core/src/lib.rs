@@ -2,6 +2,7 @@
 
 pub mod binding;
 pub mod content_digest;
+pub mod discovery;
 pub mod dispatch;
 pub mod driver;
 pub mod endpoint;

@@ -1061,7 +1061,7 @@ describe('native configuration process boundary', () => {
         ui: { paneBadge: 'on' },
       });
       expect(fs.existsSync(sandbox.globalDir)).toBe(false);
-      expect(fs.existsSync(path.join(override, 'tmux-team.db'))).toBe(false);
+      expect(fs.existsSync(path.join(override, 'tmt.db'))).toBe(false);
     });
   });
 });

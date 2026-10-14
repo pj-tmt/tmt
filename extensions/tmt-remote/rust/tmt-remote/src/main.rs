@@ -1,3 +1,4 @@
+mod activation_cli;
 mod serve;
 mod sync_cli;
 
@@ -199,6 +200,7 @@ fn grammar() -> Command {
         .version(env!("CARGO_PKG_VERSION"))
         .arg(tmt_cli_style::version_arg(ArgAction::Version))
         .subcommand_required(true)
+        .subcommand(activation_cli::command())
         .arg(Arg::new("remote").long("remote").global(true).help("Remote name, owned project id, or local"))
         .subcommand(sync_cli::command())
         .subcommand(
@@ -1435,6 +1437,9 @@ fn main() -> ExitCode {
             };
         }
     };
+    if let Some(("__activate", arguments)) = matches.subcommand() {
+        return activation_cli::run(arguments);
+    }
     match run(&matches) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {

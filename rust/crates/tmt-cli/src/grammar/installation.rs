@@ -320,6 +320,10 @@ pub(in crate::grammar) fn refresh_skills() -> Command {
         )
 }
 
+pub(in crate::grammar) fn rename_database() -> Command {
+    internal("__native-rename-database", "Internal Core database rename").hide(true)
+}
+
 pub(in crate::grammar) fn upgrade_extensions() -> Command {
     internal(
         "__native-upgrade-extensions",

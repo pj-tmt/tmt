@@ -47,9 +47,8 @@ are outside the tracked-file map. The [layout skill](.agents/skills/tmt-layout/S
 owns moves and the tracked-file guard. Handbook language exceptions belong to
 [AGENTS](AGENTS.md#repository-content-language) and the allowlist.
 
-`tmt-ux-lead` owns shared visual tokens and the private browser leaf;
-[its contracts](design/gui-components.md) own generation and consumer boundaries.
-[Drawer/Menu/Dialog/notifications](design/browser-ui/README.md) are presentation-only.
+`tmt-ux-lead` owns shared visual tokens and [private browser UI](design/browser-ui/README.md).
+`./ui` isolates React/Radix/cmdk CSS/themes/portals; legacy/static unchanged; no domain state.
 [Release procedures](.agents/skills/tmt-release/SKILL.md) include the archive’s
 product-neutral `rust/archive/NATIVE-INSTALL.md`; [dev-only embed](site/README.md) stays site-owned.
 
@@ -244,11 +243,11 @@ a working directory, active pane or sole identity.
 
 ### Identity, names and bindings
 
-- `tmt-core::names` owns canonical identity classification; pane-target syntax
-  belongs to each host. `identity` owns lifetime and storage-only create/promote
-  policy, `identity_metadata` and `identity_status` own descriptive, untrusted data
-  that grants no authority (including the [atomic metadata contract](contracts/extension-api.md#conditional-identity-metadata)), and `binding` owns evidence evaluation, retirement
-  authorization and binding use cases.
+- `tmt-core::names` owns canonical names; hosts own pane-target syntax.
+  `identity` owns lifetime/create/promote; `identity_metadata`/`identity_status`
+  own untrusted descriptions granting no authority ([atomic metadata](contracts/extension-api.md#conditional-identity-metadata)).
+  `binding` owns evidence, retirement and binds. [Discovery v1](contracts/discovery-v1.md)
+  owns candidate bounds and native/UUID fences; guarded `add` uses that binder.
 - Unknown or conflicting endpoint evidence is never proof of death. Saved
   identities detach and stay offline; temporary identities retire only on
   conclusive evidence or explicit unbind, and exchanges are kept. Presence is
@@ -344,8 +343,8 @@ fullwidth `！` in any text typed into a pane. Details are in the
 
 ### Agent drivers
 
-Each agent driver has one pure `DriverDescriptor` and one adapter module;
-`drivers::Registry` composes detection, setup, launch and caller recognition.
+Each `DriverDescriptor` and adapter feed `drivers::Registry` for detection, setup,
+launch and caller recognition. Muse supports detection and skills.
 Detection never starts an agent. Claude owns the prompt-picker plugin source (`drivers/claude/plugins/`, published by the root `.claude-plugin` marketplace and installed by the user) and a read-only check that hints when it is missing; a launch adds no plugin arguments and no persistent provider settings change. Module rules and name ownership:
 [agent drivers](.agents/skills/tmt-core-runtime/references/hosts-drivers.md#agent-drivers).
 
@@ -558,16 +557,14 @@ and mounts owner-installed extensions. [Colab](#colab-extension) is mounted at
 `/r/<prefix>/x/colab/` and otherwise reaches Remote only through the public CLI, that SDK and
 the extension object channel (`tmt-extension-objects`), never through Remote state files.
 
-Remote's lease-bound object service owns `objects` and the `rust/crates/tmt-extension-objects`
-wire leaf; [object-backends](.agents/skills/tmt-remote/references/object-backends.md) owns
-channels, backends and quotas. Pure declaration, Rules and Hosting composition feeds the
-Firestore deploy CLI. `firebase_auth` owns credentials; `native_sync` owns COUNT wake polling
-and read budgets. Colab owns cursors; neither adds Core state or a carrier.
-[Remote internals](.agents/skills/tmt-remote/references/architecture-internals.md)
-own the module table and per-module guarantees;
-[door and discovery](.agents/skills/tmt-remote/references/door-and-discovery.md) owns serve
-lifecycle, status and management implementation; the background start it shares with Colab
-is [extension-serve-v1](contracts/extension-serve-v1.md).
+The lease-bound `object_service` owns the `objects`/`tmt-extension-objects` carrier and injected
+v3 sync. `firebase_auth` owns credentials; `native_sync` owns COUNT wakes/read budgets;
+Colab owns cursors. Neither provider adds Core state or a carrier.
+[object-backends](.agents/skills/tmt-remote/references/object-backends.md) owns channels,
+backends and quotas. Pure declaration, Rules and Hosting feed Firestore deploy.
+[Remote internals](.agents/skills/tmt-remote/references/architecture-internals.md) owns module guarantees;
+[door and discovery](.agents/skills/tmt-remote/references/door-and-discovery.md) owns lifecycle,
+status and management. Shared background start is [extension-serve-v1](contracts/extension-serve-v1.md).
 
 ## Colab extension
 

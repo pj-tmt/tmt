@@ -17,14 +17,14 @@ describe('capture numeric contract', { concurrent: false }, () => {
         json: { error: { code: 'CONFIG_ERROR' } },
       });
       expect(fs.readFileSync(configFile, 'utf8')).toBe(configBytes);
-      expect(fs.existsSync(path.join(fixture.globalDir, 'tmux-team.db'))).toBe(false);
+      expect(fs.existsSync(path.join(fixture.globalDir, 'tmt.db'))).toBe(false);
       expect(fs.existsSync(fixture.forbiddenTmuxLogPath)).toBe(false);
     });
   });
 
   it('rejects invalid counts before creating storage or invoking tmux', async () => {
     await withE2EFixture(async (fixture) => {
-      const database = path.join(fixture.globalDir, 'tmux-team.db');
+      const database = path.join(fixture.globalDir, 'tmt.db');
       expect(fs.existsSync(database)).toBe(false);
       const metadata = fixture.paneMetadata(fixture.pane);
       for (const args of [

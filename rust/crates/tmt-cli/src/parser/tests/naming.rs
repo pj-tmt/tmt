@@ -195,3 +195,52 @@ fn office_aliases_preserve_direct_and_embedded_dispatch() {
         assert!(embedded.mode.json);
     }
 }
+
+#[test]
+fn discover_and_guarded_add_use_one_binder_and_validate_selectors_as_usage_errors() {
+    use crate::invocation::Invocation;
+    let digest = "a".repeat(64);
+    let parsed = super::parsed(&["discover", "--host", "herdr", "--json"]);
+    assert!(matches!(parsed.invocation, Invocation::Discover { .. }));
+    let parsed = super::parsed(&[
+        "add", "%3", "worker", "--expect", &digest, "--save", "--socket", "/tmp/a",
+    ]);
+    assert!(matches!(
+        parsed.invocation,
+        Invocation::GuardedBind {
+            save: true,
+            identity: None,
+            ..
+        }
+    ));
+    let uuid = "123e4567-e89b-42d3-a456-426614174000";
+    let parsed = super::parsed(&["add", "%3", "--identity", uuid, "--expect", &digest]);
+    assert!(matches!(
+        parsed.invocation,
+        Invocation::GuardedBind {
+            name: None,
+            identity: Some(_),
+            ..
+        }
+    ));
+    for args in [
+        vec!["discover", "scan"],
+        vec!["discover", "adopt"],
+        vec![
+            "add",
+            "%3",
+            "worker",
+            "--identity",
+            uuid,
+            "--expect",
+            &digest,
+        ],
+        vec!["add", "%3", "--identity", uuid],
+        vec!["add", "%3", "worker", "--expect", "bad"],
+        vec!["add", "window:1", "worker", "--expect", &digest],
+        vec!["add", "%3", "--identity", "worker", "--expect", &digest],
+    ] {
+        let error = parse_error(&args);
+        assert_eq!(error.code, "USAGE_ERROR");
+    }
+}

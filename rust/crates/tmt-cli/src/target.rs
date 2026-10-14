@@ -17,6 +17,39 @@ use tmt_core::{
 #[cfg(test)]
 mod tests;
 
+/// Focus alone accepts a canonical UUIDv4 before considering names or panes.
+/// Keep diagnostic and delivery routing on their existing resolver.
+pub fn resolve_focus(
+    storage: &mut Storage,
+    host: &Host,
+    input: &str,
+) -> Result<PaneIdentity, Failure> {
+    if !focus_identity_id(input) {
+        return resolve(storage, host, input);
+    }
+    host.resolve_servers(storage).map_err(endpoint_failure)?;
+    if let Some(pane) = binding::current_identity_presence(storage, &mut host.session(), input)
+        .map_err(binding_failure)?
+    {
+        return Ok(pane);
+    }
+    let identity = storage.find_active_identity_by_id(input).map_err(|error| {
+        Failure::new("IDENTITY_ERROR", "Could not read identity storage.", 1).caused_by(error)
+    })?;
+    let message = if identity.is_some() {
+        format!("Identity '{input}' is not active.")
+    } else {
+        format!("Identity '{input}' was not found.")
+    };
+    Err(Failure::new("NAME_NOT_FOUND", message, 3))
+}
+
+fn focus_identity_id(input: &str) -> bool {
+    // The existing predicates jointly require canonical lowercase spelling,
+    // version 4 and the RFC4122 variant; no UUID dependency is needed here.
+    tmt_core::dispatch::canonical_id(input) && tmt_core::endpoint::valid_server_id(input)
+}
+
 pub fn resolve(storage: &mut Storage, host: &Host, input: &str) -> Result<PaneIdentity, Failure> {
     let pane = tmt_core::identity::addresses_pane(storage, input).map_err(|error| {
         Failure::new("IDENTITY_ERROR", "Could not read identity storage.", 1).caused_by(error)

@@ -367,7 +367,7 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
         };
       };
       const observeNotices = () => {
-        const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
+        const db = new Database(path.join(fixture.globalDir, 'tmt.db'), { readonly: true });
         try {
           return db
             .prepare(
@@ -417,7 +417,7 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
         recipient: lead,
         message: expect.stringContaining('worker retired'),
       });
-      const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
+      const db = new Database(path.join(fixture.globalDir, 'tmt.db'), { readonly: true });
       try {
         expect(
           db

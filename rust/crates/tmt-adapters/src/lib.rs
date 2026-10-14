@@ -13,6 +13,7 @@ pub mod core_executable;
 #[cfg(unix)]
 pub mod delivery;
 pub mod digest;
+pub mod discovery;
 pub mod dispatch;
 #[cfg(unix)]
 pub mod driver_protocol;

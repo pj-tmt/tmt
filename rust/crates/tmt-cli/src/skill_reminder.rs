@@ -69,6 +69,7 @@ pub fn eligible_for_drift(parsed: &Parsed) -> bool {
                 | Invocation::NativeInstallHandoff { .. }
                 | Invocation::NativeSchema { .. }
                 | Invocation::NativeRefreshSkills { .. }
+                | Invocation::NativeRenameDatabase
                 | Invocation::NativeUpgradeExtensions { .. }
                 | Invocation::Office { .. }
                 | Invocation::Identity(_)
@@ -105,6 +106,7 @@ pub fn eligible_for_driver_hint(parsed: &Parsed) -> bool {
                 | Invocation::NativeInstallHandoff { .. }
                 | Invocation::NativeSchema { .. }
                 | Invocation::NativeRefreshSkills { .. }
+                | Invocation::NativeRenameDatabase
                 | Invocation::NativeUpgradeExtensions { .. }
         )
 }
@@ -352,6 +354,7 @@ mod tests {
                 allow_schema_ahead: false,
             },
             Invocation::NativeRefreshSkills { managed: false },
+            Invocation::NativeRenameDatabase,
             Invocation::NativeUpgradeExtensions { plan: true },
             Invocation::NativeInstall {
                 product: tmt_core::native_install::Product::Cli,
@@ -397,6 +400,7 @@ mod tests {
             Invocation::Help(Vec::new()),
             Invocation::Complete(Vec::new()),
             Invocation::NativeRefreshSkills { managed: false },
+            Invocation::NativeRenameDatabase,
         ] {
             parsed.invocation = invocation;
             assert!(!eligible_for_driver_hint(&parsed));

@@ -239,6 +239,20 @@ fn versioned_installer_handoff_is_disjoint_from_offline_arguments() {
 }
 
 #[test]
+fn the_database_rename_step_takes_no_operands() {
+    assert_eq!(
+        parsed(&["__native-rename-database", "--json"]).invocation,
+        Invocation::NativeRenameDatabase
+    );
+    for args in [
+        vec!["__native-rename-database", "extra"],
+        vec!["__native-rename-database", "--prefix", "/p"],
+    ] {
+        assert_eq!(parse_error(&args).code, "USAGE_ERROR");
+    }
+}
+
+#[test]
 fn managed_skill_refresh_is_explicit() {
     for (args, managed) in [
         (vec!["__native-refresh-skills", "--json"], false),

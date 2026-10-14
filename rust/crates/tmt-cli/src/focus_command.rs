@@ -57,8 +57,8 @@ fn identity_failure(error: ActionError) -> Failure {
     }
 }
 
-/// `target` is an identity name or a pane target (such as a previous
-/// `from`); the shared resolver handles both, current server only.
+/// `target` is an identity UUID, name or pane target (such as a previous
+/// `from`); Focus resolves UUIDs first, on the current server only.
 fn run(target: String) -> Result<Focused, Failure> {
     // A focus changes the invoking user's own view: the caller's host.
     let host = Host::for_caller(&CallerEnvironment::current());
@@ -78,7 +78,7 @@ fn run(target: String) -> Result<Focused, Failure> {
             "Could not open identity storage.",
         )
     })?;
-    let pending = target::resolve(&mut storage, &host, &target).and_then(|observed| {
+    let pending = target::resolve_focus(&mut storage, &host, &target).and_then(|observed| {
         let (Some(identity), binding @ Some(_)) = (observed.identity, observed.binding) else {
             // An unbound pane target has no identity evidence to verify.
             let pane = observed.pane.id;

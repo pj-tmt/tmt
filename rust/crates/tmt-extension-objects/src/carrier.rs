@@ -18,8 +18,8 @@ mod bus;
 mod handshake;
 mod ledger;
 
-pub use bus::{Bus, StampedObjectFrame};
-pub use handshake::{Expect, Offer, accept, accept_head, negotiate};
+pub use bus::{Bus, StampedChannelFrame, StampedObjectFrame};
+pub use handshake::{Expect, Offer, accept, accept_head, negotiate, negotiate_sync};
 pub use ledger::{Budget, Caps, Reason};
 
 /// The reserved route that opens the channel.
@@ -95,6 +95,8 @@ pub enum Refusal {
     Pipelined,
     /// The reply names a different generation than the request.
     Generation,
+    /// A valid offer has no supported version in common.
+    UnsupportedVersion,
 }
 
 /// Why a carrier operation ended. Each is final for the link it came from.
@@ -102,6 +104,7 @@ pub enum Refusal {
 pub enum Fault {
     /// The negotiated legacy channel cannot carry this method; nothing was sent.
     Unsupported(Method),
+    UnsupportedSync,
     /// The stream ended between frames, or the caller closed or interrupted the wait.
     Closed,
     /// The stream ended inside a head or a frame.
@@ -124,6 +127,13 @@ pub struct Idle<'a> {
     pub stop: &'a AtomicBool,
     /// The wait ends at this instant; `None` waits until a byte, EOF or `stop`.
     pub until: Option<Instant>,
+}
+
+/// Both vocabularies on a v3 link; the existing object Frame stays source-compatible.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ChannelFrame {
+    Object(Frame),
+    Sync(crate::sync::Frame),
 }
 
 /// The generation every kind of frame carries.
@@ -161,7 +171,7 @@ fn halves(
 }
 
 fn supports(version: u8, method: Method) -> bool {
-    version == 2 || !matches!(method, Method::RemoveNamespace | Method::Usage)
+    version >= 2 || !matches!(method, Method::RemoveNamespace | Method::Usage)
 }
 /// The consumer-facing hint for an unsupported namespace management action.
 pub fn unsupported_hint() -> &'static str {
@@ -179,6 +189,9 @@ fn frame_supported(version: u8, frame: &Frame) -> bool {
     frame_method(frame).is_none_or(|method| supports(version, method))
 }
 impl Link {
+    pub fn version(&self) -> u8 {
+        self.version
+    }
     pub fn supports(&self, method: Method) -> bool {
         supports(self.version, method)
     }
@@ -192,19 +205,29 @@ impl Link {
 
 /// The next frame and the size of its body. The wait for its first byte is unbounded
 /// unless `idle` says otherwise; from that byte on, `budgets.frame` is absolute.
-fn read_checked(
+fn read_channel_checked(
     reader: &mut bounded::Reader,
     generation: Uuid4,
     idle: Idle<'_>,
     budgets: &Budgets,
-) -> Result<(StampedObjectFrame, usize), Fault> {
+) -> Result<(StampedChannelFrame, usize), Fault> {
     let (body, first_prefix) = reader.frame(idle, budgets.frame)?;
-    let frame = crate::decode(&body).map_err(Fault::Frame)?;
-    if generation_of(&frame) != generation {
+    let value = crate::codec::strict_value_with_limit(&body, crate::limits::V3_FRAME_BYTES)
+        .map_err(Fault::Frame)?;
+    let frame = if value
+        .get("kind")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|kind| kind.starts_with("sync-"))
+    {
+        ChannelFrame::Sync(crate::sync::decode(&body).map_err(Fault::Frame)?)
+    } else {
+        ChannelFrame::Object(crate::decode(&body).map_err(Fault::Frame)?)
+    };
+    if channel_generation(&frame)? != generation {
         return Err(Fault::Generation);
     }
     Ok((
-        StampedObjectFrame {
+        StampedChannelFrame {
             frame,
             first_prefix,
         },
@@ -222,3 +245,25 @@ fn prepared(generation: Uuid4, frame: &Frame) -> Result<Vec<u8>, Fault> {
 
 #[cfg(test)]
 mod tests;
+
+fn channel_generation(frame: &ChannelFrame) -> Result<Uuid4, Fault> {
+    match frame {
+        ChannelFrame::Object(frame) => Ok(generation_of(frame)),
+        ChannelFrame::Sync(frame) => frame.generation().map_err(Fault::Frame),
+    }
+}
+fn channel_supported(version: u8, frame: &ChannelFrame) -> bool {
+    match frame {
+        ChannelFrame::Object(frame) => frame_supported(version, frame),
+        ChannelFrame::Sync(_) => version == 3,
+    }
+}
+fn prepared_channel(generation: Uuid4, frame: &ChannelFrame) -> Result<Vec<u8>, Fault> {
+    if channel_generation(frame)? != generation {
+        return Err(Fault::Generation);
+    }
+    match frame {
+        ChannelFrame::Object(frame) => prepared(generation, frame),
+        ChannelFrame::Sync(frame) => crate::sync::encode(frame).map_err(Fault::Frame),
+    }
+}

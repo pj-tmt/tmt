@@ -14,6 +14,9 @@ pub fn endpoint_failure(error: HostError) -> Failure {
 
 pub fn binding_failure(error: BindingError<StorageError, HostError>) -> Failure {
     // The bind error is what the user acts on; a failed cleanup is secondary.
+    if let BindingError::Partial(error) = error {
+        return binding_failure(*error);
+    }
     if let BindingError::CleanupFailed { error, cleanup } = error {
         return binding_failure(*error).with_secondary_error(cleanup);
     }

@@ -11,13 +11,15 @@ mod error;
 mod frame;
 mod ids;
 pub mod limits;
+pub mod sync;
 
 #[cfg(unix)]
 pub use carrier::{
-    Budget, Budgets, Bus, Caps, Expect, Fault, Idle, Link, Offer, Reason, Refusal, Role, Stage,
-    StampedObjectFrame, accept, accept_head, negotiate, unsupported_hint,
+    Budget, Budgets, Bus, Caps, ChannelFrame, Expect, Fault, Idle, Link, Offer, Reason, Refusal,
+    Role, Stage, StampedChannelFrame, StampedObjectFrame, accept, accept_head, negotiate,
+    negotiate_sync, unsupported_hint,
 };
-pub use codec::decode_length;
+pub use codec::{decode_length, decode_length_for_version};
 pub use error::ErrorClass;
 pub use frame::{
     Admission, Admit, AdmitInput, BeginInput, Call, Checkpoint, Config, ConfigInput, Context,

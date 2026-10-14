@@ -75,8 +75,12 @@ fn big_result() -> Frame {
 
 impl Link {
     pub(super) fn read_frame(&mut self, idle: Idle<'_>, budgets: &Budgets) -> Result<Frame, Fault> {
-        read_checked(&mut self.reader, self.generation, idle, budgets)
-            .map(|(received, _)| received.frame)
+        read_channel_checked(&mut self.reader, self.generation, idle, budgets).and_then(
+            |(received, _)| match received.frame {
+                ChannelFrame::Object(frame) => Ok(frame),
+                ChannelFrame::Sync(_) => Err(Fault::UnsupportedSync),
+            },
+        )
     }
     pub(super) fn write_frame(&mut self, frame: &Frame, budgets: &Budgets) -> Result<(), Fault> {
         let bytes = prepared(self.generation, frame)?;

@@ -130,7 +130,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![
                 "claude", "claude", "codex", "codex", "gemini", "gemini", "agy", "agy", "pi", "pi",
-                "opencode", "opencode"
+                "opencode", "opencode", "muse", "muse"
             ]
         );
         assert_eq!(

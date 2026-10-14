@@ -3,6 +3,7 @@
 
 mod binding;
 mod caller;
+mod discovery;
 mod evidence;
 mod focus;
 mod input;
@@ -12,6 +13,7 @@ mod transport;
 mod workspace;
 mod workspace_restore;
 pub use binding::{BindingSession, PaneCosmetics, PaneRefresh};
+pub use discovery::DiscoveryObservation;
 pub use focus::{ClientView, FocusError, Invoker};
 
 #[cfg(test)]
@@ -359,10 +361,6 @@ impl<R: CommandRunner> Tmux<R> {
         Ok(value.into())
     }
 
-    fn ensure_server_id(&self, options: OperationOptions<'_>) -> Result<String, TmuxError> {
-        self.ensure_server_id_on(None, options)
-    }
-
     /// Resolve the explicit mark on the invocation-selected server once. The
     /// returned endpoint evidence is independent of later focus or mark moves.
     pub fn marked_pane(
@@ -396,6 +394,8 @@ impl<R: CommandRunner> Tmux<R> {
             server: snapshot.server,
             pane_id: pane.id.clone(),
             pane_pid: pane.pane_pid,
+            pane_incarnation: None,
+            discovery: None,
         }))
     }
 
@@ -415,16 +415,24 @@ impl<R: CommandRunner> Tmux<R> {
     }
 
     pub fn snapshot(&self, options: OperationOptions<'_>) -> Result<EndpointSnapshot, TmuxError> {
+        self.snapshot_on(None, options)
+    }
+
+    pub(crate) fn snapshot_on(
+        &self,
+        socket: Option<&str>,
+        options: OperationOptions<'_>,
+    ) -> Result<EndpointSnapshot, TmuxError> {
         let scope = evidence::scoped_ids(options.pane_ids)?;
-        let expected = self.ensure_server_id(options)?;
+        let expected = self.ensure_server_id_on(socket, options)?;
         if scope.as_ref().is_some_and(Vec::is_empty) {
             return Ok(EndpointSnapshot {
-                server: self.server_evidence(None, Some(&expected), options)?,
+                server: self.server_evidence(socket, Some(&expected), options)?,
                 panes: Vec::new(),
             });
         }
         let output = self.execute(
-            list_args(None, scope.as_deref()),
+            list_args(socket, scope.as_deref()),
             options,
             TmuxFailure::Command,
         )?;
@@ -435,7 +443,7 @@ impl<R: CommandRunner> Tmux<R> {
             return Err(TmuxError::evidence("tmux endpoint snapshot is empty"));
         }
         Ok(EndpointSnapshot {
-            server: self.server_evidence(None, Some(&expected), options)?,
+            server: self.server_evidence(socket, Some(&expected), options)?,
             panes: Vec::new(),
         })
     }

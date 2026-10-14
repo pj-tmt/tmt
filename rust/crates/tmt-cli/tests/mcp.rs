@@ -124,7 +124,7 @@ impl Fixture {
         (receipt, id)
     }
     fn attention(&self) -> Value {
-        let db = Connection::open(support::state_dir(&self.root).join("tmux-team.db")).unwrap();
+        let db = Connection::open(support::state_dir(&self.root).join("tmt.db")).unwrap();
         let mut statement = db.prepare("SELECT request_id, attention_revision, attention_acknowledged_revision, recipient_attention_revision, recipient_attention_acknowledged_revision, status FROM request_attempts ORDER BY request_id").unwrap();
         let rows = statement
             .query_map([], |row| {
@@ -478,7 +478,7 @@ fn mcp_eof_partial_frames_and_signal_have_bounded_child_cleanup() {
 fn mcp_refuses_implicit_missing_and_temporary_launch_identities() {
     let fixture = Fixture::new();
     fixture.create("Saved");
-    let database = support::state_dir(&fixture.root).join("tmux-team.db");
+    let database = support::state_dir(&fixture.root).join("tmt.db");
     let mut storage = tmt_adapters::storage::Storage::open(database).unwrap();
     tmt_core::identity::create_or_resolve(
         &mut storage,
@@ -602,10 +602,9 @@ fn mcp_send_never_reclaims_an_uncertain_wake() {
     let sender = fixture.create("Sender");
     let receiver = fixture.create("Receiver");
     let operation = "97a3e8d0-54b4-4246-bf2b-2fefeea40648";
-    let mut storage = tmt_adapters::storage::Storage::open(
-        support::state_dir(&fixture.root).join("tmux-team.db"),
-    )
-    .unwrap();
+    let mut storage =
+        tmt_adapters::storage::Storage::open(support::state_dir(&fixture.root).join("tmt.db"))
+            .unwrap();
     let receipt = storage
         .dispatch_request(
             tmt_core::dispatch::DispatchInput {
@@ -640,10 +639,9 @@ fn mcp_send_never_reclaims_an_uncertain_wake() {
         false,
     );
     server.finish(true);
-    let mut storage = tmt_adapters::storage::Storage::open(
-        support::state_dir(&fixture.root).join("tmux-team.db"),
-    )
-    .unwrap();
+    let mut storage =
+        tmt_adapters::storage::Storage::open(support::state_dir(&fixture.root).join("tmt.db"))
+            .unwrap();
     let wake = tmt_core::request::RequestService::new(
         &mut storage,
         tmt_adapters::request_runtime::wall_time_ms,

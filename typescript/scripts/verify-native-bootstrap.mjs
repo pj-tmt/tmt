@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { assertNoCoreDatabase } from './native-database-layout.mjs';
 import { parseArgs } from 'node:util';
 import { generateNativeBootstrap } from './native-bootstrap.mjs';
 import { selectNativeArtifact } from './native-artifact-policy.mjs';
@@ -107,7 +108,7 @@ try {
       targets: [path.join(root, '.agents/skills/tmt'), path.join(root, '.agents/skills/tmt-inbox')],
     }
   );
-  assert(!fs.existsSync(path.join(state, 'tmux-team.db')), 'Skill setup must not open SQLite');
+  assertNoCoreDatabase(state, 'Skill setup must not open SQLite');
   bootstrap(['--pin']);
   const receipt = readCliLayout(prefix).receipt;
   assert.equal(receipt.pinned_version, metadata.version);

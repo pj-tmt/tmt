@@ -195,7 +195,7 @@ export function createSandbox(executableEnv: NodeJS.ProcessEnv = process.env): S
       xdgConfigHome,
       globalDir,
       globalConfig: path.join(globalDir, 'config.json'),
-      database: path.join(globalDir, 'tmux-team.db'),
+      database: path.join(globalDir, 'tmt.db'),
       localConfig: path.join(cwd, 'tmt.json'),
       env,
     };

@@ -12,7 +12,7 @@ describe('command option ownership', { concurrent: false }, () => {
       });
       expect(result).toMatchObject({ code: 1, json: { error: { code: 'USAGE_ERROR' } } });
       expect(result.stderr).toBe('');
-      expect(fs.existsSync(path.join(fixture.globalDir, 'tmux-team.db'))).toBe(false);
+      expect(fs.existsSync(path.join(fixture.globalDir, 'tmt.db'))).toBe(false);
       expect(fs.existsSync(fixture.forbiddenTmuxLogPath)).toBe(false);
       expect(fixture.paneMetadata(fixture.pane)).toBe(metadata);
     });

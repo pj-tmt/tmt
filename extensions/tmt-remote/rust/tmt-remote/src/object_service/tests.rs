@@ -159,6 +159,7 @@ struct Peer {
     accepted: Arc<AtomicUsize>,
     buses: Arc<Mutex<Vec<Bus>>>,
     arrived: mpsc::Receiver<()>,
+    ready: mpsc::Receiver<()>,
     release: Option<mpsc::Sender<()>>,
     thread: Option<JoinHandle<()>>,
 }
@@ -171,6 +172,7 @@ impl Peer {
         let accepted = Arc::new(AtomicUsize::new(0));
         let buses = Arc::new(Mutex::new(Vec::new()));
         let (arrive, arrived) = mpsc::channel();
+        let (publish, ready) = mpsc::channel();
         let (release, released) = mpsc::channel::<()>();
         let mount = match answer {
             Answer::Refuse => mount_of("other"),
@@ -202,6 +204,7 @@ impl Peer {
                 };
                 let bus = Bus::start(link, Budgets::contract(), Caps::contract(), None).unwrap();
                 held.lock().unwrap().push(bus);
+                let _ = publish.send(());
             }
         });
         Self {
@@ -210,6 +213,7 @@ impl Peer {
             accepted,
             buses,
             arrived,
+            ready,
             release: Some(release),
             thread: Some(thread),
         }
@@ -1114,3 +1118,5 @@ mod observe;
 
 mod namespace;
 mod upload;
+
+mod native;

@@ -3606,7 +3606,22 @@ mod native_preparation {
         assert!(!output.status.success());
         let failure: Value = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(failure["error"]["code"], "COLAB_CAPACITY");
-        assert_eq!(failure["error"]["message"], original.to_string());
+        // These are separate preparations: fresh Yjs client IDs can change encoded sizes.
+        // Keep the limit and refusal text exact, but compare each requested size structurally.
+        let normalize = |message: &str| {
+            let (before, after) = message.split_once(" bytes), more than the ").unwrap();
+            let (prefix, requested) = before.rsplit_once('(').unwrap();
+            let requested = requested.parse::<usize>().unwrap();
+            let (limit, _) = after.split_once(" bytes) one page can hold").unwrap();
+            let limit = limit.rsplit_once('(').unwrap().1.parse::<usize>().unwrap();
+            assert_eq!(limit, tmt_colab::decoder::WRITE_TAIL_BYTES);
+            assert!(requested > limit, "{message}");
+            format!("{prefix}(<requested> bytes), more than the {after}")
+        };
+        assert_eq!(
+            normalize(failure["error"]["message"].as_str().unwrap()),
+            normalize(&original.to_string())
+        );
         let after = f.read();
         assert_eq!(after.source, first);
         assert!(

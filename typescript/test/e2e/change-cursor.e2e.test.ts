@@ -51,7 +51,7 @@ describe('change cursor on a live host', { concurrent: false }, () => {
       await fixture.waitFor(() => runtime() === 'running', 5000, 'running admission');
 
       // A remembered session for the running identity.
-      const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'));
+      const db = new Database(path.join(fixture.globalDir, 'tmt.db'));
       try {
         db.prepare(
           `INSERT OR REPLACE INTO identity_session_preferences

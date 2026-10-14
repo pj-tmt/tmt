@@ -18,7 +18,7 @@ in `contracts/`.
   [conditional metadata](../../../../contracts/extension-api.md#conditional-identity-metadata).
 - `identities.auto_named` is set only by an unnamed registered-runtime launch; `name`/`this`
   renames the same UUID while it is set and consumes it, as does an ordinary `mv`.
-- A bind commits identity creation before its binding transaction. If the second step is
+- An ordinary unguarded bind commits identity creation before its binding transaction. If the second step is
   refused deterministically (`PaneAlreadyBound`, `NameAlreadyActive`, `PaneNotFound`,
   `TargetChanged`), core retires the temporary identity this invocation created in one
   transaction that re-checks it is still temporary, unretired and unbound. Existing and saved
@@ -29,9 +29,29 @@ in `contracts/`.
   time with owner-only modes and no-follow exclusive creation. A same-name successor has a new
   UUID and path.
 
+## Candidate discovery
+
+The [discovery v1 contract](../../../../contracts/discovery-v1.md) owns the public
+shape and bounds. `tmt-core::discovery` owns native/UUID expectation values;
+`tmux::discovery` reads escaped topology without initializing a server marker,
+with one batched native-start observation. `storage::discovery` reads only the
+existing schema/rows, without reconciliation, creation or migration. Unknown
+markers and conflicting rows supply no adoption authority. Explicit external inventory selections remain unsupported without executing
+their driver; implicit caller selection uses the existing verified host lookup.
+
+`binding::bind_guarded` admits the frozen target inside the binding transaction
+before creation or promotion. It shares `bind_selected` with ordinary binding;
+the guard adds native-start and ownership checks, not a second publication path.
+Name mode is insert-only; existing linking takes an exact UUID. Refused admissions
+have no identity or host effects. Failures after admission are partial host attempts
+with rolled-back SQL on an in-transaction refusal or uncertain commit/close;
+they never claim host rollback or automatic replay. Guarded
+add and discovery bypass optional caller learning, workspace capture and hook
+delivery. They install and launch nothing.
+
 ## Binding evidence
 
-- Presence reads (`whoami`, named/current-name presence and inventory) capture
+- Presence reads (`whoami`, named/current-name presence and ordinary listing) capture
   identity/binding records, perform host observations outside SQLite's immediate
   writer transaction, then compare the full records again before reconciliation.
   Changed records are Unknown unless ownership evidence still agrees with the
@@ -102,7 +122,12 @@ in `contracts/`.
   default `CODEX_HOME`. Unsupported relative config paths, profile configuration
   and CLI config/profile overrides refuse rather than guess across homes.
 - `focus` needs present evidence but no running agent and switches only the invoker's own
-  client (never a bare "current client"); it sends no input.
+  client (never a bare "current client"); it sends no input. Its target may be a name,
+  pane or canonical lowercase UUIDv4. Only Focus treats a UUID as an identity before
+  name/pane parsing: a missing, retired or inactive UUID refuses without falling back
+  to a UUID-shaped name. UUID lookup uses the same current-server observation and
+  binding/incarnation verification as name lookup; delivery and diagnostics retain
+  their existing target rules.
 
 ## Sessions and driver state
 

@@ -12,7 +12,7 @@ interface IdentityRow {
 }
 
 function identities(fixture: E2EFixture): IdentityRow[] {
-  const database = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
+  const database = new Database(path.join(fixture.globalDir, 'tmt.db'), { readonly: true });
   try {
     return database
       .prepare(
@@ -25,7 +25,7 @@ function identities(fixture: E2EFixture): IdentityRow[] {
 }
 
 function durableRetired(fixture: E2EFixture, canonicalName: string): boolean {
-  const database = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
+  const database = new Database(path.join(fixture.globalDir, 'tmt.db'), { readonly: true });
   try {
     const row = database
       .prepare('SELECT retired_at_ms FROM identities WHERE canonical_name = ?')
@@ -37,7 +37,7 @@ function durableRetired(fixture: E2EFixture, canonicalName: string): boolean {
 }
 
 function bindingOwners(fixture: E2EFixture): string[] {
-  const database = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
+  const database = new Database(path.join(fixture.globalDir, 'tmt.db'), { readonly: true });
   try {
     const rows = database
       .prepare('SELECT identity_id FROM bindings ORDER BY identity_id')
