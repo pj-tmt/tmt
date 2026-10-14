@@ -43,6 +43,7 @@ mod terminal;
 mod theme_picker;
 mod timing;
 mod view;
+mod view_state;
 mod workspace;
 
 pub use tabs::{ALL, LEADS};
@@ -158,6 +159,8 @@ pub(super) enum BoardEvent {
         config: Result<Config, String>,
     },
     TokenWindowSaved(Result<Config, String>),
+    /// A quiet cache publication; it owns no user action or progress notice.
+    ViewStatePublished,
 }
 
 fn spawn_input(sender: Sender<BoardEvent>, mut filter: Option<terminal::background::ReplyFilter>) {
@@ -338,6 +341,7 @@ fn session(
     selected_read: impl Fn(u64, Option<refresh::SelectedRead>),
     checklist: impl Fn(checklist::load::Task),
     io: impl Fn(lane::Job),
+    mut state: Option<&mut view_state::Session>,
     mut draw: impl FnMut(&mut App) -> io::Result<()>,
 ) -> io::Result<Option<i32>> {
     // Nothing below may start a command: jobs go to the lane, reads to the worker.
@@ -370,6 +374,15 @@ fn session(
             return Ok(Some(signal));
         }
         let now = Instant::now();
+        if let Some(state) = &mut state {
+            let (restored, publication) = state.tick(app, now);
+            dirty |= restored;
+            if let Some(writer) = publication {
+                // Quiet, coalesced work goes straight to the existing lane.
+                // It must not acquire the user-action notice/in-flight count.
+                io(lane::Job::ViewState(writer));
+            }
+        }
         // The footer names a waiting reload, so a new one repaints.
         dirty |= app.reload.poll(now);
         if app.reload.pending()
@@ -652,6 +665,7 @@ fn session(
                 }
                 Effect::None
             }
+            Ok(BoardEvent::ViewStatePublished) => Effect::None,
             Ok(BoardEvent::Input(Event::Key(key))) if key.kind == KeyEventKind::Press => {
                 dirty = true;
                 app.key(key)
@@ -860,6 +874,17 @@ pub fn run(
     let now_ms = crate::status::now_ms();
     let resume = resume::directory()
         .and_then(|directory| resume::Resume::take(&directory, std::process::id(), now_ms));
+    // Resolve this disposable path only at the interactive entry, after the
+    // placeholder. App/oracle constructors never resolve or read user state.
+    let mut view_state = timing::measure(startup.as_ref(), "startup.view_state", || {
+        Ok::<_, SquadError>(crate::cache::directory("board").map(|directory| {
+            view_state::Session::load(
+                directory.join("view.json"),
+                resume.is_some(),
+                squad.is_some(),
+            )
+        }))
+    })?;
     let (events, input) = mpsc::channel();
     // The worker's setup reads (caller identity, config location) overlap the config
     // read and the terminal's background query. Loads build looks from that
@@ -939,6 +964,7 @@ pub fn run(
         |revision, identity| worker.selected(revision, identity),
         |task| worker.checklist(task),
         |job| lane.submit(job),
+        view_state.as_mut(),
         |app| {
             screen
                 .draw(|frame| {
@@ -960,6 +986,11 @@ pub fn run(
     // Restore first, whatever happened; then report the session's outcome.
     let restored = guard.restore();
     lane.finish();
+    if restored.is_ok()
+        && let Some(state) = &mut view_state
+    {
+        state.flush(&mut app, Instant::now());
+    }
     drop(labels);
     let stopped = clock.stop();
     let signal = result.map_err(failed)?;
@@ -1014,6 +1045,7 @@ mod tests {
                 selected_read,
                 checklist,
                 io,
+                None,
                 draw,
             );
             drop(complete);
@@ -1778,6 +1810,7 @@ mod tests {
                 |_, _| {},
                 |_| {},
                 no_io,
+                None,
                 |app| {
                     painted
                         .send((app.selected, app.view.as_ref().unwrap().document.clone()))
@@ -1835,6 +1868,7 @@ mod tests {
                 |_, _| {},
                 |_| {},
                 no_io,
+                None,
                 |app| {
                     *app.hits.borrow_mut() = vec![app::Hit {
                         y: 1,
@@ -1894,6 +1928,7 @@ mod tests {
                     |_, _| {},
                     |_| {},
                     no_io,
+                    None,
                     |_| {
                         painted.send(()).unwrap();
                         Ok(())
@@ -1936,6 +1971,7 @@ mod tests {
                 |_, _| {},
                 |_| {},
                 no_io,
+                None,
                 |_| {
                     painted.send(()).unwrap();
                     Ok(())

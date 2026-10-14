@@ -185,8 +185,18 @@ Cold startup keeps the delayed spinner (`SPINNER_DELAY`, 100 ms) and existing
 worker cancellation fences. Failed refresh retains stale evidence; it cannot
 turn unknown membership into an empty pool. Historical usage loads after roster
 without moving recipient authority. Effective refresh preserves search/drafts.
-In-place reload carries shell/expansion/exact UUID selection; hidden/missing
-anchors refuse actions and never retarget to a visible neighbour.
+Ordinary restart reads `board/view.json` under the existing per-user Ops cache
+after the opening frame: destination, expanded squad UUIDs, pool expansion and
+exact UUID selection. Deleting this disposable hint resets to cold defaults.
+For destination/selection, exec Resume wins, then an explicit startup squad,
+then the hint; an explicit squad still restores compatible expansion hints.
+The first fresh Complete roster applies it; partial/failed views neither apply
+nor overwrite it. Complete-proven removal uses the ordinary cold default; an
+existing hidden target remains hidden and refuses actions. Changed projections
+coalesce on the existing worker at two-second intervals, with one exit flush
+after terminal restoration; pane-kill keeps the last published hint. Drafts,
+search and scroll are not persisted across ordinary restarts. In-place reload
+retains its richer session carry and explicit hidden/missing action refusal.
 
 ## Decisions and composers
 

@@ -7,6 +7,30 @@ use super::{App, RowTarget};
 use crate::board::resume::Resume;
 
 impl App {
+    /// Cold-start hints use the same carry seam, retaining this process's
+    /// drafts/search/scroll state. The caller admits only a fresh complete view.
+    pub(in crate::board) fn carry_view_hint(
+        &mut self,
+        hint: &crate::board::view_state::ViewState,
+        explicit_startup: bool,
+    ) {
+        let Some(mut resume) = self.resume() else {
+            return;
+        };
+        resume.squads_expanded = hint.expanded.iter().cloned().collect();
+        resume.pool_expanded = hint.pool_expanded;
+        if !explicit_startup {
+            resume.shell = hint.shell;
+            resume.selected = hint.selected.clone().map(RowTarget::Workspace);
+            // A proven-gone target has the destination's ordinary cold default.
+            if hint.selected.is_none() {
+                self.workspace.selected = None;
+            }
+        }
+        self.carry(resume);
+        self.restore_pending();
+    }
+
     /// Whether replacing the process now would lose something the user has open
     /// or is waiting on: a draft, an overlay, a search being typed, a request in
     /// flight, a view still loading or a resumed state not yet applied.

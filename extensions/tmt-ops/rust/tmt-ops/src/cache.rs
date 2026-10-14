@@ -3,7 +3,7 @@
 
 use std::{
     fs,
-    io::{self, Write},
+    io::{self, Read, Write},
     os::unix::fs::{DirBuilderExt, OpenOptionsExt},
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
@@ -12,6 +12,22 @@ use std::{
 /// `$XDG_CACHE_HOME/tmt-ops/<name>`, else `~/.cache/tmt-ops/<name>`.
 pub fn directory(name: &str) -> Option<PathBuf> {
     cache_root().map(|cache| cache.join("tmt-ops").join(name))
+}
+
+/// Reads a bounded regular cache file, never a link. A missing or foreign file
+/// is a cache miss; growth after the metadata check remains bounded as well.
+pub(crate) fn read_regular(path: &Path, limit: u64) -> Option<Vec<u8>> {
+    let metadata = fs::symlink_metadata(path).ok()?;
+    if !metadata.is_file() || metadata.len() > limit {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    fs::File::open(path)
+        .ok()?
+        .take(limit.checked_add(1)?)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    (bytes.len() as u64 <= limit).then_some(bytes)
 }
 
 #[cfg(not(test))]
