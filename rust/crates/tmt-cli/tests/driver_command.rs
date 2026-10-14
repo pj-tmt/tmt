@@ -661,7 +661,7 @@ esac
             "{output:?}"
         );
         assert!(!fixture.root.join("state/workspace").exists());
-        assert!(!fixture.root.join("state/tmux-team.db").exists());
+        assert!(!fixture.root.join("state/tmt.db").exists());
         assert_eq!(fs::read(fixture.registry()).unwrap(), registry);
     }
     // Explicit recovery input is independent of the caller's active host.

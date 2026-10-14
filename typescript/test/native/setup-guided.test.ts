@@ -66,6 +66,48 @@ function ran(sandbox: Sandbox): string[] {
 }
 
 describe('guided tmt setup', () => {
+  it.each(['present', 'configOnly'] as const)(
+    'requires consent for %s Muse skills and preserves its settings',
+    async (state) => {
+      await withSandbox(async (sandbox) => {
+        const bin = path.join(sandbox.root, 'muse-bin');
+        mkdirSync(bin);
+        symlinkSync(sandbox.cli.executable, path.join(bin, 'tmt'));
+        sandbox.env.PATH = bin;
+        const settings = path.join(sandbox.home, '.config', 'muse', 'settings.json');
+        mkdirSync(path.dirname(settings), { recursive: true });
+        writeFileSync(settings, '{"userSetting":true}\n');
+        if (state === 'present') {
+          writeExecutable(
+            path.join(bin, 'muse'),
+            '#!/bin/sh\nprintf ran > "$HOME/ran-muse"\n',
+            0o755
+          );
+        }
+
+        const before = tree(sandbox.root);
+        expectError(await runCli(sandbox, ['setup', '--json']), 'SETUP_CONSENT_REQUIRED');
+        expect(tree(sandbox.root)).toEqual(before);
+
+        const applied = await runCli(sandbox, ['setup', '--yes', '--json']);
+        expect(applied.status, applied.stdout + applied.stderr).toBe(0);
+        const report = parseWholeStdout(applied);
+        expect(report.agents).toContainEqual({ name: 'muse', state });
+        const plan = report.plan as { kind: string; path: string }[];
+        expect(plan).toHaveLength(2);
+        expect(plan.every((item) => item.kind === 'skill')).toBe(true);
+        for (const name of ['tmt', 'tmt-inbox']) {
+          expect(
+            lstatSync(path.join(sandbox.home, '.agents', 'skills', name)).isSymbolicLink()
+          ).toBe(true);
+        }
+        expect(readFileSync(settings, 'utf8')).toBe('{"userSetting":true}\n');
+        expect(ran(sandbox)).toEqual([]);
+        expect(existsSync(sandbox.database)).toBe(false);
+      });
+    }
+  );
+
   it('sets up every detected agent after one approval and is idempotent', async () => {
     await withSandbox(async (sandbox) => {
       machine(sandbox);
@@ -78,7 +120,7 @@ describe('guided tmt setup', () => {
       expect(refused.stdout).toContain('!  gemini');
       expect(refused.stdout).toContain('✗  agy');
       expect(refused.stdout).toContain('~/.claude/settings.json');
-      expect(refused.stdout).toContain('not found: pi · opencode');
+      expect(refused.stdout).toContain('not found: pi · opencode · muse');
       expect(refused.stderr).toContain('nothing was changed');
       expectError(await runCli(sandbox, ['setup', '--json']), 'SETUP_CONSENT_REQUIRED');
       expect(tree(sandbox.root)).toEqual(before);
@@ -94,6 +136,7 @@ describe('guided tmt setup', () => {
         { name: 'agy', state: 'broken' },
         { name: 'pi', state: 'absent' },
         { name: 'opencode', state: 'absent' },
+        { name: 'muse', state: 'absent' },
       ]);
       const plan = report.plan as { kind: string; driver: string | null; path: string }[];
       expect(plan.filter((item) => item.kind === 'hooks').map((item) => item.driver)).toEqual([

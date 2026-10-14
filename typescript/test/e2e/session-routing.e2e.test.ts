@@ -67,7 +67,7 @@ async function observerGone(fixture: E2EFixture, pid: number) {
 }
 
 function rows(fixture: E2EFixture) {
-  const database = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
+  const database = new Database(path.join(fixture.globalDir, 'tmt.db'), { readonly: true });
   try {
     return database
       .prepare(

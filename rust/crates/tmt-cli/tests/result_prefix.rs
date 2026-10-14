@@ -33,8 +33,7 @@ impl Fixture {
         Self { root, child: None }
     }
     fn seed(&self, id: &str, kind: RequestKind, body: Option<&str>) {
-        let mut storage =
-            Storage::open(support::state_dir(&self.root).join("tmux-team.db")).unwrap();
+        let mut storage = Storage::open(support::state_dir(&self.root).join("tmt.db")).unwrap();
         let recipient = create_or_resolve(&mut storage, "Receiver", Lifetime::Saved)
             .unwrap()
             .identity
@@ -314,7 +313,7 @@ fn native_withdrawal_preserves_history_excludes_inbox_and_enforces_reply_races()
     );
 
     let oracle =
-        rusqlite::Connection::open(support::state_dir(&fixture.root).join("tmux-team.db")).unwrap();
+        rusqlite::Connection::open(support::state_dir(&fixture.root).join("tmt.db")).unwrap();
     let state: (Option<i64>, Option<i64>, String, String) = oracle.query_row(
         "SELECT response_submitted_at_ms, withdrawn_at_ms, withdrawal_reason, message_text FROM request_attempts WHERE request_id=?", [id],
         |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))).unwrap();

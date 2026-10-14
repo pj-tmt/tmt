@@ -30,7 +30,7 @@ function marker(fixture: E2EFixture, pane: string): { name: string; identityId: 
 }
 
 function rememberSession(fixture: E2EFixture, identityId: string): void {
-  const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'));
+  const db = new Database(path.join(fixture.globalDir, 'tmt.db'));
   try {
     db.prepare(
       `INSERT OR REPLACE INTO identity_session_preferences

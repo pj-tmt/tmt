@@ -120,7 +120,7 @@ async function runScenario(fixture: E2EFixture, provider: Provider, historyBasel
   fixture.tmux(['send-keys', '-t', pane, '-l', command]);
   fixture.tmux(['send-keys', '-t', pane, 'Enter']);
   const historySeed = () => {
-    const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
+    const db = new Database(path.join(fixture.globalDir, 'tmt.db'), { readonly: true });
     try {
       return db
         .prepare('SELECT latest FROM consumption_sources WHERE driver=? AND session=?')
@@ -225,7 +225,7 @@ describe(
             expect(compacted).not.toHaveProperty('consumption');
 
             const identity = JSON.parse(results[0].stdout);
-            const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'), {
+            const db = new Database(path.join(fixture.globalDir, 'tmt.db'), {
               readonly: true,
             });
             try {
@@ -344,7 +344,7 @@ for (const provider of providers) {
         10000,
         'prompt baseline before append'
       );
-      const database = new Database(path.join(fixture.globalDir, 'tmux-team.db'), {
+      const database = new Database(path.join(fixture.globalDir, 'tmt.db'), {
         readonly: true,
       });
       try {
@@ -578,7 +578,7 @@ describe('consumption cache-write and turn model attribution', { concurrent: fal
             },
           });
           expect(resumeOf(results[13].stdout)?.consumption).toEqual(updated?.consumption);
-          const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
+          const db = new Database(path.join(fixture.globalDir, 'tmt.db'), { readonly: true });
           try {
             const persisted = db
               .prepare('SELECT details FROM consumption_buckets WHERE input_tokens > 0')

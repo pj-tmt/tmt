@@ -68,7 +68,7 @@ function listenerWaitIsReady(fixture: E2EFixture, pid: number): boolean {
     throw new Error('Listener exited before reaching its interrupt wait.');
   }
   return (
-    processHasOpenFile(pid, path.join(fixture.globalDir, 'tmux-team.db')) &&
+    processHasOpenFile(pid, path.join(fixture.globalDir, 'tmt.db')) &&
     processWaitsInInterruptPoll(pid)
   );
 }

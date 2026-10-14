@@ -377,3 +377,105 @@ placement/cleanup; outside presses dismiss only. Optional `onOpenChange` reports
 real transitions only, including native close, replacement, anchor removal and
 unmount; StrictMode replay owes no false transition. `test/fixtures/chips.html`
 provides isolated keyboard, cap, empty, status and long-name examples.
+
+## Isolated shadcn foundation (Slice1)
+
+`@tmt/browser-ui/ui` is a separate React infrastructure entry; import its checked
+`@tmt/browser-ui/ui.css` explicitly. It currently exports only `cn`, `UiTheme`
+and `useUiPortalContainer`, with empty later-slice barrels. No shadcn components,
+consumer migration, accessibility qualification or candidate-5 replica ships in
+this slice. The existing `./react`, `./static` and `./static.css` entries stay
+unchanged; static never loads React, Radix, cmdk or the new UI graph.
+
+### Provenance and dependencies
+
+[`src/ui/provenance.json`](src/ui/provenance.json) records every selected source's
+upstream path and SHA-256 at shadcn/ui commit
+`8720dec73f5aebed9f649ea58636f54599fdedf1`, plus exact direct dependency versions,
+licenses and repositories. Sources are pinned for later slices, not copied or
+implemented now. The helper is adapted from that revision's
+`apps/v4/registry/new-york-v4/lib/utils.ts` to configure `extendTailwindMerge` with
+our `tmt` prefix. The upstream MIT notice is retained in
+[`src/ui/LICENSE.shadcn`](src/ui/LICENSE.shadcn). This revision predates upstream's
+separate `cn` dependency; adding that package is outside the accepted dependency
+set. `class-variance-authority@0.7.1` is actually Apache-2.0, contradicting the
+approved MIT-only premise. It has no foundation consumer and is recorded as
+deferred, not installed or admitted; Slice2 must obtain explicit license/dependency
+acceptance before using it. npm tarball integrity and all transitive versions live in the sole workspace
+`typescript/pnpm-lock.yaml`; checked provenance must agree with the manifest.
+
+Combobox qualification uses the pinned Radix Popover + Command/cmdk composition.
+Command imports Dialog; Layers imports Button. The current upstream Base UI
+combobox registry is deliberately not selected; no `@base-ui/react` dependency is
+admitted. Later slices must prove focus, Tab commit and IME with those real
+implementations. This foundation does not make those claims. React and
+lucide-react remain optional peers for the existing leaf entries; Tailwind and its
+CLI are development dependencies confined to this leaf. No Cargo build or native
+installation requires Node or generates UI CSS.
+
+### Local theme, CSS and portal contract
+
+Wrap each new UI island in `UiTheme theme="light" | "dark" | "system"` and load
+UI CSS once. `data-tmt-ui` owns the namespace; `data-tmt-theme` is independent of
+legacy `data-theme` and never changes document/body state. Each island resets its
+own variables, so explicit nested themes and nested system preference are
+independent of the surrounding island. Only complete `tmt:` utility literals are
+compiled; dynamically constructed utilities are unsupported. `cn` merges the
+same fixed Tailwind v4 prefix while preserving variants.
+
+[`scripts/generate-ui-css.mjs`](scripts/generate-ui-css.mjs) compiles only utilities,
+with no default Tailwind theme, preflight, global reset, global theme variables or
+property registrations. The checked output uses native CSS nesting under the
+island selector. Tailwind's internal non-inheriting defaults become namespaced
+local element/pseudo-element resets inside islands; they cannot affect host or
+legacy styles. The island wrapper is a namespace, so place utilities on its
+children. Animation/interpolation of registered custom properties is not
+qualified here. Source policy rejects raw colors, stock color palettes,
+nonprefixed literal classes, rounded, shadow and ring utilities. Focus uses
+`outline` and the token-backed focus width/color, rather than a box-shadow ring.
+
+The sole theme source is `design/tokens/tokens.json`: semantic shadcn color names
+alias existing `browser.color`/`browser.surface` roles; edge, focus width, rule
+width and radius alias current metrics. New spacing and layer/tooltip z-order
+live only in `browser.ui`, which the old static generator does not enumerate.
+There is no second palette. UI surfaces remain square and shadow-free. Later
+components must use these roles for actual styles, not merely expose unused
+variables. Token/CSS changes require UX and affected shared-head acceptance.
+
+`useUiPortalContainer()` returns the originating island's dedicated descendant
+container. Pass it to the real Radix `Portal.container` and render only after it
+is non-null; never omit the container or fall back to `document.body`. Portals
+then inherit that island's namespace, live theme and nesting without copying
+variables or registering a global popup owner. Missing `UiTheme` throws; server
+rendering has no body portal. Modal behavior and popup admission remain the later
+components' responsibility. A layer unable to use this container returns to the
+plan rather than introducing a global theme synchronizer.
+
+### Slice file ownership and checks
+
+| Owner after foundation merge | Exclusive source/barrel                                                                                          | Exclusive gallery fragment                                      |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| Slice2 Primitives            | `src/ui/{button,input,textarea,checkbox,switch,separator,badge,alert,tabs,select}.tsx`, `src/ui/primitives.ts`   | `test/fixtures/ui/primitives.tsx`                               |
+| Slice3 Layers                | `src/ui/{dialog,sheet,dropdown-menu,tooltip,popover}.tsx`, `src/ui/layers.ts`                                    | `test/fixtures/ui/layers.tsx`                                   |
+| Slice4 Selection             | `src/ui/{command,combobox,chips}.tsx`, `src/ui/selection.ts`                                                     | `test/fixtures/ui/selection.tsx`                                |
+| Foundation/integrator        | `src/ui/index.ts`, `src/ui/{utils.ts,theme.tsx}`, provenance, generator/policy, package/lock, `generated/ui.css` | `test/fixtures/ui/foundation.tsx`, browser fixture wrapper/spec |
+
+Do not edit sibling barrels or fixture fragments. One UX-designated integrator
+publishes generated UI CSS and provenance updates after integrating reviewed
+slice sources; members hand off their source/fixture changes and generation
+results. Component implementation waits for this foundation's accepted merge.
+night-2 exclusively owns lockfile publication during foundation; Office removals
+wait for an explicit merged-SHA handoff. Future staffing is assigned by the lead,
+not implied by this file map.
+
+`pnpm --filter @tmt/browser-ui generate` regenerates both checked stylesheets;
+`check:generated` verifies exact bytes. Run workspace commands from `typescript/`
+(the leaf is a sibling workspace member). Leaf tests include baseline SHA/source
+and static CSS hashes, prefix merging, theme/container admission and CSS/token
+policy. The shared tooling boundary guard admits new dependencies only inside
+`src/ui`, with no alias/static/legacy escape. Existing Colab Playwright config
+serves `/test/browser-ui-foundation.html`; its infrastructure-only gallery checks
+host/legacy computed styles before and after loading UI CSS, tokens, focus and
+originating portals in light/system-dark and nested themes at 320/390/1440.
+Screenshots are per-run evidence, not a replacement for observable assertions or
+qualification of the unimplemented later components.

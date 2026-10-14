@@ -8,6 +8,7 @@ pub mod agy;
 pub mod claude;
 pub mod codex;
 pub mod gemini;
+pub mod muse;
 pub mod opencode;
 pub mod pi;
 
@@ -95,13 +96,14 @@ impl PartialEq for DriverDefinition {
 impl Eq for DriverDefinition {}
 
 /// One adapter module per core descriptor.
-static MODULES: [&DriverDefinition; 6] = [
+static MODULES: [&DriverDefinition; 7] = [
     &claude::DRIVER,
     &codex::DRIVER,
     &gemini::DRIVER,
     &agy::DRIVER,
     &pi::DRIVER,
     &opencode::DRIVER,
+    &muse::DRIVER,
 ];
 
 /// A registered driver's name when it is a whole word of a pane's command,
@@ -329,14 +331,22 @@ mod tests {
         fs::set_permissions(&path, fs::Permissions::from_mode(mode)).unwrap();
     }
 
-    /// Six fixture executables, one per built-in driver, and the
+    /// Fixture executables keyed to the built-in drivers, and the
     /// environment that finds them.
-    fn fixture(directory: &TestDirectory) -> (ProviderEnvironment, [&'static str; 6]) {
+    fn fixture(directory: &TestDirectory) -> (ProviderEnvironment, [&'static str; 7]) {
         let home = directory.path.join("home");
         let bin = directory.path.join("bin");
         fs::create_dir_all(&bin).unwrap();
         let names = descriptor::ALL.map(|descriptor| descriptor.executables[0]);
-        let [present, failing, hanging, unexecutable, configured, _absent] = names;
+        let [
+            present,
+            failing,
+            hanging,
+            unexecutable,
+            configured,
+            _absent,
+            _also_absent,
+        ] = names;
         // Each script records that it ran, so detection can prove it did not.
         script(
             &bin,
@@ -371,8 +381,18 @@ mod tests {
     #[test]
     fn detection_reads_the_filesystem_and_never_starts_an_agent() {
         let directory = TestDirectory::new();
-        let (environment, [present, failing, hanging, unexecutable, configured, absent]) =
-            fixture(&directory);
+        let (
+            environment,
+            [
+                present,
+                failing,
+                hanging,
+                unexecutable,
+                configured,
+                absent,
+                also_absent,
+            ],
+        ) = fixture(&directory);
         let unversioned = Detection::Present { version: None };
         assert_eq!(
             named(Registry::builtin().detect(&environment)),
@@ -383,6 +403,7 @@ mod tests {
                 (unexecutable, broken("it is not executable")),
                 (configured, Detection::ConfigOnly),
                 (absent, Detection::Absent),
+                (also_absent, Detection::Absent),
             ]
         );
         let ran = fs::read_dir(directory.path.join("bin"))
@@ -402,8 +423,18 @@ mod tests {
     #[test]
     fn the_explicit_probe_runs_each_present_driver_once_within_its_bound() {
         let directory = TestDirectory::new();
-        let (environment, [present, failing, hanging, unexecutable, configured, absent]) =
-            fixture(&directory);
+        let (
+            environment,
+            [
+                present,
+                failing,
+                hanging,
+                unexecutable,
+                configured,
+                absent,
+                also_absent,
+            ],
+        ) = fixture(&directory);
         assert_eq!(
             named(Registry::builtin().probe_within(
                 &environment,
@@ -422,8 +453,53 @@ mod tests {
                 (unexecutable, broken("it is not executable")),
                 (configured, Detection::ConfigOnly),
                 (absent, Detection::Absent),
+                (also_absent, Detection::Absent),
             ]
         );
+    }
+
+    #[test]
+    fn muse_locations_use_its_config_root_and_the_universal_skills_root() {
+        let directory = TestDirectory::new();
+        let home = directory.path.join("home");
+        let environment = ProviderEnvironment::from_parts(&home, &home, vec![], []);
+        let driver = Registry::builtin().find("muse").unwrap();
+        let locations = environment.locations(driver);
+        assert_eq!(locations.config_dirs, [home.join(".config/muse")]);
+        assert_eq!(locations.skills, environment.universal_skills());
+        assert_eq!(locations.hook_settings, None);
+        assert!(driver.runtime.is_none());
+    }
+
+    #[test]
+    fn muse_detection_distinguishes_absent_config_only_and_present_without_launching() {
+        let directory = TestDirectory::new();
+        let home = directory.path.join("home");
+        let bin = directory.path.join("bin");
+        fs::create_dir_all(&bin).unwrap();
+        let environment = ProviderEnvironment::from_parts(&home, &home, vec![bin.clone()], []);
+        let detect_muse = || {
+            Registry::builtin()
+                .detect(&environment)
+                .into_iter()
+                .find(|(driver, _)| driver.name() == "muse")
+                .unwrap()
+                .1
+        };
+
+        assert_eq!(detect_muse(), Detection::Absent);
+        fs::create_dir_all(home.join(".config/muse")).unwrap();
+        assert_eq!(detect_muse(), Detection::ConfigOnly);
+        fs::remove_dir(home.join(".config/muse")).unwrap();
+
+        script(
+            &bin,
+            "muse",
+            "printf ran > \"$0.ran\"; echo 'fixture 1.2.3'",
+            0o755,
+        );
+        assert_eq!(detect_muse(), Detection::Present { version: None });
+        assert!(!bin.join("muse.ran").exists());
     }
 
     #[test]

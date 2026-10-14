@@ -420,7 +420,7 @@ describe('Remote owner-device operations (#1055)', () => {
         'env',
         `HOME=${home}`,
         `MOCK_CHANNEL_LOG=${log}`,
-        `MOCK_DB=${path.join(fixture.globalDir, 'tmux-team.db')}`,
+        `MOCK_DB=${path.join(fixture.globalDir, 'tmt.db')}`,
         'MOCK_REQUEST_ON_WAKE=1',
         fixture.executables.cli.executable,
         ...fixture.executables.cli.args,

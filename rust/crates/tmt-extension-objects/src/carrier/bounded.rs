@@ -40,6 +40,7 @@ pub(super) struct Reader {
     stream: UnixStream,
     /// Bytes read past the upgrade head, consumed before the stream.
     first_bytes: Vec<u8>,
+    version: u8,
     #[cfg(test)]
     pub(super) prefix_seen: Option<std::sync::mpsc::Sender<Instant>>,
 }
@@ -49,11 +50,15 @@ impl Reader {
         Ok(Self {
             stream,
             first_bytes,
+            version: 1,
             #[cfg(test)]
             prefix_seen: None,
         })
     }
 
+    pub(super) fn set_version(&mut self, version: u8) {
+        self.version = version;
+    }
     /// Another handle to the same socket, for shutting it down from elsewhere.
     pub(super) fn duplicate_stream(&self) -> io::Result<UnixStream> {
         self.stream.try_clone()
@@ -133,7 +138,8 @@ impl Reader {
         let mut prefix = [0u8; PREFIX_BYTES];
         prefix[0] = first;
         self.fill(&mut prefix[1..], deadline, Stage::Frame)?;
-        let length = crate::decode_length(prefix).map_err(Fault::Frame)?;
+        let length =
+            crate::decode_length_for_version(prefix, self.version).map_err(Fault::Frame)?;
         let mut body = vec![0u8; length];
         self.fill(&mut body, deadline, Stage::Frame)?;
         Ok((body, first_prefix))

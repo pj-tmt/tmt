@@ -59,6 +59,24 @@ service for setup. Site shutdown closes the hook before joining HTTP/tunnel work
 late candidates and wakes queued demands. Serve joins the setup worker before explicit
 ObjectService shutdown and before releasing the lease; early paths retain Drop cleanup.
 
+The [native sealed-document carrier](../../../../contracts/remote-channel-v1.md#native-sealed-document-carrier)
+adds explicit internal `sync.activate` to this same setup owner and v3 bus. Ordinary Local
+activation still uses the legacy negotiation. `register_native` injects a trusted
+`sync::Registration`; serve currently registers no production factory, so activation is
+typed unavailable without touching provider state. A failed native candidate leaves the
+previous bus intact, and LocalFs still opens fail-closed. Production registration follows
+the native provider merge and the Colab accepting adapter rollout.
+
+`object_service/sync` binds generation-scoped client contexts, validates declared paths,
+fields and query results, and exposes `query_page_bytes` for one-frame provider paging.
+`sync/factory` owns constructor inputs; `sync/bindings` owns eight bound spaces;
+`sync/interests` owns bounded awaiters and coalesced wake/terminal state. The existing
+`dispatch` queue/workers service object and sync requests, with one native notice announcer.
+Neither the carrier nor its announcer polls the provider or holds documents/cursors.
+Cancel and service shutdown join awaiters before completion. Auth cancellation, minute
+budget checkpoints and finish/writer ordering belong to the later shared project owner,
+not per-space factories. The normative contract owns DTOs, byte bounds and activation.
+
 Origins (`object_service/origins.rs`, shared with `Mounts` through the `mount::OriginSink`
 trait, so mounts name neither the service nor the protocol) are the only owner of origin
 phases: Pending while an upgrade to a declared extension with an active channel is

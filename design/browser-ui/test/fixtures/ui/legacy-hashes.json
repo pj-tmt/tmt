@@ -1,0 +1,185 @@
+{
+  "baseline": "a5c85cb407003632dc9a5b3ac51ca2f6d92be355",
+  "sha256": {
+    "generated/static.css": "aaa8a612fc2b204215e83dc60b52f295e2a3921b9215d3cb253055501b9aefad",
+    "src/action.css": "5763e554cad00315888d20c38fefaf1cc3cb19234ef4a2993820bae90b82c69b",
+    "src/action.tsx": "64cb2aad70b26d8064ebf427cb70d279cddc6845a98172525a275f3449687dc7",
+    "src/chips.css": "cdcb8c1728bc4a09bf72dfec65876aa6df2dc1aaeab58094036d5b8041bfb64f",
+    "src/chips.tsx": "f4a98779d9c1b6de80c913e4fa34af4cb679fac9490cc64cf02994fb730ba616",
+    "src/command.css": "f726c98c6cbac5d6c1a8a07682a335eb378c49bfadd53416fc7f26dbe3965522",
+    "src/command.tsx": "dcf4b1e0c6be2135aaff832eddb307a8519242240797d005a16a7f179f1d4b2b",
+    "src/dialog.css": "ade8a4703bbf057865819abbcd751ea1dc1d8c82899fc66bcede89cadeb2206e",
+    "src/dialog.tsx": "2d14b40589035094323a35a17140dfacfe037c3d3464b4c93f37da6ec7a93423",
+    "src/drawer.css": "6054e9a9ea910248e8b413bdbea09638df19994d5e2ce7af3ca21128f4877602",
+    "src/drawer.tsx": "e7c6932ba5e0147955493a9e6c04a9be0f1489efe1f4c7aad7ab535e5da29a58",
+    "src/field.css": "bdd44075dfeb9bfdd1ec56a51ce343cce2b55f732c01df5e0df4b52a3aae2ab8",
+    "src/field.tsx": "c930047bc2f9070af9619fd9d1654336e2c4ecf4494dcb7900c695320e31c76c",
+    "src/header.css": "71cad7680ee9a04eb7d22112da560863ae0e8c97e147a82ffdf5410406d4615e",
+    "src/header.tsx": "d389ec442f235b1d31039f06c675fefc114b04dec673704df897cde4d4ea94dd",
+    "src/icon-action-tooltip.ts": "ec8efc917daf9b4e4291739dc59a4edc570d643c739dfa1c812f66f757a5393c",
+    "src/icon-action.css": "095a4c66eb8bdb9f639ce981158e0a596e7d543fb80e504945bc6d56ebd06f2d",
+    "src/icon-action.tsx": "a5ecbd16a5f33d87b50f2a455f5595214649f852948b80df761049c42228fa85",
+    "src/list.css": "2fc6157d43e9ce0e44f366d71fab8e100d2f7ca1e96c8bd1d03dfc5ff394ba18",
+    "src/list.tsx": "3e80d0f114f5cada4f1c3ffdac3565c1bc3ed546f6cb9648683ab846a256710c",
+    "src/menu-position.ts": "0d107000343afa7e087fbbc1ce2a6ebc62fd7a42fed823d1b8f7176b62fcc6a1",
+    "src/menu.css": "b2d8d3c80a5aad1b8623cd9f6089616ee592b54efa60b088edfa29c862b26ced",
+    "src/menu.tsx": "077ca3eefdf7e52f14eae4eff0be2cc20d2438799c9f1ddecaec3eeb300b9120",
+    "src/modal-dialog.ts": "7f98471272a0886870aed486c2d878c6ad5574c0669e3be92f45c9d5e9b6e9bb",
+    "src/notice.css": "02052147418975ab4131522417c315939f685c72004f0a1e6af71b49cb57212b",
+    "src/notice.tsx": "dd11ffed4586316239c1767ff1ddf4e247b144fe7412ce983fa81e88537c875b",
+    "src/notification-queue.ts": "77e3ee5b9d052742852245b28e2a25eec579ba94f00a2ee7b30c20be055d174b",
+    "src/notifications.css": "131707107129a466ec31b1d58574f6cee6d697630c9692ceef0db8d7083477ad",
+    "src/notifications.tsx": "038f39156db88c9add895cff6c17fd519f5afb354c5738d69be4b66666d07de3",
+    "src/overlay.ts": "37c0a2bbd673dc15c1ca1efe5b4fe09bce7087b6bf73c70a377b5f513d129325",
+    "src/popup.ts": "d76753fe162d2945d9ae6aae0bbefca1233ded3d2b9783be2dad5262666bd4ba",
+    "src/react.ts": "aab1a55341e34336a579d9d54651c2697c35b4de19dc5dc410d8e4cb3fd5ee90",
+    "src/static.ts": "d138be47d20f46496b3c60b267447158bc8045a44e419a901b869307ae2f07a1",
+    "src/tabs.css": "90797561e52cf3a87298c6eb1eeb625e0fb42acd6c640c61a8d833e2dbf6d6a5",
+    "src/tabs.tsx": "9d4b33bee5ed3652d786b5338dde2f191e335e3dbab2345d278244083e492a24",
+    "src/toggle.css": "94f9d7576ef8ef124fa4e99b9332ed73def7d581e398dc2368c1f85e6bdef369",
+    "src/toggle.tsx": "2753a663deada32247ed60a75c06bdbf87cb583bef5dbc8208966cacd36db61c"
+  },
+  "tokenProjection": {
+    "font": {
+      "display": {
+        "use": "Headings",
+        "stack": "\"Bricolage Grotesque\", system-ui, sans-serif"
+      },
+      "body": {
+        "use": "Prose",
+        "stack": "\"Hanken Grotesk\", system-ui, -apple-system, \"Segoe UI\", sans-serif"
+      },
+      "mono": {
+        "use": "Commands, labels, terminal mockups",
+        "stack": "\"JetBrains Mono\", ui-monospace, SFMono-Regular, Menlo, monospace"
+      }
+    },
+    "header": {
+      "height": "56px",
+      "compact-height": "48px",
+      "compact-max-width": "479px",
+      "padding-inline": "clamp(12px, 1.4vw, 20px)",
+      "gap": "12px",
+      "mark-size": "12px",
+      "mark-line-height": "1",
+      "mark-weight": "600",
+      "wordmark-size": "14px",
+      "wordmark-line-height": "1.2",
+      "wordmark-weight": "600",
+      "title-size": "16px",
+      "title-line-height": "1.2",
+      "title-weight": "600",
+      "action-size": "13px",
+      "action-line-height": "1.2",
+      "action-weight": "400",
+      "icon-size": "18px",
+      "icon-stroke": "1.75"
+    },
+    "browser": {
+      "color": {
+        "text": {
+          "dark": "#B0B0B0",
+          "light": "#343434"
+        },
+        "secondary": {
+          "dark": "#909090",
+          "light": "#626262"
+        },
+        "selected-text": {
+          "dark": "#D8D8D8",
+          "light": "#202020"
+        },
+        "disabled-text": {
+          "dark": "#858585",
+          "light": "#626262"
+        },
+        "focus": {
+          "dark": "#B0B0B0",
+          "light": "#626262"
+        },
+        "edge": {
+          "dark": "#7D7D7D",
+          "light": "#626262"
+        },
+        "working": {
+          "dark": "#9ECE6A",
+          "light": "#386000"
+        },
+        "waiting": {
+          "dark": "#FF9E64",
+          "light": "#964500"
+        },
+        "review": {
+          "dark": "#BB9AF7",
+          "light": "#7847BD"
+        },
+        "blocked": {
+          "dark": "#F7768E",
+          "light": "#B62C3B"
+        },
+        "link": {
+          "dark": "#7DCFFF",
+          "light": "#006B8F"
+        }
+      },
+      "surface": {
+        "scrim": {
+          "dark": "#00000052",
+          "light": "#0000001F"
+        },
+        "command": {
+          "dark": "#202020",
+          "light": "#EAEAEA"
+        },
+        "code": {
+          "dark": "#171717",
+          "light": "#F0F0F0"
+        },
+        "paper": {
+          "dark": "#080808",
+          "light": "#FAFAFA"
+        },
+        "sheet": {
+          "dark": "#101010",
+          "light": "#FFFFFF"
+        },
+        "selection": {
+          "dark": "#2B2B2B",
+          "light": "#E2E2E2"
+        },
+        "disabled": {
+          "dark": "#171717",
+          "light": "#EAEAEA"
+        },
+        "rule": {
+          "dark": "#303030",
+          "light": "#D0D0D0"
+        }
+      },
+      "metric": {
+        "command-padding": "12px",
+        "command-gap": "8px",
+        "command-size": "14px",
+        "rule-width": "1px",
+        "radius": "0",
+        "notice-border-width": "1px",
+        "notice-padding": "clamp(24px, 5vw, 44px)",
+        "notice-heading-line-height": "1.15",
+        "notice-heading-gap": "16px",
+        "notice-mark-gap": "12px",
+        "eyebrow-size": "11px",
+        "eyebrow-weight": "600",
+        "eyebrow-tracking": "0.09em",
+        "eyebrow-gap": "8px",
+        "caption-size": "11px",
+        "caption-line-height": "1.2",
+        "action-border-width": "1px",
+        "focus-width": "2px",
+        "field-border-width": "1px",
+        "toggle-gap": "8px",
+        "toggle-indicator-size": "14px",
+        "toggle-indicator-border-width": "2px"
+      }
+    }
+  }
+}

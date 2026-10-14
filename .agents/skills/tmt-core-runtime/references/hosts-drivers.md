@@ -128,6 +128,11 @@ channels and the driver protocol. The owner map is in
 - Detection (`Present`, `ConfigOnly`, `Absent`, `Broken`) reads only the filesystem.
   `Registry::probe_versions` runs one bounded `--version` for diagnostics only; no setup,
   install or status command calls it, because running an agent can write under `HOME`.
+- Muse uses executable `muse`, configuration root `~/.config/muse` and the shared
+  `~/.agents/skills` root. Its descriptor and adapter enable detection, consented setup of
+  skills and explicit `tmt install muse`; they declare neither lifecycle hooks nor a runtime.
+  Managed skill ownership and replacement remain with the
+  [installer owner](install-architecture.md#managed-skills).
 - Unsupported is distinct from accepted, queued, failed, denied, approval-blocked and
   uncertain; only unsupported falls through automatically. The `session` interface kind is
   reserved, not shipped.

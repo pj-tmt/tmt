@@ -339,6 +339,10 @@ fn hint_samples() -> Vec<(&'static str, &'static [HintSpec])> {
             crate::native_upgrade_command::PRINTED_HINTS,
         ),
         (
+            "native_upgrade_command/database.rs",
+            crate::native_upgrade_command::DATABASE_HINTS,
+        ),
+        (
             "native_upgrade_command/extensions.rs",
             crate::native_upgrade_command::EXTENSIONS_HINTS,
         ),

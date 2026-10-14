@@ -89,7 +89,7 @@ fn empty_default_refuses_a_former_database_before_creating_sqlite_files() {
     assert!(output.stderr.is_empty());
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     let message = value.to_string();
-    assert!(message.contains(&current.join("tmux-team.db").display().to_string()));
+    assert!(message.contains(&current.join("tmt.db").display().to_string()));
     assert!(message.contains(&former.join("tmux-team.db").display().to_string()));
     assert!(message.contains("Move the current Core data directory"));
     assert!(message.contains("aside first, then move the former Core data directory"));
@@ -263,7 +263,7 @@ fn native_pr_handoff_checks_compiled_schema_and_preserves_installation_on_refusa
         "explicit_channel": true
     });
     // Only this owned database is initialized. The child observes it read-only.
-    let database = support::state_dir(&fixture.root).join("tmux-team.db");
+    let database = support::state_dir(&fixture.root).join("tmt.db");
     let mut storage = tmt_adapters::storage::Storage::open(&database).unwrap();
     storage.close().unwrap();
     let args = ["__native-install", "--handoff-version", "2", "--json"];

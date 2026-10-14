@@ -1,0 +1,162 @@
+{
+  "revision": "8720dec73f5aebed9f649ea58636f54599fdedf1",
+  "files": [
+    {
+      "path": "LICENSE.md",
+      "sha256": "1564074e13439397221ffd522e2e504d56561994a23d371aa5e3ad43e4f5423f"
+    },
+    {
+      "path": "apps/v4/registry/new-york-v4/lib/utils.ts",
+      "sha256": "7c8c3dfc0cdd370d44932828eb067ef771c8fe7996693221d5d4b90af6d54f2d"
+    },
+    {
+      "path": "apps/v4/registry/new-york-v4/ui/button.tsx",
+      "sha256": "cc36af0f8b5019c33cc039fbf03bb952a513072b15b55b53c592b78af3e5f4c4"
+    },
+    {
+      "path": "apps/v4/registry/new-york-v4/ui/input.tsx",
+      "sha256": "8c4612a7c41319ac5049daa3b34b080f9784b6245c17780eb87c127e58e473db"
+    },
+    {
+      "path": "apps/v4/registry/new-york-v4/ui/textarea.tsx",
+      "sha256": "253cdeb487c73beaaccdf47fc163e36e7d5b7ae6ddf09a4f64998a109a112979"
+    },
+    {
+      "path": "apps/v4/registry/new-york-v4/ui/checkbox.tsx",
+      "sha256": "b23ab9d4deeedf2ac8f512c368361ede681aa383437ef48563a6f9b7dbe95f27"
+    },
+    {
+      "path": "apps/v4/registry/new-york-v4/ui/switch.tsx",
+      "sha256": "386d4d4deb39f34126f9700fe9bf5393d238485dd94018bba9d154dda84c62ae"
+    },
+    {
+      "path": "apps/v4/registry/new-york-v4/ui/separator.tsx",
+      "sha256": "6da346505c8629a4668420d2a5ca48891383bbe0b0ceb14163537c671879427e"
+    },
+    {
+      "path": "apps/v4/registry/new-york-v4/ui/badge.tsx",
+      "sha256": "46a0de5224f6a5d5d63d45246534288518dce888f031064bff925bbc7fe6ad97"
+    },
+    {
+      "path": "apps/v4/registry/new-york-v4/ui/alert.tsx",
+      "sha256": "2cc59b5f7bda91c1670884b1bf46bfc8a2a6f226cef184f5762acc037188885b"
+    },
+    {
+      "path": "apps/v4/registry/new-york-v4/ui/tabs.tsx",
+      "sha256": "865d0194331b9b2be36723fa79d3575dc83078b4cb941cafee87cb72fc2cff46"
+    },
+    {
+      "path": "apps/v4/registry/new-york-v4/ui/select.tsx",
+      "sha256": "0b796a108a4eb5ba52d9ad938b7aea36dc56ae66c703a6d0a23dbc24f96daff3"
+    },
+    {
+      "path": "apps/v4/registry/new-york-v4/ui/dialog.tsx",
+      "sha256": "604b7782195aef7666dc2ec09a8992d60977696c07f75382f22d3d1b33691559"
+    },
+    {
+      "path": "apps/v4/registry/new-york-v4/ui/sheet.tsx",
+      "sha256": "63863cf2df8f8973e52b3459ac9bdbf81be1262dbc70eb53d5271ffb03488e16"
+    },
+    {
+      "path": "apps/v4/registry/new-york-v4/ui/dropdown-menu.tsx",
+      "sha256": "98f0dcdae38225b73734aceeb9213dd751fea2c72ea520df31003cd133deac8a"
+    },
+    {
+      "path": "apps/v4/registry/new-york-v4/ui/tooltip.tsx",
+      "sha256": "a0784eb77831a799fad7991df4f1b666f876201565a80175e1aa68733574a2e4"
+    },
+    {
+      "path": "apps/v4/registry/new-york-v4/ui/popover.tsx",
+      "sha256": "31c350309ff5d3034e6ecf1b0eda75ba8855bdbf987fc7ad6d71f0ef07c5a447"
+    },
+    {
+      "path": "apps/v4/registry/new-york-v4/ui/command.tsx",
+      "sha256": "b0917eab214054724ebbf4aa59228ab68d881ac03bfc0f64106f1b3f77cb6d46"
+    }
+  ],
+  "repository": "https://github.com/shadcn-ui/ui",
+  "license": "MIT",
+  "adaptation": {
+    "helper": "src/ui/utils.ts; typed/formatting change and fixed tmt prefix via extendTailwindMerge",
+    "components": "Source pins only; no component implementation in Slice1",
+    "combobox": "Pinned Radix Popover plus Command/cmdk; CommandDialog depends on Dialog; do not use current Base UI combobox registry"
+  },
+  "dependencies": {
+    "clsx": {
+      "version": "2.1.1",
+      "license": "MIT",
+      "source": "lukeed/clsx"
+    },
+    "cmdk": {
+      "version": "1.1.1",
+      "license": "MIT",
+      "source": {
+        "type": "git",
+        "url": "git+https://github.com/pacocoursey/cmdk.git",
+        "directory": "cmdk"
+      }
+    },
+    "radix-ui": {
+      "version": "1.8.1",
+      "license": "MIT",
+      "source": {
+        "type": "git",
+        "url": "git+https://github.com/radix-ui/primitives.git",
+        "directory": "packages/react/radix-ui"
+      }
+    },
+    "tailwind-merge": {
+      "version": "3.7.0",
+      "license": "MIT",
+      "source": {
+        "type": "git",
+        "url": "https://github.com/dcastil/tailwind-merge.git",
+        "directory": "packages/tailwind-merge"
+      }
+    },
+    "tailwindcss": {
+      "version": "4.3.3",
+      "license": "MIT",
+      "source": {
+        "type": "git",
+        "url": "https://github.com/tailwindlabs/tailwindcss.git",
+        "directory": "packages/tailwindcss"
+      }
+    },
+    "@tailwindcss/cli": {
+      "version": "4.3.3",
+      "license": "MIT",
+      "source": {
+        "type": "git",
+        "url": "https://github.com/tailwindlabs/tailwindcss.git",
+        "directory": "packages/@tailwindcss-cli"
+      }
+    },
+    "react": {
+      "version": "19.2.8",
+      "license": "MIT",
+      "source": {
+        "type": "git",
+        "url": "https://github.com/react/react.git",
+        "directory": "packages/react"
+      }
+    },
+    "react-dom": {
+      "version": "19.2.8",
+      "license": "MIT",
+      "source": {
+        "type": "git",
+        "url": "https://github.com/react/react.git",
+        "directory": "packages/react-dom"
+      }
+    }
+  },
+  "deferredDependencies": {
+    "class-variance-authority": {
+      "version": "0.7.1",
+      "license": "Apache-2.0",
+      "source": "https://github.com/joe-bell/cva.git",
+      "status": "Deferred: Apache-2.0 contradicts approved MIT-only premise; no Slice1 consumer. Slice2 requires lead license/dependency acceptance."
+    }
+  }
+}

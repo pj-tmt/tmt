@@ -205,7 +205,7 @@ function records(f: E2EFixture) {
     : [];
 }
 function sql<T>(f: E2EFixture, run: (db: Database.Database) => T): T {
-  const db = new Database(path.join(f.globalDir, 'tmux-team.db'));
+  const db = new Database(path.join(f.globalDir, 'tmt.db'));
   try {
     return run(db);
   } finally {

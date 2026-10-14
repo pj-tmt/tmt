@@ -22,3 +22,21 @@ pub const POLICY_BYTES: usize = 2_048;
 pub const PAYLOAD_BYTES: u64 = 12 * 1024 * 1024;
 /// Longest backend identifier.
 pub const BACKEND_ID_BYTES: usize = 32;
+
+/// v3 sync JSON body, excluding its four-byte prefix.
+pub const V3_FRAME_BYTES: usize = 397_312;
+/// Canonical fields map of one sync document.
+pub const SYNC_DOCUMENT_BYTES: usize = 393_216;
+/// Encoded non-document metadata in one sync frame.
+pub const SYNC_METADATA_BYTES: usize = 4_096;
+/// Documents in one query response, also constrained by the frame cap.
+pub const SYNC_PAGE_DOCUMENTS: usize = 256;
+/// Stateless, printable discovery run continuation.
+pub const SYNC_CONTINUATION_BYTES: usize = 1_024;
+
+/// Page interests, independent of writers or query positions.
+pub const SYNC_INTERESTS: usize = 3;
+pub const INSTALLATION_SYNC_INTERESTS: usize = 12;
+
+/// Generation-scoped bound contexts; repeated bind of a space reuses its context.
+pub const SYNC_BINDINGS: usize = 8;

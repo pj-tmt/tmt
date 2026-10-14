@@ -179,3 +179,113 @@ fn lifecycle_frames_need_no_correlation_and_read_requests_name_no_transfer() {
     ];
     assert_eq!(run(Role::Extension, wide(), None, &steps), None);
 }
+
+#[test]
+fn registered_sync_interests_admit_monotonic_coalesced_notices_and_cancel_fences_them() {
+    use crate::{ChannelFrame, sync as wire};
+    let generation = "a24228cf-5720-4e60-8771-ccfc7729b49d";
+    let subscription_id = "1";
+    let mut ledger = Ledger::new(Role::Remote, Caps::contract(), None);
+    let request = ChannelFrame::Sync(wire::Frame::Request {
+        version: 1,
+        generation: generation.into(),
+        request_id: "1".into(),
+        call: wire::Call::Subscribe {
+            binding: generation.into(),
+            interest: wire::Interest {
+                resource: "rows".into(),
+                scope: Default::default(),
+            },
+        },
+    });
+    ledger.apply_channel(&request, false).unwrap();
+    let result = ChannelFrame::Sync(wire::Frame::Result {
+        version: 1,
+        generation: generation.into(),
+        request_id: "1".into(),
+        method: wire::Method::Subscribe,
+        outcome: wire::Outcome::Subscribed {
+            id: subscription_id.into(),
+        },
+    });
+    ledger.apply_channel(&result, true).unwrap();
+    let notice = ChannelFrame::Sync(wire::Frame::Notice {
+        version: 1,
+        generation: generation.into(),
+        subscription_id: subscription_id.into(),
+        sequence: "1".into(),
+        notice: wire::InterestNotice::Changed,
+    });
+    ledger
+        .apply_channel(&notice, true)
+        .expect("registered interest must admit notice");
+    assert_eq!(ledger.apply_channel(&notice, true), Err(Reason::Order));
+    let cancel = ChannelFrame::Sync(wire::Frame::Request {
+        version: 1,
+        generation: generation.into(),
+        request_id: "2".into(),
+        call: wire::Call::Cancel {
+            binding: generation.into(),
+            subscription_id: subscription_id.into(),
+        },
+    });
+    ledger.apply_channel(&cancel, false).unwrap();
+    let cancelled = ChannelFrame::Sync(wire::Frame::Result {
+        version: 1,
+        generation: generation.into(),
+        request_id: "2".into(),
+        method: wire::Method::Cancel,
+        outcome: wire::Outcome::Cancelled {
+            id: subscription_id.into(),
+        },
+    });
+    ledger.apply_channel(&cancelled, true).unwrap();
+    assert_eq!(ledger.apply_channel(&notice, true), Err(Reason::Unknown));
+}
+
+#[test]
+fn sync_interests_reserve_installation_capacity_before_registration_and_release_it_on_drop() {
+    use crate::{ChannelFrame, sync as wire};
+    let budget = Budget::contract();
+    let request = |id: u64| {
+        ChannelFrame::Sync(wire::Frame::Request {
+            version: 1,
+            generation: "a24228cf-5720-4e60-8771-ccfc7729b49d".into(),
+            request_id: id.to_string(),
+            call: wire::Call::Subscribe {
+                binding: "a24228cf-5720-4e60-8771-ccfc7729b49d".into(),
+                interest: wire::Interest {
+                    resource: "rows".into(),
+                    scope: Default::default(),
+                },
+            },
+        })
+    };
+    let mut ledgers: Vec<_> = (0..4)
+        .map(|_| Ledger::new(Role::Remote, Caps::contract(), Some(budget.clone())))
+        .collect();
+    for ledger in &mut ledgers {
+        for id in 1..=3 {
+            ledger.apply_channel(&request(id), false).unwrap()
+        }
+        assert_eq!(
+            ledger.apply_channel(&request(4), false),
+            Err(Reason::Capacity)
+        );
+    }
+    let mut next = Ledger::new(Role::Remote, Caps::contract(), Some(budget.clone()));
+    assert_eq!(
+        next.apply_channel(&request(1), false),
+        Err(Reason::Capacity)
+    );
+    drop(ledgers.pop());
+    next.apply_channel(&request(1), false)
+        .expect("ended channel returns pending interest capacity");
+    assert_eq!(
+        budget
+            .subscriptions
+            .0
+            .load(std::sync::atomic::Ordering::Acquire),
+        10
+    );
+}

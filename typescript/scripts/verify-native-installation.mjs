@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { readCoreDatabase } from './native-database-layout.mjs';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { selectNativeArtifact, withNativeArtifact } from './native-artifact-policy.mjs';
@@ -164,7 +165,7 @@ await withNativeArtifact(values.archive, current, async (source) => {
       ).identity;
       // Richer state than one identity: the candidate migrates it when it first opens it below.
       const written = [identity.id, ...writePriorState(run)];
-      const database = path.join(state, 'tmux-team.db');
+      const database = readCoreDatabase(state);
       const originalDatabase = fs.readFileSync(database);
       const before = snapshotState(database, written);
       assert.deepEqual(
@@ -177,7 +178,7 @@ await withNativeArtifact(values.archive, current, async (source) => {
       assert.equal(blocked.error.code, 'NATIVE_INSTALL_FAILED');
       assert.match(blocked.error.message, /pinned/);
       assert.equal(fs.readlinkSync(pointer), originalPointer);
-      assert.deepEqual(fs.readFileSync(database), originalDatabase);
+      assert.deepEqual(fs.readFileSync(readCoreDatabase(state)), originalDatabase);
 
       const upgraded = install(values.archive, values.manifest, ['--unpin']);
       const upgradedLayout = readCliLayout(prefix);
@@ -201,7 +202,7 @@ await withNativeArtifact(values.archive, current, async (source) => {
         )
       );
       assert.deepEqual(
-        fs.readFileSync(database),
+        fs.readFileSync(readCoreDatabase(state)),
         originalDatabase,
         'Installation must not migrate or write SQLite'
       );
@@ -212,7 +213,7 @@ await withNativeArtifact(values.archive, current, async (source) => {
       assert.deepEqual(
         checkMigratedState({
           before,
-          after: snapshotState(database, written),
+          after: snapshotState(readCoreDatabase(state), written),
           expected: expectedMigrations(sourceRoot),
         }),
         [],

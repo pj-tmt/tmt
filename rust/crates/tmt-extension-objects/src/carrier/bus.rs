@@ -8,8 +8,9 @@
 //! failed write or the end of the stream is final: the first such fault is kept, the
 //! socket is shut down and every later call reports it.
 use super::{
-    Budget, Budgets, Caps, Fault, Idle, Link, Role, Stage, bounded, frame_method, frame_supported,
-    ledger::Ledger, prepared, read_checked, supports,
+    Budget, Budgets, Caps, ChannelFrame, Fault, Idle, Link, Role, Stage, bounded,
+    channel_supported, frame_method, ledger::Ledger, prepared_channel, read_channel_checked,
+    supports,
 };
 use crate::{Frame, Method, Uuid4};
 use std::{
@@ -33,7 +34,7 @@ const SLICE: Duration = Duration::from_millis(50);
 
 #[derive(Debug, Default)]
 struct Inbox {
-    frames: VecDeque<(StampedObjectFrame, usize)>,
+    frames: VecDeque<(StampedChannelFrame, usize)>,
     bytes: usize,
     /// The first final fault, kept for every later call.
     fault: Option<Fault>,
@@ -73,6 +74,12 @@ impl Shared {
 #[derive(Debug)]
 pub struct StampedObjectFrame {
     pub frame: Frame,
+    pub first_prefix: Instant,
+}
+
+#[derive(Debug)]
+pub struct StampedChannelFrame {
+    pub frame: ChannelFrame,
     pub first_prefix: Instant,
 }
 
@@ -125,6 +132,18 @@ impl Bus {
         })
     }
 
+    pub fn supports_sync(&self) -> bool {
+        self.shared.version == 3
+    }
+    pub fn send_channel(&self, frame: &ChannelFrame) -> Result<(), Fault> {
+        self.send_channel_until(frame, Instant::now() + self.shared.budgets.write)
+    }
+    pub fn recv_channel_stamped(
+        &self,
+        until: Option<Instant>,
+    ) -> Result<StampedChannelFrame, Fault> {
+        self.receive(until)
+    }
     pub fn supports(&self, method: Method) -> bool {
         supports(self.shared.version, method)
     }
@@ -150,23 +169,29 @@ impl Bus {
     /// refuses before ledger admission or any write, leaving the channel usable.
     /// A failure after admission ends the channel, as with [`Self::send`].
     pub fn send_until(&self, frame: &Frame, until: Instant) -> Result<(), Fault> {
+        self.send_channel_until(&ChannelFrame::Object(frame.clone()), until)
+    }
+    pub fn send_channel_until(&self, frame: &ChannelFrame, until: Instant) -> Result<(), Fault> {
         if let Some(fault) = self.fault() {
             return Err(fault);
         }
         let deadline = until.min(Instant::now() + self.shared.budgets.write);
-        if let Some(method) = frame_method(frame)
-            && !supports(self.shared.version, method)
-        {
-            return Err(Fault::Unsupported(method));
+        if !channel_supported(self.shared.version, frame) {
+            return Err(match frame {
+                ChannelFrame::Object(frame) => {
+                    Fault::Unsupported(frame_method(frame).expect("unsupported object method"))
+                }
+                ChannelFrame::Sync(_) => Fault::UnsupportedSync,
+            });
         }
-        let bytes = prepared(self.shared.generation, frame)?;
+        let bytes = prepared_channel(self.shared.generation, frame)?;
         // The ledger and the wire see frames in one order: the writer is held across both.
         let mut writer = locked(&self.shared.writer);
         if Instant::now() >= deadline {
             return Err(Fault::Timeout(Stage::Write));
         }
         locked(&self.shared.ledger)
-            .apply(frame, true)
+            .apply_channel(frame, true)
             .map_err(Fault::Correlation)?;
         match writer.send_by(&bytes, deadline, Stage::Write) {
             Ok(()) => Ok(()),
@@ -186,6 +211,19 @@ impl Bus {
 
     /// Receive without discarding the first-prefix instant, including queue time.
     pub fn recv_stamped(&self, until: Option<Instant>) -> Result<StampedObjectFrame, Fault> {
+        let received = self.receive(until)?;
+        match received.frame {
+            ChannelFrame::Object(frame) => Ok(StampedObjectFrame {
+                frame,
+                first_prefix: received.first_prefix,
+            }),
+            ChannelFrame::Sync(_) => {
+                self.shared.fail(Fault::UnsupportedSync);
+                Err(Fault::UnsupportedSync)
+            }
+        }
+    }
+    fn receive(&self, until: Option<Instant>) -> Result<StampedChannelFrame, Fault> {
         let mut inbox = locked(&self.shared.inbox);
         loop {
             if let Some((frame, bytes)) = inbox.frames.pop_front() {
@@ -243,14 +281,14 @@ fn drive(shared: &Shared, mut reader: bounded::Reader) {
     };
     loop {
         let (received, bytes) =
-            match read_checked(&mut reader, shared.generation, idle, &shared.budgets) {
+            match read_channel_checked(&mut reader, shared.generation, idle, &shared.budgets) {
                 Ok(read) => read,
                 Err(fault) => return shared.fail(fault),
             };
-        if !frame_supported(shared.version, &received.frame) {
+        if !channel_supported(shared.version, &received.frame) {
             return shared.fail(Fault::Frame(crate::ErrorClass::Value));
         }
-        if let Err(reason) = locked(&shared.ledger).apply(&received.frame, false) {
+        if let Err(reason) = locked(&shared.ledger).apply_channel(&received.frame, false) {
             return shared.fail(Fault::Correlation(reason));
         }
         let mut inbox = locked(&shared.inbox);

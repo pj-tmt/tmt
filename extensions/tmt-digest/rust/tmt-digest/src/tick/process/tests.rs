@@ -304,3 +304,27 @@ fn already_started_core_call_finishes_after_boundary_then_no_new_call_starts() {
     assert_eq!(fixture.calls().len(), 1);
     assert!(fixture.calls()[0].contains("digest.checklist.flush"));
 }
+
+#[test]
+fn unavailable_history_reports_partial_without_disabling_policy_or_authorizing_delivery() {
+    let fixture = Fixture::new();
+    let mut port = fixture.port();
+    port.attach_history(Err(Error::new(
+        "DIGEST_HISTORY_IO",
+        "fixture unavailable history",
+    )));
+    port.observe().unwrap();
+    assert_eq!(fixture.writes().len(), 1);
+    assert!(
+        !fixture
+            .calls()
+            .iter()
+            .any(|line| line.contains("digest.checklist.flush"))
+    );
+    assert!(
+        port.finish()
+            .unwrap_err()
+            .message
+            .contains("fixture unavailable history")
+    );
+}

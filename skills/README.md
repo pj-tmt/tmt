@@ -26,15 +26,16 @@ tmt install gemini
 tmt install agy
 tmt install pi
 tmt install opencode
+tmt install muse
 tmt install all      # Install for every supported provider
 ```
 
-| Provider                   | Native skill root          |
-| -------------------------- | -------------------------- |
-| Claude Code                | `~/.claude/skills/`        |
-| Codex, Gemini and OpenCode | `~/.agents/skills/`        |
-| Antigravity CLI (`agy`)    | `~/.gemini/config/skills/` |
-| Pi                         | `~/.pi/agent/skills/`      |
+| Provider                         | Native skill root          |
+| -------------------------------- | -------------------------- |
+| Claude Code                      | `~/.claude/skills/`        |
+| Codex, Gemini, OpenCode and Muse | `~/.agents/skills/`        |
+| Antigravity CLI (`agy`)          | `~/.gemini/config/skills/` |
+| Pi                               | `~/.pi/agent/skills/`      |
 
 Each root receives sibling `tmt/SKILL.md` and `tmt-inbox/SKILL.md` links.
 

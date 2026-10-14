@@ -102,6 +102,18 @@ pub enum Invocation {
         name: String,
         save: bool,
     },
+    Discover {
+        host: Option<String>,
+        socket: Option<String>,
+    },
+    GuardedBind {
+        pane: String,
+        name: Option<String>,
+        identity: Option<String>,
+        expect: String,
+        socket: Option<String>,
+        save: bool,
+    },
     BindMarked {
         name: String,
         save: bool,
@@ -219,6 +231,7 @@ pub enum Invocation {
     NativeRefreshSkills {
         managed: bool,
     },
+    NativeRenameDatabase,
     NativeUpgradeExtensions {
         plan: bool,
     },

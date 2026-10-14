@@ -14,7 +14,7 @@ mod theme_tests;
 
 pub use document::ThemeProblem;
 pub use paths::ConfigPaths;
-pub(crate) use paths::normalize;
+pub(crate) use paths::{DATABASE, FORMER_DATABASE, normalize};
 pub(crate) use rename::relocated_skill_source;
 use std::{fmt, path::Path};
 pub use tmt_core::settings::Scope;

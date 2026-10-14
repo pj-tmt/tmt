@@ -63,7 +63,7 @@ describe(
           if (context.name === 'complete') expect(result.stdout.commandCount).toBe(1);
           expect(fixture.paneMetadata(real.pane)).toBe('');
           expect(fixture.paneMetadata(peer.pane)).toBe('');
-          expect(fs.existsSync(path.join(fixture.globalDir, 'tmux-team.db'))).toBe(false);
+          expect(fs.existsSync(path.join(fixture.globalDir, 'tmt.db'))).toBe(false);
         }, fixtureOptions());
       },
       20_000
@@ -164,7 +164,7 @@ describe(
           `${raw}\n`
         );
         expect(fixture.tmux(['-u', 'show-options', '-g'])).toBe(globalBefore);
-        expect(fs.existsSync(path.join(fixture.globalDir, 'tmux-team.db'))).toBe(false);
+        expect(fs.existsSync(path.join(fixture.globalDir, 'tmt.db'))).toBe(false);
       }, fixtureOptions());
     });
 
@@ -341,7 +341,7 @@ describe(
           commandCount: 1,
         });
         expect(JSON.parse(fixture.paneMetadata())).toEqual(opaque);
-        expect(fs.existsSync(path.join(fixture.globalDir, 'tmux-team.db'))).toBe(false);
+        expect(fs.existsSync(path.join(fixture.globalDir, 'tmt.db'))).toBe(false);
       }, fixtureOptions());
     });
 

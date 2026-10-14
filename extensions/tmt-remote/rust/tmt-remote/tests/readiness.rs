@@ -837,3 +837,22 @@ fn unconfigured_signed_settings_remains_empty_and_ordinary_status_unchanged() {
     assert_eq!(raw_request(&h, &json!({"op":"status"})), ordinary);
     assert!(h.core_calls().is_empty());
 }
+
+#[test]
+fn internal_native_activation_without_a_factory_is_typed_and_observations_stay_unchanged() {
+    let h = Harness::new(Timing::CONTRACT);
+    let ordinary = raw_request(&h, &json!({"op":"status"}));
+    let objects = raw_request(&h, &json!({"op":"status","objects":true}));
+    let answer = raw_request(
+        &h,
+        &json!({"op":"sync.activate","extension":"colab","version":3}),
+    );
+    assert_eq!(answer["error"]["code"], "REMOTE_STATE_UNAVAILABLE");
+    assert_eq!(raw_request(&h, &json!({"op":"status"})), ordinary);
+    assert_eq!(
+        raw_request(&h, &json!({"op":"status","objects":true})),
+        objects
+    );
+    assert!(!h.root.join("remote/firebase-auth").exists());
+    assert!(!h.root.join("remote/native-budget").exists());
+}

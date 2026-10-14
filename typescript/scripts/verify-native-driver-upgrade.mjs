@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { assertNoCoreDatabase } from './native-database-layout.mjs';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { selectNativeArtifact, withNativeArtifact } from './native-artifact-policy.mjs';
@@ -100,10 +101,7 @@ export async function verifyDriverUpgrade(values) {
             fs.readFileSync(old).equals(oldBytes) && fs.readFileSync(next).equals(nextBytes),
             'Approval removal deleted executable bytes'
           );
-          assert(
-            !fs.existsSync(path.join(state, 'tmux-team.db')),
-            'Driver approval opened application SQLite'
-          );
+          assertNoCoreDatabase(state, 'Driver approval opened application SQLite');
         } finally {
           fs.rmSync(root, { recursive: true, force: true });
         }

@@ -35,7 +35,25 @@ pub(in crate::grammar) fn add() -> Command {
         &["save"],
     )
     .arg(operand("pane-target", true))
-    .arg(operand("name", true))
+    .arg(
+        operand("name", false)
+            .required_unless_present("identity")
+            .conflicts_with("identity"),
+    )
+    .arg(option("identity").global(false).requires("expect"))
+    .arg(
+        Arg::new("expect")
+            .long("expect")
+            .value_name("DIGEST")
+            .help("Require the exact discovery target digest before binding"),
+    )
+    .arg(
+        Arg::new("socket")
+            .long("socket")
+            .value_name("PATH")
+            .requires("expect")
+            .help("Exact discovered tmux socket"),
+    )
 }
 
 pub(in crate::grammar) fn name() -> Command {
@@ -106,9 +124,10 @@ pub(in crate::grammar) fn check() -> Command {
 pub(in crate::grammar) fn focus() -> Command {
     general(spec!(
         "focus",
-        "Show an identity's or pane's view in your tmux client",
+        "Show an identity by name or UUID, or a pane, in your client",
         [
             "Show an agent's pane in your tmux client" => "tmt focus worker",
+            "Focus the same identity after a rename" => "tmt focus 6c57fcc9-96b1-4022-b071-870b81288814",
             "Name your client and the pane it shows" => "tmt focus --client",
         ]
     ))
@@ -147,4 +166,12 @@ pub(in crate::grammar) fn unbind() -> Command {
             "Detach this pane from its identity" => "tmt unbind",
         ]
     ))
+}
+
+pub(in crate::grammar) fn discover() -> Command {
+    general(spec!("discover","Observe bounded candidate panes without changing state",[
+        "Inspect this host's candidate panes"=>"tmt discover --json",
+        "Inspect an exact tmux socket"=>"tmt discover --host tmux --socket /tmp/agents.sock --json",
+    ])).arg(Arg::new("host").long("host").value_name("HOST").help("Host to observe; discovery supports tmux"))
+    .arg(Arg::new("socket").long("socket").value_name("PATH").help("Exact host socket; no directory search"))
 }

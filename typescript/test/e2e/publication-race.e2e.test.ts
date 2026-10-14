@@ -33,7 +33,7 @@ interface DurableProfile {
 }
 
 function databaseFile(fixture: E2EFixture): string {
-  return path.join(fixture.globalDir, 'tmux-team.db');
+  return path.join(fixture.globalDir, 'tmt.db');
 }
 
 function durableCounts(fixture: E2EFixture): DurableCounts {

@@ -72,7 +72,7 @@ describe('transport adapter probe: delivery stages and capture', { concurrent: f
         );
         expect(fixture.tmux(['show-buffer', '-b', sentinel]).trimEnd()).toBe('keep-me');
         expect(fixture.tmux(['list-buffers', '-F', '#{buffer_name}']).trim()).toBe(sentinel);
-        expect(fs.existsSync(path.join(fixture.globalDir, 'tmux-team.db'))).toBe(false);
+        expect(fs.existsSync(path.join(fixture.globalDir, 'tmt.db'))).toBe(false);
       }, options());
     }
   );

@@ -389,7 +389,7 @@ describe('native durable identity process boundary', () => {
       const created = documentIdentity(
         await runCli(selected, ['identity', 'create', 'Override', '--json'])
       );
-      expect(existsSync(path.join(override, 'tmux-team.db'))).toBe(true);
+      expect(existsSync(path.join(override, 'tmt.db'))).toBe(true);
       expect(existsSync(sandbox.database)).toBe(false);
       expectJsonSuccess(await runCli(child, ['identity', 'show', 'override', '--json']), {
         identity: created,

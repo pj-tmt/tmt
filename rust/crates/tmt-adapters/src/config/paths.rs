@@ -6,6 +6,28 @@ use std::{
 use super::ConfigError;
 use tmt_core::identity::NotesIdentityId;
 
+/// The Core database's basename and the one it had before #2292. A directory
+/// that holds only the former name keeps using it until `tmt upgrade` renames it.
+pub(crate) const DATABASE: &str = "tmt.db";
+pub(crate) const FORMER_DATABASE: &str = "tmux-team.db";
+
+fn present(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok()
+}
+
+/// `tmt.db` when it exists, else the former name when only that exists, else
+/// `tmt.db` (a new store). It never selects a name that would make a reader
+/// create an empty database beside an existing one.
+pub(crate) fn database_in(directory: &Path) -> PathBuf {
+    let current = directory.join(DATABASE);
+    let former = directory.join(FORMER_DATABASE);
+    normalize(if !present(&current) && present(&former) {
+        &former
+    } else {
+        &current
+    })
+}
+
 #[derive(Debug, Clone)]
 pub struct ConfigPaths {
     pub global_dir: PathBuf,
@@ -109,7 +131,7 @@ impl ConfigPaths {
         let boundary = None;
         #[cfg(any(test, feature = "test-isolation"))]
         let boundary = Some(root.as_path());
-        let paths =
+        let mut paths =
             Self::resolve_bounded(&cwd, &home, explicit.as_deref(), xdg.as_deref(), boundary);
         #[cfg(any(test, feature = "test-isolation"))]
         for path in [
@@ -127,6 +149,8 @@ impl ConfigPaths {
             xdg.as_deref(),
             report,
         )?;
+        // The directory move may have brought the database with it.
+        paths.database = database_in(&paths.global_dir);
         Ok(paths)
     }
 
@@ -157,7 +181,7 @@ impl ConfigPaths {
             .unwrap_or_else(|| cwd.join("tmt.json"));
         Self {
             global_config: normalize(&global_dir.join("config.json")),
-            database: normalize(&global_dir.join("tmux-team.db")),
+            database: database_in(&global_dir),
             global_dir,
             local_config,
         }

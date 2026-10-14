@@ -18,7 +18,7 @@ export interface DurableState {
 
 /** Observe committed identity state without service reconciliation or writes. */
 export function durableState(fixture: E2EFixture): DurableState {
-  const database = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
+  const database = new Database(path.join(fixture.globalDir, 'tmt.db'), { readonly: true });
   try {
     return {
       identities: database

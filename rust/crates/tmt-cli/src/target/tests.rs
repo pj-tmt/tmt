@@ -5,6 +5,28 @@ use tmt_core::{
     identity::{Identity, Lifetime},
 };
 
+#[test]
+fn focus_uuid_routing_requires_canonical_lowercase_rfc4122_v4() {
+    assert!(focus_identity_id("6c57fcc9-96b1-4022-b071-870b81288814"));
+    for input in [
+        "6C57FCC9-96B1-4022-B071-870B81288814",
+        "6c57fcc996b14022b071870b81288814",
+        "{6c57fcc9-96b1-4022-b071-870b81288814}",
+        " 6c57fcc9-96b1-4022-b071-870b81288814 ",
+        "6c57fcc9-96b1-1022-b071-870b81288814",
+        "6c57fcc9-96b1-4022-7071-870b81288814",
+        "00000000-0000-0000-0000-000000000000",
+        "worker",
+        "%14",
+        "fake:f1",
+    ] {
+        assert!(
+            !focus_identity_id(input),
+            "{input} retains name/pane routing"
+        );
+    }
+}
+
 fn recipient() -> PaneIdentity {
     let server = ServerEvidence {
         host: tmt_core::host::HostKind::Tmux,
