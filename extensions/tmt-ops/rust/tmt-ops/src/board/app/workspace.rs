@@ -1035,6 +1035,13 @@ impl App {
                 choice: Choice::Action(Action::parse(action).expect("workspace setting action")),
             });
         }
+        if matches!(self.shell.tab, OpsTab::Overview | OpsTab::Digest) {
+            entries.push(MenuEntry {
+                key: String::new(),
+                label: "Panels".into(),
+                choice: Choice::Panels,
+            });
+        }
         self.menu = Some(Menu {
             row_send: None,
             link: None,

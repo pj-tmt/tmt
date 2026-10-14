@@ -1408,70 +1408,109 @@ fn capture_savings_packet() {
 }
 
 #[test]
-fn moved_or_hidden_status_keeps_meter_and_policy_geometry_bounded_at_every_size() {
+fn moved_or_hidden_status_keeps_admitted_policy_geometry_bounded_at_every_size() {
     use crate::config::{DigestPanel as Id, DigestPanels, PanelSetting, TokenRate};
     use ratatui::{Terminal, backend::TestBackend};
-    for status_position in [None, Some(2), Some(4)] {
-        for meter_enabled in [false, true] {
-            for usage_shown in [false, true] {
-                let mut app = board();
-                app.shell.tab = crate::board::shell::OpsTab::Digest;
-                app.labels = supplied(serde_json::json!(3), false);
-                app.current = Some("product".into());
-                let settings = TokenRate {
-                    enabled: meter_enabled,
-                    ..TokenRate::default()
-                };
-                app.meter = Some(crate::board::meter::Meter::new(
-                    settings,
-                    &crate::board::rate::tests::input(100),
-                    std::time::Instant::now(),
-                ));
-                let mut policy = DigestPanels::default();
-                if let Some(position) = status_position {
-                    for _ in 0..position {
-                        policy.move_panel(Id::Status, true);
-                    }
-                } else {
-                    policy.set_shown(Id::Status, false).unwrap();
-                }
-                policy.set_shown(Id::Usage, usage_shown).unwrap();
-                app.view
-                    .as_mut()
-                    .unwrap()
-                    .home
-                    .as_mut()
-                    .unwrap()
-                    .workspace
-                    .preferences
-                    .digest_panels = Some(PanelSetting::configured(policy));
-                assert!(super::render::status_in_body(&app));
-                for width in 0..=160 {
-                    for height in 0..=44 {
-                        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-                        terminal
-                            .draw(|frame| {
-                                crate::board::view::prepare(&mut app, frame.area());
-                                crate::board::view::render(frame, &app);
-                            })
-                            .unwrap();
-                        let area = ratatui::layout::Rect::new(0, 0, width, height);
-                        let state = app.conversation.borrow();
-                        assert_eq!(state.area.intersection(area), state.area);
-                        if let Some(pane) = state.pane {
-                            assert_eq!(pane.intersection(area), pane);
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        let mut baseline_marks = std::collections::BTreeMap::new();
+        for status_position in [None, Some(2), Some(4)] {
+            for meter_configured in [false, true] {
+                for usage_shown in [false, true] {
+                    let mut app = board();
+                    app.shell.tab = crate::board::shell::OpsTab::Digest;
+                    app.labels = supplied(serde_json::json!(3), false);
+                    assert!(
+                        !app.loading(),
+                        "the policy sweep must use an admitted snapshot"
+                    );
+                    assert!(crate::tabs::aggregate(app.current.as_deref().unwrap()));
+                    let settings = TokenRate {
+                        enabled: meter_configured,
+                        ..TokenRate::default()
+                    };
+                    app.meter = Some(crate::board::meter::Meter::new(
+                        settings,
+                        &crate::board::rate::tests::input(100),
+                        std::time::Instant::now(),
+                    ));
+                    assert_eq!(
+                        app.meter.as_ref().unwrap().layout(160).is_some(),
+                        meter_configured
+                    );
+                    let mut policy = DigestPanels::default();
+                    if let Some(position) = status_position {
+                        for _ in 0..position {
+                            policy.move_panel(Id::Status, true);
                         }
-                        for hit in app.hits.borrow().iter() {
+                    } else {
+                        policy.set_shown(Id::Status, false).unwrap();
+                    }
+                    policy.set_shown(Id::Usage, usage_shown).unwrap();
+                    app.view
+                        .as_mut()
+                        .unwrap()
+                        .home
+                        .as_mut()
+                        .unwrap()
+                        .workspace
+                        .preferences
+                        .digest_panels = Some(PanelSetting::configured(policy));
+                    assert!(super::render::status_in_body(&app));
+                    for width in 0..=160 {
+                        for height in 0..=44 {
+                            let mut terminal =
+                                Terminal::new(TestBackend::new(width, height)).unwrap();
+                            terminal
+                                .draw(|frame| {
+                                    crate::board::view::prepare(&mut app, frame.area());
+                                    crate::board::view::render(frame, &app);
+                                })
+                                .unwrap();
+                            let marks = crate::board::view::time_marks(&app, 1_791_600_000_000);
+                            let key = (status_position, usage_shown, width, height);
+                            if meter_configured {
+                                assert_eq!(
+                                    baseline_marks.get(&key),
+                                    Some(&marks),
+                                    "configured sampling cannot add a named-meter clock"
+                                );
+                            } else {
+                                baseline_marks.insert(key, marks);
+                            }
+                            let text: String = terminal
+                                .backend()
+                                .buffer()
+                                .content
+                                .iter()
+                                .map(|cell| cell.symbol())
+                                .collect();
                             assert!(
-                                hit.x.saturating_add(hit.width) <= width && hit.y < height,
-                                "{status_position:?}/{meter_enabled}/{usage_shown}/{width}x{height}: {hit:?}"
+                                !text.contains("no usage reported yet")
+                                    && !text.contains("Updating usage…"),
+                                "the named meter status is not admitted: {text}"
                             );
+                            let area = ratatui::layout::Rect::new(0, 0, width, height);
+                            let state = app.conversation.borrow();
+                            assert_eq!(state.area.intersection(area), state.area);
+                            if let Some(pane) = state.pane {
+                                assert_eq!(pane.intersection(area), pane);
+                            }
+                            for hit in app.hits.borrow().iter() {
+                                assert!(
+                                    !matches!(hit.target, crate::board::app::HitTarget::Meter(_)),
+                                    "an aggregate snapshot cannot grant named-meter authority"
+                                );
+                                assert!(
+                                    hit.x.saturating_add(hit.width) <= width && hit.y < height,
+                                    "{status_position:?}/{meter_configured}/{usage_shown}/{width}x{height}: {hit:?}"
+                                );
+                            }
                         }
                     }
                 }
             }
         }
-    }
+    });
 }
 
 #[test]
