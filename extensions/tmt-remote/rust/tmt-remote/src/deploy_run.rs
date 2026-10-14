@@ -99,6 +99,7 @@ pub enum StepKind {
         field: String,
         direction: &'static str,
     },
+    CompositeIndex(crate::deploy_plan::CompositeIndexPlan),
     Hosting(HostingStep),
     Rules,
     /// Reads back every other step; the last gate before a binding.
@@ -306,6 +307,17 @@ pub fn prepare_with_hosting(
                 ));
             }
         }
+    }
+    for index in crate::deploy_plan::composite_indexes(plan.view()) {
+        let bytes = serde_json::to_vec(&index).expect("index serializes");
+        steps.push(step(
+            &format!(
+                "composite-index:{}:{}",
+                index.collection_group,
+                sha256_hex(&bytes)
+            ),
+            StepKind::CompositeIndex(index),
+        ));
     }
     steps.push(step("rules", StepKind::Rules));
     steps.push(step("verify", StepKind::Verify));

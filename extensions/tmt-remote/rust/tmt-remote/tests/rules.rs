@@ -605,3 +605,154 @@ fn colab_sign_in_provider_string_ids_and_nested_wildcards_are_composable() {
         RulesReason::Call,
     );
 }
+
+#[test]
+fn declared_stream_query_has_a_composite_index() {
+    let source = fixture("colab.rules");
+    let mut value: Value = serde_json::from_slice(&declaration("colab", &source)).unwrap();
+    value["resources"][0]["sync"] = json!({
+        "fields": ["room", "writer", "position", "publisher"],
+        "spaceField": "room", "uidField": "publisher",
+        "query": {"scopeFields": ["writer", "room"], "streamField": "writer",
+            "seqField": "position", "order": "asc"}
+    });
+    let declarations = vec![serde_json::to_vec(&value).unwrap()];
+    let plan = plan_from(&[("colab", &source)], &declarations, false);
+    let composed = rules::compose(
+        &plan,
+        &[Fragment {
+            extension: "colab",
+            source: &source,
+        }],
+    )
+    .unwrap();
+    let indexes: Value = serde_json::from_str(&composed.indexes).unwrap();
+    assert_eq!(
+        indexes["indexes"],
+        json!([{
+            "collectionGroup": "docs", "queryScope": "COLLECTION",
+            "fields": [
+                {"fieldPath": "room", "order": "ASCENDING"},
+                {"fieldPath": "writer", "order": "ASCENDING"},
+                {"fieldPath": "position", "order": "ASCENDING"}
+            ]
+        }]),
+        "the declared stream equality/range query must be provisioned before real reads"
+    );
+}
+
+#[test]
+fn composites_are_canonical_digest_bound_and_discovery_uses_index_merging() {
+    let source = fixture("colab.rules");
+    let mut value: Value = serde_json::from_slice(&declaration("colab", &source)).unwrap();
+    let sync = json!({"fields":["room","writer","position","publisher"],"spaceField":"room","uidField":"publisher",
+      "query":{"scopeFields":["writer","room"],"streamField":"writer","seqField":"position","order":"asc",
+      "discovery":{"name":"writers","scopeFields":["room"],"seqEquals":"1"}}});
+    value["resources"][0]["sync"] = sync;
+    let make = |v: &Value| {
+        plan_from(
+            &[("colab", &source)],
+            &[serde_json::to_vec(v).unwrap()],
+            false,
+        )
+    };
+    let original = make(&value);
+    let indexes = deploy_plan::composite_indexes(original.view());
+    assert_eq!(
+        indexes.len(),
+        1,
+        "discovery equality + document-name order and page-only equality use index merging"
+    );
+    value["resources"][0]["sync"]["query"]["scopeFields"] = json!(["room", "writer"]);
+    assert_eq!(
+        indexes,
+        deploy_plan::composite_indexes(make(&value).view()),
+        "equality filter order is not index identity"
+    );
+    value["resources"][0]["sync"]["fields"] =
+        json!(["room", "writer", "position", "publisher", "offset"]);
+    value["resources"][0]["sync"]["query"]["seqField"] = json!("offset");
+    let changed = make(&value);
+    assert_ne!(indexes, deploy_plan::composite_indexes(changed.view()));
+    assert_ne!(original.digest(), changed.digest());
+}
+
+#[test]
+fn composite_guard_counts_a_deduplicated_union_separately_from_field_overrides() {
+    let source = b"";
+    for count in [200, 201] {
+        let mut declarations = Vec::new();
+        let mut names = Vec::new();
+        for group in 0..4 {
+            let name = format!("fixture{group}");
+            let mut value: Value = serde_json::from_slice(&declaration("colab", source)).unwrap();
+            value["extension"] = json!(name);
+            value["admission"]["entryPoint"] = json!(name);
+            value["resources"] = json!([]);
+            for n in (group * 51)..((group + 1) * 51).min(count) {
+                value["resources"].as_array_mut().unwrap().push(json!({"name":format!("r{n}"),"kind":"log","path":format!("r{n}"),
+                  "limits":{"maxObjectBytes":1024,"maxNamespaceBytes":1024,"maxEntries":1},"ttlField":null,"indexes":[],
+                  "sync":{"fields":["room","writer","position"],"spaceField":"room","uidField":null,
+                    "query":{"scopeFields":["room","writer"],"streamField":"writer","seqField":"position","order":"asc"}}}));
+            }
+            names.push(name);
+            declarations.push(serde_json::to_vec(&value).unwrap());
+        }
+        let enabled: Vec<_> = names
+            .iter()
+            .map(|name| (name.as_str(), source.as_slice()))
+            .collect();
+        let plan = plan_from(&enabled, &declarations, false);
+        let fragments: Vec<_> = names
+            .iter()
+            .map(|name| Fragment {
+                extension: name,
+                source,
+            })
+            .collect();
+        let composed = rules::compose(&plan, &fragments);
+        if count == 200 {
+            assert!(composed.is_ok());
+        } else {
+            assert_eq!(
+                composed.unwrap_err().reason,
+                RulesReason::TooManyIndexConfigs
+            );
+        }
+    }
+}
+
+#[test]
+fn actual_client_codec_mapping_composes_the_shared_index_coverage_golden() {
+    // Hand-authored index identity for codec-v1, consumed by both actual provider builders.
+    let home = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/sealed_sync");
+    let vector: Value =
+        serde_json::from_slice(&fs::read(home.join("codec-v1.json")).unwrap()).unwrap();
+    let mut declaration: Value =
+        serde_json::from_str(vector["declaration"].as_str().unwrap()).unwrap();
+    declaration["admission"]["digest"] = json!(sha(b""));
+    let bytes = serde_json::to_vec(&declaration).unwrap();
+    let plan = deploy_plan::compose(
+        target(false),
+        &[Enabled {
+            name: "notes",
+            supplied: Some(Supplied {
+                declaration: &bytes,
+                artifact: b"",
+            }),
+        }],
+    )
+    .unwrap();
+    let composed = rules::compose(
+        &plan,
+        &[Fragment {
+            extension: "notes",
+            source: b"",
+        }],
+    )
+    .unwrap();
+    let actual: Value = serde_json::from_str(&composed.indexes).unwrap();
+    let expected: Value =
+        serde_json::from_slice(&fs::read(home.join("index-coverage.json")).unwrap()).unwrap();
+    assert_eq!(actual, expected);
+}

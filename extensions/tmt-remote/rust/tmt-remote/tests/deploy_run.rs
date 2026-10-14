@@ -1463,3 +1463,65 @@ fn pre_call_unknown_blocks_only_the_two_non_idempotent_creates() {
         );
     }
 }
+
+#[test]
+fn a_declared_composite_must_be_ready_before_joint_complete_and_lost_ack_is_reconciled() {
+    let artifact = read("declarations", "rules/colab-admission.rules");
+    let mut declaration: serde_json::Value =
+        serde_json::from_slice(&read("declarations", "colab-firestore.json")).unwrap();
+    declaration["resources"][0]["sync"] = serde_json::json!({
+        "fields":["room","writer","position"],"spaceField":"room","uidField":null,
+        "query":{"scopeFields":["room","writer"],"streamField":"writer","seqField":"position","order":"asc"}});
+    let bytes = serde_json::to_vec(&declaration).unwrap();
+    let extensions = compose(
+        Target {
+            backend: CloudBackend::Firestore,
+            physical_ttl: false,
+        },
+        &[Enabled {
+            name: "colab",
+            supplied: Some(Supplied {
+                declaration: &bytes,
+                artifact: &artifact,
+            }),
+        }],
+    )
+    .unwrap();
+    let plan = Inputs::new().prepare(&extensions).unwrap();
+    let id = plan
+        .steps()
+        .iter()
+        .find(|step| {
+            matches!(
+                step.kind,
+                tmt_remote::deploy_run::StepKind::CompositeIndex(_)
+            )
+        })
+        .unwrap()
+        .id
+        .clone();
+    let auth = authorize(&plan, plan.digest()).unwrap();
+    for lost in [false, true] {
+        let mut provider = Fake::new(ACCOUNT);
+        if lost {
+            provider.faults.insert(id.clone(), When::AfterEffectUnknown);
+        } else {
+            provider.building.insert(id.clone());
+        }
+        let mut sink = Mem::default();
+        let record = DeployRecord::new(DEPLOYMENT);
+        let record = run(&plan, &auth, record, &mut provider, &mut sink, 1).unwrap();
+        assert_ne!(record.run.as_ref().unwrap().state, RunState::Complete);
+        assert!(record.usable_binding().is_none());
+        assert_eq!(provider.effects_of(&id), 1);
+        provider.building.clear();
+        let record = run(&plan, &auth, record, &mut provider, &mut sink, 2).unwrap();
+        assert_eq!(record.run.as_ref().unwrap().state, RunState::Complete);
+        assert!(record.usable_binding().is_some());
+        assert_eq!(
+            provider.effects_of(&id),
+            1,
+            "reconciliation never re-creates an existing index"
+        );
+    }
+}

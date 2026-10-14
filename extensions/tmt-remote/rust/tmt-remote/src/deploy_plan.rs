@@ -57,6 +57,15 @@ pub struct Supplied<'a> {
     pub artifact: &'a [u8],
 }
 
+/// Shared canonical union for composition, deployment steps and free-plan accounting.
+pub fn composite_indexes(view: &PlanView) -> BTreeSet<CompositeIndexPlan> {
+    view.extensions
+        .iter()
+        .flat_map(|extension| &extension.resources)
+        .flat_map(|resource| resource.composite_indexes.iter().cloned())
+        .collect()
+}
+
 /// Why no plan exists. A plan either composes completely or not at all.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlanReason {
@@ -150,6 +159,8 @@ pub struct ResourcePlan {
     /// has no physical TTL: expiry is then by Rules and nothing is provisioned for it.
     pub ttl: &'static str,
     pub indexes: Vec<IndexPlan>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub composite_indexes: Vec<CompositeIndexPlan>,
 }
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -162,6 +173,47 @@ pub struct LimitsPlan {
 pub struct IndexPlan {
     pub field: String,
     pub direction: &'static str,
+}
+/// One declaration-derived collection index; provider names/state are never identity.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompositeIndexPlan {
+    pub collection_group: String,
+    pub query_scope: &'static str,
+    pub fields: Vec<CompositeIndexField>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompositeIndexField {
+    pub field_path: String,
+    pub order: &'static str,
+}
+/// Equality-only discovery/page interests use automatic index merging. Stream range/order
+/// needs all equality fields followed by seq; __name__ is added implicitly by Firestore.
+fn stream_index(resource: &declaration::Resource) -> Vec<CompositeIndexPlan> {
+    let Some(query) = resource.sync.as_ref().and_then(|sync| sync.query.as_ref()) else {
+        return vec![];
+    };
+    let mut equality = query.scope_fields.clone();
+    equality.sort();
+    let fields = equality
+        .into_iter()
+        .chain([query.seq_field.clone()])
+        .map(|field_path| CompositeIndexField {
+            field_path,
+            order: "ASCENDING",
+        })
+        .collect();
+    vec![CompositeIndexPlan {
+        collection_group: resource
+            .path
+            .rsplit('/')
+            .next()
+            .expect("validated collection")
+            .into(),
+        query_scope: "COLLECTION",
+        fields,
+    }]
 }
 #[derive(Clone, Debug, Serialize)]
 pub struct Unavailable {
@@ -325,6 +377,11 @@ fn extension(target: Target, name: &str, supplied: Supplied<'_>) -> Result<Plann
                 ttl_field: resource.ttl_field.clone(),
                 ttl,
                 indexes,
+                composite_indexes: if target.backend == CloudBackend::Firestore {
+                    stream_index(resource)
+                } else {
+                    vec![]
+                },
             },
         ));
     }

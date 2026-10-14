@@ -1,0 +1,14 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "rows",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "streamKey", "order": "ASCENDING" },
+        { "fieldPath": "tenant", "order": "ASCENDING" },
+        { "fieldPath": "counter", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

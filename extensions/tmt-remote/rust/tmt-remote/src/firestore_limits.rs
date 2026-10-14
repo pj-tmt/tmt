@@ -2,8 +2,8 @@
 //! Pure: no I/O, clock or network. It is a dated snapshot of the official limits that layer 1
 //! depends on, never the project's real usage: quotas are project-wide and only the Firebase
 //! console shows what is used. The numbers were read from the official quota pages on
-//! `READ_ON`; two of them drive the arithmetic in `firestore_budget`, the single-field index
-//! limit is enforced by `rules`, and the Remote reference guide's dated table owns them all.
+//! `READ_ON`; two of them drive the arithmetic in `firestore_budget`, both index
+//! ceilings are enforced by `rules`, and the Remote reference guide's dated table owns them all.
 //! Limits change: recheck before relying on them. The validator accepts only what `member`
 //! produces for this table's keys, so no provider text, secret or path can appear.
 use crate::firestore_budget::{READS_PER_DAY, REFUSE_PERCENT, WARN_PERCENT, WRITES_PER_DAY};
@@ -85,7 +85,13 @@ pub const LIMITS: [FirestoreLimit; 10] = [
         Some("month"),
     ),
     row("databases", "Free databases per project", 1, Count, None),
-    row("compositeIndexes", "Composite indexes", 200, Count, None),
+    row(
+        "compositeIndexes",
+        "Composite indexes",
+        MAX_INDEX_CONFIGS as u64,
+        Count,
+        None,
+    ),
     row(
         "singleFieldIndexConfigs",
         "Single-field index configs",
