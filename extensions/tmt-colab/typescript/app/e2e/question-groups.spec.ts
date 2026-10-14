@@ -265,12 +265,30 @@ for (const width of [1440, 390])
           .poll(async () => {
             const frame = page.frameLocator('#ask-page-fixture iframe');
             const marker = await frame.locator('[data-colab-thread]').boundingBox();
-            const heading = await frame
+            const tail = await frame
               .locator('tmt-question')
               .first()
               .locator('[data-question]')
-              .boundingBox();
-            return !!marker && !!heading && Math.abs(marker.y - heading.y) <= 8;
+              .evaluate((heading) => {
+                const range = document.createRange();
+                range.selectNodeContents(heading);
+                const rects = [...range.getClientRects()].filter(
+                  (rect) => rect.width > 0 && rect.height > 0,
+                );
+                const last = rects.at(-1);
+                return last ? { top: last.top, right: last.right } : null;
+              });
+            const canvas = await page.locator('#ask-page-fixture iframe').boundingBox();
+            // The numbered marker is raised at the selection's last line, not its start.
+            return (
+              !!marker &&
+              !!tail &&
+              !!canvas &&
+              marker.y < canvas.y + tail.top &&
+              Math.abs(marker.y + marker.height - (canvas.y + tail.top)) <= 8 &&
+              marker.x <= canvas.x + tail.right &&
+              marker.x + marker.width >= canvas.x + tail.right - 8
+            );
           })
           .toBe(true);
         await expect

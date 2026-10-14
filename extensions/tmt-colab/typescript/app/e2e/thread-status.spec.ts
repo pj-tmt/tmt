@@ -39,7 +39,7 @@ test('resolving hides the margin marker, Reopen restores it, and each click writ
   await expect(thread.getByRole('button', { name: 'Reopen', exact: true })).toBeEnabled();
   await expect(markers).toHaveCount(0);
   await expect(thread).toHaveAttribute('data-anchor', 'resolved');
-  await expect(status).toHaveText('Resolved');
+  await expect(status).toHaveText('Resolved by You');
   await expect(thread.getByText('Detached')).toHaveCount(0);
   expect(await statusActions(page)).toEqual(['status:resolve']);
   await thread.getByRole('button', { name: 'Reopen', exact: true }).click();
