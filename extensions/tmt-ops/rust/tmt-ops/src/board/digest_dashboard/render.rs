@@ -49,7 +49,9 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, mut area: Rect) {
     } else {
         summary.push(Line::styled("Usage unavailable", look.role(Role::Muted)));
     }
-    let quota = crate::board::home::limits_of(app, area.width, look);
+    let quota = crate::board::home::quota_windows_of(app, area.width, look);
+    let quota_start = summary.len() + 1;
+    let quota_count = quota.len();
     if !quota.is_empty() {
         summary.push(Line::styled(
             "Subscriptions · reported windows",
@@ -61,6 +63,17 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, mut area: Rect) {
     let height = summary
         .len()
         .min(usize::from(area.height.saturating_sub(5))) as u16;
+    let quota_visible = usize::from(height)
+        .saturating_sub(quota_start)
+        .min(quota_count);
+    if quota_visible > 0 {
+        app.frame_clocks
+            .borrow_mut()
+            .push(crate::board::view::ClockSurface::QuotaWindows {
+                width: area.width,
+                rows: quota_visible,
+            });
+    }
     for (offset, line) in summary.into_iter().take(usize::from(height)).enumerate() {
         strip::paint_left(
             frame.buffer_mut(),

@@ -1,5 +1,7 @@
 use super::model;
-use crate::board::workspace::{OpsMember, OpsObservation, OpsTarget, observe::OpsWorkspaceSnapshot};
+use crate::board::workspace::{
+    OpsMember, OpsObservation, OpsTarget, observe::OpsWorkspaceSnapshot,
+};
 
 fn supplied(held: serde_json::Value, stale: bool) -> crate::labels::Supplied {
     crate::labels::Supplied::from_document(

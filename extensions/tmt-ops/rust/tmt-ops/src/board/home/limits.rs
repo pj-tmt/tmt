@@ -54,9 +54,13 @@ fn percent(value: f64) -> String {
 }
 
 fn state(figures: &Figures) -> Role {
-    if figures.weekly.percent < LOW_REMAINING_PERCENT {
+    remaining_role(figures.weekly.percent)
+}
+
+fn remaining_role(percent: f64) -> Role {
+    if percent < LOW_REMAINING_PERCENT {
         Role::Blocked
-    } else if figures.weekly.percent <= HEALTHY_REMAINING_PERCENT {
+    } else if percent <= HEALTHY_REMAINING_PERCENT {
         Role::Waiting
     } else {
         Role::Working
@@ -97,6 +101,17 @@ fn split_label(label: &str, fill: usize) -> (String, String) {
         cells += width;
     }
     (filled, track)
+}
+
+fn balance_parts(label: &str, percent: f64, cells: usize, role: Role) -> Vec<Value> {
+    let fill = ((cells as f64 * percent / 100.0).round() as usize)
+        .max(usize::from(percent > 0.0))
+        .min(cells);
+    let (filled, track) = split_label(label, fill);
+    vec![
+        piece("filled", filled, role),
+        piece("track", track, Role::Text),
+    ]
 }
 
 fn rate_text(figures: &Figures) -> String {
@@ -140,14 +155,7 @@ fn meter(standing: &Standing, now_ms: u64, width: u16) -> Vec<Value> {
     let critical = format!(" {} (7d) ", percent(figures.weekly.percent));
     let name = fit(&provider, cells.saturating_sub(critical.width() + 1));
     let label = fit(&format!(" {}{critical}", name.trim_end()), cells);
-    let fill = ((cells as f64 * figures.weekly.percent / 100.0).round() as usize)
-        .max(usize::from(figures.weekly.percent > 0.0))
-        .min(cells);
-    let (filled, track) = split_label(&label, fill);
-    let mut pieces = vec![
-        piece("filled", filled, state(&figures)),
-        piece("track", track, Role::Text),
-    ];
+    let mut pieces = balance_parts(&label, figures.weekly.percent, cells, state(&figures));
     if !warning.is_empty() {
         let role = if figures.empties_soon() {
             Role::Blocked
@@ -216,6 +224,67 @@ fn rows(standings: Option<&[Standing]>, now_ms: u64, width: u16) -> Value {
     Value::Array(rows)
 }
 
+/// Reported windows share the header's admitted cells and quota calculations.
+/// Only the weekly window has a measured pace and depletion warning.
+fn window_rows(standings: Option<&[Standing]>, now_ms: u64, width: u16) -> Value {
+    let Some(standings) = standings else {
+        return rows(None, now_ms, width);
+    };
+    let mut result = Vec::new();
+    for (index, standing) in standings.iter().enumerate() {
+        let Outlook::Known(figures) = standing.outlook(now_ms) else {
+            result.push(json!({"id":format!("provider{index}"),
+                "pieces":meter(standing, now_ms, width)}));
+            continue;
+        };
+        for (window, left, weekly) in std::iter::once(("7d", figures.weekly, true))
+            .chain(figures.short.map(|left| ("5h", left, false)))
+        {
+            let mut extra = format!(" reset {}", reset(left.resets_in_ms));
+            if weekly {
+                let pace = format!(" · pace {}", rate_text(&figures));
+                if extra.width() + pace.width() + 18 <= usize::from(width) {
+                    extra.push_str(&pace);
+                }
+            }
+            if extra.width() + 18 > usize::from(width) {
+                extra.clear();
+            }
+            let warning = if weekly {
+                warning(&figures)
+            } else {
+                String::new()
+            };
+            let warning = if extra.width() + warning.width() + 18 <= usize::from(width) {
+                warning
+            } else {
+                String::new()
+            };
+            let cells = 28.min(usize::from(width).saturating_sub(extra.width() + warning.width()));
+            let critical = format!(" ({window}) {} left", percent(left.percent));
+            let name = fit(
+                &standing.provider.label(),
+                cells.saturating_sub(critical.width()),
+            );
+            let label = fit(&format!("{}{critical}", name.trim_end()), cells);
+            let mut pieces =
+                balance_parts(&label, left.percent, cells, remaining_role(left.percent));
+            pieces.push(piece("detail", extra, Role::Muted));
+            pieces.push(piece(
+                "warning",
+                warning,
+                if figures.empties_soon() {
+                    Role::Blocked
+                } else {
+                    Role::Waiting
+                },
+            ));
+            result.push(json!({"id":format!("provider{index}-{window}"), "pieces":pieces}));
+        }
+    }
+    Value::Array(result)
+}
+
 /// The same admitted pieces as the provider strip, including role changes;
 /// clipped or hidden provider rows cannot invalidate the frame.
 pub(in crate::board) fn clock_marks(
@@ -235,6 +304,23 @@ pub(in crate::board) fn clock_marks(
     .unwrap()
 }
 
+pub(in crate::board) fn window_clock_marks(
+    standings: Option<&[Standing]>,
+    now_ms: u64,
+    width: u16,
+    count: usize,
+) -> String {
+    serde_json::to_string(
+        &window_rows(standings, now_ms, width)
+            .as_array()
+            .unwrap()
+            .iter()
+            .take(count)
+            .collect::<Vec<_>>(),
+    )
+    .unwrap()
+}
+
 fn branch(name: &str) -> String {
     format!(
         r#"<tmt-repeat each="$.{name}" as="row"><tmt-row id-bind="row.id" class="w-full h-1"><tmt-repeat each="row.pieces" as="piece"><tmt-text id-bind="piece.id" bind="piece.text" token-bind="piece.role" class="shrink-0"/></tmt-repeat></tmt-row></tmt-repeat>"#
@@ -245,6 +331,25 @@ pub(super) fn limits_in(
     slot: &mut Kept<Vec<Line<'static>>>,
     standings: Option<&[Standing]>,
     now_ms: u64,
+    width: u16,
+    look: Look,
+) -> Vec<Line<'static>> {
+    paint_rows(slot, rows(standings, now_ms, width), width, look)
+}
+
+pub(super) fn windows_in(
+    slot: &mut Kept<Vec<Line<'static>>>,
+    standings: Option<&[Standing]>,
+    now_ms: u64,
+    width: u16,
+    look: Look,
+) -> Vec<Line<'static>> {
+    paint_rows(slot, window_rows(standings, now_ms, width), width, look)
+}
+
+fn paint_rows(
+    slot: &mut Kept<Vec<Line<'static>>>,
+    providers: Value,
     width: u16,
     look: Look,
 ) -> Vec<Line<'static>> {
@@ -275,7 +380,7 @@ pub(super) fn limits_in(
         look,
         selected: None,
         data: json!({
-            "providers":rows(standings, now_ms, width),
+            "providers":providers,
         }),
     };
     slot.get(key, |key| {

@@ -73,6 +73,91 @@ fn painted(standings: Option<&[Standing]>, width: u16) -> Vec<String> {
 }
 
 #[test]
+fn expanded_windows_keep_remaining_reset_and_measured_weekly_pace() {
+    for width in [160, 100, 80, 60] {
+        let lines = windows_in(
+            &mut Kept::default(),
+            Some(&mock()),
+            NOW,
+            width,
+            crate::look::Look::default(),
+        );
+        assert_eq!(lines.len(), 3);
+        let contents = lines.iter().map(text).collect::<Vec<_>>();
+        assert!(contents[0].contains("(7d) 44% left"));
+        assert!(contents[0].contains("reset 4d03h"));
+        assert!(contents[0].contains("pace ~2.1%/h"));
+        assert!(contents[1].contains("(5h) 97% left"));
+        assert!(contents[1].contains("reset 3h14m"));
+        assert!(
+            !contents[1].contains("pace"),
+            "short-window pace is not reported"
+        );
+        assert!(contents[2].contains("(7d) 78% left"));
+        assert!(
+            contents[2].contains("reset 2d10h"),
+            "healthy account still labels reset"
+        );
+        assert!(!contents[2].contains("!"));
+        assert!(lines.iter().all(|line| line.width() <= usize::from(width)));
+        assert!(lines.iter().all(|line| {
+            line.spans
+                .iter()
+                .any(|span| span.style.add_modifier.contains(Modifier::REVERSED))
+        }));
+    }
+}
+
+#[test]
+fn expanded_unknown_and_zero_have_distinct_cells_without_inventing_a_window() {
+    let missing = window_rows(
+        Some(&[standing(Provider::named("codex"), None, None)]),
+        NOW,
+        80,
+    );
+    let missing_text = missing.to_string();
+    assert!(missing_text.contains("no reading yet"));
+    assert!(!missing_text.contains("0%"));
+    let zero = window_rows(
+        Some(&[standing(
+            Provider::named("codex"),
+            Some(reading(MINUTE, window(0.0, HOUR), None)),
+            None,
+        )]),
+        NOW,
+        80,
+    );
+    let rows = zero.as_array().unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["pieces"][0]["text"], "");
+    assert!(
+        rows[0]["pieces"][1]["text"]
+            .as_str()
+            .unwrap()
+            .contains("0% left")
+    );
+    assert!(
+        rows[0]["pieces"][2]["text"]
+            .as_str()
+            .unwrap()
+            .contains("reset 1h00m")
+    );
+}
+
+#[test]
+fn expanded_clock_projection_matches_current_visible_rows() {
+    let standings = mock();
+    let rows = window_rows(Some(&standings), NOW, 80);
+    let mark: Value =
+        serde_json::from_str(&window_clock_marks(Some(&standings), NOW, 80, 2)).unwrap();
+    assert_eq!(mark.as_array().unwrap(), &rows.as_array().unwrap()[..2]);
+    assert_ne!(
+        window_clock_marks(Some(&standings), NOW, 80, 2),
+        window_clock_marks(Some(&standings), NOW + MINUTE, 80, 2)
+    );
+}
+
+#[test]
 fn meters_follow_the_approved_widths_without_clipping_critical_values() {
     for (width, count) in [(160, 1), (100, 2), (80, 2), (60, 2)] {
         let lines = painted(Some(&mock()), width);

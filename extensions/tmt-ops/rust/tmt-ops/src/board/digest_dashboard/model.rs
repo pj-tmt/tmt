@@ -7,6 +7,20 @@ use crate::{
 /// Retain a real squad occurrence for the existing management admission lane.
 pub(in crate::board) fn rows(snapshot: &OpsWorkspaceSnapshot, query: &str) -> Vec<OpsTreeRow> {
     let query = query.to_lowercase();
+    // One pass over occurrences; do not rescan the entire roster for each agent.
+    let mut targets = std::collections::BTreeMap::new();
+    for target in snapshot.rows.keys() {
+        if let OpsTarget::Member {
+            identity_id,
+            room_id,
+        } = target
+        {
+            let selected = targets.entry(identity_id.as_str()).or_insert(target);
+            if room_id.is_some() && matches!(selected, OpsTarget::Member { room_id: None, .. }) {
+                *selected = target;
+            }
+        }
+    }
     let mut rows: Vec<_> = snapshot
         .roster
         .members
@@ -15,26 +29,7 @@ pub(in crate::board) fn rows(snapshot: &OpsWorkspaceSnapshot, query: &str) -> Ve
             if !member.name.to_lowercase().contains(&query) {
                 return None;
             }
-            let targets: Vec<_> = snapshot
-                .rows
-                .keys()
-                .filter(|target| {
-                    matches!(target,
-            OpsTarget::Member { identity_id, .. } if identity_id == &member.id)
-                })
-                .collect();
-            let target = targets
-                .iter()
-                .find(|target| {
-                    matches!(
-                        target,
-                        OpsTarget::Member {
-                            room_id: Some(_),
-                            ..
-                        }
-                    )
-                })
-                .or_else(|| targets.first())?;
+            let target = targets.get(member.id.as_str())?;
             Some(OpsTreeRow {
                 target: (*target).clone(),
                 title: member.name.clone(),

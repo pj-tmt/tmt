@@ -249,7 +249,6 @@ impl App {
                     return Effect::None;
                 }
                 self.workspace_reconcile();
-                self.jobs_focus = false;
                 self.focus = 0;
                 self.invalidate_frame_geometry();
                 return Effect::None;
