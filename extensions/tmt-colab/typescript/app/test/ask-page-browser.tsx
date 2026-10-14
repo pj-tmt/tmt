@@ -1332,7 +1332,7 @@ export function questionGroup(
   });
   const main = `<h1>Project notes</h1><p id="container-prose">Before the question.</p><tmt-questions data-id="${id(99)}"><p data-title>Review the page</p>${questions.join('')}</tmt-questions>${options.lone ? `<tmt-question data-id="${id(120)}" data-kind="long"><p data-question>Any other feedback?</p></tmt-question>` : ''}<p id="after-question">The page continues here.</p>`;
   const container = options.layout
-    ? `<main id="author-container" style="max-width:${options.layout === 'nested' ? 620 : 1280}px;margin:auto">${main}</main><div style="height:1000px" aria-hidden="true"></div>`
+    ? `<main id="author-container" style="max-width:${options.layout === 'nested' ? 620 : 1280}px;margin:auto">${main.replace('<tmt-questions', '<div style="height:900px" aria-hidden="true"></div><tmt-questions')}</main><div style="height:1000px" aria-hidden="true"></div>`
     : main;
   current = {
     ...current,

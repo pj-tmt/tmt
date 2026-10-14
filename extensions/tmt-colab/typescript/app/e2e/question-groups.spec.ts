@@ -511,7 +511,7 @@ for (const width of [1440, 1024, 390])
         window.scrollBy(0, node.getBoundingClientRect().bottom - innerHeight + 30),
       );
       const footer = group.locator('.question-group-footer');
-      const floating = page.locator('.selection-mode');
+      const floating = page.locator('#ask-page-fixture .selection-mode');
       await expect
         .poll(
           async () => {
