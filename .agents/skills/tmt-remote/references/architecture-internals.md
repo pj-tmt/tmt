@@ -209,6 +209,8 @@ home only; an absent vector reports pending, a present vector needs the complete
 Remote-private fixtures under `tests/fixtures/deploy_vectors/` qualify the entry without implying
 Colab provenance. The contract owns the parser boundary and input/output identity rules.
 
+For the offline Hosting view only: `CARGO_BUILD_JOBS=2 cargo run --offline --locked -p tmt-remote --example compose_hosting -- /absolute/declaration-envelope.json /absolute/hosting-bundle-reply.json`; refusals emit one stderr code and no stdout.
+
 `deploy_tools` resolves the installed Firebase launcher's realpath and exact supported package
 layout, then resolves Node from that launcher's absolute or env-node shebang, excluding
 relative PATH entries. The embedded helper's compatibility gate still precedes credentials.
