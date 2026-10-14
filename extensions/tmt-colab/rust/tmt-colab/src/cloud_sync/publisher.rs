@@ -24,6 +24,9 @@ pub(crate) enum Fault {
     Retry,
     /// Remote's budget guard refused: do not call again before this many milliseconds pass.
     Budget(u64),
+    /// The page is gone or at another epoch than the one asked for. Nothing is retried: the
+    /// next touch of the page names its current epoch.
+    Moved,
     /// Rules refused, an immutable original conflicts, or local state is unusable. Publication
     /// of this page stops until restart; the line is what a person may be told.
     Stuck(&'static str),

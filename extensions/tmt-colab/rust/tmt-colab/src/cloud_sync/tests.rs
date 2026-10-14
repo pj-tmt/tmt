@@ -1,13 +1,13 @@
-//! The worker against a scripted Remote on the real bus: activation, binding, the one active
-//! page group and its joined shutdown.
+//! The worker against a scripted Remote on the real bus: activation, binding, publication of
+//! the active page and the bounds on retrying.
 use super::{
     Activation, ActivationFailure, Activity, Channels, CloudSync, PageRef, Parts, Refusal,
-    fixture::{BINDING, DIGEST, SPACE, ScriptedRemote, activated, friendly, peer},
+    fixture::{BINDING, DIGEST, OneUpdate, SPACE, ScriptedRemote, activated, friendly, peer},
 };
 use std::{
     sync::{
         Arc, Mutex,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicU64, AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -35,6 +35,7 @@ struct Rig {
     activity: Activity,
     reports: Arc<Mutex<Vec<String>>>,
     activations: Arc<AtomicUsize>,
+    passes: Arc<AtomicU64>,
 }
 fn start(
     channels: Arc<super::fixture::FixedChannel>,
@@ -44,6 +45,7 @@ fn start(
     let reports = Arc::new(Mutex::new(Vec::new()));
     let activations = Arc::new(AtomicUsize::new(0));
     let (sink, count) = (Arc::clone(&reports), Arc::clone(&activations));
+    let passes = Arc::new(AtomicU64::new(0));
     let sync = CloudSync::start(Parts {
         channels,
         activity: activity.clone(),
@@ -54,6 +56,12 @@ fn start(
         report: Arc::new(move |line| sink.lock().unwrap().push(line.to_owned())),
         declaration_digest: DIGEST.into(),
         space: SPACE.into(),
+        local: Arc::new(move |_| {
+            Some(Box::new(OneUpdate {
+                next: 1,
+                passes: Arc::clone(&passes),
+            }))
+        }),
     })
     .unwrap();
     Rig {
@@ -61,29 +69,31 @@ fn start(
         activity,
         reports,
         activations,
+        passes: Arc::new(AtomicU64::new(0)),
     }
 }
 
 #[test]
-fn the_worker_binds_follows_the_active_page_and_cancels_on_stop() {
+fn the_worker_binds_then_publishes_the_active_page_once_per_touch() {
     let mut peer = peer();
-    let remote = ScriptedRemote::serve(peer.remote.take().unwrap(), friendly);
+    let firestore = super::fixture::Firestore::default();
+    let answer = firestore.clone();
+    let remote = ScriptedRemote::serve(peer.remote.take().unwrap(), move |call, id| {
+        answer.answer(call, id)
+    });
     let mut rig = start(Arc::clone(&peer.channels), activated);
-    until("bind", || remote.methods() == [Method::Bind]);
+    until("bind", || remote.methods().first() == Some(&Method::Bind));
+    // Nothing is published before a page is touched.
+    std::thread::sleep(Duration::from_millis(150));
+    assert_eq!(remote.methods(), [Method::Bind]);
     rig.activity.touch(page(FIRST, 1));
-    until("first group", || remote.methods().len() == 4);
-    rig.activity.touch(page(SECOND, 2));
-    until("successor group", || remote.methods().len() == 10);
+    until("first pass", || {
+        remote.methods() == [Method::Bind, Method::Publish]
+    });
+    // The page is current: waking without a new touch sends nothing more.
+    std::thread::sleep(Duration::from_millis(150));
+    assert_eq!(remote.methods().len(), 2);
     rig.sync.take().unwrap().stop();
-    let methods = remote.methods();
-    use Method::{Bind, Cancel, Subscribe};
-    assert_eq!(
-        methods,
-        [
-            Bind, Subscribe, Subscribe, Subscribe, Cancel, Cancel, Cancel, Subscribe, Subscribe,
-            Subscribe, Cancel, Cancel, Cancel
-        ]
-    );
     let calls = remote.calls.lock().unwrap();
     let sync::Call::Bind {
         project,
@@ -103,19 +113,46 @@ fn the_worker_binds_follows_the_active_page_and_cancels_on_stop() {
         ),
         ("fixture", "colab", DIGEST, SPACE)
     );
-    for call in &calls[1..] {
-        match call {
-            sync::Call::Subscribe { binding, .. } | sync::Call::Cancel { binding, .. } => {
-                assert_eq!(binding, BINDING)
-            }
-            other => panic!("unexpected {other:?}"),
-        }
-    }
+    let sync::Call::Publish { binding, .. } = &calls[1] else {
+        panic!("publish second")
+    };
+    assert_eq!(binding, BINDING);
     assert!(rig.reports.lock().unwrap().is_empty());
     assert!(
         peer.channel.active(),
         "stopping the worker keeps the channel"
     );
+}
+
+#[test]
+fn a_page_row_refused_by_rules_is_reported_once_and_stops_that_pages_pass() {
+    let mut peer = peer();
+    let remote = ScriptedRemote::serve(peer.remote.take().unwrap(), |call, id| match call {
+        sync::Call::Publish { .. } => sync::Outcome::Error {
+            error: sync::Error {
+                code: sync::Code::Denied,
+                state: None,
+                reset_at_ms: None,
+                retry_after_ms: None,
+            },
+        },
+        other => friendly(other, id),
+    });
+    let rig = start(Arc::clone(&peer.channels), activated);
+    until("bind", || remote.methods().first() == Some(&Method::Bind));
+    rig.activity.touch(page(FIRST, 1));
+    until("one report", || rig.reports.lock().unwrap().len() == 1);
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(
+        remote
+            .methods()
+            .iter()
+            .filter(|m| **m == Method::Publish)
+            .count(),
+        1,
+        "a stopped page is not retried"
+    );
+    assert_eq!(rig.reports.lock().unwrap().len(), 1);
 }
 
 #[test]

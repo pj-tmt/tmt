@@ -14,13 +14,18 @@ use tmt_extension_objects::Uuid4;
 mod activation;
 #[cfg(test)]
 mod fixture;
+#[cfg(test)]
 mod interests;
+mod local;
 mod publisher;
 #[cfg(test)]
 mod tests;
 mod worker;
 
+#[cfg(test)]
 pub(crate) use interests::PageInterests;
+pub(crate) use local::{Bound, StoreLocal};
+pub(crate) use publisher::Local;
 
 /// Remote allows 30 seconds for provider work. The sealed caller leaves room
 /// for that work and cleanup rather than expiring the shared attachment bus.
@@ -154,6 +159,8 @@ pub(crate) struct Parts {
     pub report: Arc<dyn Fn(&str) + Send + Sync>,
     pub declaration_digest: String,
     pub space: String,
+    /// The publisher's local side for one bound client; its `Bound` is what Remote returned.
+    pub local: Arc<dyn Fn(Bound) -> Option<Box<dyn Local + Send>> + Send + Sync>,
 }
 
 /// The serve's one cloud-sync worker.

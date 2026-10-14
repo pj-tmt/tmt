@@ -276,3 +276,47 @@ pub(crate) fn seal(
         digest,
     }
 }
+
+/// A local side that has one unconfirmed update per touch of its page, so the worker's passes
+/// are visible as documents the scripted Remote receives.
+pub(crate) struct OneUpdate {
+    pub next: u64,
+    pub passes: Arc<AtomicU64>,
+}
+impl super::publisher::Local for OneUpdate {
+    fn preamble(
+        &mut self,
+        _: &super::PageRef,
+    ) -> Result<Vec<super::publisher::Row>, super::publisher::Fault> {
+        self.passes.fetch_add(1, Ordering::SeqCst);
+        Ok(Vec::new())
+    }
+    fn next(
+        &mut self,
+        _: &super::PageRef,
+    ) -> Result<Option<super::publisher::Data>, super::publisher::Fault> {
+        if self.next == 0 {
+            return Ok(None);
+        }
+        Ok(Some(super::publisher::Data {
+            documents: vec![document(
+                "log",
+                &format!("log-{}", self.next),
+                &[("seq", "1")],
+            )],
+            confirm: super::publisher::Confirm::Update {
+                stream: "w".into(),
+                seq: self.next,
+                hash: [0; 32],
+            },
+        }))
+    }
+    fn confirm(
+        &mut self,
+        _: &super::PageRef,
+        _: &super::publisher::Confirm,
+    ) -> Result<(), super::publisher::Fault> {
+        self.next = 0;
+        Ok(())
+    }
+}

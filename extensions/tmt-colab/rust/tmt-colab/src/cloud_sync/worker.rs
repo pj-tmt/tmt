@@ -1,9 +1,10 @@
-//! The generation-owned loop: activate, bind, follow the active page. Nothing here retries
+//! The generation-owned loop: activate, bind, publish the active page. Nothing here retries
 //! without a bound, and nothing here is progress: only a verified durable admission or a
 //! confirmed publication moves a position.
 use super::{
-    ActivationFailure, Channels, PageInterests, PageRef, Parts, REQUEST_BOUND,
+    ActivationFailure, Bound, Channels, PageRef, Parts,
     activation::{Next, Policy},
+    publisher::{Fault, Local, Publisher},
 };
 use crate::SealedClient;
 use std::time::{Duration, Instant};
@@ -29,9 +30,39 @@ const POLL: Duration = Duration::from_millis(25);
 struct Session {
     client: SealedClient,
     generation: Uuid4,
-    interests: PageInterests,
+    publisher: Publisher,
+    local: Box<dyn Local + Send>,
     page: Option<PageRef>,
+    /// When the next publication pass is due; none while the page is current or stopped.
+    pass_at: Option<Instant>,
+    backoff: Backoff,
     established: Instant,
+}
+/// The wait before an uncertain pass runs again: it doubles up to a cap and starts over after
+/// a pass that finished.
+struct Backoff(Duration);
+impl Backoff {
+    const START: Duration = if cfg!(test) {
+        Duration::from_millis(50)
+    } else {
+        Duration::from_secs(5)
+    };
+    const CAP: Duration = if cfg!(test) {
+        Duration::from_millis(200)
+    } else {
+        Duration::from_secs(300)
+    };
+    fn new() -> Self {
+        Self(Self::START)
+    }
+    fn next(&mut self) -> Duration {
+        let wait = self.0;
+        self.0 = (self.0 * 2).min(Self::CAP);
+        wait
+    }
+    fn reset(&mut self) {
+        self.0 = Self::START;
+    }
 }
 impl Session {
     fn alive(&self, channels: &dyn Channels) -> bool {
@@ -39,24 +70,32 @@ impl Session {
             .client()
             .is_some_and(|client| client.generation() == self.generation)
     }
-    /// Hold exactly the interests of the most recently active page. A page that is not held
-    /// catches up on demand; it is never reported as current.
-    fn follow(&mut self, page: &PageRef) -> Result<(), crate::ChannelError> {
-        if self.page.as_ref() == Some(page) {
-            return Ok(());
-        }
-        self.page = None;
-        self.interests.select(
-            &page.space,
-            &page.page,
-            page.epoch,
-            Instant::now() + REQUEST_BOUND,
-        )?;
+    /// The most recently active page is the one published; another page is published when it
+    /// is touched. Every touch asks for a pass.
+    fn touched(&mut self, page: &PageRef) {
         self.page = Some(page.clone());
-        Ok(())
+        self.pass_at = Some(Instant::now());
     }
-    fn close(&mut self) {
-        let _ = self.interests.cancel(Instant::now() + REQUEST_BOUND);
+    /// One bounded publication pass for the active page, and when the next one is due.
+    fn pass(&mut self, report: &dyn Fn(&str)) {
+        let Some(page) = self.page.clone() else {
+            self.pass_at = None;
+            return;
+        };
+        self.pass_at = match self.publisher.pass(self.local.as_mut(), &page) {
+            Ok(true) => Some(Instant::now()),
+            Ok(false) => {
+                self.backoff.reset();
+                None
+            }
+            Err(Fault::Retry) => Some(Instant::now() + self.backoff.next()),
+            Err(Fault::Budget(wait)) => Some(Instant::now() + Duration::from_millis(wait)),
+            Err(Fault::Moved) => None,
+            Err(Fault::Stuck(line)) => {
+                report(line);
+                None
+            }
+        };
     }
 }
 
@@ -103,11 +142,20 @@ fn establish(parts: &Parts) -> Result<Session, ActivationFailure> {
         client.end_generation();
         return Err(ActivationFailure::Local);
     }
+    let local = (parts.local)(Bound {
+        project: activation.project,
+        declaration_digest: parts.declaration_digest.clone(),
+        uid: context.uid,
+    })
+    .ok_or(ActivationFailure::Local)?;
     Ok(Session {
-        interests: PageInterests::new(client.clone(), context.id),
+        publisher: Publisher::new(client.clone(), context.id),
+        local,
         generation: client.generation(),
         client,
         page: None,
+        pass_at: None,
+        backoff: Backoff::new(),
         established: Instant::now(),
     })
 }
@@ -121,6 +169,7 @@ pub(super) fn run(parts: Parts) {
     let mut session: Option<Session> = None;
     let mut retry_at = Some(Instant::now());
     let mut seen_channel = channels.started();
+    let mut seen_version = 0;
     let mut wake = activity.wait(0, Duration::ZERO);
     loop {
         if wake.stopped {
@@ -159,17 +208,24 @@ pub(super) fn run(parts: Parts) {
                 }
             }
         }
-        if let (Some(held), Some(page)) = (session.as_mut(), wake.page.as_ref())
-            && page.space == parts.space
-            && held.follow(page).is_err()
-        {
-            // The group could not be installed or cancelled: the generation is invalid.
-            held.client.end_generation();
+        if let Some(held) = session.as_mut() {
+            if version != seen_version
+                && let Some(page) = wake.page.as_ref().filter(|page| page.space == parts.space)
+            {
+                held.touched(page);
+            }
+            if held.pass_at.is_some_and(|at| Instant::now() >= at) {
+                held.pass(parts.report.as_ref());
+            }
         }
-        let timeout = retry_at.map_or(TICK, |at| at.saturating_duration_since(Instant::now()));
+        seen_version = version;
+        let due = [retry_at, session.as_ref().and_then(|held| held.pass_at)]
+            .into_iter()
+            .flatten()
+            .min();
+        let timeout = due.map_or(TICK, |at| at.saturating_duration_since(Instant::now()));
         wake = activity.wait(version, timeout.min(TICK));
     }
-    if let Some(mut held) = session {
-        held.close();
-    }
+    // Dropping the session is the whole teardown: it holds no interest in this slice.
+    drop(session);
 }
