@@ -376,9 +376,13 @@ A host without agent names does not list it.
   becomes ownership. To replace TMT's own name, the driver renames the old
   name to the new one in one step, so a refusal leaves the old name and its
   record. To take the name away, it removes the name first and the record
-  after it. When the record cannot be written or read back after a
-  confirmed rename, the answer is `failed`: the name is set but not TMT's,
-  and TMT does not change it again.
+  after it. When the record fails after a confirmed rename, the answer is
+  `failed` and its message tells which of two cases it is. If the read-back
+  shows no record of this binding, the record is confirmed missing: the name
+  is set but not TMT's, and TMT does not change it again. If the write or the
+  read-back itself fails, the record's state is unknown, because the host may
+  have stored it. In both cases the next request decides ownership from a
+  fresh read of the pane.
 - **Evidence:** the driver changes a name only when the host's list says
   exactly what the pane hosts. A list that it cannot read, that has more than
   one agent for the pane, or whose name for the pane is not a valid agent

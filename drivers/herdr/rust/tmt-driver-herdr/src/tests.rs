@@ -968,23 +968,36 @@ fn a_new_name_replaces_tmts_own_directly_and_a_refusal_keeps_the_old_one() {
 }
 
 /// After Herdr confirmed a name, a record that cannot be written or read
-/// back is a failure, and the name is conservatively not TMT's: TMT does not
-/// change or take it away later.
+/// back is a failure. When the read-back shows no record, the name is not
+/// TMT's; when the write or read-back fails, the record's state is unknown.
+/// Either way the next request decides from a fresh read: here no record, so
+/// TMT does not change or take the name away later.
 #[test]
 fn a_record_that_is_not_kept_after_the_rename_leaves_the_name_unowned() {
-    for (case, after) in [
+    const MISSING: &str = "so the name is not TMT's and TMT will not change it again";
+    const UNKNOWN: &str = "the next request reads the pane again";
+    for (case, after, said) in [
         (
             "report refused",
             (|runner: &Scripted| {
                 runner.refuse("permission_denied");
             }) as fn(&Scripted),
+            UNKNOWN,
         ),
-        ("dropped silently", |runner| {
-            runner.text("").json(listed(bound(None)));
-        }),
-        ("pane closed", |runner| {
-            runner.text("").json(list(vec![]));
-        }),
+        (
+            "dropped silently",
+            |runner| {
+                runner.text("").json(listed(bound(None)));
+            },
+            MISSING,
+        ),
+        (
+            "pane closed",
+            |runner| {
+                runner.text("").json(list(vec![]));
+            },
+            MISSING,
+        ),
     ] {
         let runner = Scripted::default();
         observed(&runner, None, None).text("");
@@ -992,10 +1005,7 @@ fn a_record_that_is_not_kept_after_the_rename_leaves_the_name_unowned() {
         let answer = serve(&runner, "name-agent", name_agent(Some("ann")));
         assert_eq!(error_code(&answer), "failed", "{case}");
         assert!(
-            answer["error"]["message"]
-                .as_str()
-                .unwrap()
-                .contains("will not change that name again"),
+            answer["error"]["message"].as_str().unwrap().contains(said),
             "{case}: {answer}"
         );
         runner.done();
@@ -1009,6 +1019,60 @@ fn a_record_that_is_not_kept_after_the_rename_leaves_the_name_unowned() {
         );
         runner.done();
     }
+}
+
+/// Herdr stored the record but its read-back timed out: the answer says the
+/// record's state is unknown, never that the name is lost to TMT, and the
+/// next request reads the stored record and owns the name.
+#[test]
+fn a_stored_record_whose_read_back_failed_is_owned_at_the_next_request() {
+    let runner = Scripted::default();
+    observed(&runner, None, None)
+        .text("")
+        .text("")
+        .fail(RunError::Unfinished);
+    let answer = serve(&runner, "name-agent", name_agent(Some("ann")));
+    assert_eq!(error_code(&answer), "failed");
+    let message = answer["error"]["message"].as_str().unwrap();
+    assert!(
+        message.contains("could not confirm its record") && !message.contains("will not change"),
+        "{answer}"
+    );
+    assert_eq!(
+        writes(&runner),
+        [
+            "herdr agent rename w1:p1 ann".to_owned(),
+            record_of("ann"),
+            "herdr pane list".to_owned(),
+        ]
+    );
+    runner.done();
+
+    // Herdr kept `binding:ann`: the same request changes nothing, and
+    // `name: null` takes the name away and then the record.
+    let runner = Scripted::default();
+    observed(&runner, Some("ann"), Some("ann"));
+    assert_eq!(
+        serve(&runner, "name-agent", name_agent(Some("ann"))),
+        json!({})
+    );
+    assert_eq!(writes(&runner), [] as [String; 0]);
+    runner.done();
+    let runner = Scripted::default();
+    observed(&runner, Some("ann"), Some("ann"))
+        .text("")
+        .text("")
+        .json(listed(bound(None)));
+    assert_eq!(serve(&runner, "name-agent", name_agent(None)), json!({}));
+    assert_eq!(
+        writes(&runner),
+        [
+            "herdr agent rename w1:p1 --clear".to_owned(),
+            clear_record(),
+            "herdr pane list".to_owned(),
+        ]
+    );
+    runner.done();
 }
 
 /// The pane is bound again while the record is written: the read-back sees

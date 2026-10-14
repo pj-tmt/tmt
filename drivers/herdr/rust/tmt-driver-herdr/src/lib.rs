@@ -563,16 +563,6 @@ impl<R: Runner> Handler for HerdrDriver<R> {
         // a refused new name leaves the old one and its record as they were.
         self.rename(socket, &pane.target, name, deadline)?;
         self.record(socket, &pane, binding_id, name, deadline)
-            .map_err(|mut error| {
-                if name.is_some() {
-                    error.message = format!(
-                        "Herdr set the agent name, but TMT could not record it, so TMT will not \
-                         change that name again: {}",
-                        error.message
-                    );
-                }
-                error
-            })
     }
 }
 
@@ -671,19 +661,41 @@ impl<R: Runner> HerdrDriver<R> {
             marker::SOURCE,
         ];
         args.extend(change);
-        self.herdr
-            .act(socket, &args, deadline)
-            .map_err(HerdrError::into_driver)?;
-        let kept = self
-            .find(socket, &pane.id, deadline)
-            .map_err(HerdrError::into_driver)?;
+        // A write or read-back that fails proves nothing about the record:
+        // Herdr may have stored it. The next request reads it again.
+        let unknown = |error: HerdrError| {
+            let mut error = error.into_driver();
+            if name.is_some() {
+                error.message = format!(
+                    "Herdr set the agent name, but TMT could not confirm its record of it; \
+                     the next request reads the pane again to decide whether that name is \
+                     TMT's: {}",
+                    error.message
+                );
+            }
+            error
+        };
+        let missing = |code, message: &str| {
+            DriverError::new(
+                code,
+                match name {
+                    Some(_) => format!(
+                        "Herdr set the agent name, but {message}, so the name is not TMT's \
+                         and TMT will not change it again"
+                    ),
+                    None => message.to_owned(),
+                },
+            )
+        };
+        self.herdr.act(socket, &args, deadline).map_err(unknown)?;
+        let kept = self.find(socket, &pane.id, deadline).map_err(unknown)?;
         // The pane may have been bound again meanwhile: a record is this
         // binding's only while the marker still is.
         if kept
             .as_ref()
             .is_some_and(|kept| marker::binding_id(kept.tokens.as_ref()) != Some(binding_id))
         {
-            return Err(DriverError::new(
+            return Err(missing(
                 ErrorCode::NotFound,
                 "the pane no longer holds that binding",
             ));
@@ -698,7 +710,7 @@ impl<R: Runner> HerdrDriver<R> {
         };
         match written {
             true => Ok(()),
-            false => Err(DriverError::new(
+            false => Err(missing(
                 ErrorCode::Failed,
                 "Herdr did not keep the TMT agent name record",
             )),
