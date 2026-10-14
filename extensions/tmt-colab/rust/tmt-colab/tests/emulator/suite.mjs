@@ -382,6 +382,63 @@ test("log append: create-only, contiguous per stream, current epoch, writer role
   assert.equal(await commit(batch(1, 2, 3), writer), 200, "a contiguous batch");
 });
 
+test("log owner bootstrap: only the owner skips a pruned predecessor; other guards remain", async () => {
+  await boot();
+  const t = T.A;
+  const stream = "20000000-0000-4000-8000-0000000000b1";
+  const at = (seq, uid, over = {}, headers = as(uid)) =>
+    set(`log/${logId(t, over.epoch ?? 1, stream, seq)}`, entry(t, seq, { stream, uid, ...over }), headers);
+
+  // No historical payload is invented: neither seq 1 nor the predecessor 3 exists.
+  assert.equal(await get(`log/${logId(t, 1, stream, 3)}`, ADMIN), 404);
+  assert.equal(await at(4, "writerA"), 403, "a member cannot bootstrap the missing prefix");
+  assert.equal(await at(4, "ownerB"), 403, "another space's owner cannot bootstrap here");
+  assert.equal(await at(4, "ownerA", { uid: "writerA" }), 403, "the owner must bind its own uid");
+  assert.equal(await at(4, "ownerA", { epoch: 2 }), 403, "the current epoch still binds");
+  assert.equal(await at(4, "ownerA", { hash: "short" }), 403, "hash grammar still binds");
+  assert.equal(await at(4, "ownerA", { expiresAt: past }), 403, "expiry still binds");
+  assert.equal(await at(4, "ownerA", { extra: true }), 403, "the field set still binds");
+  assert.equal(await at(4, "ownerA"), 200, "the owner publishes the original retained sequence");
+  // PATCH also exercises the pre-existing owner expiry-update rule: an empty diff is legal.
+  assert.equal(await at(4, "ownerA"), 200, "an unchanged owner PATCH is a no-op");
+  assert.equal(await at(4, "ownerA", { envelope: "Y2hhbmdlZA" }), 403, "an owner cannot replace retained ciphertext");
+  assert.equal(await at(5, "writerA"), 403, "a member cannot take the owner's next slot");
+  assert.equal(await at(5, "ownerA"), 200, "the owner continues its own bootstrap");
+
+  const member = "20000000-0000-4000-8000-0000000000b2";
+  const next = (seq, uid) => set(`log/${logId(t, 1, member, seq)}`, entry(t, seq, { stream: member, uid }), as(uid));
+  assert.equal(await next(2, "writerA"), 403, "member gaps remain refused");
+  assert.equal(await next(1, "writerA"), 200, "a member starts at one");
+  assert.equal(await next(2, "peerA"), 403, "another uid cannot continue the member stream");
+  assert.equal(await next(2, "writerA"), 200, "matching member predecessor remains allowed");
+
+  const ownerMember = `members/${sp(t)}_ownerA`;
+  const ownerRow = (role) => ({ space: t.space, page: t.page, uid: "ownerA", role, link: null, token: null });
+  await seed(ownerMember, ownerRow("viewer"));
+  assert.equal(await at(7, "ownerA"), 403, "the owner's member role still gates writes");
+  await seed(ownerMember, ownerRow("editor"));
+  assert.equal(await at(7, "ownerA"), 200, "the admitted owner can bootstrap again");
+  await seed(`pages/${sp(t)}`, { space: t.space, page: t.page, epoch: 1, state: "archived", expiresAt: future });
+  assert.equal(await at(9, "ownerA"), 403, "even the owner cannot bootstrap an archived page");
+});
+
+test("log owner bootstrap: the owner-only exception is guard-sensitive", async () => {
+  // Mutate only the added clause in copies of the composed golden, not the fragment.
+  const guard = " || get(/databases/$(database)/documents/x/colab/spaces/$(request.resource.data.space)).data.owner == request.auth.uid";
+  assert.equal(composed.split(guard).length, 2, "exactly one bootstrap exception");
+  const t = T.A, stream = "20000000-0000-4000-8000-0000000000b3";
+  const write = (uid) => set(`log/${logId(t, 1, stream, 4)}`, entry(t, 4, { stream, uid }), as(uid));
+  await loadRules(composed.replace(guard, ""));
+  await seedWorld();
+  assert.equal(await write("ownerA"), 403, "without the exception the owner gap positive is lost");
+  await loadRules(composed.replace(guard, " || true"));
+  await seedWorld();
+  assert.equal(await write("writerA"), 200, "without owner binding the member gap negative is lost");
+  await boot();
+  assert.equal(await write("writerA"), 403, "canonical owner binding refuses the member gap");
+  assert.equal(await write("ownerA"), 200, "canonical exception admits owner bootstrap");
+});
+
 test("page lifecycle: archive freezes writes, epoch advance fences the old epoch, deletion and revoke deny at once", async () => {
   await boot();
   const t = T.A;
