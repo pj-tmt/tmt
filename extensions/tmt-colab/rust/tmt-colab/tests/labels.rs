@@ -106,7 +106,9 @@ fn the_schema_adds_page_labels_and_keeps_what_was_there() {
     assert!(version >= 7, "schema {version}");
     // A store from before labels (schema 6) gains the table on the next open; nothing else moves.
     f.oracle()
-        .execute_batch("DROP TABLE page_labels; PRAGMA user_version=6;")
+        .execute_batch(
+            "DROP TABLE cloud_publications; DROP TABLE page_labels; PRAGMA user_version=6;",
+        )
         .unwrap();
     f.store = Store::open(&f.layout).unwrap();
     let version: u32 = f

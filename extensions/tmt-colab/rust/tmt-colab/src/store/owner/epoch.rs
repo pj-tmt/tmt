@@ -95,6 +95,7 @@ impl OwnerTransaction<'_> {
         // Keep pages, signed policy and operation receipts as permanent tombstones.
         // The retained page primary key also prevents create_page from reviving it.
         for sql in [
+            "DELETE FROM cloud_publications WHERE page=?",
             "DELETE FROM receipts WHERE page=?",
             "DELETE FROM checkpoints WHERE page=?",
             "DELETE FROM streams WHERE page=?",

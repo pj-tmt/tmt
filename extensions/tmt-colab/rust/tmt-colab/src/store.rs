@@ -1,6 +1,7 @@
 //! Durable opaque envelopes. Callers own signature/session/role admission.
 //! Receipt/hash rows survive payload pruning, including interleaved namespaces.
 pub mod owner;
+pub mod publication;
 mod schema;
 /// The schema version this build writes. Migration tests read it instead of naming the latest.
 pub const SCHEMA_VERSION: u32 = schema::CURRENT_VERSION;
@@ -317,12 +318,7 @@ impl Store {
              AND c.namespace=r.namespace AND c.seq=?4 AND c.payload IS NOT NULL))",
             params![s.page, epoch, s.stream, seq], |r| r.get(0))?;
         if paired {
-            tx.execute(
-                "UPDATE receipts SET payload=NULL WHERE page=? AND epoch=? AND stream=? AND seq<=?",
-                params![s.page, epoch, s.stream, seq],
-            )?;
-            tx.execute("UPDATE checkpoints SET payload=NULL WHERE page=? AND epoch=? AND stream=? AND seq<? AND pinned=0",
-                params![s.page,epoch,s.stream,seq])?;
+            publication::prune(&tx, s, &seq)?;
         }
         // Count the inserted payload after any paired reclaim. Failure rolls back
         // publication and pruning together, including the old checkpoint pair.
@@ -641,7 +637,15 @@ pub(super) fn admit_page(
          FROM owner_operations WHERE page=? AND publication_kind IS NOT NULL",
         [page], |r| Ok((r.get(0)?, r.get(1)?)),
     )?;
-    let total = [bytes, checkpoints, baselines, outcomes]
+    let publication: i64 = c.query_row(
+        "SELECT COALESCE(sum(length(binding)+length(CAST(uid AS BLOB))+
+         length(CAST(epoch AS BLOB))+length(CAST(stream AS BLOB))+
+         length(CAST(bootstrap_seq AS BLOB))+length(CAST(confirmed_seq AS BLOB))),0)
+         FROM cloud_publications WHERE page=?",
+        [page],
+        |r| r.get(0),
+    )?;
+    let total = [bytes, checkpoints, baselines, outcomes, publication]
         .into_iter()
         .try_fold(0usize, |n, v| {
             n.checked_add(usize::try_from(v).map_err(|_| Fault::Invalid)?)

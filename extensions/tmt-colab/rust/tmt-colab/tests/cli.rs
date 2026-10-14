@@ -1278,7 +1278,7 @@ fn serve_migrates_an_older_store_and_preserves_the_page() {
         CREATE TABLE owner_operations(id TEXT PRIMARY KEY, digest BLOB NOT NULL, outcome BLOB NOT NULL);
         INSERT INTO owner_operations(id,digest,outcome) SELECT id,digest,outcome FROM current_owner_operations;
         DROP TABLE current_owner_operations;
-        DROP TABLE page_labels;
+        DROP TABLE cloud_publications; DROP TABLE page_labels;
         ALTER TABLE pages DROP COLUMN last_update_at_ms; PRAGMA user_version=4")
         .unwrap();
     drop(conn);
@@ -4564,7 +4564,9 @@ fn release_preflight_reads_an_older_store_without_migration_and_refuses_a_future
     let db = pilot.root.join("selected/colab/space.db");
     let connection = rusqlite::Connection::open(&db).unwrap();
     connection
-        .execute_batch("DROP TABLE page_labels; PRAGMA user_version=6")
+        .execute_batch(
+            "DROP TABLE cloud_publications; DROP TABLE page_labels; PRAGMA user_version=6",
+        )
         .unwrap();
     drop(connection);
     let before = fs::read(&db).unwrap();
@@ -4655,7 +4657,9 @@ fn a_release_replacement_migrates_for_the_new_cli_and_restarts_its_owned_door() 
     let db = pilot.root.join("selected/colab/space.db");
     let connection = rusqlite::Connection::open(&db).unwrap();
     connection
-        .execute_batch("DROP TABLE page_labels; PRAGMA user_version=6")
+        .execute_batch(
+            "DROP TABLE cloud_publications; DROP TABLE page_labels; PRAGMA user_version=6",
+        )
         .unwrap();
     drop(connection);
     failure(

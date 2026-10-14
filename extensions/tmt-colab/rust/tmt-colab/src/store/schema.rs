@@ -68,6 +68,14 @@ const MIGRATIONS: &[&str] = &[
     CREATE TABLE page_labels(page TEXT NOT NULL, label TEXT NOT NULL,
         PRIMARY KEY(page,label), FOREIGN KEY(page) REFERENCES pages(page)) WITHOUT ROWID;
     "#,
+    // Schema 8: bounded publication progress; originals stay in the existing tables.
+    r#"
+    CREATE TABLE cloud_publications(
+        page TEXT NOT NULL, epoch TEXT NOT NULL, stream TEXT NOT NULL,
+        binding BLOB NOT NULL CHECK(length(binding)=32), uid TEXT NOT NULL,
+        bootstrap_seq TEXT NOT NULL, confirmed_seq TEXT NOT NULL,
+        PRIMARY KEY(page,epoch,stream), FOREIGN KEY(page) REFERENCES pages(page));
+    "#,
 ];
 pub(super) const CURRENT_VERSION: u32 = MIGRATIONS.len() as u32;
 
