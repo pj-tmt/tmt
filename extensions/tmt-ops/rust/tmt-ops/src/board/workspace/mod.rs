@@ -165,7 +165,7 @@ impl OpsRoster {
         }
     }
 
-    fn complete(&self) -> bool {
+    pub(in crate::board) fn complete(&self) -> bool {
         self.membership_complete
             && self.observation == OpsObservation::Complete
             && self

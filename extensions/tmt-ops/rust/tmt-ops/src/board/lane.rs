@@ -27,6 +27,7 @@ pub(super) enum Job {
     Open(Opening),
     /// Save the header's token-rate window with no settings overlay open.
     TokenWindow(String),
+    ViewState(super::view_state::Writer),
 }
 
 impl Job {
@@ -39,6 +40,7 @@ impl Job {
             Self::Open(Opening::Settings) => "Loading settings…",
             Self::Open(Opening::ThemePicker(_)) => "Loading themes…",
             Self::TokenWindow(_) => "Saving the token window…",
+            Self::ViewState(_) => "Saving the board view…",
         }
     }
 }
@@ -46,6 +48,10 @@ impl Job {
 /// The result of one job.
 pub(super) fn run(core: &Core, labels: Option<&Refresh>, job: Job) -> BoardEvent {
     match job {
+        Job::ViewState(writer) => {
+            writer.publish(std::time::Instant::now(), false);
+            BoardEvent::ViewStatePublished
+        }
         Job::Recovery(task) => BoardEvent::Recovery(super::recovery::load::complete(core, task)),
         Job::Discovery(task) => BoardEvent::Discovery(super::discovery::load::complete(core, task)),
         Job::Act(request) => {

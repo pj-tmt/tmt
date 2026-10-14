@@ -8,7 +8,6 @@ use crate::{cache, config::Pane};
 use serde_json::{Value, json};
 use std::{
     fs, io,
-    io::Read,
     path::{Path, PathBuf},
 };
 
@@ -49,7 +48,7 @@ impl Resume {
             "pid": pid,
             "writtenAtMs": now_ms,
             "tab": self.tab,
-            "shell": match self.shell {super::shell::OpsTab::Overview=>"overview",super::shell::OpsTab::Agents=>"agents",super::shell::OpsTab::Digest=>"digest"},
+            "shell": shell_json(self.shell),
             "squadsExpanded": self.squads_expanded,
             "poolExpanded": self.pool_expanded,
             "selected": self.selected.as_ref().map(row_json),
@@ -68,7 +67,7 @@ impl Resume {
     /// the file is gone afterwards and the board starts normally.
     pub fn take(directory: &Path, pid: u32, now_ms: u64) -> Option<Self> {
         let path = path(directory, pid);
-        let read = read_regular(&path);
+        let read = cache::read_regular(&path, MAX_BYTES);
         let _ = fs::remove_file(&path);
         Self::decode(&serde_json::from_slice(&read?).ok()?, pid, now_ms)
     }
@@ -94,21 +93,8 @@ impl Resume {
         };
         Some(Self {
             tab: document["tab"].as_str()?.to_owned(),
-            shell: match document["shell"].as_str()? {
-                "overview" => super::shell::OpsTab::Overview,
-                "agents" => super::shell::OpsTab::Agents,
-                "digest" => super::shell::OpsTab::Digest,
-                _ => return None,
-            },
-            squads_expanded: document["squadsExpanded"]
-                .as_array()?
-                .iter()
-                .map(|id| {
-                    id.as_str()
-                        .filter(|id| crate::config::uuid_like(id))
-                        .map(str::to_owned)
-                })
-                .collect::<Option<_>>()?,
+            shell: shell_from(&document["shell"])?,
+            squads_expanded: room_ids(&document["squadsExpanded"])?,
             pool_expanded: document["poolExpanded"].as_bool()?,
             selected: match &document["selected"] {
                 Value::Null => None,
@@ -130,23 +116,36 @@ impl Resume {
     }
 }
 
-/// A regular file of bounded size, never a link: the directory is the user's,
-/// but nothing the board reads here may redirect it elsewhere.
-fn read_regular(path: &Path) -> Option<Vec<u8>> {
-    let metadata = fs::symlink_metadata(path).ok()?;
-    if !metadata.is_file() || metadata.len() > MAX_BYTES {
-        return None;
+pub(super) fn shell_json(tab: super::shell::OpsTab) -> &'static str {
+    match tab {
+        super::shell::OpsTab::Overview => "overview",
+        super::shell::OpsTab::Agents => "agents",
+        super::shell::OpsTab::Digest => "digest",
     }
-    let mut bytes = Vec::new();
-    fs::File::open(path)
-        .ok()?
-        .take(MAX_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .ok()?;
-    (bytes.len() as u64 <= MAX_BYTES).then_some(bytes)
 }
 
-fn row_json(target: &RowTarget) -> Value {
+pub(super) fn shell_from(value: &Value) -> Option<super::shell::OpsTab> {
+    Some(match value.as_str()? {
+        "overview" => super::shell::OpsTab::Overview,
+        "agents" => super::shell::OpsTab::Agents,
+        "digest" => super::shell::OpsTab::Digest,
+        _ => return None,
+    })
+}
+
+pub(super) fn room_ids(value: &Value) -> Option<Vec<String>> {
+    value
+        .as_array()?
+        .iter()
+        .map(|id| {
+            id.as_str()
+                .filter(|id| crate::config::uuid_like(id))
+                .map(str::to_owned)
+        })
+        .collect()
+}
+
+pub(super) fn row_json(target: &RowTarget) -> Value {
     match target {
         RowTarget::Workspace(crate::board::workspace::OpsTarget::Member {
             room_id,
@@ -170,7 +169,7 @@ fn row_json(target: &RowTarget) -> Value {
     }
 }
 
-fn row_from(value: &Value) -> Option<RowTarget> {
+pub(super) fn row_from(value: &Value) -> Option<RowTarget> {
     let text = |key: &str| value[key].as_str().map(str::to_owned);
     Some(match value["kind"].as_str()? {
         "workspace-squad" => RowTarget::Workspace(crate::board::workspace::OpsTarget::Squad(
