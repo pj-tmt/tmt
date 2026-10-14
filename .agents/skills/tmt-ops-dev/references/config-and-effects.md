@@ -151,12 +151,11 @@ they never roll back cutover or bypass configuration CAS fences.
 
 ## Team preset
 
-The `team` preset uses the same `Layout`/`Board::preset` and config readers as the
-others. Workflow defaults are crew states, pending-first order,
-a member/state/task/pr/model grid with a pending line, a 60-second `github-pr` field and
-a 30-minute observed-age default. Everything is configurable; the other presets keep
-their defaults. Model reads the existing session projection and providers stay on the
-shared fetcher path.
+The `team` preset retains the same `Layout`/`Board::preset` and config readers for
+CLI listing: crew states, pending-first order, member/state/task/pr/model values,
+a pending line, a 60-second `github-pr` field and a 30-minute observed-age default.
+These do not compose a second interactive grid. Model reads the existing session
+projection and providers stay on the shared fetcher path.
 
 ## Views (pane arrangements)
 
@@ -171,6 +170,13 @@ validation retain their own command contracts. A CLI view key changes no roster,
 state, provider, reminder or sampling policy and no longer selects an interactive
 arrangement. `set_view`/`remove_view` preserve unrelated/custom keys and comments,
 refuse concurrent file changes and never write during inspection.
+
+Authored `[squad.<name>]` layout/rows/columns/sections remain accepted through their
+existing parsers and continue shaping public CLI documents and lists. Their old
+grid, wrapping and pending-continuation geometry no longer shapes the workspace;
+located migration notices explain this while preserving the file. Invalid values
+still fail admission. Section action bindings remain effective on the acquired
+membership target; unsupported legacy actions are reported rather than remapped.
 
 ## Themes
 
@@ -231,13 +237,15 @@ scoped override semantics; CLI configuration remains available for explicit edit
 
 ## Actions and effects
 
-- `action` parses `[bind]` and `[squad.<name>.section.bind]` once per load into events and
-  actions whose arguments are templates; bad events, actions or field syntax are config
-  errors. The board resolves the selected row's section binding, then the `[bind.<host>]`
-  table named by the host Core publishes in the row's `location` (`tmux`, or an external
-  host's name; no location, no table), then `[bind]`, then the host preset (tmux: Enter and
-  double-click jump; plain terminal: they open the row's action menu) into a fully filled
-  request before anything runs; a missing value is a notice, never a partial action. A
+- `action` parses explicit global, host and section bindings into events and template
+  arguments; bad events, actions or field syntax are configuration errors. Config owns
+  the workspace defaults and overlays compatible global, host, then section bindings.
+  Dispatch, help and footer consume that same table in the current list or Reader scope.
+  Enter and double-click inspect; list `j` jumps, while Reader `j/k` scroll. The host table
+  uses only Core's published `location.host` (`tmux` or an external host); missing or
+  unknown location supplies no host override. Retired actions produce located migration
+  notices and preserve authored bytes. Arguments are fully resolved before execution;
+  missing values refuse rather than constructing a partial action. A
   `[bind.<host>]` table takes the same events and actions as `[bind]`, is parsed apart from
   the flat entries (`Config::host_bindings`), and its name must be a host token
   (`[a-z][a-z0-9-]{0,31}`); an unknown host never matches. One parser/dispatcher owns
@@ -265,11 +273,12 @@ scoped override semantics; CLI configuration remains available for explicit edit
   client `tmt focus` reports; `back` asks core for the invoker's client with
   `tmt focus --client`, pops its entry and focuses it.
 - `send` uses public commands only: detached `talk --identity <sender> --room squad-<name>`
-  with operands after `--`; annotations as a talk tagged `[<squad> · <row>]`; answers as one
+  with operands after `--`; Common pool Talk omits the room rather than inventing one.
+  Annotations require a squad and use a talk tagged `[<squad> · <row>]`; answers use one
   `tmt answer <member> --request <id>` (core selects and proves the request, no receipt
   passes through Squad); nothing acknowledges. Squad has no talk, reply, replies or annotate
-  command: conversation is core's, and a note on a row is the board's `a` key only (an in-process
-  `Request::Annotate`), never a command or a hidden `__` entry.
+  command: conversation is Core's, and configured annotation actions and response quotes
+  use the board composer and in-process requests, never a command or hidden `__` entry.
 - `hotkeys` generates `ops.tmux.conf` (bindings noted `tmt ops popup|pane|back|lead`;
   the optional lead key's `run-shell` job has `TMUX` but no `TMUX_PANE`, so it passes
   `TMUX_PANE=#{pane_id}` for core to name the caller) and owns one `source-file` line in
