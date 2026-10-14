@@ -563,7 +563,13 @@ impl<R: CommandRunner> HostDriver for ExternalDriver<'_, R> {
                     ErrorCode::NotReady | ErrorCode::NotFound | ErrorCode::BadRequest => {
                         SendFailure::NotSent(cause)
                     }
-                    ErrorCode::Unavailable | ErrorCode::Failed => SendFailure::Uncertain(cause),
+                    // Decoding refuses a name code from `prompt`; listed so a
+                    // new code is a compile error here, not a silent default.
+                    ErrorCode::Unavailable
+                    | ErrorCode::Failed
+                    | ErrorCode::InvalidName
+                    | ErrorCode::NameTaken
+                    | ErrorCode::ForeignName => SendFailure::Uncertain(cause),
                 }
             }
             Err(error) if nothing_ran(&error) => {

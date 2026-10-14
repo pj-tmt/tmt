@@ -164,10 +164,10 @@ fn envelope<T: DeserializeOwned>(op: Op, output: &[u8]) -> Result<Response<T>, D
                 reason: "the error message must be up to 512 bytes of text".into(),
             });
         }
-        if error.code.prompt_only() && op != Op::Prompt {
+        if !error.code.answers(op) {
             return Err(DecodeError::Invalid {
                 op,
-                reason: "no_agent, blocked and not_ready answer only prompt".into(),
+                reason: "an agent or name code answers only prompt or name-agent".into(),
             });
         }
     }
@@ -209,6 +209,12 @@ fn check_pane(pane: &Pane, grammar: &Grammar) -> Result<(), String> {
     require(
         optional(&pane.suggested_name, NAME_MAX),
         "a suggested name must be text",
+    )?;
+    require(
+        pane.agent_name
+            .as_deref()
+            .is_none_or(|name| !name.is_empty() && grammar::plain(name, NAME_MAX)),
+        "an agent name must be 1-256 bytes of text",
     )?;
     if let Some(marker) = &pane.marker {
         check_marker(marker)?;
@@ -440,8 +446,8 @@ impl Answer for UsageResponse {
     }
 }
 
-/// The answer to `publish`, `input` or `focus`: `{"ok": {}}`, or the
-/// driver's error.
+/// The answer to `publish`, `input`, `prompt`, `focus` or `name-agent`:
+/// `{"ok": {}}`, or the driver's error.
 pub fn decode_done(op: Op, output: &[u8]) -> Result<Result<(), DriverError>, DecodeError> {
     Ok(match envelope::<Empty>(op, output)? {
         Response::Ok(Empty {}) => Ok(()),
@@ -460,15 +466,32 @@ mod tests {
     }
 
     #[test]
-    fn agent_answers_belong_to_prompt_alone() {
-        for code in ["no_agent", "blocked", "not_ready"] {
+    fn agent_and_name_answers_belong_to_the_operations_that_address_an_agent() {
+        let accepted = |op: Op, code: &str| {
             let answer = bytes(json!({"error": {"code": code, "message": "agent"}}));
-            let prompted = decode_done(Op::Prompt, &answer).unwrap().unwrap_err();
-            assert!(prompted.code.prompt_only(), "{code}");
-            assert!(decode_done(Op::Input, &answer).is_err(), "{code}");
+            decode_done(op, &answer).is_ok()
+        };
+        for (code, prompt, name_agent) in [
+            ("no_agent", true, true),
+            ("not_ready", true, true),
+            ("blocked", true, false),
+            ("invalid_name", false, true),
+            ("name_taken", false, true),
+            ("foreign_name", false, true),
+        ] {
+            assert_eq!(accepted(Op::Prompt, code), prompt, "{code}");
+            assert_eq!(accepted(Op::NameAgent, code), name_agent, "{code}");
+            for op in [Op::Input, Op::Publish, Op::Clear, Op::Snapshot] {
+                assert!(!accepted(op, code), "{code} on {op:?}");
+            }
         }
         let failed = bytes(json!({"error": {"code": "failed", "message": "x"}}));
         assert!(decode_done(Op::Input, &failed).unwrap().is_err());
+        assert_eq!(
+            decode_done(Op::NameAgent, br#"{"ok": {}}"#),
+            Ok(Ok(())),
+            "a name that was set or taken away"
+        );
     }
 
     fn bytes(value: serde_json::Value) -> Vec<u8> {
@@ -632,6 +655,13 @@ mod tests {
         let lettered = bytes(json!({"ok": {"panes": [lettered]}}));
         let snapshot: SnapshotResponse = decode(&grammar(), &lettered).unwrap().unwrap();
         assert_eq!(snapshot.panes[0].target.as_deref(), Some("wA:p2E"));
+        // A driver without agent names leaves the member out.
+        assert_eq!(snapshot.panes[0].agent_name, None);
+        let mut named = pane("term_1");
+        named["agentName"] = json!("reviewer");
+        let named = bytes(json!({"ok": {"panes": [named]}}));
+        let snapshot: SnapshotResponse = decode(&grammar(), &named).unwrap().unwrap();
+        assert_eq!(snapshot.panes[0].agent_name.as_deref(), Some("reviewer"));
 
         let bad = |edit: fn(&mut serde_json::Value)| {
             let mut value = pane("term_1");
@@ -647,6 +677,8 @@ mod tests {
             |p| p["panePid"] = json!(0),
             |p| p["marker"]["bindingId"] = json!("not-a-uuid"),
             |p| p["marker"]["name"] = json!(""),
+            |p| p["agentName"] = json!(""),
+            |p| p["agentName"] = json!("re\u{1b}viewer"),
         ] {
             assert!(
                 matches!(

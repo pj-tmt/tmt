@@ -2,6 +2,7 @@
 //! ignore members they don't know, so a later protocol-1 addition is
 //! optional by construction. A new required member needs protocol 2.
 
+use crate::Op;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -127,6 +128,11 @@ pub struct Pane {
     /// The pane's shell process.
     pub pane_pid: u64,
     pub suggested_name: Option<String>,
+    /// The name the host gives the agent it recognizes in the pane. `None`
+    /// when the host has no agent names, recognizes no agent there, the
+    /// agent has no name, or the driver could not read it.
+    #[serde(default)]
+    pub agent_name: Option<String>,
     /// The marker `publish` stored, returned as stored.
     pub marker: Option<Marker>,
 }
@@ -227,6 +233,23 @@ pub struct PromptRequest {
 pub struct FocusRequest {
     pub socket: String,
     pub pane_id: String,
+}
+
+/// Gives the agent the host recognizes in the pane the agent name `name`, or
+/// takes TMT's agent name away when `name` is `None`. Best effort: the
+/// driver does not change a name it observes as not TMT's, but a host
+/// without compare-and-set does not show it a rename between its read and
+/// its write. A second identical call changes nothing and succeeds.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NameAgentRequest {
+    pub socket: String,
+    pub pane_id: String,
+    /// Refuse with `not_found` unless the pane still runs this shell.
+    pub pane_pid: u64,
+    /// Refuse with `not_found` unless the pane's marker carries this binding.
+    pub binding_id: String,
+    pub name: Option<String>,
 }
 
 /// What a runtime driver answers to `capabilities`: what core applies itself
@@ -404,18 +427,39 @@ pub enum ErrorCode {
     /// The pane or server is gone, or no longer the one asked about.
     NotFound,
     Failed,
-    /// `prompt` only: the host recognizes no agent in the pane.
+    /// `prompt` and `name-agent` only: the host recognizes no agent in the
+    /// pane.
     NoAgent,
     /// `prompt` only: the agent waits on its user.
     Blocked,
-    /// `prompt` only: the agent can't take a prompt now.
+    /// `prompt` and `name-agent` only: the agent can't take a prompt or a
+    /// name now.
     NotReady,
+    /// `name-agent` only: the host does not accept this agent name.
+    InvalidName,
+    /// `name-agent` only: another agent on the server has this agent name.
+    NameTaken,
+    /// `name-agent` only: the driver observed an agent name TMT did not set.
+    ForeignName,
 }
 
 impl ErrorCode {
-    /// The codes valid only as `prompt` answers.
-    pub const fn prompt_only(self) -> bool {
-        matches!(self, Self::NoAgent | Self::Blocked | Self::NotReady)
+    /// Whether this code may answer `op`. The agent and name codes answer
+    /// only the operations that address an agent; every other code answers
+    /// any operation.
+    pub const fn answers(self, op: Op) -> bool {
+        match self {
+            Self::NoAgent | Self::NotReady => matches!(op, Op::Prompt | Op::NameAgent),
+            Self::Blocked => matches!(op, Op::Prompt),
+            Self::InvalidName | Self::NameTaken | Self::ForeignName => {
+                matches!(op, Op::NameAgent)
+            }
+            Self::Unsupported
+            | Self::BadRequest
+            | Self::Unavailable
+            | Self::NotFound
+            | Self::Failed => true,
+        }
     }
 }
 
@@ -472,5 +516,30 @@ mod tests {
         let response: Response<ClearResponse> =
             serde_json::from_value(json!({"ok": {"cleared": false, "later": true}})).unwrap();
         assert_eq!(response, Response::Ok(ClearResponse { cleared: false }));
+    }
+
+    /// A driver built before `agentName` leaves it out; a core built before
+    /// it ignores it.
+    #[test]
+    fn a_pane_without_an_agent_name_reads_as_none() {
+        let pane: Pane = serde_json::from_value(json!({"id": "term_1", "target": null,
+            "cwd": null, "command": "sh", "panePid": 7, "suggestedName": null, "marker": null}))
+        .unwrap();
+        assert_eq!(pane.agent_name, None);
+        let request = Request {
+            deadline_ms: 250,
+            body: NameAgentRequest {
+                socket: "/s".into(),
+                pane_id: "term_1".into(),
+                pane_pid: 7,
+                binding_id: "b".into(),
+                name: None,
+            },
+        };
+        assert_eq!(
+            serde_json::to_value(&request).unwrap(),
+            json!({"deadlineMs": 250, "socket": "/s", "paneId": "term_1", "panePid": 7,
+                   "bindingId": "b", "name": null})
+        );
     }
 }
