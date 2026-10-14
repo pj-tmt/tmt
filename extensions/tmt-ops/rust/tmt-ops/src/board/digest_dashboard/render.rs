@@ -192,8 +192,9 @@ fn members(frame: &mut Frame, app: &App, area: Rect) {
                 )];
                 let mut x = area.x.saturating_add(name_width as u16).min(area.right());
                 let labels = model::labels(&app.labels, identity_id);
+                let label_style = |role| if selected { base } else { look.role(role) };
                 if labels.is_empty() {
-                    spans.push(Span::styled("unavailable", look.role(Role::Muted)));
+                    spans.push(Span::styled("unavailable", label_style(Role::Muted)));
                 }
                 for (position, (text, role, choice)) in labels.into_iter().enumerate() {
                     let gap = if position == 0 { "" } else { " · " };
@@ -201,14 +202,7 @@ fn members(frame: &mut Frame, app: &App, area: Rect) {
                     if x.saturating_add(width) > area.right() {
                         break;
                     }
-                    spans.push(Span::styled(
-                        format!("{gap}{text}"),
-                        if selected {
-                            base.patch(look.role(role))
-                        } else {
-                            look.role(role)
-                        },
-                    ));
+                    spans.push(Span::styled(format!("{gap}{text}"), label_style(role)));
                     if choice {
                         app.chip_hits
                             .borrow_mut()

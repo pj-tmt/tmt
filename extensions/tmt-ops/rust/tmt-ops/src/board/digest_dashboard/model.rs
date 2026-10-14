@@ -5,44 +5,43 @@ use crate::{
 
 /// One row per identity, independent of squad expansion and duplicate membership.
 /// Retain a real squad occurrence for the existing management admission lane.
-pub(in crate::board) fn rows(snapshot: &OpsWorkspaceSnapshot, query: &str) -> Vec<OpsTreeRow> {
+pub(in crate::board) fn rows(
+    snapshot: &OpsWorkspaceSnapshot,
+    query: &str,
+    preferred: Option<&OpsTarget>,
+) -> Vec<OpsTreeRow> {
     let query = query.to_lowercase();
-    // One pass over occurrences; do not rescan the entire roster for each agent.
-    let mut targets = std::collections::BTreeMap::new();
-    for target in snapshot.rows.keys() {
-        if let OpsTarget::Member {
-            identity_id,
-            room_id,
-        } = target
-        {
-            let selected = targets.entry(identity_id.as_str()).or_insert(target);
-            if room_id.is_some() && matches!(selected, OpsTarget::Member { room_id: None, .. }) {
-                *selected = target;
-            }
+    // Canonical roster projection owns membership and unknown-pool admission.
+    // Deduplicate its occurrences once; stale row documents grant no authority.
+    let workspace = crate::board::workspace::OpsWorkspace {
+        expanded: snapshot
+            .roster
+            .squads
+            .iter()
+            .map(|squad| squad.room_id.clone())
+            .collect(),
+        pool_expanded: true,
+        ..Default::default()
+    };
+    let mut identities: std::collections::BTreeMap<String, OpsTreeRow> = Default::default();
+    for mut row in workspace.rows(&snapshot.roster, &snapshot.preferences) {
+        let OpsTarget::Member { identity_id, .. } = &row.target else {
+            continue;
+        };
+        if !snapshot.rows.contains_key(&row.target) || !row.title.to_lowercase().contains(&query) {
+            continue;
+        }
+        let id = identity_id.clone();
+        let replace = identities.get(&id).is_none_or(|current| {
+            Some(&row.target) == preferred
+                || (Some(&current.target) != preferred && row.target < current.target)
+        });
+        if replace {
+            row.depth = 0;
+            identities.insert(id, row);
         }
     }
-    let mut rows: Vec<_> = snapshot
-        .roster
-        .members
-        .values()
-        .filter_map(|member| {
-            if !member.name.to_lowercase().contains(&query) {
-                return None;
-            }
-            let target = targets.get(member.id.as_str())?;
-            Some(OpsTreeRow {
-                target: (*target).clone(),
-                title: member.name.clone(),
-                depth: 0,
-                lead: false,
-                state: member.state.clone(),
-                presence: member.presence,
-                usage: member.usage,
-                count: None,
-                observation: snapshot.roster.observation,
-            })
-        })
-        .collect();
+    let mut rows: Vec<_> = identities.into_values().collect();
     rows.sort_by(|a, b| {
         a.title
             .to_lowercase()

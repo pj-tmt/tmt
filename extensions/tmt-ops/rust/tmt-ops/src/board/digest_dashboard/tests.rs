@@ -76,6 +76,20 @@ fn duplicate_memberships_have_one_row_and_keep_a_management_context() {
             usage: None,
         },
     );
+    snapshot.roster.membership_complete = true;
+    for room in ["a", "b"] {
+        snapshot
+            .roster
+            .squads
+            .push(crate::board::workspace::OpsSquad {
+                room_id: room.into(),
+                name: room.into(),
+                members: vec!["id".into()],
+                lead: None,
+                member_states: Default::default(),
+                observation: OpsObservation::Complete,
+            });
+    }
     for room in [None, Some("a"), Some("b")] {
         snapshot.rows.insert(
             OpsTarget::Member {
@@ -85,12 +99,34 @@ fn duplicate_memberships_have_one_row_and_keep_a_management_context() {
             serde_json::json!({"id":"id","name":"Agent"}),
         );
     }
-    let rows = model::rows(&snapshot, "agent");
+    let rows = model::rows(&snapshot, "agent", None);
     assert_eq!(rows.len(), 1);
     assert!(
         matches!(&rows[0].target, OpsTarget::Member { room_id: Some(room), .. } if room == "a")
     );
-    assert!(model::rows(&snapshot, "absent").is_empty());
+    assert!(model::rows(&snapshot, "absent", None).is_empty());
+    let preferred = OpsTarget::Member {
+        room_id: Some("b".into()),
+        identity_id: "id".into(),
+    };
+    assert_eq!(
+        model::rows(&snapshot, "agent", Some(&preferred))[0].target,
+        preferred
+    );
+    snapshot.roster.squads[1].members.clear();
+    assert_ne!(
+        model::rows(&snapshot, "agent", Some(&preferred))[0].target,
+        preferred
+    );
+    snapshot.roster.squads[0].members.clear();
+    snapshot.rows.remove(&OpsTarget::Member {
+        room_id: None,
+        identity_id: "id".into(),
+    });
+    assert!(
+        model::rows(&snapshot, "agent", None).is_empty(),
+        "stale row documents do not establish membership"
+    );
 }
 
 fn paint(app: &mut crate::board::app::App, width: u16, height: u16) -> String {

@@ -1429,7 +1429,12 @@ fn supplied_label_role_and_choice_hit_survive_the_workspace_tree_and_digest_tab(
         app.shell.tab = tab;
         for width in [100, 160] {
             let screen = paint(&app, width, 36).join("\n");
-            assert!(screen.contains("digest Auto ▾"), "{tab:?}: {screen}");
+            let mode = if tab == OpsTab::Digest {
+                "Auto ▾"
+            } else {
+                "digest Auto ▾"
+            };
+            assert!(screen.contains(mode), "{tab:?}: {screen}");
             assert!(screen.contains("1 held"));
             assert!(
                 !screen.contains("99 held"),

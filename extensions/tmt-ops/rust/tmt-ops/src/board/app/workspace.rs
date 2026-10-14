@@ -35,7 +35,11 @@ impl App {
         self.workspace_snapshot()
             .map(|snapshot| {
                 if self.shell.tab == OpsTab::Digest {
-                    crate::board::digest_dashboard::rows(snapshot, &self.workspace.query)
+                    crate::board::digest_dashboard::rows(
+                        snapshot,
+                        &self.workspace.query,
+                        self.workspace.selected.as_ref(),
+                    )
                 } else {
                     self.workspace.rows(&snapshot.roster, &snapshot.preferences)
                 }
@@ -187,17 +191,14 @@ impl App {
             }
         }
         let rows = self.workspace_rows();
-        if self.shell.tab == OpsTab::Digest {
-            if let Some(OpsTarget::Member { identity_id, .. }) = &self.workspace.selected {
-                if let Some(row) = rows.iter().find(|row| {
-                    matches!(&row.target,
-                    OpsTarget::Member { identity_id: id, .. } if id == identity_id)
-                }) {
-                    self.workspace.selected = Some(row.target.clone());
-                }
-            } else if self.workspace.selected.is_some() {
-                self.workspace.selected = rows.first().map(|row| row.target.clone());
-            }
+        if self.shell.tab == OpsTab::Digest
+            && self
+                .workspace
+                .selected
+                .as_ref()
+                .is_some_and(|target| !matches!(target, OpsTarget::Member { .. }))
+        {
+            self.workspace.selected = rows.first().map(|row| row.target.clone());
         }
         if self.workspace.selected.is_none() {
             self.workspace.selected = rows.first().map(|row| row.target.clone());
