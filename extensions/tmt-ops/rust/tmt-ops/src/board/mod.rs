@@ -876,6 +876,12 @@ pub fn run(
         app.notice.get_or_insert_with(reload::reloaded);
     }
     let mut switch_ready = crate::board_switch::ready(&core)?;
+    if switch_ready.is_some() {
+        app.notice = crate::board_switch::retired_tabs_notice(
+            std::env::var("TMT_OPS_SWITCH_RETIRED_TABS").ok().as_deref(),
+        )
+        .or(app.notice);
+    }
     let mut clock = crate::cron_clock::ClockWorker::spawn(core.clone(), config, false);
     let lane = lane::Lane::spawn(
         core.clone(),

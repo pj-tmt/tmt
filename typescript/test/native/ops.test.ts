@@ -434,7 +434,7 @@ o = "run touch ${marker}"
     });
   });
 
-  it('validates board picks without writing config or changing ls tab resolution', async () => {
+  it('refuses retired board picks without writing config or changing ls tab resolution', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
       for (const name of ['product', 'infra', 'quiet']) {
@@ -446,21 +446,23 @@ o = "run touch ${marker}"
       writeFileSync(config, source);
       const before = observe(sandbox);
       const listed = await squad(sandbox, ['ls', '--squad', 'product']);
-      for (const names of ['all', 'product,infra', 'leads,@tab:needs-me', 'needs-me', 'quiet']) {
-        const board = await ops(sandbox, ['ui', '--tabs', names]);
-        expect(board.status).toBe(0);
+      for (const names of [
+        'all',
+        'product,infra',
+        'leads,@tab:needs-me',
+        'needs-me',
+        'quiet',
+        'missing',
+        '',
+        'product,',
+      ]) {
+        const refused = await ops(sandbox, ['ui', '--tabs', names]);
+        expect(refused.status).toBe(1);
+        expect(refused.body.error.code).toBe('SQUAD_UI_TABS_RETIRED');
+        expect(refused.body.error.message).toContain('retired squad-tab layout');
+        expect(refused.body.error.message).toContain('workspace search and squad pins');
       }
-      expect((await ops(sandbox, ['ui', '--squad', 'product', '--tabs', 'product'])).body).toEqual(
-        listed.body
-      );
-      for (const names of ['missing', '', 'product,', 'all,product']) {
-        const invalid = await ops(sandbox, ['ui', '--tabs', names]);
-        expect(invalid.status).not.toBe(0);
-        expect(invalid.body.error.code).toBe('USAGE_ERROR');
-        for (const name of ['product', 'infra', '@tab:needs-me', 'all', 'leads']) {
-          expect(invalid.body.error.message).toContain(name);
-        }
-      }
+      expect((await ops(sandbox, ['ui', '--squad', 'product'])).body).toEqual(listed.body);
       const excluded = await squad(sandbox, [
         'board',
         '--squad',
@@ -468,7 +470,7 @@ o = "run touch ${marker}"
         '--tabs',
         '@tab:product',
       ]);
-      expect(excluded.status).not.toBe(0);
+      expect(excluded.status).toBe(1);
       expect(excluded.body.error.code).toBe('USAGE_ERROR');
       expect((await squad(sandbox, ['ls', '--tab', '@tab:needs-me'])).status).not.toBe(0);
       expect((await squad(sandbox, ['ls', '--tab', 'needs-me'])).status).toBe(0);
@@ -1157,8 +1159,8 @@ o = "run touch ${marker}"
       }
       expect(completions[0].stdout).toBe('skill\nsquad\n');
       const skill = await runCli(sandbox, ['ops', 'skill', 'show']);
-      expect(skill.stdout).toContain('`ctrl-r` refreshes the board in squad, leads and all views');
-      expect(skill.stdout).toContain('`f5 = "refresh"` binding remains supported');
+      expect(skill.stdout).toContain('`ctrl-r` refreshes without discarding entered text');
+      expect(skill.stdout).toContain('an explicit `f5 = "refresh"` binding');
       expect(skill.stdout).not.toContain('Ctrl-R');
       expect(skill.stdout).toBe(
         readFileSync(
@@ -2415,7 +2417,6 @@ sort = ["-name"]
       // Section bindings are validated whenever sections load.
       for (const [bind, place] of [
         ['o = "launch {name}"', 'squad.product.section[0].bind.o'],
-        ['q = "refresh"', 'squad.product.section[0].bind.q'],
         ['o = "open {pr link}"', 'squad.product.section[0].bind.o'],
         ['o = "run ./script {name}"', 'squad.product.section[0].bind.o'],
         ['o = "run {program} x"', 'squad.product.section[0].bind.o'],
@@ -2429,6 +2430,12 @@ sort = ["-name"]
         expect(invalid.body.error.code, bind).toBe('SQUAD_CONFIG_INVALID');
         expect(invalid.body.error.message, bind).toContain(place);
       }
+      // Compatible explicit keys override workspace defaults, including q.
+      writeFileSync(
+        squadToml,
+        `${base}\n[[squad.product.section]]\ntitle = "Mine"\n[squad.product.section.bind]\nq = "refresh"\n`
+      );
+      expect((await squad(sandbox, ['status'])).status).toBe(0);
       writeFileSync(
         squadToml,
         `${base}\n[[squad.product.section]]\ntitle = "Mine"\n[squad.product.section.bind]\n` +
@@ -4521,9 +4528,16 @@ async function runOrdinaryCommand(fixture: SwitchFixture, pane: string, name: st
   const line = `${quoteSwitchArgument(sandbox.cli.executable)} ops squad ls; printf '%s\\n' "$?" > ${quoteSwitchArgument(done)}`;
   tmux(['send-keys', '-t', pane, '-l', line]);
   tmux(['send-keys', '-t', pane, 'Enter']);
-  await vi.waitFor(() => expect(existsSync(done)).toBe(true), { timeout: 20_000, interval: 25 });
-  expect(readFileSync(done, 'utf8').trim()).toBe('0');
+  const status = await vi.waitFor(
+    () => {
+      const status = readFileSync(done, 'utf8').trim();
+      expect(status).toMatch(/^\d+$/);
+      return status;
+    },
+    { timeout: 20_000, interval: 25 }
+  );
   const screen = tmux(['capture-pane', '-p', '-S', '-', '-t', pane]);
+  expect(status, screen).toBe('0');
   expect(screen).toContain('product');
   expect(screen).not.toContain('Switch now?');
   return screen;
@@ -4661,6 +4675,8 @@ async function withBoardSwitch<T>(body: (fixture: SwitchFixture) => Promise<T>):
       '-d',
       '-s',
       'switch',
+      '-c',
+      sandbox.root,
       '-x',
       '100',
       '-y',
@@ -4698,9 +4714,15 @@ async function withBoardSwitch<T>(body: (fixture: SwitchFixture) => Promise<T>):
         tmux(['send-keys', '-t', pane, '-l', line]);
         tmux(['send-keys', '-t', pane, 'Enter']);
       }
-      await vi.waitFor(() => expect(existsSync(proof)).toBe(true), { timeout: 5000, interval: 25 });
-      const reported = JSON.parse(readFileSync(proof, 'utf8'));
-      expect(reported.pane).toBe(pane);
+      const reported = await vi.waitFor(
+        () => {
+          const published = JSON.parse(readFileSync(proof, 'utf8'));
+          expect(published.pane).toBe(pane);
+          expect(typeof published.pid).toBe('number');
+          return published;
+        },
+        { timeout: 5000, interval: 25 }
+      );
       return { pane, pid: reported.pid as number, cwd, proof };
     };
     try {
@@ -4767,7 +4789,16 @@ async function withBoardSwitch<T>(body: (fixture: SwitchFixture) => Promise<T>):
 describe('verified former-board switching', () => {
   it('never offers a board switch for legacy config without a former board', async () => {
     await withBoardSwitch(async (fixture) => {
-      const pane = fixture.tmux(['new-window', '-d', '-P', '-F', '#{pane_id}', 'exec /bin/sh']);
+      const pane = fixture.tmux([
+        'new-window',
+        '-d',
+        '-P',
+        '-F',
+        '#{pane_id}',
+        '-c',
+        fixture.sandbox.root,
+        'exec /bin/sh',
+      ]);
       const offer = path.join(fixture.dataRoot, '.ops-board-switch-offer-v1.json');
       const before = existsSync(offer) ? readFileSync(offer) : undefined;
       await runOrdinaryCommand(fixture, pane, 'no-boards');
@@ -4876,7 +4907,16 @@ describe('verified former-board switching', () => {
           executable,
           'ui'
         );
-        const pane = fixture.tmux(['new-window', '-d', '-P', '-F', '#{pane_id}', 'exec /bin/sh']);
+        const pane = fixture.tmux([
+          'new-window',
+          '-d',
+          '-P',
+          '-F',
+          '#{pane_id}',
+          '-c',
+          fixture.sandbox.root,
+          'exec /bin/sh',
+        ]);
         const leasePath = path.join(fixture.dataRoot, 'squad', 'cron', 'clock.json');
         const lease = await alterRenewedLease(leasePath, former.proof, (held) => {
           if (failure === 'wrong pane') held.pane = pane;
@@ -4912,6 +4952,7 @@ describe('verified former-board switching', () => {
             await old('first', 'product,leads', true),
             await old('second', 'product', false, true),
           ];
+          const before = observe(sandbox);
           const formerRoot = path.join(prefix, 'lib/tmt-squad');
           if (removed) {
             rmSync(formerRoot, { recursive: true });
@@ -4928,7 +4969,7 @@ describe('verified former-board switching', () => {
             );
             expect(tmux(['display-message', '-p', '-t', board.pane, '#{pane_dead}'])).toBe('0');
             await vi.waitFor(
-              () => expect(tmux(['capture-pane', '-p', '-t', board.pane])).toContain('Ben'),
+              () => expect(tmux(['capture-pane', '-p', '-t', board.pane])).toContain('product · 1'),
               { timeout: 5000, interval: 50 }
             );
             expect(tmux(['capture-pane', '-p', '-t', board.pane])).not.toContain(
@@ -4937,10 +4978,11 @@ describe('verified former-board switching', () => {
             const launched = liveOps(sandbox, prefix, tmux, board.pane);
             expect(launched.pid).not.toBe(board.pid);
             expect(launched.cwd).toBe(realpathSync(board.cwd));
-            expect(launched.args).toContain(
-              board === boards[0] ? 'ui --tabs product,leads' : 'ui --tabs product'
-            );
+            expect(launched.args).toContain('ops ui');
+            expect(launched.args).not.toContain('--tabs');
+            expect(tmux(['capture-pane', '-p', '-t', board.pane])).toContain('Former --tabs');
           }
+          expect(observe(sandbox)).toEqual(before);
           expect(readFileSync(path.join(sandbox.globalDir, 'ops.toml')).equals(oldConfig)).toBe(
             true
           );
@@ -4961,8 +5003,23 @@ describe('verified former-board switching', () => {
   it('keeps a new Ops board and non-board panes alive while replacement switches the old board', async () => {
     await withBoardSwitch(async ({ sandbox, prefix, tmux, old, candidate }) => {
       const former = await old('former', 'product', true);
-      const newPane = tmux(['new-window', '-d', '-P', '-F', '#{pane_id}', 'exec /bin/sh']);
-      tmux(['send-keys', '-t', newPane, '-l', `'${sandbox.cli.executable}' ops ui --tabs product`]);
+      const newPane = tmux([
+        'new-window',
+        '-d',
+        '-P',
+        '-F',
+        '#{pane_id}',
+        '-c',
+        sandbox.root,
+        'exec /bin/sh',
+      ]);
+      tmux([
+        'send-keys',
+        '-t',
+        newPane,
+        '-l',
+        `'${sandbox.cli.executable}' ops ui --squad product`,
+      ]);
       tmux(['send-keys', '-t', newPane, 'Enter']);
       await vi.waitFor(
         () =>
@@ -5059,7 +5116,16 @@ describe('verified former-board switching', () => {
   it('never scans or asks before an ordinary Ops command', async () => {
     await withBoardSwitch(async (fixture) => {
       const former = await fixture.old('former', 'product', true);
-      const pane = fixture.tmux(['new-window', '-d', '-P', '-F', '#{pane_id}', 'exec /bin/sh']);
+      const pane = fixture.tmux([
+        'new-window',
+        '-d',
+        '-P',
+        '-F',
+        '#{pane_id}',
+        '-c',
+        fixture.sandbox.root,
+        'exec /bin/sh',
+      ]);
       await runOrdinaryCommand(fixture, pane, 'ordinary');
       expect(existsSync(former.proof.replace(/\.json$/, '.stopped'))).toBe(false);
       expect(existsSync(path.join(fixture.dataRoot, '.ops-board-switch-offer-v1.json'))).toBe(
@@ -5178,6 +5244,8 @@ describe('large board responsiveness', () => {
         '-d',
         '-s',
         'large',
+        '-c',
+        sandbox.root,
         '-x',
         '120',
         '-y',
@@ -5189,7 +5257,16 @@ describe('large board responsiveness', () => {
         for (let index = 0; index < 71; index += 1) tmux(['new-window', '-d', '/bin/sh']);
         expect(tmux(['list-panes', '-a', '-F', '#{pane_id}']).split('\n')).toHaveLength(72);
         sandbox.env.TMUX = `${socket},${tmux(['display-message', '-p', '#{pid}'])},0`;
-        const pane = tmux(['new-window', '-d', '-P', '-F', '#{pane_id}', 'exec /bin/sh']);
+        const pane = tmux([
+          'new-window',
+          '-d',
+          '-P',
+          '-F',
+          '#{pane_id}',
+          '-c',
+          sandbox.root,
+          'exec /bin/sh',
+        ]);
         const trace = path.join(sandbox.root, 'large.trace.jsonl');
         const records = () =>
           existsSync(trace)
@@ -5226,15 +5303,15 @@ describe('large board responsiveness', () => {
           (first.find((r) => r.event === event)!.elapsed_us as number) / 1000;
         expect(milestone('first_frame')).toBeLessThan(budgetMs.firstFrame);
         expect(milestone('fresh_board')).toBeLessThan(budgetMs.freshBoard);
-        // Stepping to the next tab repaints at once and loads off the input thread.
+        // Shell switching repaints from the acquired snapshot; no new roster load.
         const loads = first.filter((r) => r.stage === 'load').length;
         const before = tmux(['capture-pane', '-p', '-t', pane]);
         const pressed = Date.now();
-        tmux(['send-keys', '-t', pane, 'Right']);
+        tmux(['send-keys', '-t', pane, '1']);
         await vi.waitFor(
           () => {
             expect(tmux(['capture-pane', '-p', '-t', pane])).not.toBe(before);
-            expect(records().filter((r) => r.stage === 'load').length).toBeGreaterThan(loads);
+            expect(records().filter((r) => r.stage === 'load').length).toBe(loads);
           },
           { timeout: budgetMs.tabSwitch, interval: 10 }
         );

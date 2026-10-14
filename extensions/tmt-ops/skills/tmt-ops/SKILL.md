@@ -75,9 +75,10 @@ view must not be treated as evidence that nobody waits on you.
 With `--squad <name>` the document is that squad's; without it, it is always
 `{squads: [...], you}`, one document per squad in name order (even for one
 squad or none), so read `.squads[]` unless you pass `--squad`. `columns` and
-`lines` are the board's row grid: each column's field, title and sizing, and
+`lines` describe the independent CLI row projection: each column's field, title and sizing, and
 the fields each line of a row shows (`{field, span}`, field null for an empty
-cell).
+cell). These values remain accepted and validated; they do not compose the
+workspace's tree, conversation or pending-continuation geometry.
 
 - A cell has optional `token`, its semantic theme role, which overrides
   threshold/provider colors for that cell. Team publishes
@@ -85,10 +86,10 @@ cell).
   omit the key. This is decoration metadata, not a changed row value.
 - A column's `width` is null, a cell count or a percentage string such as
   `"30%"`. Covered-track percentage widths total at most 100% and resolve against data width
-  after borders/row marks on the board (gaps are additional); lists resolve after
-  gaps. `min`/`max` remain cells.
+  after the CLI grid's gaps. `min`/`max` remain cells; this geometry does not
+  arrange the workspace.
 - A column has optional `valueOnly: true` when no row line covers its positional
-  track. It remains a value source but reserves no board width; other columns
+  track. It remains a value source but reserves no CLI grid width; other columns
   omit this key. See Columns and row lines below.
 - A column has `overflow` only when configured: `"ellipsis"` or `"wrap"`.
   Without it, cells use ellipsis. Wrapped continuations align to the cell start.
@@ -102,20 +103,20 @@ cell).
 - `squad`: `name`, `roomId`, `layout` (`crew`, `pr-queue`, `minimal` or `team`),
   `lead` (a row, or null) and `attention`: `state` (`waiting`, `blocked` or
   `normal`), `waiting` (members that owe the user a decision or wait for an
-  answer) and `blocked` (members in the `blocked` state). Tabs and the switcher
-  reserve a two-cell leading slot: `◆ ` for waiting on you, else `✗ ` for
-  blocked, else two spaces. The count follows the name (`◆ product 2`);
-  both states append the blocked count (`◆ product 2 ✗1`). The marks carry
-  the meaning, including without color.
+  answer) and `blocked` (members in the `blocked` state). These remain CLI/source
+  facts; Overview owns the UI aggregate, while the squad tree displays observed
+  membership state. Agents has no duplicate aggregate count in its tab/header.
 - `sections`: always a list. Unless the user defined sections, it holds exactly
   one section with `title: null` containing every member except the lead. With
   user sections, members that match none follow in a final `title: null`
-  section. The lead is shown first by the board and text `ls` only (below);
-  the JSON never moves it into `sections`, and member counts exclude it.
+  section. Text `ls` shows the lead first; JSON never moves it into `sections`,
+  and its source member counts exclude it. The workspace's UUID roster includes
+  the lead once in the squad count rather than adding a second synthetic row.
 - `squad.noteAnnotations` is optional: open notebook-line requests from the
   recorded user to the current lead, as `{requestId, line, quote}` with a
   zero-based source `line` and bounded sanitized `quote`. It is absent when
-  none are observed; the shared bounded history also governs board markers.
+  none are observed. This remains an independent source projection; the workspace
+  uses the selected agent's response annotation flow rather than notebook markers.
 - Each row has `id`, `name`, `lifetime`, `presence` (`active`, `offline` or
   `unknown`), `pane`, `activity` (self-reported status, or null), `state`,
   `pending`, `fields` (the `squad.<name>.*` values except the internal
@@ -139,7 +140,8 @@ cell).
   `{active, digestUntilMs, remainingMs, heldCount}`. Times are milliseconds; inactive
   windows have zero remaining time. Failed/older Core reads omit it. The board shows
   `digest 30m · 2 held`, rounding remaining minutes up (then `1h20m`); zero held is
-  omitted. Narrow rows keep `digest`; expand with `e` for remaining time and held count.
+  omitted. Complete chip units fit the current tree/conversation budget; trailing
+  labels are omitted when space is short. There is no inline `e` expansion.
 - Extensions can label member rows. The board asks each extension in `[labels] sources`
   in `ops.toml` (default `["digest"]`; `[]` turns it off) for `tmt <name> status --json`,
   in the background every few seconds, and shows the labels it supplies after the
@@ -149,19 +151,19 @@ cell).
   slow, failing or malformed extension changes nothing, and labels from one that stops
   answering disappear after 30 seconds. Labels give way to the member's name and the
   whole state word: narrow rows drop trailing labels first, show the extension's name
-  only with its first label, and show no chip when those do not fit. `e` lists all
-  labels under the extension's name.
+  only with its first label, and show no chip when those do not fit. Read the
+  extension's `status --json` for its complete current labels.
   The sources are read when the board starts; restart it after changing them.
 - A label may offer a choice; its chip ends with `▾`, such as `digest Auto ▾`. Click the
-  chip, press `i` (`digest`, rebindable) on a member row, or choose `digest` in its Enter
-  menu, to open that member's choices (for the digest extension: Auto, 1 minute up to
+  chip, press `D` (`digest`, rebindable) on a member row, or choose Digest in its
+  action menu, to open that member's choices (for the digest extension: Auto, 1 minute up to
   1 hour, and `Custom…`), the current one marked `(current)`. Enter or a click runs a choice; the wheel and Up/Down move the
   highlight; Esc closes. The click and the wheel work in every action menu; a click
   outside its entries does nothing. `Custom…` asks for a duration such as `20s`, `10m` or `1h`;
   empty text goes back to the default. Only the recorded user and the squad's lead may
   change a digest, as with `tmt ops digest`; anyone else is told so and nothing runs,
   and the check is made again when the choice is applied. A member without an offered
-  choice, or no extension at all, says so on `i` and has no `digest` menu entry. The
+  choice, or no extension at all, says so on `D` and has no Digest menu entry. The
   extension, not the board, decides what is offered and what runs: the board starts
   `tmt` with the extension's own arguments, the chosen text as one argument, never
   through a shell, and shows the extension's refusal as is. The chip updates at once
@@ -183,13 +185,13 @@ hold`; pr-queue uses `preparing ready sent merged`; minimal has no fixed list.
   same. Do not change the user's vocabulary without asking.
 
 `presence` is observed by TMT, not reported by the member. `activity` is what
-the member reported about itself. `tmt ops ls` marks a row by presence (`●` active,
-`○` offline); the board's mark column shows the state the member reported, so a
-member row there never draws `○`.
+the member reported about itself. CLI row marks and state vocabulary remain
+independent source facts. The workspace labels observed presence as `active` or
+`offline`; missing presence remains unknown.
 
 A request tagged `[<squad> · <member>]` from the user is an annotation: a note
-about that row for you to act on. Answer it with `tmt reply` as usual; the
-user's board shows it as ✎ until you do. Never edit the user's notes for it.
+about that member for you to act on. Answer it with `tmt reply` as usual. Never
+edit the user's notes for it.
 
 ## Reloading open boards
 
@@ -229,7 +231,8 @@ selected membership, `D` opens Digest and `c` opens Timers. Member rename has no
 `ctrl-r` refreshes without discarding entered text. `/` searches. `?` help and the
 footer use the same effective binding table as dispatch: defaults, global `[bind]`,
 host overrides, then section overrides. Compatible explicit bindings keep their
-meaning. Whole optional hints drop when space is short; help remains available.
+meaning, including an explicit `f5 = "refresh"` binding. Whole optional hints drop
+when space is short; help remains available.
 Menus, completion and editors own their keys and consume close without replay.
 Pointer controls use only their current visible rectangles.
 
@@ -283,32 +286,18 @@ over an all-boards preview; the picker names that masking setting. A failed
 save stays open with a notice; cancel and reopen to read a changed file.
 Agents change the user's appearance only when the user requests it.
 
-When an agent with squad context is selected, retained detail can show its name with a dim `lead`
-tag, state/model/cap, task, nonempty pending as `◆ waits on you`, and links.
-Missing values are omitted. With no row fields set, it shows
-`no row fields set · tmt ops sq set <lead> task=…`.
-Lead detail reads and displays neither the notebook nor reply bodies; the pane
-headers name the other panes.
+The selected agent's conversation header shows its name, state, observed presence,
+runtime/model, supplied Digest labels, timer observations and resolved link when
+available. Missing observations stay unavailable. Read the independent `sq ls`
+JSON or `sq status` for full custom fields and domain metadata; those CLI fields
+do not create a second detail grid or notebook pane.
 
-For members, the detail pane shows full projected board-column values not already shown by its header, task, activity or links, in column order; values wrap without grid truncation, with `?` for failed providers and `–` for missing values.
-
-The replies pane shows full available replies to your squad requests as safe
-Markdown, using the notes pane's styles. Reply bodies are indented; prompts wrap,
-and recipient/age headers stay on one line. Fenced code and unsupported Markdown
-constructs appear as source text. Focus replies to scroll with arrows or j/k,
-PgUp/PgDn and Home/End, or use the wheel over the pane. The scroll marks show
-remaining content. Older replies without a loaded body retain `tmt result <id>`
-hints; reading and scrolling acknowledge nothing. Only recipient finals
-(`retained`, `expired`, `unavailable`) appear here. An originator withdrawal
-remains in Core request history with its reason and time; it is neither a
-recipient reply nor approval and does not clear independent manual pending/state.
-
-Rows that wait on you show a single decision line: `pending` when set,
-otherwise the oldest unanswered request preview. Text ends in `…` when it does
-not fit; detail retains the full available text and the effective reply/jump
-keys. Request age comes from the inbox timestamp; pending-only rows have no
-request age. The workspace keeps contextual room/member counts; missing observations remain
-unknown rather than becoming zero.
+The response region shows the selected agent's latest available response as safe
+Markdown. Scrolling, copying and source selection send and acknowledge nothing.
+A response that is unavailable or still loading is labelled; a withdrawal is not
+a recipient reply or approval and does not clear manual pending/state. Overview
+owns global attention; selected-target context never substitutes a guessed
+recipient for a hidden, removed or unknown target.
 
 `t` opens Talk for the selected agent through the shared conversation composer.
 Writing requires a recorded sender. Common pool supports Talk without inventing
@@ -626,9 +615,9 @@ remain read-only to settings inspection and are never executed by inspection.
 
 For the selected squad, set `reminders.enabled` to `true` or `false`, and
 `reminders.stale_after` to whole s/m/h units from 1m to 24h (for example `30m`).
-The settings view shows effective defaults and their sources. Preview reclassifies
-known observed ages without observing or sending reminders; unknown stays unknown.
-After saving, ordinary reload uses the new policy. Disabled reminders produce no
+`config show --squad <name>` reports effective defaults and their sources.
+After saving, ordinary reload uses the new policy; unknown observed ages remain
+unknown. Disabled reminders produce no
 stale marks or reminder work. These edits install no provider hook and grant no
 extension consent.
 
@@ -813,18 +802,13 @@ The former generated file and immutable skill sources remain available.
 
 ## Observed token usage
 
-The selected named squad shows completed-request tokens from public core history
-and this board's observations, in **1m / 5m / 1h windows**. The default member grid adds the current
-session model and those three totals, declared in the TEAM/crew preset rows.
-Custom grids opt in with `from = "usage.w1"`, `"usage.w2"`, or `"usage.w3"` on a
-column. Default headers follow `tok`; an explicit `title` stays as configured.
-One-shot `tmt ops sq ls` has no window history. JSON keeps column descriptors without
-usage values; text omits columns whose source is board-only.
-When token sampling is off, usage columns hide and MODEL remains. Default
-member grids keep at least 20 cells for TASK when space permits. On narrow
-boards, inactive window columns step aside first, then PR, then MODEL, and
-finally the active window. Switching the window (the settings menu's Token window row, or a `token-window` binding) also changes which window stays visible
-longest. MODEL follows its content up to 8 cells and truncates longer names.
+The selected squad's usage disclosure shows completed-request tokens from public
+Core history and acquired observations in its configured windows (default
+**1m / 5m / 1h**). The workspace uses those observations independently of the CLI
+row grid. CLI presets and custom columns can name `usage.w1`, `usage.w2` and
+`usage.w3`; one-shot `sq ls` has no window history, so JSON keeps those column
+descriptors without usage values and text omits the board-only sources. Changing
+the active window affects the acquired summary, not a second member grid.
 
 Input and output count once; cached input is already included in input, and
 normalized reasoning in output. Mixed providers sum reported token units, not
@@ -860,7 +844,7 @@ tok = "5m/60m/24h" # overrides the global windows
 enabled = true # individual keys override global policy and layout preset
 
 [bind]
-w = "token-window"
+u = "token-window"
 ```
 
 `–` means no usable observed interval for that member; a baseline alone is not

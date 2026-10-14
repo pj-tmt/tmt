@@ -217,7 +217,7 @@ fn grammar() -> Command {
             build(specs::UI)
                 .arg(squad_option())
                 .arg(Arg::new("tabs").long("tabs").value_name("NAMES")
-                    .help("The tabs this board shows (names as on the tab line); comma-separated, all for the default set"))
+                    .help("Retired squad-tab selector; use workspace search and pins with shell keys 1/2/3"))
                 .arg(
                     Arg::new("popup")
                         .long("popup")

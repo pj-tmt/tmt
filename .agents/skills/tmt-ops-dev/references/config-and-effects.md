@@ -126,8 +126,11 @@ exception admits a named former program outside that namespace and `ui`, with
 the same bounded flags and values.
 Deliberately forged argv[0] can retire another invocation of the same retiring binary; this bounded one-time risk is accepted.
 
-The switch preserves pane IDs, cwd, `--tabs` (including omitted defaults),
-`--squad` and `--popup`. A shell-launched board restarts through the same shell,
+The switch preserves pane IDs, cwd, explicit `--squad` and `--popup`. Its private
+journal keeps the original argv. Only a consented replacement launch omits the
+retired `--tabs` pair and shows a first-frame migration notice; it opens Overview
+unless an explicit squad selects Agents, without guessing a recipient or filter.
+Ordinary `ui --tabs` still refuses. A shell-launched board restarts through the same shell,
 inheriting its environment; a dedicated pane respawns with the tmux pane environment.
 Both set `TMT_EXECUTABLE` to current Core. Process environments are never captured
 from `ps`. The original shell must regain the foreground; dedicated panes are

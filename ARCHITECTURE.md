@@ -426,7 +426,7 @@ own module/drawing boundaries and verification.
   neither reads nor writes the retired internal `cache/board` display format;
   existing files are left untouched. `ops.toml` is user-owned: agents never write it;
   Ops uses CAS. `migration` owns locked byte-preserving legacy cutover and
-  `board_switch` the consented former-board switch; startup runs neither. No Ops
+  `board_switch` the consented former-board switch: only its replacement launch drops retired `--tabs`, preserving the journal argv; startup runs neither. No Ops
   data enters `config.json` or Core's database.
 - **Workspace.** Overview/Agents/Digest share one acquired roster and a frame-scoped tree projection.
   UUID squad anchors and virtual Common pool define selection; paint/input do no Core reads. WP1 owns conversation/editor/drafts.
