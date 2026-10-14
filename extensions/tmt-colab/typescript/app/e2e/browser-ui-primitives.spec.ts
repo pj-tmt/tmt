@@ -69,6 +69,7 @@ test('native controls and blocked states retain their actual DOM identity and co
   ] as const) {
     const control = page.getByRole(role, { name });
     await control.click();
+    await expect(control).toHaveAttribute('aria-checked', 'true');
     await control.press('Space');
     await expect(control).toHaveAttribute('aria-checked', 'true');
     await expect(control).toHaveAttribute('aria-readonly', 'true');
