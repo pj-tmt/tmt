@@ -81,14 +81,17 @@ assets retain the git-diff regeneration gate. The lazy adapter's bundle check re
 imports, grpc-js and undici. Before loading Auth, `projectId`, `appId` and `authDomain` must
 equal same-origin `/__/firebase/init.json`. A hosted page that calls `connect` must allow
 identitytoolkit.googleapis.com and securetoken.googleapis.com in `connect-src`, plus
-firestore.googleapis.com once document transport ships. Colab owns those shell headers;
+firestore.googleapis.com for sealed-document transport. Colab owns those shell headers;
 the fixture verifies these requirements, not shipped policy. The local path never imports
 Firebase implicitly.
 
 ## Sealed-document types
 
-`sealed-sync.ts` and native `sealed_sync.rs` define the proposed bound ports and
-pure validation, not a provider factory. The [contract](../../../../contracts/remote-channel-v1.md#proposal-extension-scoped-sealed-document-client)
+`sealed-sync.ts` and native `sealed_sync.rs` own the bound ports and pure validation.
+`HostedAuth.sealedSync(space, guard)` implements the browser factory after anonymous sign-in. The [contract](../../../../contracts/remote-channel-v1.md#extension-scoped-sealed-document-client)
 owns context, injected Auth, sequence catch-up, uncertainty and the cloud object
-profile. The browser transport will reuse hosted bootstrap; native transport and
-credentials are later slices. Frozen fixtures are not installed provider evidence.
+profile. The browser transport shares hosted App/Auth, uses REST for data and one memory-only
+Web SDK listener per page interest for coalesced wake hints. The caller supplies admission
+reservations before REST attempts/listener starts; listener delivery and REST catch-up are
+separate modeled read costs, including the writer's own listener. Native transport and
+credentials remain separate slices. Frozen fixtures are not installed provider evidence.
