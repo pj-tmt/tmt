@@ -172,13 +172,29 @@ records its checklist purpose (default `fyi`). The pinned recorded owner UUID
 also bypasses. All channel, host and pending-approval guards still apply.
 Explicit `--inbox` stays pull-only. Existing `tmt focus` still switches panes.
 
+For a lead doing a review or other work that benefits from fewer interruptions,
+use the agreed Digest cadence: for example, `5m` for short batches or `20m` for
+longer work. The optional Digest extension owns these settings; read
+`tmt digest --help` and `tmt digest skill` for installation and the minute tick.
+
+```sh
+tmt digest lead 20m   # recurring batch interval, applied by the next tick
+tmt digest lead off   # end the interval override, applied by the next tick
+```
+
+An interval keeps recurring until the setting changes; `20m` does not end a
+focus session after twenty minutes. `default` restores inheritance, which may
+itself resolve to an interval. A held send's remaining time describes the
+current hold window, not a promise of delivery at that time. Keep routine updates
+in the batch. Use `--urgent` when a time-sensitive intervention cannot wait for it.
+
 There is no core timer, worker or periodic flush. An admitted provider turn
 boundary may hand off one checklist during Digest. After expiry or off, or when
 an extension marks the current held range due through the API, the next ordinary
 talk/check touching a verified idle recipient may hand off one eligible
-checklist. Later arrivals stay held on the due-now idle path. Without hooks or
-traffic it remains pending; an optional Squad cron
-reminder is outside core. A checklist contains original receipt-bound reply
+checklist. Later arrivals stay held on the due-now idle path. The optional Digest
+extension can offer opportunities through its minute tick; without hooks, traffic
+or that tick the checklist remains pending. A checklist contains original receipt-bound reply
 commands for eligible requests and result inspection commands for finals.
 Use the printed sealed-checklist API read/cursor for overflow; an uncertain
 handoff is never replay permission. Reads and delivery do not acknowledge X.
