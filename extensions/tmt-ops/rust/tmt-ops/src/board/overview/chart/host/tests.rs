@@ -473,3 +473,41 @@ fn no_positive_reading_uses_one_summary_without_false_bar_authority() {
         }
     });
 }
+
+#[test]
+fn missing_snapshot_refuses_keyboard_action_and_retained_mouse_controls() {
+    crate::status::with_now_ms(fixtures::NOW, || {
+        for tab in [OpsTab::Overview, OpsTab::Digest] {
+            let mut app = board();
+            fixtures::populate(&mut app);
+            app.shell.tab = tab;
+            paint(&mut app, 60, 18);
+            let summary = app
+                .usage_chart
+                .borrow()
+                .hits
+                .iter()
+                .find(|hit| hit.target == Target::Controls)
+                .unwrap()
+                .area;
+            let selected = app.workspace.selected.clone();
+            // Even a retained painted hit cannot outlive its admitted source.
+            app.view = None;
+            assert!(!app.usage_chart_available());
+            assert!(
+                !app.workspace_bindings()
+                    .values()
+                    .any(|action| action.verb == Verb::Ui(OpsUiAction::UsageControls))
+            );
+            press(&mut app, KeyCode::Char('u'));
+            assert!(!app.usage_controls);
+            super::focus(&mut app);
+            assert!(!app.usage_controls);
+            click(&mut app, summary);
+            assert!(!app.usage_controls);
+            assert!(app.usage_details.is_none());
+            assert!(!app.usage_chart.borrow().focused());
+            assert_eq!(app.workspace.selected, selected);
+        }
+    });
+}
