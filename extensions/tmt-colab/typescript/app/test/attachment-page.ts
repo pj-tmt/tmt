@@ -36,4 +36,5 @@ export async function attach(
   await page.getByRole('button', { name: text.messageAttach }).click();
   await (await chooser).setFiles(files);
 }
-export const send = (page: Page) => page.getByRole('button', { name: text.askSend, exact: true });
+export const send = (page: Page) =>
+  page.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true });

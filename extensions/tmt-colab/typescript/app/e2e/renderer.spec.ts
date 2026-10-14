@@ -39,7 +39,7 @@ async function mount(page: Page, source: string) {
       host.id = 'probe';
       document.body.append(host);
       const controller = new AbortController();
-      const handle = await mountRenderer(host, source, {
+      const renderer = await mountRenderer(host, source, {
         signal: controller.signal,
         onState: (state: string) => {
           host.dataset.state = state;
@@ -78,6 +78,21 @@ async function mount(page: Page, source: string) {
           ]);
         },
       });
+      // Give legacy scenario inputs explicit paint-only ordinals at the fixture boundary.
+      const handle = {
+        ...renderer,
+        highlight(
+          input: { id: string; selector: unknown; ordinal?: number }[],
+          draft?: unknown,
+          count?: number,
+        ) {
+          return renderer.highlight(
+            input.map((anchor, index) => ({ ...anchor, ordinal: anchor.ordinal ?? index + 1 })),
+            draft,
+            count ?? input.length,
+          );
+        },
+      };
       // Test-owned handles never exist in the production entry point.
       Object.assign(window, { probe: { handle, controller } });
       return { ...handle.snapshot } as {
@@ -743,7 +758,7 @@ test('anchor results accept only the current request and requested unique IDs; c
   await expect(page.getByTestId('ask-preview')).toHaveCount(0);
 });
 
-test('range markers keep counts and quoted-text tooltips, follow document resize and scroll the window to their anchor', async ({
+test('range-end numbers keep distinct targets and quoted hints through resize and anchor scrolling', async ({
   page,
 }) => {
   await page.goto('/');
@@ -764,19 +779,20 @@ test('range markers keep counts and quoted-text tooltips, follow document resize
     );
   });
   const frame = page.frameLocator('#probe iframe');
-  const marker = frame.locator('[data-colab-thread]');
-  await expect(marker).toHaveCount(1);
-  await expect(marker).toHaveText('2');
-  await expect(marker).toHaveAttribute('title', 'Anchored line');
+  const markers = frame.locator('[data-colab-thread]');
+  await expect(markers).toHaveCount(2);
+  await expect(markers).toHaveText(['1', '2']);
+  const marker = markers.filter({ hasText: /^1$/ });
+  await expect(marker).toHaveAttribute('title', 'Thread 1: Anchored line');
   const alignment = await frame.locator('#quote').evaluate((node) => {
     const range = node.ownerDocument.createRange();
     range.selectNodeContents(node);
     return Math.abs(
-      node.ownerDocument.querySelector('[data-colab-thread]')!.getBoundingClientRect().top -
+      node.ownerDocument.querySelector('[data-colab-thread]')!.getBoundingClientRect().bottom -
         range.getBoundingClientRect().top,
     );
   });
-  expect(alignment).toBeLessThanOrEqual(5);
+  expect(alignment).toBeLessThanOrEqual(8);
   const initial = await marker.evaluate((node) => parseFloat((node as HTMLElement).style.top));
   await frame.locator('#space').evaluate((node: HTMLElement) => {
     node.style.height = '2200px';
@@ -795,8 +811,10 @@ test('range markers keep counts and quoted-text tooltips, follow document resize
   ).toBe(0);
   await marker.click();
   await expect(page.locator('#probe')).toHaveAttribute('data-opened', 'first');
+  await markers.filter({ hasText: /^2$/ }).click();
+  await expect(page.locator('#probe')).toHaveAttribute('data-opened', 'second');
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(marker).toHaveCount(1);
+  await expect(markers).toHaveCount(2);
   await frame.locator('#quote').evaluate((node) => {
     node.textContent = 'Changed source';
   });
@@ -804,7 +822,7 @@ test('range markers keep counts and quoted-text tooltips, follow document resize
   await expect(page.locator('#probe')).toHaveAttribute('data-resolved', '[]');
 });
 
-test('only IDs and quote selectors reach author code even when a caller supplies private comment fields', async ({
+test('only IDs, quote selectors and paint ordinals reach author code even when a caller supplies private comment fields', async ({
   page,
 }) => {
   await page.goto('/');
@@ -843,10 +861,13 @@ test('only IDs and quote selectors reach author code even when a caller supplies
         (node.ownerDocument.defaultView as unknown as { anchorTraffic: string }).anchorTraffic,
     );
   expect(JSON.parse(observed)).toEqual([
-    { id: 'known', selector: { exact: 'Anchor quote', prefix: '', suffix: '' } },
+    { id: 'known', selector: { exact: 'Anchor quote', prefix: '', suffix: '' }, ordinal: 1 },
   ]);
   expect(observed).not.toContain(secret);
-  await expect(frame.locator('[data-colab-thread]')).toHaveAttribute('title', 'Anchor quote');
+  await expect(frame.locator('[data-colab-thread]')).toHaveAttribute(
+    'title',
+    'Thread 1: Anchor quote',
+  );
 });
 
 for (const backward of [false, true])
@@ -1400,11 +1421,17 @@ test('highlight hover coalesces trusted pointer bursts and cancels pending geome
   const box = (await quote.boundingBox())!;
   await page.clock.install({ time: new Date('2026-01-01T00:00:00Z') });
   await page.clock.pauseAt(new Date('2026-01-01T00:00:01Z'));
+  // Drain pending size/marker placement before measuring the frozen pointer burst.
+  await page.clock.runFor(200);
   await quote.evaluate(() => {
     const original = Range.prototype.getClientRects;
     let count = 0;
     Range.prototype.getClientRects = function () {
-      if (this.toString() === 'One highlighted passage') count++;
+      if (
+        this.toString() === 'One highlighted passage' &&
+        new Error().stack?.includes('highlightAt')
+      )
+        count++;
       return original.call(this);
     };
     Object.assign(window, { hoverGeometryCount: () => count });

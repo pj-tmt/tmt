@@ -101,7 +101,7 @@ export async function annotationInput(container: Locator, _agent: string) {
   const input = container.getByRole('combobox', { name: 'Message', exact: true });
   await expect(input).toBeVisible();
   // Directory readiness is status-only. No hidden recipient selection is made here.
-  await expect(container.locator('.annotation-status-row')).not.toContainText('Checking');
+  await expect(container.locator('.annotation-hint[role="status"]')).not.toContainText('Checking');
   return input;
 }
 

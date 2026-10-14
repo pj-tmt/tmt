@@ -43,7 +43,9 @@ for (const width of [1440, 390])
       await (await pageAction(page.locator('#ask-page-fixture'), 'Chat')).click();
       const input = page.getByRole('combobox', { name: 'Message', exact: true });
       await input.fill('Review this page.');
-      await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
+      await expect(
+        page.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
+      ).toBeEnabled();
       await shot('1-ready-send');
 
       await page.goto('/');
@@ -95,7 +97,7 @@ for (const width of [1440, 390])
       await page.goto('/');
       await fixture(page, 'ask-again-browser', 'mount', { surface: 'chat', mode: 'held' });
       const multi = page.getByRole('combobox', { name: 'Message', exact: true });
-      await expect(page.locator('.annotation-status-row')).not.toContainText('Checking');
+      await expect(page.locator('.annotation-hint[role="status"]')).not.toContainText('Checking');
       await multi.fill('@alpha @beta Review this page.');
       await multi.press('Enter');
       await expect(page.getByTestId('ask-state')).toHaveCount(2);
@@ -135,7 +137,7 @@ for (const width of [1440, 390])
         mimeType: 'image/webp',
         buffer: Buffer.from('UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEADsD+JaQAA3AAAAAA', 'base64'),
       });
-      await page.getByRole('button', { name: 'Send', exact: true }).click();
+      await page.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
       const row = page.getByTestId('message-attachment');
       await expect(row).toBeVisible();
       if (phase === 'after') {

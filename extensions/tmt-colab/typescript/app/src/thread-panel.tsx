@@ -17,7 +17,7 @@ import { AskPanel, type AskRetryInput, type AskBinding, type PageAsk } from './a
 import { PageMenu as BrowserMenu } from './page-menu.js';
 import type { ThreadBinding } from './thread-store.js';
 import type { CommentView, QuoteSelector, ThreadView, DiscussionRef } from './thread-records.js';
-import { isOwnDiscussionWriter } from './thread-records.js';
+import { isOwnDiscussionWriter, threadNumbers } from './thread-records.js';
 import { text } from './strings.js';
 import { relativeTime } from './display-time.js';
 import { AnnotationInput, ArchivedDraft } from './annotation-input.js';
@@ -27,11 +27,9 @@ import {
   type ThreadStatusOutcome,
 } from './thread-status-presentation.js';
 
-/** Only an agent's resolution names its actor; a person's stays the plain state. */
+/** Actor names are admitted display metadata, never inferred from a device ID. */
 export function resolvedLabel(status: ThreadPresentation['status'] | undefined) {
-  return status?.actor === 'agent' && status.actorName
-    ? text.threadResolvedBy(status.actorName)
-    : text.threadResolved;
+  return status?.actorName ? text.threadResolvedBy(status.actorName) : text.threadResolved;
 }
 
 function Composer({
@@ -343,6 +341,7 @@ export function CommentExchange({
 }
 
 export type ThreadWindowProps = {
+  number?: number;
   creationRecipient?: CreationRecipient;
   /** Absent until the first committed turn; the composer stays in this same window. */
   thread?: ThreadView;
@@ -371,6 +370,7 @@ export type ThreadWindowProps = {
 };
 
 export function ThreadWindow({
+  number,
   thread,
   anchor: initialAnchor,
   creationRecipient,
@@ -397,6 +397,9 @@ export function ThreadWindow({
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(false),
     [notNotified, setNotNotified] = useState<string[]>([]);
+  const [showResolved, setShowResolved] = useState(false);
+  useEffect(() => setShowResolved(false), [thread?.ref.writer, thread?.threadId, thread?.resolved]);
+  const collapsed = !!thread?.resolved && !showResolved;
   const owned = !!thread && isOwnDiscussionWriter(thread.ref.writer, binding?.deviceId);
   const anchor = thread ? thread.anchor : initialAnchor;
   // A resolved thread leaves the page's marker set, so its attachment is not
@@ -453,8 +456,29 @@ export function ThreadWindow({
       });
   };
   return (
-    <AttachmentDropPanel target="thread">
+    <AttachmentDropPanel target="thread" active={!collapsed}>
       <ConversationWindow
+        collapsed={collapsed}
+        summary={
+          <div className="resolved-summary">
+            <p>
+              {messageIds.length} messages ·{' '}
+              {thread?.comments
+                .filter((comment) => !comment.deleted)
+                .reduce((count, comment) => count + (comment.attachments?.length ?? 0), 0) ??
+                0}{' '}
+              attachments
+            </p>
+            <BrowserAction
+              type="button"
+              variant="text"
+              label="Show conversation"
+              onActivate={(event) => {
+                if (event.isTrusted) setShowResolved(true);
+              }}
+            />
+          </div>
+        }
         notificationDestination={
           thread ? threadNotificationDestination(thread.ref.writer, thread.ref.id) : undefined
         }
@@ -473,11 +497,13 @@ export function ThreadWindow({
                 : 'detached'
         }
         title={
-          <span className="thread-state">
-            {thread?.resolved ? <CircleCheck aria-hidden /> : <CircleDot aria-hidden />}
+          <span className="thread-state" title={anchor?.exact}>
+            {number !== undefined && <span className="annotation-number">{number}</span>}
+            {thread && <span className="annotation-heading">THREAD</span>}
+            {thread && (thread.resolved ? <CircleCheck aria-hidden /> : <CircleDot aria-hidden />)}
             <span>
               {!thread
-                ? text.annotationTitle
+                ? 'ANNOTATE THE SELECTION'
                 : thread.deleted
                   ? text.threadDeleted
                   : thread.resolved
@@ -534,11 +560,19 @@ export function ThreadWindow({
           </>
         }
         notice={
-          observationUnavailable && (
-            <p role="status" className="annotation-hint">
-              {text.askObservationUnavailable}
-            </p>
-          )
+          <>
+            {observationUnavailable && (
+              <p role="status" className="annotation-hint">
+                {text.askObservationUnavailable}
+              </p>
+            )}
+            {notNotified.length > 0 && (
+              <p role="status" className="annotation-hint">
+                {text.threadNotNotified(notNotified.join(', '))}
+              </p>
+            )}
+            {error && <p role="alert">{text.commentFailed}</p>}
+          </>
         }
         messageIds={messageIds}
         ownWriter={binding?.deviceId}
@@ -570,7 +604,6 @@ export function ThreadWindow({
               )
         }
       >
-        {anchor && <blockquote>{anchor.exact}</blockquote>}
         {tracked && anchorsChecked && !attached && (
           <p className="annotation-hint">{text.commentQuoteChanged}</p>
         )}
@@ -634,18 +667,13 @@ export function ThreadWindow({
             </div>
           </section>
         )}
-        {notNotified.length > 0 && (
-          <p role="status" className="annotation-hint">
-            {text.threadNotNotified(notNotified.join(', '))}
-          </p>
-        )}
-        {error && <p role="alert">{text.commentFailed}</p>}
       </ConversationWindow>
     </AttachmentDropPanel>
   );
 }
 
 export function ThreadPanel({
+  numbers: suppliedNumbers,
   creationRecipient,
   hideHeader = false,
   threads,
@@ -672,6 +700,7 @@ export function ThreadPanel({
   creationRecipient?: CreationRecipient;
   hideHeader?: boolean;
   threads: readonly ThreadView[];
+  numbers?: ReadonlyMap<string, number>;
   resolved: readonly string[];
   anchorsChecked: boolean;
   selection: QuoteSelector | null;
@@ -692,6 +721,7 @@ export function ThreadPanel({
   renderProposal?(thread: ThreadView): ReactNode;
   reopenProposal?(thread: ThreadView): void;
 }) {
+  const numbers = suppliedNumbers ?? threadNumbers(threads);
   const [compose, setCompose] = useState(false);
   const [proposalsOnly, setProposalsOnly] = useState(false);
   const visibleThreads = threads.filter((thread) => !proposalsOnly || !!thread.proposal);
@@ -786,6 +816,9 @@ export function ThreadPanel({
                   }}
                 >
                   <strong>
+                    {numbers.get(id) !== undefined && (
+                      <span className="annotation-number">{numbers.get(id)}</span>
+                    )}
                     {thread.deleted
                       ? text.threadDeleted
                       : (thread.proposal?.title ?? thread.anchor?.exact ?? 'Page comments')}
@@ -847,6 +880,7 @@ export function ThreadPanel({
                     archived={archived}
                     creationRecipient={creationRecipient}
                     thread={thread}
+                    number={numbers.get(id)}
                     attached={resolved.includes(id)}
                     anchorsChecked={anchorsChecked}
                     selection={selection}

@@ -31,7 +31,7 @@ async function mount(
   const input = page.getByRole('combobox', { name: 'Message', exact: true });
   await expect(input).toBeVisible();
   if (!options.directory)
-    await expect(page.locator('.annotation-status-row')).not.toContainText('Checking');
+    await expect(page.locator('.annotation-hint[role="status"]')).not.toContainText('Checking');
   return input;
 }
 for (const surface of ['annotation', 'reply', 'chat']) {
@@ -55,7 +55,7 @@ for (const ending of [' ', ',', 'Enter']) {
       await input.press('Enter');
     } else {
       await input.pressSequentially(`${ending}Explain.`);
-      await page.getByRole('button', { name: 'Send', exact: true }).click();
+      await page.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
     }
     await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
     expect(await run(page, 'proof')).toMatchObject({ writes: 1, preparations: 1, commits: 1 });
@@ -66,7 +66,7 @@ test('one Send fans out once per UUID, including offline, with one recorded comm
 }) => {
   const input = await mount(page);
   await input.pressSequentially('@alpha @beta @alpha explain');
-  await expect(page.locator('.annotation-status-row')).toContainText(
+  await expect(page.locator('.annotation-hint[role="status"]')).toContainText(
     'Asks @alpha, @beta (offline).',
   );
   await input.press('Enter');
@@ -84,7 +84,7 @@ test('one Send fans out once per UUID, including offline, with one recorded comm
 test('unknown name stays text with a comment hint and Enter is allowed', async ({ page }) => {
   const input = await mount(page);
   await input.pressSequentially('@missing note');
-  await expect(page.locator('.annotation-status-row')).toContainText(
+  await expect(page.locator('.annotation-hint[role="status"]')).toContainText(
     'No agent named @missing. This posts as a comment.',
   );
   await input.press('Enter');
@@ -98,7 +98,9 @@ test('ambiguous name opens its list without binding or publishing', async ({ pag
   await input.press('Enter');
   await expect(input).toHaveAttribute('aria-expanded', 'true');
   await expect(page.getByRole('option')).toHaveCount(2);
-  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+  await expect(
+    page.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
+  ).toBeDisabled();
   expect((await run(page, 'proof')).writes).toBe(0);
   await page.getByRole('option').first().click();
   await input.pressSequentially('note');
@@ -119,7 +121,9 @@ test('creator default is removable, never reinserted on directory replacement, a
   await input.evaluate((node) => Object.assign(window, { retainedComposer: node }));
   await run(page, 'setDirectory', 'park');
   await run(page, 'reconnectAsk');
-  await expect(page.locator('.annotation-status-row')).toContainText('Checking for agents…');
+  await expect(page.locator('.annotation-hint[role="status"]')).toContainText(
+    'Checking for agents…',
+  );
   await expect(input).toHaveText('Kept draft', { useInnerText: true });
   expect(
     await input.evaluate(
@@ -128,7 +132,9 @@ test('creator default is removable, never reinserted on directory replacement, a
   ).toBe(true);
   expect(await input.evaluate(() => document.getSelection()?.anchorOffset)).toBe(before);
   await run(page, 'releaseDirectory');
-  await expect(page.locator('.annotation-status-row')).toContainText('Posts as a comment.');
+  await expect(page.locator('.annotation-hint[role="status"]')).toContainText(
+    'Posts as a comment.',
+  );
   await input.press('Enter');
   await expect.poll(() => run(page, 'proof')).toMatchObject({ writes: 1, sends: [] });
 });
@@ -137,14 +143,18 @@ test('loading and failed directory fence mention sends, retaining a draft throug
 }) => {
   const input = await mount(page, { directory: 'park' });
   await input.pressSequentially('@alpha note');
-  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+  await expect(
+    page.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
+  ).toBeDisabled();
   await input.press('Enter');
   expect((await run(page, 'proof')).writes).toBe(0);
   await run(page, 'releaseDirectory', 'fail');
-  await expect(page.locator('.annotation-status-row')).toContainText('Agents are unavailable.');
+  await expect(page.locator('.annotation-hint[role="status"]')).toContainText(
+    'Agents are unavailable.',
+  );
   await run(page, 'setDirectory', 'ok');
   await page.getByRole('button', { name: 'Try again', exact: true }).click();
-  await expect(page.locator('.annotation-status-row')).toContainText('Asks @alpha.');
+  await expect(page.locator('.annotation-hint[role="status"]')).toContainText('Asks @alpha.');
   await expect(input).toHaveText('@alpha note', { useInnerText: true });
   await input.press('Enter');
   await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
@@ -159,7 +169,7 @@ test('a ninth distinct mention blocks before comment or effect and repeated ment
   }));
   const input = await mount(page, { agents: nine });
   await input.pressSequentially(nine.map((agent) => `@${agent.agentName}`).join(' '));
-  await expect(page.locator('.annotation-status-row')).toContainText(
+  await expect(page.locator('.annotation-hint[role="status"]')).toContainText(
     'Mention up to 8 agents per message.',
   );
   await input.press('Enter');
@@ -172,7 +182,7 @@ test('synthetic submits and an IME composition Enter cannot publish', async ({ p
     node.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })),
   );
   await page
-    .getByRole('button', { name: 'Send', exact: true })
+    .getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true })
     .evaluate((node) => (node as HTMLButtonElement).click());
   expect((await run(page, 'proof')).writes).toBe(0);
   const client = await page.context().newCDPSession(page);
@@ -241,15 +251,17 @@ test('removing and undoing multiple tokens changes the visible recipients withou
 }) => {
   const input = await mount(page);
   await input.pressSequentially('@alpha @beta note');
-  await expect(page.locator('.annotation-status-row')).toContainText(
+  await expect(page.locator('.annotation-hint[role="status"]')).toContainText(
     'Asks @alpha, @beta (offline).',
   );
   await input.press('ControlOrMeta+A');
   await input.press('Backspace');
-  await expect(page.locator('.annotation-status-row')).toContainText('Posts as a comment.');
+  await expect(page.locator('.annotation-hint[role="status"]')).toContainText(
+    'Posts as a comment.',
+  );
   await input.press('ControlOrMeta+Z');
   await expect(input).toHaveText('@alpha @beta note', { useInnerText: true });
-  await expect(page.locator('.annotation-status-row')).toContainText(
+  await expect(page.locator('.annotation-hint[role="status"]')).toContainText(
     'Asks @alpha, @beta (offline).',
   );
   await input.press('Escape');
@@ -291,10 +303,10 @@ test('directory retry keeps keyboard focus and ignores a late result from the re
   await retry.press('Enter');
   await run(page, 'setDirectory', 'ok');
   await run(page, 'reconnectAsk');
-  await expect(page.locator('.annotation-status-row')).toContainText('Asks @alpha.');
+  await expect(page.locator('.annotation-hint[role="status"]')).toContainText('Asks @alpha.');
   await expect(input).toBeFocused();
   await run(page, 'releaseDirectory', 'fail');
-  await expect(page.locator('.annotation-status-row')).toContainText('Asks @alpha.');
+  await expect(page.locator('.annotation-hint[role="status"]')).toContainText('Asks @alpha.');
   await expect(input).toHaveText('@alpha Kept draft.', { useInnerText: true });
   expect((await run(page, 'directoryProof')).reads).toBe(4);
   expect(await run(page, 'proof')).toMatchObject({ writes: 0, preparations: 0, sends: [] });
@@ -388,7 +400,9 @@ test('creator lookup waits for the directory and never replaces text typed while
   await input.pressSequentially('My own draft.');
   await run(page, 'releaseDirectory');
   await expect(input).toHaveText('My own draft.', { useInnerText: true });
-  await expect(page.locator('.annotation-status-row')).toContainText('Posts as a comment.');
+  await expect(page.locator('.annotation-hint[role="status"]')).toContainText(
+    'Posts as a comment.',
+  );
 });
 
 test('unknown adoption shows per-recipient uncertainty without claiming Not delivered or offering another attempt', async ({
@@ -539,13 +553,19 @@ for (const phase of ['reconnecting', 'ended'] as const) {
   test(`connection ${phase} wins over recipient and pre-record failure copy`, async ({ page }) => {
     const input = await mount(page, { mode: 'write-failure' });
     await input.fill('@beta note');
-    await expect(page.locator('.annotation-status-row')).toContainText('Asks @beta (offline).');
+    await expect(page.locator('.annotation-hint[role="status"]')).toContainText(
+      'Asks @beta (offline).',
+    );
     await run(page, 'setConnection', phase);
     const message =
       phase === 'reconnecting' ? 'Reconnecting…' : 'Access to this page has ended. Pair again.';
-    await expect(page.locator('.annotation-status-row')).toContainText(message);
-    await expect(page.locator('.annotation-status-row')).not.toContainText('Asks @beta (offline).');
-    await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+    await expect(page.locator('.annotation-hint[role="status"]')).toContainText(message);
+    await expect(page.locator('.annotation-hint[role="status"]')).not.toContainText(
+      'Asks @beta (offline).',
+    );
+    await expect(
+      page.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
+    ).toBeDisabled();
     await input.press('Enter');
     expect(await run(page, 'proof')).toMatchObject({ writes: 0, preparations: 0, sends: [] });
     await expect(input).toHaveText('@beta note', { useInnerText: true });
@@ -556,7 +576,7 @@ for (const phase of ['reconnecting', 'ended'] as const) {
     await expect.poll(() => run(page, 'proof')).toMatchObject({ writes: 1 });
     await run(page, 'setConnection', phase);
     await run(page, 'releaseWrite');
-    await expect(page.locator('.annotation-status-row')).toContainText(message);
+    await expect(page.locator('.annotation-hint[role="status"]')).toContainText(message);
     await expect(page.getByRole('alert')).toHaveCount(0);
     await expect(input).toHaveText('Keep this failed draft.');
     expect(await run(page, 'proof')).toMatchObject({ writes: 1, preparations: 0, sends: [] });

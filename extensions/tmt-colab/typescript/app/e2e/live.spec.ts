@@ -1314,7 +1314,9 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
   await expect(input).toHaveAttribute('contenteditable', 'true');
   draft += ' Still editable.';
   await input.fill(draft);
-  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+  await expect(
+    page.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
+  ).toBeDisabled();
   await expect(
     page
       .getByTestId('chat-panel')
@@ -1357,7 +1359,9 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
   expect(opens).toBeGreaterThanOrEqual(admittedOpens + 2);
   await expect(input).toHaveText(draft);
   await input.fill('A new draft after verified recovery.');
-  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
+  await expect(
+    page.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
+  ).toBeEnabled();
   expect(sends).toBe(1);
   await f.settled();
   expect(f.entries).toHaveLength(6);
@@ -1377,8 +1381,8 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
   const annotation = page.getByRole('dialog', { name: 'Annotate selection' });
   const annotationInput = annotation.getByRole('combobox', { name: 'Message', exact: true });
   await annotationInput.fill('Keep this anchored draft. @Wire agent');
-  const post = annotation.getByRole('button', { name: 'Send', exact: true });
-  const askAction = annotation.getByRole('button', { name: 'Send', exact: true });
+  const post = annotation.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true });
+  const askAction = annotation.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true });
   await expect(post).toBeEnabled();
   await expect(askAction).toBeEnabled();
   // Successful mounted-session replacement rebinds this same draft to the new
@@ -1612,7 +1616,7 @@ for (const width of [1440, 390])
             : page.getByRole('dialog', { name: 'Annotate selection' });
         const input = container.getByRole('combobox', { name: 'Message', exact: true });
         const action = container.getByRole('button', {
-          name: 'Send',
+          name: /^Send(?: · to .+)?$/,
           exact: true,
           includeHidden: true,
         });
@@ -1662,7 +1666,9 @@ for (const width of [1440, 390])
         await expect(input).toHaveText(draft);
         await expect(action).toBeDisabled();
         if (surface === 'annotation')
-          await expect(container.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+          await expect(
+            container.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
+          ).toBeDisabled();
         // The next automatic attempt is admitted by a fresh replacement, held while we look.
         f.resume();
         f.hold();
@@ -1697,7 +1703,7 @@ for (const width of [1440, 390])
         const edited = draft.slice(0, 5) + 'X' + draft.slice(selected ? 9 : 5);
         await expect(input).toHaveText(edited);
         if (surface === 'annotation') {
-          const post = container.getByRole('button', { name: 'Send', exact: true });
+          const post = container.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true });
           await expect(post).toBeEnabled();
           const plain = edited.replace(' @Draft agent', '');
           await input.fill(plain);
@@ -1721,12 +1727,17 @@ for (const width of [1440, 390])
 /** The control is the topmost element at its own center: nothing sits over it. */
 async function expectUncovered(control: Locator) {
   await expect(control).toBeVisible();
-  const covered = await control.evaluate((node) => {
-    const box = node.getBoundingClientRect();
-    const top = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
-    return !top || !(node === top || node.contains(top));
-  });
-  expect(covered).toBe(false);
+  await expect
+    .poll(
+      () =>
+        control.evaluate((node) => {
+          const box = node.getBoundingClientRect();
+          const top = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+          return !top || !(node === top || node.contains(top));
+        }),
+      { timeout: 1000 },
+    )
+    .toBe(false);
 }
 
 for (const surface of ['Chat', 'annotation'] as const) {
@@ -1765,7 +1776,9 @@ for (const surface of ['Chat', 'annotation'] as const) {
     await expect(status).toContainText(copy.reconnectCommand);
     await expect(status).not.toContainText(copy.messageAgentsUnavailable);
     await expect(status).not.toContainText(copy.sendOnHold);
-    await expect(container.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+    await expect(
+      container.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
+    ).toBeDisabled();
     await expect(input).toHaveText(draft);
     expect(f.sends).toBe(0);
     await f.settled();
@@ -1888,7 +1901,9 @@ for (const surface of ['Chat', 'annotation'] as const)
     await expect(status).toContainText('tmt remote settings sessions-per-device 3');
     await expect(status.getByRole('link', { name: copy.remoteSettings })).toBeVisible();
     await expect(status).not.toContainText(copy.failureGeneric);
-    await expect(container.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+    await expect(
+      container.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
+    ).toBeDisabled();
     await expect(input).toHaveText(draft);
     expect(f.sends).toBe(0);
     // The status keeps its whole body and Reload reachable: a keyboard reader scrolls it to its
@@ -2003,7 +2018,7 @@ test('an upgraded server shows the update row under the header without covering 
     // At 390 the drawer is a full-screen modal above header and row alike.
     if (width === 1440)
       expect((await panel.boundingBox())!.y).toBeGreaterThanOrEqual(rowBox.y + rowBox.height - 1);
-    await expectUncovered(panel.getByRole('button', { name: 'Send', exact: true }));
+    await expectUncovered(panel.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }));
     for (const theme of ['light', 'dark']) {
       await page.evaluate((value) => (document.documentElement.dataset.theme = value), theme);
       await page.screenshot({ path: testInfo.outputPath(`update-chat-${theme}-${width}.png`) });
@@ -2022,7 +2037,7 @@ test('an upgraded server shows the update row under the header without covering 
     await expect(dialog).toBeVisible();
     if (width === 1440)
       expect((await dialog.boundingBox())!.y).toBeGreaterThanOrEqual(rowBox.y + rowBox.height - 1);
-    await expectUncovered(dialog.getByRole('button', { name: 'Send', exact: true }));
+    await expectUncovered(dialog.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }));
     for (const theme of ['light', 'dark']) {
       await page.evaluate((value) => (document.documentElement.dataset.theme = value), theme);
       await page.screenshot({ path: testInfo.outputPath(`update-annotate-${theme}-${width}.png`) });

@@ -11,7 +11,7 @@ async function mount(page: Page, state: State) {
     const path = '/test/message-composer-browser.tsx';
     (await import(path)).mountMentions(state);
   }, state);
-  const chip = page.locator('.message-mention');
+  const chip = page.locator('.message-mention-chip');
   await expect(chip).toHaveCount(1);
   await expect(chip).toHaveAttribute('data-state', state === 'same-name' ? 'online' : state);
   return page.getByRole('combobox', { name: 'Message', exact: true });
@@ -72,7 +72,7 @@ for (const width of [1440, 390])
           document.documentElement.dataset.theme = theme;
         }, theme);
         const input = await mount(page, state);
-        const chip = page.locator('.message-mention');
+        const chip = page.locator('.message-mention-chip');
         const name = state === 'not-found' ? '@Creator' : '@astra';
         expect((await proof(page)).draft).toBe(`${name} `);
         await expect(chip.locator('.message-mention-name')).toHaveText(name);
@@ -95,14 +95,14 @@ for (const width of [1440, 390])
           };
         });
         expect(geometry).toMatchObject({
-          border: '1px',
+          border: '0px',
           radius: '0px',
           shadow: 'none',
           ordered: true,
-          markWidth: 8,
-          markHeight: 8,
+          markWidth: 14,
+          markHeight: 14,
           inside: true,
-          borderStyle: state === 'not-found' ? 'dashed' : 'solid',
+          borderStyle: 'none',
         });
         const remove = chip.getByRole('button', { name: /^Remove mention:/ });
         await remove.focus();
@@ -117,7 +117,7 @@ for (const width of [1440, 390])
           mkdirSync(captures, { recursive: true });
           await page.screenshot({ path: `${captures}/${width}-${theme}-${state}.png` });
         }
-        const send = page.getByRole('button', { name: 'Send', exact: true });
+        const send = page.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true });
         if (state === 'not-found') {
           await expect(send).toBeDisabled();
           await input.press('Enter');
@@ -148,7 +148,7 @@ test('removing the creator preserves surrounding text, undo UUID binding and no 
   await page.getByRole('button', { name: /^Remove mention:/ }).click();
   await expect.poll(async () => (await proof(page)).draft).toBe(' Keep exact café.');
   await input.press('ControlOrMeta+Z');
-  await expect(page.locator('.message-mention')).toHaveCount(1);
+  await expect(page.locator('.message-mention-chip')).toHaveCount(1);
   expect((await proof(page)).draft).toBe('@astra Keep exact café.');
   await page.getByRole('button', { name: /^Remove mention:/ }).click();
   await page.evaluate(async () => {
@@ -156,7 +156,7 @@ test('removing the creator preserves surrounding text, undo UUID binding and no 
     (await import(path)).reconnectAsk();
   });
   await expect.poll(async () => (await proof(page)).draft).toBe(' Keep exact café.');
-  await expect(page.locator('.message-mention')).toHaveCount(0);
+  await expect(page.locator('.message-mention-chip')).toHaveCount(0);
   expect(await proof(page)).toMatchObject({ writes: 0, preparations: 0, sends: [] });
 });
 
@@ -182,13 +182,15 @@ test('keyboard activation removes a chip without sending, and a missing director
     module.setAgents([]);
     module.reconnectAsk();
   });
-  await expect(page.locator('.message-mention')).toHaveAttribute('data-state', 'not-found');
-  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+  await expect(page.locator('.message-mention-chip')).toHaveAttribute('data-state', 'not-found');
+  await expect(
+    page.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
+  ).toBeDisabled();
   const remove = page.getByRole('button', { name: /^Remove mention:/ });
   await remove.focus();
   await expect(remove).toBeFocused();
   await page.keyboard.press('Enter');
-  await expect(page.locator('.message-mention')).toHaveCount(0);
+  await expect(page.locator('.message-mention-chip')).toHaveCount(0);
   expect((await proof(page)).draft).toBe(' ');
   expect(await proof(page)).toMatchObject({ writes: 0, preparations: 0, sends: [] });
   await expect(input).toBeFocused();
@@ -207,7 +209,7 @@ test('same-name choices keep the chosen machine UUID; chip controls do not enter
   await input.press('ControlOrMeta+A');
   await input.press('ControlOrMeta+C');
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('@astra ');
-  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
   await expect.poll(async () => (await proof(page)).preparations).toBe(1);
   const { captured } = await proof(page);
   expect(captured[1]).toMatchObject({
@@ -234,7 +236,9 @@ test('a failed first directory read seeds nothing; retry admits the toggle witho
   const input = page.getByRole('combobox', { name: 'Message', exact: true });
   await expect(input.locator('.message-mention')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Send to @astra', exact: true })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+  await expect(
+    page.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
+  ).toBeDisabled();
   await input.pressSequentially('Kept draft');
   expect(await proof(page)).toMatchObject({ writes: 0, preparations: 0, sends: [] });
   await page.evaluate(async () => {
@@ -253,7 +257,7 @@ test('a failed first directory read seeds nothing; retry admits the toggle witho
     'title',
     '@astra · My machine · Online',
   );
-  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
   await expect.poll(async () => (await proof(page)).preparations).toBe(1);
   expect((await proof(page)).captured[1]).toMatchObject({
     comment: '@astra Kept draft',
@@ -312,7 +316,7 @@ test('IME composition with the list open neither navigates, chooses nor sends', 
       await expect(input).toHaveAttribute('aria-activedescendant', active!);
       await expect(page.getByRole('listbox')).toBeVisible();
     }
-    await expect(page.locator('.message-mention')).toHaveCount(0);
+    await expect(page.locator('.message-mention-chip')).toHaveCount(0);
     expect(await proof(page)).toMatchObject({ writes: 0, preparations: 0, sends: [] });
     await client.detach();
   }
@@ -327,7 +331,7 @@ test('IME composition with the list open neither navigates, chooses nor sends', 
   await expect(input).not.toHaveAttribute('aria-activedescendant', active!);
   await input.press('Enter');
   await expect(page.getByRole('listbox')).toBeHidden();
-  await expect(page.locator('.message-mention')).toHaveCount(1);
+  await expect(page.locator('.message-mention-chip')).toHaveCount(1);
   expect(await proof(page)).toMatchObject({ writes: 0, preparations: 0, sends: [] });
   await input.press('Enter');
   await expect.poll(async () => (await proof(page)).writes).toBe(1);

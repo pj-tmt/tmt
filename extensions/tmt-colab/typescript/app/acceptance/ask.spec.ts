@@ -258,7 +258,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
               : s.askerPage.getByRole('dialog', { name: 'Annotate selection' });
           const input = container.getByRole('combobox', { name: 'Message', exact: true });
           const action = container.getByRole('button', {
-            name: 'Send',
+            name: /^Send(?: · to .+)?$/,
             exact: true,
           });
           await s.door.remote.kill();
@@ -312,7 +312,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
           }
           if (surface === 'annotation')
             await expect(
-              container.getByRole('button', { name: 'Send', exact: true }),
+              container.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
             ).toBeDisabled();
           // Door still down: the owner keeps retrying behind the draft, with no card in the way.
           await expect(
@@ -374,7 +374,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
               ),
             )
             .toBe(true);
-          await expect(container.locator('.annotation-status-row [role="status"]')).toHaveText(
+          await expect(container.locator('.annotation-hint[role="status"]')).toHaveText(
             'Checking for agents…',
           );
           await expect(action).toBeDisabled();
@@ -404,7 +404,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
             held.__heldDirectoryReads = [];
           });
           await expect(action).toBeEnabled();
-          await expect(container.locator('.annotation-status-row [role="status"]')).toHaveText(
+          await expect(container.locator('.annotation-hint[role="status"]')).toHaveText(
             surface === 'Chat' ? '' : `Asks @${s.recipient.name}.`,
           );
           await expect(entry).toHaveAttribute('data-ledger-state', 'accepted');
@@ -420,7 +420,10 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
             fullPage: true,
           });
           if (surface === 'annotation') {
-            const post = container.getByRole('button', { name: 'Send', exact: true });
+            const post = container.getByRole('button', {
+              name: /^Send(?: · to .+)?$/,
+              exact: true,
+            });
             await expect(post).toBeEnabled();
             await input.fill(edited.replace(` @${s.recipient.name}`, ''));
             await post.click();
@@ -504,7 +507,10 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
         'uncertain',
       );
       await expect(
-        askEntry(s.askerPage, ask.operationId).getByRole('button', { name: 'Send', exact: true }),
+        askEntry(s.askerPage, ask.operationId).getByRole('button', {
+          name: /^Send(?: · to .+)?$/,
+          exact: true,
+        }),
       ).toHaveCount(0);
       await expect(
         s.askerPage
@@ -512,7 +518,9 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
           .getByRole('combobox', { name: 'Message', exact: true }),
       ).toHaveText('');
       await expect(
-        s.askerPage.getByTestId('chat-panel').getByRole('button', { name: 'Send', exact: true }),
+        s.askerPage
+          .getByTestId('chat-panel')
+          .getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
       ).toBeDisabled();
       await s.askerPage.getByRole('button', { name: 'Abandon tracking' }).click();
       await expect(askState(s.askerPage, ask.operationId)).toHaveAttribute(
@@ -626,7 +634,9 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
             s.recipient.name,
           );
           await input.fill(`@${s.recipient.name} Reply to this annotation`);
-          await s.askerPage.getByRole('button', { name: 'Send', exact: true }).click();
+          await s.askerPage
+            .getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true })
+            .click();
         }
         await until(() => s.recipient.received().length === 1, 'one original delivery');
         await expect(s.askerPage.getByTestId('ask-entry')).toHaveAttribute(

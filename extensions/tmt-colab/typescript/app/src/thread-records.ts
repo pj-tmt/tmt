@@ -108,6 +108,8 @@ export interface CommentView extends CommentRecord {
   ref: DiscussionRef;
 }
 export interface ThreadView extends ThreadRecord {
+  /** Revision-1 author clock, for display ordering only; never a trust claim. */
+  readonly createdAt: string;
   ref: DiscussionRef;
   comments: CommentView[];
   status?: ThreadStatusView;
@@ -284,6 +286,21 @@ function latest<T extends ThreadRecord | CommentRecord>(records: T[]): T | undef
   return previous;
 }
 const refKey = (ref: DiscussionRef) => `${ref.writer}:${ref.id}`;
+/** One cosmetic numbering map, before status/anchor/list filtering. Deletion renumbers. */
+export function threadNumbers(threads: readonly ThreadView[]): ReadonlyMap<string, number> {
+  const ordered = threads
+    .filter((thread) => !thread.deleted)
+    .sort((a, b) => {
+      const first = BigInt(a.createdAt),
+        second = BigInt(b.createdAt);
+      return (
+        (first < second ? -1 : first > second ? 1 : 0) ||
+        (a.ref.writer < b.ref.writer ? -1 : a.ref.writer > b.ref.writer ? 1 : 0) ||
+        (a.ref.id < b.ref.id ? -1 : a.ref.id > b.ref.id ? 1 : 0)
+      );
+    });
+  return new Map(ordered.map((thread, index) => [refKey(thread.ref), index + 1]));
+}
 /** Only authenticated per-writer projections and historical envelope keys reach
  * this reader. An expired/revoked writer can remain readable, never writable.
  * `statusWriter` says whether a writer may resolve threads (an owner-member device). */
@@ -354,7 +371,7 @@ export function readThreads(
       if (!record) continue;
       if (record.kind === 'thread') {
         const ref = { writer, id: record.threadId };
-        threads.set(refKey(ref), { ...record, ref, comments: [] });
+        threads.set(refKey(ref), { ...record, createdAt: records[0].at, ref, comments: [] });
       } else
         comments.push({
           ...record,

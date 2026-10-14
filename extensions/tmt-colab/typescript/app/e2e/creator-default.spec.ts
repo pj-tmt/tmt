@@ -35,7 +35,9 @@ async function mount(
   const input = page.getByRole('combobox', { name: 'Message', exact: true }).first();
   await expect(input).toBeVisible();
   if (options.directory !== 'park')
-    await expect(page.locator('.annotation-status-row').first()).not.toContainText('Checking');
+    await expect(page.locator('.annotation-hint[role="status"]').first()).not.toContainText(
+      'Checking',
+    );
   return input;
 }
 const toggle = (page: Page) => page.getByRole('button', { name: 'Send to @alpha', exact: true });
@@ -55,7 +57,7 @@ for (const surface of ['annotation', 'reply', 'chat']) {
     await input.pressSequentially('Plain');
     if (surface === 'chat') {
       await expect(toggle(page)).toHaveCount(0);
-      await expect(page.locator('.annotation-status-row').first()).toContainText(
+      await expect(page.locator('.annotation-hint[role="status"]').first()).toContainText(
         'Posts as a comment.',
       );
     }
@@ -67,7 +69,7 @@ for (const surface of ['annotation', 'reply', 'chat']) {
     if (surface === 'chat') {
       await expect(toggle(page)).toBeVisible();
       await expect(toggle(page)).toHaveAttribute('aria-pressed', 'true');
-      await expect(page.locator('.annotation-status-row').first()).not.toContainText(
+      await expect(page.locator('.annotation-hint[role="status"]').first()).not.toContainText(
         'Posts as a comment.',
       );
     }
@@ -166,7 +168,9 @@ test('an offline saved creator stays seeded, and an offline agent on an online m
   await expect(toggle(page)).toBeVisible();
   await expect(unavailable).toHaveText('@alpha ', { useInnerText: true });
   await unavailable.pressSequentially('Waiting');
-  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+  await expect(
+    page.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
+  ).toBeDisabled();
   expect(await run(page, 'proof')).toMatchObject({ writes: 0, preparations: 0 });
 
   const input = await mount(page, 'chat', {
@@ -213,7 +217,9 @@ for (const variant of [
     });
     expect(geometry.left).toBeGreaterThanOrEqual(0);
     expect(geometry.right).toBeLessThanOrEqual(variant.width);
-    await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
+    ).toBeVisible();
   });
 }
 
@@ -246,7 +252,7 @@ test('a preference changed during Send affects only the next draft, not the froz
   const input = await mount(page);
   await run(page, 'holdWrite');
   await input.pressSequentially('Frozen');
-  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
   await expect(input).toHaveAttribute('contenteditable', 'false');
   await toggle(page).click();
   await run(page, 'releaseWrite');
@@ -300,8 +306,16 @@ for (const variant of [
     await toggle(page).click();
     await input.getByRole('button', { name: /^Remove mention:/ }).click();
     await input.pressSequentially('A draft stays here.');
-    await expect(toggle(page)).toHaveAttribute('aria-pressed', 'true');
+    // A manual comment has no creator toggle; the saved default returns on a fresh draft.
+    await expect(toggle(page)).toHaveCount(0);
+    await expect(
+      page.getByText('Posts as a comment. No agent will be asked.', { exact: true }),
+    ).toBeVisible();
     await capture('removed');
+    await page.getByRole('button', { name: 'Send', exact: true }).click();
+    await expect(toggle(page)).toHaveAttribute('aria-pressed', 'true');
+    await expect(input.locator('.message-mention-chip')).toHaveCount(1);
+    await capture('fresh');
     await open(false);
     await expect(toggle(page)).toHaveCount(0);
     await capture('hidden');

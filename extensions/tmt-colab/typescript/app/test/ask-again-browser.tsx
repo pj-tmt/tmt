@@ -94,6 +94,7 @@ export async function mount(
           deviceName: 'You',
           revision: '1',
           deleted: false,
+          createdAt: String(Date.now()),
           at: String(Date.now()),
           threadId: surface === 'chat' ? id(4) : id(2),
           ref: { writer: id(4), id: surface === 'chat' ? id(4) : id(2) },

@@ -18,6 +18,8 @@ function atBottom(node: HTMLDivElement) {
 /** Owns history scrolling; callers retain placement, draft and action lifetimes. */
 export function ConversationWindow({
   title,
+  collapsed = false,
+  summary,
   hideHeader = false,
   historyLabel,
   caption,
@@ -34,6 +36,8 @@ export function ConversationWindow({
   ...attributes
 }: Omit<ComponentPropsWithoutRef<'section'>, 'title'> & {
   title: ReactNode;
+  collapsed?: boolean;
+  summary?: ReactNode;
   hideHeader?: boolean;
   historyLabel?: string;
   caption?: string;
@@ -164,7 +168,8 @@ export function ConversationWindow({
         </header>
       )}
       {notice}
-      <div className="conversation-history">
+      {collapsed && summary}
+      <div className="conversation-history" hidden={collapsed}>
         <div
           className={`conversation-messages ${historyClassName}`}
           ref={history}
@@ -207,7 +212,11 @@ export function ConversationWindow({
           )}
         </div>
       </div>
-      {composer && <div className="conversation-composer">{composer}</div>}
+      {composer && (
+        <div className="conversation-composer" hidden={collapsed}>
+          {composer}
+        </div>
+      )}
       {overlay}
     </section>
   );

@@ -18,6 +18,7 @@ import {
   isChatThread,
   nextSequence,
   readThreads,
+  threadNumbers,
   validateDiscussionRecord,
   type ThreadRecord,
   type CommentRecord,
@@ -34,6 +35,51 @@ function put(own: OwnState, record: ThreadRecord | CommentRecord, writer = recor
     structuredClone(record) as unknown as JsonValue;
 }
 afterEach(() => vi.unstubAllGlobals());
+it('numbers admitted creation clocks, preserving edit/status order and renumbering deletion', () => {
+  const own: OwnState = {};
+  const first = { ...fixture.thread, at: '20' } as ThreadRecord;
+  const second = { ...first, threadId: '00000000-0000-4000-8000-000000000009', at: '10' };
+  const tie = { ...second, threadId: '00000000-0000-4000-8000-000000000008', resolved: true };
+  for (const thread of [first, second, tie]) put(own, thread);
+  const read = () =>
+    readThreads(
+      own,
+      fixture.scope,
+      () => new Uint8Array(32),
+      () => true,
+    );
+  const key = (thread: ThreadRecord) => `${thread.senderDevice}:${thread.threadId}`;
+  const expected = [
+    [key(tie), 1],
+    [key(second), 2],
+    [key(first), 3],
+  ];
+  expect([...threadNumbers(read())]).toEqual(expected);
+  put(own, { ...second, at: '99', revision: '2', anchor: null });
+  put(own, { ...tie, at: '100', revision: '2', resolved: false });
+  expect(read().find((thread) => thread.threadId === second.threadId)).toMatchObject({
+    at: '99',
+    createdAt: '10',
+  });
+  expect([...threadNumbers(read())]).toEqual(expected);
+  expect([...threadNumbers([...read()].reverse())]).toEqual(expected);
+  put(own, { ...tie, at: '101', revision: '3', deleted: true, anchor: null });
+  expect([...threadNumbers(read())]).toEqual([
+    [key(second), 1],
+    [key(first), 2],
+  ]);
+  // A forged clock in an unadmitted writer never participates in display ordering.
+  expect([
+    ...threadNumbers(
+      readThreads(
+        own,
+        fixture.scope,
+        () => undefined,
+        () => true,
+      ),
+    ),
+  ]).toEqual([]);
+});
 it('shares proposal bounds and final causal decisions with native vectors', () => {
   const proposal = fixture.proposal as ThreadRecord;
   expect(() =>

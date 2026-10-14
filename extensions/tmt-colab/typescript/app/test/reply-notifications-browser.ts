@@ -23,6 +23,7 @@ function thread(chat: boolean, writer = own): ThreadView {
     deviceName: writer === own ? 'You' : 'Other person',
     revision: '1',
     deleted: false,
+    createdAt: '1',
     at: '1',
     resolved: false,
     threadId,

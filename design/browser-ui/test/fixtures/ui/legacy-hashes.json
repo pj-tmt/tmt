@@ -1,7 +1,7 @@
 {
   "baseline": "a5c85cb407003632dc9a5b3ac51ca2f6d92be355",
   "sha256": {
-    "generated/static.css": "aaa8a612fc2b204215e83dc60b52f295e2a3921b9215d3cb253055501b9aefad",
+    "generated/static.css": "f3627388639cc2064c528aed99cb6ece1dbcb2e34ec27285617d316b4b70c629",
     "src/action.css": "5763e554cad00315888d20c38fefaf1cc3cb19234ef4a2993820bae90b82c69b",
     "src/action.tsx": "64cb2aad70b26d8064ebf427cb70d279cddc6845a98172525a275f3449687dc7",
     "src/chips.css": "cdcb8c1728bc4a09bf72dfec65876aa6df2dc1aaeab58094036d5b8041bfb64f",
@@ -120,6 +120,14 @@
         "link": {
           "dark": "#7DCFFF",
           "light": "#006B8F"
+        },
+        "annotation-on-action": {
+          "light": "#FFFFFF",
+          "dark": "#FFFFFF"
+        },
+        "mention-person": {
+          "light": "#315E78",
+          "dark": "#B6D8EC"
         }
       },
       "surface": {
@@ -154,6 +162,26 @@
         "rule": {
           "dark": "#303030",
           "light": "#D0D0D0"
+        },
+        "annotation-action": {
+          "light": "#262626",
+          "dark": "#626262"
+        },
+        "annotation-highlight": {
+          "light": "#ECECEB",
+          "dark": "#343434"
+        },
+        "annotation-panel": {
+          "light": "#F7F7F5",
+          "dark": "#202020"
+        },
+        "mention-agent": {
+          "light": "#ECECEB",
+          "dark": "#343434"
+        },
+        "mention-person": {
+          "light": "#E4EFF6",
+          "dark": "#203947"
         }
       },
       "metric": {

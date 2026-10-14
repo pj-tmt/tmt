@@ -62,7 +62,7 @@ async function appearance(composer: Locator) {
     return {
       field: read(node.querySelector('.message-composer-field')!),
       status: read(node.querySelector('.annotation-status-row')!),
-      send: read(node.querySelector('.annotation-status-row > button')!),
+      send: read(node.querySelector('.annotation-status-row [data-variant="primary"]')!),
       structure: [...node.querySelectorAll('*')]
         .map((element) => ({ tag: element.tagName, className: element.className }))
         .filter((element) => element.tag !== 'P'),
@@ -93,7 +93,7 @@ for (const width of [1440, 390])
             await input.fill('@Agent 1 Explain.');
             await expect(composer.getByRole('status')).toHaveText('Checking for agents…');
             await expect(
-              composer.getByRole('button', { name: 'Send', exact: true }),
+              composer.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
             ).toBeDisabled();
           } else {
             await expect(input).toHaveText('@Agent 1 ', { useInnerText: true });
@@ -102,7 +102,7 @@ for (const width of [1440, 390])
               await input.press('ControlOrMeta+A');
               await input.pressSequentially('@missing Explain.');
             }
-            const status = composer.locator('.annotation-status-row > .annotation-hint');
+            const status = composer.getByRole('status', { includeHidden: true });
             await expect(status).toHaveAttribute('role', 'status');
             await expect(status).toHaveText(
               state === 'default'
@@ -119,7 +119,7 @@ for (const width of [1440, 390])
             else await expect(status).toBeVisible();
           }
           await expect(
-            composer.getByRole('button', { name: 'Send', exact: true }),
+            composer.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
           ).toBeInViewport();
           await expect(composer.locator('.tmt-ui-field-label')).toHaveCSS('width', '1px');
           await expect(input).toHaveCSS('border-radius', '0px');

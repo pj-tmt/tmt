@@ -31,8 +31,9 @@ test('visible mentions fan out one recorded Chat turn to live and offline saved 
       mkdirSync(captures, { recursive: true });
       const chip = input.locator('.message-mention');
       await expect(chip).toHaveAttribute('data-state', state);
-      await expect(chip.locator('.message-mention-dot')).toHaveCSS('width', '8px');
-      await expect(chip.locator('.message-mention-dot')).toHaveCSS('height', '8px');
+      await expect(chip).toHaveAttribute('data-kind', 'agent');
+      await expect(chip.locator('.message-mention-icon.lucide-bot')).toBeVisible();
+      await expect(chip).toHaveCSS('border-top-width', '0px');
       for (const width of [1440, 390]) {
         await page.setViewportSize({ width, height: 844 });
         for (const theme of ['light', 'dark']) {
@@ -52,7 +53,7 @@ test('visible mentions fan out one recorded Chat turn to live and offline saved 
     await input.fill(
       `@${alpha.name} @${beta.name} @${alpha.name} @${offline.name} <script>Keep exact bytes.</script>`,
     );
-    await expect(panel.locator('.annotation-status-row [role=status]')).toHaveText('');
+    await expect(panel.locator('.annotation-hint[role=status]')).toHaveText('');
     await input.press('Enter');
     await until(
       () => alpha.received().length === 1 && beta.received().length === 1,
@@ -103,7 +104,7 @@ test('visible mentions fan out one recorded Chat turn to live and offline saved 
       await capture('offline');
     }
     await plain.fill('@missing This is a comment.');
-    await expect(panel.locator('.annotation-status-row [role=status]')).toHaveText(
+    await expect(panel.locator('.annotation-hint[role=status]')).toHaveText(
       'No agent named @missing. This posts as a comment.',
     );
     await plain.press('Enter');

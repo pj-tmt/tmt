@@ -1,10 +1,57 @@
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { expect, test } from 'vite-plus/test';
-import { MAX_RENDER_SOURCE_BYTES } from '../src/renderer.js';
+import { isRenderRectangle, MAX_RENDER_SOURCE_BYTES } from '../src/renderer.js';
 
 const html = readFileSync(new URL('../public/renderer.html', import.meta.url), 'utf8');
 const script = html.match(/<script>([\s\S]*?)<\/script>/)![1];
+test('selection and saved-anchor rectangles share exact bounded cosmetic admission', () => {
+  const rect = { x: 12, y: 40, width: 200, height: 24 };
+  expect(isRenderRectangle(rect)).toBe(true);
+  for (const invalid of [
+    null,
+    [],
+    { ...rect, extra: true },
+    { ...rect, width: -1 },
+    { ...rect, x: 1_000_001 },
+    { ...rect, y: NaN },
+    { ...rect, height: Infinity },
+    { ...rect, x: '12' },
+    { x: 12, y: 40, width: 200 },
+  ])
+    expect(isRenderRectangle(invalid)).toBe(false);
+});
+test('paint ordinals reject malformed, duplicate and out-of-count batches', () => {
+  const owner = script.slice(script.indexOf('const validQuote ='), script.indexOf('let batch ='));
+  const admit = runInNewContext(`${owner}; validHighlightAnchors`, {
+    utf8: new TextEncoder(),
+  }) as (anchors: unknown, count: unknown) => boolean;
+  const first = { id: 'one', selector: { exact: 'A quote', prefix: '', suffix: '' }, ordinal: 1 };
+  expect(admit([first, { ...first, id: 'two', ordinal: 3 }], 3)).toBe(true);
+  expect(admit([], 0)).toBe(true);
+  for (const ordinal of [
+    undefined,
+    null,
+    0,
+    -1,
+    1.5,
+    4,
+    NaN,
+    Infinity,
+    '1',
+    Number.MAX_SAFE_INTEGER + 1,
+  ])
+    expect(admit([{ ...first, ordinal }], 3)).toBe(false);
+  for (const count of [-1, 1.5, undefined, null, '3', Infinity])
+    expect(admit([first], count)).toBe(false);
+  expect(admit([first, { ...first, id: 'two' }], 2)).toBe(false);
+  expect(admit([first, { ...first, ordinal: 2 }], 2)).toBe(false);
+  expect(admit([{ ...first, label: 'Private comment' }], 1)).toBe(false);
+  expect(admit([{ ...first, id: '' }], 1)).toBe(false);
+  expect(admit([{ ...first, selector: { ...first.selector, extra: true } }], 1)).toBe(false);
+  const { ordinal: _ordinal, ...missing } = first;
+  expect(admit([missing], 1)).toBe(false);
+});
 function bootstrap() {
   const parent = {};
   let listener: ((event: unknown) => void) | undefined;

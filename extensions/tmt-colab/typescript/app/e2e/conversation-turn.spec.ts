@@ -84,26 +84,23 @@ async function styles(message: Locator) {
   });
 }
 async function flat(message: Locator) {
+  const chat = await message.evaluate((node) => !!node.closest('.chat-panel'));
+  const agent = (await message.getAttribute('data-turn-role')) === 'agent';
   await expect(message).toHaveCSS('border-radius', '0px');
   await expect(message).toHaveCSS('box-shadow', 'none');
-  await expect(message).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
-  await expect(message).toHaveCSS('margin', '0px');
-  await expect(message).toHaveCSS('padding-top', '10px');
-  await expect(message).toHaveCSS('padding-bottom', '10px');
-  await expect(message).toHaveCSS('padding-right', '14px');
-  await expect(message).toHaveCSS(
-    'border-bottom-width',
-    (await message.evaluate((node) => !!node.closest('.chat-panel'))) ? '0px' : '1px',
-  );
+  await expect(message).toHaveCSS('border-bottom-width', '0px');
+  if (chat || !agent) await expect(message).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  else await expect(message).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await expect(message).toHaveCSS('padding-top', chat ? '10px' : agent ? '16px' : '0px');
   expect(await message.getAttribute('data-turn-layout')).toBeNull();
   const bounds = await message.evaluate((node) => {
     const history = node.closest('.conversation-messages')!;
     const a = node.getBoundingClientRect(),
       b = history.getBoundingClientRect();
-    return { left: a.left - b.left, width: a.width - history.clientWidth };
+    return { left: a.left - b.left, right: a.right - b.right };
   });
-  expect(Math.abs(bounds.left)).toBeLessThan(1);
-  expect(Math.abs(bounds.width)).toBeLessThan(1);
+  expect(bounds.left).toBeGreaterThanOrEqual(0);
+  expect(bounds.right).toBeLessThanOrEqual(1);
 }
 async function shell(window: Locator) {
   const chat = (await window.getAttribute('data-testid')) === 'chat-panel';
@@ -115,7 +112,9 @@ async function shell(window: Locator) {
   if (chat) await expect(window.locator(':scope > .conversation-window-bar')).toHaveCount(0);
   await expect(window.locator(':scope > .conversation-composer')).toHaveCount(1);
   await expect(window.locator('.conversation-composer .annotation-compose')).toHaveCount(1);
-  await expect(window.locator('.conversation-composer')).toHaveCSS('padding', '10px 14px');
+  if (chat)
+    await expect(window.locator('.conversation-composer')).toHaveCSS('padding', '10px 14px');
+  else await expect(window.locator('.conversation-composer')).toHaveCSS('border-top-width', '0px');
   for (const button of await window.locator('.conversation-composer button').all())
     await expect(button).toBeInViewport();
   const bounds = await window.evaluate((node) => {
@@ -168,7 +167,7 @@ for (const width of [1440, 390]) {
         await expect(user.locator('.conversation-author')).toHaveText('You');
         await expect(user.locator('.conversation-body')).toHaveText(request);
         await flat(user);
-        await expect(user).toHaveCSS('padding-left', '14px');
+        await expect(user).toHaveCSS('padding-left', surface === 'chat' ? '14px' : '0px');
         computed[`${surface}-user`] = await styles(user);
         for (const [state, label] of [
           ['waiting', 'Waiting for Atlas'],
@@ -181,11 +180,11 @@ for (const width of [1440, 390]) {
           if (state === 'replied') {
             await expect(agent).toHaveCount(1);
             await flat(agent);
-            await expect(agent).toHaveCSS('border-left-width', '3px');
-            await expect(agent).toHaveCSS('padding-left', '11px');
+            await expect(agent).toHaveCSS('border-left-width', surface === 'chat' ? '3px' : '0px');
+            await expect(agent).toHaveCSS('padding-left', surface === 'chat' ? '11px' : '16px');
             await expect(agent.getByTestId('ask-reply')).toHaveText(reply);
             await expect(agent.getByTestId('ask-reply-attribution')).toHaveText(
-              `Atlas · ${text.conversationAgent} · 5m ago`,
+              `Atlas · ${surface === 'chat' ? text.conversationAgent : 'AGENT'} · 5m ago`,
             );
             computed[`${surface}-agent`] = await styles(agent);
             await expect(window.getByTestId('ask-state')).toHaveCount(0);
@@ -236,16 +235,18 @@ for (const width of [1440, 390]) {
             if (state === 'uncertain')
               await expect(user.locator('.ask-supporting')).toHaveText(text.askUncertain);
           }
-          await expect(window.locator('script,img,.conversation-avatar')).toHaveCount(0);
+          await expect(window.locator('script,img')).toHaveCount(0);
+          await expect(window.locator('.conversation-avatar')).toHaveCount(
+            surface === 'chat' ? 0 : state === 'replied' ? 2 : 1,
+          );
           expect(await run(page, 'proof')).toEqual({ sends: [], actions: [] });
           await capture(page, window, `${surface}-${width}-${theme}-${state}`);
         }
       }
       expect(computed['chat-user'].row['border-bottom']).toContain('0px');
-      expect(computed['thread-user'].row['border-bottom']).toContain('1px');
-      expect(computed['chat-agent'].row['border-left']).toEqual(
-        computed['thread-agent'].row['border-left'],
-      );
+      expect(computed['thread-user'].row['border-bottom']).toContain('0px');
+      expect(computed['chat-agent'].row['border-left']).toContain('3px');
+      expect(computed['thread-agent'].row['border-left']).toContain('0px');
       await annotate(page);
       await shell(page.getByTestId('annotation-window'));
       await capture(page, page.getByTestId('annotation-window'), `annotate-${width}-${theme}`);
@@ -266,7 +267,7 @@ async function chatGeometry(window: Locator) {
       composer: rect(composer),
       field: rect(find('[role="combobox"]')),
       status: rect(find('.annotation-status-row')),
-      send: rect(find('.annotation-status-row > button')),
+      send: rect(find('.annotation-status-row [data-variant="primary"]')),
       history: rect(history),
       historyTop: history.scrollTop,
       historyOverflow: history.scrollHeight - history.clientHeight,
@@ -459,7 +460,7 @@ test('editable mention chips send only their original text; annotation keeps its
   const token = input.locator('.message-mention');
   await expect(token.locator('.message-mention-name')).toHaveText('@Agent 1');
   await expect(token.getByRole('button', { name: /^Remove mention:/ })).toBeVisible();
-  await expect(token).toHaveCSS('border-top-width', '1px');
+  await expect(token).toHaveCSS('border-top-width', '0px');
   await expect(token).toHaveCSS('border-radius', '0px');
   await input.press('Enter');
   // The double publishes the admitted Ask attribution separately, like the signed own stream.
@@ -469,8 +470,8 @@ test('editable mention chips send only their original text; annotation keeps its
   await expect(input).toHaveAttribute('id', id!);
   await expect(thread.locator('.comment-body')).toHaveText('@Agent 1 Explain this. @someone');
   const sent = thread.locator('.comment-body .message-mention');
-  await expect(sent).toHaveCount(1);
-  await expect(sent).toHaveText('@Agent 1');
+  await expect(sent).toHaveCount(2);
+  await expect(sent).toHaveText(['@Agent 1', '@someone']);
   await expect(sent.getByRole('button')).toHaveCount(0);
   expect((await run(page, 'proof')).sends).toHaveLength(1);
 });
@@ -510,14 +511,14 @@ async function windowGeometry(window: Locator) {
     const rect = (selector: string) =>
       node.querySelector(selector)!.getBoundingClientRect().toJSON();
     const history = node.querySelector<HTMLElement>('.conversation-messages')!;
-    const quote = node.querySelector('blockquote')!;
+    const quote = node.querySelector('.annotation-anchor-note')!;
     return {
       window: node.getBoundingClientRect().toJSON(),
       header: rect('.conversation-window-bar'),
-      quote: rect('blockquote'),
+      quote: rect('.annotation-anchor-note'),
       composer: rect('.conversation-composer'),
       field: rect('[role="combobox"]'),
-      send: rect('.annotation-status-row > button'),
+      send: rect('.annotation-status-row [data-variant="primary"]'),
       history: rect('.conversation-messages'),
       scrollHeight: history.scrollHeight,
       clientHeight: history.clientHeight,
@@ -550,7 +551,7 @@ async function windowStyles(window: Locator) {
         '.conversation-composer',
         '.annotation-status-row',
         '[role="combobox"]',
-        '.annotation-status-row > button',
+        '.annotation-status-row [data-variant="primary"]',
       ].map((selector) => {
         const style = getComputedStyle(node.querySelector(selector)!);
         return [
@@ -607,11 +608,7 @@ for (const width of [1440, 390])
         const style = getComputedStyle(node);
         return parseFloat(style.marginTop) + parseFloat(style.marginBottom);
       });
-      const replyLabel = (await continued.locator('.annotation-reply-label').boundingBox())!;
-      const replySpacing = await continued.locator('.annotation-reply-label').evaluate((node) => {
-        const style = getComputedStyle(node);
-        return parseFloat(style.marginTop) + parseFloat(style.marginBottom);
-      });
+      await expect(continued.locator('.annotation-reply-label')).toBeHidden();
 
       await annotate(page);
       const longQuote = 'This selected passage must scroll inside the annotation window. '
@@ -642,7 +639,10 @@ for (const width of [1440, 390])
       // annotation without clicking an offscreen selection affordance.
       await page.keyboard.press('Alt+Enter');
       await expect(annotation).toBeVisible();
-      await expect(annotation.locator('blockquote')).toHaveText(longQuote);
+      await expect(annotation.locator('.annotation-anchor-note')).toHaveAttribute(
+        'title',
+        longQuote,
+      );
       const long = await record(annotation, 'long-quote');
       const history = annotation.locator('.conversation-messages');
       await history.evaluate((node) => {
@@ -654,19 +654,14 @@ for (const width of [1440, 390])
       const thread = page.getByTestId('comment-thread');
       await record(thread, 'anchored-thread');
       expect(await windowStyles(thread)).toEqual(annotationStyles);
-      expect(short.composer.top - short.quote.bottom).toBeLessThanOrEqual(short.quoteSpacing + 1);
-      expect(short.history.height).toBeCloseTo(short.quote.height + short.quoteSpacing * 2, 0);
+      // The quote is a compact footer hint; it never duplicates the long source in history.
+      expect(short.history.height).toBe(0);
       expect(firstSend.window.height - short.window.height).toBeLessThanOrEqual(
-        newTurn.height + turnSpacing + replyLabel.height + replySpacing + 1,
+        newTurn.height + turnSpacing + 8,
       );
-      expect(firstSend.header).toEqual(short.header);
-      expect(firstSend.quote).toEqual(short.quote);
       expect(firstSend.field.width).toBe(short.field.width);
       expect(firstSend.field.height).toBe(short.field.height);
-      expect(firstSend.composer.top - short.composer.top).toBeLessThanOrEqual(
-        newTurn.height + turnSpacing + 1,
-      );
-      expect(long.scrollHeight).toBeGreaterThan(long.clientHeight);
+      expect(long.scrollHeight).toBeLessThanOrEqual(long.clientHeight + 1);
       expect(long.window.top).toBeGreaterThanOrEqual(48);
       expect(long.window.bottom).toBeLessThanOrEqual(892);
       for (const bounds of [long.field, long.send]) {
@@ -681,7 +676,7 @@ for (const width of [1440, 390])
 
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'] as const)
-    test(`above annotation retains its selection edge on first Send at ${width} ${theme}`, async ({
+    test(`anchored annotation retains placement and editor on first Send at ${width} ${theme}`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 900 });
@@ -731,14 +726,11 @@ for (const width of [1440, 390])
         );
       }
       for (const geometry of [before, after]) {
-        expect(selection.y - geometry.window.bottom).toBeGreaterThanOrEqual(6);
-        expect(selection.y - geometry.window.bottom).toBeLessThanOrEqual(7);
         expect(geometry.window.top).toBeGreaterThanOrEqual(48);
+        expect(geometry.window.bottom).toBeLessThanOrEqual(892);
       }
-      expect(after.window.bottom).toBe(before.window.bottom);
-      const growth = after.window.height - before.window.height;
-      expect(before.header.top - after.header.top).toBeCloseTo(growth, 0);
-      expect(before.quote.top - after.quote.top).toBeCloseTo(growth, 0);
+      if (width === 390) expect(after.window.bottom).toBe(before.window.bottom);
+      else expect(after.window.top).toBe(before.window.top);
       expect(after.field.width).toBe(before.field.width);
       expect(after.field.height).toBe(before.field.height);
       expect(after.pageScroll).toBe(before.pageScroll);
@@ -762,7 +754,8 @@ for (const width of [1440, 390]) {
         const editor = window.locator('[contenteditable="true"]');
         const retained = await agent.elementHandle();
         await expect(agent).not.toHaveAttribute('data-running-driver');
-        await expect(agent.locator('.conversation-driver, .conversation-avatar')).toHaveCount(0);
+        await expect(agent.locator('.conversation-driver')).toHaveCount(0);
+        await expect(agent.locator('.conversation-avatar')).toHaveCount(surface === 'chat' ? 0 : 1);
         await expect(agent.getByTestId('ask-reply')).toHaveText(reply);
         await editor.focus();
         await capture(page, window, `driver-${surface}-neutral-${width}-${theme}`);
@@ -792,7 +785,8 @@ for (const width of [1440, 390]) {
             probe.remove();
             return color;
           }, roleColor);
-          await expect(agent).toHaveCSS('border-left-color', color);
+          if (surface === 'chat') await expect(agent).toHaveCSS('border-left-color', color);
+          else await expect(agent).toHaveCSS('border-left-width', '0px');
           await flat(agent);
           expect(await agent.evaluate((node, retained) => node === retained, retained)).toBe(true);
           await expect(editor).toBeFocused();
@@ -818,7 +812,10 @@ for (const width of [1440, 390]) {
         ]) {
           await run(page, 'driverObservation', options);
           await expect(agent).not.toHaveAttribute('data-running-driver');
-          await expect(agent.locator('.conversation-driver, .conversation-avatar')).toHaveCount(0);
+          await expect(agent.locator('.conversation-driver')).toHaveCount(0);
+          await expect(agent.locator('.conversation-avatar')).toHaveCount(
+            surface === 'chat' ? 0 : 1,
+          );
           expect(await agent.evaluate((node, retained) => node === retained, retained)).toBe(true);
           await expect(editor).toBeFocused();
         }
@@ -922,7 +919,9 @@ for (const [width, theme] of [
     await capture(page, panel, `chat-polish-failed-${width}-${theme}`);
     const input = panel.getByRole('combobox', { name: 'Message', exact: true });
     await input.fill('A comment without a recipient.');
-    await expect(panel.locator('.annotation-status-row')).toContainText(text.messageComment);
+    await expect(panel.locator('.annotation-hint[role="status"]')).toContainText(
+      text.messageComment,
+    );
     await expect(panel.locator('.creator-toggle')).toHaveCount(0);
     await capture(page, panel, `chat-polish-comment-${width}-${theme}`);
     // Lexical admits the selection through trusted editing keys.
@@ -931,8 +930,10 @@ for (const [width, theme] of [
     await expect(input).toHaveText('');
     await input.pressSequentially('@A');
     await page.getByRole('option').first().click();
-    await expect(panel.locator('.annotation-status-row')).not.toContainText('Asks @');
-    await expect(panel.locator('.annotation-status-row')).not.toContainText(text.messageComment);
+    await expect(panel.locator('.annotation-hint[role="status"]')).not.toContainText('Asks @');
+    await expect(panel.locator('.annotation-hint[role="status"]')).not.toContainText(
+      text.messageComment,
+    );
     await expect(panel.locator('.creator-toggle')).toBeVisible();
     await capture(page, panel, `chat-polish-recipient-${width}-${theme}`);
     await panel.getByTestId('attachment-input').setInputFiles([

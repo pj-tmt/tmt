@@ -258,7 +258,14 @@ test('only exact current-render theme messages on the bound port update author p
           resolve();
       };
     });
-    port.postMessage({ type: 'colab.render.highlight', renderId, requestId, anchors: [] });
+    port.postMessage({
+      type: 'colab.render.highlight',
+      renderId,
+      requestId,
+      anchors: [],
+      threadCount: 0,
+      draft: null,
+    });
     await finished;
   }, renderId);
   await expect(child.locator('html')).toHaveAttribute('data-theme', 'dark');

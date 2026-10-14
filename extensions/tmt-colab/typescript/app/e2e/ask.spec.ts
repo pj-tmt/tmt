@@ -51,7 +51,7 @@ test('trusted preview is inert, shows exact frozen/control bytes, and only an ex
   expect((await proof(page)).draft).toBeUndefined();
   await page.evaluate(async (path) => (await import(path)).editLive(), fixture);
   expect(await page.getByLabel('Exact message').textContent()).toBe(initial.deliveredMessage);
-  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
   await expect(page.getByRole('status')).toHaveText('Accepted; awaiting the agent’s reply.');
   const final = await proof(page);
   expect(final.sends).toEqual([
@@ -66,7 +66,9 @@ test('trusted preview is inert, shows exact frozen/control bytes, and only an ex
   expect(final.verified).toBe(true);
   expect(final.keyExportDenied).toBe(true);
   expect(final.reads).toEqual([]);
-  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+  await expect(
+    page.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
+  ).toBeDisabled();
   await page.screenshot({
     path: capturePath('ask-preview-desktop.png'),
     fullPage: true,
@@ -87,7 +89,7 @@ test('test-persisted own records survive reload without dispatch; explicit adopt
   await page.goto('/');
   await mount(page, {});
   await expect(page.getByText('Delivery status unavailable', { exact: false })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
   await expect(page.getByRole('status')).toContainText('Accepted');
   const first = await proof(page);
   await page.reload();
@@ -97,7 +99,7 @@ test('test-persisted own records survive reload without dispatch; explicit adopt
   });
   expect((await proof(page)).sends).toEqual([]);
   expect((await proof(page)).draft).toEqual(first.draft);
-  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
   await expect(page.getByRole('status')).toContainText('Accepted');
   expect((await proof(page)).sends).toEqual([]);
 });
@@ -108,18 +110,22 @@ test('status is remote-supplied, hold is explicit, and absent runtime never sign
   await page.goto('/');
   await mount(page, { unavailable: true });
   await expect(page.getByText('Delivery status unavailable', { exact: false })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+  await expect(
+    page.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
+  ).toBeDisabled();
   expect((await proof(page)).draft).toBeUndefined();
   await mount(page, { hold: true, mode: 'held' });
   await expect(page.getByText('This send waits for approval on your machine.')).toBeVisible();
-  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
   await expect(page.getByRole('status')).toHaveText('Waiting for approval on your machine.');
   expect((await proof(page)).sends).toHaveLength(1);
   await expect(page.getByRole('button', { name: 'Approve', exact: true })).toHaveCount(0);
   await mount(page, { mode: 'throw' });
-  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
   await expect(page.getByRole('status')).toContainText('Do not resend');
-  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+  await expect(
+    page.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
+  ).toBeDisabled();
 });
 
 test('two tabs adopting one frozen operation have only one send winner', async ({
@@ -132,8 +138,8 @@ test('two tabs adopting one frozen operation have only one send winner', async (
     const options = { operationId: '00000000-0000-4000-8000-000000000777', issuedAt: Date.now() };
     await Promise.all([mount(page, options), mount(other, options)]);
     await Promise.all([
-      page.getByRole('button', { name: 'Send', exact: true }).click(),
-      other.getByRole('button', { name: 'Send', exact: true }).click(),
+      page.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click(),
+      other.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click(),
     ]);
     await Promise.all([
       expect(page.getByRole('status')).toContainText(/Accepted/),

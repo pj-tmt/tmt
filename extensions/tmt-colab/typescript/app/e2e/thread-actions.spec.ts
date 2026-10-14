@@ -35,7 +35,10 @@ for (const width of [1440, 390])
               title: node.querySelector('.thread-state')?.textContent,
               header: node.querySelector('.thread-bar')?.getBoundingClientRect().toJSON(),
               actions: node.querySelector('.thread-bar-actions')?.getBoundingClientRect().toJSON(),
-              quote: node.querySelector('blockquote')?.getBoundingClientRect().toJSON(),
+              quote: node
+                .querySelector('.annotation-anchor-note')
+                ?.getBoundingClientRect()
+                .toJSON(),
               scrollTop: node.querySelector('.thread-messages')?.scrollTop,
               focus: document.activeElement?.getAttribute('aria-label'),
               buttons: Array.from(node.querySelectorAll('button')).map((button) => ({
@@ -55,15 +58,21 @@ for (const width of [1440, 390])
         await run(page, 'mountWindow', `capture-${state}`);
         await expect(window).toBeVisible();
         const title = window.locator('.thread-state');
-        await expect(title).toHaveText(
+        await expect(title).toContainText(
           state === 'agent'
             ? 'Resolved by Release coordination assistant'
             : state === 'person'
-              ? 'Resolved'
+              ? 'Resolved by Browser'
               : state === 'deleted'
                 ? 'Deleted thread'
                 : 'Open',
         );
+        if (state === 'agent' || state === 'person') {
+          await expect(window.locator('.conversation-history')).toBeHidden();
+          await capture(`${state}-collapsed`);
+          await window.getByRole('button', { name: 'Show conversation', exact: true }).click();
+          await expect(window.locator('.conversation-history')).toBeVisible();
+        }
         if (!before) {
           const actions = window.locator('.thread-bar-actions');
           const titleRect = (await title.boundingBox())!;
@@ -82,10 +91,9 @@ for (const width of [1440, 390])
             window.getByRole('button', { name: 'Delete thread', exact: true }),
           ).toHaveCount(0);
           if (state !== 'deleted')
-            await expect(page.getByRole('button', { name: 'Send', exact: true })).toHaveAttribute(
-              'data-variant',
-              'primary',
-            );
+            await expect(
+              page.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
+            ).toHaveAttribute('data-variant', 'primary');
         }
         if (state === 'deleted') {
           await expect(window).toContainText(
@@ -113,15 +121,13 @@ for (const width of [1440, 390])
           await history.evaluate((node) => {
             node.scrollTop = 0;
           });
-          const quote = history.locator('blockquote');
-          await expect(quote).toHaveText('Frozen original quote');
-          const quoteRect = (await quote.boundingBox())!;
-          const historyRect = (await history.boundingBox())!;
-          const headerRect = (await window.locator('.thread-bar').boundingBox())!;
-          expect(quoteRect.y).toBeGreaterThanOrEqual(historyRect.y);
-          expect(quoteRect.y).toBeGreaterThan(headerRect.y + headerRect.height);
-          expect(quoteRect.y + quoteRect.height).toBeLessThanOrEqual(
-            historyRect.y + historyRect.height,
+          await expect(window.locator('.thread-state')).toHaveAttribute(
+            'title',
+            'Frozen original quote',
+          );
+          await expect(window.locator('blockquote')).toHaveCount(0);
+          await expect(window.locator('.annotation-anchor-note')).toHaveText(
+            'Attached to this sentence',
           );
           expect(await history.evaluate((node) => node.scrollTop)).toBe(0);
           await capture('quote-top');

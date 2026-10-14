@@ -12,7 +12,7 @@ async function mount(page: Page, surface: string, mode: string, reverse = false)
   await run(page, 'mount', { surface, mode, reverse });
   const input = page.getByRole('combobox', { name: 'Message', exact: true });
   await expect(input).toBeVisible();
-  await expect(page.locator('.annotation-status-row')).not.toContainText('Checking');
+  await expect(page.locator('.annotation-hint[role="status"]')).not.toContainText('Checking');
   await input.fill('@alpha @beta Explain this page.');
   await input.press('Enter');
   await expect(page.getByTestId('comment-entry')).toHaveCount(1);

@@ -26,6 +26,31 @@
             [v.prefix, v.suffix].every(
               (s) => typeof s === 'string' && [...s].length <= 32 && utf8.encode(s).length <= 128,
             );
+          function validHighlightAnchors(anchors, threadCount) {
+            return (
+              Array.isArray(anchors) &&
+              anchors.length <= 1000 &&
+              Number.isSafeInteger(threadCount) &&
+              threadCount >= 0 &&
+              anchors.every(
+                (item) =>
+                  item &&
+                  typeof item === 'object' &&
+                  !Array.isArray(item) &&
+                  Object.keys(item).length === 3 &&
+                  Object.keys(item).every((key) => ['id', 'selector', 'ordinal'].includes(key)) &&
+                  typeof item.id === 'string' &&
+                  item.id.length > 0 &&
+                  item.id.length <= 73 &&
+                  Number.isSafeInteger(item.ordinal) &&
+                  item.ordinal > 0 &&
+                  item.ordinal <= threadCount &&
+                  validQuote(item.selector),
+              ) &&
+              new Set(anchors.map((item) => item.ordinal)).size === anchors.length &&
+              new Set(anchors.map((item) => item.id)).size === anchors.length
+            );
+          }
           let batch = [],
             requestId = '',
             stopped = false,
@@ -192,8 +217,14 @@
           let layer, markers;
           const anchorRanges = new Map();
           const sheet = document.createElement('style');
+          // BEGIN GENERATED ANNOTATION TOKENS
+          const annotationTokens =
+            ':root{--tmt-ui-surface-annotation-highlight:#ececeb;--tmt-ui-surface-annotation-action:#262626;--tmt-ui-color-annotation-on-action:#ffffff;}:root[data-theme="dark"]{--tmt-ui-surface-annotation-highlight:#343434;--tmt-ui-surface-annotation-action:#626262;--tmt-ui-color-annotation-on-action:#ffffff;}';
+          // END GENERATED ANNOTATION TOKENS
           const highlightStyle =
-            '::highlight(colab-comments){background:#ffe18a55;color:inherit;text-decoration:underline}' +
+            annotationTokens +
+            'body:has(>[data-colab-highlight]:not([data-colab-markers])){isolation:isolate}' +
+            '::highlight(colab-comments){background:var(--tmt-ui-surface-annotation-highlight);color:inherit;text-decoration:none}' +
             `
             [data-colab-question-group]{display:block!important}
             [data-colab-question-group]>p[data-title]{font-size:22px!important;font-weight:700!important;line-height:1.35!important}
@@ -343,6 +374,11 @@
               event.shiftKey
             )
               return;
+            // Number badges own their exact target, even over overlapping range text.
+            if (event.target instanceof Node && markers?.contains(event.target)) {
+              gesture = undefined;
+              return;
+            }
             if (completedSelection) {
               completedSelection = false;
               return;
@@ -774,7 +810,22 @@
                 // Inactive questions stay resolved in canonical text, without an origin marker.
                 if (!box.width || !box.height) continue;
                 const top = Math.max(0, box.top + scrollY);
-                if (Number.isFinite(top) && top <= 1000000) positions.push({ id: item.id, top });
+                if (Number.isFinite(top) && top <= 1000000) {
+                  const tail = [...range.getClientRects()]
+                    .filter((rect) => rect.width && rect.height)
+                    .at(-1);
+                  if (tail)
+                    positions.push({
+                      id: item.id,
+                      top,
+                      rect: {
+                        x: tail.left + scrollX,
+                        y: tail.top + scrollY,
+                        width: tail.width,
+                        height: tail.height,
+                      },
+                    });
+                }
               }
               if (ranges.length && typeof Highlight === 'function' && CSS.highlights) {
                 CSS.highlights.set('colab-comments', new Highlight(...ranges));
@@ -782,16 +833,17 @@
                 layer = document.createElement('div');
                 layer.dataset.colabHighlight = '';
                 layer.style.cssText =
-                  'position:absolute;top:0;left:0;pointer-events:none;z-index:2147483647';
+                  'position:absolute;top:0;left:0;pointer-events:none;z-index:-1';
+                document.body.append(layer);
+                const origin = layer.getBoundingClientRect();
                 let rectangles = 0;
                 for (const range of ranges)
                   for (const rect of range.getClientRects()) {
                     if (++rectangles > 2048) throw new Error('highlight budget');
                     const mark = document.createElement('div');
-                    mark.style.cssText = `position:absolute;pointer-events:none;background:#ffd76466;left:${rect.left + scrollX}px;top:${rect.top + scrollY}px;width:${rect.width}px;height:${rect.height}px`;
+                    mark.style.cssText = `position:absolute;pointer-events:none;background:var(--tmt-ui-surface-annotation-highlight);left:${rect.left - origin.left - 2}px;top:${rect.top - origin.top}px;width:${rect.width + 4}px;height:${rect.height}px`;
                     layer.append(mark);
                   }
-                document.body.append(layer);
               }
               if (positions.length) {
                 markers = document.createElement('div');
@@ -800,31 +852,60 @@
                 markers.style.cssText =
                   'position:absolute;top:0;left:0;width:100%;pointer-events:none;z-index:2147483647';
                 document.body.append(markers);
-                const origin = markers.getBoundingClientRect().top + scrollY;
-                const lines = new Map();
-                for (const position of positions) {
-                  const line = Math.round(position.top / 8) * 8;
-                  const group = lines.get(line) ?? [];
-                  group.push(position.id);
-                  lines.set(line, group);
-                }
-                for (const [top, ids] of lines) {
+                const origin = markers.getBoundingClientRect();
+                const placed = [];
+                const paint = batch
+                  .filter((item) => item.id && anchorRanges.has(item.id))
+                  .map((item) => {
+                    const rects = [...anchorRanges.get(item.id).range.getClientRects()].filter(
+                      (rect) => rect.width && rect.height,
+                    );
+                    return { item, rect: rects.at(-1) };
+                  })
+                  .filter(({ rect }) => rect)
+                  .sort(
+                    (a, b) =>
+                      a.rect.top - b.rect.top ||
+                      a.rect.right - b.rect.right ||
+                      a.item.ordinal - b.item.ordinal,
+                  );
+                for (const { item, rect } of paint) {
+                  const size = Math.max(22, String(item.ordinal).length * 7 + 10);
+                  const maxLeft = Math.max(4, innerWidth - size - 4);
+                  let left = Math.max(4, Math.min(maxLeft, rect.right - 5));
+                  let top = Math.max(4 - scrollY, rect.top - size * 0.7);
+                  // Collision lanes preserve each thread's target, including identical ranges.
+                  for (let attempt = 0; attempt <= placed.length; attempt++) {
+                    const hit = placed.find(
+                      (box) =>
+                        left < box.left + box.size + 4 &&
+                        left + size + 4 > box.left &&
+                        top < box.top + box.size + 4 &&
+                        top + size + 4 > box.top,
+                    );
+                    if (!hit) break;
+                    const before = hit.left - size - 4;
+                    if (before >= 4) left = before;
+                    else {
+                      left = Math.max(4, Math.min(maxLeft, rect.right - 5));
+                      top = hit.top + hit.size + 4;
+                    }
+                  }
+                  placed.push({ left, top, size });
                   const marker = document.createElement('button');
                   marker.type = 'button';
-                  marker.dataset.colabThread = ids[0];
-                  marker.textContent = ids.length > 1 ? String(ids.length) : '▪';
-                  marker.title =
-                    batch.find((item) => item.id === ids[0])?.selector.exact.slice(0, 80) ??
-                    'Annotation';
+                  marker.dataset.colabThread = item.id;
+                  marker.textContent = String(item.ordinal);
+                  marker.title = 'Thread ' + item.ordinal + ': ' + item.selector.exact.slice(0, 80);
                   marker.setAttribute('aria-label', 'Open annotation: ' + marker.title);
-                  marker.style.cssText = `position:absolute;right:8px;top:${top - origin}px;width:20px;height:20px;padding:0;border:1px solid #625327;border-radius:0;background:#ffe18a;color:#392e12;font:12px/18px sans-serif;pointer-events:auto;cursor:pointer`;
+                  marker.style.cssText = `position:absolute;left:${left - origin.left}px;top:${top - origin.top}px;width:${size}px;height:${size}px;padding:0;border:0;border-radius:50%;background:var(--tmt-ui-surface-annotation-action);color:var(--tmt-ui-color-annotation-on-action);font:600 12px/${size}px sans-serif;pointer-events:auto;cursor:pointer;box-shadow:none`;
                   marker.addEventListener('click', (event) => {
                     if (event.isTrusted)
                       port.postMessage({
                         type: 'colab.render.open-thread',
                         renderId,
                         requestId,
-                        id: ids[0],
+                        id: item.id,
                       });
                   });
                   markers.append(marker);
@@ -1061,33 +1142,23 @@
               !v ||
               typeof v !== 'object' ||
               Array.isArray(v) ||
-              Object.keys(v).length !== 4 ||
+              Object.keys(v).length !== 6 ||
               v.type !== 'colab.render.highlight' ||
               v.renderId !== renderId ||
               typeof v.requestId !== 'string' ||
               !/^[0-9a-f-]{36}$/.test(v.requestId) ||
               !Array.isArray(v.anchors) ||
-              v.anchors.length > 1000
+              v.anchors.length > 1000 ||
+              !Number.isSafeInteger(v.threadCount) ||
+              v.threadCount < 0 ||
+              !(v.draft === null || validQuote(v.draft))
             )
               return;
             if (utf8.encode(JSON.stringify(v)).length > 256 * 1024) return;
-            if (
-              !v.anchors.every(
-                (item) =>
-                  item &&
-                  typeof item === 'object' &&
-                  !Array.isArray(item) &&
-                  Object.keys(item).length === 2 &&
-                  Object.keys(item).every((key) => ['id', 'selector'].includes(key)) &&
-                  typeof item.id === 'string' &&
-                  item.id.length <= 73 &&
-                  validQuote(item.selector),
-              )
-            )
-              return;
+            if (!validHighlightAnchors(v.anchors, v.threadCount)) return;
             clearTarget();
             gesture = undefined;
-            batch = v.anchors;
+            batch = [...v.anchors, ...(v.draft ? [{ id: '', selector: v.draft }] : [])];
             requestId = v.requestId;
             resolve();
           };

@@ -113,6 +113,8 @@ test('annotation attachments: PNG, JPEG and WebP preview, video is download-only
           })
         : rows.filter({ hasText: file.name });
       if (previewable) {
+        // The stacked thread previews load when their own tile enters history's viewport.
+        await row.scrollIntoViewIfNeeded();
         await expect(row.locator('img')).toHaveAttribute(
           'src',
           new RegExp(`^data:${file.mimeType};base64,`),
@@ -302,7 +304,7 @@ test('cross-resource refusal and deletion: another page, a forged hash and a del
       const pick = first.waitForEvent('filechooser');
       await chatPanel.getByRole('button', { name: text.messageAttach }).click();
       await (await pick).setFiles([chat]);
-      await chatPanel.getByRole('button', { name: text.askSend, exact: true }).click();
+      await chatPanel.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
       await expect(chatPanel.getByTestId('message-attachment')).toHaveCount(1, { timeout: 30_000 });
 
       const manifest = JSON.parse(

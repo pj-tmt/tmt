@@ -167,7 +167,7 @@ owns record fields, limits, revision semantics and trust boundaries.
   policy around the shared Lexical plaintext message composer: Enter submits the
   single Send, Shift+Enter adds a line, Escape closes candidates before cancellation. It
   opens at the selection in a cosmetic parent window and continues there after
-  Enter; no drawer opens automatically. Known margin markers reopen that exact
+  Enter; no drawer opens automatically. Known numbered markers reopen that exact
   thread using the current renderer's admitted cosmetic position. The page owner
   keeps drafts and bound mention UUIDs by thread across collapse and explicit Comments
   access. Archived paired pages retain local text as Unsent draft with Copy, removing
@@ -202,15 +202,23 @@ device.` once per failure and keeps the in-tab draft. Resolve/Reopen is the pare
   shows their page-visible history and inline outcomes, and continues only its device's thread with the shared input. Chat threads are excluded from Comments. No new store
   or record fields are introduced; two-hour reply timeout is display-only.
 - `public/renderer.html` installs bounded selection capture and cosmetic quote
-  resolution, highlights and count-bearing margin markers before author HTML; `renderer.ts` binds narrow requests/results to
+  resolution, highlights and creation-order numbered markers before author HTML; `renderer.ts` binds narrow requests/results to
   the current render and request. CSS Highlights and pointer-inert overlays grant
   no source truth or application capability. Known-thread marker messages open
-  only parent views. Highlight messages contain only IDs and quote selectors, never
+  only parent views. Highlight messages contain only IDs, quote selectors and paint-only ordinals, never
   comment bodies or display labels; marker tooltips use quoted text and comment
-  first-line labels stay in parent chrome. Selection rectangles and anchor offsets are bounded cosmetic
+  first-line labels stay in parent chrome. Selection rectangles, final-text anchor rectangles and navigation offsets are bounded cosmetic
   claims; normal anchor navigation scrolls the window. Highlight hover geometry uses the latest
   trusted pointer position once per animation frame; gesture movement stays synchronous.
   Clearing a target cancels pending hover work. Ports/observers clear on teardown.
+
+  Annotation numbers are derived from each admitted revision-1 author clock, with
+  writer/thread UUID ties, over all non-deleted threads before presentation filters.
+  Deletion renumbers; resolved threads retain list numbers without page markers.
+  The list, header and hover hint share that map. The renderer accepts only exact
+  anchor keys (`id`, `selector`, `ordinal`), unique IDs/ordinals and positive safe
+  ordinals bounded by the parent's admitted thread count; the unsaved quote is
+  separate. These values paint only and grant no routing or trust authority.
 
 Verification: `test/questions.test.ts` checks answer bounds and verified Lamport selection;
 `e2e/questions.spec.ts` checks kinds, normal anchors, changes, recipient isolation,

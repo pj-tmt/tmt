@@ -14,6 +14,7 @@ import { resolveMessageMentions } from '../message-recipient.js';
 import { Listbox } from './listbox.js';
 import type { MessageComposerProps } from './message-composer-edit.js';
 import { MessageMentionContext } from './message-mention-chip.js';
+import { MentionChip } from './mention-chip.js';
 import {
   $bindMessageMentions,
   $messageCaret,
@@ -251,6 +252,23 @@ function MessageField(props: MessageComposerProps) {
       <Listbox
         label={props.label}
         options={options}
+        renderOption={(option) => {
+          const agent = candidates.find(
+            (candidate) => `${candidate.machine}:${candidate.agent}` === option.value,
+          );
+          return agent ? (
+            <>
+              <MentionChip token={`@${agent.agentName}`} />
+              <span>
+                {' '}
+                · {agent.machineName}
+                {agent.presence === 'offline' ? ' · offline' : ''}
+              </span>
+            </>
+          ) : (
+            option.label
+          );
+        }}
         value=""
         disabled={props.disabled}
         onChange={choose}

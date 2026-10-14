@@ -168,20 +168,11 @@
 }
 .message-file {
   display: grid;
-  grid-template-columns: 40px minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
   padding: 4px 0;
   font-size: 13px;
-}
-.attachment-type {
-  display: grid;
-  place-items: center;
-  height: 40px;
-  background: var(--c-sheet);
-  color: var(--c-muted);
-  font-size: 10px;
-  overflow: hidden;
 }
 .message-file .attachment-name {
   display: block;
@@ -250,4 +241,57 @@
   width: 16px;
   height: 16px;
   flex: none;
+}
+
+/* Annotation chips retain draft/upload owners; previews occupy their own row below metadata. */
+.attachment-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.attachment-label > span {
+  min-width: 0;
+}
+.attachment-label > svg {
+  flex: none;
+  width: 18px;
+  height: 18px;
+}
+.attachment-label .attachment-name,
+.attachment-label .attachment-size {
+  display: block;
+}
+.comment-thread .attachment-label {
+  padding: 7px 10px;
+  background: var(--tmt-ui-surface-mention-agent);
+}
+.comment-thread .attachment-pending-row {
+  flex-wrap: wrap;
+  align-items: start;
+  /* Many staged previews scroll here, keeping the composer actions reachable. */
+  max-height: 24dvh;
+  overflow: auto;
+}
+.comment-thread .attachment-pending-item {
+  flex-wrap: wrap;
+  flex: 1 1 100%;
+  white-space: normal;
+  min-width: 0;
+}
+.comment-thread .attachment-pending-preview {
+  flex: 1 0 100%;
+}
+.comment-thread .attachment-thumbnail {
+  margin-top: 8px;
+}
+.comment-thread .message-file {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  border: 0;
+  padding: 0;
+}
+.comment-thread .message-file .attachment-label {
+  flex: 1;
 }

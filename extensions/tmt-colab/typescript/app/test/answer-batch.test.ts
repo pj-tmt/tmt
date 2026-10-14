@@ -80,6 +80,7 @@ function threadWith(
     revision: '1',
     deleted: false,
     deviceName: 'Browser',
+    createdAt: '1',
     at: '1',
     anchor: options.anchored === false ? null : { exact: `${q.title}?`, prefix: '', suffix: '' },
     resolved: false,

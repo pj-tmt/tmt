@@ -103,7 +103,10 @@ test('Thread activation opens the canonical anchored window and quote without cr
   const thread = page.getByTestId('comment-thread');
   await expect(thread).toBeVisible();
   await expect(thread).toHaveAttribute('data-layout', 'anchored');
-  await expect(thread.locator('blockquote').first()).toHaveText('Exact selected text');
+  await expect(thread.locator('.thread-state').first()).toHaveAttribute(
+    'title',
+    'Exact selected text',
+  );
   await expect(
     thread.getByTestId('comment-entry').filter({ hasText: 'A participant replied at this quote' }),
   ).toBeVisible();

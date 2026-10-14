@@ -143,7 +143,10 @@ test('three tabs on two pages sync edits and annotations, then all lose a revoke
       const input = await annotationInput(tab.getByTestId('annotation-compose'), agent.name);
       await input.fill(`@${agent.name} ${message}`);
       await input.press('Enter');
-      await expect(tab.getByTestId('comment-thread')).toContainText(quote);
+      const thread = tab.getByTestId('comment-thread');
+      await expect(thread).toHaveAttribute('data-anchor', 'attached');
+      await expect(thread.locator('.thread-state')).toHaveAttribute('title', quote);
+      await expect(thread).toContainText(message);
     }
     await expect(a.getByRole('button', { name: /^Discussion \(/ })).toBeVisible();
     await (await pageAction(a, 'Comments')).click();

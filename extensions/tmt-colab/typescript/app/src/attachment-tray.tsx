@@ -1,9 +1,42 @@
 import { BrowserAction, BrowserIconAction } from '@tmt/browser-ui/react';
-import { Paperclip, X } from 'lucide-react';
+import { FileText, Image as ImageIcon, Paperclip, X } from 'lucide-react';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { AttachmentDraft, Chip } from './attachment-draft.js';
 import { text } from './strings.js';
 import './attachment-tray.css';
+
+/** Inert metadata shared by pending chips and verified message attachments. */
+export function AttachmentLabel({
+  filename,
+  mediaType,
+  size,
+}: {
+  filename: string;
+  mediaType: string;
+  size: number;
+}) {
+  const image = mediaType.startsWith('image/');
+  const Icon = image ? ImageIcon : FileText;
+  const type =
+    mediaType === 'text/plain'
+      ? 'Text'
+      : mediaType === 'application/octet-stream'
+        ? 'File'
+        : (mediaType.split('/').at(-1) ?? 'File').toUpperCase();
+  return (
+    <span className="attachment-label">
+      <Icon aria-hidden />
+      <span>
+        <span className="attachment-name" title={filename}>
+          {filename}
+        </span>
+        <span className="attachment-size">
+          {type} · {text.attachmentSize(size)}
+        </span>
+      </span>
+    </span>
+  );
+}
 
 function stateText(chip: Chip, page: boolean): string {
   const state = chip.state;
@@ -102,12 +135,10 @@ function LocalPreview({ draft, chip }: { draft: AttachmentDraft; chip: Chip }) {
     };
   }, [draft, chip.id]);
   return url ? (
-    <img className="attachment-pending-image" src={url} alt={chip.filename} />
-  ) : (
-    <span className="attachment-pending-name" title={chip.filename}>
-      {chip.filename}
+    <span className="attachment-pending-preview">
+      <img className="attachment-pending-image" src={url} alt={chip.filename} />
     </span>
-  );
+  ) : null;
 }
 
 /** A presentation row inside the input, outside Lexical. Draft remains the only owner. */
@@ -144,8 +175,13 @@ export function PendingAttachments({
               data-testid="attachment-chip"
               data-state={chip.state.kind}
             >
-              <LocalPreview draft={draft} chip={chip} />
+              <AttachmentLabel
+                filename={chip.filename}
+                mediaType={chip.mediaType}
+                size={chip.size}
+              />
               <span className="attachment-state" role="status">
+                {chip.state.kind === 'refused' ? '✗ ' : ''}
                 {stateText(chip, false)}
               </span>
               {chip.state.kind === 'unknown' &&
@@ -156,6 +192,7 @@ export function PendingAttachments({
                 type="button"
                 variant="text"
                 label={`${text.attachRemove} ${chip.filename}`}
+                tooltipLabel="Remove"
                 icon={<X />}
                 disabled={disabled || chip.state.kind === 'uploading'}
                 onActivate={(event) => {
@@ -165,6 +202,7 @@ export function PendingAttachments({
                   }
                 }}
               />
+              <LocalPreview draft={draft} chip={chip} />
             </li>
           ))}
         </ul>

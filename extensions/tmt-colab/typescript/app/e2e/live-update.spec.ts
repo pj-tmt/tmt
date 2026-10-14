@@ -206,7 +206,10 @@ for (const width of [1440, 390]) {
           (node) => (window as unknown as { retainedComposer: Element }).retainedComposer === node,
         ),
       ).toBe(true);
-      await expect(composer.locator('blockquote')).toHaveText('Exact selected text');
+      await expect(composer.locator('.thread-state')).toHaveAttribute(
+        'title',
+        'Exact selected text',
+      );
       await expect(composer.getByText(text.commentQuoteChanged)).toBeVisible();
       await expect(
         page.frameLocator('#ask-page-fixture iframe').locator('[data-colab-thread]'),
@@ -223,7 +226,13 @@ for (const width of [1440, 390]) {
       );
       await page.screenshot({ path: `${captureDir}/annotation-${width}-${theme}-updated.png` });
       expect(Math.abs(after.x - position.x)).toBeLessThan(2);
-      expect(Math.abs(after.y - position.y)).toBeLessThan(2);
+      expect(
+        Math.abs(
+          width === 390
+            ? after.y + after.height - position.y - position.height
+            : after.y - position.y,
+        ),
+      ).toBeLessThan(2);
       expect(Math.abs((await page.evaluate(() => window.scrollY)) - scroll)).toBeLessThan(2);
       expect((await run(page, 'proof')).sends).toEqual([]);
       await input.press('Enter');
@@ -302,7 +311,10 @@ for (const width of [1440, 390]) {
       });
       await expect(input).toHaveAttribute('contenteditable', 'false');
       await expect(composer).toBeVisible();
-      await expect(composer.locator('blockquote')).toHaveText('Exact selected text');
+      await expect(composer.locator('.thread-state')).toHaveAttribute(
+        'title',
+        'Exact selected text',
+      );
       await expect(page.locator('#ask-page-fixture iframe')).toHaveCount(0);
       const notice = page.getByRole('alert');
       await expect(notice).toContainText('Page unavailable');
@@ -356,7 +368,12 @@ for (const width of [1440, 390]) {
       await expect(page.locator('.tmt-ui-drawer[open]')).toHaveCount(0);
       expect((await run(page, 'proof')).sends).toHaveLength(0);
       expect(Math.abs((await dialog.boundingBox())!.x - before.x)).toBeLessThan(2);
-      expect(Math.abs((await dialog.boundingBox())!.y - before.y)).toBeLessThan(2);
+      const sent = (await dialog.boundingBox())!;
+      expect(
+        Math.abs(
+          width === 390 ? sent.y + sent.height - before.y - before.height : sent.y - before.y,
+        ),
+      ).toBeLessThan(2);
       expect(Math.abs((await page.evaluate(() => window.scrollY)) - scroll)).toBeLessThan(2);
       await annotationInput(dialog, 'Agent 1');
       await input.fill('@Agent 1 Second turn from the same window.');
@@ -368,8 +385,9 @@ for (const width of [1440, 390]) {
       ).toBeInViewport({ ratio: 1 });
       const threadId = await thread.getAttribute('data-thread-id');
       const editorBox = (await input.boundingBox())!;
-      const labelBox = (await dialog.locator('.annotation-reply-label').boundingBox())!;
-      expect(editorBox.y - labelBox.y - labelBox.height).toBeGreaterThanOrEqual(8);
+      await expect(dialog.locator('.annotation-reply-label')).toBeHidden();
+      const hintBox = (await dialog.locator('.annotation-anchor-note').boundingBox())!;
+      expect(hintBox.y).toBeGreaterThan(editorBox.y + editorBox.height);
       await page.screenshot({ path: `${captureDir}/window-${width}-${theme}-sent.png` });
       // Shared top-layer menus fit the viewport, independently of the history scroller.
       const latestTurn = thread.getByTestId('comment-entry').last();
@@ -416,7 +434,22 @@ for (const width of [1440, 390]) {
       await expect(thread.getByRole('button', { name: 'New messages', exact: true })).toHaveCount(
         0,
       );
-      expect(await messages.evaluate((node) => node.clientHeight)).toBeGreaterThanOrEqual(240);
+      const readableTurn = await thread
+        .locator('.conversation-turn[data-turn-role="agent"]')
+        .evaluate((node) => {
+          const style = getComputedStyle(node);
+          const body = node.querySelector('.conversation-body')!;
+          return (
+            node.querySelector('.comment-byline')!.getBoundingClientRect().height +
+            parseFloat(getComputedStyle(body).lineHeight) +
+            parseFloat(style.paddingTop) +
+            parseFloat(style.paddingBottom) +
+            8
+          );
+        });
+      expect(await messages.evaluate((node) => node.clientHeight)).toBeGreaterThanOrEqual(
+        readableTurn,
+      );
       await page.screenshot({ path: `${captureDir}/window-${width}-${theme}-reply.png` });
       await input.fill('@Agent 1 Exact unsent draft retained on collapse.');
       await page.getByRole('heading', { name: 'Unrelated live title', exact: true }).click();
@@ -430,7 +463,9 @@ for (const width of [1440, 390]) {
       await expect(input).toHaveText('@Agent 1 Exact unsent draft retained on collapse.', {
         useInnerText: true,
       });
-      await expect(dialog.locator('.annotation-status-row')).toContainText('Asks @Agent 1.');
+      await expect(dialog.locator('.annotation-hint[role="status"]')).toContainText(
+        'Asks @Agent 1.',
+      );
       await expect
         .poll(() =>
           thread
@@ -438,7 +473,7 @@ for (const width of [1440, 390]) {
             .evaluate((node) => node.scrollHeight - node.clientHeight - node.scrollTop),
         )
         .toBeLessThanOrEqual(1);
-      await expect(thread.locator('blockquote')).toHaveText('Exact selected text');
+      await expect(thread.locator('.thread-state')).toHaveAttribute('title', 'Exact selected text');
       await expect(page.locator('.tmt-ui-drawer[open]')).toHaveCount(0);
       const box = (await dialog.boundingBox())!;
       expect(box.x).toBeGreaterThanOrEqual(8);

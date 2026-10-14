@@ -8,7 +8,6 @@ import { pairBrowser, startDoor } from './harness/browser.js';
 import { composeChat, createPage, freePort, openChat, openPage, run } from './harness/ask.js';
 import { until } from './harness/process.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
-import { text } from '../src/strings.js';
 
 test.afterEach(disposeActiveWorlds);
 
@@ -62,7 +61,7 @@ test('PDF and UTF-8 attachments earn byte-derived CLI extensions despite mislead
         await give(compose, 'drop', file.name, file.declared, file.bytes.toString('base64'));
       await expect(panel.getByTestId('attachment-chip')).toHaveCount(2);
       await expect(panel.getByTestId('attachment-chip').locator('img')).toHaveCount(0);
-      await panel.getByRole('button', { name: text.askSend, exact: true }).click();
+      await panel.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
       await expect(panel.getByTestId('message-attachment')).toHaveCount(2, { timeout: 30_000 });
       await until(() => agent.received().length === 1, 'typed files reached the agent');
       await expect(panel.getByTestId('ask-entry')).toHaveAttribute('data-ledger-state', 'accepted');
@@ -132,7 +131,7 @@ test('an agent sees the files of a Chat message in its request and reads them by
       await give(compose, 'drop', 'notes "v2".txt', 'text/plain', notes.toString('base64'));
       await give(compose, 'paste', 'dot.png', 'image/png', PNG.toString('base64'));
       await expect(panel.getByTestId('attachment-chip')).toHaveCount(2);
-      await panel.getByRole('button', { name: text.askSend, exact: true }).click();
+      await panel.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
       await expect(panel.getByTestId('message-attachment')).toHaveCount(2, { timeout: 30_000 });
       await until(() => agent.received().length === 1, 'the turn reached the agent');
       const request = composed.delivered();

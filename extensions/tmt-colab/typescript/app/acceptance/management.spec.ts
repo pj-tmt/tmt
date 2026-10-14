@@ -370,7 +370,9 @@ test('archive commit reopens paired tabs read-only while retaining unsent Chat d
     }
     await expect(chat.getByText('Unsent draft', { exact: true })).toBeVisible();
     await expect(chat.locator('.archive-unsent-draft pre')).toHaveText(expected);
-    await expect(chat.getByRole('button', { name: 'Send', exact: true })).toHaveCount(0);
+    await expect(
+      chat.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
+    ).toHaveCount(0);
     await page.evaluate(() => {
       Object.defineProperty(navigator, 'clipboard', {
         configurable: true,

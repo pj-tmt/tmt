@@ -76,6 +76,8 @@ let presentationAsk: AskBinding | undefined;
 export function finishMentionDirectory() {
   finishDirectory?.();
 }
+let holdAttachmentUploads = false;
+let releaseAttachmentUpload: (() => void) | undefined;
 /** Reload-surviving stand-in for the encrypted device store (its crypto has unit tests). */
 let releaseDraftRead: (() => void) | undefined;
 export function finishDraftRead() {
@@ -139,6 +141,7 @@ export async function mount(
     history?: 'thread' | 'chat';
   } = {},
 ) {
+  resumeAttachmentUploads();
   root?.unmount();
   document.getElementById('ask-page-fixture')?.remove();
   document.getElementById('root')?.setAttribute('hidden', '');
@@ -269,6 +272,10 @@ export async function mount(
         async upload(input, target, progress) {
           actions.push(`attach:upload:${input.filename}`);
           progress(1, 2);
+          if (holdAttachmentUploads)
+            await new Promise<void>((resolve) => {
+              releaseAttachmentUpload = resolve;
+            });
           if (input.filename.includes('refuse'))
             throw new AttachmentUploadError({ kind: 'refused', reason: 'capacity' });
           const original = {
@@ -378,6 +385,7 @@ export async function mount(
     const {
       kind: _kind,
       threadId: _id,
+      createdAt: _createdAt,
       anchor: _anchor,
       resolved: _resolved,
       comments: _comments,
@@ -432,6 +440,7 @@ export async function mount(
       deviceName: 'You',
       threadId,
       revision: '1',
+      createdAt: String(Date.now()),
       at: String(Date.now()),
       anchor,
       resolved: false,
@@ -860,6 +869,7 @@ export function conversation(options: {
     threadId: options.surface === 'chat' ? id(4) : id(41),
     revision: '1',
     at,
+    createdAt: at,
     anchor:
       options.surface === 'chat' ? null : { exact: 'Exact selected text', prefix: '', suffix: '' },
     resolved: false,
@@ -1084,6 +1094,7 @@ export function proposal(placement: 'inline' | 'missing' | 'duplicate' = 'inline
         deviceName: 'You',
         threadId: proposalId,
         revision: '1',
+        createdAt: String(Date.now()),
         at: String(Date.now()),
         anchor: null,
         resolved: false,
@@ -1457,4 +1468,66 @@ export function chatPolish(state: 'empty' | 'messages' | 'failed') {
   };
   current = { ...current, threads: [{ ...thread, comments: [person, own] }] };
   emit();
+}
+
+/** Static admitted discussion projection for the annotation design matrix; no effect adapters. */
+export function annotationLook() {
+  conversation({
+    surface: 'thread',
+    state: 'replied',
+    message: 'Could @Atlas check this at 390px? @Ben can review the copy.',
+    reply: 'Checked the mobile layout. The message remains beside its source.',
+  });
+  const opening = current.threads![0];
+  const quotes = [
+    'Check the mobile layout before release.',
+    'Make sure the Remote door restarts cleanly after the upgrade on every supported platform, including the slower CI runners.',
+    'first range',
+    'second range',
+    'old decision text',
+  ];
+  current = {
+    ...current,
+    source: `<style>body{margin:40px;font:18px/1.65 sans-serif;max-width:650px;background:#fff;color:#343434}html[data-theme="dark"] body{background:#080808;color:#ddd}h2{font:13px monospace;letter-spacing:.12em;margin-top:30px}p{margin:14px 0}@media(max-width:640px){body{margin:24px}}</style><h2>01 / RELEASE CHECKLIST</h2><p id="selected"><strong>${quotes[0]}</strong></p><p>Keep the preview focused.</p><p id="wrapped">${quotes[1]}</p><p>Two notes next to each other: <span>${quotes[2]}</span> <span>${quotes[3]}</span>.</p><p>${quotes[4]}</p>`,
+    threads: quotes.map((exact, index) => {
+      const threadId = index === 0 ? opening.threadId : id(51 + index);
+      const ref = { writer: opening.ref.writer, id: threadId };
+      return {
+        ...opening,
+        threadId,
+        ref,
+        createdAt: String(index + 1),
+        anchor: { exact, prefix: '', suffix: '' },
+        resolved: index === 4,
+        comments: [
+          {
+            ...opening.comments[0],
+            thread: ref,
+            messageId: index === 0 ? opening.comments[0].messageId : id(61 + index),
+            ref: index === 0 ? opening.comments[0].ref : { writer: ref.writer, id: id(61 + index) },
+          },
+        ],
+      };
+    }),
+  };
+  emit();
+}
+export function annotationLookDelete() {
+  current = {
+    ...current,
+    threads: current.threads!.map((thread, index) =>
+      index === 0 ? { ...thread, deleted: true, anchor: null } : thread,
+    ),
+  };
+  emit();
+}
+
+/** Bounded fixture gate for capturing the existing upload-progress and Send fence. */
+export function pauseAttachmentUploads() {
+  holdAttachmentUploads = true;
+}
+export function resumeAttachmentUploads() {
+  holdAttachmentUploads = false;
+  releaseAttachmentUpload?.();
+  releaseAttachmentUpload = undefined;
 }

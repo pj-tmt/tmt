@@ -40,7 +40,7 @@ test('thread status reaches the other device and the CLI, and an agent resolutio
     const input = compose.getByRole('combobox', { name: 'Message', exact: true });
     await expect(input).toBeEnabled();
     await input.fill('Please check this passage.');
-    await compose.getByRole('button', { name: 'Send', exact: true }).click();
+    await compose.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
     const window = compose.getByTestId('comment-thread');
     await expect(window).toBeVisible();
     const threadId = (await window.getAttribute('data-thread-id'))!;
@@ -197,7 +197,7 @@ test('status states captured for the UX look', async () => {
     await input.fill('Please check @ghost-agent this passage.');
     // Escape would cancel the whole annotation unless a candidate list is open.
     if (await first.getByRole('listbox').isVisible()) await input.press('Escape');
-    await compose.getByRole('button', { name: 'Send', exact: true }).click();
+    await compose.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
     const window = compose.getByTestId('comment-thread');
     await expect(window).toBeVisible();
     const threadId = (await window.getAttribute('data-thread-id'))!;
@@ -207,14 +207,14 @@ test('status states captured for the UX look', async () => {
     await toggleCopy(second, `${text.comments} 1`, 'open');
     await shoot(second, 'open');
 
-    // A person resolves: the row says plain Resolved and the unknown mention is reported.
+    // A person resolves: admitted actor metadata is displayed and the unknown mention is reported.
     await comments(first);
     await first.locator(`[data-testid=annotation-row][data-thread-id="${threadId}"]`).click();
     const t1 = first.getByTestId('comment-thread').first();
     await t1.getByRole('button', { name: text.threadResolve, exact: true }).click();
     await expect(t1.getByText(text.threadNotNotified('ghost-agent'))).toBeVisible();
     await expect(row2).toContainText(text.threadResolved);
-    await expect(row2).not.toContainText(text.threadResolvedBy('status-author'));
+    await expect(row2).toContainText(text.threadResolvedBy('status-author'));
     await shoot(first, 'person-resolved-not-notified');
     await shoot(second, 'person-resolved');
     await t1.getByRole('button', { name: text.threadReopen, exact: true }).click();
