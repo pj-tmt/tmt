@@ -424,7 +424,9 @@ export function ghIndexApi({ repository, env = process.env, spawn = spawnSync })
       if (response.exit === 0 && response.status === 200) return 'updated';
       if (
         [409, 422].includes(response.status) &&
-        response.data.message === 'Update is not a fast forward'
+        ['Update is not a fast forward', 'Reference cannot be updated'].includes(
+          response.data.message
+        )
       )
         return 'race';
       throw new Error(
