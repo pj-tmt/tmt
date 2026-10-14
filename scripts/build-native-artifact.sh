@@ -131,9 +131,10 @@ if [ "$product" = cli ]; then
   cat target/native-notices/HERDR-NOTICES.txt >> target/native-notices/THIRD-PARTY-NOTICES.txt
 fi
 if [ "$product" = colab ] && [ "$frontend_notices" = true ]; then
-  cat "$TMT_COLAB_APP_DIR/THIRD-PARTY-NOTICES.txt" \
+  # Keep mounted-app notices as the suffix required by the existing archive proof.
+  cat "$repo/extensions/tmt-remote/typescript/remote-client/dist/THIRD-PARTY-NOTICES.txt" \
     "$TMT_COLAB_HOSTING_DIR/THIRD-PARTY-NOTICES.txt" \
-    "$repo/extensions/tmt-remote/typescript/remote-client/dist/THIRD-PARTY-NOTICES.txt" \
+    "$TMT_COLAB_APP_DIR/THIRD-PARTY-NOTICES.txt" \
     >> target/native-notices/THIRD-PARTY-NOTICES.txt
 fi
 

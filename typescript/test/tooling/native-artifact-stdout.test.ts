@@ -161,7 +161,7 @@ describe('native artifact stdout', () => {
       expect(
         readFileSync(path.join(root, 'rust/target/native-notices/THIRD-PARTY-NOTICES.txt'), 'utf8')
       ).toBe(
-        `Rust license notice\n${product === 'colab' ? 'SPA license notice\nHosted SPA license notice\nFirebase license notice\n' : product === 'cli' ? 'Rust license notice\n' : ''}`
+        `Rust license notice\n${product === 'colab' ? 'Firebase license notice\nHosted SPA license notice\nSPA license notice\n' : product === 'cli' ? 'Rust license notice\n' : ''}`
       );
       const config = readFileSync(path.join(root, 'rust/target/native-notices/about.toml'), 'utf8');
       expect(config).toBe(

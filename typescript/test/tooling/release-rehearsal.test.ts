@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
-import { componentMap } from '../../scripts/ci-scope.mjs';
+import { componentMap, releasedComponentNamesOfPath } from '../../scripts/ci-scope.mjs';
 import { readCargoWorkspace } from '../../scripts/cargo-workspace.mjs';
 import {
   activeProducts,
@@ -80,6 +80,19 @@ describe('release rehearsal selection', () => {
     'rust/crates/tmt-core/Cargo.toml',
   ])('rehearses every active product for the shared release input %s', (changed) => {
     expect(select(changed)).toEqual(all);
+  });
+
+  it.each([
+    'extensions/tmt-remote/typescript/remote-client/src/firebase-client.ts',
+    'extensions/tmt-remote/typescript/remote-client/vite.firebase.config.ts',
+    'extensions/tmt-remote/typescript/remote-client/firebase-build-pin.json',
+  ])('attributes the pinned hosted SDK input to both released consumers: %s', (changed) => {
+    expect([...releasedComponentNamesOfPath(changed, map)].sort()).toEqual([
+      'tmt-colab',
+      'tmt-remote',
+    ]);
+    // Frontend inputs keep their existing PR checks; they do not select release rehearsal alone.
+    expect(select(changed)).toEqual([]);
   });
 
   it.each([

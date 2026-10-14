@@ -102,7 +102,7 @@
     "remote-client": {
       "owns": ["extensions/tmt-remote/typescript/remote-client"],
       "release": false,
-      "releaseConsumers": ["tmt-remote"]
+      "releaseConsumers": ["tmt-colab", "tmt-remote"]
     },
     "tmt-test-support": {
       "releaseStatus": "never",
