@@ -394,7 +394,8 @@ The small input at a selection or an item: annotation, follow-up, quick reply.
   monospace label and a large borderless composer. Wide windows sit beside the
   selection with a leader; mobile retains bottom placement without one. The footer
   has muted `Attached to this sentence` and square arrow-only Send, with a complete
-  recipient-bearing accessible name. Resolved windows start collapsed with counts,
+  recipient-bearing accessible name. The existing creator-notification preference
+  remains a borderless mark-and-label toggle beside it. Resolved windows start collapsed with counts,
   state/Reopen and an explicit Show conversation action; expansion retains drafts.
 
 - The recipient is independent of the message. An admitted stable prior
@@ -449,7 +450,8 @@ state (mark plus word), and a `⋯` menu for the author's own Edit or Delete.
 
 Annotation/thread attachments use flat metadata chips with a type mark, filename,
 type and size; previews sit below. Uploads show progress, refusals show `✗` with
-reason and Remove. Trusted Send starts staged uploads and stays busy until done.
+reason and Remove. Pending annotation/thread chips scroll within a viewport-bound
+area so Send stays reachable. Trusted Send starts staged uploads and stays busy until done.
 Chat pending attachments use one horizontally scrollable row of small raster
 thumbnails or filenames inside the input below its text, each with a named ×
 remove action. They share the text's left edge, with no cards or progress bar.

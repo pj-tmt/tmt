@@ -96,7 +96,25 @@ for (const width of [1440, 390])
           buffer: raster,
         })),
       );
+      const pending = page.locator('.comment-thread .attachment-pending-row');
+      await expect(pending).toHaveCSS('overflow-y', 'auto');
+      await expect
+        .poll(async () => {
+          const action = await send(page).boundingBox();
+          return !!action && action.y >= 0 && action.y + action.height <= 900;
+        })
+        .toBe(true);
       await send(page).click();
+      const thumbnails = page
+        .locator('.comment-thread')
+        .getByRole('button', { name: /^Preview image-\d+\.png$/ });
+      await expect(thumbnails).toHaveCount(5);
+      await expect(page.getByRole('button', { name: 'Show 2 more images' })).toHaveCount(1);
+      // Thread previews stack below metadata; each reads only when it enters the history viewport.
+      for (const thumbnail of await thumbnails.all()) {
+        await thumbnail.scrollIntoViewIfNeeded();
+        await expect(thumbnail.locator('img')).toBeVisible();
+      }
       await expect(page.locator('.attachment-thumbnail img')).toHaveCount(5);
       const alignment = await page
         .locator('.attachment-images')

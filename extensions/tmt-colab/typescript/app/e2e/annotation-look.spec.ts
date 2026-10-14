@@ -22,6 +22,7 @@ for (const width of [1440, 390])
       }, theme);
       await page.goto('/');
       await run(page, 'mount', {
+        creator: true,
         agents: [{ ...destination(), agentName: 'Atlas', presence: 'active' }],
       });
       await run(page, 'annotationLook');
@@ -61,6 +62,16 @@ for (const width of [1440, 390])
       await expect(window).toBeVisible();
       const editor = window.getByRole('combobox', { name: 'Message', exact: true });
       await editor.fill('Could @Atlas check this at 390px?');
+      const creator = window.getByRole('button', { name: 'Send to @Atlas', exact: true });
+      await expect(creator).toHaveAttribute('aria-pressed', 'true');
+      await expect(creator).toHaveCSS('border-top-width', '0px');
+      await expect(creator.locator('.tmt-ui-toggle-indicator')).toHaveCSS(
+        'border-top-width',
+        '0px',
+      );
+      await creator.focus();
+      await expect(creator).toHaveCSS('outline-style', 'solid');
+      await editor.focus();
       await page.screenshot({ path: `${captures}/annotation-new-${width}-${theme}.png` });
       if (width === 390) {
         const box = (await page.locator('.annotation-popover').boundingBox())!;
@@ -79,7 +90,9 @@ for (const width of [1440, 390])
       await expect(agent.locator('.conversation-agent-label')).toContainText('AGENT');
       await expect(agent).toHaveCSS('border-left-width', '0px');
       await expect(human).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
-      await expect(thread.locator('.message-mention[data-kind="agent"]')).toHaveCount(2);
+      await expect(
+        human.locator('.conversation-body .message-mention[data-kind="agent"]'),
+      ).toHaveCount(2);
       await page.screenshot({ path: `${captures}/annotation-thread-${width}-${theme}.png` });
       await page.keyboard.press('Escape');
       const comments = await pageAction(app, 'Comments');

@@ -1618,6 +1618,21 @@ footer {
   flex: 0 1 auto;
   min-width: 0;
 }
+/* Keep the creator preference, without a second boxed action in the annotation panel. */
+.comment-thread .creator-toggle > .tmt-ui-toggle {
+  border: 0;
+  background: transparent;
+  color: var(--tmt-ui-color-secondary);
+  font-size: 13px;
+}
+.comment-thread .creator-toggle .tmt-ui-toggle-indicator {
+  border: 0;
+  color: var(--tmt-ui-color-text);
+}
+.comment-thread .creator-toggle > .tmt-ui-toggle:not(:disabled):hover {
+  color: var(--tmt-ui-color-text);
+}
+
 .creator-toggle > button {
   max-width: 100%;
   text-align: start;

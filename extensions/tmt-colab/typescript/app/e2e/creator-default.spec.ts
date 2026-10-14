@@ -306,8 +306,16 @@ for (const variant of [
     await toggle(page).click();
     await input.getByRole('button', { name: /^Remove mention:/ }).click();
     await input.pressSequentially('A draft stays here.');
-    await expect(toggle(page)).toHaveAttribute('aria-pressed', 'true');
+    // A manual comment has no creator toggle; the saved default returns on a fresh draft.
+    await expect(toggle(page)).toHaveCount(0);
+    await expect(
+      page.getByText('Posts as a comment. No agent will be asked.', { exact: true }),
+    ).toBeVisible();
     await capture('removed');
+    await page.getByRole('button', { name: 'Send', exact: true }).click();
+    await expect(toggle(page)).toHaveAttribute('aria-pressed', 'true');
+    await expect(input.locator('.message-mention-chip')).toHaveCount(1);
+    await capture('fresh');
     await open(false);
     await expect(toggle(page)).toHaveCount(0);
     await capture('hidden');

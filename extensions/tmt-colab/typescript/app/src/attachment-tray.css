@@ -269,7 +269,9 @@
 .comment-thread .attachment-pending-row {
   flex-wrap: wrap;
   align-items: start;
-  overflow-x: visible;
+  /* Many staged previews scroll here, keeping the composer actions reachable. */
+  max-height: 24dvh;
+  overflow: auto;
 }
 .comment-thread .attachment-pending-item {
   flex-wrap: wrap;
