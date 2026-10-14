@@ -215,3 +215,137 @@ fn diagnostic_status_preserves_door_when_credential_writer_is_busy() {
     );
     assert_eq!(fs::read(path).unwrap(), bytes);
 }
+
+#[cfg(not(feature = "test-emulator"))]
+#[test]
+fn default_sign_in_ignores_emulator_variables_and_reuses_the_identity() {
+    let pilot = Pilot::new();
+    let layout = imported(&pilot);
+    let path = credential(&layout, now() + 200 * 86_400_000);
+    let bytes = fs::read(&path).unwrap();
+    let result = pilot
+        .command()
+        .env("FIREBASE_AUTH_EMULATOR_HOST", "example.com:9099")
+        .env("FIRESTORE_EMULATOR_HOST", "invalid")
+        .env("HTTPS_PROXY", "http://127.0.0.1:1")
+        .args(["--remote", "tenant", "sync", "sign-in", "--json"])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stdout)
+    );
+    let answer: Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(answer["reused"], true);
+    assert_eq!(fs::read(path).unwrap(), bytes);
+}
+
+#[cfg(feature = "test-emulator")]
+#[test]
+fn feature_sign_in_reaches_loopback_auth_and_persists_one_native_credential() {
+    use std::os::fd::AsFd;
+    let pilot = Pilot::new();
+    let layout = imported(&pilot);
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap().to_string();
+    let claims = serde_json::json!({"aud":"demo-remote-1", "sub":"emulator-cli-user", "firebase":{"sign_in_provider":"anonymous"}});
+    let token = format!(
+        "header.{}.signature",
+        URL_SAFE_NO_PAD.encode(serde_json::to_vec(&claims).unwrap())
+    );
+    let reply = serde_json::json!({"localId":"emulator-cli-user", "idToken":token,
+        "refreshToken":"private-cli-refresh-canary", "expiresIn":"3600"})
+    .to_string();
+    let (result, request) = std::thread::scope(|scope| {
+        let peer = scope.spawn(|| {
+            let mut events = [nix::poll::PollFd::new(
+                listener.as_fd(),
+                nix::poll::PollFlags::POLLIN,
+            )];
+            assert!(
+                nix::poll::poll(&mut events, 15_000u16).unwrap() > 0,
+                "sign-in never reached loopback"
+            );
+            let (stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            stream
+                .set_write_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut reader = BufReader::new(stream);
+            let mut request = String::new();
+            let mut length = 0;
+            loop {
+                let mut line = String::new();
+                assert!(reader.read_line(&mut line).unwrap() > 0);
+                if line == "\r\n" {
+                    break;
+                }
+                if let Some((name, value)) = line.split_once(':')
+                    && name.eq_ignore_ascii_case("content-length")
+                {
+                    length = value.trim().parse().unwrap();
+                }
+                request.push_str(&line);
+            }
+            assert!(length < 1024);
+            let mut body = vec![0; length];
+            reader.read_exact(&mut body).unwrap();
+            assert_eq!(
+                serde_json::from_slice::<Value>(&body).unwrap(),
+                serde_json::json!({"returnSecureToken":true})
+            );
+            write!(
+                reader.get_mut(),
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{reply}",
+                reply.len()
+            )
+            .unwrap();
+            request
+        });
+        let result = pilot
+            .command()
+            .env("FIREBASE_AUTH_EMULATOR_HOST", &address)
+            .env("FIRESTORE_EMULATOR_HOST", &address)
+            .env("HTTPS_PROXY", "http://127.0.0.1:1")
+            .args(["--remote", "tenant", "sync", "sign-in", "--json"])
+            .output()
+            .unwrap();
+        if !result.status.success() {
+            eprintln!(
+                "private sign-in refused: {} {}",
+                String::from_utf8_lossy(&result.stdout),
+                String::from_utf8_lossy(&result.stderr)
+            );
+        }
+        (result, peer.join().unwrap())
+    });
+    assert!(
+        result.status.success(),
+        "{} {}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(request.starts_with("POST /identitytoolkit.googleapis.com/v1/accounts:signUp?key="));
+    listener.set_nonblocking(true).unwrap();
+    assert_eq!(
+        listener.accept().unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock,
+        "one signup request only"
+    );
+    let answer: Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(answer["uid"], "emulator-cli-user");
+    assert_eq!(answer["signIn"]["state"], "active");
+    assert_eq!(answer["reused"], false);
+    assert!(!String::from_utf8_lossy(&result.stdout).contains("private-cli-refresh-canary"));
+    let path = layout.directory.join("firebase-auth/demo-remote-1.json");
+    assert_eq!(
+        fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    let stored: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+    assert_eq!(stored["uid"], "emulator-cli-user");
+    assert_eq!(stored["state"], "active");
+}

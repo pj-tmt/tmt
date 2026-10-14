@@ -39,5 +39,8 @@ signal-hook.workspace = true
 ureq.workspace = true
 tmt-cli-style.workspace = true
 
+[features]
+test-emulator = []
+
 [lints]
 workspace = true

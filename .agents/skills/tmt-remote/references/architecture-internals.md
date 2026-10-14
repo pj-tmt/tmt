@@ -231,6 +231,8 @@ traffic goes browser to Firestore. Sharing therefore stays unknown after a compl
 run. A later Core readiness decision must define tier treatment for layers requiring no paid
 plan and a quota evidence source before sharing can read enabled.
 
+The default-off `test-emulator` Cargo feature is private proof support: from the isolated checkout, build `CARGO_BUILD_JOBS=2 cargo build --offline --locked --manifest-path rust/Cargo.toml -p tmt-remote --bin tmt-remote --features test-emulator` into that checkout's `rust/target`. The shared `firebase_auth` HTTP constructor routes only with both `FIREBASE_AUTH_EMULATOR_HOST` and `FIRESTORE_EMULATOR_HOST` set to loopback `host:port` and a `demo-` project; partial/unsafe inputs or unknown URLs refuse typed, with no redirects, ambient proxy or official-host fallback. Serve prints one fixed activation line on stderr. Default builds ignore the variables; feature builds without them stay production. The never-ships guard pins default/dependency/release-command exclusion; Colab owns the integrated emulator proof. Its sign-in command is `tmt-remote --remote <name> sync sign-in --project demo-<id> --json`; sign-in/revoke reject `--no-open` by design because neither opens a browser.
+
 The native `emulator_artifact_is_the_exact_verified_deployment_output` test runs the existing
 algorithm through the fake provider and real record store, binding its captured Rules bytes
 and independent marker/body digest to `tests/fixtures/rules/deployed.rules`. The emulator

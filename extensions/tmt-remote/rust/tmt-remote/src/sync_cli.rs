@@ -10,8 +10,8 @@ use tmt_cli_style::{CommandSpec, Example, OutputModes};
 use tmt_remote::{
     error::RemoteError,
     firebase_auth::{
-        self as auth, AuthState, Client, Clock, FileStore, Project, RandomJitter, Status,
-        SystemClock, UreqHttp, presentation,
+        self as auth, AuthState, Client, Clock, FileStore, ProductionHttp, Project, RandomJitter,
+        Status, SystemClock, presentation,
     },
     remote_selector,
     state::Layout,
@@ -76,7 +76,7 @@ pub(crate) fn run(
     let project = Project::from_public_config(&selected.public_config).map_err(mapped)?;
     let store = FileStore::new(layout, &selected.project).map_err(mapped)?;
     let clock = Arc::new(SystemClock::default());
-    let http = UreqHttp::new(clock.clone());
+    let http = ProductionHttp::new(&project, clock.clone()).map_err(mapped)?;
     let cancel = Arc::new(AtomicBool::new(false));
     for signal in [signal_hook::consts::SIGINT, signal_hook::consts::SIGTERM] {
         signal_hook::flag::register(signal, cancel.clone())?;
@@ -188,7 +188,7 @@ pub(crate) fn status(
         let project = Project::from_public_config(&selection.public_config).map_err(mapped)?;
         let loaded = (|| {
             let store = FileStore::new(layout.expect("selected layout"), &selection.project)?;
-            let http = UreqHttp::new(clock.clone());
+            let http = ProductionHttp::new(&project, clock.clone())?;
             let cancel = AtomicBool::new(false);
             let mut client = Client::load(
                 project,

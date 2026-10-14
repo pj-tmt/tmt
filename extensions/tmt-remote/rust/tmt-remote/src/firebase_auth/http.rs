@@ -9,13 +9,24 @@ pub struct UreqHttp {
 }
 impl UreqHttp {
     pub fn new(clock: Arc<dyn Clock + Send + Sync>) -> Self {
+        Self::configured(clock, false)
+    }
+    #[cfg(any(test, feature = "test-emulator"))]
+    pub(super) fn loopback(clock: Arc<dyn Clock + Send + Sync>) -> Self {
+        Self::configured(clock, true)
+    }
+    fn configured(clock: Arc<dyn Clock + Send + Sync>, direct: bool) -> Self {
+        let mut config = ureq::Agent::config_builder()
+            .http_status_as_error(false)
+            .max_redirects(0)
+            .max_idle_connections(0);
+        // A proof route must not send its bearer/body to an ambient proxy.
+        // Ordinary product construction retains ureq's existing proxy policy.
+        if direct {
+            config = config.proxy(None);
+        }
         Self {
-            agent: ureq::Agent::config_builder()
-                .http_status_as_error(false)
-                .max_redirects(0)
-                .max_idle_connections(0)
-                .build()
-                .into(),
+            agent: config.build().into(),
             clock,
         }
     }

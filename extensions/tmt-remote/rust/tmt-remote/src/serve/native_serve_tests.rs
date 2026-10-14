@@ -37,6 +37,195 @@ use tmt_remote::{
 };
 
 const NOW: u64 = 1_800_000_000_000;
+
+#[cfg(feature = "test-emulator")]
+#[test]
+fn production_serve_routes_auth_and_carrier_read_to_loopback_and_joins_stop() {
+    use std::{ffi::OsString, io::BufRead, net::TcpListener, os::fd::AsFd};
+    const CASE: &str = "serve::native_serve_tests::production_serve_routes_auth_and_carrier_read_to_loopback_and_joins_stop";
+    if std::env::var("REMOTE_PRODUCTION_SERVE_CASE").as_deref() != Ok(CASE) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap().to_string();
+        let env_root = std::env::temp_dir().join(format!(
+            "remote-production-http-{}",
+            tmt_remote::store::uuid_v4().unwrap()
+        ));
+        fs::create_dir(&env_root).unwrap();
+        fs::set_permissions(&env_root, fs::Permissions::from_mode(0o700)).unwrap();
+        let replies = [
+            (
+                200,
+                json!({"id_token":token(),"expires_in":"3600","refresh_token":"fixture-refresh","user_id":"fixture-user","project_id":"123"}),
+            ),
+            (404, json!({"error":{"status":"NOT_FOUND"}})),
+        ];
+        let (output, requests) = thread::scope(|scope| {
+            let peer = scope.spawn(|| {
+                let mut requests = Vec::new();
+                for (status, body) in replies {
+                    let mut events = [nix::poll::PollFd::new(listener.as_fd(), nix::poll::PollFlags::POLLIN)];
+                    assert!(nix::poll::poll(&mut events, 15_000u16).unwrap() > 0, "production serve did not reach loopback");
+                    let (stream, _) = listener.accept().unwrap();
+                    stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+                    stream.set_write_timeout(Some(Duration::from_secs(5))).unwrap();
+                    let mut reader = std::io::BufReader::new(stream);
+                    let mut header = String::new();
+                    let mut length = 0;
+                    loop {
+                        let mut line = String::new();
+                        assert!(reader.read_line(&mut line).unwrap() > 0);
+                        if line == "\r\n" { break; }
+                        if let Some((name, value)) = line.split_once(':')
+                            && name.eq_ignore_ascii_case("content-length") { length = value.trim().parse().unwrap(); }
+                        header.push_str(&line);
+                    }
+                    assert!(length < 16_384);
+                    let mut payload = vec![0; length];
+                    reader.read_exact(&mut payload).unwrap();
+                    let body = body.to_string();
+                    write!(reader.get_mut(), "HTTP/1.1 {status} Test\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+                    requests.push((header, payload));
+                }
+                requests
+            });
+            let program = std::env::current_exe().unwrap();
+            let args = ["--exact", CASE, "--test-threads=1", "--nocapture"].map(OsString::from);
+            let environment = [
+                (
+                    OsString::from("REMOTE_PRODUCTION_SERVE_CASE"),
+                    OsString::from(CASE),
+                ),
+                (
+                    OsString::from("FIREBASE_AUTH_EMULATOR_HOST"),
+                    OsString::from(&address),
+                ),
+                (
+                    OsString::from("FIRESTORE_EMULATOR_HOST"),
+                    OsString::from(&address),
+                ),
+                (
+                    OsString::from("HTTPS_PROXY"),
+                    OsString::from("http://127.0.0.1:1"),
+                ),
+                (OsString::from("PATH"), OsString::from("/usr/bin:/bin")),
+                (OsString::from("HOME"), env_root.clone().into_os_string()),
+                (
+                    OsString::from("XDG_CONFIG_HOME"),
+                    env_root.clone().into_os_string(),
+                ),
+                (
+                    OsString::from("XDG_DATA_HOME"),
+                    env_root.clone().into_os_string(),
+                ),
+                (
+                    OsString::from("XDG_STATE_HOME"),
+                    env_root.clone().into_os_string(),
+                ),
+                (
+                    OsString::from("XDG_CACHE_HOME"),
+                    env_root.clone().into_os_string(),
+                ),
+                (OsString::from("TMPDIR"), env_root.clone().into_os_string()),
+                (OsString::from("HTTP_PROXY"), OsString::new()),
+                (OsString::from("ALL_PROXY"), OsString::new()),
+                (OsString::from("http_proxy"), OsString::new()),
+                (OsString::from("all_proxy"), OsString::new()),
+                (
+                    OsString::from("NO_PROXY"),
+                    OsString::from("127.0.0.1,localhost,::1"),
+                ),
+                (OsString::from("TMT_AGENT"), OsString::from("1")),
+                (OsString::from("BROWSER"), OsString::from("/usr/bin/true")),
+            ];
+            let output = tmt_invoke::invoke(
+                tmt_invoke::Request {
+                    program: &program,
+                    args: &args,
+                    input: &[],
+                    deadline: Instant::now() + Duration::from_secs(45),
+                    max_stream_bytes: 65_536,
+                    launch: tmt_invoke::LaunchOptions {
+                        environment: tmt_invoke::EnvironmentPolicy::InheritWith(&environment),
+                        ..Default::default()
+                    },
+                },
+                Some(&AtomicBool::new(false)),
+            )
+            .unwrap();
+            (output, peer.join().unwrap())
+        });
+        fs::remove_dir_all(env_root).unwrap();
+        assert!(
+            output.status.success(),
+            "{} {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed; 0 failed"));
+        assert_eq!(
+            String::from_utf8_lossy(&output.stderr)
+                .matches("test-emulator routing active (loopback, demo project)")
+                .count(),
+            1
+        );
+        assert!(
+            requests[0]
+                .0
+                .starts_with("POST /securetoken.googleapis.com/v1/token?key=")
+        );
+        assert_eq!(
+            requests[0].1,
+            b"grant_type=refresh_token&refresh_token=fixture-refresh"
+        );
+        assert!(requests[1].0.starts_with(
+            "GET /v1/projects/demo-remote-1/databases/(default)/documents/x/colab/log/probe "
+        ));
+        let bearer = requests[1].0.lines().find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            name.eq_ignore_ascii_case("authorization")
+                .then(|| value.trim())
+        });
+        let expected = format!("Bearer {}", token());
+        assert_eq!(bearer, Some(expected.as_str()));
+        return;
+    }
+    let fixture = ServeObjectFixture::new();
+    let layout = selected(&fixture);
+    let now = tmt_remote::firebase_auth::SystemClock::default()
+        .now()
+        .wall_ms;
+    private_json(
+        &layout.directory.join("firebase-auth"),
+        "demo-remote-1.json",
+        json!({
+            "version":1,"projectId":"demo-remote-1","uid":"fixture-user","provider":"anonymous",
+            "refreshToken":"fixture-refresh","createdAtMs":now,"expiresAtMs":now+limits::FIREBASE_CREDENTIAL_LIFETIME_MS,
+            "lastUsedAtMs":now,"state":"active"
+        }),
+    );
+    let peer = Peer::start(&fixture);
+    let mut run = ServeObjectRun::start_native_production(&fixture, &EXTENSIONS, declaration());
+    let ready = run.ready();
+    ordinary_page(&ready);
+    assert!(
+        matches!(peer.native.try_recv(), Err(mpsc::TryRecvError::Empty)),
+        "v3 stays opt-in"
+    );
+    let mut channel = peer.activated(&layout);
+    let binding = channel.bind();
+    assert_eq!(binding["result"], "binding");
+    assert_eq!(
+        channel.request(
+            2,
+            "sync.read",
+            json!({"binding":binding["context"]["id"],"target":{"resource":"log","id":"probe"}})
+        ),
+        json!({"result":"read","document":null})
+    );
+    run.finish();
+    fixture.released();
+    assert_eq!(channel.stream.read(&mut [0]).unwrap(), 0);
+}
 fn token() -> String {
     format!("header.{}.signature", URL_SAFE_NO_PAD.encode(serde_json::to_vec(&json!({
         "aud":"demo-remote-1","sub":"fixture-user","firebase":{"sign_in_provider":"anonymous"}
