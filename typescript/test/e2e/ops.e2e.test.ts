@@ -319,12 +319,22 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
         } catch (error) {
           throw new Error(`${String(error)}\n${fixture.capture(24, shell.pane)}`, { cause: error });
         }
-        fixture.tmux(['send-keys', '-t', shell.pane, 'Escape', '0']);
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
+        await fixture.waitForCapture(
+          (screen) => !screen.includes('effective scoped bindings') && screen.includes('2 Agents'),
+          shell.pane
+        );
+        fixture.tmux(['send-keys', '-t', shell.pane, '0']);
         await fixture.waitForCapture(
           (screen) => screen.includes('effective scoped bindings'),
           shell.pane
         );
-        fixture.tmux(['send-keys', '-t', shell.pane, 'Escape', 'q']);
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
+        await fixture.waitForCapture(
+          (screen) => !screen.includes('effective scoped bindings') && screen.includes('2 Agents'),
+          shell.pane
+        );
+        fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
         await fixture.waitForCapture(
           (screen) => screen.includes('MIGRATION_BOARD_EXIT=0'),
           shell.pane
