@@ -75,10 +75,18 @@ mod tests {
         assert_eq!(ids[10], "c11", "ids order numerically, not as text");
         assert_eq!(read.clock, tmt_ops::cron::ClockStatus::NoClock);
         assert_eq!(read.actor.as_ref().unwrap().id, USER);
-        assert!(read.next().is_some());
-        assert_eq!(
-            read.next_of(WORKER).map(|(at, _)| at),
-            read.next().map(|(at, _)| at)
+        assert_eq!(read.read_ms, 0);
+        assert_eq!(ids, (1..=11).map(|n| format!("c{n}")).collect::<Vec<_>>());
+        assert!(
+            read.jobs
+                .iter()
+                .all(|view| view.job.owner_id.as_deref() == Some(WORKER))
+        );
+        assert!(read.jobs.iter().all(|view| view.job.room_id == ROOM));
+        assert!(
+            read.jobs
+                .iter()
+                .all(|view| view.next_ms.first().is_some_and(|at| *at > 0))
         );
     }
 
