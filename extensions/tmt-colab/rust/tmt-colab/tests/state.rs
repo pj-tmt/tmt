@@ -1168,3 +1168,38 @@ fn ack_identity_survives_checkpoint_nine_while_catchup_requires_payload() {
         Err(Fault::StaleEpoch)
     ));
 }
+
+#[test]
+fn a_stream_head_is_its_latest_receipt_and_survives_pruning() {
+    let fixture = Fixture::new();
+    let mut store = Store::open(&fixture.layout()).unwrap();
+    store.create_page("page").unwrap();
+    assert_eq!(store.stream_head(scope()).unwrap(), None);
+    store.append(&envelope(1, Namespace::Content)).unwrap();
+    store.append(&envelope(2, Namespace::Own)).unwrap();
+    assert_eq!(store.stream_head(scope()).unwrap(), Some((2, [2; 32])));
+    // A pair at the head prunes the payloads, and the head stays.
+    for (namespace, hash) in [(Namespace::Content, [8; 32]), (Namespace::Own, [9; 32])] {
+        store
+            .checkpoint(&Envelope {
+                hash,
+                previous: [2; 32],
+                bytes: b"namespace-checkpoint",
+                ..envelope(2, namespace)
+            })
+            .unwrap();
+    }
+    assert_eq!(store.payload(scope(), 1).unwrap(), None);
+    assert_eq!(store.stream_head(scope()).unwrap(), Some((2, [2; 32])));
+    // Another stream and another epoch are separate.
+    let other = StreamScope {
+        stream: "other",
+        ..scope()
+    };
+    assert_eq!(store.stream_head(other).unwrap(), None);
+    let stale = StreamScope {
+        epoch: 2,
+        ..scope()
+    };
+    assert!(matches!(store.stream_head(stale), Err(Fault::StaleEpoch)));
+}

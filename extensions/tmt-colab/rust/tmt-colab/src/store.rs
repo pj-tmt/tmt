@@ -361,6 +361,26 @@ impl Store {
             .optional()?
             .flatten())
     }
+    /// The latest receipt of a stream, which survives pruning of its payload. A stream that has
+    /// never been stored has none.
+    pub fn stream_head(&self, scope: StreamScope<'_>) -> StoreResult<Option<(u64, [u8; 32])>> {
+        current(&self.connection, scope)?;
+        let row: Option<(String, Vec<u8>)> = self
+            .connection
+            .query_row(
+                "SELECT seq,hash FROM receipts WHERE page=? AND epoch=? AND stream=? ORDER BY seq DESC LIMIT 1",
+                params![scope.page, scope.epoch.to_string(), scope.stream],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        row.map(|(seq, hash)| {
+            Ok((
+                seq.parse().map_err(|_| Fault::Invalid)?,
+                hash.try_into().map_err(|_| Fault::Invalid)?,
+            ))
+        })
+        .transpose()
+    }
     /// Bounded namespace inventory, including checkpoint-only namespaces. This
     /// read transaction prevents an epoch transition between admission and reads.
     pub fn namespaces(&self, page: &str, epoch: u64) -> StoreResult<Vec<(String, Namespace)>> {
