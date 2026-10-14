@@ -133,7 +133,10 @@ impl Scene {
             }
             rows.push(json!({"id":format!("level-{level}"), "pieces":pieces}));
         }
-        let mut baseline = vec![json!({"id":"axis", "text":format!("{:>axis_width$}", "0")})];
+        // Keep the existing axis width, with a trailing gutter separating zero
+        // from an incomplete first bucket's coverage marker.
+        let mut baseline =
+            vec![json!({"id":"axis", "text":format!("{:>width$} ", "0", width = axis_width - 1)})];
         for (index, bucket) in series.buckets.iter().enumerate() {
             let label = if bucket.coverage == Coverage::Complete {
                 ""
@@ -412,8 +415,8 @@ mod axis_tests {
                         .map(|index| Bucket {
                             from_ms: index as i64 * 300_000,
                             to_ms: (index + 1) as i64 * 300_000,
-                            tokens: if index == 1 { None } else { Some(index as u64) },
-                            coverage: if index == 1 {
+                            tokens: if index <= 1 { None } else { Some(index as u64) },
+                            coverage: if index <= 1 {
                                 Coverage::Unknown
                             } else if index == 2 {
                                 Coverage::Partial { covered_ms: 50_000 }
@@ -452,6 +455,10 @@ mod axis_tests {
                     let marks: Vec<_> = (hit.rect.x..hit.rect.x + hit.rect.width as i32)
                         .filter(|x| buffer[(*x as u16, 3)].symbol() == "?")
                         .collect();
+                    if index == 0 {
+                        assert_eq!(buffer[(hit.rect.x as u16 - 1, 3)].symbol(), " ");
+                        assert_eq!(buffer[(hit.rect.x as u16 - 2, 3)].symbol(), "0");
+                    }
                     if series.buckets[index].coverage == Coverage::Complete {
                         assert!(marks.is_empty());
                     } else {
