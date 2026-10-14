@@ -452,6 +452,16 @@ fn native_auth_and_sealed_sync_match_the_colab_rules() {
         ready(sync.read(&first.target, &io)).unwrap(),
         Some(first.clone())
     );
+    // The first baseline schedules an idle probe later than this call's budget.
+    // A deadline retains the interest; advance only the fixture clock to the
+    // next due probe, rather than lengthening deadlines or speeding up polling.
+    assert!(matches!(
+        ready(interest.next(&io)),
+        Err(SyncError::Deadline)
+    ));
+    clock
+        .advance
+        .fetch_add(crate::limits::NATIVE_POLL_IDLE_MS, Ordering::SeqCst);
     assert!(matches!(
         ready(interest.next(&io)).unwrap(),
         Change::Changed
