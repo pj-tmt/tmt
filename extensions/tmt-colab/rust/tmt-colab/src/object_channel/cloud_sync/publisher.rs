@@ -220,7 +220,7 @@ impl Publisher {
     }
 }
 /// Remote's typed refusal as the publisher's three outcomes.
-fn refusal(error: &sync::Error) -> Fault {
+pub(super) fn refusal(error: &sync::Error) -> Fault {
     match error.code {
         sync::Code::Budget | sync::Code::Rate => {
             Fault::Budget(error.retry_after_ms.unwrap_or(60_000))

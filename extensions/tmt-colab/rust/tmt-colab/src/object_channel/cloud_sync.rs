@@ -18,6 +18,7 @@ mod fixture;
 mod interests;
 mod local;
 mod publisher;
+mod reader;
 #[cfg(test)]
 mod tests;
 mod worker;
