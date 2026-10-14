@@ -4,19 +4,13 @@ use ratatui::{Terminal, backend::TestBackend};
 mod routing;
 
 fn app(depth: Depth) -> App {
-    let mut app = crate::board::app::workspace::tests::board();
-    let view = app.view.as_mut().unwrap();
-    view.look.depth = depth;
-    for look in view
-        .home
-        .as_mut()
-        .unwrap()
-        .workspace
-        .squad_looks
-        .values_mut()
-    {
-        look.depth = depth;
-    }
+    let app = crate::board::app::workspace::tests::capture_case(
+        "agents",
+        crate::look::Look {
+            theme: tmt_cli_style::Theme::default(),
+            depth,
+        },
+    );
     assert_eq!(app.look().depth, depth);
     app
 }
