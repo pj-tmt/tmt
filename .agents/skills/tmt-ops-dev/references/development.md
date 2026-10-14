@@ -80,7 +80,7 @@ cron_service` and the native `ops.test.ts` cron cases cover actor permission, lo
   clocks unchanged. These buffers are deterministic renderer evidence, not a
   frozen live-terminal clock or permission to regenerate parity.
 - Frame cost: from `rust/`, run `CARGO_BUILD_JOBS=2 cargo test --release --locked
--p tmt-ops workspace_frame_cost -- --ignored --nocapture --test-threads=2` for
+-p tmt-ops conversation_frame_timing -- --ignored --nocapture --test-threads=2` for
   steady, scoped update, response append, Reader scroll, real backend resize,
   1/10/100 KiB paste and typing after paste (36 squads, 150/1,000/10,000 agents,
   2,000 response lines, 160×36 cells). To separate event/paint/diff-and-ANSI phases,
@@ -99,7 +99,8 @@ CARGO_BUILD_JOBS=2 cargo test --release --locked -p tmt-ops workspace_ansi_phase
   surfaces change only their expected regions. Input/paint performs no source I/O.
   An exceeded limit requires diagnosis or an agreed adjustment, not relabelling.
   These are probe/profile limits, not CI gates or user-facing/cross-machine SLOs.
-  `frame_timing` remains an independent CLI crew/team row-painter harness.
+  `workspace_frame_cost` is the separate roster-only 160×50 steady/scroll/resize
+  probe; `frame_timing` is the independent CLI crew/team row-painter harness.
 - Layout validation: `cargo test --locked -p tmt-ops layout` and the native `ops.test.ts`
   offline case cover invalid core/config inputs, located errors, the size bound and the
   human/JSON exit codes.
