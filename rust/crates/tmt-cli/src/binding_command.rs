@@ -638,3 +638,95 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
 
 #[cfg(test)]
 pub(crate) use presentation::PRINTED_HINTS as PRESENTATION_HINTS;
+
+/// Guarded add bypasses optional learning/capture on refusal. It shares the
+/// existing binding/publication policy, with admission before storage creation.
+pub fn execute_guarded(request: Invocation, mode: OutputMode) -> io::Result<u8> {
+    use std::time::{Duration, Instant};
+    use tmt_core::binding::{BindingError, GuardedIdentity};
+    let Invocation::GuardedBind {
+        pane,
+        name,
+        identity,
+        expect,
+        socket,
+        save,
+    } = request
+    else {
+        unreachable!("guarded add")
+    };
+    let mut partial = false;
+    let outcome: Result<_, Failure> = (|| {
+        // Register approved target syntax in memory before name admission, as
+        // ordinary add does; discovery does not widen driver permissions.
+        tmt_adapters::host::external::register_approved();
+        if let Some(name) = &name {
+            tmt_core::names::validate_name(name)
+                .map_err(|error| Failure::new("USAGE_ERROR", error.to_string(), 1))?;
+        }
+        let caller = CallerEnvironment::current();
+        let host = Host::for_caller_with(&caller, tmt_adapters::process::UnixCommandRunner);
+        let paths = ConfigPaths::discover().map_err(Failure::from)?;
+        let candidate = tmt_adapters::discovery::guarded_candidate(
+            &host,
+            socket.as_deref(),
+            &pane,
+            &paths.database,
+            &expect,
+            Instant::now() + Duration::from_secs(2),
+        )
+        .map_err(|error| match error {
+            error @ tmt_adapters::host::HostError::Evidence { .. } => {
+                Failure::new("PANE_CHANGED", error.to_string(), 3).caused_by(error)
+            }
+            error => endpoint_failure(error),
+        })?;
+        let fence = candidate.fence.expect("admitted native fence");
+        let mut storage = open_storage(&paths)?;
+        let mut endpoint = host.session().with_discovery_target(fence.clone());
+        let selector = match identity.as_deref() {
+            Some(id) => GuardedIdentity::Uuid(id),
+            None => GuardedIdentity::Name(name.as_deref().expect("parser selected name")),
+        };
+        let result = binding::bind_guarded(&mut storage, &mut endpoint, &fence, selector, save)
+            .map_err(|error| match error {
+                BindingError::Partial(error) => {
+                    partial = true;
+                    binding_failure(*error)
+                }
+                error => binding_failure(error),
+            });
+        if result.is_ok() {
+            partial = true;
+        } // A close failure follows admitted effects.
+        after_cleanup(result, || storage.close())
+    })();
+    let mut output = tmt_cli_style::stream::stdout(mode.json);
+    match outcome {
+        Ok(result) => {
+            let row = &result.bound.presence;
+            let pane = &row.pane.as_ref().expect("verified binding").id;
+            if mode.json {
+                writeln!(
+                    output,
+                    "{}",
+                    serde_json::json!({"version":1,"status":if result.already_bound {"already_bound"}else{"bound"},"bound":true,"id":row.identity.id,"name":row.identity.name,"pane":pane,"lifetime":row.identity.lifetime.as_str()})
+                )?;
+            } else {
+                writeln!(output, "Bound {:?} on {}", row.identity.name, pane)?;
+            }
+            Ok(0)
+        }
+        Err(error) => {
+            if mode.json {
+                let mut document = error.document();
+                document["status"] = if partial { "partial" } else { "refused" }.into();
+                document["pane"] = pane.into();
+                writeln!(output, "{document}")?;
+                Ok(error.status)
+            } else {
+                error.publish(mode)
+            }
+        }
+    }
+}

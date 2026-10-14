@@ -565,7 +565,7 @@ fn server_id_requires_valid_readback_after_either_set_outcome() {
             Ok("invalid"),
         ]));
         assert_eq!(
-            tmux.ensure_server_id(OperationOptions::default())
+            tmux.ensure_server_id_on(None, OperationOptions::default())
                 .unwrap_err()
                 .kind,
             TmuxFailure::Evidence
@@ -578,7 +578,7 @@ fn server_id_requires_valid_readback_after_either_set_outcome() {
         Err(failure(false)),
     ]));
     let error = tmux
-        .ensure_server_id(OperationOptions::default())
+        .ensure_server_id_on(None, OperationOptions::default())
         .unwrap_err();
     assert!(matches!(error.cause.unwrap().kind, CommandFailure::Timeout));
 }
@@ -609,7 +609,7 @@ fn server_id_preserves_operational_set_failures_without_readback() {
         let expected = error.kind;
         let tmux = Tmux::new(ScriptedRunner::new([Err(unset_server_id()), Err(error)]));
         let error = tmux
-            .ensure_server_id(OperationOptions::default())
+            .ensure_server_id_on(None, OperationOptions::default())
             .unwrap_err();
         assert_eq!(error.cause.unwrap().kind, expected);
         assert_eq!(tmux.runner.calls.borrow().len(), 2);
@@ -620,7 +620,8 @@ fn server_id_preserves_operational_set_failures_without_readback() {
 fn server_id_reads_an_existing_value_without_setting_it() {
     let tmux = Tmux::new(ScriptedRunner::new([Ok(SERVER_ID)]));
     assert_eq!(
-        tmux.ensure_server_id(OperationOptions::default()).unwrap(),
+        tmux.ensure_server_id_on(None, OperationOptions::default())
+            .unwrap(),
         SERVER_ID
     );
     assert_eq!(tmux.runner.calls.borrow().len(), 1);
@@ -634,7 +635,8 @@ fn server_id_reads_back_after_successful_initialization() {
         Ok(SERVER_ID),
     ]));
     assert_eq!(
-        tmux.ensure_server_id(OperationOptions::default()).unwrap(),
+        tmux.ensure_server_id_on(None, OperationOptions::default())
+            .unwrap(),
         SERVER_ID
     );
     assert_eq!(tmux.runner.calls.borrow().len(), 3);

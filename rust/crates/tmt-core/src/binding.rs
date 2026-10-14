@@ -12,7 +12,7 @@ pub use observation::{
     name_presence, pane_presence,
 };
 pub use operations::{
-    bind_auto_identity, bind_identity, bind_identity_at, bind_identity_with_creation,
+    bind_auto_identity, bind_guarded, bind_identity, bind_identity_at, bind_identity_with_creation,
     bind_identity_with_creation_at, name_auto_identity, remove_identity, rename_identity,
     retire_failed_auto_launch, unbind_identity,
 };
@@ -52,6 +52,8 @@ pub struct BindingTargetEvidence {
     pub server: ServerEvidence,
     pub pane_id: String,
     pub pane_pid: u64,
+    pub pane_incarnation: Option<String>,
+    pub discovery: Option<crate::discovery::DiscoveryTarget>,
 }
 
 impl Binding {
@@ -143,6 +145,11 @@ pub struct UnboundIdentity {
 }
 
 pub trait BindingRecords: IdentityReader {
+    fn insert_identity(
+        &mut self,
+        name: &ValidatedName,
+        lifetime: crate::identity::Lifetime,
+    ) -> Result<Identity, Self::Error>;
     fn is_auto_named(&self, identity_id: &str) -> Result<bool, Self::Error>;
     fn save_identity(&mut self, identity: &Identity) -> Result<Identity, Self::Error>;
 
@@ -237,6 +244,25 @@ pub trait BindingEndpoint {
     ) -> Result<Option<String>, Self::Error>;
 }
 
+#[derive(Clone, Copy)]
+pub enum GuardedIdentity<'a> {
+    Name(&'a str),
+    Uuid(&'a str),
+}
+
+#[derive(Debug)]
+pub struct GuardedBoundIdentity {
+    pub bound: BoundIdentity,
+    pub already_bound: bool,
+}
+
+pub trait GuardedBindingEndpoint: BindingEndpoint {
+    fn discovery_target(
+        &mut self,
+        pane: &str,
+    ) -> Result<Option<crate::discovery::DiscoveryTarget>, Self::Error>;
+}
+
 #[derive(Debug)]
 pub enum BindingError<R, O> {
     InvalidName(NameError),
@@ -252,6 +278,9 @@ pub enum BindingError<R, O> {
     Deadline,
     Repository(R),
     Endpoint(O),
+    /// Guarded admission completed; host effects may survive SQL rollback or a
+    /// failed commit. Never claim a refusal without effects or automatic replay.
+    Partial(Box<BindingError<R, O>>),
     /// The binding failed with `error`, and retiring the temporary identity
     /// this invocation had just created failed too (`cleanup`).
     CleanupFailed {
@@ -284,6 +313,7 @@ impl<R, O: fmt::Display> fmt::Display for BindingError<R, O> {
             Self::Deadline => output.write_str("Identity coordination deadline exceeded."),
             Self::Repository(_) => output.write_str("Could not update identity state."),
             Self::Endpoint(error) => error.fmt(output),
+            Self::Partial(error) => write!(output,"Guarded binding may have partial host effects: {error}"),
             Self::CleanupFailed { error, .. } => error.fmt(output),
         }
     }
@@ -295,7 +325,7 @@ impl<R: Error + 'static, O: Error + 'static> Error for BindingError<R, O> {
             Self::InvalidName(error) => Some(error),
             Self::Repository(error) => Some(error),
             Self::Endpoint(error) => Some(error),
-            Self::CleanupFailed { error, .. } => Some(error.as_ref()),
+            Self::Partial(error) | Self::CleanupFailed { error, .. } => Some(error.as_ref()),
             _ => None,
         }
     }

@@ -366,6 +366,8 @@ fn frozen_target_rejects_pane_id_reuse_before_publication() {
         server: endpoint.server.clone(),
         pane_id: "%1".into(),
         pane_pid: endpoint.pane_mut("%1").pane_pid,
+        pane_incarnation: None,
+        discovery: None,
     };
     endpoint.replace_pane_after_current = Some(2);
 

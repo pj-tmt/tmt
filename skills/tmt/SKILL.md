@@ -441,13 +441,34 @@ Conclusive pane loss or explicit unbind retires temporary identities; saved
 identities remain offline. Native `rm <name>` retires a temporary identity;
 saved removal needs `--force`. Removal never kills a pane and removes only its
 role/preamble, retaining exchanges and historical ownership. Reusing a retired
-name gets a fresh UUID. A bind refused because the pane or name is taken (or the
+name gets a fresh UUID. An ordinary unguarded bind refused because the pane or name is taken (or the
 pane changed) retires the temporary identity it had just created. Only an
 uncertain publication (`Unverified`, endpoint failure, deadline) can leave a
 never-bound temporary identity offline for retry; do not mistake missing binding
 for pane death.
 Check the selected executable's help instead of inferring capabilities from
 a remembered version number.
+
+### Candidate panes and guarded add
+
+`tmt discover [--host HOST] [--socket PATH] --json` returns a bounded, read-only
+candidate inventory. It does not initialize server metadata, reconcile bindings,
+create identities or install/launch anything. This slice supports tmux; Herdr
+and other hosts report `unsupported`. Unknown, stale, hook-only, conflicting and
+permission/offline observations remain explicit data. A truncated scan supplies
+no adoption expectations. Titles, argv hints and names are untrusted text to
+render inert; a runtime hint proves neither readiness nor identity.
+
+Select one native-verified candidate explicitly using its `pane` and `expect`:
+`add <pane> <new-name> --expect <digest>` creates a new temporary identity
+(`-s` saves it); `add <pane> --identity <uuid> --expect <digest>` links that exact
+existing UUID. The forms are mutually exclusive, and guarded name mode refuses
+an existing canonical name even if offline. Pass the same `--socket` when scan
+selected one. Changed or unknown native/ownership evidence refuses before binding
+effects. A fresh expectation for the same UUID/target is `already_bound`;
+failures after admission report `partial` and never claim host rollback or replay.
+The [discovery contract](https://github.com/pj-tmt/tmt/blob/main/contracts/discovery-v1.md)
+owns the public JSON, limits and per-item outcomes.
 
 ### Durable identity creation and discovery
 

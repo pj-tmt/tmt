@@ -243,11 +243,11 @@ a working directory, active pane or sole identity.
 
 ### Identity, names and bindings
 
-- `tmt-core::names` owns canonical identity classification; pane-target syntax
-  belongs to each host. `identity` owns lifetime and storage-only create/promote
-  policy, `identity_metadata` and `identity_status` own descriptive, untrusted data
-  that grants no authority (including the [atomic metadata contract](contracts/extension-api.md#conditional-identity-metadata)), and `binding` owns evidence evaluation, retirement
-  authorization and binding use cases.
+- `tmt-core::names` owns canonical names; hosts own pane-target syntax.
+  `identity` owns lifetime/create/promote; `identity_metadata`/`identity_status`
+  own untrusted descriptions granting no authority ([atomic metadata](contracts/extension-api.md#conditional-identity-metadata)).
+  `binding` owns evidence, retirement and binds. [Discovery v1](contracts/discovery-v1.md)
+  owns candidate bounds and native/UUID fences; guarded `add` uses that binder.
 - Unknown or conflicting endpoint evidence is never proof of death. Saved
   identities detach and stay offline; temporary identities retire only on
   conclusive evidence or explicit unbind, and exchanges are kept. Presence is

@@ -3,6 +3,7 @@ mod consumption_history;
 mod context;
 mod database_rename;
 mod digest_hook;
+mod discovery;
 mod dispatch;
 mod errors;
 mod host_servers;

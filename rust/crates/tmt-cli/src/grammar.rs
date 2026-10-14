@@ -120,6 +120,7 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
     .subcommand(launch::channel())
     .subcommand(presence::list_command())
     .subcommand(presence::add())
+    .subcommand(presence::discover())
     .subcommand(presence::name())
     .subcommand(presence::marked())
     .subcommand(presence::remove())
