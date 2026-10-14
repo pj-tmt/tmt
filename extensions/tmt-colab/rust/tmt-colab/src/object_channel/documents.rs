@@ -1,5 +1,7 @@
 //! Colab's declared sealed-document mapping, without provider or effect authority.
 //! These codecs neither enable cloud sync nor admit a signature, role or epoch.
+pub mod originals;
+
 use serde_json::{Map, Value, json};
 use tmt_colab_model::{crypto, values};
 use tmt_extension_objects::{Sha256Hex, sync};

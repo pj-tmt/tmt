@@ -238,6 +238,9 @@ impl Client {
         }
         self.0.changed.notify_all();
     }
+    pub(crate) fn end_generation(&self) {
+        self.0.stop();
+    }
     pub(crate) fn generation(&self) -> Uuid4 {
         self.0.generation
     }
