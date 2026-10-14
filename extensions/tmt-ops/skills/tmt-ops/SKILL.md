@@ -766,6 +766,11 @@ output.
 
 The boxed composer stays at the conversation bottom when an agent is shown.
 Default Enter or a click focuses it; list actions remain available while idle.
+At eight terminal rows, the Agents composer fills the body and member rows are
+hidden. Esc leaves typing with the draft kept; ↑/↓ still change the selected target.
+With list focus, default Home selects Common pool and restores the group tree.
+Select a member to return to its retained draft, or enlarge the terminal to show
+more of the list.
 Talk, reply and annotation use a multiline editor. Left/Right and Home/End move the
 caret; Shift with movement selects; Backspace/Delete remove selected text or a
 grapheme. Click places the caret and drag selects. Enter submits. Shift+Enter inserts

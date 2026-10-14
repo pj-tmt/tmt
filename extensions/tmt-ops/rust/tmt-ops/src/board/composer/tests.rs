@@ -187,6 +187,116 @@ fn agents_composer_is_visible_idle_and_escape_keeps_the_uuid_draft_at_every_widt
 }
 
 #[test]
+fn eight_row_composer_keeps_arrow_selection_and_home_restores_the_list() {
+    use crate::board::{app::Effect, workspace::OpsTarget};
+    use crate::config::{OpsLayout, Pane};
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use tmt_cli_style::{Depth, Theme, theme::Base};
+    for (base, depth) in [
+        (Base::Tmt, Depth::TrueColor),
+        (Base::TmtLight, Depth::TrueColor),
+        (Base::Terminal, Depth::Ansi16),
+        (Base::Tmt, Depth::None),
+    ] {
+        for preference in [OpsLayout::Auto, OpsLayout::Side, OpsLayout::Stack] {
+            for width in [60, 80, 100, 160] {
+                let mut app = crate::board::app::workspace::tests::board();
+                let view = app.view.as_mut().unwrap();
+                view.look = crate::look::Look {
+                    theme: Theme::new(base),
+                    depth,
+                };
+                view.home.as_mut().unwrap().workspace.preferences.layout = preference;
+                let member = app.workspace.selected.clone();
+                draw(&mut app, width, 8);
+                assert_eq!(
+                    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+                    Effect::None
+                );
+                app.paste("eight-row draft");
+                let key = app.input.as_ref().unwrap().draft_key.clone();
+                assert_eq!(
+                    app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+                    Effect::None
+                );
+                let buffer = draw(&mut app, width, 8);
+                let painted: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
+                assert!(app.input.is_none() && app.focused() == Pane::Rows);
+                assert_eq!(app.input_band.get().unwrap().height, 4);
+                assert!(app.hits.borrow().iter().all(|hit| hit.row().is_none()));
+                assert!(
+                    painted.contains("Message → worker") && painted.contains("eight-row draft")
+                );
+                assert_eq!(app.workspace.selected, member);
+
+                assert_eq!(
+                    app.key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)),
+                    Effect::None
+                );
+                let buffer = draw(&mut app, width, 8);
+                assert_eq!(
+                    app.workspace.selected,
+                    Some(OpsTarget::Squad(
+                        crate::board::app::workspace::tests::ROOM.into()
+                    ))
+                );
+                assert!(app.input_band.get().is_none());
+                assert!(app.hits.borrow().iter().any(|hit| hit.row().is_some()));
+                assert!(
+                    buffer
+                        .content
+                        .iter()
+                        .map(|cell| cell.symbol())
+                        .collect::<String>()
+                        .contains("product")
+                );
+                assert_eq!(
+                    app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)),
+                    Effect::None
+                );
+                draw(&mut app, width, 8);
+                assert_eq!(app.workspace.selected, member);
+                assert_eq!(
+                    app.composer_projection().unwrap().text.unwrap().as_str(),
+                    "eight-row draft"
+                );
+
+                assert_eq!(
+                    app.key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE)),
+                    Effect::None
+                );
+                let buffer = draw(&mut app, width, 8);
+                assert_eq!(app.workspace.selected, Some(OpsTarget::Pool));
+                assert!(app.input_band.get().is_none());
+                assert!(app.hits.borrow().iter().any(|hit| hit.row().is_some()));
+                assert!(
+                    buffer
+                        .content
+                        .iter()
+                        .map(|cell| cell.symbol())
+                        .collect::<String>()
+                        .contains("Common pool")
+                );
+                for _ in 0..2 {
+                    assert_eq!(
+                        app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)),
+                        Effect::None
+                    );
+                }
+                draw(&mut app, width, 8);
+                assert_eq!(app.workspace.selected, member);
+                assert_eq!(
+                    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+                    Effect::None
+                );
+                assert_eq!(app.input.as_ref().unwrap().draft_key, key);
+                assert_eq!(app.input.as_ref().unwrap().text.as_str(), "eight-row draft");
+            }
+        }
+    }
+}
+
+#[test]
 fn clicking_idle_composer_focuses_and_send_keeps_an_empty_editor_ready() {
     use ratatui::crossterm::event::{
         KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
