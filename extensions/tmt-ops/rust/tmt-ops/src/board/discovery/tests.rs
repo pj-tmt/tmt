@@ -398,7 +398,7 @@ fn click(c: &mut Controller, id: &str) -> Option<Task> {
 fn real_surface_confirmation_requires_all_target_notes_and_choices_visible() {
     let mut c = controller();
     assert!(c.review(AgentSelector::NewName("worker".into()), false));
-    assert!(paint(&c, 160, 36).contains("Confirm binding"));
+    assert!(paint(&c, 160, 36).contains("Bind agent"));
     assert!(c.readable.get());
     c.ui.borrow_mut().invalidate();
     c.readable.set(false);

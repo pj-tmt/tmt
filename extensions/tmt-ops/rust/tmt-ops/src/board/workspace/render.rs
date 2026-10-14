@@ -990,17 +990,6 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
         .saturating_add(editor_rows)
         .saturating_add(4)
         .min(26) as u16;
-    let bounds = if short {
-        let height = bounds.height.min(demand_height);
-        Rect::new(
-            bounds.x,
-            bounds.y + (bounds.height - height) / 2,
-            bounds.width,
-            height,
-        )
-    } else {
-        bounds
-    };
     let areas = modal.areas(bounds, [80, demand_height], true, false);
     modal.paint(areas, frame.buffer_mut(), &look.theme, look.depth);
     app.input_band.set(Some(areas.outer));
@@ -1096,7 +1085,7 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
             painted[0].filter(|_| areas.content.height > 1),
             painted[1].filter(|_| apply_enabled),
         ]);
-        let start = painted.iter().flatten().map(Rect::right).max()
+        let start = painted.iter().flatten().map(|area| area.right()).max()
             .unwrap_or(areas.footer.x).saturating_add(1).min(areas.footer.right());
         if start < areas.footer.right() {
             let hint = Rect::new(
