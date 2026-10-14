@@ -9,7 +9,10 @@ fn escape_returns_one_level_and_never_quits_the_board() {
         let expanded = app.workspace.expanded.clone();
         paint(&app, width, height);
         assert_eq!(key(&mut app, KeyCode::Esc), Effect::None);
-        assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
+        assert_eq!(
+            app.perform(&crate::action::Action::parse("inspect").unwrap()),
+            Effect::None
+        );
         let screen = paint(&app, width, height).join("\n");
         assert!(screen.contains("Conversation · worker"), "{screen}");
         assert!(screen.contains("Esc back"), "{screen}");
@@ -50,7 +53,7 @@ fn destination_bindings_leave_conversation_and_dismiss_read_only_owners() {
         paint(&app, 160, 36);
         match owner {
             "conversation" => {
-                key(&mut app, KeyCode::Enter);
+                app.perform(&crate::action::Action::parse("inspect").unwrap());
             }
             "help" => {
                 key(&mut app, KeyCode::Char('?'));
@@ -87,7 +90,7 @@ fn destination_bindings_leave_conversation_and_dismiss_read_only_owners() {
 fn typing_search_and_message_capture_q_and_digits_and_keep_the_draft() {
     let mut app = board();
     paint(&app, 160, 36);
-    key(&mut app, KeyCode::Char('t'));
+    key(&mut app, KeyCode::Enter);
     for ch in "q123".chars() {
         assert_eq!(key(&mut app, KeyCode::Char(ch)), Effect::None);
     }
@@ -97,7 +100,7 @@ fn typing_search_and_message_capture_q_and_digits_and_keep_the_draft() {
     assert!(app.input.is_none());
     assert_eq!(key(&mut app, KeyCode::Esc), Effect::None);
     assert_eq!(app.focused_pane(), Some(Pane::Rows));
-    key(&mut app, KeyCode::Char('t'));
+    key(&mut app, KeyCode::Enter);
     assert_eq!(app.input.as_ref().unwrap().text.as_str(), "q123");
     key(&mut app, KeyCode::Esc);
     key(&mut app, KeyCode::Esc);
@@ -116,7 +119,7 @@ fn typing_search_and_message_capture_q_and_digits_and_keep_the_draft() {
 fn covered_editor_is_not_typing_owner_and_destination_keeps_its_uuid_draft() {
     let mut app = board();
     paint(&app, 160, 36);
-    key(&mut app, KeyCode::Char('t'));
+    key(&mut app, KeyCode::Enter);
     for ch in "kept".chars() {
         key(&mut app, KeyCode::Char(ch));
     }
@@ -130,7 +133,7 @@ fn covered_editor_is_not_typing_owner_and_destination_keeps_its_uuid_draft() {
     assert!(!app.help);
     assert!(app.input.is_none());
     assert_eq!(app.shell.tab, OpsTab::Agents);
-    key(&mut app, KeyCode::Char('t'));
+    key(&mut app, KeyCode::Enter);
     assert_eq!(app.input.as_ref().unwrap().text.as_str(), "kept");
 }
 
@@ -141,7 +144,7 @@ fn configured_destination_and_reader_entry_share_the_effective_table() {
         json!({"id":MEMBER,"name":"worker","presence":"active"}),
     );
     paint(&app, 160, 36);
-    key(&mut app, KeyCode::Enter);
+    app.perform(&crate::action::Action::parse("inspect").unwrap());
     assert_eq!(
         key(&mut app, KeyCode::Char('v')),
         Effect::Act(Request::Copy {
@@ -153,7 +156,7 @@ fn configured_destination_and_reader_entry_share_the_effective_table() {
     assert_eq!(app.shell.tab, OpsTab::Digest);
     assert_eq!(app.focused_pane(), Some(Pane::Rows));
     key(&mut app, KeyCode::Char('2'));
-    key(&mut app, KeyCode::Enter);
+    app.perform(&crate::action::Action::parse("inspect").unwrap());
     key(&mut app, KeyCode::Char('?'));
     assert_eq!(key(&mut app, KeyCode::F(2)), Effect::None);
     assert!(!app.help);
@@ -343,7 +346,7 @@ fn q_steps_back_in_overlays_and_release_events_do_not_switch_tabs() {
     key(&mut app, KeyCode::Char('?'));
     assert_eq!(key(&mut app, KeyCode::Char('q')), Effect::None);
     assert!(!app.help);
-    key(&mut app, KeyCode::Enter);
+    app.perform(&crate::action::Action::parse("inspect").unwrap());
     assert_eq!(app.focused_pane(), Some(Pane::Replies));
     let mut release = KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE);
     release.kind = ratatui::crossterm::event::KeyEventKind::Release;
