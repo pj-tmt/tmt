@@ -459,7 +459,7 @@ plan rather than introducing a global theme synchronizer.
 
 | Owner after foundation merge | Exclusive source/barrel                                                                                          | Exclusive gallery fragment                                      |
 | ---------------------------- | ---------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| Slice2 Primitives            | `src/ui/{button,input,textarea,checkbox,switch,separator,badge,alert,tabs}.tsx`, `src/ui/primitives.ts`   | `test/fixtures/ui/primitives.tsx`                               |
+| Slice2 Primitives            | `src/ui/{button,input,textarea,checkbox,switch,separator,badge,alert,tabs}.tsx`, `src/ui/primitives.ts`          | `test/fixtures/ui/primitives.tsx`                               |
 | Slice3 Layers                | `src/ui/{dialog,sheet,dropdown-menu,tooltip,popover}.tsx`, `src/ui/layers.ts`                                    | `test/fixtures/ui/layers.tsx`                                   |
 | Slice4 Selection             | `src/ui/{command,combobox,chips}.tsx`, `src/ui/selection.ts`                                                     | `test/fixtures/ui/selection.tsx`                                |
 | Foundation/integrator        | `src/ui/index.ts`, `src/ui/{utils.ts,theme.tsx}`, provenance, generator/policy, package/lock, `generated/ui.css` | `test/fixtures/ui/foundation.tsx`, browser fixture wrapper/spec |

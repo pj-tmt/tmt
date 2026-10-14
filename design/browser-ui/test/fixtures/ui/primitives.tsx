@@ -193,7 +193,7 @@ export function PrimitiveFixtures() {
         <TabsContent value="south">South panel</TabsContent>
       </Tabs>
       <Button type="button" variant="outline" onClick={() => setActions((count) => count + 1)}>
-        Outside action
+        Additional action
       </Button>
     </section>
   );

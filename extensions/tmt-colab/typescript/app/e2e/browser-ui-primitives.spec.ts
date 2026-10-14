@@ -156,6 +156,10 @@ for (const width of [320, 390, 1440])
       await expect(tab).toHaveCSS('outline-width', tokens.browser.metric['focus-width']);
       await expect(tab).toHaveCSS('outline-color', rgb(tokens.browser.color.focus[theme]));
       await expect(tab).toHaveCSS('border-radius', '0px');
+      await expect(page.getByRole('tab', { name: 'Second', exact: true })).toHaveCSS(
+        'background-color',
+        'rgba(0, 0, 0, 0)',
+      );
       await scope.screenshot({ path: info.outputPath(`primitives-${width}-${theme}-states.png`) });
       expect(
         await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
