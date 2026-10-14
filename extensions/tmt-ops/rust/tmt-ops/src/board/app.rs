@@ -246,6 +246,11 @@ pub enum Effect {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Choice {
     WorkspaceBegin(super::workspace::manage::Kind),
+    WorkspaceRoom {
+        kind: super::workspace::manage::Kind,
+        identity_id: String,
+        room_id: String,
+    },
     WorkspaceLayout(crate::config::OpsLayout),
     Checklist,
     Action(Action),
@@ -2362,6 +2367,11 @@ impl App {
     pub(super) fn choose(&mut self, choice: Choice) -> Effect {
         match choice {
             Choice::WorkspaceBegin(kind) => self.workspace_begin(kind),
+            Choice::WorkspaceRoom {
+                kind,
+                identity_id,
+                room_id,
+            } => self.workspace_choose_room(kind, &identity_id, &room_id),
             Choice::WorkspaceLayout(layout) => self.workspace_layout(layout),
             Choice::Checklist => self.open_checklist(),
             Choice::Action(action) => self.perform(&action),
@@ -3272,6 +3282,11 @@ impl App {
     /// Refuse pointer and viewport authority from a superseded frame. Offsets
     /// and drafts survive; only a new paint can publish interactive geometry.
     pub(super) fn invalidate_frame_geometry(&self) {
+        if let Some(menu) = &self.menu
+            && let Some(surface) = menu.surface.borrow_mut().as_mut()
+        {
+            surface.invalidate();
+        }
         self.usage_chart.borrow_mut().invalidate_geometry();
         if let Some(details) = &self.usage_details {
             details.borrow_mut().invalidate();

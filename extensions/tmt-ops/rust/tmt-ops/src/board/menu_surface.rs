@@ -39,6 +39,10 @@ fn row_id(index: usize) -> String {
 }
 
 impl MenuSurface {
+    pub fn invalidate(&mut self) {
+        self.state.invalidate();
+    }
+
     pub fn new(title: &str, entries: &[MenuEntry]) -> Self {
         let key_width = entries
             .iter()

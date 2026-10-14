@@ -1,7 +1,10 @@
 //! Staged workspace forms share App's Editor. Review freezes exact IDs before
 //! the action lane can write; a result never automatically resubmits a partial.
-use super::{OpsMember, OpsTarget};
-use crate::board::app::{App, Compose, Effect, Request};
+use super::{OpsMember, OpsObservation, OpsTarget};
+use crate::board::{
+    app::{App, Choice, Compose, Effect, Menu, MenuEntry, Request},
+    shell::OpsTab,
+};
 use crate::membership::workspace::{Operation, RoomTarget};
 use ratatui::layout::Rect;
 use std::{
@@ -385,6 +388,74 @@ fn room(app: &App, id: &str) -> Option<RoomTarget> {
         revision: row["revision"].as_u64()?,
     })
 }
+
+fn flat_member_context(tab: OpsTab, room_id: Option<&str>) -> bool {
+    tab != OpsTab::Agents || room_id.is_none()
+}
+
+fn context_text(text: &str) -> String {
+    tmt_cli_style::table::escape(&crate::board::notes::sanitize(text))
+        .chars()
+        .take(160)
+        .collect()
+}
+
+fn incomplete_context(app: &App, room_id: Option<&str>) -> String {
+    let Some(home) = app.view.as_ref().and_then(|view| view.home.as_ref()) else {
+        return "Workspace evidence is unavailable; refresh first.".into();
+    };
+    let squad = room_id
+        .and_then(|id| {
+            home.workspace
+                .roster
+                .squads
+                .iter()
+                .find(|squad| squad.room_id == id)
+        })
+        .or_else(|| {
+            room_id
+                .is_none()
+                .then(|| {
+                    home.workspace
+                        .roster
+                        .squads
+                        .iter()
+                        .find(|squad| squad.observation != OpsObservation::Complete)
+                })
+                .flatten()
+        });
+    if let Some(failure) = home.failures.iter().find(|failure| {
+        room_id.is_none()
+            || squad.is_some_and(|squad| failure["squad"].as_str() == Some(&squad.name))
+    }) {
+        let source = failure["squad"].as_str().unwrap_or("workspace");
+        let reason = failure["error"]["message"]
+            .as_str()
+            .unwrap_or("source data is unavailable");
+        return format!(
+            "Couldn't read {}: {}; refresh first.",
+            context_text(source),
+            context_text(reason)
+        );
+    }
+    if let Some(squad) = squad {
+        let cause = match squad.observation {
+            OpsObservation::Complete => "squad details are incomplete",
+            OpsObservation::Partial => "squad roster is partial",
+            OpsObservation::Stale => "squad roster is stale",
+            OpsObservation::Unavailable => "squad data is unavailable",
+        };
+        return format!("{} {cause}; refresh first.", context_text(&squad.name));
+    }
+    match home.workspace.roster.observation {
+        OpsObservation::Complete => "Squad memberships are incomplete; refresh first.",
+        OpsObservation::Partial => "The identity roster is partial; refresh first.",
+        OpsObservation::Stale => "The identity roster is stale; refresh first.",
+        OpsObservation::Unavailable => "The identity roster is unavailable; refresh first.",
+    }
+    .into()
+}
+
 impl App {
     pub(in crate::board) fn workspace_reference_field(&self) -> bool {
         self.workspace_form.as_ref().is_some_and(|draft| {
@@ -496,6 +567,17 @@ impl App {
         }
     }
     pub(in crate::board) fn workspace_begin(&mut self, kind: Kind) -> Effect {
+        self.workspace_begin_in_room(kind, None)
+    }
+    pub(in crate::board) fn workspace_choose_room(
+        &mut self,
+        kind: Kind,
+        identity_id: &str,
+        room_id: &str,
+    ) -> Effect {
+        self.workspace_begin_in_room(kind, Some((identity_id, room_id)))
+    }
+    fn workspace_begin_in_room(&mut self, kind: Kind, chosen: Option<(&str, &str)>) -> Effect {
         if let Some(draft) = &mut self.workspace_form
             && (!draft.shown || draft.stage == Stage::Pending)
         {
@@ -520,7 +602,7 @@ impl App {
         let Some(snapshot) = self.workspace_snapshot() else {
             return self.say("The workspace has not loaded.");
         };
-        let (selected_room, mut member) = match self.workspace.selected.as_ref() {
+        let (mut selected_room, mut member) = match self.workspace.selected.as_ref() {
             Some(OpsTarget::Squad(id)) => (room(self, id), None),
             Some(OpsTarget::Member {
                 room_id,
@@ -534,15 +616,102 @@ impl App {
         if kind != Kind::Create && !self.workspace_selection_visible() {
             return self.say("Select a visible target explicitly.");
         }
-        if matches!(
+        let needs_room = matches!(
             kind,
             Kind::Add | Kind::Lead | Kind::RenameSquad | Kind::Remove
-        ) && selected_room.is_none()
-        {
-            return self.say("A complete squad snapshot is required; refresh first.");
-        }
+        );
         if matches!(kind, Kind::Remove | Kind::Assign | Kind::RenameMember) && member.is_none() {
             return self.say("Select a named member first.");
+        }
+        let flat = matches!(
+            self.workspace.selected.as_ref(),
+            Some(OpsTarget::Member { room_id, .. })
+                if flat_member_context(self.shell.tab, room_id.as_deref())
+        );
+        if let Some((identity_id, _)) = chosen
+            && (!flat
+                || member
+                    .as_ref()
+                    .is_none_or(|member| member.id != identity_id))
+        {
+            return self.say("The selected agent changed; reopen the squad picker.");
+        }
+        if needs_room && flat {
+            if !snapshot.roster.complete() {
+                return self.say(incomplete_context(self, None));
+            }
+            let Some(member) = member.as_ref() else {
+                return self.say("Select a named member first.");
+            };
+            let name: String = context_text(&member.name).chars().take(64).collect();
+            let mut memberships = Vec::new();
+            for squad in &snapshot.roster.squads {
+                if squad.members.contains(&member.id) {
+                    let Some(target) = room(self, &squad.room_id) else {
+                        return self.say(incomplete_context(self, Some(&squad.room_id)));
+                    };
+                    memberships.push(target);
+                }
+            }
+            memberships.sort_by(|a, b| a.name.cmp(&b.name).then(a.id.cmp(&b.id)));
+            if let Some((_, room_id)) = chosen {
+                selected_room = memberships.into_iter().find(|room| room.id == room_id);
+                if selected_room.is_none() {
+                    return self.say("That squad membership changed; reopen the squad picker.");
+                }
+            } else {
+                match memberships.len() {
+                    0 => {
+                        return self.say(if kind == Kind::Remove {
+                            format!("{name} is not in a squad.")
+                        } else {
+                            format!(
+                                "{name} is not in a squad; select a squad for {}.",
+                                kind.label()
+                            )
+                        });
+                    }
+                    1 => selected_room = memberships.pop(),
+                    _ => {
+                        let title = if kind == Kind::Remove {
+                            format!("Remove {name} from:")
+                        } else {
+                            format!("{} · {name} · choose squad", kind.label())
+                        };
+                        let identity_id = member.id.clone();
+                        self.menu = Some(Menu {
+                            row_send: None,
+                            link: None,
+                            prefill: String::new(),
+                            title,
+                            entries: memberships
+                                .into_iter()
+                                .map(|room| MenuEntry {
+                                    key: String::new(),
+                                    label: context_text(&room.name),
+                                    choice: Choice::WorkspaceRoom {
+                                        kind,
+                                        identity_id: identity_id.clone(),
+                                        room_id: room.id,
+                                    },
+                                })
+                                .collect(),
+                            selected: 0,
+                            surface: Default::default(),
+                        });
+                        return Effect::None;
+                    }
+                }
+            }
+        } else if needs_room && selected_room.is_none() {
+            return self.say(match self.workspace.selected.as_ref() {
+                Some(OpsTarget::Squad(room_id))
+                | Some(OpsTarget::Member {
+                    room_id: Some(room_id),
+                    ..
+                }) => incomplete_context(self, Some(room_id)),
+                _ => "Select a visible squad for this operation.".into(),
+            });
         }
         if kind == Kind::RenameMember {
             let member = member.as_mut().expect("selected member checked above");
