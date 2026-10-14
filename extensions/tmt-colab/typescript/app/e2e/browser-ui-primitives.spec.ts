@@ -274,6 +274,20 @@ for (const width of [320, 390, 1440])
           return r ? r.y + r.height : Infinity;
         })
         .toBeLessThanOrEqual(421);
+      await expect(list).toHaveAttribute('aria-busy', 'true');
+      await expect(page.getByLabel('Choice and change count')).toHaveText('alpha:0');
+      await page.keyboard.press('End');
+      const last = page.getByRole('option', {
+        name: 'Long choice 12: retained full accessible name',
+      });
+      await expect(last).toBeFocused();
+      const lastRect = await last.boundingBox();
+      expect(lastRect).not.toBeNull();
+      expect(lastRect!.y).toBeGreaterThanOrEqual(0);
+      expect(lastRect!.y + lastRect!.height).toBeLessThanOrEqual(421);
+      await page.keyboard.press('Enter');
+      await expect(list).toBeVisible();
+      await expect(page.getByLabel('Choice and change count')).toHaveText('alpha:0');
       await page.screenshot({
         path: info.outputPath(`primitives-${width}-${theme}-reduced-viewport.png`),
       });
