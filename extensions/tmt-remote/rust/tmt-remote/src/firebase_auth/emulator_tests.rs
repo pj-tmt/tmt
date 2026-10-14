@@ -493,18 +493,19 @@ fn native_auth_and_sealed_sync_match_the_colab_rules() {
         ready(sync.publish(&Mutation::Create(third.clone()), &io)),
         Err(SyncError::Denied)
     ));
-    assert_eq!(
-        ready(sync.read(&third.target, &io)).unwrap(),
-        None,
-        "refused create must not publish a row"
-    );
+    // Colab's get rule reads stored scope metadata: an absent row is denied,
+    // not a user-visible 404. Do not treat that refusal as proof of absence.
+    assert!(matches!(
+        ready(sync.read(&third.target, &io)),
+        Err(SyncError::Denied)
+    ));
     admin(firestore_port, &member_key, Some(&member("editor")));
     assert!(
         matches!(
             ready(sync.publish(&Mutation::Create(third), &io)).unwrap(),
             Published::Confirmed
         ),
-        "same valid target must succeed with editor authority"
+        "exclusive create on the same valid target must be newly confirmed, not already present; the denied attempt stored nothing"
     );
     admin(firestore_port, &member_key, None);
     assert!(matches!(
