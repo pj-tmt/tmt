@@ -113,9 +113,7 @@ fn rows_and_authority_come_first_then_each_original_in_order_and_is_confirmed() 
     assert_eq!(
         kinds(&rig),
         [
-            "read spaces/s",
             "create spaces/s",
-            "read authority/a1",
             "create authority/a1",
             "create log/log-1",
             "create log/log-2",

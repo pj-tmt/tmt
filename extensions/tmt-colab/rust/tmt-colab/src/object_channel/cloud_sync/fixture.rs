@@ -192,7 +192,20 @@ impl Firestore {
                     .unwrap()
                     .get(&(target.resource.clone(), target.id.clone()))
                     .map(|fields| seal(&target.resource, &target.id, fields.clone()));
-                sync::Outcome::Read { document }
+                // Colab's Rules allow a get only on a document that exists.
+                match document {
+                    Some(document) => sync::Outcome::Read {
+                        document: Some(document),
+                    },
+                    None => sync::Outcome::Error {
+                        error: sync::Error {
+                            code: sync::Code::Denied,
+                            state: None,
+                            reset_at_ms: None,
+                            retry_after_ms: None,
+                        },
+                    },
+                }
             }
             sync::Call::Publish { mutation, .. } => {
                 let (kind, document) = match mutation {

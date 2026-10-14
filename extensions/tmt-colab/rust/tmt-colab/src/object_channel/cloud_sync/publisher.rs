@@ -116,28 +116,30 @@ impl Publisher {
             .map(|(_, outcome)| outcome)
             .map_err(|_| Fault::Retry)
     }
-    fn read(&self, target: &sync::Target) -> Result<Option<sync::Document>, Fault> {
+    /// What the cloud holds at a target after a create whose outcome is in doubt. Rules refuse a
+    /// get of a document that is not there, so a refusal reads as absent: the create that
+    /// follows reports a denial that is real.
+    fn read_back(&self, target: &sync::Target) -> Result<Option<sync::Document>, Fault> {
         match self.request(sync::Call::Read {
             binding: self.binding.clone(),
             target: target.clone(),
         })? {
             sync::Outcome::Read { document } => Ok(document),
+            sync::Outcome::Error { error } if error.code == sync::Code::Denied => Ok(None),
             sync::Outcome::Error { error } => Err(refusal(&error)),
             _ => Err(Fault::Retry),
         }
     }
-    /// Read first, then create only what is absent: authority and admission rows are
-    /// published once per process, and a later expiry never makes them conflict.
+    /// Create what is not there yet. The carrier answers an identical document as already
+    /// present and reads back an expiry-only difference, so no read comes first: Rules do not
+    /// allow one for a document that does not exist. Authority and admission rows are created
+    /// once per process.
     fn create_once(&mut self, document: sync::Document) -> Result<(), Fault> {
         let key = (document.target.resource.clone(), document.target.id.clone());
         if self.present.contains_key(&key) {
             return Ok(());
         }
-        match self.read(&document.target)? {
-            Some(existing) if comparable(&existing.fields) == comparable(&document.fields) => {}
-            Some(_) => return Err(Fault::Stuck("A cloud record conflicts with this space.")),
-            None => self.create(&document)?,
-        }
+        self.create(&document)?;
         self.present.insert(key, None);
         Ok(())
     }
@@ -196,7 +198,7 @@ impl Publisher {
         }
     }
     fn reconcile(&self, document: &sync::Document) -> Result<(), Fault> {
-        match self.read(&document.target)? {
+        match self.read_back(&document.target)? {
             Some(existing) if comparable(&existing.fields) == comparable(&document.fields) => {
                 Ok(())
             }
