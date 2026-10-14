@@ -159,7 +159,10 @@ impl App {
             .conversation
             .borrow()
             .pane
-            .filter(|pane| pane.height >= 9)?;
+            .filter(|pane| pane.height > 0)?;
+        if self.composer_projection().is_some() {
+            return Some(pane);
+        }
         let input = self.input.as_ref()?;
         let target = self.conversation_target()?;
         // Placement follows the selected membership being discussed. A note
@@ -228,8 +231,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
         .detail(&Target::Row(target.clone()))
         .and_then(|detail| detail.reply);
     let input_height = app.conversation_input_area().map_or(0, |pane| {
-        super::view::waiting::input_lines(app, pane).min(usize::from(area.height.saturating_sub(4)))
-            as u16
+        super::view::waiting::input_lines(app, pane).min(usize::from(area.height)) as u16
     });
     let area = if input_height > 0 {
         app.input_band.set(Some(Rect::new(

@@ -9,11 +9,15 @@ fn app() -> App {
     app
 }
 fn open(app: &mut App, name: &str) {
-    app.ask(
-        String::new(),
-        Compose::Talk { to: name.into() },
-        "product".into(),
-    );
+    let index = app
+        .rows()
+        .iter()
+        .position(|(_, row)| row["name"] == name)
+        .unwrap();
+    let target = app.row_target(index).unwrap();
+    let squad = app.target_squad(&target).unwrap();
+    let send = app.send_target(target, true).unwrap();
+    app.compose_row(send, crate::action::Verb::Talk, squad);
 }
 fn close(app: &mut App) {
     app.remember_draft();
@@ -129,4 +133,89 @@ fn unrelated_action_feedback_does_not_clear_a_pending_message() {
     app.finish_draft(false);
     open(&mut app, "auth-fix");
     assert_eq!(app.input.as_ref().unwrap().text, "unfinished");
+}
+
+fn draw(app: &mut App, width: u16, height: u16) -> ratatui::buffer::Buffer {
+    use ratatui::{Terminal, backend::TestBackend};
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+    terminal
+        .draw(|frame| {
+            crate::board::view::prepare(app, frame.area());
+            crate::board::view::render(frame, app);
+        })
+        .unwrap();
+    terminal.backend().buffer().clone()
+}
+
+#[test]
+fn agents_composer_is_visible_idle_and_escape_keeps_the_uuid_draft_at_every_width() {
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    for width in [160, 100, 60] {
+        let mut app = crate::board::app::workspace::tests::board();
+        let buffer = draw(&mut app, width, 18);
+        let painted: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
+        assert!(painted.contains("Message worker…"), "{width}: {painted}");
+        assert!(app.input.is_none());
+        assert!(app.input_band.get().unwrap().height >= 1);
+        app.key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+        let key = app.input.as_ref().unwrap().draft_key.clone().unwrap();
+        assert_eq!(key.1, crate::board::app::workspace::tests::MEMBER);
+        app.paste("retained exact draft");
+        app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(app.input.is_none());
+        assert_eq!(app.focused(), crate::config::Pane::Rows);
+        let buffer = draw(&mut app, width, 18);
+        let painted: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
+        assert!(
+            painted.contains("retained exact draft"),
+            "{width}: {painted}"
+        );
+        app.key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+        assert!(app.input.is_none(), "idle list keys never edit the draft");
+        app.key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+        assert_eq!(app.input.as_ref().unwrap().draft_key.as_ref(), Some(&key));
+        assert_eq!(
+            app.input.as_ref().unwrap().text.as_str(),
+            "retained exact draft"
+        );
+    }
+}
+
+#[test]
+fn clicking_idle_composer_focuses_and_send_keeps_an_empty_editor_ready() {
+    use ratatui::crossterm::event::{
+        KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    };
+    for width in [160, 100, 60] {
+        let mut app = crate::board::app::workspace::tests::board();
+        draw(&mut app, width, 18);
+        let (area, _) = app.input_viewport.get().unwrap();
+        assert_eq!(
+            app.mouse(
+                MouseEvent {
+                    kind: MouseEventKind::Down(MouseButton::Left),
+                    column: area.x,
+                    row: area.y,
+                    modifiers: KeyModifiers::NONE,
+                },
+                std::time::Instant::now()
+            ),
+            crate::board::app::Effect::None
+        );
+        assert!(app.input.is_some());
+        app.paste("a real outgoing message");
+        assert!(
+            matches!(app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            crate::board::app::Effect::Act(crate::board::app::Request::Talk { text, to, .. })
+                if text == "a real outgoing message" && to == "worker")
+        );
+        assert!(app.input.as_ref().unwrap().text.is_empty());
+        draw(&mut app, width, 18);
+        assert!(app.input_viewport.get().is_some());
+        app.finish_draft(false);
+        assert_eq!(
+            app.input.as_ref().unwrap().text.as_str(),
+            "a real outgoing message"
+        );
+    }
 }

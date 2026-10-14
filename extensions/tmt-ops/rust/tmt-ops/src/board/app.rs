@@ -344,7 +344,7 @@ pub enum RowTarget {
 /// The observed note recipient, including its identity when the source supplies it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct NoteRecipient {
-    id: Option<String>,
+    pub(super) id: Option<String>,
     name: String,
 }
 
@@ -409,6 +409,7 @@ impl RowSend {
 }
 
 /// Shared message editor; the application owns submission and recipient fences.
+#[derive(Clone)]
 pub struct Input {
     pub(super) draft_key: Option<(String, String)>,
     pub(super) row_send: Option<RowSend>,
@@ -2074,8 +2075,13 @@ impl App {
             squad,
             hint: None,
         });
-        self.bind_draft();
-        self.restore_draft();
+        if matches!(
+            self.input.as_ref().unwrap().compose,
+            Compose::AskLead { .. }
+        ) {
+            self.bind_draft();
+            self.restore_draft();
+        }
         Effect::None
     }
 
@@ -2261,6 +2267,9 @@ impl App {
         let open = self.request_entries(&send);
         if verb != Verb::Talk && !(verb == Verb::Annotate && send.note_member) && !open.is_empty() {
             if open.len() > 1 {
+                self.remember_draft();
+                self.input = None;
+                self.mentions = Default::default();
                 self.menu = Some(Menu {
                     row_send: Some(send.clone()),
                     link: None,
@@ -2462,6 +2471,8 @@ impl App {
             input.row_send = Some(send);
             input.prompt = input.header();
         }
+        self.bind_draft();
+        self.restore_draft();
         self.workspace_focus_conversation();
         self.follow = true;
     }
@@ -2660,8 +2671,13 @@ impl App {
                 }
                 let cron = matches!(input.compose, Compose::Cron);
                 let digest = matches!(input.compose, Compose::Digest(_));
+                let conversation = input.draft_key.is_some();
                 self.input = None;
                 self.status_draft = None;
+                if conversation {
+                    self.focus = 0;
+                    self.invalidate_frame_geometry();
+                }
                 if cron {
                     self.cron_draft = None;
                     return self.say("Cancelled; nothing changed.");
@@ -2708,7 +2724,15 @@ impl App {
             return self
                 .say("Still working on the previous request; press Enter again in a moment.");
         }
-        let input = self.input.take().expect("composing");
+        let persistent = self
+            .input
+            .as_ref()
+            .is_some_and(|input| input.draft_key.is_some());
+        let input = if persistent {
+            self.input.as_ref().unwrap().clone()
+        } else {
+            self.input.take().expect("composing")
+        };
         if input.compose == Compose::Workspace {
             return self.workspace_submit_field(input.text.into_string());
         }
@@ -2780,6 +2804,13 @@ impl App {
                 .say("Message including quotes exceeds 1 MiB; nothing sent. Draft retained.");
         }
         self.sending_draft(&input);
+        if persistent {
+            self.input = Some(Input {
+                text: Default::default(),
+                response_quotes: Vec::new(),
+                ..input.clone()
+            });
+        }
         let direct = input.row_send.as_ref().and_then(|send| match &send.target {
             RowTarget::Workspace(super::workspace::OpsTarget::Member {
                 room_id: None,
@@ -3478,6 +3509,42 @@ impl App {
         if self.mention_mouse(event) {
             return Effect::None;
         }
+        if event.kind == MouseEventKind::Down(MouseButton::Left) {
+            let in_composer = self
+                .input_band
+                .get()
+                .is_some_and(|area| area.contains((event.column, event.row).into()));
+            if self.input.is_none() && in_composer && self.composer_projection().is_some() {
+                let viewport = self.input_viewport.get();
+                let effect = self.perform(&Action::parse("talk").expect("built-in Talk action"));
+                if let Some((area, skip)) = viewport
+                    && area.contains((event.column, event.row).into())
+                    && let Some(input) = self
+                        .input
+                        .as_mut()
+                        .filter(|input| input.draft_key.is_some())
+                {
+                    input.text.place(
+                        area.width,
+                        skip + usize::from(event.row - area.y),
+                        usize::from(event.column - area.x),
+                        false,
+                    );
+                }
+                return effect;
+            }
+            if !in_composer
+                && self
+                    .input
+                    .as_ref()
+                    .is_some_and(|input| input.draft_key.is_some())
+            {
+                self.remember_draft();
+                self.input = None;
+                self.mentions = Default::default();
+                self.focus = 0;
+            }
+        }
         if self.input.is_some() {
             if self
                 .input
@@ -4054,14 +4121,15 @@ pub(crate) mod tests {
                 text: "q j -rf; $(x)".into()
             })
         );
-        assert!(app.input.is_none());
+        assert!(app.input.as_ref().unwrap().text.is_empty());
         app.finish_draft(true);
         app.finished(Ok("sent".into()));
 
-        press(&mut app, KeyCode::Char('t'));
+        // Send leaves the empty editor ready; no reopening key is required.
         typed(&mut app, "   ");
         assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
         assert_eq!(app.notice.as_deref(), Some("Nothing sent."));
+        press(&mut app, KeyCode::Esc);
         press(&mut app, KeyCode::Char('t'));
         typed(&mut app, "draft");
         assert_eq!(press(&mut app, KeyCode::Esc), Effect::None);
@@ -4118,8 +4186,9 @@ pub(crate) mod tests {
                 text: "postgres".into()
             })
         );
-        // Return from the conversation to the tree before choosing the next agent.
-        press(&mut app, KeyCode::Tab);
+        // The editor remains ready after Send; Escape returns to the tree.
+        press(&mut app, KeyCode::Esc);
+        assert_eq!(app.focused(), Pane::Rows);
         press(&mut app, KeyCode::Down);
         app.perform(&Action::parse("reply").unwrap());
         assert!(app.menu.is_none());

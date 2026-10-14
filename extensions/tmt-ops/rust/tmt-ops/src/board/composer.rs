@@ -3,13 +3,19 @@
 use std::collections::BTreeMap;
 use tmt_tui::components::Editor;
 
-use super::app::{App, Compose, Input};
+use super::app::{App, Compose, Input, RowTarget};
 
 type DraftKey = (String, String);
 #[derive(Clone, PartialEq, Eq)]
-struct Draft {
+pub(super) struct Draft {
     text: Editor,
     quotes: Vec<super::response::Quote>,
+}
+pub(super) struct Projection<'a> {
+    pub recipient: &'a str,
+    pub text: Option<&'a Editor>,
+    pub quotes: &'a [super::response::Quote],
+    pub focused: bool,
 }
 impl Draft {
     fn from_input(input: &Input) -> Self {
@@ -31,54 +37,70 @@ impl State {
     }
 }
 impl App {
-    fn resolve_draft(&self, input: &Input) -> Option<DraftKey> {
-        let name = match &input.compose {
-            Compose::Talk { to } | Compose::AskLead { to, .. } | Compose::Annotate { to, .. } => to,
-            Compose::Reply { from, .. } => from,
+    fn draft_identity(&self, input: &Input) -> Option<DraftKey> {
+        if let Compose::AskLead { sender, to } = &input.compose {
+            let view = self.view.as_ref()?;
+            let lead = &view.document["squad"]["lead"];
+            return (view.me.as_ref() == Some(sender) && lead["name"].as_str() == Some(to))
+                .then(|| Some((view.me_id.clone()?, lead["id"].as_str()?.to_owned())))?;
+        }
+        let send = input.row_send.as_ref()?;
+        let recipient = match &input.compose {
+            Compose::Talk { .. } | Compose::Reply { .. } => match &send.target {
+                RowTarget::Workspace(super::workspace::OpsTarget::Member {
+                    identity_id, ..
+                }) => identity_id.clone(),
+                RowTarget::Member { id, .. } | RowTarget::Lead { id, .. } => id.clone(),
+                _ => return None,
+            },
+            Compose::Annotate { .. } => send.note_recipient.as_ref()?.id.clone()?,
             _ => return None,
         };
-        let sender = match &input.compose {
-            Compose::AskLead { sender, .. } => sender.clone(),
-            _ => input
-                .row_send
-                .as_ref()
-                .map(|send| send.sender.clone())
-                .or_else(|| self.view.as_ref()?.me.clone())?,
-        };
-        let sender = input
-            .draft_key
-            .as_ref()
-            .map(|key| key.0.clone())
-            .or_else(|| {
-                let view = self.view.as_ref()?;
-                (view.me.as_deref() == Some(sender.as_str()))
-                    .then(|| view.me_id.clone())
-                    .flatten()
-            })?;
-        let recipient = self
-            .rows()
-            .into_iter()
-            .find_map(|(_, row)| {
-                (row["name"].as_str() == Some(name.as_str()))
-                    .then(|| row["id"].as_str().map(str::to_owned))
-                    .flatten()
-            })
-            .or_else(|| {
-                let lead = &self.view.as_ref()?.document["squad"]["lead"];
-                (lead["name"].as_str() == Some(name.as_str()))
-                    .then(|| lead["id"].as_str().map(str::to_owned))
-                    .flatten()
-            })?;
-        Some((sender, recipient))
+        Some((send.sender_id.clone()?, recipient))
     }
     pub(super) fn bind_draft(&mut self) {
         let key = self
             .input
             .as_ref()
-            .and_then(|input| self.resolve_draft(input));
+            .and_then(|input| self.draft_identity(input));
         if let Some(input) = &mut self.input {
             input.draft_key = key;
         }
+    }
+    pub(super) fn composer_projection(&self) -> Option<Projection<'_>> {
+        let target = self.conversation_target()?;
+        let row = self.target_row(&target)?;
+        if let Some(input) = self
+            .input
+            .as_ref()
+            .filter(|input| input.target() == Some(&target))
+        {
+            let recipient = match &input.compose {
+                Compose::Talk { to } | Compose::Annotate { to, .. } => to.as_str(),
+                Compose::Reply { from, .. } => from.as_str(),
+                _ => return None,
+            };
+            return Some(Projection {
+                recipient,
+                text: Some(&input.text),
+                quotes: &input.response_quotes,
+                focused: true,
+            });
+        }
+        if self.input.is_some() {
+            return None;
+        }
+        let key = (
+            self.view.as_ref()?.me_id.clone().unwrap_or_default(),
+            row["id"].as_str()?.to_owned(),
+        );
+        let draft = self.composer.drafts.get(&key);
+        Some(Projection {
+            recipient: row["name"].as_str()?,
+            text: draft.map(|draft| &draft.text),
+            quotes: draft.map_or(&[], |draft| draft.quotes.as_slice()),
+            focused: false,
+        })
     }
     pub(super) fn remember_draft(&mut self) {
         if let Some(input) = self.input.as_ref()
@@ -110,11 +132,22 @@ impl App {
             .map(|key| (key, Draft::from_input(input)));
     }
     pub(super) fn finish_draft(&mut self, success: bool) {
-        if let Some((key, sent)) = self.composer.pending.take()
-            && success
-            && self.composer.drafts.get(&key) == Some(&sent)
-        {
-            self.composer.drafts.remove(&key);
+        if let Some((key, sent)) = self.composer.pending.take() {
+            if success {
+                if self.composer.drafts.get(&key) == Some(&sent) {
+                    self.composer.drafts.remove(&key);
+                }
+            } else {
+                if let Some(input) = self.input.as_mut().filter(|input| {
+                    input.draft_key.as_ref() == Some(&key)
+                        && input.text.is_empty()
+                        && input.response_quotes.is_empty()
+                }) {
+                    input.text = sent.text.clone();
+                    input.response_quotes = sent.quotes.clone();
+                }
+                self.composer.drafts.entry(key).or_insert(sent);
+            }
         }
     }
 }

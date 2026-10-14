@@ -1993,10 +1993,9 @@ fn a_composer_with_its_own_key_legend_does_not_advertise_list_shortcuts() {
         assert!(app.input.is_none());
         let lines = paint(&app, width, 36);
         assert!(lines.last().unwrap().contains("Nothing sent."));
-        // Escape keeps the selected conversation focused. Tab restores the
-        // list and its effective action hints, after clearing the notice.
-        assert_eq!(app.focused_pane(), Some(Pane::Replies));
-        key(&mut app, KeyCode::Tab);
+        // Escape restores list focus while the UUID draft stays in the visible
+        // passive composer. Clearing the notice reveals effective list hints.
+        app.notice = None;
         assert_eq!(app.focused_pane(), Some(Pane::Rows));
         let lines = paint(&app, width, 36);
         assert!(
@@ -2146,6 +2145,42 @@ fn selected_tree_rows_keep_uniform_reverse_fallback_and_clipped_hit_bounds() {
                 }
             }
         }
+    }
+}
+
+#[test]
+fn passive_composer_preserves_footer_bindings_notice_error_modal_and_reload_precedence() {
+    for width in [160, 100, 60] {
+        let mut app = board();
+        assert!(paint(&app, width, 18).last().unwrap().contains("j host"));
+        assert!(app.input_band.get().is_some() && app.input.is_none());
+        key(&mut app, KeyCode::Char('t'));
+        assert!(paint(&app, width, 18).last().unwrap().trim().is_empty());
+        app.reload = crate::board::reload::Watch::due();
+        let lines = paint(&app, width, 18);
+        assert!(lines.last().unwrap().contains("reload waiting"));
+        assert!(!lines.last().unwrap().contains("j host"));
+        key(&mut app, KeyCode::Esc);
+        assert!(
+            paint(&app, width, 18)
+                .last()
+                .unwrap()
+                .contains("Nothing sent.")
+        );
+        app.reload = Default::default();
+        app.notice = None;
+        app.error = Some("Acquired source unavailable".into());
+        assert!(
+            paint(&app, width, 18)
+                .last()
+                .unwrap()
+                .contains("Acquired source unavailable")
+        );
+        app.error = None;
+        app.help = true;
+        assert!(paint(&app, width, 18).last().unwrap().trim().is_empty());
+        app.help = false;
+        assert!(paint(&app, width, 18).last().unwrap().contains("j host"));
     }
 }
 

@@ -114,6 +114,13 @@ pub(in crate::board) fn input_lines(
     app: &crate::board::app::App,
     area: ratatui::layout::Rect,
 ) -> usize {
+    if let Some(projection) = app.composer_projection() {
+        return projection
+            .text
+            .map_or(1, |text| text.layout(area.width).lines.len().clamp(1, 6))
+            + 1
+            + usize::from(!projection.quotes.is_empty());
+    }
     let Some(input) = &app.input else { return 0 };
     let demand = match input.compose {
         crate::board::app::Compose::Status => {
@@ -155,6 +162,91 @@ pub(super) fn inline_prompt(
     };
     use tmt_cli_style::Role;
     use tmt_tui::components::{Modal, Placement};
+    if let Some(projection) = app.composer_projection()
+        && let Some(band) = app.input_band.get().map(|band| band.intersection(body))
+    {
+        if band.is_empty() {
+            return;
+        }
+        let look = app.look();
+        for y in band.y..band.bottom() {
+            strip::paint_left(
+                frame.buffer_mut(),
+                Rect::new(band.x, y, band.width, 1),
+                Line::styled(String::new(), look.role(Role::Text)),
+            );
+        }
+        let header_rows = u16::from(band.height > 1);
+        if header_rows > 0 {
+            strip::paint_left(
+                frame.buffer_mut(),
+                Rect::new(band.x, band.y, band.width, 1),
+                Line::styled(
+                    if projection.focused {
+                        format!(
+                            "{} · Enter send · Esc list",
+                            app.input.as_ref().unwrap().header()
+                        )
+                    } else {
+                        format!("→ {} · t or click to write", projection.recipient)
+                    },
+                    look.role(Role::Muted),
+                ),
+            );
+        }
+        let quote_rows = u16::from(!projection.quotes.is_empty() && band.height > header_rows + 1);
+        if quote_rows > 0 {
+            strip::paint_left(
+                frame.buffer_mut(),
+                Rect::new(band.x, band.y + header_rows, band.width, 1),
+                Line::styled(
+                    format!(
+                        "{} quote(s) · {} · Alt-Backspace removes",
+                        projection.quotes.len(),
+                        projection.quotes.last().unwrap().label()
+                    ),
+                    look.role(Role::Muted),
+                ),
+            );
+        }
+        let editor_area = Rect::new(
+            band.x,
+            band.y + header_rows + quote_rows,
+            band.width,
+            band.height - header_rows - quote_rows,
+        );
+        if projection.focused {
+            editor(frame, app, editor_area);
+        } else if let Some(text) = projection.text.filter(|text| !text.is_empty()) {
+            let layout = text.layout(editor_area.width);
+            let skip = layout.reveal(0, editor_area.height);
+            layout.paint(
+                frame.buffer_mut(),
+                editor_area,
+                skip,
+                0..0,
+                look.role(Role::Text),
+                look.role(Role::Text),
+            );
+            app.input_viewport.set(Some((editor_area, skip)));
+        } else {
+            strip::paint_left(
+                frame.buffer_mut(),
+                editor_area,
+                Line::styled(
+                    format!("Message {}…", projection.recipient),
+                    look.role(Role::Dim),
+                ),
+            );
+            app.input_viewport.set(Some((editor_area, 0)));
+        }
+        app.hits.borrow_mut().retain(|hit| {
+            Rect::new(hit.x, hit.y, hit.width, 1)
+                .intersection(band)
+                .is_empty()
+        });
+        return;
+    }
     let (Some(input), Some(reserved)) = (&app.input, app.input_band.get()) else {
         return;
     };

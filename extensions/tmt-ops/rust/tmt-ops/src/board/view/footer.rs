@@ -444,7 +444,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
         Line::from(Span::styled(notice.as_str(), look.role(Role::Waiting)))
     } else if let Some(error) = &app.error {
         Line::from(Span::styled(error.as_str(), look.role(Role::Blocked)))
-    } else if app.modal_open() || app.input_band.get().is_some() {
+    } else if app.modal_open() || (app.input.is_some() && app.input_band.get().is_some()) {
         // Notices and errors above stay; the base key hints would misname the keys.
         Line::default()
     } else {
