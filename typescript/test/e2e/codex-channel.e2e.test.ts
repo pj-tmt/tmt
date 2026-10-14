@@ -6,10 +6,13 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vite-plus/test';
-import { withE2EFixture as withFixture, type E2EFixture } from './harness.js';
+import {
+  readCompleteJsonLines,
+  withE2EFixture as withFixture,
+  type E2EFixture,
+} from './harness.js';
 import { installTmuxTrace, type TmuxTrace } from './tmux-trace.js';
 import { waitForFileContent } from './wait-for-file.js';
-import { readCompleteJsonLines } from './harness/readiness.js';
 
 // Existing channel-positive scenarios explicitly opt in within private fixture state.
 const withE2EFixture: typeof withFixture = (callback, options) =>

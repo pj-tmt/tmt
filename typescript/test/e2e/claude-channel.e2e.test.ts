@@ -7,11 +7,15 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vite-plus/test';
 import { expectJsonResult } from './cli-assertions.js';
-import { withE2EFixture as withFixture, type CliResult, type E2EFixture } from './harness.js';
+import {
+  readCompleteJsonLines,
+  withE2EFixture as withFixture,
+  type CliResult,
+  type E2EFixture,
+} from './harness.js';
 import { requestAttempts } from './request-state-oracle.js';
 import { installTmuxTrace, type TmuxTrace } from './tmux-trace.js';
 import { waitForFileContent } from './wait-for-file.js';
-import { readCompleteJsonLines } from './harness/readiness.js';
 
 // Existing channel-positive scenarios explicitly opt in within private fixture state.
 const withE2EFixture: typeof withFixture = (callback, options) =>
