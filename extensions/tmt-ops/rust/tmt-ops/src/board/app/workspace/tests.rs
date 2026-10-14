@@ -459,6 +459,194 @@ fn paint(app: &App, width: u16, height: u16) -> Vec<String> {
         .collect()
 }
 
+fn painted_member_row(app: &App, width: u16, height: u16) -> String {
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+    terminal
+        .draw(|frame| crate::board::view::render(frame, app))
+        .unwrap();
+    let index = app
+        .workspace_rows()
+        .iter()
+        .position(|row| Some(&row.target) == app.workspace.selected.as_ref())
+        .unwrap();
+    let hits = app.hits.borrow();
+    let hit = hits
+        .iter()
+        .find(|hit| hit.row() == Some(index))
+        .expect("selected member is painted");
+    (hit.x..hit.x + hit.width)
+        .map(|x| terminal.backend().buffer()[(x, hit.y)].symbol())
+        .collect()
+}
+
+#[test]
+fn workspace_presence_is_observed_separately_from_member_state_and_missing_data() {
+    for state in [None, Some("idle"), Some("working")] {
+        for presence in [None, Some(true), Some(false)] {
+            let mut app = board();
+            let selected = app.workspace.selected.clone().unwrap();
+            let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+            let member = snapshot.roster.members.get_mut(MEMBER).unwrap();
+            member.state = state.map(str::to_owned);
+            member.presence = presence;
+            snapshot.roster.squads[0]
+                .member_states
+                .get_mut(MEMBER)
+                .unwrap()
+                .state = state.map(str::to_owned);
+            snapshot.rows.get_mut(&selected).unwrap()["state"] = json!(state);
+            let row = painted_member_row(&app, 100, 24);
+            assert!(
+                row.contains(&format!("worker · {}", state.unwrap_or("unreported"))),
+                "{row}"
+            );
+            assert_eq!(row.contains(" · active"), presence == Some(true), "{row}");
+            assert_eq!(row.contains(" · offline"), presence == Some(false), "{row}");
+            assert_eq!(app.workspace_selection_state(), SelectionState::Visible);
+            assert_eq!(app.workspace.selected, Some(selected));
+        }
+    }
+}
+
+#[test]
+fn compact_workspace_labels_keep_name_state_and_complete_source_units() {
+    use crate::labels::{Label, Supplied};
+    let mut app = board();
+    app.labels = Supplied::from_rows(vec![(
+        "digest".into(),
+        [(
+            MEMBER.into(),
+            vec![
+                Label {
+                    text: "Auto".into(),
+                    role: tmt_cli_style::Role::Text,
+                    action: None,
+                },
+                Label {
+                    text: "17 held".into(),
+                    role: tmt_cli_style::Role::Muted,
+                    action: None,
+                },
+                Label {
+                    text: "tail-extra-whole".into(),
+                    role: tmt_cli_style::Role::Muted,
+                    action: None,
+                },
+            ],
+        )]
+        .into(),
+    )]);
+    for width in [40, 60, 100] {
+        let row = painted_member_row(&app, width, 36);
+        assert!(row.contains("worker · working"), "{width}: {row}");
+        assert_eq!(
+            row.contains("digest"),
+            row.contains("digest Auto"),
+            "{width}: {row}"
+        );
+        assert_eq!(
+            row.contains("17"),
+            row.contains("17 held"),
+            "{width}: {row}"
+        );
+        assert_eq!(
+            row.contains("tail"),
+            row.contains("tail-extra-whole"),
+            "{width}: {row}"
+        );
+        if width == 40 {
+            assert!(!row.contains("digest"), "{row}");
+        }
+        if width == 100 {
+            assert!(
+                row.contains("17 held") && row.contains("tail-extra-whole"),
+                "{row}"
+            );
+        }
+    }
+}
+
+#[test]
+fn workspace_rows_wheel_preserves_uuid_and_keyboard_focus_until_explicit_navigation() {
+    for focus in [0, 1] {
+        let mut app = populated_board(1, 100);
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .preferences
+            .layout = crate::config::OpsLayout::Side;
+        app.select(80);
+        app.focus = focus;
+        paint(&app, 160, 36);
+        let selected = app.workspace.selected.clone();
+        let keyboard = app.focused_pane();
+        let rows = app.scrolls.offset(Pane::Rows);
+        let replies = app.scrolls.offset(Pane::Replies);
+        assert!(rows > 0);
+        let hit = *app
+            .hits
+            .borrow()
+            .iter()
+            .find(|hit| hit.row() == Some(80))
+            .unwrap();
+        for _ in 0..3 {
+            assert_eq!(
+                app.mouse(
+                    MouseEvent {
+                        kind: MouseEventKind::ScrollUp,
+                        column: hit.x + 1,
+                        row: hit.y,
+                        modifiers: KeyModifiers::NONE,
+                    },
+                    Instant::now()
+                ),
+                Effect::None
+            );
+        }
+        paint(&app, 160, 36);
+        assert!(app.scrolls.offset(Pane::Rows) < rows);
+        assert_eq!(app.scrolls.offset(Pane::Replies), replies);
+        assert_eq!(app.workspace.selected, selected);
+        assert_eq!(app.focused_pane(), keyboard);
+        if focus == 1 {
+            key(&mut app, KeyCode::Tab);
+        }
+        assert_eq!(app.focused_pane(), Some(Pane::Rows));
+        key(&mut app, KeyCode::Down);
+        let next = app.workspace_rows()[81].target.clone();
+        assert_eq!(app.workspace.selected, Some(next));
+        paint(&app, 160, 36);
+        assert!(
+            app.hits.borrow().iter().any(|hit| hit.row() == Some(81)),
+            "keyboard navigation reveals the explicit next UUID"
+        );
+    }
+}
+
+#[test]
+fn configured_paging_key_runs_its_action_before_default_tree_navigation() {
+    let mut app = configured_member(
+        "[bind]\npagedown = \"copy {name}\"\n",
+        json!({"id":MEMBER,"name":"worker"}),
+    );
+    paint(&app, 100, 24);
+    let selected = app.workspace.selected.clone();
+    let offset = app.scrolls.offset(Pane::Rows);
+    assert_eq!(
+        key(&mut app, KeyCode::PageDown),
+        Effect::Act(Request::Copy {
+            text: "worker".into(),
+            program: None
+        })
+    );
+    assert_eq!(app.workspace.selected, selected);
+    assert_eq!(app.scrolls.offset(Pane::Rows), offset);
+}
+
 #[test]
 fn frame_rows_share_one_projection_and_release_it_after_nested_paint_or_unwind() {
     let app = board();
@@ -1205,6 +1393,18 @@ fn supplied_label_role_and_choice_hit_survive_the_workspace_tree_and_digest_tab(
     use crate::labels::{Label, Supplied};
     use tmt_cli_style::Role;
     let mut app = board();
+    let target = app.workspace.selected.clone().unwrap();
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .rows
+        .get_mut(&target)
+        .unwrap()["digest"] =
+        json!({"active":true,"digestUntilMs":crate::status::now_ms() + 60_000,"heldCount":99});
     let choose = crate::labels::Choose::parse("digest", &json!({"kind":"choose","argv":["digest","mode","{value}","--identity",MEMBER],"current":"auto","options":[{"value":"auto","label":"Auto"}]})).unwrap();
     app.labels = Supplied::from_rows(vec![(
         "digest".into(),
@@ -1231,6 +1431,10 @@ fn supplied_label_role_and_choice_hit_survive_the_workspace_tree_and_digest_tab(
             let screen = paint(&app, width, 36).join("\n");
             assert!(screen.contains("digest Auto ▾"), "{tab:?}: {screen}");
             assert!(screen.contains("1 held"));
+            assert!(
+                !screen.contains("99 held"),
+                "supplied labels replace the policy chip: {screen}"
+            );
             let mut terminal = Terminal::new(TestBackend::new(width, 36)).unwrap();
             terminal
                 .draw(|frame| crate::board::view::render(frame, &app))
