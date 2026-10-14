@@ -31,7 +31,6 @@ fn hint_word(app: &App, action: &crate::action::Action) -> &'static str {
         Verb::Annotate => "write",
         Verb::HomeMessage => "expand",
         Verb::ViewReply => "reader",
-        Verb::Talk if app.shell.tab == crate::board::shell::OpsTab::Overview => "chat",
         Verb::Ui(crate::action::OpsUiAction::Pin)
             if app.shell.tab == crate::board::shell::OpsTab::Overview =>
         {
@@ -112,7 +111,6 @@ pub(in crate::board) fn overview_legend(app: &App, width: usize) -> Option<[Stri
         || app.usage_chart.borrow().focused()
         || app.modal_open()
         || app.input.is_some()
-        || app.input_band.get().is_some()
         || app.searching
     {
         return None;
