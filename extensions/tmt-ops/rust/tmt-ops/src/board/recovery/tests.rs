@@ -95,6 +95,36 @@ fn review(c: &mut Controller) {
     assert!(c.readable.get());
 }
 #[test]
+fn restore_and_delete_fit_their_reviews_without_changing_inventory_height() {
+    for (screen, id, expected) in [
+        (Screen::Confirm, "confirm", "Restore"),
+        (Screen::Delete, "delete-confirm", "Delete snapshot"),
+    ] {
+        let mut c = controller();
+        c.screen = screen;
+        c.confirmation = c.selection();
+        let text = render(&c, 160, 80);
+        assert!(text.contains(expected));
+        assert_eq!(
+            c.rows().iter().find(|row| row.id == id).unwrap().label,
+            expected
+        );
+        assert!(
+            c.readable.get(),
+            "the complete target and choices remain visible"
+        );
+        let outer = c.panel.borrow().frame.as_ref().unwrap().areas.outer;
+        assert!(outer.height < 38, "short review must not demand 38 rows");
+        assert!(outer.width <= 120);
+        c.screen = Screen::List;
+        render(&c, 160, 80);
+        assert_eq!(
+            c.list.borrow().frame.as_ref().unwrap().areas.outer.height,
+            38
+        );
+    }
+}
+#[test]
 fn cancel_selection_and_preview_have_no_restore_authority() {
     let mut c = controller();
     let task = c.select("snapshot:saved").unwrap();
@@ -1035,4 +1065,36 @@ fn capture_recovery_packet() {
     });
     assert_eq!(captures.len(), 352);
     std::fs::write(path, serde_json::to_vec(&captures).unwrap()).unwrap();
+}
+
+#[test]
+#[ignore = "explicit fitted review matrix; requires TMT_OVERLAY_CUE_OUTPUT"]
+fn capture_fitted_recovery_reviews() {
+    std::env::var("TMT_OVERLAY_CUE_OUTPUT").expect("task-owned output directory");
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        for (scene, screen) in [("restore", Screen::Confirm), ("delete", Screen::Delete)] {
+            for (theme, look) in picker_surface::evidence::looks().into_iter().enumerate() {
+                for width in [160, 100, 60] {
+                    for height in [36, 24, 8] {
+                        let mut c = controller();
+                        c.screen = screen;
+                        c.confirmation = c.selection();
+                        let mut app = crate::board::app::workspace::tests::board();
+                        app.view.as_mut().unwrap().look = look;
+                        app.recovery = Some(c);
+                        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+                        terminal
+                            .draw(|frame| crate::board::view::render(frame, &app))
+                            .unwrap();
+                        let c = app.recovery.as_ref().unwrap();
+                        picker_surface::evidence::capture(
+                            &format!("recovery-{scene}-{theme}-{width}x{height}"),
+                            terminal.backend().buffer(),
+                            &c.panel.borrow(),
+                        );
+                    }
+                }
+            }
+        }
+    });
 }

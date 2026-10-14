@@ -4,7 +4,7 @@ use crate::{
     membership::workspace::{Operation, RoomTarget},
 };
 use ratatui::buffer::Buffer;
-use tmt_tui::components::scroll::Step;
+use tmt_tui::components::Step;
 
 fn draw(app: &App, width: u16, height: u16) -> Buffer {
     let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
@@ -114,12 +114,15 @@ fn frozen_operation_names_the_whole_confirm_and_survives_changed_selection() {
         (Kind::RenameMember, rename_operation("worker"), "Rename"),
     ];
     for (kind, operation, expected) in cases {
+        let mut cancel = review(kind, operation.clone());
+        draw(&cancel, 160, 36);
+        assert_eq!(key(&mut cancel, KeyCode::Enter), Effect::None);
+        assert!(
+            cancel.workspace_form.is_none(),
+            "initial Enter cancels {expected}"
+        );
         for width in [60, 100, 160] {
             let mut app = review(kind, operation.clone());
-            assert_eq!(
-                app.overlay_focus.focused().unwrap().last().unwrap(),
-                "cancel"
-            );
             let buffer = draw(&app, width, 36);
             let controls = app.workspace_form.as_ref().unwrap().controls.get();
             assert_eq!(label(&buffer, controls[0].unwrap()), " Cancel ");
@@ -245,4 +248,57 @@ fn clipped_resized_and_scrolled_rename_cannot_gain_confirm_authority() {
     );
     assert!(long.workspace_form.as_ref().unwrap().controls.get()[1].is_none());
     assert_eq!(long.workspace_confirm(), Effect::None);
+}
+
+/// Task-owned decoded review evidence, never a frozen-fixture recorder.
+#[test]
+#[ignore = "explicit fitted review matrix; requires TMT_OVERLAY_CUE_OUTPUT"]
+fn capture_fitted_management_reviews() {
+    let directory = std::path::PathBuf::from(
+        std::env::var("TMT_OVERLAY_CUE_OUTPUT").expect("task-owned output directory"),
+    );
+    std::fs::create_dir_all(&directory).unwrap();
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        for scene in ["rename-review", "membership-review"] {
+            for (theme, look) in crate::board::picker_surface::evidence::looks()
+                .into_iter()
+                .enumerate()
+            {
+                for width in [160, 100, 60] {
+                    for height in [36, 24, 8] {
+                        let mut app = if scene == "rename-review" {
+                            review(Kind::RenameMember, rename_operation("worker"))
+                        } else {
+                            review(
+                                Kind::Remove,
+                                Change::Membership(Operation::Remove {
+                                    room: RoomTarget {
+                                        id: ROOM.into(),
+                                        name: "product".into(),
+                                        revision: 2,
+                                    },
+                                    member: MEMBER.into(),
+                                }),
+                            )
+                        };
+                        app.view.as_mut().unwrap().look = look;
+                        let buffer = draw(&app, width, height);
+                        let draft = app.workspace_form.as_ref().unwrap();
+                        let scroll = draft.scroll.borrow();
+                        let cells = buffer.content.iter().map(|c| json!({"symbol":c.symbol(), "fg":format!("{:?}", c.fg), "bg":format!("{:?}", c.bg), "modifier":format!("{:?}", c.modifier)})).collect::<Vec<_>>();
+                        let lines = buffer
+                            .content
+                            .chunks(usize::from(width))
+                            .map(|row| row.iter().map(|c| c.symbol()).collect::<String>())
+                            .collect::<Vec<_>>();
+                        let rect = |r: Rect| [r.x, r.y, r.width, r.height];
+                        let value = json!({"scene":scene,"theme":theme,"width":width,"height":height,"cells":cells,"lines":lines,"controls":draft.controls.get().map(|r|r.map(rect)),"inputBand":app.input_band.get().map(rect),"scrollOffset":scroll.offset(),"scrollContent":scroll.content(),"scrollViewport":rect(scroll.viewport()),"selected":format!("{:?}",app.workspace.selected),"focus":format!("{:?}",app.overlay_focus.focused()),"operation":format!("{:?}",draft.operation)});
+                        let name = format!("management-{scene}-{theme}-{width}x{height}.json");
+                        std::fs::write(directory.join(name), serde_json::to_vec(&value).unwrap())
+                            .unwrap();
+                    }
+                }
+            }
+        }
+    });
 }
