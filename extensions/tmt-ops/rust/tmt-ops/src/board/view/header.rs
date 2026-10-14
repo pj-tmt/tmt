@@ -43,6 +43,7 @@ pub(in crate::board) enum ClockSurface {
     Labels { target: RowTarget, width: usize },
     Limits { width: u16, rows: usize },
     QuotaDetails,
+    UsageChart,
 }
 
 impl ClockSurface {
@@ -59,6 +60,7 @@ impl ClockSurface {
                     .map(|chip| chip.text.as_str())
                     .collect()
             }
+            Self::UsageChart => super::super::overview::chart::host::clock_mark(app, now),
             Self::QuotaDetails => app
                 .quota_details
                 .as_ref()

@@ -6,6 +6,7 @@ pub enum OpsUiAction {
     Agents,
     DigestDashboard,
     QuotaDetails,
+    UsageControls,
     Inspect,
     Previous,
     Next,
@@ -105,6 +106,13 @@ const SPECS: &[OpsUiSpec] = &[
         "Digest",
         "show the Digest tab",
         20
+    ),
+    spec!(
+        UsageControls,
+        "usage-controls",
+        "usage chart",
+        "focus interval, range and usage buckets",
+        12
     ),
     spec!(
         QuotaDetails,
