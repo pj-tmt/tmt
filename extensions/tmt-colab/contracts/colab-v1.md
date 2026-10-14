@@ -1052,8 +1052,15 @@ scoped to the render ID and request ID. A slot is `{id,height}` or, for an answe
 beside exactly one live `tmt-proposal[data-id]`, `tmt-question[data-id]` or
 `tmt-questions[data-id]`. A group uses its parent-selected active question for placement.
 Its before spacer reserves the trusted tabs/state band above the authored description;
-the after spacer reserves controls below it. Responses are closed `{id,top}` objects or
-`{id,top,beforeTop,descriptionHeight}` for requested answer-card geometry. Top values are
+the after spacer reserves controls below it. Responses use explicit closed key sets selected by the currently requested slot kind:
+`{id,top}` for proposals, or `{id,top,beforeTop,descriptionHeight,left,width}` for
+an admitted question group with a requested `before` height. Answer geometry is
+not admitted for a proposal or an unrequested group. `left` and `width` are finite
+iframe-viewport CSS pixels measured from the actual authored group (or standalone
+question) bounds; `left` is nonnegative and `width` is positive. Their sum must fit
+the current frame width, and the resulting horizontal bounds must fit the parent
+viewport. Invalid claims are rejected, not normalized into admitted placement.
+Top values are
 finite and within 0–1,000,000; `beforeTop` is at most `top`, and `descriptionHeight` is
 finite within 0–2000. Unknown,
 missing or duplicate IDs receive no slot. Source replacement retires all slots;
@@ -1072,7 +1079,14 @@ fresh split geometry on the existing ordered port. Controls stay detached until 
 current response arrives; a stale description cannot be paired with newly selected
 controls. The tab strip retains its last admitted position and focus during this
 refresh. Trusted strip digits can update local draft choices, while Send requires
-current placement. The renderer aligns the description to the card's 16px page gutter.
+current placement. The renderer leaves the description within its authored group/container instead of
+moving it to a viewport gutter. The trusted card uses that group's admitted
+horizontal bounds. Parent question footer dimensions remain measured by the same
+inline-slot owner. The floating Chat/Annotate placement owner clears visible,
+attached question footers as well as existing chrome, using parent-window bounds;
+when no room remains above a footer it temporarily hides the floating controls.
+Header entry points remain available. Neither placement nor visibility changes
+answer, recipient, draft, focus or publication admission.
 
 Approve/Decline is an explicit trusted parent activation. An in-flight fence and
 live proposal/finality admission precede decision publication. The immutable

@@ -54,7 +54,7 @@ import type { QuoteSelector, DiscussionRef } from './thread-records.js';
 import { Home, validateHomeSearch } from './home.js';
 import { ManagePage } from './manage-page.js';
 import { mountRenderer, MAX_RENDER_SOURCE_BYTES } from './renderer.js';
-import type { RenderState, SelectionRect } from './renderer.js';
+import type { AnchorPosition, RenderState, SelectionRect } from './renderer.js';
 import { text } from './strings.js';
 import { getTheme, setThemeChoice, subscribeTheme } from './theme.js';
 import type { ConnectionState, EndedAction } from './connection-model.js';
@@ -91,7 +91,9 @@ function PageFloatingActions({
   chatButton,
   toggleChat,
   canSelect,
+  slots,
 }: {
+  slots: readonly AnchorPosition[];
   host: HTMLDivElement | null;
   enabled: boolean;
   discussionOpen: boolean;
@@ -123,16 +125,40 @@ function PageFloatingActions({
         .querySelector<HTMLDialogElement>('.tmt-ui-drawer[open]')
         ?.getBoundingClientRect();
       const right = Math.min(box.right, drawer?.left ?? innerWidth);
-      const bottom = Math.min(innerHeight, box.bottom);
+      let bottom = Math.min(innerHeight, box.bottom);
+      const fab = element.current?.getBoundingClientRect();
+      const left = right - margin - (fab?.width ?? 0);
+      const footers = [
+        ...(host?.parentElement?.querySelectorAll<HTMLElement>('.question-group-footer') ?? []),
+      ]
+        .filter((footer) => !footer.closest('[data-detached],[hidden]'))
+        .map((footer) => footer.getBoundingClientRect())
+        .filter(
+          (footer) =>
+            footer.width > 0 && footer.height > 0 && footer.bottom > 0 && footer.top < innerHeight,
+        )
+        .sort((a, b) => b.top - a.top);
+      for (const footer of footers) {
+        if (
+          left < footer.right &&
+          right - margin > footer.left &&
+          bottom - margin > footer.top &&
+          bottom - margin - (fab?.height ?? 0) < footer.bottom
+        )
+          bottom = footer.top + margin - 8;
+      }
       setPlacement({
         right: Math.max(margin, innerWidth - right + margin),
         bottom: innerHeight - bottom + margin,
-        visibility: 'visible',
+        visibility: bottom - margin - (fab?.height ?? 0) >= 8 ? 'visible' : 'hidden',
       });
     };
     place();
     const observer = new ResizeObserver(place);
     if (host) observer.observe(host);
+    if (element.current) observer.observe(element.current);
+    for (const footer of host?.parentElement?.querySelectorAll('.question-group-footer') ?? [])
+      observer.observe(footer);
     // Native dialog show/close happens in its own effect. Follow its actual layout,
     // rather than depending on sibling effect order.
     for (const drawer of document.querySelectorAll('.tmt-ui-drawer')) observer.observe(drawer);
@@ -145,7 +171,7 @@ function PageFloatingActions({
       window.removeEventListener('resize', place);
       window.removeEventListener('scroll', place);
     };
-  }, [host, enabled, panel, discussionOpen]);
+  }, [host, enabled, panel, discussionOpen, slots]);
   return (
     <div ref={element} className="selection-mode" style={placement}>
       {enabled && !discussionOpen && (
@@ -1566,6 +1592,7 @@ function Page() {
       {(canSelect || (state === 'ready' && !liveError)) && (
         <PageFloatingActions
           host={host.current}
+          slots={inlineSlots.positions}
           enabled={selectionMode}
           discussionOpen={!!annotation}
           panel={panel}

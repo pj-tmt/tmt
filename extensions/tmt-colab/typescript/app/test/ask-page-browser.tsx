@@ -1316,6 +1316,7 @@ export function questionGroup(
   options: {
     count?: number;
     layout?: 'centered' | 'nested';
+    multiple?: boolean;
     darkPage?: boolean;
     longLabels?: boolean;
     lone?: boolean;
@@ -1330,7 +1331,10 @@ export function questionGroup(
       : `Q${index + 1}`;
     return `<tmt-question data-id="${id(100 + index)}" data-kind="${kind}" data-agent="${options.agents?.[index] ?? 'Agent 1'}" data-label="${label}"><p data-question>${index === 0 ? 'Which heading should we use?' : index === 1 ? 'What should the introduction say?' : `What should section ${index + 1} explain?`}</p><p>Consider clarity and the intended reader.</p>${index === 0 ? '<span data-choice>Keep it</span><span data-choice>Change it</span>' : ''}</tmt-question>`;
   });
-  const main = `<h1>Project notes</h1><p id="container-prose">Before the question.</p><tmt-questions data-id="${id(99)}"><p data-title>Review the page</p>${questions.join('')}</tmt-questions>${options.lone ? `<tmt-question data-id="${id(120)}" data-kind="long"><p data-question>Any other feedback?</p></tmt-question>` : ''}<p id="after-question">The page continues here.</p>`;
+  const second = options.multiple
+    ? `<tmt-questions data-id="${id(98)}"><p data-title>Second review</p>${questions.join('').replaceAll(id(100), id(110)).replaceAll(id(101), id(111)).replaceAll('Which heading should we use?', 'Which second heading should we use?').replaceAll('What should the introduction say?', 'What should the second introduction say?')}</tmt-questions>`
+    : '';
+  const main = `<h1>Project notes</h1><p id="container-prose">Before the question.</p><tmt-questions data-id="${id(99)}"><p data-title>Review the page</p>${questions.join('')}</tmt-questions>${second}${options.lone ? `<tmt-question data-id="${id(120)}" data-kind="long"><p data-question>Any other feedback?</p></tmt-question>` : ''}<p id="after-question">The page continues here.</p>`;
   const container = options.layout
     ? `<main id="author-container" style="max-width:${options.layout === 'nested' ? 620 : 1280}px;margin:auto">${main.replace('<tmt-questions', '<div style="height:900px" aria-hidden="true"></div><tmt-questions')}</main><div style="height:1000px" aria-hidden="true"></div>`
     : main;

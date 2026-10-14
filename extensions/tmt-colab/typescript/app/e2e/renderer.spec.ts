@@ -1093,7 +1093,14 @@ test('question groups and split slot geometry admit only the current closed resp
     emit(current);
     const admitted = read();
     w.probe.handle.slots([{ id: group, height: 99999, before: 99999 }]);
-    const slot = { id: group, top: 100, beforeTop: 20, descriptionHeight: 80 };
+    const slot = {
+      id: group,
+      top: 100,
+      beforeTop: 20,
+      descriptionHeight: 80,
+      left: 24,
+      width: 200,
+    };
     const placement = {
       type: 'colab.render.slots',
       renderId: w.splitRequest.renderId,
@@ -1110,6 +1117,19 @@ test('question groups and split slot geometry admit only the current closed resp
       { ...placement, slots: [{ ...slot, beforeTop: -1 }] },
       { ...placement, slots: [{ ...slot, answer: true }] },
       { ...placement, slots: [slot, slot] },
+      ...[NaN, Infinity, -1].map((left) => ({ ...placement, slots: [{ ...slot, left }] })),
+      ...[NaN, Infinity, -1, 0, 1000001].map((width) => ({
+        ...placement,
+        slots: [{ ...slot, width }],
+      })),
+      { ...placement, slots: [{ ...slot, left: innerWidth, width: 1 }] },
+      { ...placement, slots: [{ id: group, top: 100 }] },
+      {
+        ...placement,
+        slots: [
+          { id: group, top: 100, beforeTop: 20, descriptionHeight: 80, left: 24, wrong: 200 },
+        ],
+      },
     ]) {
       emit(bad);
       rejectedGeometry.push(geometry());
@@ -1134,14 +1154,21 @@ test('question groups and split slot geometry admit only the current closed resp
       active: '80000000-0000-4000-8000-000000000001',
     },
   ]);
-  expect(result.rejectedGeometry).toEqual(Array(7).fill('[]'));
+  expect(result.rejectedGeometry).toEqual(Array(18).fill('[]'));
   expect(result.clamped).toEqual({
     id: '80000000-0000-4000-8000-000000000002',
     height: 2000,
     before: 2000,
   });
   expect(JSON.parse(result.geometry!)).toEqual([
-    { id: '80000000-0000-4000-8000-000000000002', top: 100, beforeTop: 20, descriptionHeight: 80 },
+    {
+      id: '80000000-0000-4000-8000-000000000002',
+      top: 100,
+      beforeTop: 20,
+      descriptionHeight: 80,
+      left: 24,
+      width: 200,
+    },
   ]);
 });
 
@@ -1196,6 +1223,11 @@ test('proposal slots admit only bounded current unique geometry and cap converge
       { ...current, slots: [{ id, top: -1 }] },
       { ...current, slots: [current.slots[0], current.slots[0]] },
       { ...current, extra: true },
+      {
+        ...current,
+        slots: [{ id, top: 10, beforeTop: 0, descriptionHeight: 10, left: 0, width: 100 }],
+      },
+      { ...current, slots: [{ id, height: 10 }] },
     ]) {
       emit(value);
       rejected.push(read());
@@ -1206,7 +1238,7 @@ test('proposal slots admit only bounded current unique geometry and cap converge
     emit({ ...current, slots: [] });
     return { rejected, clamped, stopped, detached: read() };
   });
-  expect(result.rejected).toEqual(Array(7).fill('[]'));
+  expect(result.rejected).toEqual(Array(9).fill('[]'));
   expect(result.clamped).toBe(2000);
   expect(JSON.parse(result.stopped!)[0].top).toBe(30);
   expect(result.detached).toBe('[]');

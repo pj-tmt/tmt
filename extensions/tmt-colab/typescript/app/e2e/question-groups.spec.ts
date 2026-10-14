@@ -546,3 +546,88 @@ for (const width of [1440, 1024, 390])
       await expect(activeCard(page).locator('.question-answer')).toHaveText('Keep it');
     });
   }
+
+for (const width of [1440, 390])
+  test(`footer placement follows resize, size changes and group removal ${width}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 800 });
+    await mount(page, {
+      layout: 'centered',
+      multiple: true,
+      lone: true,
+      agents: ['Agent 1', 'Agent 2'],
+    });
+    const groups = page.locator('#ask-page-fixture [data-question-group]');
+    await expect(groups).toHaveCount(3);
+    const floating = page.locator('#ask-page-fixture .selection-mode');
+    const frame = page.frameLocator('#ask-page-fixture iframe');
+    const check = async () => {
+      await expect
+        .poll(async () => {
+          const fab = await floating.boundingBox();
+          if (!fab || !(await floating.isVisible())) return true;
+          const footers = await groups.locator('.question-group-footer').all();
+          for (const footer of footers) {
+            if (!(await footer.isVisible())) continue;
+            const box = await footer.boundingBox();
+            if (
+              box &&
+              fab.x < box.x + box.width &&
+              fab.x + fab.width > box.x &&
+              fab.y < box.y + box.height &&
+              fab.y + fab.height > box.y
+            )
+              return false;
+          }
+          return true;
+        })
+        .toBe(true);
+    };
+    const place = async (index: number) => {
+      const footer = groups.nth(index).locator('.question-group-footer');
+      await footer.evaluate((node) =>
+        window.scrollBy(0, node.getBoundingClientRect().bottom - innerHeight + 30),
+      );
+      await check();
+    };
+    await expect(
+      page.locator('#ask-page-fixture [data-question-group][data-detached]'),
+    ).toHaveCount(0);
+    // Disabled Send still shares its footer with enabled recipient controls.
+    await expect(groups.nth(1).getByRole('button', { name: /^Send answers/ })).toBeDisabled();
+    await place(1);
+    await groups.nth(1).getByRole('button', { name: 'Remove @Agent 2', exact: true }).click();
+    await check();
+    await page.setViewportSize({ width: width === 390 ? 1024 : 390, height: 800 });
+    await place(0);
+    const container = await frame.locator('#author-container').boundingBox();
+    await expect
+      .poll(async () => {
+        const card = await groups.nth(0).locator('.question-group-card').boundingBox();
+        return (
+          !!card &&
+          !!container &&
+          Math.abs(card.x - container.x) <= 1 &&
+          Math.abs(card.width - container.width) <= 1
+        );
+      })
+      .toBe(true);
+    await frame
+      .locator('tmt-questions')
+      .nth(0)
+      .evaluate((node) => {
+        (node as HTMLElement).hidden = true;
+      });
+    await expect(groups.nth(0)).toHaveAttribute('data-detached', 'true');
+    await place(1);
+    await frame
+      .locator('tmt-questions')
+      .nth(1)
+      .evaluate((node) => node.remove());
+    await expect(groups.nth(1)).toHaveAttribute('data-detached', 'true');
+    await place(2);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await expect(floating).toBeVisible();
+    await check();
+  });
