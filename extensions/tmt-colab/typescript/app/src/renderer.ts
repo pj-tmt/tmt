@@ -210,6 +210,19 @@ export async function mountRenderer(
   };
   const resize = () => {
     slotRounds = 0;
+    // A former valid width cannot remain admitted after the viewport narrows.
+    // The same ordered slot reply will reattach it with current authored bounds.
+    const fitting = lastSlots.filter(
+      (slot) =>
+        slot.left === undefined ||
+        slot.width === undefined ||
+        (slot.left + slot.width <= frame.clientWidth &&
+          frame.getBoundingClientRect().left + slot.left + slot.width <= innerWidth),
+    );
+    if (fitting.length !== lastSlots.length) {
+      lastSlots = fitting;
+      options.onSlots?.(lastSlots);
+    }
     lastHeight = innerScroll ? viewportHeight() : Math.max(viewportHeight(), reportedHeight);
     growthReports = 0;
     frame.style.height = `${lastHeight}px`;

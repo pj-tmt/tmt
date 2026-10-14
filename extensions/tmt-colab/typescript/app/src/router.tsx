@@ -128,17 +128,17 @@ function PageFloatingActions({
       let bottom = Math.min(innerHeight, box.bottom);
       const fab = element.current?.getBoundingClientRect();
       const left = right - margin - (fab?.width ?? 0);
-      const footers = [
+      const cards = [
         ...(host?.parentElement?.querySelectorAll<HTMLElement>('.question-group-footer') ?? []),
       ]
         .filter((footer) => !footer.closest('[data-detached],[hidden]'))
-        .map((footer) => footer.getBoundingClientRect())
+        .map((footer) => (footer.closest('.question-group-card') ?? footer).getBoundingClientRect())
         .filter(
           (footer) =>
             footer.width > 0 && footer.height > 0 && footer.bottom > 0 && footer.top < innerHeight,
         )
         .sort((a, b) => b.top - a.top);
-      for (const footer of footers) {
+      for (const footer of cards) {
         if (
           left < footer.right &&
           right - margin > footer.left &&

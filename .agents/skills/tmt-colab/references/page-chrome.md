@@ -90,8 +90,8 @@ Question cards follow the actual authored group/standalone bounds measured by th
 opaque frame, through the existing slot owner and its strict cosmetic protocol.
 The [inline slot contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#own-stream-discussion-records-1427)
 owns the exact shapes and admission limits. The parent floating-action placement
-effect reuses its resize/scroll observer to clear attached visible question footers,
-including their recipient controls and Send; with no available space above it,
+effect reuses its resize/scroll observer to clear attached visible question cards
+containing footers, including answer controls, recipients and Send; with no available space above them,
 the floating actions temporarily hide while header entry points remain available.
 Footer/FAB observers and scroll listeners clean up with that effect. This does not
 change drafts, active-tab geometry retirement, selection coordinates or send policy.

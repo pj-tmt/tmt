@@ -226,7 +226,7 @@
             'body:has(>[data-colab-highlight]:not([data-colab-markers])){isolation:isolate}' +
             '::highlight(colab-comments){background:var(--tmt-ui-surface-annotation-highlight);color:inherit;text-decoration:none}' +
             `
-            [data-colab-question-group]{display:block!important}
+            [data-colab-question-group]:not([hidden]){display:block!important}
             [data-colab-question-group]>p[data-title]{font-size:22px!important;font-weight:700!important;line-height:1.35!important}
             [data-colab-question-group]>p[data-title]::before{content:"Q: ";color:color-mix(in srgb,currentColor 45%,transparent)}
             [data-colab-question]{display:block!important;box-sizing:border-box!important;width:100%!important;margin:0!important;padding:16px!important;background:#fff!important;color:#343434!important;font:16px/1.5 sans-serif!important;overflow-wrap:anywhere}
@@ -633,7 +633,11 @@
               spacer.style.display = 'block';
               const top = spacer.getBoundingClientRect().top + scrollY;
               const bounds = matches[0].getBoundingClientRect();
-              if (before && (!bounds.width || !target.getClientRects().length)) continue;
+              if (
+                before &&
+                (target.closest('[hidden]') || !bounds.width || !target.getClientRects().length)
+              )
+                continue;
               if (Number.isFinite(top) && top >= 0 && top <= 1000000)
                 positions.push({
                   id: slot.id,

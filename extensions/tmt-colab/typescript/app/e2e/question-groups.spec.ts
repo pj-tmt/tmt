@@ -510,13 +510,14 @@ for (const width of [1440, 1024, 390])
       await send.evaluate((node) =>
         window.scrollBy(0, node.getBoundingClientRect().bottom - innerHeight + 30),
       );
-      const footer = group.locator('.question-group-footer');
       const floating = page.locator('#ask-page-fixture .selection-mode');
       await expect
         .poll(
           async () => {
             const fab = await floating.boundingBox();
-            const controls = await footer.getByRole('button').all();
+            const controls = await group
+              .locator('.question-option, .question-group-footer button')
+              .all();
             const boxes = await Promise.all(controls.map((control) => control.boundingBox()));
             return (
               !!fab &&
@@ -530,7 +531,7 @@ for (const width of [1440, 1024, 390])
               )
             );
           },
-          { message: 'FAB must not cover Send or recipient controls' },
+          { message: 'FAB must not cover answers, Send or recipient controls' },
         )
         .toBe(true);
       const captures = process.env.COLAB_QUESTION_CAPTURE_DIR;
@@ -570,7 +571,7 @@ for (const width of [1440, 390])
           const footers = await groups.locator('.question-group-footer').all();
           for (const footer of footers) {
             if (!(await footer.isVisible())) continue;
-            const box = await footer.boundingBox();
+            const box = await footer.locator('..').boundingBox();
             if (
               box &&
               fab.x < box.x + box.width &&

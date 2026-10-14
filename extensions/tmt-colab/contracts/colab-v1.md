@@ -1081,10 +1081,11 @@ controls. The tab strip retains its last admitted position and focus during this
 refresh. Trusted strip digits can update local draft choices, while Send requires
 current placement. The renderer leaves the description within its authored group/container instead of
 moving it to a viewport gutter. The trusted card uses that group's admitted
-horizontal bounds. Parent question footer dimensions remain measured by the same
+horizontal bounds. Viewport narrowing retires formerly admitted bounds that no
+longer fit until a current slot reply reattaches the card. Parent question footer dimensions remain measured by the same
 inline-slot owner. The floating Chat/Annotate placement owner clears visible,
-attached question footers as well as existing chrome, using parent-window bounds;
-when no room remains above a footer it temporarily hides the floating controls.
+attached question cards containing those footers as well as existing chrome, using
+parent-window bounds; when no room remains above a card it temporarily hides the floating controls.
 Header entry points remain available. Neither placement nor visibility changes
 answer, recipient, draft, focus or publication admission.
 

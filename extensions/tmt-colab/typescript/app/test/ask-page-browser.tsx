@@ -1335,9 +1335,16 @@ export function questionGroup(
     ? `<tmt-questions data-id="${id(98)}"><p data-title>Second review</p>${questions.join('').replaceAll(id(100), id(110)).replaceAll(id(101), id(111)).replaceAll('Which heading should we use?', 'Which second heading should we use?').replaceAll('What should the introduction say?', 'What should the second introduction say?')}</tmt-questions>`
     : '';
   const main = `<h1>Project notes</h1><p id="container-prose">Before the question.</p><tmt-questions data-id="${id(99)}"><p data-title>Review the page</p>${questions.join('')}</tmt-questions>${second}${options.lone ? `<tmt-question data-id="${id(120)}" data-kind="long"><p data-question>Any other feedback?</p></tmt-question>` : ''}<p id="after-question">The page continues here.</p>`;
-  const container = options.layout
-    ? `<main id="author-container" style="max-width:${options.layout === 'nested' ? 620 : 1280}px;margin:auto">${main.replace('<tmt-questions', '<div style="height:900px" aria-hidden="true"></div><tmt-questions')}</main><div style="height:1000px" aria-hidden="true"></div>`
-    : main;
+  const content = main.replace(
+    '<tmt-questions',
+    '<div style="height:900px" aria-hidden="true"></div><tmt-questions',
+  );
+  const container =
+    options.layout === 'nested'
+      ? `<main style="max-width:1280px;margin:auto"><section id="author-container" style="max-width:620px;margin:auto">${content}</section></main><div style="height:1000px" aria-hidden="true"></div>`
+      : options.layout === 'centered'
+        ? `<main id="author-container" style="max-width:1280px;margin:auto">${content}</main><div style="height:1000px" aria-hidden="true"></div>`
+        : main;
   current = {
     ...current,
     threads: [],
