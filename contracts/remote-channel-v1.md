@@ -2013,6 +2013,8 @@ extend the existing object channel. Serve registers the native factory for a ver
 Firestore project, an existing active sign-in and enabled release declarations. Missing or
 unsafe inputs leave native activation typed `REMOTE_STATE_UNAVAILABLE`, with no provider I/O
 or project fallback; the ordinary door stays usable. v3 remains explicitly opt-in.
+Serve resolves the selected native project once at startup; changing `settings.json`'s
+`defaultRemote` requires restarting serve and does not retarget the running factory.
 Colab's accepting adapter (PR-B) must ship before Remote
 enables version 3 by default. This carrier does not implement the cloud ObjectBackend
 adapter or change LocalFs startup: accounting still opens fail-closed.
