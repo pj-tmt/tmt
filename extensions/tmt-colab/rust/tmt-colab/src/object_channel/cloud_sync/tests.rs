@@ -14,6 +14,7 @@ use std::{
 use tmt_extension_objects::sync::{self, Method};
 
 const FIRST: &str = "10000000-0000-4000-8000-000000000001";
+const SECOND: &str = "10000000-0000-4000-8000-000000000002";
 
 fn until(what: &str, mut ready: impl FnMut() -> bool) {
     let deadline = Instant::now() + Duration::from_secs(10);
@@ -133,36 +134,53 @@ fn a_page_row_refused_by_rules_is_reported_once_and_stops_that_pages_pass() {
     until("bind", || remote.methods().first() == Some(&Method::Bind));
     rig.activity.touch(page(FIRST, 1));
     until("one report", || rig.reports.lock().unwrap().len() == 1);
-    std::thread::sleep(Duration::from_millis(300));
-    assert_eq!(
+    let publishes = || {
         remote
             .methods()
             .iter()
             .filter(|m| **m == Method::Publish)
-            .count(),
-        1,
-        "a stopped page is not retried"
-    );
+            .count()
+    };
+    // Every later touch of the same page and epoch neither retries it nor shows the line again.
+    for _ in 0..3 {
+        rig.activity.touch(page(FIRST, 1));
+        std::thread::sleep(Duration::from_millis(150));
+    }
+    assert_eq!(publishes(), 1, "a stopped page is not retried");
     assert_eq!(rig.reports.lock().unwrap().len(), 1);
+    // Another epoch of the page is another entry, and another page is unaffected.
+    rig.activity.touch(page(FIRST, 2));
+    until("the next epoch is tried", || publishes() == 2);
+    rig.activity.touch(page(SECOND, 1));
+    until("another page is tried", || publishes() == 3);
 }
 
 #[test]
-fn a_native_unavailable_verdict_is_shown_once_and_activation_is_never_retried() {
+fn a_native_unavailable_verdict_is_silent_and_holds_until_remote_restarts() {
     let peer = peer();
     let rig = start(Arc::clone(&peer.channels), || {
         Err(ActivationFailure::Remote(Refusal {
             code: "REMOTE_STATE_UNAVAILABLE".into(),
-            message: "Cloud sync is not set up.".into(),
             state: None,
         }))
     });
-    until("one report", || rig.reports.lock().unwrap().len() == 1);
-    // A new channel, a nudge and several ticks are all triggers; none activates again.
-    peer.channels.started.fetch_add(1, Ordering::SeqCst);
+    until("the first attempt", || {
+        rig.activations.load(Ordering::SeqCst) == 1
+    });
+    // Nudges and ticks are not triggers: the verdict holds and nothing is shown.
     rig.activity.nudge();
     std::thread::sleep(Duration::from_millis(400));
     assert_eq!(rig.activations.load(Ordering::SeqCst), 1);
-    assert_eq!(*rig.reports.lock().unwrap(), ["Cloud sync is not set up."]);
+    assert!(rig.reports.lock().unwrap().is_empty());
+    // A channel nobody here activated means Remote restarted, which resolves its project
+    // again: the earlier verdict is dropped and activation is asked once more.
+    peer.channels.started.fetch_add(1, Ordering::SeqCst);
+    until("a fresh attempt", || {
+        rig.activations.load(Ordering::SeqCst) == 2
+    });
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(rig.activations.load(Ordering::SeqCst), 2);
+    assert!(rig.reports.lock().unwrap().is_empty());
 }
 
 #[test]

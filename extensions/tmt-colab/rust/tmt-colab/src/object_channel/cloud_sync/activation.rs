@@ -26,27 +26,16 @@ pub(super) enum Next {
 pub(super) struct Policy {
     tried: usize,
     sticky: bool,
-    reported: bool,
 }
 impl Policy {
-    /// A new trigger: serve start or a channel generation this worker did not activate.
-    /// A sticky verdict survives it: Remote resolved its project once, at its own start.
+    /// A new trigger: serve start or a channel generation this worker did not activate. A
+    /// Remote that restarted resolves its project again, so its earlier verdict no longer holds.
     pub(super) fn trigger(&mut self) {
         self.tried = 0;
+        self.sticky = false;
     }
     pub(super) fn is_sticky(&self) -> bool {
         self.sticky
-    }
-    /// The one line to show, exactly once, for a failure Remote will not change by itself.
-    pub(super) fn warning(&mut self, failure: &ActivationFailure) -> Option<String> {
-        let ActivationFailure::Remote(remote) = failure else {
-            return None;
-        };
-        if !sticky(remote) || self.reported {
-            return None;
-        }
-        self.reported = true;
-        Some(remote.message.clone())
     }
     pub(super) fn failed(&mut self, failure: &ActivationFailure) -> Next {
         if let ActivationFailure::Remote(remote) = failure
@@ -83,34 +72,21 @@ mod tests {
     fn remote(code: &str, state: Option<&str>) -> ActivationFailure {
         ActivationFailure::Remote(Refusal {
             code: code.into(),
-            message: format!("{code} message"),
             state: state.map(str::to_owned),
         })
     }
     #[test]
-    fn a_native_unavailable_verdict_is_shown_once_and_never_retried() {
-        let mut policy = Policy::default();
-        let failure = remote("REMOTE_STATE_UNAVAILABLE", None);
-        assert_eq!(
-            policy.warning(&failure).as_deref(),
-            Some("REMOTE_STATE_UNAVAILABLE message")
-        );
-        assert_eq!(policy.failed(&failure), Next::Sticky);
-        assert!(policy.is_sticky());
-        // A later trigger neither retries nor shows the line again.
-        policy.trigger();
-        assert!(policy.is_sticky());
-        assert_eq!(policy.warning(&failure), None);
-    }
-    #[test]
-    fn an_outdated_door_is_shown_with_the_wording_the_caller_chose_and_not_retried() {
-        let mut policy = Policy::default();
-        let failure = remote("REMOTE_SERVE_OUTDATED", None);
-        assert_eq!(
-            policy.warning(&failure).as_deref(),
-            Some("REMOTE_SERVE_OUTDATED message")
-        );
-        assert_eq!(policy.failed(&failure), Next::Sticky);
+    fn a_remote_verdict_is_never_retried_until_a_restarted_remote_is_a_new_trigger() {
+        for code in ["REMOTE_STATE_UNAVAILABLE", "REMOTE_SERVE_OUTDATED"] {
+            let mut policy = Policy::default();
+            let failure = remote(code, None);
+            assert_eq!(policy.failed(&failure), Next::Sticky);
+            assert!(policy.is_sticky());
+            // Remote resolved its project once, at its own start: a restart asks again.
+            policy.trigger();
+            assert!(!policy.is_sticky());
+            assert_eq!(policy.failed(&failure), Next::Sticky);
+        }
     }
     #[test]
     fn attempt_shaped_failures_retry_a_bounded_number_of_times_per_trigger() {
@@ -120,7 +96,6 @@ mod tests {
             ActivationFailure::Local,
         ] {
             let mut policy = Policy::default();
-            assert_eq!(policy.warning(&failure), None);
             assert_eq!(policy.failed(&failure), Next::Retry(RETRIES[0]));
             assert_eq!(policy.failed(&failure), Next::Retry(RETRIES[1]));
             assert_eq!(policy.failed(&failure), Next::Idle);

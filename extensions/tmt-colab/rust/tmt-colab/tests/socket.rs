@@ -5146,7 +5146,7 @@ fn an_owner_device_asks_for_usage_and_a_combine_and_a_public_reader_cannot() {
 }
 
 #[test]
-fn the_serve_runs_cloud_sync_once_listening_shows_a_sticky_refusal_once_and_joins_it_at_stop() {
+fn the_serve_runs_cloud_sync_once_listening_asks_remote_once_and_joins_it_at_stop() {
     use tmt_colab::cloud_sync::{ActivationFailure, Config, Refusal};
     let activations = Arc::new(AtomicUsize::new(0));
     let reports = Arc::new(Mutex::new(Vec::<String>::new()));
@@ -5158,7 +5158,6 @@ fn the_serve_runs_cloud_sync_once_listening_shows_a_sticky_refusal_once_and_join
                 count.fetch_add(1, Ordering::SeqCst);
                 Err(ActivationFailure::Remote(Refusal {
                     code: "REMOTE_STATE_UNAVAILABLE".into(),
-                    message: "Cloud sync is not available here.".into(),
                     state: None,
                 }))
             }),
@@ -5167,17 +5166,14 @@ fn the_serve_runs_cloud_sync_once_listening_shows_a_sticky_refusal_once_and_join
         },
     );
     let deadline = Instant::now() + Duration::from_secs(10);
-    while reports.lock().unwrap().is_empty() {
-        assert!(Instant::now() < deadline, "no refusal was reported");
+    while activations.load(Ordering::SeqCst) == 0 {
+        assert!(Instant::now() < deadline, "Remote was never asked");
         std::thread::sleep(Duration::from_millis(20));
     }
-    // A refusal Remote will not change by itself is neither shown again nor retried.
+    // A refusal Remote will not change by itself is neither retried nor shown to a person.
     std::thread::sleep(Duration::from_millis(500));
     assert_eq!(activations.load(Ordering::SeqCst), 1);
-    assert_eq!(
-        *reports.lock().unwrap(),
-        ["Cloud sync is not available here."]
-    );
+    assert!(reports.lock().unwrap().is_empty());
     // Dropping the server stops the serve, which joins the worker before returning.
     drop(server);
 }

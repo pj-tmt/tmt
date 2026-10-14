@@ -38,7 +38,7 @@ fn now_ms() -> u64 {
 }
 
 /// One page of one space at its current epoch: the unit a watched group follows.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct PageRef {
     pub space: String,
     pub page: String,
@@ -154,7 +154,6 @@ impl Activation {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Refusal {
     pub code: String,
-    pub message: String,
     pub state: Option<String>,
 }
 /// Why one activation gave no generation: Remote said no, or the exchange itself did not
@@ -166,7 +165,7 @@ pub enum ActivationFailure {
 }
 pub type Activate = dyn Fn(Instant) -> Result<Activation, ActivationFailure> + Send + Sync;
 /// Everything the worker needs, injected: the real control exchange and a one-line sink for
-/// the single warning a person may see.
+/// a page that cloud sync cannot continue.
 pub(crate) struct Parts {
     pub channels: Arc<dyn Channels>,
     pub activity: ActivePage,
@@ -179,8 +178,8 @@ pub(crate) struct Parts {
 }
 
 /// What the serve supplies to run cloud sync: Remote's activation exchange, the one-line sink
-/// for the single warning a person may see, and the digest of the declaration this executable
-/// is frozen to.
+/// for a page that cannot continue, and the digest of the declaration this executable is
+/// frozen to.
 pub struct Config {
     pub activate: Arc<Activate>,
     pub report: Arc<dyn Fn(&str) + Send + Sync>,

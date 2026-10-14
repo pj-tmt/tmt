@@ -6,7 +6,10 @@ use super::{
     activation::{Next, Policy},
     publisher::{Fault, Local, Publisher},
 };
-use std::time::{Duration, Instant};
+use std::{
+    collections::HashSet,
+    time::{Duration, Instant},
+};
 use tmt_extension_objects::{Uuid4, sync};
 
 /// How long activation, the arrival of its channel and the bind may take together.
@@ -31,6 +34,9 @@ struct Session {
     publisher: Publisher,
     local: Box<dyn Local + Send>,
     page: Option<PageRef>,
+    /// Pages whose publication stopped, remembered for this session so a touch neither retries
+    /// them nor shows their line again. Another epoch of the page is another entry.
+    stuck: HashSet<PageRef>,
     /// When the next publication pass is due; none while the page is current or stopped.
     pass_at: Option<Instant>,
     backoff: Backoff,
@@ -76,7 +82,7 @@ impl Session {
     }
     /// One bounded publication pass for the active page, and when the next one is due.
     fn pass(&mut self, report: &dyn Fn(&str)) {
-        let Some(page) = self.page.clone() else {
+        let Some(page) = self.page.clone().filter(|page| !self.stuck.contains(page)) else {
             self.pass_at = None;
             return;
         };
@@ -90,6 +96,7 @@ impl Session {
             Err(Fault::Budget(wait)) => Some(Instant::now() + Duration::from_millis(wait)),
             Err(Fault::Moved) => None,
             Err(Fault::Stuck(line)) => {
+                self.stuck.insert(page);
                 report(line);
                 None
             }
@@ -151,6 +158,7 @@ fn establish(parts: &Parts) -> Result<Session, ActivationFailure> {
         local,
         generation: client.generation(),
         page: None,
+        stuck: HashSet::new(),
         pass_at: None,
         backoff: Backoff::new(),
         established: Instant::now(),
@@ -196,9 +204,6 @@ pub(super) fn run(parts: Parts) {
                     session = Some(established);
                 }
                 Err(failure) => {
-                    if let Some(line) = policy.warning(&failure) {
-                        (parts.report)(&line);
-                    }
                     if let Next::Retry(wait) = policy.failed(&failure) {
                         retry_at = Some(Instant::now() + wait);
                     }

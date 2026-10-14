@@ -85,17 +85,27 @@ fn reply_of(declaration: &str, artifact: &str) -> Result<String, Unavailable> {
     Ok(line)
 }
 
+/// The one reply this executable makes. `run` prints it and the sync bind takes its digest, so
+/// what a bound client names and what Remote reads cannot differ.
+fn reply_line() -> Result<String, Unavailable> {
+    reply_of(
+        &declaration_of(DECLARATION, crate::hosting::manifest())?,
+        ARTIFACT,
+    )
+}
+
 /// The digest `deploy-declaration --json` reports for this executable: the one declaration a
 /// bound sync client and Remote's deployment must agree on.
 pub fn declaration_digest() -> Result<String, Unavailable> {
-    reply_of(DECLARATION, ARTIFACT).map(|_| digest(DECLARATION))
+    let reply: serde_json::Value = serde_json::from_str(&reply_line()?).map_err(|_| Unavailable)?;
+    reply["declarationDigest"]
+        .as_str()
+        .map(str::to_owned)
+        .ok_or(Unavailable)
 }
 
 pub fn run() -> crate::Result<()> {
-    let line = reply_of(
-        &declaration_of(DECLARATION, crate::hosting::manifest())?,
-        ARTIFACT,
-    )?;
+    let line = reply_line()?;
     let mut output = tmt_cli_style::stream::stdout(true);
     output.write_all(line.as_bytes()).map_err(|_| Unavailable)?;
     output.flush().map_err(|_| Unavailable)?;
@@ -173,6 +183,15 @@ mod tests {
         let oversized = format!("{{\"pad\":\"{}\"}}", "x".repeat(DECLARATION_TEXT_BYTES));
         let declaration = declaration_of(DECLARATION, Some(oversized.as_bytes())).unwrap();
         assert!(reply_of(&declaration, ARTIFACT).is_err(), "declaration cap");
+    }
+
+    #[test]
+    fn the_digest_a_sync_client_binds_is_the_one_the_printed_reply_reports() {
+        let reply: serde_json::Value = serde_json::from_str(&reply_line().unwrap()).unwrap();
+        let bound = declaration_digest().unwrap();
+        assert_eq!(reply["declarationDigest"], bound);
+        // And it names the declaration text that reply carries, whatever that text holds.
+        assert_eq!(digest(reply["declaration"].as_str().unwrap()), bound);
     }
 
     #[test]

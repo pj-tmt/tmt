@@ -3189,7 +3189,9 @@ active page (opened in a browser or written by the CLI; another page is publishe
 next touched). It creates the owner's `spaces`, `pages` and own `members` rows, then the signed
 membership, chain and wrap originals, then each local original in sequence, always authority
 before data; a position is recorded only after the exact original was created or read back
-identical. Inbound streams, member admission and cloud attachments are not implemented, so
+identical. A page whose publication stopped is reported once for the serve's lifetime and is not
+tried again at that epoch; Remote declining to activate prints nothing, so a machine without cloud
+sync stays local, and a restarted Remote is asked again. Inbound streams, member admission and cloud attachments are not implemented, so
 nothing reads these records yet. V1 cloud sync does
 not refresh log expiry: the existing Rules permit an owner expiry-only refresh, but the log
 mapping deliberately exposes no put, so entries age out at their `expiresAt`. A long-lived
