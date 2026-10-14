@@ -243,7 +243,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                     OpsTarget::Squad(room) => Some((
                         Some(room.clone()),
                         None,
-                        crate::board::overview::cron_counts::Scope::Room(room),
+                        crate::board::overview::cron_counts::CronCountScope::Room(room),
                     )),
                     OpsTarget::Member {
                         room_id,
@@ -251,7 +251,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                     } => Some((
                         room_id.clone(),
                         Some(identity_id.clone()),
-                        crate::board::overview::cron_counts::Scope::Owner {
+                        crate::board::overview::cron_counts::CronCountScope::Owner {
                             id: identity_id,
                             room: room_id.as_deref(),
                         },
@@ -380,11 +380,13 @@ fn tree_line(app: &App, row: &super::OpsTreeRow, width: u16) -> Line<'static> {
         state_style
     };
     let count_scope = match &row.target {
-        OpsTarget::Squad(room) => Some(crate::board::overview::cron_counts::Scope::Room(room)),
+        OpsTarget::Squad(room) => Some(crate::board::overview::cron_counts::CronCountScope::Room(
+            room,
+        )),
         OpsTarget::Member {
             room_id,
             identity_id,
-        } => Some(crate::board::overview::cron_counts::Scope::Owner {
+        } => Some(crate::board::overview::cron_counts::CronCountScope::Owner {
             id: identity_id,
             room: room_id.as_deref(),
         }),

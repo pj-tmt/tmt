@@ -175,6 +175,7 @@ fn reviewed_submission(app: &mut App) -> Effect {
     let (task, result) = crate::board::cronboard::preview::run(*task, TEST_NOW);
     assert!(result.is_ok(), "{result:?}");
     app.cron_review_ready(task, result);
+    draw(app, 100, 24);
     press(app, KeyCode::Tab);
     press(app, KeyCode::Tab);
     press(app, KeyCode::Enter)

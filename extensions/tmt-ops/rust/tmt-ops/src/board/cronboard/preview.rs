@@ -239,7 +239,8 @@ impl Review {
             .overlay_focus
             .focused()
             .and_then(|field| field.last())
-            .map(String::as_str);
+            .map(String::as_str)
+            .unwrap_or("cancel");
         for (i, (name, label, x)) in [
             ("cancel", " Cancel ", 0),
             ("apply", " Apply this exact operation ", 9),
@@ -261,7 +262,7 @@ impl Review {
                     rect,
                     Line::styled(
                         label,
-                        if focused == Some(name) {
+                        if focused == name {
                             look.selection()
                         } else {
                             look.role(Role::Text)
@@ -295,20 +296,23 @@ impl App {
             request,
             previous,
         };
-        let clock = self
-            .cron
-            .cron
-            .as_ref()
-            .map(|cron| {
-                super::line::clock(
-                    &cron.clock,
-                    cron.read_ms,
-                    false,
-                    self.cron.clock_note(self.clock_place()),
-                )
-                .0
-            })
-            .unwrap_or_else(|| "clock: unknown".into());
+        let clock = if let Some(error) = &self.cron.failure {
+            format!("clock: unknown · latest read failed: {error}")
+        } else {
+            self.cron
+                .cron
+                .as_ref()
+                .map(|cron| {
+                    super::line::clock(
+                        &cron.clock,
+                        cron.read_ms,
+                        false,
+                        self.cron.clock_note(self.clock_place()),
+                    )
+                    .0
+                })
+                .unwrap_or_else(|| "clock: unknown".into())
+        };
         self.cron_review = Some(Review {
             task: task.clone(),
             result: None,
@@ -365,6 +369,10 @@ impl App {
         }
         if action == Some(1) {
             if matches!(review.result, Some(Ok(_))) {
+                if review.controls.get()[1].is_none() {
+                    self.notice = Some("Enlarge the terminal and repaint the review before applying; nothing written.".into());
+                    return Some(Effect::None);
+                }
                 let request = review.task.request.clone();
                 self.cron_review = None;
                 return Some(Effect::Act(Request::Cron(request)));
@@ -435,6 +443,45 @@ mod tests {
         }
     }
     #[test]
+    fn an_unpainted_or_clipped_apply_control_cannot_submit() {
+        let mut app = crate::board::app::workspace::tests::board();
+        let Effect::Act(Request::CronPreview(task)) = app.cron_review_request(request()) else {
+            panic!("preview")
+        };
+        let (task, result) = run(*task, 0);
+        app.cron_review_ready(task, result);
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(20, 4)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        let enter = Event::Key(ratatui::crossterm::event::KeyEvent::new(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+        ));
+        let field = vec!["cron-review".into(), "apply".into()];
+        assert_eq!(app.cron_review_event(&field, &enter), Some(Effect::None));
+        assert!(app.cron_review.is_some());
+        assert!(app.notice.as_deref().unwrap().contains("nothing written"));
+    }
+    #[test]
+    fn failed_acquisition_does_not_present_the_retained_clock_as_current() {
+        let mut app = crate::board::app::workspace::tests::board();
+        app.cron.replace(Ok(super::super::test_cron(
+            vec![],
+            tmt_ops::cron::ClockStatus::NoClock,
+        )));
+        app.cron.replace(Err("clock read refused".into()));
+        assert!(matches!(
+            app.cron_review_request(request()),
+            Effect::Act(Request::CronPreview(_))
+        ));
+        let review = app.cron_review.as_ref().unwrap();
+        assert!(review.clock.contains("clock: unknown"));
+        assert!(review.clock.contains("clock read refused"));
+        assert!(!review.clock.contains("no clock"));
+    }
+    #[test]
     fn pending_cancellation_and_replacement_do_not_apply_or_reopen() {
         let mut app = crate::board::app::workspace::tests::board();
         let effect = app.cron_review_request(request());
@@ -472,6 +519,11 @@ mod tests {
         };
         let (task, result) = run(*task, 0);
         app.cron_review_ready(task, result);
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(100, 24)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
         let enter = Event::Key(ratatui::crossterm::event::KeyEvent::new(
             KeyCode::Enter,
             KeyModifiers::NONE,

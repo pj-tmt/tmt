@@ -15,7 +15,7 @@ pub struct Count {
     pub total: u32,
 }
 
-pub enum Scope<'a> {
+pub enum CronCountScope<'a> {
     Owner { id: &'a str, room: Option<&'a str> },
     Room(&'a str),
 }
@@ -68,13 +68,15 @@ impl Summary {
         result
     }
 
-    pub fn count(&self, scope: Scope<'_>) -> Option<Count> {
+    pub fn count(&self, scope: CronCountScope<'_>) -> Option<Count> {
         if !self.known {
             return None;
         }
         let count = match scope {
-            Scope::Room(room) => self.rooms.get(room),
-            Scope::Owner { id, room } => self.owners.get(&(id.to_owned(), room.map(str::to_owned))),
+            CronCountScope::Room(room) => self.rooms.get(room),
+            CronCountScope::Owner { id, room } => {
+                self.owners.get(&(id.to_owned(), room.map(str::to_owned)))
+            }
         };
         Some(count.copied().unwrap_or(Count {
             active: 0,
@@ -84,7 +86,7 @@ impl Summary {
 }
 
 #[cfg(test)]
-fn count(jobs: Option<&[Job<'_>]>, scope: Scope<'_>) -> Option<Count> {
+fn count(jobs: Option<&[Job<'_>]>, scope: CronCountScope<'_>) -> Option<Count> {
     Summary::of(jobs).count(scope)
 }
 
@@ -135,7 +137,7 @@ mod tests {
         assert_eq!(
             count(
                 Some(&jobs),
-                Scope::Owner {
+                CronCountScope::Owner {
                     id: "a",
                     room: None
                 }
@@ -148,7 +150,7 @@ mod tests {
         assert_eq!(
             count(
                 Some(&jobs),
-                Scope::Owner {
+                CronCountScope::Owner {
                     id: "a",
                     room: Some("r2")
                 }
@@ -159,7 +161,7 @@ mod tests {
             })
         );
         assert_eq!(
-            count(Some(&jobs), Scope::Room("r1")),
+            count(Some(&jobs), CronCountScope::Room("r1")),
             Some(Count {
                 active: 1,
                 total: 3
@@ -169,8 +171,14 @@ mod tests {
 
     #[test]
     fn missing_zero_and_clock_independence_are_visible() {
-        assert_eq!(label(count(None, Scope::Room("r")), false), "◷ unknown");
-        assert_eq!(label(count(Some(&[]), Scope::Room("r")), true), "CRON 0/0");
+        assert_eq!(
+            label(count(None, CronCountScope::Room("r")), false),
+            "◷ unknown"
+        );
+        assert_eq!(
+            label(count(Some(&[]), CronCountScope::Room("r")), true),
+            "CRON 0/0"
+        );
         assert_eq!(
             label(
                 Some(Count {

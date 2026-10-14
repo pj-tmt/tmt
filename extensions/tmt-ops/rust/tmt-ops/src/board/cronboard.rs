@@ -111,7 +111,7 @@ impl State {
 #[cfg(test)]
 mod count_tests {
     use super::*;
-    use crate::board::overview::cron_counts::{Count, Scope};
+    use crate::board::overview::cron_counts::{Count, CronCountScope};
 
     #[test]
     fn acquired_counts_ignore_clock_and_refuse_stale_refresh_as_zero() {
@@ -120,17 +120,17 @@ mod count_tests {
         jobs[2].job.owner_id = None;
         jobs[2].owner_missing = true;
         let mut state = State::default();
-        assert_eq!(state.counts.count(Scope::Room("room")), None);
+        assert_eq!(state.counts.count(CronCountScope::Room("room")), None);
         state.replace(Ok(test_cron(jobs, ClockStatus::NoClock)));
         assert_eq!(
-            state.counts.count(Scope::Room("room")),
+            state.counts.count(CronCountScope::Room("room")),
             Some(Count {
                 active: 1,
                 total: 3
             })
         );
         assert_eq!(
-            state.counts.count(Scope::Owner {
+            state.counts.count(CronCountScope::Owner {
                 id: "owner-id",
                 room: None
             }),
@@ -140,11 +140,11 @@ mod count_tests {
             })
         );
         state.replace(Err("read unavailable".into()));
-        assert_eq!(state.counts.count(Scope::Room("room")), None);
+        assert_eq!(state.counts.count(CronCountScope::Room("room")), None);
         assert_eq!(state.cron.as_ref().unwrap().jobs.len(), 3);
         state.replace(Ok(test_cron(vec![], ClockStatus::NoClock)));
         assert_eq!(
-            state.counts.count(Scope::Room("room")),
+            state.counts.count(CronCountScope::Room("room")),
             Some(Count {
                 active: 0,
                 total: 0

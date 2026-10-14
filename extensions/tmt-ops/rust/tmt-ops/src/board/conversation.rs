@@ -310,7 +310,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
         _ => None,
     };
     let timers = app.cron_glyphs.label(app.cron.counts.count(
-        super::overview::cron_counts::Scope::Owner {
+        super::overview::cron_counts::CronCountScope::Owner {
             id: row["id"].as_str().unwrap(),
             room,
         },

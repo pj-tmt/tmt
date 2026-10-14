@@ -24,7 +24,8 @@ while retaining prior jobs with the failure. Empty global owner lists cannot inv
 a room for creation. The list filters UUIDs rather than mutable names, preserves `<room UUID>/<c-id>`
 selection across refresh and uses the shared FocusStack/picker surface. Its title
 uses the already acquired name for that exact room UUID, even with no jobs. An
-unobserved room is labelled by UUID; only an unscoped list says `all squads`. No
+unobserved room is labelled by UUID; no room scope says `all squads`, with any
+owner filter named separately. No
 name becomes filtering or operation authority. Opening forms or delete confirmation closes the list; pause/resume/send retains it.
 
 Cron keys belong to the focused list, not the workspace tree. Enter selects the
@@ -79,6 +80,8 @@ instant and at most 4,097 next-slot calls: the first 4,096 invocations can be co
 and one further slot determines the explicit capped result. The next three
 occurrences and rolling 24-hour scheduled-invocation count are not token or money
 estimates and remain subject to owner/clock state. Unavailable previews cannot
-apply. A generation-fenced review retains the exact request; cancellation or
+apply; neither can a clipped or unpainted Apply control. A failed acquisition
+labels the clock unknown rather than presenting a retained clock as current.
+A generation-fenced review retains the exact request; cancellation or
 replacement cannot reopen it when a late result arrives. Apply uses the existing
 service's actor, room and revision revalidation, never the preview as authority.

@@ -87,7 +87,7 @@ pub(in crate::board) fn values(
             .filter(|(source, _)| *source == "digest")
             .map(|(_, label)| label.text.clone())
             .reduce(|a, b| format!("{a} · {b}")),
-        cron: app.cron.counts.count(cron_counts::Scope::Owner {
+        cron: app.cron.counts.count(cron_counts::CronCountScope::Owner {
             id: identity_id,
             room: None,
         }),
