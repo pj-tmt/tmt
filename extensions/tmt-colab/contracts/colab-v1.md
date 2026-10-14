@@ -1058,7 +1058,8 @@ an admitted question group with a requested `before` height. Answer geometry is
 not admitted for a proposal or an unrequested group. `left` and `width` are finite
 iframe-viewport CSS pixels measured from the actual authored group (or standalone
 question) bounds; `left` is nonnegative and `width` is positive. Their sum must fit
-the current frame width, and the resulting horizontal bounds must fit the parent
+the current frame width, each value must fit the existing 1,000,000px cosmetic
+rectangle bound, and the resulting horizontal bounds must fit the parent
 viewport. Invalid claims are rejected, not normalized into admitted placement.
 Top values are
 finite and within 0–1,000,000; `beforeTop` is at most `top`, and `descriptionHeight` is

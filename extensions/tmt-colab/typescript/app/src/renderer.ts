@@ -541,9 +541,11 @@ export async function mountRenderer(
               typeof slot.left !== 'number' ||
               !Number.isFinite(slot.left) ||
               slot.left < 0 ||
+              slot.left > MAX_RENDER_HEIGHT ||
               typeof slot.width !== 'number' ||
               !Number.isFinite(slot.width) ||
               slot.width <= 0 ||
+              slot.width > MAX_RENDER_HEIGHT ||
               slot.left + slot.width > frame.clientWidth ||
               frame.getBoundingClientRect().left + slot.left < 0 ||
               frame.getBoundingClientRect().left + slot.left + slot.width > innerWidth))

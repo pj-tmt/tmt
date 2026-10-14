@@ -511,6 +511,7 @@ for (const width of [1440, 1024, 390])
         window.scrollBy(0, node.getBoundingClientRect().bottom - innerHeight + 30),
       );
       const floating = page.locator('#ask-page-fixture .selection-mode');
+      await expect(floating).toBeVisible();
       await expect
         .poll(
           async () => {
@@ -539,6 +540,13 @@ for (const width of [1440, 1024, 390])
         mkdirSync(captures, { recursive: true });
         await page.screenshot({ path: `${captures}/container-footer-${width}-${theme}.png` });
       }
+      // Hit the far edge that the old FAB covered, not only the radio at the left.
+      const lastOption = group.locator('.question-option').last();
+      const option = await lastOption.boundingBox();
+      expect(option).not.toBeNull();
+      await lastOption.click({ position: { x: option!.width - 2, y: option!.height - 2 } });
+      await expect(activeCard(page).getByLabel('Change it', { exact: true })).toBeChecked();
+      await activeCard(page).getByLabel('Keep it', { exact: true }).check();
       // A trusted browser click must reach the recipient control, not chrome above it.
       await group.getByRole('button', { name: 'Add recipient', exact: true }).click();
       await expect(page.getByRole('combobox', { name: 'Find an agent' })).toBeVisible();
