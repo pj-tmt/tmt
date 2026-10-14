@@ -8,7 +8,7 @@ use crate::{
     Result,
     assets::{self, App},
     attachments::slots::StagingSlots,
-    cloud_sync::{self, Activity, CloudSync},
+    cloud_sync::{self, ActivePage, CloudSync},
     control::{self, Control, StopReply},
     keyring::{Layout, StateFault},
     limits, management,
@@ -114,7 +114,7 @@ pub struct MountSocket {
 }
 /// Everything the cloud-sync worker is started with, held until the serve loop begins.
 struct Cloud {
-    activity: Activity,
+    activity: ActivePage,
     config: cloud_sync::Config,
     layout: Layout,
     owner: [u8; 32],
@@ -227,7 +227,7 @@ impl MountSocket {
             .sync
             .as_ref()
             .ok_or("Cloud sync needs the registered sync server.")?;
-        let activity = Activity::default();
+        let activity = ActivePage::default();
         sync.set_activity(activity.clone())
             .map_err(|_| "Sync lock poisoned.")?;
         self.cloud = Some(Cloud {

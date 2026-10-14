@@ -139,8 +139,6 @@ pub(crate) fn activate_sync(deadline: Instant) -> Result<Activation, ActivationF
         "--json",
     ])?)
     .map_err(|_| ActivationFailure::Local)?;
-    let generation = tmt_extension_objects::Uuid4::parse(&activated.generation)
-        .map_err(|_| ActivationFailure::Local)?;
     let identity: serde_json::Value =
         serde_json::from_str(&invoke(&["status", "--layers", "--json"])?)
             .map_err(|_| ActivationFailure::Local)?;
@@ -154,10 +152,7 @@ pub(crate) fn activate_sync(deadline: Instant) -> Result<Activation, ActivationF
         })
         .ok_or(ActivationFailure::Local)?
         .to_owned();
-    Ok(Activation {
-        project,
-        generation,
-    })
+    Activation::from_reply(project, &activated.generation).ok_or(ActivationFailure::Local)
 }
 
 /// Owns one started door until dropped. Remote owns the port policy.

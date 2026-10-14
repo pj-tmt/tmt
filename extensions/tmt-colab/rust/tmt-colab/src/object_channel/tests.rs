@@ -1400,7 +1400,7 @@ fn active_cloud_page_joins_every_cancel_before_subscribing_to_its_successor() {
     let client = channel.client();
     let binding = sealed_binding(&client, &remote);
     let worker = thread::spawn(move || {
-        let mut group = crate::cloud_sync::PageInterests::new(client, binding);
+        let mut group = super::cloud_sync::PageInterests::new(client, binding);
         group
             .select(
                 &"a".repeat(32),

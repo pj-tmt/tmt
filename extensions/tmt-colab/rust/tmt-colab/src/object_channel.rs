@@ -21,6 +21,7 @@ pub(crate) mod admission;
 pub(crate) mod attach;
 mod binding;
 mod client;
+pub mod cloud_sync;
 pub mod documents;
 mod history;
 pub(crate) mod namespace;

@@ -2,7 +2,7 @@
 //! upgrades the socket; this module never owns HTTP, cookies, keys or Yjs state.
 pub(crate) mod wire;
 use crate::{
-    cloud_sync::{Activity, PageRef},
+    cloud_sync::{ActivePage, PageRef},
     limits,
     store::{self, Accepted, Store, StreamScope},
 };
@@ -471,7 +471,7 @@ struct State<A> {
     draining: bool,
     /// Tells the cloud-sync worker which page was last opened or written. Nothing waits on it
     /// unless the serve runs the worker.
-    activity: Activity,
+    activity: ActivePage,
 }
 /// Shared queue/admission/store owner. No worker threads; dropping a Connection
 /// removes its subscriber. Mutate authority only through update_admission.
@@ -642,11 +642,11 @@ impl<A: Admission> Server<A> {
             next: 0,
             saving: HashMap::new(),
             draining: false,
-            activity: Activity::default(),
+            activity: ActivePage::default(),
         })))
     }
     /// Share the activity the cloud-sync worker waits on.
-    pub fn set_activity(&self, activity: Activity) -> Result<(), Code> {
+    pub fn set_activity(&self, activity: ActivePage) -> Result<(), Code> {
         self.0.lock().map_err(|_| Code::Denied)?.activity = activity;
         Ok(())
     }
@@ -750,7 +750,7 @@ impl<A: Admission> DetachedCatchup<A> {
             next: 1,
             saving: HashMap::new(),
             draining: false,
-            activity: Activity::default(),
+            activity: ActivePage::default(),
         };
         // The consumer already admitted current membership and eligible opaque
         // historical keys on its live connection. Name that exact head without

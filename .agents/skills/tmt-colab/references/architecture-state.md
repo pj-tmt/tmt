@@ -32,16 +32,16 @@ results, coalesces Changed hints and retains terminal interests until confirmed
 cancellation or generation close. `object_channel/documents.rs` maps Colab fields to
 canonical REST Values and page-bound IDs; checksums and routing metadata confer
 no admission. The public opaque SealedClient has no standalone constructor.
-`cloud_sync.rs` is the serve's one cloud-sync worker, started by `socket.rs` beside the rekeyer
+`object_channel/cloud_sync.rs` is the serve's one cloud-sync worker, started by `socket.rs` beside the rekeyer
 and stopped after the object channel closes. Per generation it asks Remote to activate (the
 binary injects `supervisor::activate_sync`), waits for that generation's channel, binds, and
-keeps the most recently active page published: `cloud_sync/publisher.rs` creates the page's
+keeps the most recently active page published: `object_channel/cloud_sync/publisher.rs` creates the page's
 admission rows, then the signed membership, chain and wrap originals of the streams this machine
-registered, then each local original in sequence, and `cloud_sync/local.rs` reads them from the
+registered, then each local original in sequence, and `object_channel/cloud_sync/local.rs` reads them from the
 Store and records a position only after the exact original was created or read back identical
 (`store/publication.rs` owns the positions). `sync.rs` reports the page a peer opened or wrote
-through `Activity`; the worker never retries a refusal Remote will not change by itself
-(`cloud_sync/activation.rs`) and shows its one line once. Inbound streams and member admission
+through `ActivePage`; the worker never retries a refusal Remote will not change by itself
+(`object_channel/cloud_sync/activation.rs`) and shows its one line once. Inbound streams and member admission
 are not implemented, so this publication has no reader yet.
 Its `admission` module captures the actual peer, current native context, exact
 request and reference/target; `peer` serializes bounded original-ID calls without

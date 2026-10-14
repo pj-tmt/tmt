@@ -66,8 +66,8 @@ pub struct Wake {
 /// The most recently active page: the one a browser opened or showed, or the CLI wrote to.
 /// Touching it is cheap and never blocks; the worker alone decides what to do about it.
 #[derive(Clone)]
-pub struct Activity(Arc<Pulse>);
-impl Default for Activity {
+pub struct ActivePage(Arc<Pulse>);
+impl Default for ActivePage {
     fn default() -> Self {
         Self(Arc::new(Pulse {
             state: Mutex::new(PulseState {
@@ -79,7 +79,7 @@ impl Default for Activity {
         }))
     }
 }
-impl Activity {
+impl ActivePage {
     pub fn touch(&self, page: PageRef) {
         let mut state = locked(&self.0.state);
         state.page = Some(page);
@@ -141,6 +141,15 @@ pub struct Activation {
     pub project: String,
     pub generation: Uuid4,
 }
+impl Activation {
+    /// The activation Remote's reply describes, or none for a generation that is not an ID.
+    pub fn from_reply(project: String, generation: &str) -> Option<Self> {
+        Some(Self {
+            project,
+            generation: Uuid4::parse(generation).ok()?,
+        })
+    }
+}
 /// A typed refusal exactly as Remote wrote it (`state` is only ever `deadline`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Refusal {
@@ -160,7 +169,7 @@ pub type Activate = dyn Fn(Instant) -> Result<Activation, ActivationFailure> + S
 /// the single warning a person may see.
 pub(crate) struct Parts {
     pub channels: Arc<dyn Channels>,
-    pub activity: Activity,
+    pub activity: ActivePage,
     pub activate: Arc<Activate>,
     pub report: Arc<dyn Fn(&str) + Send + Sync>,
     pub declaration_digest: String,
@@ -180,14 +189,14 @@ pub struct Config {
 
 /// The serve's one cloud-sync worker.
 pub struct CloudSync {
-    activity: Activity,
+    activity: ActivePage,
     thread: Option<JoinHandle<()>>,
 }
 impl CloudSync {
     /// The serve's worker: it reads the space owned by `owner` through its own Store handle.
     pub(crate) fn serve(
         objects: Arc<ChannelOwner>,
-        activity: Activity,
+        activity: ActivePage,
         config: Config,
         layout: Layout,
         owner: [u8; 32],

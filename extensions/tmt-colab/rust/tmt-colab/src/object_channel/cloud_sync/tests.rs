@@ -1,7 +1,7 @@
 //! The worker against a scripted Remote on the real bus: activation, binding, publication of
 //! the active page and the bounds on retrying.
 use super::{
-    Activation, ActivationFailure, Activity, Channels, CloudSync, PageRef, Parts, Refusal,
+    Activation, ActivationFailure, ActivePage, Channels, CloudSync, PageRef, Parts, Refusal,
     fixture::{BINDING, DIGEST, OneUpdate, SPACE, ScriptedRemote, activated, friendly, peer},
 };
 use std::{
@@ -31,7 +31,7 @@ fn page(page: &str, epoch: u64) -> PageRef {
 }
 struct Rig {
     sync: Option<CloudSync>,
-    activity: Activity,
+    activity: ActivePage,
     reports: Arc<Mutex<Vec<String>>>,
     activations: Arc<AtomicUsize>,
 }
@@ -39,7 +39,7 @@ fn start(
     channels: Arc<super::fixture::FixedChannel>,
     activate: impl Fn() -> Result<Activation, ActivationFailure> + Send + Sync + 'static,
 ) -> Rig {
-    let activity = Activity::default();
+    let activity = ActivePage::default();
     let reports = Arc::new(Mutex::new(Vec::new()));
     let activations = Arc::new(AtomicUsize::new(0));
     let (sink, count) = (Arc::clone(&reports), Arc::clone(&activations));

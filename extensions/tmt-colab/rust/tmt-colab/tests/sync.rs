@@ -11,7 +11,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tmt_colab::{
-    cloud_sync::{Activity, PageRef},
+    cloud_sync::{ActivePage, PageRef},
     keyring::Layout,
     store::{Store, StreamScope},
     sync::{Access, Admission, CatchupContext, Code, Connection, Progress, Server, SyncScope},
@@ -1896,7 +1896,7 @@ fn inline_baseline_reserves_first_page_bytes_without_truncating_membership() {
 #[test]
 fn the_page_a_peer_opens_is_the_active_page_for_cloud_sync_and_an_ack_is_not() {
     let f = Fixture::new();
-    let activity = Activity::default();
+    let activity = ActivePage::default();
     f.server.set_activity(activity.clone()).unwrap();
     let mut peer = f.peer(ALICE);
     assert_eq!(activity.wait(0, Duration::ZERO).page, None);
