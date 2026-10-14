@@ -89,8 +89,7 @@ Declaration-derived stream composites, index merging for discovery/page interest
 READY-only verification are owned by the [composition contract](../../../../contracts/remote-channel-v1.md#proposal-firestore-auth-and-rules).
 A building index leaves deployment partial; rerun the same authorized command to observe it, not recreate it.
 A lost mutation reply stays unknown. These checks neither measure daily traffic nor prove the project's tier.
-Installed Colab acceptance waits for its declaration command; real-project proof also requires
-separate owner approval.
+Installed Colab acceptance and real-project proof still require separate owner authorization.
 
 The settings page shows these published allowances under native Details, including the
 source-read date and 70/90 guard thresholds. They are not a measured usage percentage or
