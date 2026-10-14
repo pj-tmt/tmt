@@ -377,3 +377,70 @@ fn name_and_search_input_do_not_gain_message_completion() {
     assert_eq!(app.search, "@");
     assert!(!app.mentions.completion.open());
 }
+
+#[test]
+fn message_completion_scrolls_candidates_and_refuses_stale_painted_geometry() {
+    for name in ["talk", "reply", "annotation", "ask-lead", "status", "cron"] {
+        let mut app = message_surface(name);
+        app.references = crate::board::inventory::Inventory::from_listed(
+            &[],
+            &Ok(
+                serde_json::json!({"identities": (0..12).map(|index| serde_json::json!({
+                "id": format!("acquired-id-{index}"), "name": format!("docs-{index:02}")
+            })).collect::<Vec<_>>()}),
+            ),
+        );
+        let _no_acquisition = crate::runner::forbid_commands();
+        let compose = app.input.as_ref().unwrap().compose.clone();
+        app.paste("@docs-");
+        assert_eq!(app.mentions.completion.matches.len(), 12, "{name}");
+        assert_eq!(key(&mut app, KeyCode::PageDown), Effect::None);
+        assert_eq!(app.mentions.completion.selected, 6);
+        draw_completion(&app);
+        let area = app.mentions.hits.borrow()[0].0;
+        let mouse = |kind| MouseEvent {
+            kind,
+            column: area.x,
+            row: area.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        assert_eq!(
+            app.mouse(mouse(MouseEventKind::ScrollDown), std::time::Instant::now()),
+            Effect::None
+        );
+        assert_eq!(app.mentions.completion.selected, 7);
+        draw_completion(&app);
+        app.invalidate_frame_geometry();
+        // The completion owner relinquishes invalidated hits; outside-editor
+        // focus and draft retention are handled by the input owner.
+        assert!(!app.mention_mouse(mouse(MouseEventKind::Down(MouseButton::Left))));
+        assert_eq!(
+            app.reference_editor().unwrap().as_str(),
+            "@docs-",
+            "{name}: stale choice must not insert"
+        );
+        assert_eq!(app.input.as_ref().unwrap().compose, compose);
+        draw_completion(&app);
+        let (last, index) = *app.mentions.hits.borrow().last().unwrap();
+        let chosen = app.mentions.completion.matches[index].insertion.clone();
+        assert_eq!(
+            app.mouse(
+                MouseEvent {
+                    kind: MouseEventKind::Down(MouseButton::Left),
+                    column: last.x,
+                    row: last.y,
+                    modifiers: KeyModifiers::NONE
+                },
+                std::time::Instant::now()
+            ),
+            Effect::None
+        );
+        assert_eq!(
+            app.reference_editor().unwrap().as_str(),
+            format!("{chosen} "),
+            "{name}"
+        );
+        assert_eq!(app.input.as_ref().unwrap().compose, compose);
+        assert!(app.message_field());
+    }
+}
