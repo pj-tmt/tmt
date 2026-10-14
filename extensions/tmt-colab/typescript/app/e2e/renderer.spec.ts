@@ -1135,13 +1135,24 @@ test('question groups and split slot geometry admit only the current closed resp
       rejectedGeometry.push(geometry());
     }
     emit(placement);
+    const placed = geometry();
+    const frame = document.querySelector('iframe')!;
+    const width = frame.style.width;
+    frame.style.width = '10px';
+    window.dispatchEvent(new Event('resize'));
+    const retired = geometry();
+    frame.style.width = width;
+    window.dispatchEvent(new Event('resize'));
+    emit(placement);
     return {
       rejected,
       admitted,
       groups: w.questionRequest.groups,
       rejectedGeometry,
       clamped: w.splitRequest.slots[0],
-      geometry: geometry(),
+      geometry: placed,
+      retired,
+      restored: geometry(),
     };
   });
   expect(result.rejected).toEqual(Array(8).fill('[]'));
@@ -1155,6 +1166,8 @@ test('question groups and split slot geometry admit only the current closed resp
     },
   ]);
   expect(result.rejectedGeometry).toEqual(Array(18).fill('[]'));
+  expect(result.retired).toBe('[]');
+  expect(result.restored).toBe(result.geometry);
   expect(result.clamped).toEqual({
     id: '80000000-0000-4000-8000-000000000002',
     height: 2000,

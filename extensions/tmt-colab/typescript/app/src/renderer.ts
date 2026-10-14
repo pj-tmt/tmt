@@ -221,6 +221,8 @@ export async function mountRenderer(
     );
     if (fitting.length !== lastSlots.length) {
       lastSlots = fitting;
+      // The former serialization is no longer the admitted placement.
+      slotPositions = '';
       options.onSlots?.(lastSlots);
     }
     lastHeight = innerScroll ? viewportHeight() : Math.max(viewportHeight(), reportedHeight);

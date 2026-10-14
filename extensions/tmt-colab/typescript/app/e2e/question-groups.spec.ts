@@ -640,3 +640,37 @@ for (const width of [1440, 390])
     await expect(floating).toBeVisible();
     await check();
   });
+
+test('question collision placement preserves the fixed header controls', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 800 });
+  const group = await mount(page, { layout: 'centered' });
+  await activeCard(page).getByLabel('Keep it', { exact: true }).check();
+  const surface = page.locator('#ask-page-fixture');
+  const floating = surface.locator('.selection-mode');
+  const header = await surface.locator('.tmt-ui-header').boundingBox();
+  const fab = await floating.boundingBox();
+  expect(header).not.toBeNull();
+  expect(fab).not.toBeNull();
+  const top = header!.y + header!.height + fab!.height - 12;
+  await group.evaluate(
+    (node, top) => window.scrollBy(0, node.getBoundingClientRect().top - top),
+    top,
+  );
+  await expect
+    .poll(async () => Math.abs((await group.boundingBox())!.y - top))
+    .toBeLessThanOrEqual(1);
+  await expect
+    .poll(
+      async () => {
+        if (!(await floating.isVisible())) return true;
+        const fab = await floating.boundingBox();
+        const header = await surface.locator('.tmt-ui-header').boundingBox();
+        return !!fab && !!header && fab.y >= header.y + header.height + 8;
+      },
+      { message: 'moving FAB above a card must not overlap fixed chrome' },
+    )
+    .toBe(true);
+  await surface.getByRole('button', { name: 'More', exact: true }).click();
+  await expect(page.getByRole('menu')).toBeVisible();
+  await page.getByRole('menu').press('Escape');
+});
