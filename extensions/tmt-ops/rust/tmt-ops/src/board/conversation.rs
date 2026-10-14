@@ -629,14 +629,15 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
         .scrolls
         .show(frame, Pane::Replies, body, &mapped.lines, look);
     if let Some(position) = position {
+        let visible = shown.min(mapped.lines.len().saturating_sub(offset));
         strip::paint_left(
             frame.buffer_mut(),
             position,
             Line::styled(
                 format!(
                     "{}–{} / {}  ·  select text to annotate",
-                    if shown == 0 { 0 } else { offset + 1 },
-                    offset + shown,
+                    if visible == 0 { 0 } else { offset + 1 },
+                    offset + visible,
                     mapped.lines.len()
                 ),
                 look.role(Role::Dim),

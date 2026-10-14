@@ -781,3 +781,27 @@ fn shortened_or_missing_header_rows_never_publish_timer_or_details_hits() {
         }
     }
 }
+
+#[test]
+fn response_position_counts_retained_lines_rather_than_empty_viewport_cells() {
+    for width in [160, 100] {
+        let mut app = workspace_fixture();
+        app.view.as_mut().unwrap().replies.clear();
+        app.home_leads.replies.clear();
+        let mut terminal = Terminal::new(TestBackend::new(width, 18)).unwrap();
+        terminal
+            .draw(|frame| {
+                crate::board::view::prepare(&mut app, frame.area());
+                crate::board::view::render(frame, &app);
+            })
+            .unwrap();
+        let screen: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(screen.contains("1–1 / 1"), "{screen}");
+    }
+}
