@@ -12,7 +12,24 @@ pub(super) const NOW: u64 = 1_791_600_000_000;
 pub(super) const VALUES: [u64; 12] = [0, 1, 0, 51, 12, 72, 49, 110, 85, 24, 180, 105];
 
 pub(super) fn populate(app: &mut App) {
-    let roster = &app.workspace_snapshot().unwrap().roster;
+    populate_with(app, |_, _| {});
+}
+
+pub(super) fn populate_with(app: &mut App, edit: impl FnMut(usize, &mut Slice)) {
+    let view = seed_view(app.view.take().unwrap(), edit);
+    let mut snapshot = crate::board::app::tests::snapshot(crate::board::ALL, serde_json::json!([]));
+    snapshot.tabs = app.tabs.clone();
+    snapshot.view = Ok(view);
+    app.apply(snapshot);
+    app.shell.tab = OpsTab::Overview;
+    app.focus = 0;
+}
+
+pub(super) fn seed_view(
+    mut view: crate::board::app::View,
+    mut edit: impl FnMut(usize, &mut Slice),
+) -> crate::board::app::View {
+    let roster = &view.home.as_ref().unwrap().workspace.roster;
     let id = roster.members.keys().next().unwrap().clone();
     let name = roster.members[&id].name.clone();
     let room = roster
@@ -39,7 +56,7 @@ pub(super) fn populate(app: &mut App) {
                 let bar = index / 10;
                 let unknown = bar == 2;
                 let partial = bar == 3;
-                Slice {
+                let mut slice = Slice {
                     from_ms: NOW - 3_600_000 + index as u64 * 30_000,
                     to_ms: NOW - 3_600_000 + (index as u64 + 1) * 30_000,
                     input_tokens: if index % 10 == 0 { VALUES[bar] } else { 0 },
@@ -55,11 +72,12 @@ pub(super) fn populate(app: &mut App) {
                     complete: !unknown && !partial,
                     gap: unknown || partial,
                     discontinuous: false,
-                }
+                };
+                edit(index, &mut slice);
+                slice
             })
             .collect(),
     };
-    let mut view = app.view.take().unwrap();
     view.home_rate.insert(
         "chart-fixture".into(),
         RateView {
@@ -72,10 +90,5 @@ pub(super) fn populate(app: &mut App) {
             history: Some([(id, Some(seed))].into()),
         },
     );
-    let mut snapshot = crate::board::app::tests::snapshot(crate::board::ALL, serde_json::json!([]));
-    snapshot.tabs = app.tabs.clone();
-    snapshot.view = Ok(view);
-    app.apply(snapshot);
-    app.shell.tab = OpsTab::Overview;
-    app.focus = 0;
+    view
 }

@@ -1,5 +1,7 @@
 use super::*;
 
+mod collapse;
+
 #[test]
 fn invalid_control_change_preserves_grid_and_inspected_bucket() {
     let mut state = State::default();
@@ -82,6 +84,7 @@ fn current_controls_and_keyboard_share_grid_without_recipient_or_draft_changes()
         assert!(!app.usage_chart.borrow().focused());
         press(&mut app, KeyCode::Char('u'));
         assert!(app.usage_chart.borrow().focused());
+        paint(&mut app, 100, 36);
         press(&mut app, KeyCode::Right);
         press(&mut app, KeyCode::Enter);
         assert_eq!(app.usage_chart.borrow().selection.each_minutes, 15);
@@ -93,6 +96,9 @@ fn current_controls_and_keyboard_share_grid_without_recipient_or_draft_changes()
         paint(&mut app, 100, 36);
         press(&mut app, KeyCode::Esc);
         press(&mut app, KeyCode::Char('3'));
+        let shown = text(&paint(&mut app, 100, 36));
+        assert!(shown.contains("TOK / 15m · unavailable · u chart"));
+        press(&mut app, KeyCode::Char('u'));
         let shown = text(&paint(&mut app, 100, 36));
         assert!(shown.contains("[15m]") && shown.contains("[30m]"));
         assert_eq!(app.workspace.selected, target);
@@ -137,6 +143,7 @@ fn bucket_click_keyboard_and_hover_share_exact_unknown_evidence_with_no_close_re
     crate::status::with_now_ms(1_791_600_000_000, || {
         let _no_commands = crate::runner::forbid_commands();
         let mut app = board();
+        fixtures::populate(&mut app);
         press(&mut app, KeyCode::Char('1'));
         paint(&mut app, 160, 36);
         let hit = app
@@ -144,7 +151,7 @@ fn bucket_click_keyboard_and_hover_share_exact_unknown_evidence_with_no_close_re
             .borrow()
             .hits
             .iter()
-            .find(|hit| hit.target == Target::Bar(0))
+            .find(|hit| hit.target == Target::Bar(2))
             .unwrap()
             .area;
         let target = app.workspace.selected.clone();
@@ -157,7 +164,7 @@ fn bucket_click_keyboard_and_hover_share_exact_unknown_evidence_with_no_close_re
             },
             std::time::Instant::now(),
         );
-        assert_eq!(app.usage_chart.borrow().hover, Some(0));
+        assert_eq!(app.usage_chart.borrow().hover, Some(2));
         assert!(text(&paint(&mut app, 160, 36)).contains("Observed tokens: unavailable"));
         click(&mut app, hit);
         assert!(app.usage_details.is_some());
@@ -188,6 +195,7 @@ fn bucket_click_keyboard_and_hover_share_exact_unknown_evidence_with_no_close_re
 fn resize_reader_agents_and_custom_binding_remove_old_chart_authority() {
     crate::status::with_now_ms(1_791_600_000_000, || {
         let mut app = board();
+        fixtures::populate(&mut app);
         press(&mut app, KeyCode::Char('1'));
         paint(&mut app, 100, 36);
         let hit = app
@@ -311,6 +319,7 @@ fn chart_shortcuts_do_not_escape_search_composers_or_modal_input() {
         press(&mut app, KeyCode::Char('1'));
         paint(&mut app, 100, 36);
         press(&mut app, KeyCode::Char('u'));
+        paint(&mut app, 100, 36);
         press(&mut app, KeyCode::Tab);
         press(&mut app, KeyCode::Tab);
         press(&mut app, KeyCode::Enter);
