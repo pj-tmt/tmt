@@ -231,7 +231,8 @@ export async function verifyNativeRuntime({
       );
       assert(colabApp, 'Colab archive proof requires independent expected app bytes');
       // Other products retain the minimal verifier image's existing dependency closure.
-      const { verifyColabApp } = await import('./colab-runtime-proof.mjs');
+      const { verifyColabApp, verifyColabHosting } = await import('./colab-runtime-proof.mjs');
+      verifyColabHosting({ executable, cwd, env, notices });
       await verifyColabApp({ executable, version, expectedApp: colabApp, notices });
       return;
     }

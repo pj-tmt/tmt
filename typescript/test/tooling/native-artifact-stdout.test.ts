@@ -67,12 +67,31 @@ function artifactFixture(product: string, omitted = '') {
     `if [ '${product}' = colab ]; then
  test "$1" = pnpm@10.33.0
  if [ "$2" = install ]; then test "$3" = --frozen-lockfile; test "$4" = --ignore-scripts; exit 0; fi
- test "$2" = --filter; test "$3" = @tmt/colab-app; test "$4" = --fail-if-no-match; test "$5" = build
- app=../extensions/tmt-colab/typescript/app/dist
+ test "$2" = --filter; test "$4" = --fail-if-no-match
+ if [ "$3" = @tmt/remote-client ]; then
+  test "$5 $6 $7 $8 $9" = 'exec vp build --config vite.firebase.config.ts'
+  test -s ../extensions/tmt-colab/typescript/app/dist/index.html
+  test ! -e .hosted-stage
+  printf 'firebase' > .hosted-stage
+  mkdir -p ../extensions/tmt-remote/typescript/remote-client/dist
+  printf 'Firebase license notice\\n' > ../extensions/tmt-remote/typescript/remote-client/dist/THIRD-PARTY-NOTICES.txt
+  exit 0
+ fi
+ test "$3" = @tmt/colab-app
+ if [ "$5" = build:hosted ]; then
+  test "$(cat .hosted-stage)" = firebase
+  printf 'hosted' > .hosted-stage
+  app=../extensions/tmt-colab/typescript/app/dist-hosted
+  notice='Hosted SPA license notice'
+ else
+  test "$5" = build
+  app=../extensions/tmt-colab/typescript/app/dist
+  notice='SPA license notice'
+ fi
 else exit 97; fi
 mkdir -p "$app/assets"
 printf 'index app\\n' > "$app/index.html"
-printf 'SPA license notice\\n' > "$app/THIRD-PARTY-NOTICES.txt"
+printf '%s\\n' "$notice" > "$app/THIRD-PARTY-NOTICES.txt"
 if [ '${omitted}' = index ]; then rm "$app/index.html"; fi
 if [ '${omitted}' = notices ]; then : > "$app/THIRD-PARTY-NOTICES.txt"; fi
 if [ '${omitted}' = build ]; then exit 9; fi
@@ -101,7 +120,7 @@ fi`
   tool(
     bin,
     'cargo',
-    `if [ '${product}' = colab ]; then test "$TMT_NATIVE_PRODUCT" = colab; test "$TMT_COLAB_APP_DIR" = '${root}/extensions/tmt-colab/typescript/app/dist'; test -s "$TMT_COLAB_APP_DIR/index.html"; fi
+    `if [ '${product}' = colab ]; then test "$TMT_NATIVE_PRODUCT" = colab; test "$TMT_COLAB_APP_DIR" = '${root}/extensions/tmt-colab/typescript/app/dist'; test -s "$TMT_COLAB_APP_DIR/index.html"; test "$TMT_COLAB_HOSTING_DIR" = '${root}/extensions/tmt-colab/typescript/app/dist-hosted'; test -s "$TMT_COLAB_HOSTING_DIR/index.html"; fi
 if [ "$1" = pkgid ]; then printf 'path+file:///fixture#tmt-${product}@0.1.0-alpha.2\\n'; else
 test "$1 $2 $3 $4 $5 $6" = 'build --locked -p tmt-driver-herdr --bin tmt-driver-herdr'
 mkdir -p target/aarch64-apple-darwin/dist
@@ -142,7 +161,7 @@ describe('native artifact stdout', () => {
       expect(
         readFileSync(path.join(root, 'rust/target/native-notices/THIRD-PARTY-NOTICES.txt'), 'utf8')
       ).toBe(
-        `Rust license notice\n${product === 'colab' ? 'SPA license notice\n' : product === 'cli' ? 'Rust license notice\n' : ''}`
+        `Rust license notice\n${product === 'colab' ? 'Firebase license notice\nHosted SPA license notice\nSPA license notice\n' : product === 'cli' ? 'Rust license notice\n' : ''}`
       );
       const config = readFileSync(path.join(root, 'rust/target/native-notices/about.toml'), 'utf8');
       expect(config).toBe(

@@ -13,7 +13,10 @@ import { describe, expect, it, vi } from 'vite-plus/test';
 import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
 
-vi.mock('../../scripts/colab-runtime-proof.mjs', () => ({ verifyColabApp: vi.fn() }));
+vi.mock('../../scripts/colab-runtime-proof.mjs', () => ({
+  verifyColabApp: vi.fn(),
+  verifyColabHosting: vi.fn(),
+}));
 import { runCli, withSandbox } from '../support/cli-process.js';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');

@@ -12,7 +12,11 @@ stated. Raw runtime proof is in the
 prove archives or public installation.
 Archive, installer, upgrade and public smoke verifiers share `native-runtime-proof.mjs`
 for linkage, exact embedded skills and SQLite reopen behavior; each caller retains
-its independent inventory/checksum/notices and failure/cleanup checks.
+its independent inventory/checksum/notices and failure/cleanup checks. Colab release
+builds prepare Remote’s Firebase client before the hosted app and pin both mounted
+and hosted inputs for Cargo. The Colab proof requires `hosting-bundle --json` to
+match `deploy-declaration --json` exactly, including manifest CSP and file hashes,
+and checks that archive notices cover the hosted dependencies.
 
 ## Native pipeline
 

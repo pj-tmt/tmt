@@ -378,9 +378,6 @@ fn generator(
     let reset = lines
         .iter()
         .position(|line| *line == "unset TMT_COLAB_HOSTING_DIR");
-    let export = lines
-        .iter()
-        .position(|line| *line == "export TMT_COLAB_APP_DIR");
     let product_block = lines
         .iter()
         .position(|line| line.starts_with("if [ \"$product\" ="));
@@ -390,40 +387,51 @@ fn generator(
         .count()
         != 1
         || reset
-            .zip(export)
-            .is_none_or(|(reset, export)| reset >= export)
-        || product_block.is_some_and(|block| reset.is_none_or(|reset| reset >= block))
-        || lines.iter().any(|line| {
-            line.starts_with("TMT_COLAB_HOSTING_DIR=") || *line == "export TMT_COLAB_HOSTING_DIR"
-        })
+            .zip(product_block)
+            .is_none_or(|(reset, block)| reset >= block)
     {
-        return Err("canonical hosted release exclusion drift".into());
+        return Err("canonical hosted release reset drift".into());
     }
-    if !hosted {
-        let pin = format!("{variable}=\"$repo/{}\"", relative(root, &directory)?);
-        let assignments: Vec<_> = script
-            .lines()
-            .map(str::trim)
-            .filter(|line| line.starts_with(&format!("{variable}=")))
-            .collect();
-        if assignments != [pin.as_str()]
-            || script
-                .lines()
-                .map(str::trim)
-                .filter(|line| *line == format!("export {variable}"))
-                .count()
-                != 1
-            || script
-                .lines()
-                .map(str::trim)
-                .filter(|line| {
-                    *line
-                        == "corepack pnpm@10.33.0 --filter @tmt/colab-app --fail-if-no-match build 1>&2"
-                })
-                .count()
-                != 1
+    let pin = format!("{variable}=\"$repo/{}\"", relative(root, &directory)?);
+    let assignments: Vec<_> = lines
+        .iter()
+        .copied()
+        .filter(|line| {
+            line.starts_with(&format!("{variable}="))
+                || line.starts_with(&format!("export {variable}="))
+        })
+        .collect();
+    let exported = format!("export {variable}");
+    let build_command = if hosted {
+        "corepack pnpm@10.33.0 --filter @tmt/colab-app --fail-if-no-match build:hosted 1>&2"
+    } else {
+        "corepack pnpm@10.33.0 --filter @tmt/colab-app --fail-if-no-match build 1>&2"
+    };
+    let position = |expected: &str| {
+        let mut found = lines
+            .iter()
+            .enumerate()
+            .filter(|(_, line)| **line == expected);
+        let first = found.next().map(|(index, _)| index);
+        if found.next().is_some() { None } else { first }
+    };
+    if assignments != [pin.as_str()]
+        || position(build_command)
+            .zip(position(&pin))
+            .is_none_or(|(build, pin)| build >= pin)
+        || position(&pin)
+            .zip(position(&exported))
+            .is_none_or(|(pin, export)| pin >= export)
+    {
+        return Err("canonical release directory pin drift".into());
+    }
+    if hosted {
+        let firebase = "corepack pnpm@10.33.0 --filter @tmt/remote-client --fail-if-no-match exec vp build --config vite.firebase.config.ts 1>&2";
+        if position(firebase)
+            .zip(position(build_command))
+            .is_none_or(|(firebase, hosted)| firebase >= hosted)
         {
-            return Err("canonical release directory pin drift".into());
+            return Err("canonical hosted release build order drift".into());
         }
     }
     // One deliberately exact, small forwarding owner. New variables/calls require reviewed proof.

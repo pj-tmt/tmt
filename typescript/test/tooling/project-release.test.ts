@@ -590,7 +590,7 @@ describe('full repository-state release sweep', () => {
           map,
           workspace
         )
-      ).toEqual({ products: ['remote'], unpublished: [] });
+      ).toEqual({ products: ['colab', 'remote'], unpublished: [] });
       const releases: Release[] = [];
       const api = stateApi(project(), releases, new Map([['issue-1', [closingPr(1, sha)]]]));
       const input = {

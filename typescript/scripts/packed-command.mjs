@@ -6,8 +6,19 @@ import path from 'node:path';
 export function runPackedCommand(
   executable,
   args,
-  { cwd, env, expectedStatus = 0, timeoutMs = 10_000, isolateProcessGroup = true }
+  {
+    cwd,
+    env,
+    expectedStatus = 0,
+    timeoutMs = 10_000,
+    isolateProcessGroup = true,
+    maxBuffer = 2 * 1024 * 1024,
+  }
 ) {
+  assert(
+    Number.isSafeInteger(maxBuffer) && maxBuffer > 0 && maxBuffer <= 16 * 1024 * 1024,
+    'Packed command output bound must be positive and at most 16 MiB'
+  );
   const result = spawnSync(executable, args, {
     cwd,
     env,
@@ -16,7 +27,7 @@ export function runPackedCommand(
     timeout: timeoutMs,
     killSignal: 'SIGKILL',
     detached: isolateProcessGroup,
-    maxBuffer: 2 * 1024 * 1024,
+    maxBuffer,
   });
   // The verifier owns this process group, including wrapper/probe children.
   // Kill remaining descendants before its temporary home can be removed.
