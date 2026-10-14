@@ -88,14 +88,12 @@ impl Attachment {
 }
 
 impl super::app::App {
-    pub(super) fn attach_response_quote(
-        &mut self,
-        target: super::row_detail::Target,
-        quote: Quote,
-    ) -> Attachment {
-        use super::app::RowTarget;
-        let current = self
-            .detail(&target)
+    pub(super) fn response_quote_current(
+        &self,
+        target: &super::row_detail::Target,
+        quote: &Quote,
+    ) -> bool {
+        self.detail(target)
             .and_then(|detail| detail.reply)
             .is_some_and(|reply| {
                 reply.acquired
@@ -105,8 +103,16 @@ impl super::app::App {
                         .as_ref()
                         .is_some_and(|key| key.same_source(&quote.key))
                     && reply.body.get(quote.range.clone()) == Some(quote.text.as_str())
-            });
-        if !current {
+            })
+    }
+
+    pub(super) fn attach_response_quote(
+        &mut self,
+        target: super::row_detail::Target,
+        quote: Quote,
+    ) -> Attachment {
+        use super::app::RowTarget;
+        if !self.response_quote_current(&target, &quote) {
             return Attachment::Refused(
                 "The response source changed; reopen it before annotating.",
             );

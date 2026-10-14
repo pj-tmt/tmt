@@ -21,6 +21,7 @@ use unicode_width::UnicodeWidthStr;
 
 pub(super) mod layout;
 pub(super) mod outgoing;
+mod source;
 
 #[derive(Clone)]
 pub(super) struct HeaderHit {
@@ -37,6 +38,8 @@ pub(super) struct State {
     sequence: u64,
     pending_send: Option<outgoing::Ticket>,
     pub header_hits: Vec<HeaderHit>,
+    reply_hits: Vec<source::ReplyHit>,
+    source_drag: Option<source::ReplyHit>,
     pub area: Rect,
     pub pane: Option<Rect>,
 }
@@ -62,7 +65,13 @@ struct Session {
     follow: bool,
     change: Change,
     outgoing: std::collections::VecDeque<outgoing::Entry>,
-    before_send: String,
+    before_send: Option<Reply>,
+    response_spans: Vec<(
+        Option<u64>,
+        super::home_leads::MessageKey,
+        std::ops::Range<usize>,
+    )>,
+    exact_source: Option<source::Source>,
     agent_mark: String,
     authored_roles: BTreeMap<usize, Role>,
     compact_separators: std::collections::BTreeSet<usize>,
@@ -78,7 +87,9 @@ impl Default for Session {
             follow: true,
             change: Change::Current,
             outgoing: Default::default(),
-            before_send: String::new(),
+            before_send: None,
+            response_spans: Default::default(),
+            exact_source: None,
             agent_mark: String::new(),
             authored_roles: Default::default(),
             compact_separators: Default::default(),
@@ -230,9 +241,15 @@ impl App {
         let Some(identity) = state.active.clone() else {
             return;
         };
+        state.reply_hits.clear();
+        state.source_drag = None;
         let Some(session) = state.sessions.get_mut(&identity) else {
             return;
         };
+        if let Some(source) = &mut session.exact_source {
+            source.invalidate();
+            return;
+        }
         session.follow = matches!(step, Step::Bottom);
         if session.follow {
             session.change = Change::Current;
@@ -251,6 +268,7 @@ impl App {
 pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
     let look = app.look();
     app.conversation.borrow_mut().header_hits.clear();
+    app.conversation.borrow_mut().reply_hits.clear();
     let Some(target) = app.conversation_target() else {
         app.conversation.borrow_mut().active = None;
         strip::paint_left(
@@ -561,7 +579,11 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
         "reading · End resumes follow"
     };
     header.push(rule(
-        format!("Response · {flow}"),
+        if session.exact_source.is_some() {
+            format!("Exact response source · {name} · Esc back")
+        } else {
+            format!("Response · {flow}")
+        },
         if session.change != Change::Current {
             Role::Waiting
         } else {
@@ -676,6 +698,11 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
     if body.is_empty() {
         return;
     }
+    if let Some(source) = &mut session.exact_source {
+        source::paint(frame, app, source, &target, body, look);
+        state.header_hits = painted_controls;
+        return;
+    }
     let position = (input_height > 0 && body.height > 1)
         .then(|| Rect::new(body.x, body.bottom() - 1, body.width, 1));
     let body = Rect {
@@ -712,13 +739,27 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
             ),
         );
     }
+    let mut reply_hits = Vec::new();
+    for index in offset..offset.saturating_add(shown).min(mapped.lines.len()) {
+        if mapped.lines[index].width() > 0
+            && let Some((key, sequence)) = session.response_key_at(mapped.sources[index])
+        {
+            reply_hits.push(source::ReplyHit {
+                area: Rect::new(body.x, body.y + (index - offset) as u16, body.width, 1),
+                target: target.clone(),
+                key: key.clone(),
+                sequence,
+                offset,
+            });
+        }
+    }
     if switched || rebuilt || previous != offset {
         session
             .anchor
             .select_visual(&session.text, &mapped.sources, offset);
     }
-    drop(state);
-    app.conversation.borrow_mut().header_hits = painted_controls;
+    state.reply_hits = reply_hits;
+    state.header_hits = painted_controls;
 }
 
 #[cfg(test)]

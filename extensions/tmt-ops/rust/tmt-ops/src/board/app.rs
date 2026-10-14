@@ -3315,6 +3315,12 @@ impl App {
         if let Some(effect) = super::overview::chart::host::key(self, key) {
             return effect;
         }
+        if key.code == KeyCode::Esc
+            && key.kind != ratatui::crossterm::event::KeyEventKind::Release
+            && self.conversation_source_escape()
+        {
+            return Effect::None;
+        }
         self.workspace_key(key)
     }
 
@@ -3356,6 +3362,7 @@ impl App {
         }
         self.conversation.borrow_mut().pane = None;
         self.conversation.borrow_mut().header_hits.clear();
+        self.conversation.borrow_mut().invalidate_source_geometry();
         self.scrolls.begin_frame();
         self.mentions.invalidate();
         if let Some(reader) = &self.row_details.reader {
@@ -3579,6 +3586,9 @@ impl App {
                 self.mentions = Default::default();
                 self.focus = 0;
             }
+        }
+        if let Some(effect) = self.conversation_source_mouse(event) {
+            return effect;
         }
         if self.input.is_some() {
             if self

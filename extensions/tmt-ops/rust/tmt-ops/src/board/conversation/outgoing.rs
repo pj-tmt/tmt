@@ -98,6 +98,26 @@ impl Session {
             self.outgoing.pop_front();
         }
     }
+    pub(super) fn retained_response(
+        &self,
+        key: &crate::board::home_leads::MessageKey,
+        sequence: Option<u64>,
+    ) -> Option<&Reply> {
+        let reply = if self.outgoing.is_empty() {
+            self.reply.as_ref()
+        } else if let Some(sequence) = sequence {
+            self.outgoing
+                .iter()
+                .find(|entry| entry.ticket.sequence == sequence)
+                .and_then(|entry| entry.reply.as_ref())
+        } else {
+            self.before_send.as_ref()
+        }?;
+        (reply.acquired
+            && reply.source
+            && reply.key.as_ref().is_some_and(|held| held.same_source(key)))
+        .then_some(reply)
+    }
     pub(super) fn correlate(&mut self, incoming: Option<&Reply>) {
         let Some(reply) = incoming.filter(|reply| reply.acquired && reply.source) else {
             return;
@@ -181,7 +201,22 @@ impl Session {
         }
     }
     fn refresh_outgoing(&mut self) {
-        let mut text = self.before_send.clone();
+        let mut text = self.before_send.as_ref().map_or_else(String::new, |reply| {
+            crate::board::notes::sanitize(&reply.body)
+        });
+        self.response_spans.clear();
+        if let Some(reply) = self
+            .before_send
+            .as_ref()
+            .filter(|reply| reply.acquired && reply.source)
+            && let Some(key) = &reply.key
+        {
+            self.response_spans.push((
+                None,
+                key.clone(),
+                0..text.bytes().filter(|byte| *byte == b'\n').count() + 1,
+            ));
+        }
         self.authored_roles.clear();
         self.compact_separators.clear();
         for entry in &self.outgoing {
@@ -209,7 +244,18 @@ impl Session {
                     "{} · now\n\n",
                     crate::board::notes::sanitize(&reply.from)
                 ));
+                let start = text.bytes().filter(|byte| *byte == b'\n').count();
                 text.push_str(crate::board::notes::sanitize(&reply.body).trim_end_matches('\n'));
+                if reply.acquired
+                    && reply.source
+                    && let Some(key) = &reply.key
+                {
+                    self.response_spans.push((
+                        Some(entry.ticket.sequence),
+                        key.clone(),
+                        start..text.bytes().filter(|byte| *byte == b'\n').count() + 1,
+                    ));
+                }
             }
         }
         self.text = text;
@@ -273,11 +319,7 @@ impl App {
         let session = state.sessions.entry(identity).or_default();
         if session.outgoing.is_empty() {
             session.update(incoming);
-            session.before_send = if session.reply.is_some() {
-                session.text.clone()
-            } else {
-                String::new()
-            };
+            session.before_send = session.reply.clone();
         }
         session.outgoing.push_back(Entry {
             ticket: ticket.clone(),
