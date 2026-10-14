@@ -5,55 +5,7 @@ use crate::board::{app::workspace::tests::populated_board, workspace::OpsTarget}
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::time::{Duration, Instant};
 
-struct Sample {
-    event_draw: Duration,
-    changed_cells: usize,
-}
-
-fn measure(
-    app: &mut App,
-    terminal: &mut Terminal<TestBackend>,
-    event: impl FnOnce(&mut App, &mut Terminal<TestBackend>),
-) -> Sample {
-    let previous = terminal.backend().buffer().clone();
-    let start = Instant::now();
-    event(app, terminal);
-    terminal
-        .draw(|frame| {
-            crate::board::view::prepare(app, frame.area());
-            crate::board::view::render(frame, app);
-        })
-        .unwrap();
-    let event_draw = start.elapsed();
-    let current = terminal.backend().buffer();
-    // Counting is outside the timed event/draw. Resize is a full clear/redraw;
-    // this is changed buffer cells, not ANSI bytes or physical terminal output.
-    let changed_cells = if current.area == previous.area {
-        previous.diff(current).len()
-    } else {
-        current.content.len()
-    };
-    Sample {
-        event_draw,
-        changed_cells,
-    }
-}
-
-fn report(rows: usize, action: &str, samples: Vec<Sample>) {
-    let mut times: Vec<_> = samples.iter().map(|sample| sample.event_draw).collect();
-    let mut cells: Vec<_> = samples.iter().map(|sample| sample.changed_cells).collect();
-    times.sort();
-    cells.sort_unstable();
-    let at = |quantile: f64| ((times.len() - 1) as f64 * quantile).round() as usize;
-    eprintln!(
-        "workspace agents={rows} squads=36 action={action} samples={} event_draw_us p50={:.1} p95={:.1} changed_cells p50={} p95={}",
-        times.len(),
-        times[at(0.5)].as_secs_f64() * 1_000_000.0,
-        times[at(0.95)].as_secs_f64() * 1_000_000.0,
-        cells[at(0.5)],
-        cells[at(0.95)]
-    );
-}
+use crate::board::timing::probe::{measure, report};
 
 #[test]
 #[ignore = "local release-mode timing evidence; no CI threshold"]

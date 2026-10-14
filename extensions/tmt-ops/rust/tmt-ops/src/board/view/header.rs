@@ -62,9 +62,7 @@ impl ClockSurface {
             Self::QuotaDetails => app
                 .quota_details
                 .as_ref()
-                .map_or_else(String::new, |details| {
-                    details.borrow().clock_mark(app.limits.as_deref(), now)
-                }),
+                .map_or_else(String::new, |details| details.borrow().clock_mark(app, now)),
             Self::Limits { width, rows } => {
                 crate::board::home::limit_clock_marks(app.limits.as_deref(), now, *width, *rows)
             }

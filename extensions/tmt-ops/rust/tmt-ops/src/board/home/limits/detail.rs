@@ -44,9 +44,13 @@ fn template() -> &'static surface::Template<()> {
         surface::compile(FILE, &parsed, &schema, &Data).expect("embedded quota details schema")
     })
 }
-fn lines(standings: Option<&[Standing]>, now: u64) -> Vec<String> {
+fn lines(standings: Option<&[Standing]>, now: u64, sampling_enabled: bool) -> Vec<String> {
     let Some(standings) = standings else {
-        return vec![super::PENDING.into()];
+        return vec![if sampling_enabled {
+            super::PENDING.into()
+        } else {
+            "Subscription sampling is disabled; enable usage sampling to acquire readings".into()
+        }];
     };
     if standings.is_empty() {
         return vec!["No subscription observations reported".into()];
@@ -104,22 +108,26 @@ impl Details {
         self.scroll
             .update(Rect::default(), self.scroll.content(), None);
     }
-    pub fn clock_mark(&self, standings: Option<&[Standing]>, now: u64) -> String {
+    pub fn clock_mark(&self, app: &App, now: u64) -> String {
         // Compare only the wrapped text admitted to the last modal viewport.
         let area = self.scroll.viewport();
         if area.height == 0 {
             return String::new();
         }
-        lines(standings, now)
-            .into_iter()
-            .flat_map(|line| crate::board::notes::wrap(&line, usize::from(area.width)))
-            .skip(self.scroll.offset())
-            .take(usize::from(area.height))
-            .collect::<Vec<_>>()
-            .join("\n")
+        lines(
+            app.limits.as_deref(),
+            now,
+            crate::board::home::limits_enabled(app),
+        )
+        .into_iter()
+        .flat_map(|line| crate::board::notes::wrap(&line, usize::from(area.width)))
+        .skip(self.scroll.offset())
+        .take(usize::from(area.height))
+        .collect::<Vec<_>>()
+        .join("\n")
     }
     pub fn render(&mut self, frame: &mut Frame, app: &App, body: Rect) {
-        let value = json!({"lines": lines(app.limits.as_deref(), crate::status::now_ms()).into_iter().map(|text| json!({"text":text})).collect::<Vec<_>>(), "footer":"↑↓ scroll · PgUp/PgDn page · Esc close"});
+        let value = json!({"lines": lines(app.limits.as_deref(), crate::status::now_ms(), crate::board::home::limits_enabled(app)).into_iter().map(|text| json!({"text":text})).collect::<Vec<_>>(), "footer":"↑↓ scroll · PgUp/PgDn page · Esc close"});
         if self.scene.as_ref().is_none_or(|(old, _)| old != &value) {
             self.scene = Some((
                 value.clone(),

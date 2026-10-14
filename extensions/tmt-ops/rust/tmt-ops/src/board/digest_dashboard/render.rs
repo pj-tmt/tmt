@@ -66,7 +66,8 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, mut area: Rect) {
     let quota_visible = usize::from(height)
         .saturating_sub(quota_start)
         .min(quota_count);
-    if quota_visible > 0 {
+    // Modal input owns the body; its retained background adds no clock work.
+    if quota_visible > 0 && !app.modal_open() {
         app.frame_clocks
             .borrow_mut()
             .push(crate::board::view::ClockSurface::Limits {

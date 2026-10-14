@@ -74,7 +74,7 @@ fn painted(standings: Option<&[Standing]>, width: u16) -> Vec<String> {
 
 #[test]
 fn expanded_windows_keep_remaining_reset_and_measured_weekly_pace() {
-    for width in [160, 100, 80, 60] {
+    for width in [160, 140, 100, 80, 60] {
         let lines = limits_in(
             &mut Kept::default(),
             Some(&mock()),
@@ -195,7 +195,7 @@ fn missing_stale_and_reset_readings_say_so_without_historical_numbers() {
             standing(Provider::named("claude"), Some(stale), Some(2.1)),
             standing(Provider::named("codex"), None, None),
         ];
-        for width in [160, 100, 80, 60] {
+        for width in [160, 140, 100, 80, 60] {
             let content = painted(Some(&standings), width).join("\n");
             assert!(
                 content.contains(if expired {
@@ -227,7 +227,7 @@ fn no_rate_and_zero_never_add_negative_pace_text_or_invent_a_countdown() {
 
 #[test]
 fn pending_and_no_providers_have_explicit_geometry() {
-    for width in [160, 100, 80, 60] {
+    for width in [160, 140, 100, 80, 60] {
         assert_eq!(painted(None, width), vec![PENDING]);
         assert!(painted(Some(&[]), width).is_empty());
     }
@@ -317,7 +317,7 @@ fn labels_shorten_before_percentage_and_reset_and_cache_matches_fresh() {
     let mut standings = mock();
     standings[0].provider = Provider::named("longprovider");
     let mut slot = Kept::default();
-    for width in [160, 100, 80, 60] {
+    for width in [160, 140, 100, 80, 60] {
         let look = crate::look::Look::default();
         let lines = limits_in(&mut slot, Some(&standings), NOW, width, look);
         assert_eq!(
@@ -358,7 +358,7 @@ fn arrows_fit_only_beside_pace_and_use_their_semantic_roles() {
         let mut standings = mock();
         standings.truncate(1);
         standings[0].trend = Some(trend);
-        for width in [160, 100, 80, 60] {
+        for width in [160, 140, 100, 80, 60] {
             let look = crate::look::Look::default();
             let lines = limits_in(&mut Kept::default(), Some(&standings), NOW, width, look);
             assert!(text(&lines[0]).contains("~2.1%/h"));
@@ -441,7 +441,7 @@ fn forecast_tail_requires_depletion_strictly_before_reset_at_every_width() {
             burn,
         );
         sample.trend = Some(Trend::Up);
-        for width in [160, 100, 80, 60] {
+        for width in [160, 140, 100, 80, 60] {
             let parts = meter(&sample, NOW, width);
             let warning = parts.iter().find(|p| p["id"] == "warning");
             assert_eq!(warning.is_some(), forecasts, "{burn:?}, {width}");

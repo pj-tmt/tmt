@@ -156,6 +156,7 @@ fn press(app: &mut crate::board::app::App, key: char) -> crate::board::app::Effe
 fn shell_dashboard_keeps_the_same_identity_and_uses_the_supplied_picker() {
     use crate::board::app::{Effect, Request};
     let mut app = board();
+    let _no_commands = crate::runner::forbid_commands();
     app.labels = supplied(serde_json::json!(3), false);
     let selected = app.workspace.selected.clone();
     press(&mut app, '3');
@@ -259,6 +260,13 @@ fn quota_details_open_from_current_cells_and_menu_without_retargeting_or_replayi
     let shown = paint(&mut app, 80, 18);
     assert!(shown.contains("Subscriptions"));
     assert!(shown.contains("unavailable or stale"));
+    assert!(
+        !app.frame_clocks
+            .borrow()
+            .iter()
+            .any(|clock| matches!(clock, crate::board::view::ClockSurface::Limits { .. })),
+        "the covered Digest body contributes no quota clocks"
+    );
     assert!(!shown.contains("0% remaining"));
     assert!(matches!(
         app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
@@ -356,7 +364,7 @@ fn quota_window_frames_show_partial_full_near_empty_and_unknown_in_both_shells()
             .enumerate()
         {
             for tab in [OpsTab::Overview, OpsTab::Digest] {
-                for width in [160, 100, 80] {
+                for width in [160, 140, 100, 80, 60] {
                     let mut app = quota_board();
                     app.shell.tab = tab;
                     app.view
@@ -434,3 +442,16 @@ fn quota_window_frames_show_partial_full_near_empty_and_unknown_in_both_shells()
         }
     });
 }
+
+#[test]
+fn disabled_subscription_sampling_never_promises_an_in_flight_read() {
+    let mut app = board();
+    app.shell.tab = crate::board::shell::OpsTab::Digest;
+    app.open_quota_details();
+    let shown = paint(&mut app, 100, 36);
+    assert!(shown.contains("Subscription sampling is disabled"));
+    assert!(!shown.contains("Updating limits"));
+    assert!(!shown.contains("0% remaining"));
+}
+
+mod performance;
