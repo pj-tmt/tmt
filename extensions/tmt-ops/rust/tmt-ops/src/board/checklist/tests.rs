@@ -110,6 +110,58 @@ fn context_menu_is_shared_and_does_not_manufacture_empty_selection() {
         assert_eq!(app.selected, 0);
     }
 }
+
+#[test]
+fn workspace_checklist_reads_the_visible_room_uuid_and_keeps_its_selection_on_close() {
+    use crate::board::{app::workspace::tests as workspace, workspace::OpsTarget};
+    for target in [
+        OpsTarget::Squad(workspace::ROOM.into()),
+        OpsTarget::Member {
+            room_id: Some(workspace::ROOM.into()),
+            identity_id: workspace::MEMBER.into(),
+        },
+    ] {
+        let mut app = workspace::board();
+        app.workspace.selected = Some(target.clone());
+        let Effect::Checklist(task) = app.open_checklist() else {
+            panic!("Checklist must read through its existing worker")
+        };
+        assert_eq!(task.job, load::Job::Read);
+        assert_eq!(task.key.room, Some(id(workspace::ROOM)));
+        assert_eq!(app.checklist.as_ref().unwrap().room, task.key.room);
+        app.checklist_event(&key(KeyCode::Esc));
+        assert!(!app.checklist_shown());
+        assert_eq!(app.workspace.selected, Some(target));
+        assert_eq!(app.shell.tab, crate::board::shell::OpsTab::Agents);
+    }
+}
+
+#[test]
+fn workspace_checklist_requires_a_room_choice_without_visible_squad_authority() {
+    use crate::board::{app::workspace::tests as workspace, shell::OpsTab, workspace::OpsTarget};
+    for context in ["overview", "pool", "hidden", "missing"] {
+        let mut app = workspace::board();
+        match context {
+            "overview" => app.shell.tab = OpsTab::Overview,
+            "pool" => app.workspace.selected = Some(OpsTarget::Pool),
+            "hidden" => app.workspace.query = "no matching identity".into(),
+            "missing" => {
+                app.workspace.selected = Some(OpsTarget::Squad(
+                    "99999999-9999-4999-8999-999999999999".into(),
+                ));
+            }
+            _ => unreachable!(),
+        }
+        let selected = app.workspace.selected.clone();
+        let Effect::Checklist(task) = app.open_checklist() else {
+            panic!("Checklist room choice must use the existing worker")
+        };
+        assert_eq!(task.job, load::Job::Rooms, "{context}");
+        assert_eq!(task.key.room, None, "{context}");
+        app.checklist_event(&key(KeyCode::Esc));
+        assert_eq!(app.workspace.selected, selected, "{context}");
+    }
+}
 #[test]
 fn full_typed_board_actions_persist_without_dispatch_or_metadata_changes() {
     let f = Fixture::new();

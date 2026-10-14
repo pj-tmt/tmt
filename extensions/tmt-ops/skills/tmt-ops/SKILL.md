@@ -547,8 +547,9 @@ separate from the clock lifecycle.
 
 Press `,`, choose **Actions** after the layout/Theme/Token window choices, then
 **Checklist**. A configured
-`menu` binding opens the same action menu. A named squad uses its exact room;
-Overview and Common pool ask you to choose a room explicitly. Opening
+`menu` binding opens the same action menu. A visible selected squad or its member
+in Agents or Digest uses its exact room; Overview, Common pool and hidden/missing targets
+ask you to choose a room explicitly. Opening
 Checklist does not select or assign a member. Esc from the action menu returns
 directly to the board.
 

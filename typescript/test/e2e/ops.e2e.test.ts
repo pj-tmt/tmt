@@ -241,10 +241,16 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
         ]);
         await fixture.waitForCapture(
           (screen) =>
-            screen.includes('worker') &&
+            screen.includes('OPS / UI') &&
+            screen.includes('product') &&
             !screen.includes('Opening product') &&
             screen.includes('pane %41') &&
             screen.includes('Ops then retries'),
+          shell.pane
+        );
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Right', 'Down']);
+        await fixture.waitForCapture(
+          (screen) => screen.includes('worker') && screen.includes('Ops then retries'),
           shell.pane
         );
         const screen = fixture.capture(24, shell.pane);
@@ -299,23 +305,22 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
         );
         expect(fs.readFileSync(config)).toEqual(beforeConfig);
         expect(fs.readFileSync(path.join(ops, 'cron', 'jobs.json'))).toEqual(beforeJobs);
-        // A newly authored Ops-only view proves refresh reads the promoted file.
-        const adoptedConfig = Buffer.concat([
-          beforeConfig,
-          Buffer.from('\n[squad.product.board]\nview = "focus"\n'),
-        ]);
-        expect(fixture.capture(24, shell.pane)).toContain('(the squad has no lead)');
+        // A compatible authored key proves refresh reads the promoted file.
+        // Retired factory views no longer change the workspace shell.
+        const adoptedConfig = Buffer.concat([beforeConfig, Buffer.from('\n[bind]\n0 = "help"\n')]);
         fs.writeFileSync(config, adoptedConfig);
-        fixture.tmux(['send-keys', '-t', shell.pane, 'C-r']);
+        fixture.tmux(['send-keys', '-t', shell.pane, 'C-r', '?']);
         await fixture.waitFor(
-          () => {
-            const screen = fixture.tmux(['capture-pane', '-p', '-t', shell.pane]);
-            return screen.includes('worker') && !screen.includes('(the squad has no lead)');
-          },
+          () => /\b0\s+help\b/.test(fixture.capture(24, shell.pane)),
           5_000,
-          'manual refresh adopting the Ops-only focus view'
+          'manual refresh adopting the compatible key in effective Help'
         );
-        fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Escape', '0']);
+        await fixture.waitForCapture(
+          (screen) => screen.includes('effective scoped bindings'),
+          shell.pane
+        );
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Escape', 'q']);
         await fixture.waitForCapture(
           (screen) => screen.includes('MIGRATION_BOARD_EXIT=0'),
           shell.pane
@@ -605,7 +610,7 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
     });
   });
 
-  it('uses comma Actions for an empty room and persists explicit checklist updates without dispatch', async () => {
+  it('uses Workspace settings Actions for an empty room and persists explicit checklist updates without dispatch', async () => {
     await withE2EFixture(async (fixture) => {
       installSquad(fixture);
       expectJsonResult(await fixture.runJsonCli(['identity', 'create', 'Ben']));
@@ -625,17 +630,20 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
           'Enter',
         ]);
         await fixture.waitForCapture(
-          (screen) => screen.includes('product') && screen.includes('(no members)'),
+          (screen) => screen.includes('product') && screen.includes('product · 0'),
           shell.pane
         );
         fixture.tmux(['send-keys', '-t', shell.pane, ',']);
-        await fixture.waitForCapture((screen) => screen.includes('Actions…'), shell.pane);
-        fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
+        await fixture.waitForCapture(
+          (screen) => screen.includes('Workspace settings') && screen.includes('Actions'),
+          shell.pane
+        );
+        fixture.tmux(['send-keys', '-t', shell.pane, 'End', 'Enter']);
         await fixture.waitForCapture(
           (screen) => screen.includes('Checklist') && screen.includes('Esc closes'),
           shell.pane
         );
-        fixture.tmux(['send-keys', '-t', shell.pane, ...Array(20).fill('Down'), 'Enter']);
+        fixture.tmux(['send-keys', '-t', shell.pane, 'End', 'Enter']);
         await fixture.waitForCapture((screen) => screen.includes('No checklist yet'), shell.pane);
         fixture.tmux(['send-keys', '-t', shell.pane, 'Tab', 'Tab', 'Enter']);
         await fixture.waitForCapture((screen) => screen.includes('Create item'), shell.pane);
@@ -687,7 +695,7 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
         await fixture.waitForCapture((screen) => screen.includes('hidden by filters'), shell.pane);
         fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
         await fixture.waitForCapture(
-          (screen) => !screen.includes('Checklist') && screen.includes('(no members)'),
+          (screen) => !screen.includes('Checklist') && screen.includes('product · 0'),
           shell.pane
         );
         fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
@@ -797,6 +805,11 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
         `export XDG_CACHE_HOME='${cache}'; tmt ops ui --squad product; echo BOARD_EXIT=$?`,
         'Enter',
       ]);
+      await fixture.waitForCapture(
+        (screen) => screen.includes('OPS / UI') && screen.includes('2 Agents · product'),
+        shell.pane
+      );
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Right']);
       await fixture.waitFor(
         () => screen(shell.pane).includes('auth-fix') && screen(shell.pane).includes('docs-fix'),
         10_000,

@@ -268,8 +268,10 @@ member-row admission; no selected member exposes only context actions. Workspace
 
 `checklist::{controller,forms,surface,load}` owns one centered square modal and its
 room chooser, independent filters, item selection, authored fields and exact
-confirmation. The shown named room freezes its UUID; other contexts require an
-explicit room choice. Default scope is Open / Squad-wide / archived excluded.
+confirmation. A visible selected squad or its member in Agents/Digest freezes
+the acquired room UUID; Overview, Common pool and hidden/missing targets require an explicit
+room choice. Closing retains workspace UUID selection and focus without legacy
+row-index restoration. Default scope is Open / Squad-wide / archived excluded.
 The unfiltered total uses the same archive scope as the matched count. Item Enter
 opens details; explicit named controls perform edits, assignment, completion,
 archive, delete and full inventory reorder. Archived items expose Restore/Delete.
