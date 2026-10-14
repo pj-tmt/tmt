@@ -142,18 +142,19 @@ impl super::app::App {
                 RowTarget::Workspace(_) => self.target_squad(&target).unwrap_or_default(),
                 RowTarget::Member { squad, .. } | RowTarget::Lead { squad, .. } => squad.clone(),
             };
-            if squad.is_empty() {
-                self.notice = Some(
-                    "Notes require a squad context; use Talk for this Common pool identity.".into(),
-                );
-                return Effect::None;
-            }
-            let Some(send) = self.send_target(target, true) else {
+            let Some(send) = self.send_target(target, !squad.is_empty()) else {
                 self.notice = Some("The agent is no longer available; quote not attached.".into());
                 return Effect::None;
             };
             self.row_details.reader = None;
-            let effect = self.compose_row(send, crate::action::Verb::Annotate, squad);
+            // A quote is response provenance, not permission to create a squad
+            // note. Common pool identities receive an explicit Talk follow-up.
+            let verb = if squad.is_empty() {
+                crate::action::Verb::Talk
+            } else {
+                crate::action::Verb::Annotate
+            };
+            let effect = self.compose_row(send, verb, squad);
             if let Some(input) = &mut self.input {
                 let bytes = input
                     .response_quotes

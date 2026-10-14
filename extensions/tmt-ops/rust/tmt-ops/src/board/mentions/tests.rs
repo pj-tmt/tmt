@@ -4,6 +4,13 @@ use ratatui::crossterm::event::KeyModifiers;
 fn key(app: &mut App, code: KeyCode) -> Effect {
     app.key(KeyEvent::new(code, KeyModifiers::NONE))
 }
+fn draw_completion(app: &App) -> ratatui::buffer::Buffer {
+    use ratatui::{Terminal, backend::TestBackend};
+    app.input_viewport.set(Some((Rect::new(0, 12, 100, 1), 0)));
+    let mut terminal = Terminal::new(TestBackend::new(100, 18)).unwrap();
+    terminal.draw(|frame| render(frame, app)).unwrap();
+    terminal.backend().buffer().clone()
+}
 fn app() -> App {
     let mut app = crew(Default::default());
     app.view.as_mut().unwrap().me = Some("Ben".into());
@@ -24,6 +31,73 @@ fn app() -> App {
     );
     app
 }
+#[test]
+fn every_conversation_mode_names_the_actual_recipient_and_inserts_only_text() {
+    for compose in [
+        Compose::Talk {
+            to: "worker".into(),
+        },
+        Compose::Reply {
+            request: "request-id".into(),
+            from: "questioner".into(),
+        },
+        Compose::Annotate {
+            to: "lead".into(),
+            row: "worker".into(),
+        },
+        Compose::AskLead {
+            to: "lead".into(),
+            sender: "Ben".into(),
+        },
+    ] {
+        let recipient = match &compose {
+            Compose::Talk { to } | Compose::Annotate { to, .. } | Compose::AskLead { to, .. } => to,
+            Compose::Reply { from, .. } => from,
+            _ => unreachable!(),
+        };
+        let mut app = app();
+        app.ask(String::new(), compose.clone(), "product".into());
+        for ch in "@docs".chars() {
+            assert_eq!(key(&mut app, KeyCode::Char(ch)), Effect::None);
+        }
+        let buffer = draw_completion(&app);
+        let painted: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
+        assert!(painted.contains(&format!("Mentions are text only · sent to {recipient}")));
+        assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
+        let input = app.input.as_ref().unwrap();
+        assert_eq!(input.compose, compose);
+        assert_eq!(input.text.as_str(), "@docs ");
+        assert!(!app.mentions.completion.open());
+    }
+}
+
+#[test]
+fn clicking_a_painted_candidate_inserts_without_sending_or_retargeting() {
+    let mut app = app();
+    for ch in "@docs".chars() {
+        key(&mut app, KeyCode::Char(ch));
+    }
+    draw_completion(&app);
+    let (area, _) = app.mentions.hits.borrow()[0];
+    let compose = app.input.as_ref().unwrap().compose.clone();
+    assert_eq!(
+        app.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: area.x,
+                row: area.y,
+                modifiers: KeyModifiers::NONE,
+            },
+            std::time::Instant::now()
+        ),
+        Effect::None
+    );
+    let input = app.input.as_ref().unwrap();
+    assert_eq!(input.text.as_str(), "@docs ");
+    assert_eq!(input.compose, compose);
+    assert!(!app.mentions.completion.open());
+}
+
 #[test]
 fn inserting_a_squad_reference_keeps_the_direct_recipient_and_does_not_send() {
     let mut app = app();
