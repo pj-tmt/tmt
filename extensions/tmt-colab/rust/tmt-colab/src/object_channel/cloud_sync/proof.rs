@@ -167,6 +167,14 @@ impl Running {
     fn socket(&self) -> std::path::PathBuf {
         self.serve.as_ref().unwrap().socket()
     }
+    /// The Remote door says on stderr that it routes to the emulator only. A proof that never
+    /// saw that line would not be about the build it claims to drive.
+    fn assert_emulator_routing(&self) {
+        let banner = "tmt-remote: test-emulator routing active (loopback, demo project)";
+        until("the Remote door announces emulator routing", || {
+            self.door.as_ref().unwrap().stderr().contains(banner)
+        });
+    }
     fn peer(&self, device: &str) -> Peer {
         let facts = &self.facts;
         Peer::connect(
@@ -301,15 +309,10 @@ fn owner_homes_on_one_key_converge_in_both_directions() {
     first.start();
     second.start();
     let (mut peer_a, mut peer_b) = (first.peer(DEVICE_A), second.peer(DEVICE_B));
-    println!("step: peers connected");
     peer_a.hello(first.facts.revision);
-    println!("step: a hello");
     peer_b.hello(second.facts.revision);
-    println!("step: b hello");
     peer_b.subscribe();
-    println!("step: b subscribed");
 
-    println!("step: a appends");
     let (sent_a, _) = append(&mut peer_a, &first.facts, DEVICE_A, SEED_A, 1, 3, [0; 32]);
     until_with(
         "the second home holds the first home's updates",
@@ -332,7 +335,8 @@ fn owner_homes_on_one_key_converge_in_both_directions() {
             Some(bytes)
         );
     }
-    println!("step: second home converged");
+    first.assert_emulator_routing();
+    second.assert_emulator_routing();
     let (sent_b, _) = append(&mut peer_b, &second.facts, DEVICE_B, SEED_B, 1, 2, [0; 32]);
     until("the first home holds the second home's updates", || {
         first.head(DEVICE_B) == Some(2)
@@ -343,7 +347,6 @@ fn owner_homes_on_one_key_converge_in_both_directions() {
             Some(bytes)
         );
     }
-    println!("step: first home converged");
     // What a home took from the cloud was announced to the browsers connected to it.
     for seq in 1..=3u64 {
         let frame = peer_b.next_update(DEVICE_A);
@@ -480,6 +483,7 @@ fn a_member_converges_inside_its_grant_and_nothing_forged_or_outside_it_does() {
     until("the owner's page is in the cloud", || {
         emulator.ids("pages").iter().any(|id| id.ends_with(&page))
     });
+    first.assert_emulator_routing();
     // The members' rows and device chains are what the owner's client publishes once member
     // enrollment exists; here the fixture seeds them by Admin.
     let editor = emulator.sign_up();
@@ -651,7 +655,19 @@ fn a_member_converges_inside_its_grant_and_nothing_forged_or_outside_it_does() {
     until_with(
         "the owner's update crosses after the refusals",
         &mut || second.head(DEVICE_A) == Some(1),
-        || format!("first:\n{}\nsecond:\n{}", first.said(), second.said()),
+        || {
+            let in_cloud = emulator
+                .ids("log")
+                .iter()
+                .filter(|id| id.contains(&page) && id.contains(DEVICE_A))
+                .count();
+            format!(
+                "the first home holds {:?} and the cloud {in_cloud} of its originals\nfirst:\n{}\nsecond:\n{}",
+                first.head(DEVICE_A),
+                first.said(),
+                second.said()
+            )
+        },
     );
     assert_eq!(second.payload(DEVICE_A, 1).as_ref(), Some(&sent[0]));
     let _ = &mut peer_b;
