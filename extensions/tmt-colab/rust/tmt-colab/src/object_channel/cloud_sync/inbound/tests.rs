@@ -6,7 +6,7 @@ use crate::{
     object_channel::{
         cloud_sync::{
             fixture::{
-                BINDING, Firestore, ScriptedRemote,
+                BINDING, Firestore, SPACE, ScriptedRemote,
                 home::{DeviceSpec, Home, PAGE},
                 peer,
             },
@@ -21,7 +21,13 @@ use crate::{
     store::{Store, StreamScope},
     sync::{Access, Admission, CatchupContext, Code, Server, SyncScope},
 };
-use std::sync::{Arc, Mutex};
+use ed25519_dalek::SigningKey;
+use std::{
+    sync::{Arc, Mutex},
+    time::Instant,
+};
+use tmt_colab_model::object;
+use tmt_extension_objects::sync;
 
 const A: &str = "30000000-0000-4000-8000-00000000000a";
 const B: &str = "30000000-0000-4000-8000-00000000000b";
@@ -311,7 +317,21 @@ fn admission_refuses_another_epoch_or_key_and_a_good_original_applies_once() {
     );
     assert_eq!(rig.head(A), None);
     let good = seal(9, "1");
+    let known = |rig: &Rig| {
+        rig.reader
+            .store
+            .owner_read(
+                &rig.reader.key.space_id,
+                &rig.reader.key.owner_public(),
+                |tx| Ok((tx.device(A)?.is_some(), tx.is_local_device(A)?)),
+            )
+            .unwrap()
+    };
+    assert_eq!(known(&rig), (false, false));
     assert_eq!(rig.inbound.admit(&page, &good), Ok(Applied::New));
+    // The writer's chain is kept so a browser opening the page can verify its updates, and
+    // the writer is still not one of this machine's devices.
+    assert_eq!(known(&rig), (true, false));
     assert_eq!(rig.inbound.admit(&page, &good), Ok(Applied::Replay));
     assert_eq!(rig.head(A).unwrap().0, 1);
     // A device the cloud sent no chain for cannot be admitted.
@@ -342,4 +362,141 @@ fn a_sequence_the_cloud_no_longer_holds_stops_that_writer_with_a_line() {
             "Cloud sync stopped following one writer of page {PAGE}: it is too far behind; open a fresh copy of the page to catch up."
         )
     );
+}
+
+/// A Store side that follows one writer and refuses its originals on one page only.
+struct RefusesOnePage {
+    refuse: &'static str,
+    admitted: Vec<String>,
+}
+impl Inbound for RefusesOnePage {
+    fn membership(&mut self, _: &PageRef, _: &[Vec<u8>]) -> Result<(), Fault> {
+        Ok(())
+    }
+    fn begin(&mut self, _: &PageRef, _: &[Vec<u8>]) -> Result<Vec<String>, Fault> {
+        Ok(vec![A.to_owned()])
+    }
+    fn head(&mut self, _: &PageRef, _: &str) -> Result<u64, Fault> {
+        Ok(0)
+    }
+    fn admit(&mut self, page: &PageRef, _: &[u8]) -> Result<Applied, Reject> {
+        if page.page == self.refuse {
+            return Err(Reject::Refused);
+        }
+        self.admitted.push(page.page.clone());
+        Ok(Applied::New)
+    }
+}
+
+#[test]
+fn a_writer_stopped_on_one_page_is_still_followed_on_another_and_stays_stopped_on_the_first() {
+    const OTHER: &str = "10000000-0000-4000-8000-000000000002";
+    let mut peer = peer();
+    let cloud = Firestore::default();
+    let answer = cloud.clone();
+    let _remote = ScriptedRemote::serve(peer.remote.take().unwrap(), move |call, id| {
+        answer.answer(call, id)
+    });
+    let client = peer.channels.client.lock().unwrap().clone().unwrap();
+    let mut puller = Puller::new(Reader::new(client, BINDING.into()));
+    // The same writer has a first original on each of two pages.
+    let signer = SigningKey::from_bytes(&[5; 32]);
+    for page in [PAGE, OTHER] {
+        let context = object::Context {
+            space: SPACE.into(),
+            page: page.into(),
+            epoch: "1".into(),
+            kind: "update".into(),
+            namespace: "content".into(),
+            author_device: A.into(),
+            membership_revision: "1".into(),
+            stream_seq: "1".into(),
+            prev_hash: [0; 32],
+        };
+        let original = object::seal(&context, &[9; 32], &signer, b"update")
+            .unwrap()
+            .to_json()
+            .unwrap();
+        let routing = Routing {
+            space: SPACE,
+            page,
+            epoch: 1,
+            uid: "owner",
+            expires_at: Field::timestamp(1_790_000_000_000).unwrap(),
+        };
+        cloud.put(&originals::log_document(&routing, &original).unwrap());
+    }
+    let on = |page: &str| PageRef {
+        space: SPACE.into(),
+        page: page.into(),
+        epoch: 1,
+    };
+    let reports = Mutex::new(Vec::new());
+    let report = |line: &str| reports.lock().unwrap().push(line.to_owned());
+    let mut inbound = RefusesOnePage {
+        refuse: PAGE,
+        admitted: Vec::new(),
+    };
+    // Refused on the first page: one line, and the writer is not tried there again.
+    puller.pass(&mut inbound, &on(PAGE), &report).unwrap();
+    puller.pass(&mut inbound, &on(PAGE), &report).unwrap();
+    assert_eq!(reports.lock().unwrap().len(), 1);
+    assert!(inbound.admitted.is_empty());
+    // The other page is another scope: the same writer is applied there, with no line.
+    puller.refresh();
+    puller.pass(&mut inbound, &on(OTHER), &report).unwrap();
+    assert_eq!(inbound.admitted, [OTHER]);
+    assert_eq!(reports.lock().unwrap().len(), 1);
+    // Back on the first page it is still stopped, and says nothing more.
+    puller.refresh();
+    puller.pass(&mut inbound, &on(PAGE), &report).unwrap();
+    assert_eq!(inbound.admitted, [OTHER]);
+    assert_eq!(reports.lock().unwrap().len(), 1);
+}
+
+/// How many times the cloud was asked for the membership records and for the device chains.
+fn authority_reads(rig: &Rig) -> (usize, usize) {
+    let (mut membership, mut chains) = (0, 0);
+    for call in rig._remote.calls.lock().unwrap().iter() {
+        if let sync::Call::Query {
+            query: sync::Query::Discovery { scope, .. },
+            ..
+        } = call
+        {
+            match scope["kind"]["stringValue"].as_str() {
+                Some("membership") => membership += 1,
+                Some("chain") => chains += 1,
+                _ => {}
+            }
+        }
+    }
+    (membership, chains)
+}
+
+#[test]
+fn a_records_change_reads_the_chains_again_only_once_their_spacing_has_passed() {
+    let mut rig = rig();
+    rig.publish_authority(&[A]);
+    assert_eq!(rig.pass(), Ok(false));
+    assert_eq!(authority_reads(&rig), (1, 1));
+    assert_eq!(rig.puller.recheck_at(), None);
+    // The log or the checkpoints changed: the chains wait for their spacing, the membership
+    // records are not read at all.
+    rig.puller.records_changed();
+    assert_eq!(rig.pass(), Ok(false));
+    assert_eq!(authority_reads(&rig), (1, 1));
+    assert!(rig.puller.recheck_at().is_some());
+    // Once the spacing has passed they are read, and the wait is over.
+    rig.puller.chains.as_mut().unwrap().1 = Instant::now() - CHAIN_RECHECK;
+    assert_eq!(
+        rig.puller.recheck_at().map(|at| at <= Instant::now()),
+        Some(true)
+    );
+    assert_eq!(rig.pass(), Ok(false));
+    assert_eq!(authority_reads(&rig), (1, 2));
+    assert_eq!(rig.puller.recheck_at(), None);
+    // A change of the authority reads both at once.
+    rig.puller.refresh();
+    assert_eq!(rig.pass(), Ok(false));
+    assert_eq!(authority_reads(&rig), (2, 3));
 }

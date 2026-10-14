@@ -4,12 +4,32 @@ use crate::{ChannelError, SealedClient, sealed_documents};
 use std::time::Instant;
 use tmt_extension_objects::{Counter, sync};
 
+/// What an interest watches: the page's records (log and checkpoints), or its membership.
+#[derive(Clone, Copy)]
+enum Watches {
+    Records,
+    Authority,
+}
+/// What changed since the last look, by the kind of interest that noticed it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Changes {
+    /// The page's membership records changed.
+    pub(crate) authority: bool,
+    /// Its log or its checkpoints changed.
+    pub(crate) records: bool,
+}
+impl Changes {
+    pub(crate) fn any(self) -> bool {
+        self.authority || self.records
+    }
+}
+
 /// A single worker owns the active page group. Confirmed cancellation removes
 /// each retained request-ID slot before a successor can register any interest.
 pub(crate) struct PageInterests {
     client: SealedClient,
     binding: String,
-    ids: Vec<Counter>,
+    ids: Vec<(Counter, Watches)>,
 }
 impl PageInterests {
     pub(crate) fn new(client: SealedClient, binding: String) -> Self {
@@ -32,10 +52,10 @@ impl PageInterests {
         let authority = sealed_documents::authority_scope(space, page, epoch, "membership", "")
             .map_err(|_| ChannelError::Unavailable)?;
         self.cancel(deadline)?;
-        for (resource, scope) in [
-            ("log", page_scope.clone()),
-            ("checkpoints", page_scope),
-            ("authority", authority),
+        for (resource, scope, watches) in [
+            ("log", page_scope.clone(), Watches::Records),
+            ("checkpoints", page_scope, Watches::Records),
+            ("authority", authority, Watches::Authority),
         ] {
             let reply = self.client.sealed_request(
                 sync::Call::Subscribe {
@@ -51,7 +71,7 @@ impl PageInterests {
                 Ok((id, sync::Outcome::Subscribed { id: confirmed }))
                     if confirmed == id.to_string() =>
                 {
-                    self.ids.push(id)
+                    self.ids.push((id, watches))
                 }
                 _ => {
                     // A partly installed group never lends its slots to another
@@ -66,7 +86,7 @@ impl PageInterests {
         Ok(())
     }
     pub(crate) fn cancel(&mut self, deadline: Instant) -> Result<(), ChannelError> {
-        while let Some(id) = self.ids.last().copied() {
+        while let Some((id, _)) = self.ids.last().copied() {
             let reply = self.client.sealed_request(
                 sync::Call::Cancel {
                     binding: self.binding.clone(),
@@ -90,18 +110,21 @@ impl PageInterests {
         Ok(())
     }
     /// Coalesced changes do not carry a cursor or make this page current.
-    pub(crate) fn changed(&self) -> Result<bool, ChannelError> {
-        let mut changed = false;
-        for id in &self.ids {
+    pub(crate) fn changed(&self) -> Result<Changes, ChannelError> {
+        let mut changes = Changes::default();
+        for (id, watches) in &self.ids {
             match self.client.sealed_notice(*id)? {
-                Some(sync::InterestNotice::Changed) => changed = true,
+                Some(sync::InterestNotice::Changed) => match watches {
+                    Watches::Records => changes.records = true,
+                    Watches::Authority => changes.authority = true,
+                },
                 Some(sync::InterestNotice::Terminal { .. }) => {
                     return Err(ChannelError::Unavailable);
                 }
                 None => {}
             }
         }
-        Ok(changed)
+        Ok(changes)
     }
 }
 impl Drop for PageInterests {

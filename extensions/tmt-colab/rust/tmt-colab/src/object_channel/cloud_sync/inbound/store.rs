@@ -9,6 +9,7 @@ use crate::{
     store::{self, Store, StreamScope, owner::Device},
     sync::{Admission, Code, Server, SyncScope},
 };
+use std::collections::{HashMap, HashSet};
 use tmt_colab_model::{certificate, object, statement};
 
 /// Why the cloud's membership log cannot be followed. Each stops the page and is shown as
@@ -39,6 +40,10 @@ pub(crate) struct StoreInbound<A: Admission> {
     space: String,
     /// Authority for the pass in progress, built once by `begin`.
     admission: Option<Snapshot>,
+    /// The cloud's chains of the pass in progress, by device.
+    chains: HashMap<String, Vec<u8>>,
+    /// Writers whose chain this machine keeps, so it is stored once.
+    retained: HashSet<String>,
 }
 fn read_fault(error: &(dyn std::error::Error + 'static)) -> Fault {
     if store::contended(error) {
@@ -55,7 +60,40 @@ impl<A: Admission> StoreInbound<A> {
             server,
             space,
             admission: None,
+            chains: HashMap::new(),
+            retained: HashSet::new(),
         })
+    }
+    /// Keep the chain of a writer this machine did not register, once an original of it has
+    /// been admitted. A browser opening the page later is given the chain of every writer in
+    /// the store, to verify what that writer wrote; without it the page could not be opened.
+    /// A retained chain is not authority: roles and revocation still come from the owner log,
+    /// and the device stays unregistered, so nothing of it is ever published from here.
+    fn retain(&mut self, device: &str) -> Result<(), Reject> {
+        if self.retained.contains(device) {
+            return Ok(());
+        }
+        let chain = self.chains.get(device).ok_or(Reject::Refused)?.clone();
+        let owner = self.keyring.owner_public();
+        self.store
+            .device_transaction(&self.space, &owner, |tx| {
+                if tx.device(device)?.is_none() {
+                    tx.put_device(&Device {
+                        chain,
+                        revoked: false,
+                    })?;
+                }
+                Ok(Vec::new())
+            })
+            .map_err(|error| {
+                if store::contended(error.as_ref()) {
+                    Reject::Retry
+                } else {
+                    Reject::Refused
+                }
+            })?;
+        self.retained.insert(device.to_owned());
+        Ok(())
     }
     fn compare(&self, cloud: &[Vec<u8>]) -> Result<(), Blocked> {
         let owner = self.keyring.owner_public();
@@ -110,6 +148,7 @@ impl<A: Admission> Inbound for StoreInbound<A> {
     }
     fn begin(&mut self, page: &PageRef, chains: &[Vec<u8>]) -> Result<Vec<String>, Fault> {
         self.admission = None;
+        self.chains.clear();
         let mut devices = Vec::new();
         let mut streams = Vec::new();
         for bytes in chains {
@@ -120,6 +159,7 @@ impl<A: Admission> Inbound for StoreInbound<A> {
                 return Err(Fault::Stuck("A writer record in the cloud is not valid."));
             };
             streams.push(cert.device_id.to_owned());
+            self.chains.insert(cert.device_id.to_owned(), bytes.clone());
             devices.push(Device {
                 chain: bytes.clone(),
                 revoked: false,
@@ -192,6 +232,7 @@ impl<A: Admission> Inbound for StoreInbound<A> {
                 &stored,
             )
             .map_err(|_| Reject::Refused)?;
+        self.retain(&c.author_device)?;
         let scope = SyncScope {
             space: self.space.clone(),
             page: page.page.clone(),

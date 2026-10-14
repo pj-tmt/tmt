@@ -56,6 +56,9 @@ struct Following {
     puller: Puller,
     interests: PageInterests,
     watched: Option<PageRef>,
+    /// The cloud is read when it is due, never because a local write asked for a pass: right
+    /// after the page is watched, after a notice, and while a read is unfinished or retrying.
+    read_due: bool,
 }
 /// The wait before an uncertain pass runs again: it doubles up to a cap and starts over after
 /// a pass that finished.
@@ -84,7 +87,9 @@ impl Backoff {
     }
 }
 impl Session {
-    /// Cancel and join the page interests, so nothing outlives the session.
+    /// Cancel and join the page interests, so nothing outlives the session. A session lost with
+    /// its channel is dropped without this: its generation ended with the channel, and no
+    /// interest of it remains to cancel.
     fn close(&mut self) {
         if let Some(following) = self.inbound.as_mut() {
             let _ = following
@@ -103,15 +108,22 @@ impl Session {
         self.page = Some(page.clone());
         self.pass_at = Some(Instant::now());
     }
-    /// A wake that came from the cloud: the watched page changed.
+    /// A wake that came from the cloud: the watched page changed. A change of its membership
+    /// reads the authority again; a change of its log or checkpoints only asks for the chains
+    /// again, spaced, and for the tails.
     fn cloud_changed(&mut self) -> bool {
         let Some(following) = self.inbound.as_mut() else {
             return false;
         };
         match following.interests.changed() {
-            Ok(false) => false,
-            Ok(true) => {
-                following.puller.refresh();
+            Ok(changes) if !changes.any() => false,
+            Ok(changes) => {
+                if changes.authority {
+                    following.puller.refresh();
+                } else {
+                    following.puller.records_changed();
+                }
+                following.read_due = true;
                 true
             }
             // An interest the provider ended is registered again by the next pass.
@@ -154,6 +166,7 @@ impl Session {
             )
             .map_err(|_| Fault::Retry)?;
         following.puller.refresh();
+        following.read_due = true;
         following.watched = Some(page.clone());
         Ok(())
     }
@@ -170,10 +183,21 @@ impl Session {
             (!self.stuck.contains(&page)).then(|| self.publisher.pass(self.local.as_mut(), &page));
         let read = match self.watch(&page) {
             Err(fault) => Some(Err(fault)),
-            Ok(()) => self.inbound.as_mut().map(|following| {
-                following
+            Ok(()) => self.inbound.as_mut().and_then(|following| {
+                let spaced = following
                     .puller
-                    .pass(following.store.as_mut(), &page, report)
+                    .recheck_at()
+                    .is_some_and(|at| Instant::now() >= at);
+                if !following.read_due && !spaced {
+                    return None;
+                }
+                let result = following
+                    .puller
+                    .pass(following.store.as_mut(), &page, report);
+                // More to read, or a read that must be tried again; a stop waits for a notice.
+                following.read_due =
+                    matches!(result, Ok(true) | Err(Fault::Retry | Fault::Budget(_)));
+                Some(result)
             }),
         };
         let first = published.and_then(|result| {
@@ -189,7 +213,11 @@ impl Session {
             }
             self.next_of(&result)
         });
-        self.pass_at = [first, second].into_iter().flatten().min();
+        let recheck = self
+            .inbound
+            .as_ref()
+            .and_then(|following| following.puller.recheck_at());
+        self.pass_at = [first, second, recheck].into_iter().flatten().min();
     }
 }
 
@@ -247,6 +275,7 @@ fn establish(parts: &Parts) -> Result<Session, ActivationFailure> {
             puller: Puller::new(Reader::new(client.clone(), context.id.clone())),
             interests: PageInterests::new(client.clone(), context.id.clone()),
             watched: None,
+            read_due: false,
         }),
         None => None,
     };

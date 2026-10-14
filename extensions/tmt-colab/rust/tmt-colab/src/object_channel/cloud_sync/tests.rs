@@ -416,22 +416,151 @@ fn a_stopped_page_is_announced_once_when_it_stops_and_once_when_it_recovers() {
     let lines = || rig.reports.lock().unwrap().clone();
     assert!(lines()[0].starts_with(&format!("Cloud sync stopped for page {FIRST}.")));
     assert!(lines()[0].contains("newer sharing changes"));
-    // More reads find the same condition and say nothing more.
+    // More reads find the same condition and say nothing more. The membership is compared
+    // again when the authority interest notices (the third of the page's interests).
     let group = remote.subscribed.lock().unwrap().clone();
     for round in 2..=4 {
-        remote.changed(&group[0]);
+        remote.changed(&group[2]);
         until("another read", || passes.load(Ordering::SeqCst) >= round);
     }
     assert_eq!(lines().len(), 1);
     // The condition clears: one recovery line, then quiet again.
     stopped.store(false, Ordering::SeqCst);
-    remote.changed(&group[0]);
+    remote.changed(&group[2]);
     until("the recovery", || lines().len() == 2);
     assert_eq!(lines()[1], format!("Cloud sync resumed for page {FIRST}."));
     let seen = passes.load(Ordering::SeqCst);
-    remote.changed(&group[0]);
+    remote.changed(&group[2]);
     until("a read after the recovery", || {
         passes.load(Ordering::SeqCst) > seen
     });
     assert_eq!(lines().len(), 2);
+}
+
+/// A Store side that follows one writer with nothing to apply, so every pass asks the cloud for
+/// that writer's tail.
+struct Writer;
+impl Inbound for Writer {
+    fn membership(&mut self, _: &PageRef, _: &[Vec<u8>]) -> Result<(), super::publisher::Fault> {
+        Ok(())
+    }
+    fn begin(
+        &mut self,
+        _: &PageRef,
+        _: &[Vec<u8>],
+    ) -> Result<Vec<String>, super::publisher::Fault> {
+        Ok(vec![FIRST.to_owned()])
+    }
+    fn head(&mut self, _: &PageRef, _: &str) -> Result<u64, super::publisher::Fault> {
+        Ok(0)
+    }
+    fn admit(
+        &mut self,
+        _: &PageRef,
+        _: &[u8],
+    ) -> Result<super::inbound::Applied, super::inbound::Reject> {
+        Err(super::inbound::Reject::Retry)
+    }
+}
+/// How many reads of each shape the cloud has been asked for: the membership records, the
+/// device chains, and a writer's tail.
+#[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
+struct Reads {
+    membership: usize,
+    chains: usize,
+    tails: usize,
+}
+fn reads(remote: &ScriptedRemote) -> Reads {
+    let mut found = Reads::default();
+    for call in remote.calls.lock().unwrap().iter() {
+        let sync::Call::Query { query, .. } = call else {
+            continue;
+        };
+        match query {
+            sync::Query::Stream { .. } => found.tails += 1,
+            sync::Query::Discovery { scope, .. } => match scope["kind"]["stringValue"].as_str() {
+                Some("membership") => found.membership += 1,
+                Some("chain") => found.chains += 1,
+                _ => {}
+            },
+        }
+    }
+    found
+}
+fn following_a_writer() -> (Rig, ScriptedRemote, super::fixture::Peer) {
+    let mut peer = peer();
+    let firestore = super::fixture::Firestore::default();
+    let answer = firestore.clone();
+    let remote = ScriptedRemote::serve(peer.remote.take().unwrap(), move |call, id| {
+        answer.answer(call, id)
+    });
+    let rig = start_following(
+        Arc::clone(&peer.channels),
+        activated,
+        Some(Arc::new(|_| Some(Box::new(Writer)))),
+    );
+    rig.activity.touch(page(FIRST, 1));
+    until("the first read", || {
+        remote.subscribed.lock().unwrap().len() == 3 && reads(&remote).tails == 1
+    });
+    (rig, remote, peer)
+}
+
+#[test]
+fn a_local_touch_publishes_and_reads_nothing_from_the_cloud() {
+    let (mut rig, remote, _peer) = following_a_writer();
+    let first = reads(&remote);
+    assert_eq!(
+        first,
+        Reads {
+            membership: 1,
+            chains: 1,
+            tails: 1
+        }
+    );
+    // Every local write touches the page. The page is published, and the cloud is not asked.
+    for _ in 0..4 {
+        rig.activity.touch(page(FIRST, 1));
+        std::thread::sleep(Duration::from_millis(80));
+    }
+    assert_eq!(reads(&remote), first);
+    rig.sync.take().unwrap().stop();
+}
+
+#[test]
+fn a_log_notice_reads_tails_and_never_the_membership_and_the_chains_wait_their_spacing() {
+    let (mut rig, remote, _peer) = following_a_writer();
+    let group = remote.subscribed.lock().unwrap().clone();
+    // A burst of log and checkpoint notices, as one's own appends cause.
+    for round in 0..6 {
+        remote.changed(&group[round % 2]);
+        std::thread::sleep(Duration::from_millis(15));
+    }
+    until(
+        "the chains are read again once their spacing has passed",
+        || reads(&remote).chains == 2,
+    );
+    // Nothing more is read without another notice, and the membership was never read again.
+    std::thread::sleep(super::inbound::CHAIN_RECHECK * 2);
+    let after = reads(&remote);
+    assert_eq!(after.membership, 1);
+    assert_eq!(after.chains, 2);
+    assert!(after.tails >= 2, "the tails are read after a notice");
+    rig.sync.take().unwrap().stop();
+}
+
+#[test]
+fn an_authority_notice_reads_the_membership_and_the_chains_at_once() {
+    let (mut rig, remote, _peer) = following_a_writer();
+    let group = remote.subscribed.lock().unwrap().clone();
+    remote.changed(&group[2]);
+    until("the authority is read again", || {
+        reads(&remote)
+            == Reads {
+                membership: 2,
+                chains: 2,
+                tails: 2,
+            }
+    });
+    rig.sync.take().unwrap().stop();
 }
