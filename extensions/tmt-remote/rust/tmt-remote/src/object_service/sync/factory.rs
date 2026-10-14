@@ -59,6 +59,9 @@ impl Registration {
     pub(in crate::object_service) fn extension(&self) -> &str {
         &self.extension
     }
+    pub(in crate::object_service) fn project(&self) -> Option<&str> {
+        self.public_config.get("projectId").and_then(Value::as_str)
+    }
     pub(super) fn bind(&self, space: &str) -> Result<Arc<dyn SealedSyncPort>, SyncError> {
         let identity = self.auth.identity();
         if self.public_config.get("projectId").and_then(Value::as_str)

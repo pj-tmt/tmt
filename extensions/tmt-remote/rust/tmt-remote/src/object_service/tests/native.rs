@@ -107,6 +107,24 @@ fn native_shutdown_joins_idle_provider_interests_before_releasing_the_channel() 
         &peer,
         1,
         wire::Call::Bind {
+            project: "another-project".into(),
+            extension: ctx.extension().into(),
+            declaration_digest: ctx.declaration_digest().into(),
+            space: ctx.space().into(),
+        },
+    );
+    assert!(
+        matches!(outcome(&peer), wire::Outcome::Error { error } if error.code == wire::Code::Denied)
+    );
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        0,
+        "a foreign project must not reach the factory"
+    );
+    send(
+        &peer,
+        2,
+        wire::Call::Bind {
             project: ctx.identity().project.clone(),
             extension: ctx.extension().into(),
             declaration_digest: ctx.declaration_digest().into(),
@@ -119,7 +137,7 @@ fn native_shutdown_joins_idle_provider_interests_before_releasing_the_channel() 
     };
     send(
         &peer,
-        2,
+        3,
         wire::Call::Subscribe {
             binding,
             interest: wire::Interest {
@@ -135,14 +153,14 @@ fn native_shutdown_joins_idle_provider_interests_before_releasing_the_channel() 
     // The same v3 bus still serves ordinary object admission and config.
     super::request(
         &peer,
-        3,
+        4,
         Origin::LocalExtension,
         Call::Config(config_input()),
     );
     let acquire = callback(&peer);
-    decide(&peer, acquire.callback_id.get(), 3, Decision::Allow);
+    decide(&peer, acquire.callback_id.get(), 4, Decision::Allow);
     let disclose = callback(&peer);
-    decide(&peer, disclose.callback_id.get(), 3, Decision::Allow);
+    decide(&peer, disclose.callback_id.get(), 4, Decision::Allow);
     assert_eq!(
         result(&peer).outcome,
         Outcome::Success(Success::Config(local_config()))
