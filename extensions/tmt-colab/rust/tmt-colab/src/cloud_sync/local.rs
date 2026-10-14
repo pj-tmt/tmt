@@ -318,3 +318,6 @@ impl Local for StoreLocal {
         result.map(|_| ()).map_err(store_fault)
     }
 }
+
+#[cfg(test)]
+mod tests;
