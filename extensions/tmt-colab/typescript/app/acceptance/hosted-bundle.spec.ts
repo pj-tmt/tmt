@@ -17,6 +17,8 @@ test.afterEach(disposeActiveWorlds);
 // The one request a hosted origin sends outside the declared manifest today is the local-serve
 // probe. #2452 B4 removes it from the hosted origin and then removes this allowance.
 const SERVE_RELEASE_PROBE = '/api/serve-release';
+// Files the composer adds next to Colab's manifest; Colab never declares anything under it.
+const COMPOSER_OWNED_PREFIX = '/tmt/declarations/';
 const SHELL_ROUTES = ['/', '/colab', '/p/AbCd1234', '/read/AbCd1234', '/pair'];
 
 interface DeclaredFile {
@@ -107,12 +109,14 @@ test("the embedded hosted bundle serves its declared bytes and shell under Remot
     const { view, manifest, files } = composed(world);
     const { origin, requests } = await serve(world, view, files);
 
-    // Remote's composition describes exactly what Colab declared.
-    expect(view.files.map((file) => file.path)).toEqual(manifest.files.map((file) => file.path));
+    // Remote's composition describes exactly what Colab declared. Remote owns the files it adds
+    // under /tmt/declarations/ (the deployed declaration, #3058); they are outside Colab's manifest.
+    const colabFiles = view.files.filter((file) => !file.path.startsWith(COMPOSER_OWNED_PREFIX));
+    expect(colabFiles.map((file) => file.path)).toEqual(manifest.files.map((file) => file.path));
     for (const [index, declared] of manifest.files.entries()) {
-      expect(view.files[index].rawDigest).toBe(declared.sha256);
-      expect(view.files[index].rawLength).toBe(declared.length);
-      expect(view.files[index].contentType).toBe(declared.contentType);
+      expect(colabFiles[index].rawDigest).toBe(declared.sha256);
+      expect(colabFiles[index].rawLength).toBe(declared.length);
+      expect(colabFiles[index].contentType).toBe(declared.contentType);
     }
 
     // Every declared path answers 200 with its declared bytes, content type and exact CSP.
