@@ -85,7 +85,7 @@ looks up or signals a PID.
 `restart --json --no-open` uses a read-only candidate check and the current owner's private
 snapshot to prove background mode and window identity; home, lease, route and port reuse their
 existing records. `restart-stop` checks the existing offer -> live -> Store owners and object
-upload accounting, then sets the ordinary stop flag while the serve lease is held. Busy work
+channel/transfer accounting, then sets the ordinary stop flag while the serve lease is held. Busy work
 defers untouched; approval cancellation is unchanged. No new admission guard closes the narrow
 check-to-stop race: newly arriving work may be interrupted as by ordinary stop. The
 [channel contract](../../../../contracts/remote-channel-v1.md#local-cli-discovery) owns outcomes,

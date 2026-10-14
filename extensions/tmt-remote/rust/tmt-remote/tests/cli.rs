@@ -2121,7 +2121,7 @@ fn restart_failed_bind_is_unconfirmed_and_keeps_the_exact_port() {
     assert_eq!(occupied.local_addr().unwrap().port(), port);
     assert_eq!(
         status_json(&pilot),
-        serde_json::json!({"running":false,"lastPort":port})
+        serde_json::json!({"running":false,"lastPort":port,"signIn":{"state":"none","expiresAtMs":null}})
     );
     let diagnostic: Value = serde_json::from_slice(
         &fs::read(pilot.root.join("state/remote/serve-error.json")).unwrap(),
