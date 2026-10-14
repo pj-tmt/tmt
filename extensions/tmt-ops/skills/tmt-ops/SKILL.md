@@ -215,13 +215,18 @@ The effective destination keys work from any non-typing pane or overlay; an
 overlay closes through its own back path before switching. Active text, search
 and completion keep `1`/`2`/`3` as input.
 
-Overview is a one-row-per-identity monitor: Agent, Squad, State, TOK/h, Digest,
+Overview is a one-row-per-identity monitor: Agent, Squad, State, TOK/h, MODE (Digest),
 Cron, Runtime and Model fit the available width. `e` opens full observed values,
 link/binding scopes, sources and management instructions. Click a column heading
-to toggle its order; `s` cycles columns and `S` reverses. TOK/h and Cron start
+to toggle its order; keyboard sorting requires authored bindings. TOK/h and Cron start
 descending; other columns ascend. Unknown values stay last in either direction,
 UUID breaks ties, and the initial order puts blocked then waiting first. This
-saved monitor order is independent of the Agents tree order.
+saved monitor order is independent of the Agents tree order. `f` switches the
+session-local All/Needs you filter without replacing a hidden selected UUID.
+Summary/Digest counts, provider limits, usage and recent exchanges have separate
+panels; unacquired/failed sources stay unknown. The Summary Timers control opens
+all rooms. With no selected target, Overview `c` does the same; a hidden/missing
+selected scope still refuses to widen.
 
 The Agents tree keeps Common pool first, then pinned squads and its selected sort
 order. Expand a squad to see its members; the lead is marked and included once in
@@ -233,9 +238,14 @@ or failed reads never prove that an identity belongs in the pool.
 With tree focus, ↑/↓ move, Right expands and Left collapses; Enter inspects the
 selected target. Tab moves between the tree and conversation. `1`/`2`/`3` switch
 sections only when an editor, search, completion, overlay or conversation has not
-claimed the key. `s` cycles sort and `S` reverses; `p` pins/unpins a squad, `n`
+claimed the key. In Overview, click a header to sort and `p` pins/unpins the
+selected agent; pins are saved, with a divider before unpinned agents. Keyboard
+sort is opt-in: bind `sort` or `reverse-sort` in the usual binding table.
+In Agents, `p` pins/unpins a squad. `n`
 creates a squad, `m` manages a squad or assigns a member, `x` removes only the
-selected membership, `D` opens Digest and `c` opens Timers. `r` reviews Rename for
+selected membership, `D` opens Digest and `c` opens Timers. The two-line Overview legend omits Digest, Manage, Create, Remove and Details;
+these actions remain in Help and the Actions menu with their effective keys.
+`r` reviews Rename for
 the selected visible agent by UUID; compatible explicit bindings keep their meaning.
 In the Agents tree, `w` opens saved workspace snapshots;
 compatible explicit `w` bindings retain their configured meaning. Snapshots are
@@ -940,18 +950,18 @@ bridging uncovered intervals.
 Changing the observation policy starts fresh observations; core history seeds again
 on the next admitted source entry.
 
-While the usage meter is on, Overview shows provider account meters at every width.
-Inside, approximately 18 cells show `Claude 36% (7d)`. At 160 columns two bars
-share a row; narrower widths give each its own row. Outside, `│ duration` is
-time to reset. Short-window readings remain in overview detail.
-Warnings are `! ~duration`, or `✗ ~duration`
-when depletion before reset is at or within 12 hours. No positive measured burn
-means no forecast. Fill reverses the existing state role; Text over the neutral
-Track background marks the unfilled portion, never selection. NO_COLOR reverses fill and
-underlines track. Overview detail lists only values hidden at the current width.
-`~N%/h` averages weekly use over the last 6 hours after an hour of samples.
-With enough history, ↗/→/↘ compare recent 1–2-hour pace with that displayed
-baseline; the whole-percent precision floor suppresses single-step changes.
+While the usage meter is on, Overview shows provider account meters when panel
+height permits. A quota area at least 90 cells wide pairs providers; narrower
+areas stack them. Bars show 7d and 5h percentages. Paired rows omit reset and pace
+when they do not fit (terminal 160/100); stacked rows retain them at 80/60. Quota
+Details retain complete readings, resets and measured pace at every width.
+Warnings remain independent of fill: `! ~duration`, or `✗ ~duration` when depletion
+before reset is at or within 12 hours. Reset and pace show only for depletion
+before reset. No positive measured burn means no forecast. Fill follows remaining
+percent: above 40% Working, 15–40% Waiting, below 15% Blocked; Text over Track
+marks the unfilled portion, never selection. NO_COLOR reverses fill and underlines
+track. With enough history, ↗/→/↘ compare recent 1–2-hour pace with the displayed
+six-hour baseline; the whole-percent precision floor suppresses single-step changes.
 Numbers use provider session reports or its captured statusline footer through
 Core `check --capture-only`; reads send nothing. A sample older than 2 hours says
 `no reading for 3h` (or `no reading yet`), never an old percentage. The board

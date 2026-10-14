@@ -7,13 +7,14 @@ use crate::board::{
 use std::rc::Rc;
 
 pub(in crate::board) struct Values {
-    pub squad: Option<String>,
-    pub tokens: Option<f64>,
-    pub partial: bool,
-    pub digest: Option<String>,
+    shared: crate::board::workspace::columns::WorkspaceColumnValues,
     pub cron: Option<cron_counts::Count>,
-    pub runtime: Option<String>,
-    pub model: Option<String>,
+}
+impl std::ops::Deref for Values {
+    type Target = crate::board::workspace::columns::WorkspaceColumnValues;
+    fn deref(&self) -> &Self::Target {
+        &self.shared
+    }
 }
 impl Values {
     fn order<'a>(&'a self, row: &'a OpsTreeRow) -> sort::Row<'a> {
@@ -33,24 +34,10 @@ impl Values {
         }
     }
     pub fn text(&self, column: Column, row: &OpsTreeRow) -> String {
-        match column {
-            Column::Agent => row.title.clone(),
-            Column::Squad => self.squad.clone().unwrap_or_else(|| "—".into()),
-            Column::State => row.state.clone().unwrap_or_else(|| "—".into()),
-            Column::TokensPerHour => self.tokens.map_or_else(
-                || "—".into(),
-                |n| {
-                    format!(
-                        "{}{}",
-                        if self.partial { "~" } else { "" },
-                        crate::source::tokens(n)
-                    )
-                },
-            ),
-            Column::Digest => self.digest.clone().unwrap_or_else(|| "—".into()),
-            Column::Cron => cron_counts::label(self.cron, false),
-            Column::Runtime => self.runtime.clone().unwrap_or_else(|| "—".into()),
-            Column::Model => self.model.clone().unwrap_or_else(|| "—".into()),
+        if column == Column::Cron {
+            cron_counts::label(self.cron, false)
+        } else {
+            self.shared.text(column, row)
         }
     }
 }
@@ -63,47 +50,59 @@ pub(in crate::board) fn values(
     let OpsTarget::Member { identity_id, .. } = &row.target else {
         unreachable!("monitor identity")
     };
-    let squad = match &row.target {
-        OpsTarget::Member {
-            room_id: Some(room),
-            ..
-        } => snapshot
-            .roster
-            .squads
-            .iter()
-            .find(|s| &s.room_id == room)
-            .map(|s| s.name.clone()),
-        _ => Some("Common pool".into()),
-    };
-    let observation = app.overview_member_usage(identity_id);
-    let observed = app.references.agents.get(identity_id);
-    Values {
-        squad,
-        tokens: observation.map(|r| r.tokens as f64),
-        partial: observation.is_some_and(|r| r.partial),
-        digest: app
-            .labels
-            .of(identity_id)
-            .filter(|(source, _)| *source == "digest")
-            .map(|(_, label)| label.text.clone())
-            .reduce(|a, b| format!("{a} · {b}")),
-        cron: app.cron.counts.count(cron_counts::CronCountScope::Owner {
-            id: identity_id,
-            room: None,
-        }),
-        runtime: observed.and_then(|a| a.runtime.clone()),
-        model: observed.and_then(|a| a.model.clone()),
-    }
+    let cron = app.cron.counts.count(cron_counts::CronCountScope::Owner {
+        id: identity_id,
+        room: None,
+    });
+    let shared = crate::board::workspace::columns::project(
+        crate::board::workspace::columns::WorkspaceColumnInput {
+            row,
+            snapshot,
+            labels: &app.labels,
+            usage: app.overview_member_usage(identity_id),
+            agent: app.references.agents.get(identity_id),
+            timers: cron.map(|count| (count.active, count.total)),
+        },
+    )
+    .expect("monitor member projection");
+    Values { shared, cron }
 }
 
 #[derive(Default)]
 pub(in crate::board) struct Cache {
-    held: Option<(Key, Rc<[OpsTreeRow]>)>,
+    held: Option<(Key, Rc<Scene>)>,
+}
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub(in crate::board) enum Filter {
+    #[default]
+    All,
+    NeedsYou,
+}
+impl Filter {
+    pub fn next(self) -> Self {
+        match self {
+            Self::All => Self::NeedsYou,
+            Self::NeedsYou => Self::All,
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::All => "All",
+            Self::NeedsYou => "Needs you",
+        }
+    }
+}
+pub(in crate::board) struct Scene {
+    pub rows: Rc<[OpsTreeRow]>,
+    pub summary: super::summary::Summary,
+    pub recent: super::events::Recent,
 }
 #[derive(PartialEq, Eq)]
 struct Key {
     order: Option<crate::config::OverviewSort>,
     query: String,
+    filter: Filter,
+    pins: std::collections::BTreeSet<String>,
 }
 impl Cache {
     pub fn clear(&mut self) {
@@ -112,31 +111,41 @@ impl Cache {
 }
 
 pub(in crate::board) fn rows(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<[OpsTreeRow]> {
+    Rc::clone(&scene(app, snapshot).rows)
+}
+
+pub(in crate::board) fn scene(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<Scene> {
     let key = Key {
         order: snapshot.preferences.overview_sort,
         query: app.workspace.query.clone(),
+        filter: app.overview_filter,
+        pins: snapshot.preferences.agent_pins.clone(),
     };
     let mut cache = app.overview_rows.borrow_mut();
-    if let Some((old, rows)) = &cache.held
+    if let Some((old, scene)) = &cache.held
         && *old == key
     {
-        return Rc::clone(rows);
+        return Rc::clone(scene);
     }
     // Choose a deterministic admitted membership occurrence for each UUID.
     // Cursor movement must not change row facts, ordering or rebuild this scene.
     // The existing projection owns pool/partial-roster admission.
-    let rows = crate::board::digest_dashboard::rows(snapshot, &app.workspace.query, None);
-    let mut projected: Vec<_> = rows
+    let rows = crate::board::digest_dashboard::rows(snapshot, &app.workspace.query, None)
         .into_iter()
+        .filter(|row| key.filter == Filter::All || sort::needs_attention(row.state.as_deref()));
+    let mut projected: Vec<_> = rows
         .map(|row| {
             let v = values(app, snapshot, &row);
             (row, v)
         })
         .collect();
     projected.sort_by(
-        |(a, av), (b, bv)| match snapshot.preferences.overview_sort {
+        |(a, av), (b, bv)| {
+            let pinned = |row: &OpsTreeRow| matches!(&row.target, OpsTarget::Member { identity_id, .. } if key.pins.contains(identity_id));
+            pinned(b).cmp(&pinned(a)).then_with(|| match snapshot.preferences.overview_sort {
             Some(order) => sort::compare(&av.order(a), &bv.order(b), order),
             None => sort::needs_you(&av.order(a), &bv.order(b)),
+            })
         },
     );
     let rows: Rc<[OpsTreeRow]> = projected
@@ -144,8 +153,13 @@ pub(in crate::board) fn rows(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<[
         .map(|(row, _)| row)
         .collect::<Vec<_>>()
         .into();
-    cache.held = Some((key, Rc::clone(&rows)));
-    rows
+    let scene = Rc::new(Scene {
+        rows,
+        summary: super::summary::project(snapshot, &app.labels),
+        recent: super::events::project(&app.home_leads),
+    });
+    cache.held = Some((key, Rc::clone(&scene)));
+    scene
 }
 
 #[cfg(test)]
@@ -196,6 +210,131 @@ mod tests {
         app
     }
     #[test]
+    fn header_hover_uses_pointer_motion_without_sorting_or_retargeting() {
+        use ratatui::crossterm::event::{KeyModifiers, MouseEvent, MouseEventKind};
+        let mut app = board();
+        let selected = app.workspace.selected.clone();
+        let mut terminal = Terminal::new(TestBackend::new(160, 44)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        let area = app
+            .overview_sort_hits
+            .borrow()
+            .iter()
+            .find(|(_, column)| *column == Column::Agent)
+            .unwrap()
+            .0;
+        app.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Moved,
+                column: area.x,
+                row: area.y,
+                modifiers: KeyModifiers::NONE,
+            },
+            std::time::Instant::now(),
+        );
+        assert_eq!(app.workspace_header_hover.get(), Some(Column::Agent));
+        assert_eq!(app.workspace.selected, selected);
+        assert!(
+            app.workspace_snapshot()
+                .unwrap()
+                .preferences
+                .overview_sort
+                .is_none()
+        );
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        let shown = (area.x..area.right())
+            .map(|x| terminal.backend().buffer()[(x, area.y)].symbol())
+            .collect::<String>();
+        assert!(shown.contains('↕'));
+        app.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Moved,
+                column: area.x,
+                row: area.y + 2,
+                modifiers: KeyModifiers::NONE,
+            },
+            std::time::Instant::now(),
+        );
+        assert!(app.workspace_header_hover.get().is_none());
+        assert_eq!(app.workspace.selected, selected);
+        app.workspace_header_hover.set(Some(Column::Agent));
+        app.invalidate_frame_geometry();
+        assert!(app.workspace_header_hover.get().is_none());
+        assert!(app.overview_sort_hits.borrow().is_empty());
+    }
+
+    #[test]
+    fn filter_keeps_hidden_identity_and_uses_the_scoped_key_table() {
+        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let mut app = board();
+        let selected = app.workspace.selected.clone();
+        let before = app.workspace_rows();
+        assert_eq!(before.len(), 2);
+        assert_eq!(
+            app.key(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE)),
+            Effect::None
+        );
+        assert_eq!(app.overview_filter.label(), "Needs you");
+        assert_eq!(app.workspace_rows().len(), 1);
+        assert_eq!(app.workspace_rows()[0].state.as_deref(), Some("blocked"));
+        assert_eq!(app.workspace.selected, selected);
+        assert_eq!(
+            app.workspace_selection_state(),
+            crate::board::workspace::SelectionState::Hidden
+        );
+        assert_eq!(
+            app.key(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE)),
+            Effect::None
+        );
+        assert_eq!(app.workspace_rows().len(), 2);
+        assert_eq!(app.workspace.selected, selected);
+        assert_eq!(
+            app.workspace_selection_state(),
+            crate::board::workspace::SelectionState::Visible
+        );
+        let snapshot = app.view.as_mut().unwrap().home.as_mut().unwrap();
+        snapshot
+            .workspace
+            .keys
+            .get_mut(&crate::config::OpsKeyScope::Overview)
+            .unwrap()
+            .insert("f".into(), crate::action::Action::parse("search").unwrap());
+        app.key(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE));
+        assert!(
+            app.searching,
+            "explicit binding wins over the filter default"
+        );
+        assert_eq!(app.overview_filter.label(), "All");
+    }
+
+    #[test]
+    fn admitted_exchange_read_invalidates_one_shared_scene() {
+        let mut app = board();
+        let snapshot = app.workspace_snapshot().unwrap();
+        let before = scene(&app, snapshot);
+        assert!(matches!(
+            before.recent,
+            super::super::events::Recent::Unavailable
+        ));
+        assert!(Rc::ptr_eq(&before, &scene(&app, snapshot)));
+        let read = crate::board::home_leads::Fetch::results(None).complete(&crate::core::Core::at(
+            "/nonexistent/overview-no-source".into(),
+        ));
+        app.apply_home_leads(read);
+        let after = scene(&app, app.workspace_snapshot().unwrap());
+        assert!(!Rc::ptr_eq(&before, &after));
+        assert!(matches!(
+            after.recent,
+            super::super::events::Recent::Unavailable
+        ));
+        assert_eq!(before.summary, after.summary);
+    }
+
+    #[test]
     fn cursor_movement_reuses_the_scene_without_changing_membership_facts_or_order() {
         let mut app = board();
         let before = app.workspace_rows();
@@ -235,7 +374,7 @@ mod tests {
         let selected = app.workspace.selected.clone();
         assert_eq!(app.workspace_rows()[0].title, "A lead");
         let effect = app.overview_sort_column(OverviewColumn::Agent);
-        let Effect::Act(Request::WorkspacePreferences { expected, next }) = effect else {
+        let Effect::Act(Request::WorkspacePreferences { expected, next, .. }) = effect else {
             panic!("sort must go through the Config lane");
         };
         assert_eq!(expected.overview_sort, None);
@@ -311,12 +450,28 @@ mod tests {
         assert!(app.cron_scope_hits.borrow().is_empty());
     }
     #[test]
-    fn painted_header_click_and_sort_keys_use_the_same_config_requests() {
+    fn painted_header_click_and_authored_sort_keys_use_the_same_config_requests() {
         use ratatui::crossterm::event::{
             KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
         };
         let mut clicked = board();
         let mut keyed = board();
+        let keys = keyed
+            .view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .keys
+            .get_mut(&crate::config::OpsKeyScope::Overview)
+            .unwrap();
+        keys.insert("s".into(), crate::action::Action::parse("sort").unwrap());
+        keys.insert(
+            "S".into(),
+            crate::action::Action::parse("reverse-sort").unwrap(),
+        );
         let selected = clicked.workspace.selected.clone();
         for key in ['s', 'S'] {
             let mut terminal = Terminal::new(TestBackend::new(160, 28)).unwrap();
@@ -340,12 +495,13 @@ mod tests {
                 std::time::Instant::now(),
             );
             let press = keyed.key(KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE));
-            let Effect::Act(Request::WorkspacePreferences { expected, next }) = click else {
+            let Effect::Act(Request::WorkspacePreferences { expected, next, .. }) = click else {
                 panic!("painted sort header must request the Config lane")
             };
             let Effect::Act(Request::WorkspacePreferences {
                 expected: key_expected,
                 next: key_next,
+                ..
             }) = press
             else {
                 panic!("sort key must request the same Config lane")
@@ -452,11 +608,261 @@ mod tests {
             assert_eq!(app.cron_scope_hits.borrow().len(), counts);
             assert!(sorts.iter().all(|(area, _)| area.right() <= width));
             if width == 160 {
-                assert!(sorts.iter().all(|(_, column)| !matches!(
-                    column,
-                    OverviewColumn::Runtime | OverviewColumn::Model
-                )));
+                assert!(
+                    sorts
+                        .iter()
+                        .any(|(_, column)| *column == OverviewColumn::Squad)
+                );
+                assert!(
+                    sorts
+                        .iter()
+                        .any(|(_, column)| *column == OverviewColumn::Runtime)
+                );
+                assert!(
+                    sorts
+                        .iter()
+                        .any(|(_, column)| *column == OverviewColumn::Model)
+                );
             }
+        }
+    }
+    #[test]
+    fn saved_pins_rebuild_the_scene_and_divider_hits_keep_uuid_rows() {
+        use crate::board::app::HitTarget;
+        use ratatui::crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+        let mut app = board();
+        let old = app.workspace_rows();
+        assert_eq!(old[0].title, "A lead");
+        let pin = old
+            .iter()
+            .find(|row| row.title != "A lead")
+            .unwrap()
+            .target
+            .clone();
+        let OpsTarget::Member { identity_id, .. } = &pin else {
+            unreachable!()
+        };
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .preferences
+            .agent_pins
+            .insert(identity_id.clone());
+        let pinned = app.workspace_rows();
+        assert!(!Rc::ptr_eq(&old, &pinned));
+        assert_eq!(pinned[0].target, pin);
+        assert!(Rc::ptr_eq(&pinned, &app.workspace_rows()));
+        let mut terminal = Terminal::new(TestBackend::new(160, 44)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        assert_eq!(*app.row_starts.borrow(), [0, 2]);
+        let hits: Vec<_> = app
+            .hits
+            .borrow()
+            .iter()
+            .filter_map(|hit| {
+                if let HitTarget::Row(index) = hit.target {
+                    Some((index, hit.x, hit.y))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert_eq!(hits.len(), 2);
+        let header_y = app
+            .overview_sort_hits
+            .borrow()
+            .iter()
+            .find(|(_, column)| *column == Column::Agent)
+            .unwrap()
+            .0
+            .y;
+        assert_eq!(
+            hits[0].2,
+            header_y + 2,
+            "first pin immediately follows header and divider, with no blank row"
+        );
+        assert_eq!(hits[1].2, hits[0].2 + 2);
+        let selected = app.workspace.selected.clone();
+        let outcome = app.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: hits[0].1,
+                row: hits[0].2 + 1,
+                modifiers: KeyModifiers::NONE,
+            },
+            std::time::Instant::now(),
+        );
+        assert_eq!(outcome, Effect::None);
+        assert_eq!(app.workspace.selected, selected);
+        assert_eq!(app.workspace_rows()[hits[1].0].title, "A lead");
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .preferences
+            .agent_pins
+            .insert("00000000-0000-4000-8000-000000000000".into());
+        assert_eq!(app.workspace_rows().len(), 2);
+    }
+    #[test]
+    fn pin_requests_use_agent_identity_and_success_only_sanitized_text() {
+        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let mut app = board();
+        let row = app
+            .workspace_rows()
+            .iter()
+            .find(|row| row.title != "A lead")
+            .unwrap()
+            .target
+            .clone();
+        app.workspace.selected = Some(row.clone());
+        let OpsTarget::Member { identity_id, .. } = row else {
+            unreachable!()
+        };
+        let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+        snapshot.roster.members.get_mut(&identity_id).unwrap().name = "Safe\nname\u{1b}[31m".into();
+        app.overview_rows.borrow_mut().clear();
+        let selected = app.workspace.selected.clone();
+        for (word, should_pin) in [("Pinned", true), ("Unpinned", false)] {
+            let effect = app.key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE));
+            let Effect::Act(Request::WorkspacePreferences { next, saved, .. }) = effect else {
+                panic!("pin requires the existing save lane")
+            };
+            assert_eq!(saved.as_deref(), Some(format!("{word} Safename").as_str()));
+            assert_eq!(next.agent_pins.contains(&identity_id), should_pin);
+            assert!(next.pinned.is_empty());
+            assert_eq!(app.workspace.selected, selected);
+            app.view
+                .as_mut()
+                .unwrap()
+                .home
+                .as_mut()
+                .unwrap()
+                .workspace
+                .preferences = next;
+            app.overview_rows.borrow_mut().clear();
+        }
+        app.workspace.query = "no matching agent".into();
+        assert!(!matches!(
+            app.key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE)),
+            Effect::Act(_)
+        ));
+        assert_eq!(app.workspace.selected, selected);
+    }
+    #[test]
+    fn navigation_crosses_the_decorative_divider_without_selecting_it() {
+        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let mut app = board();
+        let pin = app
+            .workspace_rows()
+            .iter()
+            .find(|row| row.title != "A lead")
+            .unwrap()
+            .target
+            .clone();
+        let OpsTarget::Member { identity_id, .. } = &pin else {
+            unreachable!()
+        };
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .preferences
+            .agent_pins
+            .insert(identity_id.clone());
+        app.workspace.selected = Some(pin.clone());
+        app.workspace_reconcile();
+        let mut terminal = Terminal::new(TestBackend::new(160, 44)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        let last = app.workspace_rows()[1].target.clone();
+        for (key, target) in [
+            (KeyCode::Down, last.clone()),
+            (KeyCode::Up, pin.clone()),
+            (KeyCode::End, last.clone()),
+            (KeyCode::Home, pin.clone()),
+            (KeyCode::PageDown, last),
+            (KeyCode::PageUp, pin),
+        ] {
+            assert_eq!(
+                app.key(KeyEvent::new(key, KeyModifiers::NONE)),
+                Effect::None
+            );
+            assert_eq!(app.workspace.selected, Some(target));
+            terminal
+                .draw(|frame| crate::board::view::render(frame, &app))
+                .unwrap();
+            assert_eq!(*app.row_starts.borrow(), [0, 2]);
+        }
+    }
+}
+
+#[cfg(test)]
+mod legend_tests {
+    use crate::board::{app::workspace::tests::board, shell::OpsTab, view::footer};
+    use crate::{action::Action, config::OpsKeyScope};
+    use ratatui::{Terminal, backend::TestBackend};
+    #[test]
+    fn overview_legend_is_disjoint_and_names_only_live_bindings() {
+        let mut app = board();
+        app.shell.tab = OpsTab::Overview;
+        let mut terminal = Terminal::new(TestBackend::new(160, 44)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        let [first, second] = footer::overview_legend(&app, 160).unwrap();
+        assert!(
+            first.contains("↑↓ select") && first.contains("⏎ inspect") && first.contains("p pin")
+        );
+        assert!(
+            second.contains("/ search")
+                && second.contains("f needs you")
+                && second.contains("u chart")
+        );
+        assert!(
+            !first.contains("f needs you")
+                && !first.contains("u chart")
+                && !second.contains("p pin")
+        );
+        let keys = &mut app
+            .view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .keys;
+        keys.get_mut(&OpsKeyScope::Overview)
+            .unwrap()
+            .insert("enter".into(), Action::parse("talk").unwrap());
+        keys.get_mut(&OpsKeyScope::Overview)
+            .unwrap()
+            .insert("/".into(), Action::parse("copy {name}").unwrap());
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        let [first, second] = footer::overview_legend(&app, 160).unwrap();
+        assert!(first.contains("⏎ chat") && !first.contains("t chat"));
+        assert!(!first.contains("inspect") && !second.contains("/ search"));
+        for width in [60, 80, 100, 160] {
+            let [first, second] = footer::overview_legend(&app, width).unwrap();
+            assert!(unicode_width::UnicodeWidthStr::width(first.as_str()) <= width);
+            assert!(unicode_width::UnicodeWidthStr::width(second.as_str()) <= width);
+            assert!(second.contains("? help") && second.contains("q quit"));
         }
     }
 }

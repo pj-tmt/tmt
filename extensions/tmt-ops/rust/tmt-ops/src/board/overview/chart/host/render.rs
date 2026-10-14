@@ -34,9 +34,9 @@ fn hint(app: &App) -> Option<String> {
         .find(|(_, action)| action.verb == Verb::Ui(OpsUiAction::UsageControls))
         .map(|(key, _)| key)
 }
-fn chart_height(app: &App, area: Rect, partial: bool) -> Option<u8> {
+fn chart_height(app: &App, area: Rect) -> Option<u8> {
     (1..=5).rev().find(|height| {
-        let used = u16::from(*height) + 6 + u16::from(partial);
+        let used = u16::from(*height) + 3 + controls::height(area.width);
         area.height >= used
             && list_capacity(
                 app,
@@ -58,9 +58,14 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, mut area: Rect) -> 
     state.visible = true;
     refresh(app, &mut state, crate::status::now_ms());
     let data = Rc::clone(state.observed.as_ref().unwrap());
-    let partial = data.buckets.iter().any(|bucket| !bucket.complete());
-    let height = (area.width >= 38 && !app.usage_controls)
-        .then(|| chart_height(app, area, partial))
+    // Unknown/zero data remains honest and reachable through the same controls,
+    // without reserving an empty plot or exposing meaningless bucket hit areas.
+    let positive = data
+        .buckets
+        .iter()
+        .any(|bucket| bucket.tokens.is_some_and(|n| n > 0));
+    let height = (positive && area.width >= 38 && !app.usage_controls)
+        .then(|| chart_height(app, area))
         .flatten();
     if let Some(height) = height {
         let used = paint_chart(frame, app, &mut state, area, look, key, height);
@@ -79,10 +84,15 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, mut area: Rect) -> 
         if !app.usage_controls {
             state.release_focus();
         }
-        let label = project::range_label(&data, state.selection.range_minutes);
+        let label = super::super::format::range_label(&data, state.selection.range_minutes);
         let reading = label
             .split_once(" · ")
             .map_or(label.as_str(), |(_, reading)| reading);
+        let reading = if app.view.as_ref().is_some_and(|view| view.history_pending) {
+            "Updating usage…"
+        } else {
+            reading
+        };
         let summary = format!(
             "TOK / {}m · {reading}{}",
             state.selection.each_minutes,
@@ -179,8 +189,13 @@ fn paint_chart(
 ) -> u16 {
     let data = Rc::clone(state.observed.as_ref().unwrap());
     let active = state.focus.filter(|_| app.focused() == Pane::Rows);
+    let status = if app.view.as_ref().is_some_and(|view| view.history_pending) {
+        "Updating usage…"
+    } else {
+        "unique identities"
+    };
     let title = format!(
-        "TOK / {}m · unique identities{}",
+        "TOK / {}m · {status}{}",
         state.selection.each_minutes,
         key.map_or(String::new(), |key| format!(" · {key} controls"))
     );
@@ -189,7 +204,8 @@ fn paint_chart(
         Rect::new(area.x, area.y, area.width, 1),
         Line::styled(title, look.role(Role::Muted)),
     );
-    let controls_area = Rect::new(area.x, area.y + 1, area.width, 2);
+    let control_rows = controls::height(area.width);
+    let controls_area = Rect::new(area.x, area.y + 1, area.width, control_rows);
     let controls = controls::paint(
         frame.buffer_mut(),
         controls_area,
@@ -199,7 +215,7 @@ fn paint_chart(
         look,
     );
     state.hits.extend(controls);
-    let mut plot = Rect::new(area.x, area.y + 3, area.width, 0);
+    let mut plot = Rect::new(area.x, area.y + 1 + control_rows, area.width, 0);
     let display = project::display(&data, state.selection).expect("validated interval projection");
     if state.scene.as_ref().is_none_or(|(old, width, height, _)| {
         old != &display || *width != plot.width || *height != plot_height
@@ -239,7 +255,8 @@ fn paint_chart(
     state.hits.extend(owned_hits);
     if active == Some(Focus::Bars) {
         for hit in &state.hits {
-            if hit.target == Target::Bar(state.bar) && hit.area.y == plot.y + u16::from(plot_height)
+            if hit.target == Target::Bar(state.bar)
+                && hit.area.y == plot.y + u16::from(plot_height) - 1
             {
                 buffer.set_style(hit.area, look.selection());
             }
@@ -254,7 +271,7 @@ fn paint_chart(
         .filter(|focus| *focus == Focus::Bars)
         .map(|_| state.bar));
     let label = selected.map_or_else(
-        || project::range_label(&data, state.selection.range_minutes),
+        || super::super::format::range_label(&data, state.selection.range_minutes),
         |index| project::details(&data.buckets[index]).join(" · "),
     );
     strip::paint_left(

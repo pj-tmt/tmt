@@ -13,7 +13,7 @@ use unicode_width::UnicodeWidthStr;
 
 /// The word a hint shows for an action: its verb name, except where the name
 /// is an internal spelling (`next-pane`) or the target matters.
-fn hint_word(action: &crate::action::Action) -> &'static str {
+fn hint_word(app: &App, action: &crate::action::Action) -> &'static str {
     use crate::action::Verb;
     let lead = action.args.first().and_then(|arg| arg.literal()) == Some("lead");
     match action.verb {
@@ -30,6 +30,13 @@ fn hint_word(action: &crate::action::Action) -> &'static str {
         Verb::Annotate => "write",
         Verb::HomeMessage => "expand",
         Verb::ViewReply => "reader",
+        Verb::Talk if app.shell.tab == crate::board::shell::OpsTab::Overview => "chat",
+        Verb::Ui(crate::action::OpsUiAction::Pin)
+            if app.shell.tab == crate::board::shell::OpsTab::Overview =>
+        {
+            "pin agent"
+        }
+        Verb::Ui(crate::action::OpsUiAction::Pin) => "pin squad",
         Verb::Ui(action) => action.spec().label,
         verb => verb.name(),
     }
@@ -94,7 +101,138 @@ pub(super) fn hints(app: &App, width: usize) -> String {
     workspace_hints(app, width)
 }
 
+/// Two disjoint Overview hint groups read the one effective binding table.
+/// Compact screens without the panel legend keep the ordinary fitted footer.
+pub(in crate::board) fn overview_legend(app: &App, width: usize) -> Option<[String; 2]> {
+    use crate::action::{OpsUiAction as Ui, Verb};
+    if app.shell.tab != crate::board::shell::OpsTab::Overview
+        || app.focused_pane() == Some(crate::config::Pane::Replies)
+        || app.conversation.borrow().area.height < 18
+        || app.usage_chart.borrow().focused()
+        || app.modal_open()
+        || app.input.is_some()
+        || app.input_band.get().is_some()
+        || app.searching
+    {
+        return None;
+    }
+    let bindings = app.bindings();
+    let find = |verb, preferred: &str| {
+        bindings
+            .get(preferred)
+            .filter(|action| action.verb == verb && row_allows(app, action))
+            .map(|_| preferred.to_owned())
+            .or_else(|| {
+                bindings
+                    .iter()
+                    .find(|(_, action)| action.verb == verb && row_allows(app, action))
+                    .map(|(key, _)| key.clone())
+            })
+    };
+    let mut seen = Vec::new();
+    let mut first = Vec::new();
+    if bindings
+        .get("up")
+        .is_some_and(|action| action.verb == Verb::Ui(Ui::Previous))
+        && bindings
+            .get("down")
+            .is_some_and(|action| action.verb == Verb::Ui(Ui::Next))
+    {
+        first.push("↑↓ select".into());
+    } else {
+        for (verb, preferred, word) in [
+            (Verb::Ui(Ui::Previous), "up", "previous"),
+            (Verb::Ui(Ui::Next), "down", "next"),
+        ] {
+            if let Some(key) = find(verb, preferred) {
+                first.push(format!("{} {word}", key_label(&key)));
+            }
+        }
+    }
+    if let Some(action) = bindings.get("enter").filter(|action| {
+        row_allows(app, action) && !matches!(action.verb, Verb::Ui(Ui::Quit | Ui::Help))
+    }) {
+        first.push(format!("⏎ {}", hint_word(app, action)));
+        seen.push(action.verb);
+    }
+    for (verb, preferred, word) in [
+        (Verb::Talk, "t", "chat"),
+        (Verb::Jump, "j", "host"),
+        (Verb::Open, "o", "link"),
+        (Verb::Ui(Ui::Pin), "p", "pin"),
+    ] {
+        if seen.contains(&verb)
+            || (verb == Verb::Ui(Ui::Pin) && app.workspace_selected_member().is_none())
+        {
+            continue;
+        }
+        if let Some(key) = find(verb, preferred) {
+            first.push(format!("{} {word}", key_label(&key)));
+            seen.push(verb);
+        }
+    }
+    let mut second = Vec::new();
+    let mut tail = Vec::new();
+    let filter = if app.overview_filter == crate::board::overview::monitor::Filter::All {
+        "needs you"
+    } else {
+        "all"
+    };
+    for (verb, preferred, word) in [
+        (Verb::Ui(Ui::Search), "/", "search"),
+        (Verb::Ui(Ui::Timers), "c", "timers"),
+        (Verb::Ui(Ui::OverviewFilter), "f", filter),
+        (Verb::Ui(Ui::UsageControls), "u", "chart"),
+        (Verb::Settings, ",", "settings"),
+        (Verb::Ui(Ui::Help), "?", "help"),
+        (Verb::Ui(Ui::Quit), "q", "quit"),
+    ] {
+        if seen.contains(&verb) {
+            continue;
+        }
+        if let Some(key) = find(verb, preferred) {
+            let hint = format!("{} {word}", key_label(&key));
+            if matches!(verb, Verb::Ui(Ui::Help | Ui::Quit)) {
+                tail.push(hint);
+            } else {
+                second.push(hint);
+            }
+        }
+    }
+    if !bindings
+        .values()
+        .any(|action| action.verb == Verb::Ui(Ui::Quit))
+    {
+        tail.push("Ctrl-C quit".into());
+    }
+    fn fit(mut hints: Vec<String>, tail: Vec<String>, width: usize) -> String {
+        while hints
+            .iter()
+            .chain(&tail)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("  ")
+            .width()
+            > width
+        {
+            if hints.pop().is_none() {
+                return tail
+                    .first()
+                    .filter(|hint| hint.width() <= width)
+                    .cloned()
+                    .unwrap_or_default();
+            }
+        }
+        hints.extend(tail);
+        hints.join("  ")
+    }
+    Some([fit(first, vec![], width), fit(second, tail, width)])
+}
+
 fn workspace_hints(app: &App, width: usize) -> String {
+    if let Some([_, second]) = overview_legend(app, width) {
+        return second;
+    }
     if app.usage_chart_available() && app.usage_chart.borrow().focused() {
         return crate::board::view::fit(
             "←→ choose · Enter apply/details · Tab Each/Range/buckets · Esc list · ? help",
@@ -164,7 +302,7 @@ fn workspace_hints(app: &App, width: usize) -> String {
         if !seen.insert(action.text.as_str()) {
             continue;
         }
-        let word = hint_word(action);
+        let word = hint_word(app, action);
         let hint = format!("{} {word}", key_label(key));
         if matches!(action.verb, Verb::Ui(OpsUiAction::Help | OpsUiAction::Quit)) {
             if action.verb == Verb::Ui(OpsUiAction::Help) {

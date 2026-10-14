@@ -28,7 +28,7 @@
       "",
       "",
       "──────────────────────────────────────────────────────────────── ───────────────────────────────────────────────────────────────────────────────────────────────",
-      "⏎ inspect  p pin  m manage  n create  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  ? help  q quit"
+      "⏎ inspect  p pin squad  m manage  n create  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  tab pane  down next  ? help  q quit"
     ]
   },
   {
@@ -60,7 +60,7 @@
       " Usage: not reported",
       " Timers: not reported",
       "────────────────────────────────────────────────────────────────────────────────────────────────────",
-      "⏎ inspect  p pin  m manage  n create  c timers  w snapshots  a add agent  , settings  ? help  q quit"
+      "⏎ inspect  p pin squad  m manage  n create  c timers  w snapshots  a add agent  ? help  q quit"
     ]
   },
   {
@@ -92,7 +92,7 @@
       " Usage: not reported",
       " Timers: not reported",
       "────────────────────────────────────────────────────────────────────────────────",
-      "⏎ inspect  p pin  m manage  n create  c timers  w snapshots  ? help  q quit"
+      "⏎ inspect  p pin squad  m manage  n create  c timers  ? help  q quit"
     ]
   },
   {
@@ -220,7 +220,7 @@
       "",
       "",
       "──────────────────────────────────────────────────────────────── ───────────────────────────────────────────────────────────────────────────────────────────────",
-      "⏎ inspect  p pin  m manage  n create  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  ? help  q quit"
+      "⏎ inspect  p pin squad  m manage  n create  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  tab pane  down next  ? help  q quit"
     ]
   },
   {
@@ -252,7 +252,7 @@
       "",
       "",
       "──────────────────────────────────────── ───────────────────────────────────────────────────────────",
-      "⏎ inspect  p pin  m manage  n create  c timers  w snapshots  a add agent  , settings  ? help  q quit"
+      "⏎ inspect  p pin squad  m manage  n create  c timers  w snapshots  a add agent  ? help  q quit"
     ]
   },
   {
@@ -284,7 +284,7 @@
       " Usage: not reported",
       " Timers: not reported",
       "────────────────────────────────────────────────────────────────────────────────",
-      "⏎ inspect  p pin  m manage  n create  c timers  w snapshots  ? help  q quit"
+      "⏎ inspect  p pin squad  m manage  n create  c timers  ? help  q quit"
     ]
   },
   {
@@ -412,7 +412,7 @@
       " Usage: not reported",
       " Timers: not reported",
       "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-      "⏎ inspect  p pin  m manage  n create  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  ? help  q quit"
+      "⏎ inspect  p pin squad  m manage  n create  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  tab pane  down next  ? help  q quit"
     ]
   },
   {
@@ -444,7 +444,7 @@
       " Usage: not reported",
       " Timers: not reported",
       "────────────────────────────────────────────────────────────────────────────────────────────────────",
-      "⏎ inspect  p pin  m manage  n create  c timers  w snapshots  a add agent  , settings  ? help  q quit"
+      "⏎ inspect  p pin squad  m manage  n create  c timers  w snapshots  a add agent  ? help  q quit"
     ]
   },
   {
@@ -476,7 +476,7 @@
       " Usage: not reported",
       " Timers: not reported",
       "────────────────────────────────────────────────────────────────────────────────",
-      "⏎ inspect  p pin  m manage  n create  c timers  w snapshots  ? help  q quit"
+      "⏎ inspect  p pin squad  m manage  n create  c timers  ? help  q quit"
     ]
   },
   {

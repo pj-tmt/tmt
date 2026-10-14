@@ -4972,7 +4972,7 @@ describe('verified former-board switching', () => {
               () => {
                 const screen = tmux(['capture-pane', '-p', '-t', board.pane]);
                 expect(screen).toMatch(
-                  /^Agent[ \t]+Squad[ \t]+State[ \t]+TOK\/h[ \t]+Digest[ \t]+Cron[ \t]+Runtime[ \t]+Model[ \t]*$/m
+                  /^AGENT[ \t]+SQUAD[ \t]+STATE[ \t]+TOK\/h[ \t]+MODE[ \t]+CRON[ \t]+RUNTIME[ \t]+MODEL[ \t]*$/m
                 );
                 expect(screen).toMatch(
                   /^Ben[ \t]+product[ \t]+—[ \t]+—[ \t]+—[ \t]+◷ 0\/0[ \t]+—[ \t]+—[ \t]*$/m

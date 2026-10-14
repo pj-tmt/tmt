@@ -1044,11 +1044,16 @@ fn startup_help_uses_workspace_bindings_and_keeps_complete_editor_guidance() {
         .find(|section| section.id == "bindings")
         .unwrap();
     for (key, action) in app.bindings() {
+        let expected = if action.verb == crate::action::Verb::Ui(crate::action::OpsUiAction::Pin) {
+            "pin or unpin the selected agent".into()
+        } else {
+            action.description()
+        };
         assert!(
             bindings
                 .entries
                 .iter()
-                .any(|entry| entry.keys == key && entry.description == action.description())
+                .any(|entry| entry.keys == key && entry.description == expected)
         );
     }
     assert!(
@@ -1460,7 +1465,34 @@ fn supplied_label_choice_hit_at_look(look: crate::look::Look) {
                 "digest Auto ▾"
             };
             assert!(screen.contains(mode), "{tab:?}: {screen}");
-            assert!(screen.contains("1 held"));
+            if tab == OpsTab::Overview {
+                let snapshot = app.workspace_snapshot().unwrap();
+                let rows = app.workspace_rows();
+                let values = crate::board::overview::monitor::values(&app, snapshot, &rows[0]);
+                assert!(
+                    values
+                        .digest_labels
+                        .iter()
+                        .any(|label| label.text == "1 held")
+                );
+                // Whole trailing labels may be absent in the bounded MODE cell.
+                let slot = app
+                    .overview_layout
+                    .borrow_mut()
+                    .slots(Rect::new(
+                        0,
+                        0,
+                        if width >= 140 { width * 3 / 5 } else { width },
+                        2,
+                    ))
+                    .into_iter()
+                    .find(|(column, _)| *column == crate::config::OverviewColumn::Digest)
+                    .unwrap()
+                    .1;
+                assert!(slot.width >= "Auto ▾".len() as u16);
+            } else {
+                assert!(screen.contains("1 held"));
+            }
             assert!(
                 !screen.contains("99 held"),
                 "supplied labels replace the policy chip: {screen}"
@@ -1484,11 +1516,44 @@ fn supplied_label_choice_hit_at_look(look: crate::look::Look) {
                     }
                 }
             }
-            assert!(!held.is_empty(), "the supplied label remains visible");
+            if tab == OpsTab::Overview {
+                let table_width =
+                    crate::board::conversation::layout::overview(Rect::new(0, 0, width, 36))
+                        .list
+                        .expect("Overview always retains its list")
+                        .width;
+                let mode = app
+                    .overview_layout
+                    .borrow_mut()
+                    .slots(Rect::new(0, 0, table_width, 2))
+                    .into_iter()
+                    .find(|(column, _)| *column == crate::config::OverviewColumn::Digest)
+                    .unwrap()
+                    .1;
+                for (area, _) in &chips {
+                    if area.x == mode.x
+                        && app
+                            .hits
+                            .borrow()
+                            .iter()
+                            .any(|hit| hit.row().is_some() && hit.y == area.y)
+                    {
+                        let suffix: String = (area.right()..mode.right())
+                            .map(|x| buffer[(x, area.y)].symbol())
+                            .collect();
+                        assert!(
+                            suffix.trim().is_empty(),
+                            "only complete trailing labels paint: {suffix:?}"
+                        );
+                    }
+                }
+            } else {
+                assert!(!held.is_empty(), "the supplied label remains visible");
+            }
             // At 160 columns the Agents tree clips this suffix, but its
             // conversation header still shows the supplier's muted-role label.
             // Selected rows use the contrast policy; other surfaces keep the role.
-            if tab != OpsTab::Agents || width == 100 {
+            if tab == OpsTab::Digest || (tab == OpsTab::Agents && width == 100) {
                 assert!(
                     held.iter()
                         .any(|cells| Some(cells[0].bg) == look.selection().bg)
@@ -2399,10 +2464,12 @@ fn overview_never_claims_zero_from_incomplete_rosters_and_reports_the_global_obs
         app.shell.tab = OpsTab::Overview;
         let complete = paint(&app, 160, 36).join("\n");
         assert!(complete.contains("149 working"), "{complete}");
-        assert!(complete.contains("1 blocked"), "{complete}");
+        assert!(complete.contains("1 needs you"), "{complete}");
+        assert_eq!(app.workspace_rows()[0].state.as_deref(), Some("blocked"));
         let home = app.view.as_mut().unwrap().home.as_mut().unwrap();
         home.workspace.roster.membership_complete = false;
         home.workspace.roster.observation = OpsObservation::Partial;
+        app.overview_rows.borrow_mut().clear(); // A real roster receipt invalidates the same cache.
         let partial = paint(&app, 100, 36).join("\n");
         assert!(partial.contains("totals unknown"), "{partial}");
         assert!(!partial.contains("Nothing needs you"));

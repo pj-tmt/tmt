@@ -109,7 +109,19 @@ pub(super) fn model(app: &App) -> KeyHelp {
     let entries = app
         .bindings()
         .into_iter()
-        .map(|(key, action)| entry(&format!("binding-{key}"), &key, action.description()))
+        .map(|(key, action)| {
+            let description =
+                if action.verb == crate::action::Verb::Ui(crate::action::OpsUiAction::Pin) {
+                    if app.shell.tab == crate::board::shell::OpsTab::Overview {
+                        "pin or unpin the selected agent".into()
+                    } else {
+                        "pin or unpin the selected squad".into()
+                    }
+                } else {
+                    action.description()
+                };
+            entry(&format!("binding-{key}"), &key, description)
+        })
         .collect();
     let mut sections = vec![
         KeyHelpSection {

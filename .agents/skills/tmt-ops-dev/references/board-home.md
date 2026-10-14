@@ -33,18 +33,35 @@ tree viewport; it does not replace the selection or claim a complete roster.
 ## Shell, geometry and input
 
 `board::shell` owns Overview, Agents and Digest selection. `overview::monitor`
-projects one identity row through the admitted workspace roster; `columns` solves
-its single-line tracks through shared TUI markup, and `sort` orders known values
-with missing observations last in both directions. Config owns the optional
-persisted monitor order; absent order retains needs-you priority. The bounded row
-cache is invalidated by acquisition, labels and meter/job updates, while selection
-remains a semantic UUID target. Only viewport rows build display text and hits.
-`overview::detail` discloses full values and the observed membership scope without
-adding command authority. `workspace::render` retains the Agents tree and squad
-detail. WP1 retains conversation, editor, drafts, reply reader and send authority.
-Overview also owns global attention and usage. Digest projects the supplier-owned
-status snapshot and UUID-deduplicated member list through `digest_dashboard`;
-the canonical workspace roster still owns membership and action admission.
+projects one identity row through the admitted workspace roster. Its single cache
+also holds roster-intersected typed Digest counts and admitted recent exchanges;
+acquisition, labels, meter/job updates and admitted exchange reads invalidate it.
+`workspace::columns` owns shared full values and TUI-solved tracks; Overview
+captions Digest as MODE, while `sort` orders known values with missing observations
+last in both directions. Config owns persisted monitor order; absent order retains
+needs-you priority. Saved agent UUID pins form the first group with a decorative
+divider; the current sort applies within each group. Hidden or vanished pins do
+not retarget selection. Header clicks sort; Overview has no supplied sort keys,
+but authored `sort` / `reverse-sort` bindings remain admitted. The session-local All/Needs you filter preserves a hidden
+selected UUID. Only viewport rows build display text and hits.
+`overview::composition` places summary, Digest, quota, chart, monitor and exchange
+panels independently. At 140 columns and 12 body rows, Overview reserves 60% for
+these panels, one separator and the remainder for the existing conversation;
+Agents placement is unchanged. Recent exchanges are bounded latest lead exchanges
+plus own-result metadata, not an event log: source times sort newest first,
+untimed rows last, and failed or unacquired pages say unavailable. Successful empty
+pages say No observed recent exchanges. Summaries label incomplete totals and
+unknown modes/counts instead of inferring Off or zero.
+The two-line Overview legend omits Digest, Manage, Create, Remove and Details;
+Help and the Actions menu retain these effective bindings.
+`overview::detail` discloses full values and observed membership scope without
+adding command authority. The Summary timer control opens the existing all-rooms
+list without retargeting selection. With no selected target, the Overview Timers
+binding does the same; hidden/missing selected scopes still refuse to widen.
+`workspace::render` retains the Agents tree and squad detail. Conversation, editor,
+drafts, reply reader and Send keep their existing owners. Digest projects the
+supplier-owned status snapshot and UUID-deduplicated member list through
+`digest_dashboard`; the canonical roster owns membership and action admission.
 Agents and Digest use the selected squad's appearance and contextual detail. Auto/Side/Stack is an Ops preference,
 not a second editor or a revival of factory board views. An explicit message
 focuses the selected agent's conversation: compact Overview opens Agents, while
@@ -118,7 +135,10 @@ has no token cells, and model metadata is best effort. Provider pace/trend remai
 a derived current-cycle observation, not a persisted field or new acquisition.
 See the meter reference for coverage, time fences and trend thresholds. Overview
 and Digest share the same admitted per-window quota bars: remaining percent,
-labelled reset and measured weekly pace. Complete source timestamps and unknown
+labelled reset and measured weekly pace. Quota width >= 90 pairs providers;
+narrower areas stack them. Paired rows omit reset/pace when they do not fit
+(terminal 160/100); stacked rows retain them at 80/60, while Quota Details always
+retain full values. Complete source timestamps and unknown
 evidence stay in on-demand details; paint and input perform no acquisition.
 
 `board::overview::chart::host` owns one session Each/Range selection for Overview
@@ -127,10 +147,12 @@ Reader, search and composers retain their own input. Arrows draft a choice, Ente
 applies or inspects, Tab selects Each/Range/buckets and Esc returns to the list.
 Invalid pairs preserve both controls. Direct control and bucket hits come from
 admitted, clipped nodes; resize and source replacement revoke their authority.
-If placement would leave fewer than six target rows, the chart collapses to one
-summary line. Its effective shortcut, summary click or Actions entry opens the
+If there is no positive observed count, or placement would leave fewer than six
+target rows, the chart collapses to one summary line. Its effective shortcut, summary click or Actions entry opens the
 same controls in an opaque body modal; closing never replays input. A body with
-no spare target row omits the summary to retain the last usable row.
+no spare target row omits the summary to retain the last usable row. At eight
+terminal rows, Overview keeps the table and omits summary/quota context; the
+effective filter, Details and usage-control keys remain reachable.
 
 One identity-total series uses the existing Rate rings. Details preserve exact
 half-open bounds, observed tokens, missing identities and source durations;

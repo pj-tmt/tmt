@@ -36,6 +36,143 @@ fn occurrences(leads: &[Lead]) -> Vec<(&str, &str)> {
         .collect()
 }
 
+fn observation_home(leads: Vec<Lead>) -> super::super::home::Home {
+    super::super::home::Home {
+        workspace: Default::default(),
+        window: crate::config::TokenWindow::MINUTE,
+        windows: crate::config::TokenWindow::DEFAULTS,
+        summary: Default::default(),
+        squads: leads
+            .into_iter()
+            .map(|lead| super::super::home::SquadLine {
+                squad: lead.squad,
+                lead: Some(lead.row),
+                counts: Default::default(),
+            })
+            .collect(),
+        failures: vec![],
+        incomplete: false,
+    }
+}
+
+#[test]
+fn an_empty_exchange_set_requires_an_admitted_read() {
+    let mut state = State::default();
+    state.set_sender(Some("me"));
+    assert!(!state.observations_complete(), "never read is unavailable");
+    state.replace(fetch(vec![]).read(|_| Ok(json!({"items":[]})), 100));
+    assert!(
+        state.observations_complete(),
+        "a successful empty result is known"
+    );
+    assert!(state.leads.is_empty() && state.replies.is_empty());
+    state.set_sender(None);
+    state.replace(Fetch::results(None).read(|_| panic!("no sender must not read"), 100));
+    assert!(!state.observations_complete());
+}
+
+#[test]
+fn failed_result_or_lead_pages_are_not_complete_observations() {
+    for failed_results in [true, false] {
+        let mut state = State::default();
+        state.reconcile(&observation_home(vec![lead("a", "squad")]), Some("me"));
+        state.replace(fetch(vec![lead("a", "squad")]).read(|_| Ok(json!({"items":[]})), 100));
+        assert!(state.observations_complete());
+        let read = fetch(vec![lead("a", "squad")]).read(
+            |input| {
+                if (input["view"] == "results") == failed_results {
+                    Err(SquadError::new("READ_FAILED", "source unavailable"))
+                } else {
+                    Ok(json!({"items":[]}))
+                }
+            },
+            200,
+        );
+        state.replace(read);
+        assert!(!state.observations_complete());
+        assert_eq!(
+            state.lead_observed.get(&("squad".into(), "a".into())),
+            Some(&true)
+        );
+        state.replace(fetch(vec![lead("a", "squad")]).read(|_| Ok(json!({"items":[]})), 300));
+        assert!(state.observations_complete());
+    }
+}
+
+#[test]
+fn sender_changes_and_late_reads_cannot_mark_another_users_sources() {
+    let home = observation_home(vec![lead("a", "squad")]);
+    for via_reconcile in [false, true] {
+        let mut state = State::default();
+        state.reconcile(&home, Some("me"));
+        state.replace(fetch(vec![lead("a", "squad")]).read(|_| Ok(json!({"items":[]})), 100));
+        assert!(state.observations_complete());
+        let late = fetch(vec![lead("a", "squad")]).read(|_| Ok(json!({"items":[]})), 200);
+        if via_reconcile {
+            state.reconcile(&home, Some("other"));
+        } else {
+            state.set_sender(Some("other"));
+        }
+        assert!(!state.results_observed);
+        assert!(!state.observations_complete());
+        state.replace(late);
+        assert!(!state.results_observed);
+        assert!(!state.observations_complete());
+    }
+}
+
+#[test]
+fn each_current_lead_occurrence_needs_its_own_page_observation() {
+    let mut state = State::default();
+    state.reconcile(&observation_home(vec![lead("a", "one")]), Some("me"));
+    state.replace(fetch(vec![lead("a", "one")]).read(|_| Ok(json!({"items":[]})), 100));
+    assert!(state.observations_complete());
+    let late_old_roster = fetch(vec![lead("a", "one")]).read(|_| Ok(json!({"items":[]})), 200);
+    state.reconcile(
+        &observation_home(vec![lead("a", "one"), lead("b", "two")]),
+        Some("me"),
+    );
+    assert!(
+        !state.observations_complete(),
+        "a newly added lead is unobserved"
+    );
+    state.replace(late_old_roster);
+    assert!(
+        !state.observations_complete(),
+        "an older page cannot mark the new lead"
+    );
+    state.reconcile(
+        &observation_home(vec![lead("a", "one"), lead("b", "two")]),
+        Some("me"),
+    );
+    state.replace(
+        fetch(vec![lead("a", "one"), lead("b", "two")]).read(|_| Ok(json!({"items":[]})), 300),
+    );
+    assert!(state.observations_complete());
+    state.reconcile(&observation_home(vec![lead("b", "two")]), Some("me"));
+    assert!(
+        state.observations_complete(),
+        "removing a lead preserves retained evidence"
+    );
+    state.reconcile(&observation_home(vec![lead("c", "two")]), Some("me"));
+    assert!(
+        !state.observations_complete(),
+        "a replaced lead is unobserved"
+    );
+}
+
+#[test]
+fn a_lead_that_leaves_and_returns_does_not_reuse_its_old_mark() {
+    let mut state = State::default();
+    state.reconcile(&observation_home(vec![lead("a", "squad")]), Some("me"));
+    state.replace(fetch(vec![lead("a", "squad")]).read(|_| Ok(json!({"items":[]})), 100));
+    assert!(state.observations_complete());
+    state.reconcile(&observation_home(vec![]), Some("me"));
+    assert!(state.observations_complete());
+    state.reconcile(&observation_home(vec![lead("a", "squad")]), Some("me"));
+    assert!(!state.observations_complete());
+}
+
 #[test]
 fn conversation_results_use_one_originator_page_without_room_or_lead_scans() {
     let mut calls = 0;

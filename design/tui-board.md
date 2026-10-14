@@ -125,11 +125,11 @@ in different squads. A collapsed squad keeps its worst observed child state,
 with attention priority. Display names preserve authored text, including `tmt-`
 prefixes, and fit through the shared text policy.
 
-| Section  | Composition                                        | Placement                                                  |
-| -------- | -------------------------------------------------- | ---------------------------------------------------------- |
-| Overview | Global attention/usage/limits and squad/pool tree  | Global facts appear once; partial/stale totals say unknown |
-| Agents   | Tree plus exact agent conversation or squad detail | Auto/Side/Stack uses actual minimum usable areas           |
-| Digest   | Same tree/context and existing policy chooser      | No new Digest store, permission or parallel editor         |
+| Section  | Composition                                                           | Placement                                                |
+| -------- | --------------------------------------------------------------------- | -------------------------------------------------------- |
+| Overview | Summary, Digest, limits, usage, identity monitor and recent exchanges | Global facts appear once; incomplete totals stay unknown |
+| Agents   | Tree plus exact agent conversation or squad detail                    | Auto/Side/Stack uses actual minimum usable areas         |
+| Digest   | Same tree/context and existing policy chooser                         | No new Digest store, permission or parallel editor       |
 
 Auto/Side/Stack, pin and sort are per-user Ops preferences. The new default keys
 replace old squad tabs, Left/Right tab switching, tab reorder/pick/hide and factory
@@ -137,7 +137,8 @@ views; no legacy mode applies those arrangements. Located migration notices
 preserve authored configuration and identify replacements. Independent public
 `ls --tab`/layout projections remain separate contracts.
 
-Tree arrows move/expand/collapse, `s` sorts, `S` reverses, `n` creates, `m` manages
+Tree arrows move/expand/collapse; Overview headers sort by click, `p` saves an
+agent pin (squad pins remain in Agents), `n` creates, `m` manages
 or assigns, `x` removes only the selected membership, `D` opens Digest, and `c`
 opens Timers. Member rename is deferred and has no `r` hint/default. `w` is reserved
 for snapshots. Text/search/completion/modal/conversation input claims its keys
@@ -145,6 +146,23 @@ before section digits. Dispatch, help and footer use one effective binding table
 compatible user/host/section bindings retain precedence.
 
 ### HOME overview and sections
+
+Overview keeps summary, Digest, subscription limits, usage chart, monitor and
+recent exchanges as separate placed panels. At 140 columns and 12 body rows it
+uses a 60% monitor / one-cell separator / remaining conversation split; narrower
+screens retain the monitor. Agent, Squad, State, TOK/h, MODE, Cron, Runtime and
+Model share one column projection; whole fields drop Model, Runtime, MODE, Cron,
+then Squad, with full values in Details. Each/Range share one row when they fit.
+Unknown usage intervals are dim, compact ghost bars; partial coverage is named
+once in the summary, with no extra dotted baseline or legend row. Overview uses
+two disjoint key-hint lines from effective bindings.
+The All/Needs you filter is session-local and preserves the selected UUID. Row
+range/count reflects painted filtered rows and labels partial observations.
+Recent exchanges use admitted source timestamps, with untimed rows last; failed
+or unacquired sources say unavailable and observed empty sources say so. Preview
+text is inert. The Summary timer control opens all rooms without a selected UUID;
+existing scoped controls keep their admission rules. Effective key hints remain
+readable without color.
 
 Overview names known attention and working/idle/blocked totals, retaining
 partial/stale/unknown distinctions. A complete empty attention read may say

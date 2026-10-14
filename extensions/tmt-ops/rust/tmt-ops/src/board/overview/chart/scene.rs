@@ -1,6 +1,8 @@
 //! Template-backed usage chart. The host owns data, selection, cache and effects.
+#[cfg(test)]
+use super::model::Coverage;
 use super::{
-    model::{Coverage, Series},
+    model::Series,
     quantize::{self, Cell},
 };
 use ratatui::{
@@ -95,11 +97,14 @@ impl Scene {
             return Err("Chart height must be 1–24 cells".into());
         }
         let scale = quantize::scale(series.buckets.iter().map(|bucket| bucket.tokens));
-        let scale_label = scale.map_or_else(
-            || "tokens unknown".to_owned(),
-            |value| format!("{value} tok"),
-        );
-        let axis_width = scale_label.len() + 1;
+        let scale_label = scale.map_or_else(String::new, |value| {
+            super::format::tokens(u128::from(value))
+        });
+        let middle_label = scale.map_or_else(String::new, |value| {
+            super::format::tokens(u128::from(value / 2))
+        });
+        // Tick labels share the plot rows, so raw integer text never reserves an empty gutter.
+        let axis_width = scale_label.len().max(middle_label.len()).max(1) + 1;
         let count = series.buckets.len();
         let bar_width = usize::from(width)
             .saturating_sub(axis_width + count - 1)
@@ -113,18 +118,30 @@ impl Scene {
             .collect();
         let mut rows = Vec::new();
         for level in (0..usize::from(height)).rev() {
-            let axis = if level + 1 == usize::from(height) {
+            let axis = if level == 0 && scale.is_some() {
+                "0"
+            } else if level + 1 == usize::from(height) {
                 scale_label.as_str()
+            } else if height >= 4 && level == usize::from(height) / 2 {
+                middle_label.as_str()
             } else {
                 ""
             };
             let mut pieces = vec![json!({"id":"axis", "text": format!("{axis:>axis_width$}")})];
             for (index, bar) in bars.iter().enumerate() {
-                let (kind, text) = match bar[level] {
-                    Cell::Empty => ("empty", " ".repeat(bar_width)),
-                    Cell::Full => ("full", " ".repeat(bar_width)),
-                    Cell::LowerHalf => ("half", "▄".repeat(bar_width)),
-                    Cell::Unknown => ("unknown", " ".repeat(bar_width)),
+                let (kind, text) = if series.buckets[index].tokens.is_none() {
+                    if level < usize::from(height).div_ceil(3) {
+                        ("unknown", "·".repeat(bar_width))
+                    } else {
+                        ("empty", " ".repeat(bar_width))
+                    }
+                } else {
+                    match bar[level] {
+                        Cell::Empty => ("empty", " ".repeat(bar_width)),
+                        Cell::Full => ("full", " ".repeat(bar_width)),
+                        Cell::LowerHalf => ("half", "▄".repeat(bar_width)),
+                        Cell::Unknown => ("unknown", "·".repeat(bar_width)),
+                    }
                 };
                 pieces.push(json!({"id":format!("{kind}-bar-{index}"), "text":text}));
                 if index + 1 < count {
@@ -133,41 +150,11 @@ impl Scene {
             }
             rows.push(json!({"id":format!("level-{level}"), "pieces":pieces}));
         }
-        // Keep the existing axis width, with a trailing gutter separating zero
-        // from an incomplete first bucket's coverage marker.
-        let mut baseline =
-            vec![json!({"id":"axis", "text":format!("{:>width$} ", "0", width = axis_width - 1)})];
-        for (index, bucket) in series.buckets.iter().enumerate() {
-            let label = if bucket.coverage == Coverage::Complete {
-                ""
-            } else {
-                "?"
-            };
-            let left = bar_width.saturating_sub(label.len()) / 2;
-            let text = format!(
-                "{}{}{}",
-                " ".repeat(left),
-                label,
-                " ".repeat(bar_width - left - label.len())
-            );
-            baseline.push(json!({"id":format!("label-bar-{index}"), "text":text}));
-            if index + 1 < count {
-                baseline.push(json!({"id":format!("gap-{index}"), "text":" "}));
-            }
-        }
-        rows.push(json!({"id":"baseline", "pieces":baseline}));
         let ticks = time_ticks(
             series.selection.range_minutes,
             bar_width * count + count - 1,
         );
         rows.push(json!({"id":"time", "pieces":[{"id":"axis", "text":" ".repeat(axis_width)}, {"id":"time-ticks", "text":ticks}]}));
-        if series
-            .buckets
-            .iter()
-            .any(|bucket| bucket.coverage != Coverage::Complete)
-        {
-            rows.push(json!({"id":"coverage", "pieces":[{"id":"legend", "text":"? unknown or partial coverage"}]}));
-        }
         let row_count = rows.len() as u16;
         let node = template()
             .materialize(FILE, &json!({"rows":rows}), &Data)
@@ -218,6 +205,8 @@ impl Scene {
                 }
             } else if id.starts_with("half-") {
                 filled
+            } else if id.starts_with("unknown-") {
+                screen::style(theme, Role::Dim, depth)
             } else {
                 muted
             };
@@ -271,6 +260,53 @@ mod tests {
     }
 
     #[test]
+    fn real_scale_ticks_leave_no_raw_number_gutter_and_partial_bars_have_no_mark() {
+        let mut values = series();
+        for bucket in &mut values.buckets {
+            bucket.tokens = Some(23_058_051);
+            bucket.coverage = Coverage::Partial {
+                covered_ms: 200_000,
+            };
+        }
+        let scene = Scene::new(&values, 100, 5).unwrap();
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 100, scene.rows()));
+        let hits = scene
+            .paint(&mut buffer, &Theme::default(), Depth::None)
+            .unwrap();
+        let line = |y| {
+            (0..100)
+                .map(|x| buffer[(x, y)].symbol())
+                .collect::<String>()
+        };
+        assert!(line(0).starts_with(" 23.1M"));
+        let first = hits
+            .iter()
+            .find(|hit| {
+                hit.id
+                    .is_some_and(|path| path.last().is_some_and(|id| id == "full-bar-0"))
+            })
+            .unwrap();
+        assert_eq!(
+            first.rect.x, 6,
+            "five-character formatted tick plus one separating cell"
+        );
+        assert!(
+            !buffer
+                .content
+                .iter()
+                .any(|cell| matches!(cell.symbol(), "?" | "·"))
+        );
+        assert_eq!(
+            scene.rows(),
+            6,
+            "five plot rows followed directly by the time axis"
+        );
+        assert!(line(5).contains("−60m") && line(5).contains("now"));
+        assert!(line(4).trim_start().starts_with('0'));
+        assert_eq!(values.buckets[0].tokens, Some(23_058_051));
+    }
+
+    #[test]
     fn real_template_paints_full_spaces_half_cells_scale_and_baseline() {
         let series = series();
         let scene = Scene::new(&series, 60, 3).unwrap();
@@ -296,8 +332,10 @@ mod tests {
         assert_ne!(cell.bg, Color::Reset);
         assert!(buffer.content.iter().any(|cell| cell.symbol() == "▄"));
         let line = |y| (0..60).map(|x| buffer[(x, y)].symbol()).collect::<String>();
-        assert!(line(0).contains("100 tok"));
-        assert!(line(3).trim_start().starts_with('0'));
+        assert!(line(0).contains("100"));
+        assert!(line(2).trim_start().starts_with('0'));
+        assert_eq!(scene.rows(), 4, "plot plus time axis only");
+        assert!(line(3).contains("−60m") && line(3).contains("now"));
         assert_eq!(
             series.buckets[1].tokens,
             Some(1),
@@ -320,11 +358,16 @@ mod tests {
                         && hit.rect.y >= 1
                         && hit.rect.x + hit.rect.width as i32 <= 2 + i32::from(width)
                         && hit.rect.y + hit.rect.height as i32 <= 6));
-                    assert!(buffer.content.iter().any(|cell| cell.symbol() == "?"));
-                    let legend = (2..width + 2)
-                        .map(|x| buffer[(x, 5)].symbol())
-                        .collect::<String>();
-                    assert!(legend.contains("unknown or partial coverage"));
+                    assert!(buffer.content.iter().any(|cell| cell.symbol() == "·"));
+                    assert_eq!(scene.rows(), 4, "no separate coverage legend row");
+                    assert!(
+                        !buffer
+                            .content
+                            .iter()
+                            .map(|cell| cell.symbol())
+                            .collect::<String>()
+                            .contains("unknown")
+                    );
                     if depth == Depth::None {
                         assert!(buffer.content.iter().any(|cell| cell.symbol() == "█"));
                         assert!(
@@ -376,8 +419,8 @@ mod tests {
     #[test]
     fn all_unknown_and_known_zero_do_not_show_a_fabricated_token_reading() {
         for (tokens, coverage, expected) in [
-            (None, Coverage::Unknown, "tokens unknown"),
-            (Some(0), Coverage::Complete, "0 tok"),
+            (None, Coverage::Unknown, "·"),
+            (Some(0), Coverage::Complete, "0"),
         ] {
             let mut values = series();
             for bucket in &mut values.buckets {
@@ -390,7 +433,12 @@ mod tests {
                 .paint(&mut buffer, &Theme::default(), Depth::TrueColor)
                 .unwrap();
             let scale = (0..60).map(|x| buffer[(x, 0)].symbol()).collect::<String>();
-            assert!(scale.contains(expected), "{scale:?}");
+            if tokens.is_none() {
+                assert!(!scale.contains('·') && !scale.contains('0'), "{scale:?}");
+                assert!(buffer.content.iter().any(|cell| cell.symbol() == expected));
+            } else {
+                assert!(scale.contains(expected), "{scale:?}");
+            }
             assert!(!scale.contains("1 tok"));
         }
     }
@@ -437,7 +485,7 @@ mod axis_tests {
                         .map(|x| buffer[(x, y)].symbol())
                         .collect::<String>()
                 };
-                let time = line(4);
+                let time = line(3);
                 assert!(time.contains(&format!("−{range}m")) && time.contains("now"));
                 assert!(!time.contains('?'));
                 let middle = if range == 15 {
@@ -446,23 +494,43 @@ mod axis_tests {
                     format!("−{}m", range / 2)
                 };
                 assert!(time.contains(&middle));
+                assert_eq!(
+                    scene.rows(),
+                    4,
+                    "three plot rows then time; no extra dot row"
+                );
                 for index in 0..series.buckets.len() {
-                    let id = format!("label-bar-{index}");
+                    let suffix = format!("bar-{index}");
                     let hit = hits
                         .iter()
-                        .find(|hit| hit.id.as_ref().is_some_and(|path| path.last() == Some(&id)))
+                        .find(|hit| {
+                            hit.rect.y == 2
+                                && hit.id.as_ref().is_some_and(|path| {
+                                    path.last().is_some_and(|id| id.ends_with(&suffix))
+                                })
+                        })
                         .unwrap();
-                    let marks: Vec<_> = (hit.rect.x..hit.rect.x + hit.rect.width as i32)
-                        .filter(|x| buffer[(*x as u16, 3)].symbol() == "?")
-                        .collect();
-                    if index == 0 {
-                        assert_eq!(buffer[(hit.rect.x as u16 - 1, 3)].symbol(), " ");
-                        assert_eq!(buffer[(hit.rect.x as u16 - 2, 3)].symbol(), "0");
-                    }
-                    if series.buckets[index].coverage == Coverage::Complete {
-                        assert!(marks.is_empty());
+                    let columns = hit.rect.x..hit.rect.x + hit.rect.width as i32;
+                    if series.buckets[index].tokens.is_none() {
+                        assert!(
+                            columns
+                                .clone()
+                                .all(|x| buffer[(x as u16, 2)].symbol() == "·")
+                        );
+                        for y in 0..2 {
+                            assert!(
+                                columns
+                                    .clone()
+                                    .all(|x| buffer[(x as u16, y)].symbol() != "·"),
+                                "unknown ghost never fills the upper plot"
+                            );
+                        }
                     } else {
-                        assert_eq!(marks, vec![hit.rect.x + (hit.rect.width as i32 - 1) / 2]);
+                        assert!(
+                            columns
+                                .clone()
+                                .all(|x| buffer[(x as u16, 2)].symbol() != "·")
+                        );
                     }
                 }
                 assert!(buffer.content.iter().any(|cell| cell.symbol() == "█"));
@@ -473,7 +541,7 @@ mod axis_tests {
                         .take(3)
                         .flatten()
                         .all(|cell| cell.symbol() != "?"),
-                    "each incomplete bucket has one baseline mark"
+                    "partial coverage is not repeated under each bar"
                 );
             }
         }

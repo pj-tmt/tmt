@@ -443,6 +443,12 @@ mod tests {
                     ..Default::default()
                 },
             }];
+            home.workspace
+                .roster
+                .members
+                .values_mut()
+                .for_each(|member| member.state = Some("waiting".into()));
+            app.overview_rows.borrow_mut().clear();
             app.theme_picker = Some(Picker::open(config, Some("product".into())).unwrap());
             for _ in 0..3 {
                 app.key(key(KeyCode::Down));
@@ -463,12 +469,19 @@ mod tests {
                 app.look().role(Role::Muted).fg.unwrap_or_default(),
                 "plain shell tabs use the preview without attention badges"
             );
+            let summary_y = app
+                .hits
+                .borrow()
+                .iter()
+                .find(|hit| hit.target == crate::board::app::HitTarget::AllRoomTimers)
+                .expect("painted Summary timer anchor")
+                .y;
             assert_eq!(
-                buffer[(find(2, "Needs you"), 2)].fg,
+                buffer[(find(summary_y, "needs you"), summary_y)].fg,
                 app.look().role(Role::Text).fg.unwrap_or_default(),
                 "summary uses previewed text while the mark keeps its retained token"
             );
-            assert_eq!(buffer[(find(2, "◆"), 2)].fg, expected);
+            assert_eq!(buffer[(find(summary_y, "◆"), summary_y)].fg, expected);
             let tabs: String = (0..108).map(|x| buffer[(x, 0)].symbol()).collect();
             assert!(!tabs.contains('◆'));
             if override_text.is_empty() {

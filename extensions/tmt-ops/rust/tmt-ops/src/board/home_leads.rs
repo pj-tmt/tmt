@@ -7,7 +7,10 @@ use crate::{
     me::Me,
 };
 use serde_json::{Value, json};
-use std::{collections::BTreeMap, time::Instant};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    time::Instant,
+};
 
 const LIMIT: usize = 50;
 
@@ -136,6 +139,9 @@ pub struct Read {
 #[derive(Default)]
 pub(super) struct State {
     sender: Option<String>,
+    results_observed: bool,
+    /// Current roster occurrences, including those still awaiting their first read.
+    lead_observed: BTreeMap<(String, String), bool>,
     pub leads: Vec<Lead>,
     /// Bounded result metadata from the same originator read, for HOME members.
     pub replies: Vec<Value>,
@@ -231,9 +237,33 @@ impl Fetch {
 }
 
 impl State {
+    /// Empty rows are evidence only after all current source pages were admitted.
+    pub fn observations_complete(&self) -> bool {
+        let retained: BTreeSet<_> = self
+            .leads
+            .iter()
+            .map(|lead| (lead.squad.as_str(), lead.id()))
+            .collect();
+        self.sender.is_some()
+            && self.results_observed
+            && self.failure.is_none()
+            && self.lead_observed.iter().all(|((squad, id), observed)| {
+                *observed && retained.contains(&(squad.as_str(), id.as_str()))
+            })
+            && self.leads.iter().all(|lead| {
+                lead.failure.is_none()
+                    && self
+                        .lead_observed
+                        .get(&(lead.squad.clone(), lead.id().to_owned()))
+                        == Some(&true)
+            })
+    }
+
     pub fn set_sender(&mut self, sender: Option<&str>) {
         if self.sender.as_deref() != sender {
             self.sender = sender.map(str::to_owned);
+            self.results_observed = false;
+            self.lead_observed.clear();
             self.replies.clear();
             self.leads.clear();
             self.failure = None;
@@ -245,6 +275,11 @@ impl State {
     pub fn reconcile(&mut self, home: &super::home::Home, sender: Option<&str>) {
         let same_sender = self.sender.as_deref() == sender;
         let mut leads = roster(home);
+        let mut observed = BTreeMap::new();
+        for lead in &leads {
+            let key = (lead.squad.clone(), lead.id().to_owned());
+            observed.insert(key, false);
+        }
         if same_sender {
             for lead in &mut leads {
                 if let Some(previous) = self
@@ -254,13 +289,17 @@ impl State {
                 {
                     lead.exchange = previous.exchange.clone();
                     lead.failure = previous.failure.clone();
+                    let key = (lead.squad.clone(), lead.id().to_owned());
+                    observed.insert(key.clone(), self.lead_observed.get(&key) == Some(&true));
                 }
             }
         } else {
+            self.results_observed = false;
             self.replies.clear();
             self.failure = None;
         }
         self.sender = sender.map(str::to_owned);
+        self.lead_observed = observed;
         sort(&mut leads);
         self.leads = leads;
     }
@@ -268,6 +307,10 @@ impl State {
     pub fn replace(&mut self, mut read: Read) {
         if self.sender != read.sender {
             return;
+        }
+        let admitted = self.sender.is_some() && read.calls > 0;
+        if admitted && read.failure.is_none() {
+            self.results_observed = true;
         }
         if read.failure.is_none() {
             self.replies = std::mem::take(&mut read.replies);
@@ -278,6 +321,10 @@ impl State {
                 .any(|current| current.squad == lead.squad && current.id() == lead.id())
         });
         for lead in &mut read.leads {
+            if admitted && lead.failure.is_none() {
+                self.lead_observed
+                    .insert((lead.squad.clone(), lead.id().to_owned()), true);
+            }
             if (read.failure.is_some() || lead.failure.is_some())
                 && let Some(old) = self
                     .leads

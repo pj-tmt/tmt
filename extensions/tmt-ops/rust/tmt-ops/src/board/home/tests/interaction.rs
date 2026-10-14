@@ -99,7 +99,7 @@ fn workspace_header_paints_uncovered_known_history_as_partial_at_each_width_and_
                 let aggregate = app.home_header_usage(now).unwrap();
                 assert_eq!(aggregate.totals[2].unwrap().tokens, 21);
                 assert!(aggregate.totals[2].unwrap().partial);
-                assert!(aggregate.top.unwrap().share.partial);
+                assert!(aggregate.top.as_ref().unwrap().share.partial);
                 let mut terminal = Terminal::new(TestBackend::new(width, 24)).unwrap();
                 terminal
                     .draw(|frame| crate::board::view::render(frame, &app))
@@ -111,17 +111,33 @@ fn workspace_header_paints_uncovered_known_history_as_partial_at_each_width_and_
                     .chunks(width as usize)
                     .map(|cells| cells.iter().map(|cell| cell.symbol()).collect())
                     .collect();
-                let header = lines
+                let summary_width = crate::board::conversation::layout::overview(
+                    ratatui::layout::Rect::new(0, 0, width, 24),
+                )
+                .list
+                .expect("Overview always retains its list")
+                .width;
+                let summary: Vec<_> = terminal
+                    .backend()
+                    .buffer()
+                    .content
+                    .chunks(usize::from(width))
+                    .map(|row| {
+                        row.iter()
+                            .take(usize::from(summary_width))
+                            .map(|cell| cell.symbol())
+                            .collect::<String>()
+                    })
+                    .collect();
+                let header = summary
                     .iter()
-                    .find(|line| line.contains("1h ~21 tok"))
-                    .expect("actual Overview usage preserves the partial longest-window total");
+                    .find(|line| line.contains("TOK / 5m · observed 21 tok · partial"))
+                    .unwrap_or_else(|| panic!("actual partial chart summary missing: {lines:#?}"));
                 assert!(!header.contains("models "));
-                if width >= 100 {
-                    assert!(
-                        header.contains("top worker") && header.contains("~100%"),
-                        "{base}/{width}: {header}"
-                    );
-                }
+                // The approved mock replaces the old top-share headline with the chart;
+                // retain its exact source evidence without inventing a chart share value.
+                assert_eq!(aggregate.top.as_ref().unwrap().member, "worker");
+                assert_eq!(aggregate.top.as_ref().unwrap().share.fraction, 1.0);
                 assert!(app.workspace_snapshot().is_some());
             }
         }

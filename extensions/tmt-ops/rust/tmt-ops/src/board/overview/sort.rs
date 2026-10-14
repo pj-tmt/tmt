@@ -63,6 +63,10 @@ pub fn compare(left: &Row<'_>, right: &Row<'_>, sort: Sort) -> Ordering {
     order.then_with(|| left.id.cmp(right.id))
 }
 
+pub fn needs_attention(state: Option<&str>) -> bool {
+    matches!(state, Some("blocked" | "waiting"))
+}
+
 pub fn needs_you(left: &Row<'_>, right: &Row<'_>) -> Ordering {
     let priority = |state| match state {
         Some("blocked") => 0,
