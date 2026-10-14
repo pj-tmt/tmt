@@ -140,9 +140,10 @@ The [UI contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#own-str
 owns draft survival and stale-quote behavior.
 
 The annotation window uses the same `ThreadWindow` as Comments from first
-selection through the committed conversation. Its shared composer uses
-the host field body scale (14px/1.5), including mention chips; message bodies
-share that scale with Chat. Captions use the browser caption or host label tokens.
+selection through the committed conversation. Its composer and message bodies use
+the host field body scale (14px/1.5), shared with Chat. Mention chips inherit the
+composer's font size and retain their compact line height. Captions use the browser
+caption or host label tokens.
 The shell derives its gaps and insets from the browser gap and host field padding,
 without a larger mobile or desktop annotation font. Authored page styles remain isolated.
 The composer stays mounted on first send; Close, Escape and outside press collapse without sending
