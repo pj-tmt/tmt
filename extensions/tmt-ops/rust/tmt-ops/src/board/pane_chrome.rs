@@ -8,7 +8,8 @@ use ratatui::{
     text::Line,
 };
 use tmt_cli_style::{Depth, Role};
-use tmt_tui::components::Outline;
+use tmt_tui::components::strip;
+use unicode_width::UnicodeWidthStr;
 
 pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect, pane: Pane, title: &str) -> Rect {
     // Preserve navigation space on terminals that cannot afford a frame.
@@ -26,32 +27,38 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect, pane: Pane, title:
     } else {
         ""
     };
-    let title = format!(
-        " {marker}{title}{} ",
-        if focused && pane == Pane::Replies {
-            " · focused · Esc back"
-        } else if focused {
-            " · focused"
-        } else {
-            ""
-        }
-    );
-    let style = look.role(if focused { Role::Accent } else { Role::Muted });
-    let outline = Outline {
-        title: Line::from(title),
-        border: style,
-        title_style: if focused {
-            style.add_modifier(Modifier::BOLD)
-        } else {
-            style
-        },
-    };
-    if focused {
-        outline.paint_flat_heavy_top(area, frame.buffer_mut());
+    let hint = if focused && pane == Pane::Replies {
+        " · focused · Esc back"
+    } else if focused {
+        " · focused"
     } else {
-        outline.paint_flat(area, frame.buffer_mut());
-    }
-    outline.inner(area)
+        ""
+    };
+    let title = tmt_cli_style::table::escape(&crate::board::notes::sanitize(title));
+    let width = usize::from(area.width);
+    let title = crate::board::view::fit(
+        &title,
+        title
+            .width()
+            .min(width.saturating_sub(4 + marker.width() + hint.width())),
+    );
+    let rule = if focused { "━" } else { "─" };
+    let head = format!("{rule}{rule} {marker}{title}{hint} ");
+    let text = format!("{head}{}", rule.repeat(width.saturating_sub(head.width())));
+    let style = look.role(if focused { Role::Accent } else { Role::Muted });
+    strip::paint_left(
+        frame.buffer_mut(),
+        Rect { height: 1, ..area },
+        Line::styled(
+            text,
+            if focused {
+                style.add_modifier(Modifier::BOLD)
+            } else {
+                style
+            },
+        ),
+    );
+    Rect::new(area.x + 1, area.y + 1, area.width - 2, area.height - 1)
 }
 
 /// A retained selection is identifiable without impersonating the receiving cursor.

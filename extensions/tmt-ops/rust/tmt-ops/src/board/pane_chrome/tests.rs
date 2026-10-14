@@ -1,14 +1,28 @@
 use super::*;
 use ratatui::{Terminal, backend::TestBackend};
 
+mod routing;
+
 fn app(depth: Depth) -> App {
     let mut app = crate::board::app::workspace::tests::board();
-    app.view.as_mut().unwrap().look.depth = depth;
+    let view = app.view.as_mut().unwrap();
+    view.look.depth = depth;
+    for look in view
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .squad_looks
+        .values_mut()
+    {
+        look.depth = depth;
+    }
+    assert_eq!(app.look().depth, depth);
     app
 }
 
 #[test]
-fn focused_rule_title_and_marker_share_existing_focus_without_changing_inner_geometry() {
+fn focused_rule_title_and_marker_share_existing_focus_with_one_header_row() {
     for depth in [Depth::TrueColor, Depth::None] {
         for ascii in [false, true] {
             let mut app = app(depth);
@@ -21,7 +35,7 @@ fn focused_rule_title_and_marker_share_existing_focus_without_changing_inner_geo
                 })
                 .unwrap();
             let buffer = terminal.backend().buffer();
-            assert_eq!(inside, Rect::new(3, 2, 48, 6));
+            assert_eq!(inside, Rect::new(3, 2, 48, 7));
             assert_eq!(buffer[(2, 1)].symbol(), "━");
             let title = (2..52).map(|x| buffer[(x, 1)].symbol()).collect::<String>();
             assert!(title.contains("Agents · focused"), "{title}");
@@ -69,6 +83,30 @@ fn tiny_frame_keeps_navigation_cells_and_unselected_state_styles() {
     }
     let working = app.look().role(Role::Working);
     assert_eq!(row_style(&app, false, working), working);
+}
+
+#[test]
+fn long_focused_titles_keep_the_back_hint_and_do_not_paint_a_bottom_frame() {
+    let mut app = app(Depth::None);
+    app.focus = 1;
+    let mut terminal = Terminal::new(TestBackend::new(60, 12)).unwrap();
+    terminal
+        .draw(|frame| {
+            frame.buffer_mut().set_string(3, 8, "kept", Style::new());
+            let body = paint(
+                frame,
+                &app,
+                Rect::new(2, 1, 50, 8),
+                Pane::Replies,
+                &"long".repeat(80),
+            );
+            assert_eq!(body, Rect::new(3, 2, 48, 7));
+        })
+        .unwrap();
+    let buffer = terminal.backend().buffer();
+    let title = (2..52).map(|x| buffer[(x, 1)].symbol()).collect::<String>();
+    assert!(title.contains("focused · Esc back"), "{title}");
+    assert_eq!(buffer[(3, 8)].symbol(), "k");
 }
 
 #[test]

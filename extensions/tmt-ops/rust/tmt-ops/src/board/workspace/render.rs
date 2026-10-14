@@ -6,7 +6,7 @@ use crate::{
         app::{App, Choice, Hit, HitTarget, TabHit},
         shell::OpsTab,
     },
-    config::{OpsLayout, Pane},
+    config::Pane,
 };
 use ratatui::{
     Frame,
@@ -135,22 +135,8 @@ fn observation(observation: OpsObservation) -> &'static str {
     }
 }
 pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
-    use crate::board::conversation::layout::{self, Preference};
-    let Some(snapshot) = app.workspace_snapshot() else {
+    let Some(placement) = app.workspace_placement(area) else {
         return;
-    };
-    let placement = if app.shell.tab == OpsTab::Overview {
-        layout::overview(area)
-    } else {
-        layout::agents(
-            area,
-            match snapshot.preferences.layout {
-                OpsLayout::Auto => Preference::Auto,
-                OpsLayout::Side => Preference::Side,
-                OpsLayout::Stack => Preference::Stack,
-            },
-            app.focused() == Pane::Replies,
-        )
     };
     if let Some(list) = placement.list {
         if app.shell.tab == OpsTab::Overview {
@@ -465,8 +451,7 @@ fn squad_detail(frame: &mut Frame, app: &App, area: Rect) {
         .selected_row()
         .and_then(|row| row["name"].as_str())
         .unwrap_or("Selection");
-    let mut inside =
-        crate::board::pane_chrome::paint(frame, app, area, Pane::Replies, &safe(title));
+    let mut inside = crate::board::pane_chrome::paint(frame, app, area, Pane::Replies, title);
     if let Some(target) = app.workspace.selected.as_ref().filter(|target| {
         app.workspace_selection_visible()
             && (matches!(target, OpsTarget::Squad(_))

@@ -33,13 +33,17 @@ invalidation clears this registry, and painting sets the next comparison base.
 its scope restores nested paints and unwinding. Input and snapshot updates
 retain no row cache, so changed membership/filtering always resolves fresh.
 
-Workspace tree/detail uses shared Outline/Strip/Scrolls. `pane_chrome` projects
+Workspace tree/detail uses shared Strip/Scrolls. `pane_chrome` projects
 App focus into an accent heavy top rule and bold title; other titles/rules are
 Muted. A retained list selection keeps its cursor but loses the active highlight
 and dims while content has focus. NO_COLOR adds a title marker (`▶`, or `>` with
 the board's ASCII glyph switch), independently of the rule and bold title.
-Conversation and inline
-input retain their WP1 owner and opaque covered-hit mask. Review/Result uses a
+Pane titles consume one rule row with one-cell side padding, without a bottom
+frame or decorative blank row. App's effective table owns Tab/backtab pane
+switching; text and modal owners handle their raw events first. The same
+workspace Placement feeds paint and frame-title pointer focus; invalidation
+revokes its authority until a new paint. Conversation and inline input retain
+their WP1 owner and opaque covered-hit mask. Review/Result uses a
 square shared modal. Incidental frame cells remain Dim; receiving focus and
 selection stay distinct. Frozen row/HOME provenance and decoded fixture approval
 are owned by the verification reference.

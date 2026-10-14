@@ -153,6 +153,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("home", "scroll-top"),
             ("end", "scroll-bottom"),
             ("tab", "next-pane"),
+            ("backtab", "next-pane"),
             ("?", "help"),
             ("q", "quit"),
             ("ctrl-r", "refresh"),
@@ -182,6 +183,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("?", "help"),
             ("q", "quit"),
             ("tab", "next-pane"),
+            ("backtab", "next-pane"),
             ("ctrl-r", "refresh"),
             (",", "settings"),
             ("c", "timers"),
@@ -752,6 +754,27 @@ mod tests {
                     .verb,
                 Verb::Talk
             );
+        }
+    }
+
+    #[test]
+    fn backtab_defaults_share_tab_action_per_scope_and_authored_bindings_win() {
+        for scope in [
+            OpsKeyScope::Overview,
+            OpsKeyScope::Squad,
+            OpsKeyScope::Member,
+            OpsKeyScope::Pool,
+            OpsKeyScope::Reader,
+        ] {
+            let base = config("").workspace_keys(scope, None, None).unwrap();
+            assert_eq!(base.bindings["tab"].verb, Verb::NextPane);
+            assert_eq!(base.bindings["backtab"].verb, Verb::NextPane);
+            let configured = config("[bind]\nbacktab='help'\n")
+                .workspace_keys(scope, None, None)
+                .unwrap();
+            assert_eq!(configured.bindings["tab"].verb, Verb::NextPane);
+            assert_eq!(configured.bindings["backtab"].text, "help");
+            assert_eq!(configured.sources["backtab"], "bind.backtab");
         }
     }
     #[test]

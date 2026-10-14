@@ -747,6 +747,8 @@ pub fn event_name(key: KeyEvent) -> Option<String> {
         KeyCode::Left => "left".into(),
         KeyCode::Right => "right".into(),
         KeyCode::Backspace => "backspace".into(),
+        KeyCode::BackTab => "backtab".into(),
+        KeyCode::Tab if key.modifiers.contains(KeyModifiers::SHIFT) => "backtab".into(),
         KeyCode::Tab => "tab".into(),
         KeyCode::Delete => "delete".into(),
         KeyCode::Home => "home".into(),
@@ -1731,6 +1733,27 @@ impl App {
         &[Pane::Rows, Pane::Replies]
     }
 
+    pub(in crate::board) fn workspace_placement(
+        &self,
+        area: ratatui::layout::Rect,
+    ) -> Option<super::conversation::layout::Placement> {
+        use super::conversation::layout::{self, Preference};
+        let snapshot = self.workspace_snapshot()?;
+        Some(if self.shell.tab == super::shell::OpsTab::Overview {
+            layout::overview(area)
+        } else {
+            layout::agents(
+                area,
+                match snapshot.preferences.layout {
+                    crate::config::OpsLayout::Auto => Preference::Auto,
+                    crate::config::OpsLayout::Side => Preference::Side,
+                    crate::config::OpsLayout::Stack => Preference::Stack,
+                },
+                self.focused() == Pane::Replies,
+            )
+        })
+    }
+
     pub fn focused_pane(&self) -> Option<Pane> {
         self.focus_panes()
             .get(self.focus)
@@ -1796,8 +1819,10 @@ impl App {
         if let Some(next) = (1..=count)
             .map(|step| (self.focus + step) % count)
             .find(|index| !collapsed.contains(&panes[*index]))
+            && self.focus != next
         {
             self.focus = next;
+            self.invalidate_frame_geometry();
         }
     }
 
@@ -3477,6 +3502,20 @@ impl App {
     }
 
     fn pointer_pane(&self, column: u16, row: u16) -> Option<Pane> {
+        // Only the current paint can authorize its outer title/padding. The
+        // same placement feeds paint; invalidation clears both visible owners.
+        if (self.scrolls.visible(Pane::Rows) || self.conversation.borrow().pane.is_some())
+            && let Some(placement) = self.workspace_placement(self.conversation.borrow().area)
+        {
+            for (pane, area) in [
+                (Pane::Rows, placement.list),
+                (Pane::Replies, placement.conversation),
+            ] {
+                if area.is_some_and(|area| area.contains((column, row).into())) {
+                    return Some(pane);
+                }
+            }
+        }
         if self
             .conversation
             .borrow()

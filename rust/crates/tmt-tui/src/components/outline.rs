@@ -11,27 +11,20 @@ use ratatui::{
 };
 use tmt_cli_style::table::escape;
 
-/// Every frame style reserves each edge; flat framing changes paint alone.
+/// Both frame styles reserve every edge; flat framing changes paint alone.
 #[derive(Clone, Copy)]
 pub(super) enum Frame {
     Square,
     Flat,
-    FlatHeavyTop,
 }
 
 pub(super) fn frame_block(frame: Frame) -> Block<'static> {
     let block = Block::new().borders(Borders::ALL);
-    let top = if matches!(frame, Frame::FlatHeavyTop) {
-        "━"
-    } else {
-        "─"
-    };
     match frame {
         Frame::Square => block,
-        Frame::Flat | Frame::FlatHeavyTop => block.border_set(border::Set {
-            top_left: top,
-            top_right: top,
-            horizontal_top: top,
+        Frame::Flat => block.border_set(border::Set {
+            top_left: "─",
+            top_right: "─",
             bottom_left: "─",
             bottom_right: "─",
             vertical_left: " ",
@@ -62,11 +55,6 @@ impl Outline<'_> {
     /// Horizontal rules and blank side slots, with the same inner and title areas.
     pub fn paint_flat(&self, area: Rect, buffer: &mut Buffer) {
         self.paint_frame(area, buffer, Frame::Flat);
-    }
-
-    /// Flat framing with a heavy top rule; inner geometry and other edges stay unchanged.
-    pub fn paint_flat_heavy_top(&self, area: Rect, buffer: &mut Buffer) {
-        self.paint_frame(area, buffer, Frame::FlatHeavyTop);
     }
 
     fn paint_frame(&self, area: Rect, buffer: &mut Buffer, frame: Frame) {
