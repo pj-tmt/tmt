@@ -245,6 +245,36 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
     } else {
         area
     };
+    // Effective bindings depend on logical conversation placement. Acquire them
+    // before mutably borrowing the response sessions that own that placement.
+    let link = crate::effects::default_link(row)
+        .filter(|url| !url.is_empty())
+        .map(|url| {
+            let bindings = app.bindings();
+            let hint = bindings
+                .get("o")
+                .map(|action| {
+                    let action =
+                        if action.verb == crate::action::Verb::Open && action.args.is_empty() {
+                            "open $link".to_owned()
+                        } else {
+                            sanitize(&action.text)
+                        };
+                    format!(" (press o - {action})")
+                })
+                .unwrap_or_default();
+            let hint = super::view::fit(&hint, hint.width().min(usize::from(area.width)));
+            let url = sanitize(url);
+            let url = super::view::fit(
+                &url,
+                url.width()
+                    .min(usize::from(area.width).saturating_sub(hint.width())),
+            );
+            Line::from(vec![
+                Span::styled(url, look.role(Role::Link)),
+                Span::styled(hint, look.role(Role::Dim)),
+            ])
+        });
     let mut state = app.conversation.borrow_mut();
     let switched = state.active.as_ref() != Some(&identity);
     state.active = Some(identity.clone());
@@ -312,30 +342,8 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 .collect::<Vec<_>>(),
         ));
     }
-    if let Some(url) = crate::effects::default_link(row).filter(|url| !url.is_empty()) {
-        let bindings = app.bindings();
-        let hint = bindings
-            .get("o")
-            .map(|action| {
-                let action = if action.verb == crate::action::Verb::Open && action.args.is_empty() {
-                    "open $link".to_owned()
-                } else {
-                    sanitize(&action.text)
-                };
-                format!(" (press o - {action})")
-            })
-            .unwrap_or_default();
-        let hint = super::view::fit(&hint, hint.width().min(usize::from(area.width)));
-        let url = sanitize(url);
-        let url = super::view::fit(
-            &url,
-            url.width()
-                .min(usize::from(area.width).saturating_sub(hint.width())),
-        );
-        header.push(Line::from(vec![
-            Span::styled(url, look.role(Role::Link)),
-            Span::styled(hint, look.role(Role::Dim)),
-        ]));
+    if let Some(link) = link {
+        header.push(link);
     }
     header.push(Line::styled(
         if session.change == Change::NewOutput {

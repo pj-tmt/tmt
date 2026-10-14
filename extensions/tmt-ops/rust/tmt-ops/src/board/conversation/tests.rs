@@ -533,6 +533,55 @@ fn workspace(app: &mut App, width: u16, height: u16) {
 }
 
 #[test]
+fn switching_shell_with_a_link_keeps_response_and_effective_link_hint() {
+    use crate::board::shell::OpsTab;
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let mut app = workspace_fixture();
+    let selected = app.workspace.selected.clone().unwrap();
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .rows
+        .get_mut(&selected)
+        .unwrap()["fields"]["link"] = json!("https://example.test/pr");
+    let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
+    for (key, tab) in [
+        ('2', OpsTab::Agents),
+        ('1', OpsTab::Overview),
+        ('3', OpsTab::Digest),
+        ('2', OpsTab::Agents),
+    ] {
+        app.focus = 0;
+        app.key(KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE));
+        assert_eq!(app.shell.tab, tab);
+        terminal
+            .draw(|frame| {
+                crate::board::view::prepare(&mut app, frame.area());
+                crate::board::view::render(frame, &app);
+            })
+            .unwrap();
+        let text = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(
+            text.contains("https://example.test/pr (press o - open $link)"),
+            "{tab:?}: {text}"
+        );
+        assert!(text.contains("worker line 089"), "{tab:?}: {text}");
+        assert_eq!(app.workspace.selected.as_ref(), Some(&selected));
+        assert!(app.conversation.borrow().pane.is_some());
+    }
+}
+
+#[test]
 fn response_wheel_uses_painted_viewport_independently_of_keyboard_focus() {
     use ratatui::crossterm::event::{KeyModifiers, MouseEvent, MouseEventKind};
     for layout in [
