@@ -45,6 +45,63 @@ function everyTable(sandbox: Sandbox) {
 }
 
 describe('public local extension API', () => {
+  it('renames a previewed UUID atomically and shares the CLI rename owner', async () => {
+    await withSandbox(async (sandbox) => {
+      const id = await identity(sandbox, 'Alice');
+      await identity(sandbox, 'Bob');
+      const rename = (expectedName: string, name: string, identityId = id) =>
+        api(sandbox, 'identity.rename', { identityId, expectedName, name });
+      const applied = await rename('Alice', 'Ada');
+      expect(applied.status).toBe(0);
+      expect(applied.body).toEqual({
+        outcome: 'applied',
+        identityId: id,
+        name: 'Ada',
+        changed: true,
+      });
+      const before = everyTable(sandbox);
+      const conflict = await rename('Alice', 'Eve');
+      expect(conflict.status).toBe(0);
+      expect(conflict.body).toEqual({ outcome: 'conflict', identityId: id, name: 'Ada' });
+      expect(everyTable(sandbox)).toEqual(before);
+      const noOp = await rename('Ada', 'Ada');
+      expect(noOp.status).toBe(0);
+      expect(noOp.body).toEqual({
+        outcome: 'applied',
+        identityId: id,
+        name: 'Ada',
+        changed: false,
+      });
+      expect(everyTable(sandbox)).toEqual(before);
+      const taken = await rename('Ada', 'BOB');
+      expect(taken.status).toBe(1);
+      expect(taken.body.error.code).toBe('NAME_ALREADY_ACTIVE');
+      expect(everyTable(sandbox)).toEqual(before);
+      const moved = await runCli(sandbox, ['identity', 'mv', 'Ada', 'Eve', '--json']);
+      expect(moved.status).toBe(0);
+      expect(JSON.parse(moved.stdout)).toMatchObject({
+        renamed: true,
+        previousName: 'Ada',
+        identity: { id, name: 'Eve' },
+      });
+      const stale = await rename('Ada', 'Other');
+      expect(stale.body).toEqual({ outcome: 'conflict', identityId: id, name: 'Eve' });
+      expect((await runCli(sandbox, ['rm', 'Eve', '--force', '--json'])).status).toBe(0);
+      const successor = await identity(sandbox, id);
+      const afterRetirement = everyTable(sandbox);
+      const retired = await rename('Eve', 'Other');
+      expect(retired.status).toBe(0);
+      expect(retired.body).toEqual({ outcome: 'not-found', identityId: id });
+      expect(everyTable(sandbox)).toEqual(afterRetirement);
+      expect(successor).not.toBe(id);
+      const invalid = await rename('Eve', 'Other', 'Alice');
+      expect(invalid.status).toBe(1);
+      expect(invalid.body.error.code).toBe('API_INPUT_INVALID');
+      const capabilities = await api(sandbox, 'capabilities', {});
+      expect(capabilities.body.operations).toContain('identity.rename');
+    });
+  });
+
   it('collects content-free settled checklist evidence with an immutable monotonic cursor', async () => {
     await withSandbox(async (sandbox) => {
       const receiver = await identity(sandbox, 'History receiver');

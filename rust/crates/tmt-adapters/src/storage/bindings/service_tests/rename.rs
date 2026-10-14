@@ -292,3 +292,215 @@ fn a_generated_name_collision_never_reconciles_or_retires_its_existing_holder() 
     );
     storage.close().unwrap();
 }
+
+#[test]
+fn uuid_rename_cas_serializes_competing_names_and_preserves_the_winner() {
+    use std::sync::{Arc, Barrier};
+    use tmt_core::binding::{RenameOutcome, rename_identity_by_id};
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let alice = create_or_resolve(&mut storage, "Alice", Lifetime::Saved)
+        .unwrap()
+        .identity;
+    storage.close().unwrap();
+    let barrier = Arc::new(Barrier::new(3));
+    let workers: Vec<_> = ["Ada", "Carol"]
+        .into_iter()
+        .map(|name| {
+            let mut storage = fixture.open();
+            let id = alice.id.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                let result =
+                    rename_identity_by_id::<_, EndpointFailure>(&mut storage, &id, "Alice", name)
+                        .unwrap();
+                storage.close().unwrap();
+                result
+            })
+        })
+        .collect();
+    barrier.wait();
+    let results: Vec<_> = workers
+        .into_iter()
+        .map(|worker| worker.join().unwrap())
+        .collect();
+    let applied = results
+        .iter()
+        .find_map(|r| match r {
+            RenameOutcome::Applied(r) => Some(r),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(
+        results
+            .iter()
+            .filter(|r| matches!(r, RenameOutcome::Applied(_)))
+            .count(),
+        1
+    );
+    let conflict = results
+        .iter()
+        .find_map(|r| match r {
+            RenameOutcome::Conflict(i) => Some(i),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(conflict, &applied.identity);
+    let mut storage = fixture.open();
+    assert_eq!(
+        storage.find_identity_by_id(&alice.id).unwrap(),
+        Some(applied.identity.clone())
+    );
+    storage.close().unwrap();
+}
+
+#[test]
+fn uuid_rename_checks_exact_expectation_retirement_and_canonical_collision() {
+    use tmt_core::binding::{BindingRepository, RenameOutcome, rename_identity_by_id};
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let alice = create_or_resolve(&mut storage, "Alice", Lifetime::Saved)
+        .unwrap()
+        .identity;
+    let bob = create_or_resolve(&mut storage, "Bob", Lifetime::Saved)
+        .unwrap()
+        .identity;
+    assert_eq!(
+        rename_identity_by_id::<_, EndpointFailure>(&mut storage, &alice.id, "alice", "Ada")
+            .unwrap(),
+        RenameOutcome::Conflict(alice.clone())
+    );
+    assert!(matches!(
+        rename_identity_by_id::<_, EndpointFailure>(&mut storage, &alice.id, "Alice", "BOB"),
+        Err(Error::NameTaken(_))
+    ));
+    assert_eq!(
+        storage.find_identity_by_id(&alice.id).unwrap(),
+        Some(alice.clone())
+    );
+    assert_eq!(storage.find_identity_by_id(&bob.id).unwrap(), Some(bob));
+    let RenameOutcome::Applied(same) =
+        rename_identity_by_id::<_, EndpointFailure>(&mut storage, &alice.id, "Alice", "Alice")
+            .unwrap()
+    else {
+        panic!("same-name rename must apply")
+    };
+    assert!(!same.changed());
+    assert_eq!(same.identity, alice);
+    let RenameOutcome::Applied(cased) =
+        rename_identity_by_id::<_, EndpointFailure>(&mut storage, &alice.id, "Alice", "ALICE")
+            .unwrap()
+    else {
+        panic!("case change must apply")
+    };
+    assert!(cased.changed());
+    assert_eq!(cased.identity.canonical_name, "alice");
+    storage
+        .with_binding_transaction(|rows| rows.retire_identity(&cased.identity, false))
+        .unwrap();
+    let successor = create_or_resolve(&mut storage, "Alice", Lifetime::Saved)
+        .unwrap()
+        .identity;
+    assert_eq!(
+        rename_identity_by_id::<_, EndpointFailure>(&mut storage, &alice.id, "ALICE", "Ada")
+            .unwrap(),
+        RenameOutcome::NotFound
+    );
+    assert_eq!(
+        storage.find_identity_by_id(&successor.id).unwrap(),
+        Some(successor)
+    );
+    storage.close().unwrap();
+}
+
+#[test]
+fn uuid_rename_preserves_bound_state_and_noop_cursor_and_rolls_back_storage_failure() {
+    use tmt_core::binding::{RenameOutcome, rename_identity_by_id};
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let mut endpoint = FakeEndpoint::new(&["%1"]);
+    let bound =
+        tmt_core::binding::bind_identity(&mut storage, &mut endpoint, "%1", "Alice", true).unwrap();
+    storage
+        .connection()
+        .unwrap()
+        .execute(
+            "INSERT INTO identity_metadata (identity_id,key,value) VALUES (?, 'team', 'core')",
+            [&bound.identity.id],
+        )
+        .unwrap();
+    let cursor = storage.change_cursor().unwrap();
+    let RenameOutcome::Applied(same) = rename_identity_by_id::<_, EndpointFailure>(
+        &mut storage,
+        &bound.identity.id,
+        "Alice",
+        "Alice",
+    )
+    .unwrap() else {
+        panic!("no-op must apply")
+    };
+    assert!(!same.changed());
+    assert_eq!(storage.change_cursor().unwrap(), cursor);
+    assert!(matches!(
+        rename_identity_by_id::<_, EndpointFailure>(
+            &mut storage,
+            &bound.identity.id,
+            "alice",
+            "Ada"
+        )
+        .unwrap(),
+        RenameOutcome::Conflict(_)
+    ));
+    assert_eq!(storage.change_cursor().unwrap(), cursor);
+    storage.connection().unwrap().execute_batch("CREATE TRIGGER refuse_rename BEFORE UPDATE OF name ON identities BEGIN SELECT RAISE(ABORT, 'fixture refusal'); END;").unwrap();
+    assert!(matches!(
+        rename_identity_by_id::<_, EndpointFailure>(
+            &mut storage,
+            &bound.identity.id,
+            "Alice",
+            "Ada"
+        ),
+        Err(Error::Repository(_))
+    ));
+    assert_eq!(
+        storage.find_identity_by_id(&bound.identity.id).unwrap(),
+        Some(bound.identity.clone())
+    );
+    assert_eq!(storage.change_cursor().unwrap(), cursor);
+    storage
+        .connection()
+        .unwrap()
+        .execute_batch("DROP TRIGGER refuse_rename;")
+        .unwrap();
+    let RenameOutcome::Applied(renamed) = rename_identity_by_id::<_, EndpointFailure>(
+        &mut storage,
+        &bound.identity.id,
+        "Alice",
+        "Ada",
+    )
+    .unwrap() else {
+        panic!("rename must apply")
+    };
+    assert_eq!(renamed.identity.id, bound.identity.id);
+    assert_eq!(renamed.identity.lifetime, Lifetime::Saved);
+    assert_eq!(renamed.binding, bound.binding);
+    assert!(storage.change_cursor().unwrap() > cursor);
+    let metadata: String = storage
+        .connection()
+        .unwrap()
+        .query_row(
+            "SELECT value FROM identity_metadata WHERE identity_id = ? AND key = 'team'",
+            [&bound.identity.id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(metadata, "core");
+    assert_eq!(
+        name_presence(&mut storage, &mut endpoint, "Ada")
+            .unwrap()
+            .presence,
+        Presence::Active
+    );
+    storage.close().unwrap();
+}

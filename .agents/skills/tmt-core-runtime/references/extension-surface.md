@@ -49,6 +49,8 @@ Code-side rules for what core exposes to extensions. Wire shapes and limits are 
   dispatcher, bounds, settings selection and storage lifetime, and private `api/` modules own
   operation families. Capabilities and unsupported-version discovery never open storage.
   Explicit identity selects write attribution, not privilege.
+- `identity.rename` admits an exact UUID/name CAS through the binding owner, without host
+  observation; CLI name-based rename shares its transaction-local policy.
 - `rooms.roster` reads membership, metadata and status from one deferred SQLite snapshot and
   excludes presence (host observation, `ls --room --json`). `identity_projection` gives CLI
   and API identical identity bytes. `identityHooks.*` are scoped to the named consumer;

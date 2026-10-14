@@ -33,7 +33,7 @@ identity UUID or name, or `"originator":"anonymous"`, which stores no writer ide
 exactly like the CLI without `--identity`. Anonymous is not an authenticated owner and
 grants nothing beyond what same-user CLI calls without an identity can already do; both
 or neither is `API_INPUT_INVALID`. Operations without originator attribution, including
-`identity.meta.apply`, name neither. The metadata target is its input `identityId`. Unknown request fields
+`identity.meta.apply` and `identity.rename`, name neither. Their target is input `identityId`. Unknown request fields
 are rejected. Responses reuse existing resource shapes, without a second wrapper.
 Clients must tolerate additive response fields. Public `tmt api` storage opens,
 including `notes.read`, return `STORAGE_NOT_WRITABLE` (exit 1) only for a confirmed
@@ -64,6 +64,7 @@ independent of storage access.
 | `references.resolve`     | optional `identityIds`, `roomIds` (canonical UUIDs, at most 256 in total)                          | `identities` (`id`, `found`, `name`, `lifetime`, `retired`) and `rooms` (`id`, `found`, `retired`)                                                                |
 | `consumption.history`    | `identityIds` (1–32 UUIDs), `windowsMs` (1–3), optional `maxBuckets`                               | Closed timestamped deltas, coverage and included cumulative seed watermark (see below)                                                                            |
 | `identity.meta.apply`    | `identityId` (active canonical UUID), `changes`                                                    | `identityId`, `changed`; atomic conditional metadata update (see below)                                                                                           |
+| `identity.rename`        | `identityId` (canonical UUID), `expectedName`, `name`                                              | `outcome`: `applied`, `conflict` or `not-found`; atomic conditional rename (see below)                                                                            |
 | `identities.status`      | `identityIds` (canonical UUIDs, at most 256)                                                       | `identities`: `{id, found}` and, when found, `status`: the `tmt identity status` value or `null`                                                                  |
 | `extensions.uses`        | `extension`, `feature`                                                                             | `available`, `installed`, `reason`, `hint` for a declared optional use (see [Optional cross-extension uses](#optional-cross-extension-uses))                      |
 
@@ -74,6 +75,37 @@ rather than infer configuration paths, and keep their files under
 subtree, with 0700 directories and 0600 secret/state files; it MUST NOT open or
 modify core's database/configuration or provider settings. Discovery does not
 create the root or read its files. `capabilities` remains a constant document.
+
+## Conditional identity rename
+
+`identity.rename` renames one exact active UUID only while its display name equals
+`expectedName` byte-for-byte. It accepts `{identityId, expectedName, name}`, with
+no originator or unknown fields. `identityId` must be a canonical UUID. `expectedName` is literal, without trimming
+or canonicalization; the destination uses existing Core name validation. Malformed fields
+or UUIDs are `API_INPUT_INVALID`; an invalid destination is `INVALID_NAME`.
+
+One IMMEDIATE binding transaction checks the active UUID, compares its current
+name and applies the rename. It serializes with rename, bind and retirement. UUID,
+lifetime, binding and all UUID-keyed state remain unchanged; a changed name consumes
+auto-name provenance, as ordinary `identity mv` does. The CLI uses this same
+transaction-local rename owner, retaining its name selector and output contract.
+
+Results use exit 0 and one typed resource:
+
+- `{outcome:"applied", identityId, name, changed}` contains the resulting display
+  name; `changed:false` is a no-op, leaving timestamps and the change cursor intact.
+- `{outcome:"conflict", identityId, name}` contains the current display name from
+  the transaction's snapshot. No write occurs; refresh before submitting again.
+- `{outcome:"not-found", identityId}` means unknown or retired. It never resolves
+  a display name or a same-name successor, even if that name is UUID-shaped.
+
+A destination held by another active identity returns `NAME_ALREADY_ACTIVE`
+(exit 1, the ordinary API fault envelope), with no mutation. The CLI preserves its
+existing exit 5 collision and exit 3 `NAME_NOT_FOUND` behavior. Unconfirmed storage
+failures return `API_UNAVAILABLE`; inspect current state before retrying. Pane
+markers are cosmetic UUID-bound records: their old display name grants no routing
+or lifetime authority. The CLI retains its best-effort post-commit refresh; the
+API rename needs no host process or endpoint observation.
 
 ## Conditional identity metadata
 
