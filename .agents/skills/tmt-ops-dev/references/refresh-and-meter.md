@@ -171,7 +171,10 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   values before section shaping. On named/HOME entry, the existing cancellable
   worker publishes the usable roster before acquiring history. It batches
   `consumption.history` for at most 32 UUIDs per call, requesting one longest
-  window capped at the API's 1 h limit. The worker may reuse validated seeds
+  window capped at the API's 1 h limit. The aggregate workspace requests that
+  whole hour even when summary windows are shorter, for its independent chart
+  controls; board meters retain at least one hour in their existing rings.
+  The worker may reuse validated seeds
   only with the same successful core change cursor, closed five-second range
   and requested window; missing UUIDs are fetched, failures are not cached, and
   any unknown/changed cursor or time range discards reuse. This bounded worker
@@ -192,6 +195,23 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   Whole rollups crossing a shorter window boundary are excluded rather than
   prorated. Missing or failed acquisition means unavailable evidence, not zero,
   and cannot bridge current cumulative counters.
+- Chart intervals: `rate::series` projects whole retained source records into
+  Each 5/15/30/60 minutes and Range 15/30/60 minutes (default 5/60). Each must fit
+  Range; changing either never silently changes the other. UUIDs contribute once,
+  including when several squads hold the same identity. Input plus output counts
+  cached input only once. Boundary-crossing source records are excluded and marked
+  partial, never prorated. Only reported `coveredMs` contributes duration; live
+  evidence counts cannot manufacture milliseconds. Unreported identities remain
+  unknown; complete aggregate coverage requires every canonical identity and a
+  complete roster. Count overflow retains exact detail where representable but
+  never wraps or truncates a plot. Sampling/history updates invalidate the bounded
+  semantic projection, including replacements in the same clock slot. The visible
+  chart or controls modal registers a five-second range clock only when its
+  admitted data or inspection changes with time; an unavailable idle summary
+  does not wake, and a covered chart adds no clock. The single admitted scene
+  paints background-space fills in color and full/half block glyphs in NO_COLOR,
+  time ticks derived from Range and one centred baseline marker per incomplete
+  bucket. Paint and input perform no acquisition.
 - Live sampling: a named-squad load carries public counters; idle reads use only
   `ls --room --json` for those UUIDs on separate 5–10 second deadlines, without
   providers, notes or staleness publication. Full loads take priority, but

@@ -131,7 +131,11 @@ impl Meter {
             origin: now,
             origin_ms: crate::status::now_ms(),
             sampled: now,
-            rate: Rate::new(settings.windows[2]),
+            rate: Rate::new(if settings.windows[2].milliseconds() < 3_600_000 {
+                TokenWindow::HOUR
+            } else {
+                settings.windows[2]
+            }),
             reading: None,
             counter: Counter::default(),
             window: settings.window,
@@ -286,6 +290,10 @@ impl Meter {
         now: Instant,
     ) -> Option<(Reading, u64)> {
         self.rate.observation(id, self.milliseconds(now), window)
+    }
+
+    pub(in crate::board) fn history(&self) -> &Rate {
+        &self.rate
     }
 
     pub fn retain(&mut self, input: &Input) {

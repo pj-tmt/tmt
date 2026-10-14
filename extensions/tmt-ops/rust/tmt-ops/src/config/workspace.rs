@@ -96,6 +96,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             (",", "settings"),
             ("c", "timers"),
             ("n", "create-squad"),
+            ("u", "usage-controls"),
         ]
     };
     match scope {

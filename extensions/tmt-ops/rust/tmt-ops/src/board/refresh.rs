@@ -375,12 +375,15 @@ impl HistoryJob {
     }
 
     fn complete(self, core: &Core, cache: &mut super::rate::history::Cache) -> HistoryRead {
-        let longest = self
+        let mut longest = self
             .targets
             .values()
             .map(|(settings, _)| settings.windows[2])
             .max_by_key(|window| window.milliseconds())
             .expect("enabled history targets");
+        if self.owner == super::ALL && longest.milliseconds() < 3_600_000 {
+            longest = crate::config::TokenWindow::HOUR;
+        }
         let ids = self
             .targets
             .values()
@@ -2829,6 +2832,63 @@ printf '%s\n' '{{}}'
                 ("usable", 2),
             ]
         );
+    }
+
+    #[test]
+    fn aggregate_chart_acquires_one_hour_without_changing_named_summary_requests() {
+        struct World(std::path::PathBuf);
+        impl Drop for World {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let world = World(std::env::temp_dir().join(format!(
+            "ops-chart-history-{}",
+            crate::id::new_v4().unwrap()
+        )));
+        std::fs::create_dir(&world.0).unwrap();
+        let executable = world.0.join("tmt");
+        crate::test_support::write_ready_executable(
+            &executable,
+            r#"#!/bin/sh
+case "$1" in
+api) cat > "${0%/*}/request"; printf '%s\n' '{"identities":[]}' ;;
+ls) printf '%s\n' '{"identities":[]}' ;;
+*) exit 2 ;;
+esac
+"#,
+        );
+        let core = Core::at(executable);
+        for (owner, minutes, expected) in [
+            (super::super::ALL, 5, 3_600_000),
+            ("product", 5, 300_000),
+            (super::super::ALL, 1440, 3_600_000),
+        ] {
+            let window = crate::config::TokenWindow::parse(&format!("{minutes}m")).unwrap();
+            let settings = crate::config::TokenRate {
+                enabled: true,
+                windows: [window; 3],
+                ..Default::default()
+            };
+            let input = super::super::rate::tests::input(100);
+            let job = HistoryJob {
+                owner: owner.into(),
+                cursor: None,
+                targets: [("product".into(), (settings, input))].into(),
+            };
+            let read = job.complete(&core, &mut Default::default());
+            let request: Value =
+                serde_json::from_slice(&std::fs::read(world.0.join("request")).unwrap()).unwrap();
+            assert_eq!(request["operation"], "consumption.history");
+            assert_eq!(request["input"]["windowsMs"], json!([expected]));
+            assert_eq!(request["input"]["maxBuckets"], 120);
+            assert_eq!(request["input"]["identityIds"], json!(["a"]));
+            assert!(
+                read.seeds["a"].is_none(),
+                "unreported history remains unavailable"
+            );
+            assert!(read.observed.unwrap().is_empty());
+        }
     }
 
     #[test]
