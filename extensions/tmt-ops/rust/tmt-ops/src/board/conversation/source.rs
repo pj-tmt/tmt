@@ -22,6 +22,12 @@ use unicode_width::UnicodeWidthStr;
 
 const ANNOTATE: &str = "[ Annotate selection ]";
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Anchor {
+    Byte(usize),
+    Bottom,
+}
+
 #[derive(Clone)]
 pub(super) struct ReplyHit {
     pub area: Rect,
@@ -34,10 +40,38 @@ pub(super) struct ReplyHit {
 pub(super) struct Source {
     target: Target,
     selection: Selection,
+    anchor: Anchor,
+    // Text wrapping context, never pointer authority. Relative key bursts can
+    // advance before another paint while painted hit geometry is already gone.
+    layout_width: Option<u16>,
     painted: Option<(Rect, usize)>,
     annotate: Option<(Rect, Quote)>,
 }
 impl Source {
+    pub(super) fn scroll(&mut self, offset: usize, step: super::Step, visible: bool) {
+        match step {
+            super::Step::Top => self.anchor = Anchor::Byte(0),
+            super::Step::Bottom => self.anchor = Anchor::Bottom,
+            super::Step::Lines(0) | super::Step::Pages(0) => {}
+            _ if visible => {
+                if let Some(width) = self.layout_width {
+                    let layout = self.selection.source.layout(width);
+                    let mut byte = layout
+                        .lines
+                        .get(offset.min(layout.lines.len().saturating_sub(1)))
+                        .map_or(0, |line| line.start)
+                        .min(self.selection.source.len());
+                    while !self.selection.source.is_char_boundary(byte) {
+                        byte = byte.saturating_sub(1);
+                    }
+                    self.anchor = Anchor::Byte(byte);
+                }
+            }
+            _ => {}
+        }
+        self.invalidate();
+    }
+
     pub(super) fn invalidate(&mut self) {
         self.painted = None;
         self.annotate = None;
@@ -191,6 +225,8 @@ impl App {
                 session.exact_source = Some(Source {
                     target: Target::Row(target),
                     selection: Selection::new(hit.key, reply.body.clone()),
+                    anchor: Anchor::Byte(0),
+                    layout_width: None,
                     painted: None,
                     annotate: None,
                 });
@@ -221,6 +257,16 @@ pub(super) fn paint(
         ..body
     };
     let layout = source.selection.source.layout(area.width);
+    source.layout_width = Some(area.width);
+    let offset = match source.anchor {
+        Anchor::Bottom => layout.lines.len(),
+        Anchor::Byte(byte) => layout
+            .lines
+            .iter()
+            .rposition(|line| line.start <= byte)
+            .unwrap_or_default(),
+    };
+    app.scrolls.restore([(Pane::Replies, offset)]);
     app.scrolls.show_paint(
         frame,
         Pane::Replies,

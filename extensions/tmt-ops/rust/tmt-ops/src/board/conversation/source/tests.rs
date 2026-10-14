@@ -347,6 +347,80 @@ fn wrapped_scrolled_control_source_keeps_exact_combining_bytes_after_resize() {
 }
 
 #[test]
+fn paused_byte_anchor_and_selection_survive_reflow_without_stale_pointer_authority() {
+    let raw = format!(
+        "{}TAIL_END",
+        format!("{}\r\n", "漢 e\u{301} 0123456789 ".repeat(15)).repeat(80)
+    );
+    let mut app = fixture(&raw);
+    enter(&mut app);
+    draw(&mut app, 100, 36);
+    let anchor = |app: &App| {
+        let state = app.conversation.borrow();
+        state.sessions[state.active.as_ref().unwrap()]
+            .exact_source
+            .as_ref()
+            .unwrap()
+            .anchor
+    };
+    app.scroll_pane(Pane::Replies, crate::board::scroll::Step::Lines(7));
+    let first = anchor(&app);
+    app.scroll_pane(Pane::Replies, crate::board::scroll::Step::Lines(5));
+    let kept = anchor(&app);
+    assert!(matches!((first, kept), (Anchor::Byte(a), Anchor::Byte(b)) if b > a));
+    draw(&mut app, 100, 36);
+    select(&mut app, 6);
+    let selected = quote(&app);
+    assert_eq!(
+        raw.get(selected.range.clone()),
+        Some(selected.text.as_str())
+    );
+    for width in [60, 160, 100] {
+        let stale = area(&app);
+        app.invalidate_frame_geometry();
+        mouse(
+            &mut app,
+            MouseEventKind::Down(MouseButton::Left),
+            stale.x,
+            stale.y,
+        );
+        app.scroll_pane(Pane::Replies, crate::board::scroll::Step::Lines(0));
+        app.scroll_pane(Pane::Replies, crate::board::scroll::Step::Lines(3));
+        assert_eq!(anchor(&app), kept);
+        assert_eq!(quote(&app), selected);
+        draw(&mut app, width, 36);
+        assert_eq!(anchor(&app), kept, "paint cannot replace the source anchor");
+        assert_eq!(quote(&app), selected);
+        let painted = area(&app);
+        let state = app.conversation.borrow();
+        let source = state.sessions[state.active.as_ref().unwrap()]
+            .exact_source
+            .as_ref()
+            .unwrap();
+        let layout = source.selection.source.layout(painted.width);
+        let first = &layout.lines[app.scrolls.offset(Pane::Replies)];
+        let Anchor::Byte(byte) = kept else {
+            panic!("relative scrolling must retain a byte anchor")
+        };
+        assert!(first.start <= byte && byte <= first.end);
+        assert!(raw.is_char_boundary(byte));
+    }
+    app.scroll_pane(Pane::Replies, crate::board::scroll::Step::Bottom);
+    for width in [60, 160, 100] {
+        app.invalidate_frame_geometry();
+        let shown = draw(&mut app, width, 36);
+        assert_eq!(anchor(&app), Anchor::Bottom);
+        assert_eq!(quote(&app), selected);
+        let text = shown
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(text.contains("TAIL_END"), "Bottom remains the visible tail");
+    }
+}
+
+#[test]
 fn common_pool_inline_quote_opens_pinned_talk_and_never_a_squad_note() {
     use crate::board::workspace::OpsTarget;
     let mut app = fixture("literal Common pool response");

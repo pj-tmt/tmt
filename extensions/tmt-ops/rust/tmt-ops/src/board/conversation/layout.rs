@@ -65,9 +65,9 @@ pub fn agents(area: Rect, preference: Preference, conversation_focused: bool) ->
             list: Some(Rect::new(area.x, area.y, area.width, top)),
             conversation: Some(Rect::new(
                 area.x,
-                area.y + top + 1,
+                area.y + top,
                 area.width,
-                area.height - top - 1,
+                area.height - top,
             )),
         };
     }
@@ -101,7 +101,7 @@ mod tests {
                             assert!(list.intersection(conversation).is_empty());
                             assert!(
                                 list.right() + 1 == conversation.x
-                                    || list.bottom() + 1 == conversation.y
+                                    || list.bottom() == conversation.y
                             );
                         } else {
                             assert_eq!(placement.conversation.is_some(), focused);

@@ -124,3 +124,57 @@ fn title_click_and_content_click_focus_the_painted_pane_and_stale_titles_are_ref
         );
     }
 }
+
+#[test]
+fn conversation_has_one_title_and_stack_separator_while_uuid_draft_survives_focus_and_resize() {
+    for depth in [Depth::TrueColor, Depth::None] {
+        let mut app = app(depth);
+        app.perform(&crate::action::Action::parse("talk").unwrap());
+        app.input.as_mut().unwrap().text = "retained UUID draft".into();
+        app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        let selected = app.workspace.selected.clone();
+        let key = app.composer_projection().unwrap().key;
+        for width in [100, 160, 60, 100] {
+            app.set_body_width(width);
+            let mut terminal = Terminal::new(TestBackend::new(width, 36)).unwrap();
+            terminal
+                .draw(|frame| crate::board::view::render(frame, &app))
+                .unwrap();
+            if app.focused() != Pane::Replies {
+                app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+            }
+            terminal
+                .draw(|frame| crate::board::view::render(frame, &app))
+                .unwrap();
+            let state = app.conversation.borrow();
+            let placement = app.workspace_placement(state.area).unwrap();
+            let pane = placement.conversation.unwrap();
+            if let Some(list) = placement.list.filter(|list| list.y < pane.y) {
+                assert_eq!(list.bottom(), pane.y, "the title is the only separator");
+            }
+            let buffer = terminal.backend().buffer();
+            let line = |y| {
+                (pane.x..pane.right())
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect::<String>()
+            };
+            assert!(line(pane.y).contains("Conversation ·"));
+            assert!(line(pane.y).contains("focused · Esc back"));
+            assert_eq!(buffer[(pane.x, pane.y)].symbol(), "━");
+            assert_eq!(
+                (pane.y..pane.bottom())
+                    .filter(|y| line(*y).contains("Conversation ·"))
+                    .count(),
+                1
+            );
+            drop(state);
+            assert!(app.input.is_none(), "pane focus does not start typing");
+            let projection = app.composer_projection().unwrap();
+            assert_eq!(projection.key, key);
+            assert_eq!(projection.text.unwrap().as_str(), "retained UUID draft");
+            assert_eq!(app.workspace.selected, selected);
+            app.key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT));
+            assert_eq!(app.focused(), Pane::Rows);
+        }
+    }
+}
