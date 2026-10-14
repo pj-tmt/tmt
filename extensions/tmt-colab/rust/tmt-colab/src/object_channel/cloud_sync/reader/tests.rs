@@ -123,10 +123,10 @@ fn a_record_that_disagrees_with_its_signed_bytes_is_malformed_and_a_refusal_is_t
             "hash".into(),
             serde_json::json!({"stringValue": tmt_colab_model::values::encode_binary(&[9; 32])}),
         );
-    assert!(matches!(
-        rig.reader.tail(&page(), STREAM, 0),
-        Err(Fault::Stuck(_))
-    ));
+    assert_eq!(
+        rig.reader.tail(&page(), STREAM, 0).unwrap(),
+        Tail::Malformed
+    );
     rig.firestore.faults.lock().unwrap().refuse_next = Some(sync::Error {
         code: sync::Code::Budget,
         state: None,

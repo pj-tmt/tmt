@@ -23,6 +23,9 @@ pub(crate) enum Tail {
     Originals(Vec<(u64, Vec<u8>)>),
     /// The provider no longer holds the sequence after the position: only a bootstrap helps.
     CatchUpRequired,
+    /// A record of this stream disagrees with its own routing or signed bytes. That is this
+    /// writer's doing: the stream is refused, and no other stream is.
+    Malformed,
 }
 
 pub(crate) struct Reader {
@@ -125,7 +128,7 @@ impl Reader {
     }
     /// The contiguous log originals of `stream` after `after`, at most one provider page.
     pub(crate) fn tail(&self, page: &PageRef, stream: &str, after: u64) -> Result<Tail, Fault> {
-        let scope = sealed_documents::page_scope(&page.space, &page.page, page.epoch)
+        let scope = sealed_documents::stream_scope(&page.space, &page.page, page.epoch, stream)
             .map_err(|_| malformed())?;
         let outcome = self.request(sync::Call::Query {
             binding: self.binding.clone(),
@@ -149,14 +152,16 @@ impl Reader {
         };
         let mut originals_out = Vec::new();
         for (index, document) in documents.iter().enumerate() {
-            let original = originals::log(document).map_err(|_| malformed())?;
+            let Ok(original) = originals::log(document) else {
+                return Ok(Tail::Malformed);
+            };
             let context = &original.header.context;
             let seq = after + index as u64 + 1;
             if context.author_device != stream
                 || context.page != page.page
                 || context.stream_seq != seq.to_string()
             {
-                return Err(malformed());
+                return Ok(Tail::Malformed);
             }
             originals_out.push((seq, original.bytes));
         }

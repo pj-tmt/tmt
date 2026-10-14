@@ -93,6 +93,13 @@ impl Puller {
                     report("Cloud sync stopped for one writer: only a fresh copy can catch up.");
                     continue;
                 }
+                Tail::Malformed => {
+                    self.stopped.insert(stream);
+                    report(
+                        "Cloud sync stopped for one writer: one of its cloud records is malformed.",
+                    );
+                    continue;
+                }
                 Tail::Originals(originals) => originals,
             };
             more |= !originals.is_empty();

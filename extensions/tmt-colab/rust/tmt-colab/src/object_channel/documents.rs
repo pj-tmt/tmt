@@ -345,6 +345,19 @@ pub fn page_scope(space: &str, page: &str, epoch: u64) -> Result<Map<String, Val
         ("epoch".into(), json!({"integerValue": epoch.to_string()})),
     ]))
 }
+/// The scope of one stream's log query: the page's scope plus the stream, as the declaration's
+/// `log` query lists its scope fields.
+pub fn stream_scope(
+    space: &str,
+    page: &str,
+    epoch: u64,
+    stream: &str,
+) -> Result<Map<String, Value>, Invalid> {
+    values::generated_id(stream).map_err(|_| Invalid)?;
+    let mut scope = page_scope(space, page, epoch)?;
+    scope.insert("stream".into(), json!({"stringValue": stream}));
+    Ok(scope)
+}
 pub fn authority_scope(
     space: &str,
     page: &str,

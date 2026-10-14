@@ -326,6 +326,21 @@ impl Firestore {
                 stream,
                 cursor,
             } => {
+                // Remote accepts a log query only with exactly the declared scope fields,
+                // the stream among them.
+                if resource == "log"
+                    && (scope.len() != 4
+                        || scope.get("stream") != Some(&serde_json::json!({"stringValue": stream})))
+                {
+                    return sync::Outcome::Error {
+                        error: sync::Error {
+                            code: sync::Code::Invalid,
+                            state: None,
+                            reset_at_ms: None,
+                            retry_after_ms: None,
+                        },
+                    };
+                }
                 let field = match resource.as_str() {
                     "log" => "stream",
                     "authority" => "subject",

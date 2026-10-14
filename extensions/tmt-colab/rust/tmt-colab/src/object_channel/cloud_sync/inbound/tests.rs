@@ -237,6 +237,47 @@ fn a_forged_original_stops_only_its_own_stream_and_is_reported_once() {
 }
 
 #[test]
+fn a_malformed_record_of_one_writer_stops_that_writer_and_no_other() {
+    let mut rig = rig();
+    let good = rig.writer.append(C);
+    let bad = rig.writer.append(A);
+    rig.publish_authority(&[A, C]);
+    rig.publish(&good);
+    rig.publish(&bad);
+    // The routing of A's record names another hash than its signed bytes carry.
+    let id = originals::log_document(
+        &Routing {
+            space: &rig.writer.key.space_id,
+            page: PAGE,
+            epoch: 1,
+            uid: "owner",
+            expires_at: Field::timestamp(1_790_000_000_000).unwrap(),
+        },
+        &bad,
+    )
+    .unwrap()
+    .target
+    .id;
+    rig.cloud
+        .docs
+        .lock()
+        .unwrap()
+        .get_mut(&("log".to_owned(), id))
+        .unwrap()
+        .insert(
+            "hash".into(),
+            serde_json::json!({"stringValue": tmt_colab_model::values::encode_binary(&[9; 32])}),
+        );
+    assert!(rig.pass().is_ok());
+    assert_eq!(rig.head(A), None);
+    assert_eq!(rig.head(C).unwrap().0, 1);
+    assert_eq!(rig.reports.lock().unwrap().len(), 1);
+    // It is not read again.
+    assert!(rig.pass().is_ok());
+    assert_eq!(rig.reports.lock().unwrap().len(), 1);
+}
+
+#[test]
 fn admission_refuses_another_epoch_or_key_and_a_good_original_applies_once() {
     let mut rig = rig();
     let page = rig.reader.page(1);
