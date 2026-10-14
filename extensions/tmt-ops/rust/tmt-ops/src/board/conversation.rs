@@ -504,12 +504,21 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
         }
         header.push(Line::styled(controls, look.role(Role::Accent)));
     }
-    let host_action = bindings.get("j").map(|action| ("j", action)).or_else(|| {
-        bindings
-            .iter()
-            .find(|(_, action)| action.verb == crate::action::Verb::Jump)
-            .map(|(key, action)| (key.as_str(), action))
-    });
+    let host_action = bindings
+        .get("j")
+        .filter(|action| {
+            matches!(
+                action.verb,
+                crate::action::Verb::Jump | crate::action::Verb::Run
+            )
+        })
+        .map(|action| ("j", action))
+        .or_else(|| {
+            bindings
+                .iter()
+                .find(|(_, action)| action.verb == crate::action::Verb::Jump)
+                .map(|(key, action)| (key.as_str(), action))
+        });
     let host = match host_action {
         Some((key, action)) if action.verb == crate::action::Verb::Jump => {
             let host_name = row["pane"]["location"]["host"]
@@ -525,7 +534,15 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
             };
             format!("Host: {host_name} · {action}")
         }
-        _ => super::overview::actions::host_preview(row, app.invoker_tmux, host_action),
+        action => {
+            let host_name = row["pane"]["location"]["host"]
+                .as_str()
+                .unwrap_or("unknown");
+            action.map_or_else(
+                || format!("Host: {host_name}"),
+                |(key, action)| format!("Host: {host_name} · {key} {}", action.description()),
+            )
+        }
     };
     header.push(Line::styled(
         super::view::fit(&sanitize(&host), usize::from(area.width)),

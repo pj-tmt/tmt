@@ -783,6 +783,36 @@ fn shortened_or_missing_header_rows_never_publish_timer_or_details_hits() {
 }
 
 #[test]
+fn compact_host_label_hides_uuid_and_never_calls_reader_navigation_a_host_shortcut() {
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let mut app = workspace_fixture();
+    for focused in [false, true] {
+        if focused {
+            app.key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+        }
+        workspace(&mut app, 100, 18);
+        let mut terminal = Terminal::new(TestBackend::new(100, 18)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        let shown: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(shown.contains("Host: tmux"));
+        assert!(!shown.contains(crate::board::app::workspace::tests::MEMBER));
+        if focused {
+            assert!(!shown.contains("j host"), "reader j remains a reading key");
+        } else {
+            assert!(shown.contains("j host"));
+        }
+    }
+}
+
+#[test]
 fn response_position_counts_retained_lines_rather_than_empty_viewport_cells() {
     for width in [160, 100] {
         let mut app = workspace_fixture();
