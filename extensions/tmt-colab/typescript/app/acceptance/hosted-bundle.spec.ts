@@ -102,7 +102,7 @@ async function serve(
   return { origin: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, requests };
 }
 
-test('the embedded hosted bundle serves its declared bytes and shell under Remote\'s composition', async () => {
+test("the embedded hosted bundle serves its declared bytes and shell under Remote's composition", async () => {
   await withWorld(async (world) => {
     const { view, manifest, files } = composed(world);
     const { origin, requests } = await serve(world, view, files);
@@ -181,7 +181,8 @@ test('the embedded hosted bundle serves its declared bytes and shell under Remot
     expect(await page.evaluate(() => (window as any).__violations)).toEqual([]);
     const declaredPaths = new Set(manifest.files.map((file) => file.path));
     const unexpected = [...new Set(requests)].filter(
-      (pathname) => pathname !== '/' && !declaredPaths.has(pathname) && pathname !== SERVE_RELEASE_PROBE,
+      (pathname) =>
+        pathname !== '/' && !declaredPaths.has(pathname) && pathname !== SERVE_RELEASE_PROBE,
     );
     expect(unexpected).toEqual([]);
     // Everything the shell references is served; only the named probe may be refused.
@@ -193,7 +194,9 @@ test('the embedded hosted bundle serves its declared bytes and shell under Remot
       if (pathname !== SERVE_RELEASE_PROBE) expect(status, pathname).toBe(200);
     // The refused probe is the only console error the load may produce.
     expect(
-      errors.filter((message) => !message.location().url.endsWith(SERVE_RELEASE_PROBE)).map((m) => m.text()),
+      errors
+        .filter((message) => !message.location().url.endsWith(SERVE_RELEASE_PROBE))
+        .map((m) => m.text()),
     ).toEqual([]);
   });
 });
