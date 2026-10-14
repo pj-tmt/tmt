@@ -87,6 +87,54 @@ fn scoped_timers_exclude_other_rooms_and_open_the_uuid_after_name_reuse() {
 }
 
 #[test]
+fn timer_title_uses_the_exact_room_even_for_empty_and_refreshed_scopes() {
+    let mut app = renamed_room_and_reused_name();
+    open_timers(&mut app);
+    let shown = draw(&app, 100, 24).join("\n");
+    assert!(shown.contains("cron · renamed-product"), "{shown}");
+    assert!(!shown.contains("cron · all squads"));
+    // Empty jobs are still the selected room, not a change to all-squads scope.
+    app.cron.cron.as_mut().unwrap().jobs.clear();
+    let shown = draw(&app, 100, 24).join("\n");
+    assert!(shown.contains("cron · renamed-product"), "{shown}");
+    assert!(shown.contains("0 jobs"));
+    assert_eq!(app.cron_list.as_ref().unwrap().scope.as_deref(), Some(ROOM));
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .roster
+        .squads
+        .iter_mut()
+        .find(|squad| squad.room_id == ROOM)
+        .unwrap()
+        .name = "current-name".into();
+    assert!(
+        draw(&app, 100, 24)
+            .join("\n")
+            .contains("cron · current-name")
+    );
+    // A departed room never takes the name of its successor or broadens scope.
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .roster
+        .squads
+        .retain(|squad| squad.room_id != ROOM);
+    let shown = draw(&app, 100, 24).join("\n");
+    assert!(shown.contains(&format!("cron · room {ROOM}")), "{shown}");
+    assert!(!shown.contains("cron · all squads"));
+    assert_eq!(app.cron_list.as_ref().unwrap().scope.as_deref(), Some(ROOM));
+}
+
+#[test]
 fn timers_cannot_open_a_reused_name_when_the_observed_room_is_removed() {
     let mut app = renamed_room_and_reused_name();
     open_timers(&mut app);

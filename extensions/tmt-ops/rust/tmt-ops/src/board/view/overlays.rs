@@ -21,8 +21,17 @@ pub(super) fn render(frame: &mut Frame, app: &App, body: Rect, look: crate::look
             .render(&menu.entries, menu.selected, frame, look, body);
     }
     if let Some(list) = &app.cron_list {
+        let scope_name = list.scope.as_deref().and_then(|room| {
+            app.workspace_snapshot()?
+                .roster
+                .squads
+                .iter()
+                .find(|squad| squad.room_id == room)
+                .map(|squad| squad.name.as_str())
+        });
         list.render(
             &app.cron,
+            scope_name,
             &app.row_details.expanded,
             app.cron.now_ms(),
             app.clock_place(),

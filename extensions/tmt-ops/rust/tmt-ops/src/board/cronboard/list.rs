@@ -31,7 +31,7 @@ pub(in crate::board) enum Input {
 }
 
 /// What the compiled template depends on: columns, modal width and height.
-type Shape = (Columns, u16, u16);
+type Shape = (Columns, u16, u16, String);
 
 pub(in crate::board) struct List {
     pub scope: Option<String>,
@@ -81,6 +81,7 @@ impl List {
     pub fn render(
         &self,
         state: &State,
+        scope_name: Option<&str>,
         expanded: &[crate::board::row_detail::Target],
         now_ms: i64,
         place: Option<&str>,
@@ -129,10 +130,20 @@ impl List {
             .saturating_add(detail_height)
             .saturating_add(5)
             .min(usize::from(body.height))) as u16;
-        let shape = (columns, width, height);
+        let title = match self.scope.as_deref() {
+            None => "cron · all squads".to_owned(),
+            Some(room) => format!(
+                "cron · {}",
+                scope_name
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| format!("room {room}"))
+            ),
+        };
+        let shape = (columns, width, height, title.clone());
+        let template_key = format!("{shape:?}");
         let mut template = self.template.borrow_mut();
         if template.as_ref().is_none_or(|(old, _)| *old != shape) {
-            *template = Some((shape, modal(columns, width, height)));
+            *template = Some((shape, modal(columns, width, height, &title)));
         }
         let mut status = match &state.cron {
             Some(cron) => format!(
@@ -165,8 +176,8 @@ impl List {
             "status": status,
             "footer": super::hints::overlay(usize::from(inside),selected.is_some()),
             "notes": [],
-            // The cached scene is keyed by value, and the template depends on width.
-            "columns": format!("{columns:?}/{height}"),
+            // Materialized scene and compiled template must share every shape input.
+            "columns": template_key,
         });
         let (_, template) = template.as_ref().expect("compiled");
         surface.render("squad.cron.xml", template, value, frame, look, body);

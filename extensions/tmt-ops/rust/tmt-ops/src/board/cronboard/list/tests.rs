@@ -25,7 +25,16 @@ fn paint(list: &List, state: &State, width: u16, height: u16) -> Vec<String> {
     let mut screen = Terminal::new(TestBackend::new(width, height)).unwrap();
     screen
         .draw(|frame| {
-            list.render(state, &[], NOW, None, frame, Look::default(), frame.area());
+            list.render(
+                state,
+                None,
+                &[],
+                NOW,
+                None,
+                frame,
+                Look::default(),
+                frame.area(),
+            );
         })
         .unwrap();
     let buffer = screen.backend().buffer();
@@ -272,7 +281,9 @@ fn cursor_uses_the_mark_id_gap_and_tracks_refresh_survivors_without_state_change
                 }
                 let mut screen = Terminal::new(TestBackend::new(width, height)).unwrap();
                 screen
-                    .draw(|frame| list.render(&state, &[], NOW, None, frame, look, frame.area()))
+                    .draw(|frame| {
+                        list.render(&state, None, &[], NOW, None, frame, look, frame.area())
+                    })
                     .unwrap();
                 let surface = list.surface.borrow();
                 let buffer = screen.backend().buffer();
@@ -374,4 +385,49 @@ fn dump_list_snapshots() {
         serde_json::to_string_pretty(&snapshots()).unwrap() + "\n",
     )
     .unwrap();
+}
+
+#[test]
+fn scoped_title_is_inert_text_and_never_broadens_an_empty_room() {
+    let state = State {
+        cron: Some(cron(vec![], ClockStatus::Unknown)),
+        failure: None,
+        reads: 2,
+    };
+    let list = List::open_scoped(&state, Some("room-a".into()), None);
+    let mut terminal = Terminal::new(TestBackend::new(100, 10)).unwrap();
+    terminal
+        .draw(|frame| {
+            list.render(
+                &state,
+                Some("<room & \"quoted\">"),
+                &[],
+                NOW,
+                None,
+                frame,
+                Look::default(),
+                frame.area(),
+            )
+        })
+        .unwrap();
+    let text = terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect::<String>();
+    assert!(text.contains("cron · <room & \"quoted\">"), "{text}");
+    assert!(!text.contains("cron · all squads"));
+    assert!(text.contains("0 jobs"));
+    assert_eq!(list.scope.as_deref(), Some("room-a"));
+    assert!(matches!(
+        list.input(&key(KeyCode::Enter)),
+        Some(Input::None)
+    ));
+    assert!(
+        paint(&List::open_scoped(&state, None, None), &state, 100, 10)
+            .join("\n")
+            .contains("cron · all squads")
+    );
 }

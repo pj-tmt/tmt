@@ -403,7 +403,9 @@ ordinary deliveries; owner and urgent messages can still interrupt.
 ## Cron on the board
 
 `c` or the selected squad's Timers control opens the shared job list, scoped by
-room UUID. A selected member prefills its owner when creating a job. Overview and
+room UUID. Its title names that exact squad even when empty; an unavailable room
+is labelled by UUID rather than as all squads. A selected member prefills its
+owner when creating a job. Overview and
 Common pool do not invent a room; choose a real squad for a new job. Read failures
 retain prior jobs and their reason. `no clock` means due slots are not sent;
 `clock: checking…` is the first read. A running clock shows its holder's

@@ -19,8 +19,10 @@ The workspace's Timers action opens `Overlay::CronList`. A selected squad suppli
 its frozen room UUID; a member supplies that room and prefills its owner when
 creating a job. Overview and Common pool have no invented room context. The list
 filters by room UUID rather than a mutable name, preserves `<room UUID>/<c-id>`
-selection across refresh and uses the shared FocusStack/picker surface. Opening
-forms or delete confirmation closes the list; pause/resume/send retains it.
+selection across refresh and uses the shared FocusStack/picker surface. Its title
+uses the already acquired name for that exact room UUID, even with no jobs. An
+unobserved room is labelled by UUID; only an unscoped list says `all squads`. No
+name becomes filtering or operation authority. Opening forms or delete confirmation closes the list; pause/resume/send retains it.
 
 Cron keys belong to the focused list, not the workspace tree. Enter selects the
 selected job's observed room UUID in Agents without a named-tab reload. A room
