@@ -399,7 +399,9 @@ test("log owner bootstrap: only the owner skips a pruned predecessor; other guar
   assert.equal(await at(4, "ownerA", { expiresAt: past }), 403, "expiry still binds");
   assert.equal(await at(4, "ownerA", { extra: true }), 403, "the field set still binds");
   assert.equal(await at(4, "ownerA"), 200, "the owner publishes the original retained sequence");
-  assert.equal(await at(4, "ownerA"), 403, "an existing original remains create-only");
+  // PATCH also exercises the pre-existing owner expiry-update rule: an empty diff is legal.
+  assert.equal(await at(4, "ownerA"), 200, "an unchanged owner PATCH is a no-op");
+  assert.equal(await at(4, "ownerA", { envelope: "Y2hhbmdlZA" }), 403, "an owner cannot replace retained ciphertext");
   assert.equal(await at(5, "writerA"), 403, "a member cannot take the owner's next slot");
   assert.equal(await at(5, "ownerA"), 200, "the owner continues its own bootstrap");
 
