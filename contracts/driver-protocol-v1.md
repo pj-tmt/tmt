@@ -20,8 +20,9 @@ and guides link here instead of repeating it.
   `tmt-driver-herdr`, which ships in the CLI release (#1082). TMT approves
   that shipped driver itself on first use in a Herdr pane, unless the user
   removed it. The Herdr driver implements `name-agent` and a pane's
-  `agentName`. Core calls `name-agent` after an explicit bind or rename and
-  before it clears a marker; it does not read `agentName` yet (#2892).
+  `agentName`. Core calls `name-agent` after an explicit bind or rename, while
+  `tmt run` or `tmt resume` waits for its command, and before it clears a
+  marker; it does not read `agentName` yet (#2892).
 - **Runtime drivers:** the format, the crate's encoding and the conformance
   harness, approval registry and bounded client exist. `tmt driver install|ls|rm`
   accepts either kind. Runtime approval calls `locations`, validates its write
@@ -355,11 +356,17 @@ A host without agent names does not list it.
   marker first and takes the name away before it clears the marker.
 - **When core calls it:** with the identity's name after a committed explicit
   bind (`tmt name`, `this`, `add`, `marked`) and after `tmt mv`; with `null`
-  just before `clear`. Never during a read command and never from a provider
-  hook. Every answer leaves the binding as it is: after a bind or rename core
-  shows a refusal in human output as one warning with its fix, and before `clear` it goes on
-  with the clear whatever the answer. The call before `clear` gets at most
-  half of the time left in the command's budget.
+  just before `clear`. `tmt run` and `tmt resume` call it with the identity's
+  name at the 5 s ticks of their wait for the command, never right after the
+  spawn, since the host recognizes the agent only later. They retry only
+  `no_agent` and `not_ready`, six attempts at most, each capped at 1 s, and
+  stop at the first other answer. Never during a read command and never from
+  a provider hook. Every answer leaves the binding as it is: after a bind or
+  rename core shows a refusal in human output as one warning with its fix
+  (`tmt run` and `tmt resume` show it after their command exits), and before
+  `clear` it goes on with the clear whatever the answer, except when the
+  driver process could not be cleaned up, which stops the clear. The call
+  before `clear` gets at most half of the time left in the command's budget.
 - **Ownership:** the driver keeps a record on the pane of the agent name the
   host confirmed for this `bindingId`, and treats only that name as TMT's. A
   record of another binding is no record. When the driver observes an agent

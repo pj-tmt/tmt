@@ -60,6 +60,17 @@ case "$3" in
     esac ;;
   capture) printf '{"ok":{"text":"captured line"}}' ;;
   focus) printf '{"ok":{}}' ;;
+  name-agent)
+    printf '%s\n' "$input" >> "$d/named"
+    date +%s >> "$d/named-at"
+    # One answer per call from the queue; an empty queue sets the name.
+    a=$(head -n 1 "$d/naming" 2>/dev/null)
+    if [ -f "$d/naming" ]; then tail -n +2 "$d/naming" > "$d/naming.next"; mv "$d/naming.next" "$d/naming"; fi
+    case "$a" in
+      ''|ok) printf '{"ok":{}}' ;;
+      slow) sleep 3; printf '{"ok":{}}' ;;
+      *) printf '{"error":{"code":"%s","message":"host says %s"}}' "$a" "$a" ;;
+    esac ;;
   resolve-target)
     printf '%s\n' "$input" >> "$d/resolved"
     if [ -f "$d/slow" ]; then sleep 3; fi
@@ -650,4 +661,108 @@ fn focus_inactive_and_unverified_uuids_do_not_call_the_host_focus_effect() {
         assert!(fixture.requests("typed").is_empty());
         assert!(fixture.requests("prompted").is_empty());
     }
+}
+
+/// A driver that also names agents, with `answers` queued for `name-agent`.
+fn naming(name: &str, answers: &[&str]) -> Fixture {
+    let fixture = Fixture::new(name);
+    fs::write(
+        fixture.root.join("driver/capabilities"),
+        r#"{"ok":{"protocols":[1],"kind":"host","name":"fake","version":"0.0.0-test","ops":["caller","server","resolve-target","snapshot","publish","clear","name-agent"],"paneId":{"prefix":"fake-"},"target":"f{n}","callerEnv":["FAKE_PANE_ID"]}}"#,
+    )
+    .unwrap();
+    let mut queue = answers.join("\n");
+    queue.push('\n');
+    fs::write(fixture.root.join("driver/naming"), queue).unwrap();
+    fixture
+}
+
+/// `tmt run` with a command that writes `child-end` to stderr as its last act
+/// after `seconds`, from the driver's pane. Returns the output and the time
+/// it started, in whole seconds.
+fn run_in_pane(fixture: &Fixture, seconds: u32) -> (Output, u64) {
+    let started = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let script = format!("sleep {seconds}; echo child-end >&2");
+    let output = fixture.tmt_in(Some("f1"), &["run", "worker", "/bin/sh", "-c", &script]);
+    assert!(output.status.success(), "{output:?}");
+    (output, started)
+}
+
+/// The seconds of each `name-agent` call.
+fn named_at(fixture: &Fixture) -> Vec<u64> {
+    fs::read_to_string(fixture.root.join("driver/named-at"))
+        .unwrap_or_default()
+        .lines()
+        .map(|line| line.parse().unwrap())
+        .collect()
+}
+
+/// The text after the command's last stderr line: any warning there was
+/// printed after the command exited, never while it owned the terminal.
+fn after_the_command(output: &Output) -> (String, String) {
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    let (during, after) = stderr
+        .split_once("child-end\n")
+        .unwrap_or_else(|| panic!("the command ran: {stderr}"));
+    (during.to_owned(), after.to_owned())
+}
+
+/// `tmt run` names the agent at the wait ticks (5 s), never at the spawn:
+/// the first answer is `not_ready`, the second sets the name, and nothing is
+/// printed while the command runs or after it.
+#[test]
+fn run_names_its_agent_at_the_ticks_and_retries_while_the_agent_is_not_ready() {
+    register();
+    let fixture = naming("run-named", &["not_ready", "ok"]);
+    fixture.approve();
+    let (output, started) = run_in_pane(&fixture, 12);
+    let named = fixture.requests("named");
+    assert_eq!(named.len(), 2, "{named:#?}");
+    assert_eq!(named[1]["name"], "worker");
+    assert_eq!(named[1]["paneId"], "fake-1");
+    assert_eq!(named[1]["socket"], "/tmp/fake.sock");
+    assert!(named[1]["bindingId"].is_string());
+    let at = named_at(&fixture);
+    assert!(
+        at[0] >= started + 4,
+        "first attempt at the first tick: {at:?}, {started}"
+    );
+    assert_eq!(after_the_command(&output), (String::new(), String::new()));
+}
+
+/// The host never recognizes the agent: six attempts (about 30 s), then one
+/// warning, printed after the command exits.
+#[test]
+fn run_stops_naming_after_six_attempts_and_warns_once_after_the_command() {
+    register();
+    let fixture = naming("run-no-agent", &["no_agent"; 8]);
+    fixture.approve();
+    let (output, _) = run_in_pane(&fixture, 34);
+    assert_eq!(fixture.requests("named").len(), 6);
+    let (during, after) = after_the_command(&output);
+    assert_eq!(during, "");
+    assert_eq!(after.matches("No agent to name yet").count(), 1, "{after}");
+    assert!(after.contains("tmt this worker"), "{after}");
+}
+
+/// An answer TMT cannot read as a definite refusal ends the loop at once,
+/// and the warning says the outcome is unknown, not that no name was set.
+#[test]
+fn run_does_not_repeat_an_uncertain_answer_and_says_it_is_uncertain() {
+    register();
+    let fixture = naming("run-uncertain", &["failed", "ok"]);
+    fixture.approve();
+    let (output, _) = run_in_pane(&fixture, 12);
+    assert_eq!(fixture.requests("named").len(), 1);
+    let (during, after) = after_the_command(&output);
+    assert_eq!(during, "");
+    assert!(
+        after.contains("could not confirm the agent name worker"),
+        "{after}"
+    );
+    assert!(after.contains("host says failed"), "{after}");
+    assert!(!after.contains("was not set"), "{after}");
 }

@@ -808,11 +808,13 @@ impl<R: CommandRunner> Host<R> {
     /// pane the identity's name as its agent name, on a host that has agent
     /// names. Never a pane label, and never during a read command. A
     /// refusal is the driver's [`HostError::Refused`]; the binding stands
-    /// either way.
+    /// either way. A caller's `deadline` caps the whole call, the driver's
+    /// start included, when it is sooner than the operation's own.
     pub fn name_agent(
         &self,
         binding: &Binding,
         identity: &Identity,
+        deadline: Option<Instant>,
     ) -> Result<driver::AgentNaming, HostError> {
         if identity.id != binding.identity_id {
             return Ok(driver::AgentNaming::NotLinked);
@@ -822,6 +824,7 @@ impl<R: CommandRunner> Host<R> {
             HostKind::External(host) => {
                 let mut session = external::Session::new(&self.external);
                 session.begin_coordination();
+                session.limit(deadline);
                 driver::HostDriver::name_agent(session.driver(host), binding, Some(&identity.name))
             }
         }

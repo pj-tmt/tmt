@@ -126,8 +126,10 @@ pub enum AgentNameRefusal {
     NoAgent,
     /// The agent has an agent name that TMT did not set.
     Foreign,
-    /// Anything else.
-    Failed,
+    /// The outcome is not known: the call failed or timed out, possibly
+    /// after the host set the name. Only the refusals above are definite
+    /// and keep the agent's earlier name.
+    Uncertain,
 }
 
 impl AgentNameRefusal {
@@ -138,9 +140,9 @@ impl AgentNameRefusal {
                 ErrorCode::InvalidName | ErrorCode::NameTaken => Self::Rejected,
                 ErrorCode::NoAgent | ErrorCode::NotReady => Self::NoAgent,
                 ErrorCode::ForeignName => Self::Foreign,
-                _ => Self::Failed,
+                _ => Self::Uncertain,
             },
-            _ => Self::Failed,
+            _ => Self::Uncertain,
         }
     }
 }

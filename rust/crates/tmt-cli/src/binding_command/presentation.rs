@@ -623,11 +623,22 @@ pub(super) fn agent_name_warning(
     output: &mut tmt_cli_style::stream::Stream<impl Write>,
     issue: &super::AgentNameIssue,
 ) -> io::Result<()> {
-    use tmt_adapters::host::AgentNameRefusal;
     let terminal = output.terminal();
-    let name = crate::output::shell_word(&issue.name);
-    let error = &issue.error;
-    let (what, fix) = match AgentNameRefusal::of(error) {
+    let (what, fix) = agent_name_text(&issue.name, &issue.error);
+    message::warning(output, terminal, &what, Some(&fix))
+}
+
+/// The warning and its fix for an agent name the host did not confirm. A
+/// definite refusal says the name was not set; any other failure says the
+/// outcome is unknown, since the host may have set the name before it failed.
+/// `tmt run` prints the same text after its command exits.
+pub(crate) fn agent_name_text(
+    name: &str,
+    error: &tmt_adapters::host::HostError,
+) -> (String, String) {
+    use tmt_adapters::host::AgentNameRefusal;
+    let name = crate::output::shell_word(name);
+    match AgentNameRefusal::of(error) {
         AgentNameRefusal::Rejected => (
             format!("The agent name {name} was not set: {error}. The binding stays."),
             format!("Choose a name the host takes: tmt mv {name} <name>"),
@@ -640,12 +651,14 @@ pub(super) fn agent_name_warning(
             format!("The agent keeps an agent name TMT did not set: {error}. The binding stays."),
             format!("Clear that agent name in the host, then in its pane run: tmt this {name}"),
         ),
-        AgentNameRefusal::Failed => (
-            format!("The agent name {name} was not set: {error}. The binding stays."),
-            format!("In the agent's pane, run: tmt this {name}"),
+        AgentNameRefusal::Uncertain => (
+            format!(
+                "TMT could not confirm the agent name {name}: {error}. The host may or may not \
+                 have set it. The binding stays."
+            ),
+            format!("To check the agent name, in the agent's pane run: tmt this {name}"),
         ),
-    };
-    message::warning(output, terminal, &what, Some(&fix))
+    }
 }
 
 // Source-checked command samples for the printed-command guard.
@@ -666,7 +679,11 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
         &[""],
         &[],
     ),
-    crate::cli_style_tests::HintSpec::core("In the agent's pane, run: tmt this {name}", &[""], &[]),
+    crate::cli_style_tests::HintSpec::core(
+        "To check the agent name, in the agent's pane run: tmt this {name}",
+        &[""],
+        &[],
+    ),
     crate::cli_style_tests::HintSpec::core("In pane {pane}, run: tmt this {}", &[""], &[]),
     crate::cli_style_tests::HintSpec::core("tmt add {label} <name>", &[""], &[]),
     crate::cli_style_tests::HintSpec::core("tmt name <name>", &[""], &[]),

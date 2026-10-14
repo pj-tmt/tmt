@@ -570,6 +570,36 @@ mod tests {
         );
     }
 
+    /// A signal that arrives while a tick runs is forwarded as soon as the
+    /// tick returns: a tick delays forwarding by its own length only.
+    #[test]
+    fn a_signal_during_a_tick_is_forwarded_when_the_tick_returns() {
+        let _invocation = INVOCATION.lock().unwrap();
+        let child =
+            InteractiveChild::start(OsStr::new("/bin/sh"), &["-c".into(), "sleep 30".into()])
+                .unwrap();
+        let terminate = Arc::clone(&child.signals.terminate);
+        let tick = Duration::from_millis(300);
+        let mut returned = None;
+        let code = child
+            .wait_with_ticks(
+                Duration::from_millis(20),
+                || {
+                    if returned.is_none() {
+                        // As the SIGTERM handler would, during a slow tick.
+                        terminate.store(true, Ordering::SeqCst);
+                        std::thread::sleep(tick);
+                        returned = Some(Instant::now());
+                    }
+                },
+                |cause| panic!("unexpected degradation: {cause}"),
+            )
+            .unwrap();
+        let forwarded = returned.unwrap().elapsed();
+        assert_eq!(code, 128 + SIGTERM as u32);
+        assert!(forwarded < Duration::from_millis(500), "{forwarded:?}");
+    }
+
     #[test]
     fn degraded_wait_stops_sampling_and_reaps_original_child() {
         let _invocation = INVOCATION.lock().unwrap();

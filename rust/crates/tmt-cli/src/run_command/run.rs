@@ -630,19 +630,35 @@ pub(super) fn run_bound(
             "signal observation degraded; waiting for the original command without restarting it.",
         )
     };
-    let waited = if storage_closed
-        && admitted.is_some()
-        && !already_exited
-        && let Some(owner) = owner.as_ref()
-        && claim.is_some()
-    {
+    let sampled = owner
+        .as_ref()
+        .filter(|_| storage_closed && admitted.is_some() && claim.is_some());
+    // The host recognizes the agent only some time after it starts, so the
+    // agent name is set at the ticks, never right after the spawn.
+    let mut namer = super::agent_name::AgentNamer::default();
+    let waited = if already_exited {
+        child.wait(on_degraded)
+    } else {
         child.wait_with_ticks(
             Duration::from_millis(tmt_adapters::runtime::sampling::CADENCE_MS),
-            || crate::consumption_sample_command::tick(&binding.identity_id, &binding.id, owner),
+            || {
+                if let Some(owner) = sampled {
+                    crate::consumption_sample_command::tick(
+                        &binding.identity_id,
+                        &binding.id,
+                        owner,
+                    );
+                }
+                namer.attempt(|| {
+                    host.name_agent(
+                        binding,
+                        &bound.presence.identity,
+                        Some(Instant::now() + super::agent_name::CALL),
+                    )
+                });
+            },
             on_degraded,
         )
-    } else {
-        child.wait(on_degraded)
     };
     // The enrollment ends with the foreground, and only when its end is confirmed:
     // a wait that failed proves nothing, so that path leaves the enrollment as it is.
@@ -654,6 +670,12 @@ pub(super) fn run_bound(
         )
         .caused_by(error)
     })?;
+    // The command owned the terminal until now, so the warning waits for it.
+    if let Some(error) = namer.into_issue() {
+        let (what, fix) =
+            crate::binding_command::agent_name_text(&bound.presence.identity.name, &error);
+        super::warn(&what, Some(&fix));
+    }
     if let Some(session) = &launch.resumed {
         settle_resume(
             paths,

@@ -503,7 +503,8 @@ impl<R: CommandRunner> HostDriver for ExternalDriver<'_, R> {
 
     /// TMT's agent name goes before the marker, since the driver names an
     /// agent only on a pane that carries the binding. Best effort: a name
-    /// that is not TMT's stays, and no answer stops the clear. It gets half
+    /// that is not TMT's stays, and no answer stops the clear; only a driver
+    /// process that could not be cleaned up does. It gets half
     /// of the budget left, so the clear itself keeps the rest.
     fn clear(&mut self, binding: &Binding) -> Result<bool, HostError> {
         let now = Instant::now();
@@ -626,7 +627,8 @@ impl<R: CommandRunner> HostDriver for ExternalDriver<'_, R> {
         binding: &Binding,
         name: Option<&str>,
     ) -> Result<AgentNaming, HostError> {
-        let deadline = Instant::now() + Op::NameAgent.bounds().deadline;
+        // A caller with less time left keeps its own deadline.
+        let deadline = (Instant::now() + Op::NameAgent.bounds().deadline).min(self.deadline);
         self.call_name_agent(binding, name, deadline)
     }
 }

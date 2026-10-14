@@ -701,8 +701,8 @@ mod through_the_driver {
             ("no_agent", AgentNameRefusal::NoAgent),
             ("not_ready", AgentNameRefusal::NoAgent),
             ("foreign_name", AgentNameRefusal::Foreign),
-            ("not_found", AgentNameRefusal::Failed),
-            ("failed", AgentNameRefusal::Failed),
+            ("not_found", AgentNameRefusal::Uncertain),
+            ("failed", AgentNameRefusal::Uncertain),
         ] {
             installed.answer("name-agent", &refusal(code));
             let error = driver.name_agent(&bound, Some("worker")).unwrap_err();
@@ -715,9 +715,57 @@ mod through_the_driver {
         assert!(matches!(error, HostError::Driver(_)), "{error:?}");
     }
 
+    /// Driver calls with their real deadlines, unlike [`HostRunner`].
+    #[derive(Clone)]
+    struct TimedRunner;
+
+    impl CommandRunner for TimedRunner {
+        fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+            if request.args.first().map(OsString::as_os_str)
+                == Some(OsStr::new("TMT_DRIVER_CALL=1"))
+            {
+                ScriptRunner.execute(request)
+            } else {
+                UnixCommandRunner.execute(request)
+            }
+        }
+    }
+
+    /// `tmt run` names its agent inside the wait loop, so a caller's
+    /// deadline caps the whole call, the driver's start included: a slow
+    /// driver ends at that deadline, not at the operation's own 2 s.
+    #[test]
+    fn a_callers_deadline_caps_naming_an_agent() {
+        let (pid, start) = live();
+        let installed = naming(pid);
+        installed.answer("name-agent", r#"{"ok": {}}"#);
+        let host = crate::host::Host::for_server_with(&server(pid, &start), TimedRunner)
+            .with_drivers(vec![installed.approve().unwrap()]);
+        let bound = binding(server(pid, &start), pid);
+        fs::write(installed.beside("sleep"), "3").unwrap();
+        let started = Instant::now();
+        let error = host
+            .name_agent(
+                &bound,
+                &identity(),
+                Some(Instant::now() + Duration::from_secs(1)),
+            )
+            .unwrap_err();
+        let took = started.elapsed();
+        assert!(
+            took >= Duration::from_millis(900) && took < Duration::from_millis(1900),
+            "{took:?}: {error:?}"
+        );
+        assert_eq!(
+            crate::host::AgentNameRefusal::of(&error),
+            crate::host::AgentNameRefusal::Uncertain
+        );
+    }
+
     /// Unbind: TMT's agent name goes before the marker, because the driver
     /// names an agent only on a pane that carries the binding. Its answer,
-    /// whatever it is, never stops the clear.
+    /// whatever it is, never stops the clear; a driver process that could not
+    /// be cleaned up does, which this test does not cover.
     #[test]
     fn clearing_takes_tmts_agent_name_away_first_and_clears_whatever_it_answers() {
         let (pid, start) = live();
