@@ -66,6 +66,11 @@ let readRefusal: ConstructorParameters<typeof ReadRefusedError>[0] | undefined;
 let prepareRelease: (() => void) | undefined;
 let preparing: Promise<void> | undefined;
 let finishDirectory: (() => void) | undefined;
+let releaseQuestionDirectory: (() => void) | undefined;
+export function finishQuestionDirectory() {
+  releaseQuestionDirectory?.();
+  releaseQuestionDirectory = undefined;
+}
 let presentationAgents: AgentDestination[] = [];
 let presentationGate: Promise<void> | undefined;
 let releasePresentation: (() => void) | undefined;
@@ -118,6 +123,8 @@ export async function mount(
     /** Explicit admitted-directory presentation states; production discovery remains unchanged. */
     agents?: AgentDestination[];
     agentsUnavailable?: boolean;
+    /** One barrier shared by all destination reads in this mounted question page. */
+    holdQuestionDirectory?: boolean;
     drafts?: 'session' | 'failing';
     /** Hold the existing draft-store read to test shortcut lifetime fences. */
     holdDraftRead?: boolean;
@@ -142,6 +149,7 @@ export async function mount(
   } = {},
 ) {
   resumeAttachmentUploads();
+  finishQuestionDirectory();
   root?.unmount();
   document.getElementById('ask-page-fixture')?.remove();
   document.getElementById('root')?.setAttribute('hidden', '');
@@ -189,6 +197,11 @@ export async function mount(
   presentationGate = undefined;
   releasePresentation = undefined;
   rejectPresentation = false;
+  const questionDirectory = options.holdQuestionDirectory
+    ? new Promise<void>((resolve) => {
+        releaseQuestionDirectory = resolve;
+      })
+    : undefined;
   const ask: AskBinding = {
     async observeDestinations() {
       const agents = structuredClone(presentationAgents);
@@ -198,6 +211,7 @@ export async function mount(
       return { kind: 'ready', checkedAt: Date.now(), destinations: agents };
     },
     async destinations() {
+      await questionDirectory;
       if (options.agentsUnavailable) throw new Error('Fixture directory unavailable');
       if (options.checking)
         await new Promise<void>((resolve) => {

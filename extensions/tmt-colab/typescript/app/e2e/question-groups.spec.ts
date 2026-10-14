@@ -1,5 +1,6 @@
 import { mkdirSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
+import { text } from '../src/strings.js';
 import type { ThreadView } from '../src/thread-records.js';
 import { pageAction } from '../test/page-actions.js';
 
@@ -75,6 +76,137 @@ test('drafts survive tabs; one group Send keeps its tab and verified answers sur
   const changed = await run(page, 'answerBatchProof');
   expect(changed).toHaveLength(1);
   expect(changed[0].input.batch).toBeUndefined();
+});
+
+for (const [width, theme] of [
+  [1440, 'light'],
+  [390, 'dark'],
+] as const)
+  test(`reload keeps group Send pending until its default recipients resolve ${width} ${theme}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 1100 });
+    let group = await mount(page, { agents: ['Agent 1', 'Agent 2'] });
+    const captures = process.env.COLAB_QUESTION_CAPTURE_DIR;
+    const capture = async (state: string) => {
+      if (!captures) return;
+      mkdirSync(captures, { recursive: true });
+      await page.screenshot({ path: `${captures}/recipients-${state}-${width}-${theme}.png` });
+    };
+    await activeCard(page).getByLabel('Keep it', { exact: true }).check();
+    await group
+      .getByRole('button', { name: 'Send 1 answer · to @Agent 1, @Agent 2', exact: true })
+      .click();
+    await expect(activeCard(page).locator('.question-answer')).toHaveText('Keep it');
+    await run(page, 'saveQuestionPage');
+    await page.reload();
+    await run(page, 'mount', { restoreQuestionPage: true, holdQuestionDirectory: true });
+    group = page.locator('[data-question-group]').first();
+    await expect(group).not.toHaveAttribute('data-detached');
+    await (
+      await pageAction(
+        page.locator('#ask-page-fixture'),
+        theme === 'dark' ? 'Theme: Dark' : 'Theme: Light',
+      )
+    ).click();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+    await activeCard(page).getByRole('button', { name: 'Change answer' }).click();
+    await activeCard(page).getByLabel('Change it', { exact: true }).check();
+    const send = group.getByRole('button', { name: /^Send 1 answer/ });
+    await expect(send).toBeDisabled();
+    await expect(group.locator('.annotation-hint[role="status"]')).toHaveText(
+      text.messageAgentsChecking,
+    );
+    expect(await run(page, 'discussionProof')).toHaveLength(1);
+    expect((await run(page, 'proof')).sends).toHaveLength(0);
+    await capture('pending');
+    await run(page, 'finishQuestionDirectory');
+    await expect(send).toHaveAccessibleName('Send 1 answer · to @Agent 1, @Agent 2');
+    await expect(send).toBeEnabled();
+    await capture('ready');
+    await send.click();
+    await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(2);
+    const threads: readonly ThreadView[] = await run(page, 'discussionProof');
+    expect(threads).toHaveLength(1);
+    expect(threads[0].comments).toHaveLength(2);
+  });
+
+for (const outcome of ['empty', 'failed'] as const) {
+  test(`resolved-${outcome} directory keeps intentional comment-only group Send`, async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await run(page, 'mount', {
+      holdQuestionDirectory: true,
+      ...(outcome === 'empty' ? { agents: [] } : { agentsUnavailable: true }),
+    });
+    await run(page, 'questionGroup');
+    const group = page.locator('[data-question-group]').first();
+    await expect(group).not.toHaveAttribute('data-detached');
+    await activeCard(page).getByLabel('Keep it', { exact: true }).check();
+    const send = group.getByRole('button', { name: /^Send 1 answer/ });
+    await expect(send).toBeDisabled();
+    await run(page, 'finishQuestionDirectory');
+    await expect(send).toBeEnabled();
+    await expect(group.locator('.annotation-hint[role="status"]')).toHaveText(
+      'Stays on the page, no one is asked',
+    );
+    await send.click();
+    await expect(activeCard(page).locator('.question-answer')).toHaveText('Keep it');
+    expect((await run(page, 'proof')).sends).toHaveLength(0);
+    expect(await run(page, 'discussionProof')).toHaveLength(1);
+  });
+}
+
+test('explicitly removing seeded recipients keeps comment-only Send', async ({ page }) => {
+  const group = await mount(page, { agents: ['Agent 1', 'Agent 2'] });
+  await activeCard(page).getByLabel('Keep it', { exact: true }).check();
+  await group.getByRole('button', { name: 'Remove @Agent 1', exact: true }).click();
+  await group.getByRole('button', { name: 'Remove @Agent 2', exact: true }).click();
+  const send = group.getByRole('button', { name: 'Send 1 answer · to thread only', exact: true });
+  await expect(send).toBeEnabled();
+  await send.click();
+  await expect(activeCard(page).locator('.question-answer')).toHaveText('Keep it');
+  expect((await run(page, 'proof')).sends).toHaveLength(0);
+});
+
+test('single-question Enter cannot bypass pending recipient initialization', async ({ page }) => {
+  await page.goto('/');
+  await run(page, 'mount', { holdQuestionDirectory: true });
+  await run(page, 'question', { kind: 'short' });
+  const group = page.locator('[data-question-group]').first();
+  await expect(group).not.toHaveAttribute('data-detached');
+  const answer = activeCard(page).getByLabel('Your answer', { exact: true });
+  await answer.fill('Keep it short');
+  await answer.press('Enter');
+  expect(await run(page, 'discussionProof')).toHaveLength(0);
+  expect((await run(page, 'proof')).sends).toHaveLength(0);
+  await expect(group.getByRole('button', { name: /^Send answer/ })).toBeDisabled();
+  await run(page, 'finishQuestionDirectory');
+  await expect(
+    group.getByRole('button', { name: 'Send answer · to @Agent 1', exact: true }),
+  ).toBeEnabled();
+  await answer.press('Enter');
+  await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
+  expect(await run(page, 'discussionProof')).toHaveLength(1);
+});
+
+test('replacing a held directory cannot seed the replacement group', async ({ page }) => {
+  await page.goto('/');
+  await run(page, 'mount', { holdQuestionDirectory: true });
+  await run(page, 'questionGroup');
+  await expect(page.locator('[data-question-group]').first()).not.toHaveAttribute('data-detached');
+  // Mount resolves the old barrier while retiring its binding. The replacement is empty.
+  await run(page, 'mount', { agents: [] });
+  await run(page, 'questionGroup');
+  const group = page.locator('[data-question-group]').first();
+  await expect(group).not.toHaveAttribute('data-detached');
+  await activeCard(page).getByLabel('Keep it', { exact: true }).check();
+  await expect(
+    group.getByRole('button', { name: 'Send 1 answer · to thread only', exact: true }),
+  ).toBeEnabled();
+  await expect(group.getByRole('button', { name: /^Remove @Agent/ })).toHaveCount(0);
+  expect((await run(page, 'proof')).sends).toHaveLength(0);
 });
 
 test('tab navigation and digits preserve normal typing and long-answer Enter', async ({ page }) => {
