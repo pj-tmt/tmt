@@ -2728,10 +2728,12 @@ test('Firestore settings show recorded prerequisites and the approved fixture ca
     {
       layer: 'sharing',
       state: 'enabled',
-      prerequisites: ['project', 'sign-in', 'rules', 'plan-tier', 'quota'].map((item) => ({
-        item,
-        state: 'enabled',
-      })),
+      prerequisites: ['project', 'sign-in', 'rules', 'indexes', 'plan-tier', 'quota'].map(
+        (item) => ({
+          item,
+          state: 'enabled',
+        }),
+      ),
     },
     {
       layer: 'operations',
@@ -2851,14 +2853,106 @@ test('Firestore settings show recorded prerequisites and the approved fixture ca
     'same private fixture record, not provider currentness',
   );
 
+  const legacyComplete = {
+    ...partial,
+    record: {
+      ...partial.record,
+      binding: {
+        planDigest: partial.record.run.planDigest,
+        project: 'demo-remote-fixture',
+        completedAtMs: 2,
+      },
+      run: {
+        ...partial.record.run,
+        state: 'complete',
+        steps: partial.record.run.steps.map((step) => ({ ...step, state: 'done' })),
+      },
+    },
+  };
+  const legacyBytes = JSON.stringify(legacyComplete);
+  await writeFile(recordPath, legacyBytes, { mode: 0o600 });
+  await page.goto(`${origin}/settings`);
+  const indexItem = page.locator('[data-item="indexes"]');
+  await expect(indexItem).toContainText('Firestore index readiness has not been checked.');
+  await expect(indexItem).toContainText('Run tmt remote deploy firestore.');
+  const legacyLayers = (await recorded()).firestoreLayers as {
+    prerequisites: { item: string; state: string }[];
+  }[];
+  expect(legacyLayers[0]!.prerequisites.find((item) => item.item === 'indexes')!.state).toBe(
+    'unknown',
+  );
+  expect(await readFile(recordPath, 'utf8')).toBe(legacyBytes);
+  await captureFirestore(
+    page,
+    'legacy-complete',
+    1440,
+    'light',
+    'legacy Complete without composite evidence; unknown index; record bytes unchanged',
+  );
+
+  for (const [state, mark, sentence, next] of [
+    ['done', 'Enabled', undefined, undefined],
+    [
+      'building',
+      'Building',
+      'Firestore indexes are still building.',
+      'Wait a few minutes, then run tmt remote deploy firestore.',
+    ],
+    [
+      'pending',
+      'Not checked',
+      'Firestore indexes have not been verified as ready.',
+      'Run tmt remote deploy firestore.',
+    ],
+    [
+      'unknown',
+      'Not checked',
+      'Firestore index readiness has not been checked.',
+      'Run tmt remote deploy firestore.',
+    ],
+  ] as const) {
+    const record = structuredClone(legacyComplete);
+    record.record.run.state = 'partial';
+    record.record.run.rulesAttempted = false;
+    record.record.run.steps.at(-1)!.state = 'pending';
+    record.record.run.steps.splice(2, 0, {
+      id: `composite-index:log:${'b'.repeat(64)}`,
+      state,
+    });
+    const bytes = JSON.stringify(record);
+    await writeFile(recordPath, bytes, { mode: 0o600 });
+    await page.goto(`${origin}/settings`);
+    await expect(indexItem).toContainText('Firestore indexes:');
+    await expect(indexItem.locator('.firestore-state')).toContainText(mark);
+    await expect(indexItem.locator('.firestore-state [aria-hidden="true"]')).toHaveText(
+      state === 'done' ? '✓' : state === 'building' ? '◌' : '○',
+    );
+    await expect(indexItem.locator('.firestore-state')).toHaveAttribute(
+      'data-tone',
+      state === 'done' ? 'working' : 'waiting',
+    );
+    if (sentence) {
+      await expect(indexItem).toContainText(sentence);
+      await expect(indexItem).toContainText(next!);
+    } else expect(await indexItem.locator('p').count()).toBe(0);
+    expect(await readFile(recordPath, 'utf8')).toBe(bytes);
+    await captureFirestore(
+      page,
+      `indexes-${state}`,
+      390,
+      'light',
+      'real binary and signed SDK; private recorded index fixture, not provider evidence',
+    );
+  }
+
   await writeFile(recordPath, 'damaged fixture', { mode: 0o600 });
   await page.goto(`${origin}/settings`);
   await expect(page.locator('[data-layer="sharing"]')).toContainText('Not checked');
   expect((await recorded()).firestoreLayers).toEqual(
     expect.arrayContaining([expect.objectContaining({ layer: 'sharing', state: 'unknown' })]),
   );
-  expect(await page.locator('[data-layer="sharing"] li').count()).toBe(5);
-  for (const item of ['project', 'sign-in', 'rules', 'plan-tier', 'quota'])
+  expect(await page.locator('[data-layer="sharing"] li').count()).toBe(6);
+  for (const item of ['project', 'sign-in', 'rules', 'indexes', 'plan-tier', 'quota'])
     await expect(page.locator(`[data-item="${item}"]`)).toContainText('Not checked');
   await captureFirestore(
     page,

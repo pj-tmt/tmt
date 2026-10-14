@@ -6,6 +6,7 @@
         "project",
         "sign-in",
         "rules",
+        "indexes",
         "plan-tier",
         "quota"
       ],
@@ -90,6 +91,27 @@
       "reason": "not-checked",
       "sentence": "Firestore rules have not been checked.",
       "next": null
+    },
+    {
+      "item": "indexes",
+      "reason": "building",
+      "sentence": "Firestore indexes are still building.",
+      "next": "tmt remote deploy firestore",
+      "nextLine": "Wait a few minutes, then run tmt remote deploy firestore."
+    },
+    {
+      "item": "indexes",
+      "reason": "not-ready",
+      "sentence": "Firestore indexes have not been verified as ready.",
+      "next": "tmt remote deploy firestore",
+      "nextLine": "Run tmt remote deploy firestore."
+    },
+    {
+      "item": "indexes",
+      "reason": "not-checked",
+      "sentence": "Firestore index readiness has not been checked.",
+      "next": "tmt remote deploy firestore",
+      "nextLine": "Run tmt remote deploy firestore."
     },
     {
       "item": "plan-tier",

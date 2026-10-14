@@ -64,6 +64,7 @@ fn free_plan_golden_marks_device_operations_paid_and_keeps_the_others() {
                 {"item": "project", "state": "enabled"},
                 {"item": "sign-in", "state": "enabled"},
                 {"item": "rules", "state": "enabled"},
+                {"item": "indexes", "state": "enabled"},
                 {"item": "plan-tier", "state": "enabled"},
                 {"item": "quota", "state": "enabled"}]},
             {"layer": "operations", "state": "not-enabled", "prerequisites": [
@@ -91,6 +92,7 @@ fn rules_out_of_date_golden_names_the_next_command_and_the_sentence() {
             {"item": "project", "state": "enabled"},
             {"item": "sign-in", "state": "enabled"},
             {"item": "rules", "state": "not-enabled", "reason": "out-of-date", "next": DEPLOY},
+            {"item": "indexes", "state": "enabled"},
             {"item": "plan-tier", "state": "enabled"},
             {"item": "quota", "state": "enabled"}]})
     );
@@ -142,6 +144,10 @@ fn every_prerequisite_state_is_produced_valid_and_seen() {
         ("rules", "not-enabled", "out-of-date"),
         ("rules", "not-enabled", "partial"),
         ("rules", "unknown", "not-checked"),
+        ("indexes", "enabled", "-"),
+        ("indexes", "not-enabled", "building"),
+        ("indexes", "not-enabled", "not-ready"),
+        ("indexes", "unknown", "not-checked"),
         ("plan-tier", "enabled", "-"),
         ("plan-tier", "not-enabled", "paid-plan-required"),
         ("plan-tier", "unknown", "not-checked"),
@@ -607,6 +613,190 @@ fn recorded_prerequisites_never_guess_unfinished_steps_or_tier_and_quota() {
     assert_eq!(projected(complete)[0]["state"], "unknown");
     assert_eq!(complete.tier, FirestoreTier::Unknown);
     assert_eq!(complete.quota, Observed::Unknown);
+}
+
+fn index_record(
+    states: &[tmt_remote::deploy_run::StepState],
+) -> tmt_remote::deploy_run::DeployRecord {
+    use tmt_remote::deploy_run::{
+        DeployBinding, DeployRecord, Run, RunState, StepRecord, StepState,
+    };
+    let digest = "a".repeat(64);
+    let mut steps: Vec<_> = ["database", "sign-in:anonymous", "rules", "verify"]
+        .into_iter()
+        .map(|id| StepRecord {
+            id: id.into(),
+            state: StepState::Done,
+        })
+        .collect();
+    for (i, state) in states.iter().enumerate() {
+        steps.insert(
+            2 + i,
+            StepRecord {
+                id: format!("composite-index:collection{i}:{}", "b".repeat(64)),
+                state: state.clone(),
+            },
+        );
+    }
+    DeployRecord {
+        deployment_id: "3f2b8c1e-5d4a-4e7b-9c1d-2a6f8e0b4c11".into(),
+        binding: Some(DeployBinding {
+            plan_digest: digest.clone(),
+            project: "demo-remote-1".into(),
+            completed_at_ms: 1,
+        }),
+        run: Some(Run {
+            plan_digest: digest,
+            account: "owner@example.test".into(),
+            authorized_at_ms: 1,
+            state: RunState::Partial,
+            rules_attempted: false,
+            hosting: None,
+            steps,
+        }),
+    }
+}
+
+fn recorded_index(record: &tmt_remote::deploy_run::DeployRecord) -> Value {
+    let view = projected(tmt_remote::readiness::from_record(record).unwrap());
+    view[0]["prerequisites"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["item"] == "indexes")
+        .expect("sharing has an index prerequisite")
+        .clone()
+}
+
+#[test]
+fn recorded_indexes_report_four_facts_without_promoting_mixed_evidence() {
+    use tmt_remote::deploy_run::{DeployFault, StepState as S};
+    let enabled = json!({"item":"indexes","state":"enabled"});
+    let unknown = json!({"item":"indexes","state":"unknown","reason":"not-checked","next":DEPLOY});
+    let building =
+        json!({"item":"indexes","state":"not-enabled","reason":"building","next":DEPLOY});
+    let not_ready =
+        json!({"item":"indexes","state":"not-enabled","reason":"not-ready","next":DEPLOY});
+    for (states, expected) in [
+        (vec![S::Done, S::Adopted], enabled),
+        (vec![S::Done, S::Building], building.clone()),
+        (vec![S::Done, S::Pending], not_ready.clone()),
+        (
+            vec![S::Done, S::Failed(DeployFault::ProviderRejected)],
+            not_ready,
+        ),
+        (vec![S::Done, S::Unknown], unknown.clone()),
+        (vec![S::Building, S::Unknown], building),
+        (vec![], unknown),
+    ] {
+        assert_eq!(
+            recorded_index(&index_record(&states)),
+            expected,
+            "{states:?}"
+        );
+    }
+}
+
+#[test]
+fn legacy_complete_indexes_are_unknown_and_other_layers_are_unchanged() {
+    use tmt_remote::deploy_run::{RunState, StepState};
+    let mut legacy = index_record(&[]);
+    legacy.run.as_mut().unwrap().state = RunState::Complete;
+    let mut verified = index_record(&[StepState::Done]);
+    verified.run.as_mut().unwrap().state = RunState::Complete;
+    let legacy_view = projected(tmt_remote::readiness::from_record(&legacy).unwrap());
+    let verified_view = projected(tmt_remote::readiness::from_record(&verified).unwrap());
+    assert_eq!(recorded_index(&legacy)["state"], "unknown");
+    assert_eq!(recorded_index(&verified)["state"], "enabled");
+    assert_eq!(legacy_view[1], verified_view[1]);
+    assert_eq!(legacy_view[2], verified_view[2]);
+    assert_eq!(legacy_view[0]["state"], "unknown"); // tier and quota stay unknown even with indexes
+    assert_eq!(verified_view[0]["state"], "unknown");
+    assert_eq!(
+        legacy_view[0]["prerequisites"][2],
+        verified_view[0]["prerequisites"][2]
+    );
+}
+
+#[test]
+fn malformed_or_ambiguous_index_evidence_never_reports_ready() {
+    use tmt_remote::deploy_run::{DeployFault, DeployOwnerAction, StepState as S};
+    for state in [
+        S::Unknown,
+        S::Building,
+        S::Failed(DeployFault::VerifyFailed),
+    ] {
+        let mut record = index_record(&[S::Done]);
+        record.run.as_mut().unwrap().steps.last_mut().unwrap().state = state;
+        assert_eq!(recorded_index(&record)["state"], "unknown");
+    }
+    let mut owner_action = index_record(&[S::OwnerAction(DeployOwnerAction::InitializeAuth)]);
+    assert_eq!(recorded_index(&owner_action)["state"], "unknown");
+    for id in [
+        "composite-index:log",
+        "composite-index:log:UPPERCASE",
+        "composite-index::0000000000000000000000000000000000000000000000000000000000000000",
+        "composite-index:log:extra:0000000000000000000000000000000000000000000000000000000000000000",
+    ] {
+        owner_action.run.as_mut().unwrap().steps[2].id = id.into();
+        owner_action.run.as_mut().unwrap().steps[2].state = S::Done;
+        assert_eq!(recorded_index(&owner_action)["state"], "unknown", "{id}");
+    }
+    let mut missing_separator = index_record(&[S::Done, S::Done]);
+    missing_separator.run.as_mut().unwrap().steps[3].id = "composite-index".into();
+    assert_eq!(recorded_index(&missing_separator)["state"], "unknown");
+    let mut duplicate = index_record(&[S::Done]);
+    let row = duplicate.run.as_ref().unwrap().steps[2].clone();
+    duplicate.run.as_mut().unwrap().steps.insert(3, row);
+    assert_eq!(recorded_index(&duplicate)["state"], "unknown");
+}
+
+#[test]
+fn index_human_copy_and_wire_command_agree_without_changing_layer_aggregation() {
+    for (observed, sentence, hint) in [
+        (
+            Observed::Off(R::Building),
+            "Page sharing is not enabled. Firestore indexes are still building.",
+            "Wait a few minutes, then run tmt remote deploy firestore.",
+        ),
+        (
+            Observed::Off(R::NotReady),
+            "Page sharing is not enabled. Firestore indexes have not been verified as ready.",
+            "Run tmt remote deploy firestore.",
+        ),
+        (
+            Observed::Unknown,
+            "Page sharing is not checked. Firestore index readiness has not been checked.",
+            "Run tmt remote deploy firestore.",
+        ),
+    ] {
+        let evidence = FirestoreEvidence {
+            indexes: observed,
+            ..ALL_ENABLED
+        };
+        let value = projected(evidence);
+        assert!(validate(&value, &LAYERS));
+        assert_eq!(value[0]["prerequisites"][3]["next"], DEPLOY);
+        let human = human_lines(&value, &LAYERS);
+        assert_eq!(human[0].what, sentence);
+        assert_eq!(human[0].hint.as_deref(), Some(hint));
+        let mut malformed = value.clone();
+        malformed[0]["prerequisites"][3]["next"] = json!(hint);
+        assert!(!validate(&malformed, &LAYERS));
+        malformed = value.clone();
+        malformed[0]["prerequisites"][3]["nextLine"] = json!(hint);
+        assert!(!validate(&malformed, &LAYERS));
+        let partial_rules = projected(FirestoreEvidence {
+            rules: Observed::Off(R::Partial),
+            ..evidence
+        });
+        assert_eq!(partial_rules[0]["state"], "not-enabled");
+        assert!(
+            human_lines(&partial_rules, &LAYERS)[0]
+                .what
+                .contains("rules are only partly deployed")
+        );
+    }
 }
 
 /// The same signed HTTP lane the browser uses, with fixture-owned keys and sockets.

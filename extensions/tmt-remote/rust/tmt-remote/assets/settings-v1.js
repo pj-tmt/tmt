@@ -965,6 +965,7 @@ var firestoreItems = {
 	project: "Project",
 	"sign-in": "Sign-in",
 	rules: "Rules",
+	indexes: "Firestore indexes",
 	"plan-tier": "Firebase plan",
 	quota: "Free-plan quota",
 	support: "Availability in this release"
@@ -986,6 +987,23 @@ var firestoreReasons = {
 		partial: ["Firestore rules are only partly deployed.", true],
 		"not-checked": ["Firestore rules have not been checked.", false]
 	},
+	indexes: {
+		building: [
+			"Firestore indexes are still building.",
+			true,
+			"Wait a few minutes, then run tmt remote deploy firestore."
+		],
+		"not-ready": [
+			"Firestore indexes have not been verified as ready.",
+			true,
+			"Run tmt remote deploy firestore."
+		],
+		"not-checked": [
+			"Firestore index readiness has not been checked.",
+			true,
+			"Run tmt remote deploy firestore."
+		]
+	},
 	"plan-tier": {
 		"paid-plan-required": ["This needs a paid Firebase plan.", false],
 		"not-checked": ["The Firebase plan has not been checked.", false]
@@ -1005,6 +1023,11 @@ var states = {
 		"✓",
 		"Enabled",
 		"working"
+	],
+	building: [
+		"◌",
+		"Building",
+		"waiting"
 	],
 	"not-enabled": [
 		"—",
@@ -1086,11 +1109,13 @@ function renderFirestore(target, access, view) {
 			for (const item of layer.prerequisites) {
 				const row = node("li");
 				row.dataset.item = item.item;
-				row.append(node("span", `${firestoreItems[item.item]}: `), mark(item.state));
+				const displayState = item.item === "indexes" && item.state !== "enabled" ? item.reason === "building" ? "building" : "unknown" : item.state;
+				row.append(node("span", `${firestoreItems[item.item]}: `), mark(displayState));
 				if (item.reason) row.append(node("p", firestoreReasons[item.item][item.reason][0]));
 				if (item.next) {
-					const hint = node("p", "Next command on the machine that runs Remote: ");
-					hint.append(command(item.next));
+					const nextLine = firestoreReasons[item.item][item.reason][2];
+					const hint = node("p", nextLine ?? "Next command on the machine that runs Remote: ");
+					if (!nextLine) hint.append(command(item.next));
 					row.append(hint);
 				}
 				list.append(row);

@@ -904,11 +904,26 @@ entry per layer, in the order `sharing` (page sharing and collaboration),
 `not-enabled` or `unknown`, derived from the prerequisites (any `not-enabled` makes it `not-enabled`, otherwise any
 `unknown` makes it `unknown`). Each layer has its own prerequisites in a fixed order, as `{item,state}` plus, unless
 `enabled`, a fixed `reason` and, only where a command exists, `next`: sharing has `project`, `sign-in`, `rules`,
-`plan-tier`, `quota`; operations has `plan-tier`, `support`; attachments has `support`, `project`, `rules`, `quota`.
+`indexes`, `plan-tier`, `quota`; operations has `plan-tier`, `support`; attachments has `support`, `project`, `rules`, `quota`.
 Reasons per item are `project`: `not-configured`, `access-lost`; `sign-in`: `provider-disabled`, `permission-missing`;
-`rules`: `not-deployed`, `out-of-date`, `partial`; `plan-tier`: `paid-plan-required`; `quota`: `headroom-low`, `exhausted`
+`rules`: `not-deployed`, `out-of-date`, `partial`; `indexes`: `building`, `not-ready`; `plan-tier`: `paid-plan-required`; `quota`: `headroom-low`, `exhausted`
 (only from a recorded refusal); `support`: `not-implemented`. An `unknown` prerequisite has the reason `not-checked` and
-nothing is guessed. `next` is only `tmt remote deploy firestore`. Device operations are not offered on the free Firebase
+nothing is guessed. `next` is only `tmt remote deploy firestore`.
+The sharing index prerequisite reads the authorized run's digest-derived `composite-index` steps, using the
+same canonical index set as composition, authorization and verification; it makes no provider call.
+Recorded Done/Adopted for every required composite means `enabled`; Pending or a recorded failed/refused
+step means `not-enabled/not-ready` (not proof of live absence); Building means `not-enabled/building`.
+A known not-ready step outranks building, and either outranks an unknown step. Missing/malformed/duplicate
+identities or ambiguous outcomes mean unknown; an ambiguous/contradictory final verification cannot promote
+otherwise finished composites to ready. A run with no composite evidence is unknown, never a verified empty set.
+In particular, a pre-#3008 Complete record now reports its index prerequisite as unknown until the next
+authorized deploy reconciles the indexes and records their evidence; reads do not convert records or change
+other prerequisites/layers. Rules retain their existing independent meaning and aggregate before indexes.
+Fixed index sentences are 'Firestore indexes are still building.', 'Firestore indexes have not been verified
+as ready.' and 'Firestore index readiness has not been checked.'. The building human next step is
+'Wait a few minutes, then run tmt remote deploy firestore.'; the other two are 'Run tmt remote deploy firestore.'.
+JSON `next` remains the exact command string for all three; the wait wording is presentation only.
+The SDK strictly validates the same item order, states/reasons and command against the Rust-owned fixture. Device operations are not offered on the free Firebase
 plan, so they report `paid-plan-required` there and, until a release implements them, `support: not-implemented`. Every
 word comes from a fixed table: no provider text, secret or path. The ordinary, `--machine` and
 `--objects` projections are unchanged.
@@ -2456,7 +2471,7 @@ building, lost or invalid evidence stays unknown, and `NEEDS_REPAIR` refuses wit
 Composite creation is reconciled by bounded exact-spec inventory; its operation acknowledgement alone is
 not readiness. Live plus missing planned composites are counted before effects and again before allocation,
 including unrelated indexes, separately from single-field configurations. Existing records are not converted;
-a new authorized plan reconciles its required indexes. The index status-layer prerequisite is deferred. Each step is observed
+a new authorized plan reconciles its required indexes. Index readiness is a recorded prerequisite of sharing, as defined by the status-layer projection. Each step is observed
 first and applied only when absent, so an exact-plan retry skips what exists and never repeats an
 effect; a provider answer lost after a possible effect is recorded `unknown` and resolved by the next
 observation, never reported as failed. An existing equivalent object is adopted and kept; nothing is
@@ -2498,7 +2513,7 @@ to a plan with no provider effects;
 only an explicit digest authorization can run it. A private deployment record preserves the
 draft identity and saves run outcomes under a separate writer lock, publishing complete files
 by atomic rename. Readers never take that lock, so status need not wait for a deployment run.
-Running `status --layers` reads recorded project, sign-in and verified Rules outcomes without
+Running `status --layers` reads recorded project, sign-in, verified Rules and composite-index outcomes without
 provider I/O; damaged records report unknown evidence. An incomplete Rules attempt withdraws
 the old binding and reports partial Rules. Plan tier and quota stay unknown: the machine
 cannot observe them, and layer-1 traffic goes from the browser to Firestore, so sharing stays

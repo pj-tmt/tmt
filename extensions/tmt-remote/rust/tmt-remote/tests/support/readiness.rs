@@ -22,6 +22,7 @@ pub const ALL_ENABLED: FirestoreEvidence = FirestoreEvidence {
     project: Observed::Enabled,
     sign_in: Observed::Enabled,
     rules: Observed::Enabled,
+    indexes: Observed::Enabled,
     quota: Observed::Enabled,
     tier: FirestoreTier::Paid,
 };
@@ -66,6 +67,15 @@ pub fn scenarios() -> Vec<(&'static str, FirestoreEvidence)> {
         with(|e| e.rules = Observed::Off(R::Partial)),
     ));
     all.push(("rules unknown", with(|e| e.rules = Observed::Unknown)));
+    all.push((
+        "indexes building",
+        with(|e| e.indexes = Observed::Off(R::Building)),
+    ));
+    all.push((
+        "indexes not ready",
+        with(|e| e.indexes = Observed::Off(R::NotReady)),
+    ));
+    all.push(("indexes unknown", with(|e| e.indexes = Observed::Unknown)));
     all.push((
         "quota headroom low",
         with(|e| e.quota = Observed::Off(R::HeadroomLow)),
