@@ -49,7 +49,7 @@ impl State {
     }
 }
 impl App {
-    fn draft_identity(&self, input: &Input) -> Option<DraftKey> {
+    pub(super) fn draft_identity(&self, input: &Input) -> Option<DraftKey> {
         if let Compose::AskLead { sender, to } = &input.compose {
             let view = self.view.as_ref()?;
             let lead = &view.document["squad"]["lead"];

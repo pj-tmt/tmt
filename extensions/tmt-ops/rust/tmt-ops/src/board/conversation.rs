@@ -20,6 +20,7 @@ use tmt_tui::components::strip;
 use unicode_width::UnicodeWidthStr;
 
 pub(super) mod layout;
+pub(super) mod outgoing;
 
 type ConversationKey = (Option<String>, String);
 
@@ -27,6 +28,8 @@ type ConversationKey = (Option<String>, String);
 pub(super) struct State {
     sessions: BTreeMap<ConversationKey, Session>,
     active: Option<ConversationKey>,
+    sequence: u64,
+    pending_send: Option<outgoing::Ticket>,
     pub area: Rect,
     pub pane: Option<Rect>,
 }
@@ -51,6 +54,9 @@ struct Session {
     anchor: NotesCursor,
     follow: bool,
     change: Change,
+    outgoing: std::collections::VecDeque<outgoing::Entry>,
+    before_send: String,
+    agent_mark: String,
 }
 
 impl Default for Session {
@@ -62,6 +68,9 @@ impl Default for Session {
             anchor: Default::default(),
             follow: true,
             change: Change::Current,
+            outgoing: Default::default(),
+            before_send: String::new(),
+            agent_mark: String::new(),
         }
     }
 }
@@ -70,6 +79,10 @@ impl Session {
     /// A replaced request must not steal the text somebody is reading. It is
     /// admitted when follow resumes; appending to the same source keeps its anchor.
     fn update(&mut self, incoming: Option<Reply>) {
+        if !self.outgoing.is_empty() {
+            self.correlate(incoming.as_ref());
+            return;
+        }
         // Acquisition may restart after a hidden pane or fresh snapshot. A
         // loading placeholder for the same request must not erase known source.
         if self
@@ -294,7 +307,16 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
     state.active = Some(identity.clone());
     let session = state.sessions.entry(identity).or_default();
     session.update(reply);
+    session.agent_observed(
+        row["state"].as_str().unwrap_or("unknown"),
+        app.loading()
+            || app
+                .view
+                .as_ref()
+                .is_none_or(|view| view.document["partial"] == true),
+    );
     let name = sanitize(row["name"].as_str().unwrap_or("unknown agent"));
+    session.correlate_loaded(app, &name);
     let observed = app.references.agents.get(row["id"].as_str().unwrap());
     let runtime = observed
         .and_then(|agent| agent.runtime.as_deref())
@@ -472,6 +494,12 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
     if body.is_empty() {
         return;
     }
+    let position = (input_height > 0 && body.height > 1)
+        .then(|| Rect::new(body.x, body.bottom() - 1, body.width, 1));
+    let body = Rect {
+        height: body.height - u16::from(position.is_some()),
+        ..body
+    };
     let rebuilt = session.prepare(usize::from(body.width), look);
     let mapped = &session.rendered.as_ref().unwrap().mapped;
     let previous = app.scrolls.offset(Pane::Replies);
@@ -483,9 +511,24 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
             session.anchor.visual(&mapped.sources).unwrap_or_default(),
         )]);
     }
-    let (offset, _) = app
+    let (offset, shown) = app
         .scrolls
         .show(frame, Pane::Replies, body, &mapped.lines, look);
+    if let Some(position) = position {
+        strip::paint_left(
+            frame.buffer_mut(),
+            position,
+            Line::styled(
+                format!(
+                    "{}–{} / {}  ·  select text to annotate",
+                    if shown == 0 { 0 } else { offset + 1 },
+                    offset + shown,
+                    mapped.lines.len()
+                ),
+                look.role(Role::Dim),
+            ),
+        );
+    }
     if switched || rebuilt || previous != offset {
         session
             .anchor

@@ -2761,7 +2761,8 @@ impl App {
             && (self.loading()
                 || self.current.as_deref() != Some(&input.squad)
                 || self.lead().as_ref() != Ok(to)
-                || self.view.as_ref().and_then(|view| view.me.as_ref()) != Some(sender))
+                || self.view.as_ref().and_then(|view| view.me.as_ref()) != Some(sender)
+                || input.draft_key.as_ref() != self.draft_identity(&input).as_ref())
         {
             return self.say("The squad, sender or lead changed; nothing sent.");
         }
@@ -2803,6 +2804,7 @@ impl App {
             return self
                 .say("Message including quotes exceeds 1 MiB; nothing sent. Draft retained.");
         }
+        self.begin_outgoing(&input, &text);
         self.sending_draft(&input);
         if persistent {
             self.input = Some(Input {
