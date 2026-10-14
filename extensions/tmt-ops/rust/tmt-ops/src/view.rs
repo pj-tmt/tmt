@@ -392,26 +392,8 @@ mod tests {
                         ViewName::Members | ViewName::Wide => Default::default(),
                     };
                     assert_eq!(folds, expected, "{} at {width}", name.name());
-                    let solved = crate::board::pane_rectangles(
-                        &board,
-                        &folds,
-                        ratatui::layout::Rect::new(0, 0, width, 30),
-                    );
-                    assert_eq!(solved.len(), board.panes.len());
-                    assert!(
-                        solved
-                            .iter()
-                            .all(|(_, rect)| rect.right() <= width && rect.bottom() <= 30)
-                    );
-                    let row = solved
-                        .iter()
-                        .find(|(pane, _)| *pane == Pane::Rows)
-                        .unwrap()
-                        .1;
-                    assert!(row.width > 0 && row.height > 0);
-                    if name == ViewName::Focus {
-                        assert_eq!(row.height, 27);
-                    }
+                    // These authored factory values remain CLI configuration
+                    // only. Interactive geometry belongs to the UUID workspace.
                 }
             }
             std::fs::remove_dir_all(path.parent().unwrap()).unwrap();

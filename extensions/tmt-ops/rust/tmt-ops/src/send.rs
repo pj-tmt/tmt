@@ -59,17 +59,6 @@ impl Accepted {
         })
     }
 
-    /// The word under the row, such as `✓ queued`.
-    pub fn mark(&self) -> &'static str {
-        match self.disposition {
-            Disposition::Sent => "sent",
-            Disposition::Uncertain => "handed over",
-            Disposition::Queued => "queued",
-            Disposition::Offline => "queued · offline",
-            Disposition::Held => "held",
-        }
-    }
-
     /// The board notice; `what` names the message, such as `Note on alpha`.
     pub fn describe(&self, what: &str, to: &str) -> String {
         let request = &self.request;
@@ -125,6 +114,26 @@ pub fn talk(
     Accepted::from_document(&sent)
 }
 
+/// The virtual common pool is not a Core room. Its explicit identity recipient
+/// uses the same public talk command and acceptance parser, without --room.
+pub fn talk_direct(
+    core: &Core,
+    sender: &str,
+    recipient: &str,
+    text: &str,
+) -> Result<Accepted, SquadError> {
+    if text.trim().is_empty() {
+        return Err(refused("Nothing to send."));
+    }
+    let sent = core
+        .json_with_operands(
+            &["talk", "--identity", sender, "--detach"],
+            &[recipient, text],
+        )
+        .map_err(retained)?;
+    Accepted::from_document(&sent)
+}
+
 /// A talk tagged `[<squad> · <row>]`, so the row can show it until answered.
 pub fn annotate(
     core: &Core,
@@ -171,9 +180,6 @@ pub struct LeadRecipient {
     pub id: String,
     pub name: String,
 }
-
-mod leads;
-pub use leads::leads;
 
 mod dispatch;
 

@@ -1,8 +1,6 @@
 //! The provider-limits row inside the whole HOME frame: it follows the usage
 //! switch and the width, holds its row before the first sample, and moves
 //! nothing else when the sample arrives.
-use super::interaction::board;
-use super::*;
 use crate::{
     board::{
         app::{App, RateView},
@@ -17,16 +15,14 @@ const NOW: u64 = 1_791_600_000_000;
 const HOUR: u64 = 3_600_000;
 
 fn app(usage_enabled: bool) -> App {
-    let mut app = board(&[(
-        "a",
-        document("a", row("a", "product-lead", "working"), vec![]),
-    )]);
+    let mut app = crate::board::app::workspace::tests::board();
+    app.shell.tab = crate::board::shell::OpsTab::Overview;
     let view = app.view.as_mut().unwrap();
     view.home_rate.insert(
-        "a".into(),
+        "product".into(),
         RateView {
             input: Input {
-                room: "room".into(),
+                room: crate::board::app::workspace::tests::ROOM.into(),
                 resumes: Default::default(),
                 names: Default::default(),
             },
@@ -37,10 +33,6 @@ fn app(usage_enabled: bool) -> App {
             history: None,
         },
     );
-    let mut snapshot = crate::board::app::tests::snapshot(ALL, json!([]));
-    snapshot.tabs = app.tabs.clone();
-    snapshot.view = Ok(app.view.take().unwrap());
-    app.apply(snapshot);
     app
 }
 
@@ -89,11 +81,13 @@ fn the_row_holds_its_place_before_the_first_sample_and_moves_nothing_when_it_fil
         let mut app = app(true);
         let before = rows(&app, width);
         let pending = index_of(&before, "Updating limits…");
-        let body_before = index_of(&before, "product-lead");
+        let body_before = index_of(&before, "worker");
+        let hits_before = format!("{:?}", app.hits.borrow());
         assert!(app.set_limits(standings()));
         let after = rows(&app, width);
         assert_eq!(index_of(&after, "Codex 78%"), pending, "{width}");
-        assert_eq!(index_of(&after, "product-lead"), body_before, "{width}");
+        assert_eq!(index_of(&after, "worker"), body_before, "{width}");
+        assert_eq!(format!("{:?}", app.hits.borrow()), hits_before);
     }
 }
 
@@ -103,7 +97,7 @@ fn the_row_sits_directly_under_the_header_and_the_body_follows() {
     app.set_limits(standings());
     let rows = rows(&app, 100);
     assert_eq!(rows[index_of(&rows, "Codex 78%")], " Codex 78% (7d)");
-    assert!(index_of(&rows, "product-lead") > index_of(&rows, "Codex 78%"));
+    assert!(index_of(&rows, "worker") > index_of(&rows, "Codex 78%"));
 }
 
 #[test]
@@ -168,4 +162,10 @@ fn help_explains_the_row_only_where_it_can_show() {
     );
     assert!(text.contains("older than 2 hours"), "{text}");
     assert!(section(&app(false)).is_none());
+    let mut hidden = app(true);
+    hidden.shell.tab = crate::board::shell::OpsTab::Agents;
+    assert!(section(&hidden).is_none());
+    hidden.shell.tab = crate::board::shell::OpsTab::Overview;
+    hidden.set_limits(Vec::new());
+    assert!(section(&hidden).is_none());
 }

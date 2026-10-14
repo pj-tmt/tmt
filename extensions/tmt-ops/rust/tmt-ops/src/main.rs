@@ -29,7 +29,6 @@ mod layout;
 mod links;
 mod look;
 mod management;
-mod markup;
 mod me;
 mod member_actions;
 mod membership;
@@ -131,6 +130,13 @@ fn grammar() -> Command {
                 .arg(squad_option()),
         )
         .subcommand(
+            build(specs::RENAME)
+                .arg(operand("old", "Current squad name"))
+                .arg(operand("new", "New squad name"))
+                .arg(Arg::new("room-id").long("room-id").required_if_eq("repair", "true").help("Exact room UUID for the retained repair"))
+                .arg(Arg::new("repair").long("repair").action(ArgAction::SetTrue).requires("room-id").help("Repair the retained Ops step without repeating a confirmed room rename")),
+        )
+        .subcommand(
             build(specs::SET)
                 .arg(operand("member", "Member to update"))
                 .arg(operand("fields", "field=value pairs").num_args(1..))
@@ -211,7 +217,7 @@ fn grammar() -> Command {
             build(specs::UI)
                 .arg(squad_option())
                 .arg(Arg::new("tabs").long("tabs").value_name("NAMES")
-                    .help("The tabs this board shows (names as on the tab line); comma-separated, all for the default set"))
+                    .help("Retired squad-tab selector; use workspace search and pins with shell keys 1/2/3"))
                 .arg(
                     Arg::new("popup")
                         .long("popup")
@@ -613,6 +619,17 @@ fn human(command: &str, document: &Value, terminal: Terminal) -> String {
                 )
             })
             .collect(),
+        "rename" if document["ownedStatus"] == "Applied" => done(
+            terminal,
+            &format!(
+                "Renamed squad {} to {} (room {})",
+                text(&document["old"]),
+                text(&document["new"]),
+                text(&document["roomId"])
+            ),
+        ),
+        "rename" => String::new(),
+        "rm" if document["removed"].is_null() => String::new(),
         "rm" => {
             let cleared = fields(&document["cleared"]);
             done(
@@ -665,6 +682,39 @@ fn human_failures(command: &str, document: &Value) -> Vec<(String, Option<String
                 )
             })
             .collect(),
+        "rename" if document.get("failed").is_some() => vec![(
+            format!(
+                "Room rename {}; Ops namespaces incomplete: {}",
+                document["roomStatus"].as_str().unwrap_or("Unknown"),
+                text(&document["failed"]["error"])
+            ),
+            document["repair"].as_str().map(str::to_owned),
+        )],
+        "rm" if document.get("failed").is_some() => {
+            let paused = document["pausedTimers"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join(", ");
+            vec![(
+                format!(
+                    "Removal {} at {}: {}{} Refresh membership before another attempt.",
+                    document["failed"]["status"].as_str().unwrap_or("Unknown"),
+                    document["failed"]["stage"]
+                        .as_str()
+                        .unwrap_or("unknown stage"),
+                    text(&document["failed"]["error"]),
+                    if paused.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" Timers {paused} are paused.")
+                    }
+                ),
+                None,
+            )]
+        }
         "set" if document.get("failed").is_some() => {
             let skipped = document["notAttempted"]
                 .as_array()
@@ -875,6 +925,24 @@ fn run(
     }
     if command == "me" {
         return me_command(&core, &mut config, text("name"), matches.get_flag("clear"));
+    }
+    if command == "rename" {
+        let old = text("old").unwrap_or_default();
+        let room_id = match text("room-id") {
+            Some(id) => id.to_owned(),
+            None => Squad::resolve(&core, Some(old))?.room_id,
+        };
+        return membership::rename_squad(
+            &core,
+            &mut config,
+            &membership::Rename {
+                room_id,
+                old: old.into(),
+                new: text("new").unwrap_or_default().into(),
+                expected_revision: None,
+                repair: matches.get_flag("repair"),
+            },
+        );
     }
     if matches!(command, "ls" | "ui") {
         let refresh_fields = command == "ls" && matches.get_flag("refresh-fields");

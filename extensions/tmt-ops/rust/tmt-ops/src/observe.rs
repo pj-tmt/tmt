@@ -22,7 +22,7 @@ use std::path::Path;
 pub struct Reads {
     /// Every identity's metadata, for `meta.*` column sources.
     pub metadata: bool,
-    /// The lead's notes even when nothing is observed: the board's notes pane.
+    /// Read the lead's notes even when observation is disabled.
     pub notes: bool,
 }
 
@@ -42,8 +42,6 @@ pub struct Observation {
     /// Field providers' cached values. Nothing runs here; a caller may refresh
     /// them before building the document.
     pub cached: provider::Cache,
-    /// The lead's `notes.read`, when it was read.
-    pub notes: Option<Result<Value, SquadError>>,
     room: Option<Window>,
     snapshot: staleness::Snapshot,
     /// Generations durably claimed before handing context to the hook.
@@ -114,7 +112,6 @@ fn observe_with(
     Ok(Observation {
         members,
         cached,
-        notes,
         room,
         snapshot,
         reminder,
@@ -129,12 +126,11 @@ pub struct Shape<'a> {
     pub rows: &'a Rows,
 }
 
-/// A squad's document, with what the board keeps beside it.
+/// A squad's document and acquired request source.
 pub struct Projected {
     pub document: Value,
     /// The user's requests in the room, for the replies pane.
     pub sent: Option<Sent>,
-    pub notes: Option<Result<Value, SquadError>>,
 }
 
 impl Observation {
@@ -152,7 +148,6 @@ impl Observation {
         let Self {
             mut members,
             cached,
-            notes,
             room,
             snapshot,
             reminder: _,
@@ -168,11 +163,7 @@ impl Observation {
         );
         snapshot.apply(&mut document);
         let sent = requests::overlay(core, squad, me, &mut document, room)?;
-        Ok(Projected {
-            document,
-            sent,
-            notes,
-        })
+        Ok(Projected { document, sent })
     }
 }
 
@@ -244,14 +235,14 @@ esac
                 .collect()
         }
 
-        /// One squad's document as `ls` (no notes) or the board (notes) reads it.
+        /// Project the source read after its observer has consumed raw notes.
         fn read(&self, notes: bool) -> Projected {
             let config = &self.config;
             let layout = config.layout("p").unwrap();
             let states = config.states("p", layout).unwrap();
             let sections = config.sections("p").unwrap();
             let rows = config.rows("p").unwrap();
-            observe(
+            let observed = observe(
                 &self.core,
                 config.path(),
                 &self.squad,
@@ -262,20 +253,21 @@ esac
                     notes,
                 }),
             )
-            .unwrap()
-            .document(
-                &self.core,
-                &self.squad,
-                None,
-                &[],
-                Shape {
-                    layout,
-                    states: &states,
-                    sections: &sections,
-                    rows: &rows,
-                },
-            )
-            .unwrap()
+            .unwrap();
+            observed
+                .document(
+                    &self.core,
+                    &self.squad,
+                    None,
+                    &[],
+                    Shape {
+                        layout,
+                        states: &states,
+                        sections: &sections,
+                        rows: &rows,
+                    },
+                )
+                .unwrap()
         }
     }
 
@@ -306,7 +298,7 @@ esac
         // nor the room history is read for it.
         let listed = fixture.read(false);
         assert_eq!(fixture.calls(), ["ls", "roster"]);
-        assert!(listed.notes.is_none() && listed.sent.is_none());
+        assert!(listed.sent.is_none());
         assert_eq!(listed.document["squad"]["lead"]["id"], "SOL");
         assert_eq!(
             listed.document["squad"]["notesStaleness"]["state"],
@@ -317,8 +309,8 @@ esac
             "disabled"
         );
 
-        // The board shows the notes: the one notes.read the observation would
-        // make serves the pane too, and the document is the same.
+        // An explicit raw note read does not change the status document and
+        // never makes the published projection another notebook owner.
         let shown = fixture.read(true);
         assert_eq!(
             fixture.calls(),
@@ -326,18 +318,12 @@ esac
             "the lead's notes are read once, after the roster"
         );
         assert_eq!(shown.document, listed.document);
-        assert_eq!(
-            shown.notes.unwrap().unwrap()["content"],
-            "ship it",
-            "the pane gets the read itself"
-        );
     }
 
     #[test]
     fn without_a_lead_no_notes_are_read() {
         let fixture = Fixture::new("leaderless", json!([member("RIN", json!({}))]));
         let shown = fixture.read(true);
-        assert!(shown.notes.is_none());
         assert!(!fixture.calls().contains(&"notes".to_owned()));
         assert!(shown.document["squad"]["lead"].is_null());
     }

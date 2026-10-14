@@ -88,7 +88,7 @@ impl App {
     }
 
     /// `n E p x o d` on the selected job. `row` is that job's row id, from the
-    /// jobs half or the `c` list; `n` also works with none, in the shown squad.
+    /// scoped Timers list; `n` also works with none, in the selected squad.
     pub(in crate::board) fn cron_key(&mut self, key: char, row: Option<&str>) -> Effect {
         if key == 'e' {
             return self.toggle_row_detail();
@@ -198,16 +198,34 @@ impl App {
             Ok(actor) => actor,
             Err(why) => return self.say(why),
         };
-        // In the jobs half this is the shown squad; in the `c` list, the squad of
-        // the selected job. Neither exists on an empty list of another tab.
+        // A selected job carries its room UUID; an empty workspace list uses
+        // the explicitly selected squad membership.
         let target = match near {
             Some(job) => Some((job.job.squad.clone(), job.job.room_id.clone())),
-            None => super::half::room(self)
+            None if self.workspace_snapshot().is_some() => self
+                .workspace
+                .selected
+                .as_ref()
+                .and_then(|target| match target {
+                    crate::board::workspace::OpsTarget::Squad(room)
+                    | crate::board::workspace::OpsTarget::Member {
+                        room_id: Some(room),
+                        ..
+                    } => self
+                        .workspace_snapshot()?
+                        .roster
+                        .squads
+                        .iter()
+                        .find(|squad| squad.room_id == *room)
+                        .map(|squad| (squad.name.clone(), squad.room_id.clone())),
+                    _ => None,
+                }),
+            None => super::controller::projected_room(self)
                 .zip(self.current.clone())
                 .map(|(room, name)| (name, room.to_owned())),
         };
         let Some((squad, room_id)) = target else {
-            return self.say("Open a squad tab, then n adds a job to that squad.");
+            return self.say("Select a squad, then open its Timers to add a job.");
         };
         let zone = match Schedule::local_zone() {
             Ok(zone) => zone,
@@ -215,7 +233,7 @@ impl App {
         };
         let owner = self
             .selected_row()
-            .filter(|_| self.current.as_deref() == Some(&squad))
+            .filter(|row| row["squad"] == squad || self.current.as_deref() == Some(&squad))
             .and_then(|row| row["name"].as_str())
             .map(str::to_owned)
             .unwrap_or_default();

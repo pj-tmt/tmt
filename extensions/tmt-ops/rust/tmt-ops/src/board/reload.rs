@@ -429,14 +429,15 @@ mod tests {
         let root = scratch("restart");
         let state = root.join("state");
         let resume = Resume {
+            shell: crate::board::shell::OpsTab::Overview,
+            squads_expanded: vec![],
+            pool_expanded: false,
             tab: "product".into(),
             selected: None,
             focus: 0,
             follow: true,
             scrolls: Vec::new(),
             expanded: Vec::new(),
-            folds: Vec::new(),
-            picks: None,
             search: String::new(),
         };
         let error =

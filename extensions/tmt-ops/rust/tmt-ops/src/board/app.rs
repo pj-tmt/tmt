@@ -4,11 +4,10 @@
 
 use super::scroll::{Scrolls, Step, WHEEL_LINES};
 use crate::display_rows::{Item, RowOrigin};
-use crate::links::Kind;
 use crate::{
     action::{Action, Bindings, Verb},
     attention::Attention,
-    config::{Board, BoardMode, Config, NotesRender, Pane},
+    config::{Board, Config, NotesRender, Pane},
     effects,
 };
 use ratatui::crossterm::event::{
@@ -22,6 +21,7 @@ use std::{
 };
 
 mod carry;
+pub(in crate::board) mod workspace;
 
 /// What the refresh worker loaded for one squad.
 pub struct RateView {
@@ -32,13 +32,6 @@ pub struct RateView {
 
 /// Raw observations for tiles and headers; formatting belongs to the caller.
 #[derive(Debug)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Consumed by #1293 tiles and #1295 HOME header painting."
-    )
-)]
 pub(super) struct HomeUsage<'a> {
     pub lead_model: Option<&'a str>,
     pub windows: [crate::config::TokenWindow; 3],
@@ -59,8 +52,6 @@ pub(super) struct HomeHeaderUsage<'a> {
     pub windows: [crate::config::TokenWindow; 3],
     pub totals: [Option<super::rate::Reading>; 3],
     pub top: Option<UsageTop<'a>>,
-    pub models: Vec<UsageModel<'a>>,
-    pub unreported: usize,
 }
 
 #[derive(Debug)]
@@ -69,20 +60,13 @@ pub(super) struct UsageTop<'a> {
     pub share: UsageShare,
 }
 
-#[derive(Debug)]
-pub(super) struct UsageModel<'a> {
-    pub model: Option<&'a str>,
-    pub share: UsageShare,
-}
-
 #[derive(Clone, Copy)]
-struct HeaderObservation<'a> {
+struct HeaderObservation {
     reading: super::rate::Reading,
     covered_slots: u64,
-    model: Option<&'a str>,
 }
 
-impl HeaderObservation<'_> {
+impl HeaderObservation {
     fn evidence(&self) -> (u64, bool, u64) {
         (self.covered_slots, !self.reading.partial, self.reading.span)
     }
@@ -90,7 +74,7 @@ impl HeaderObservation<'_> {
 
 struct HeaderMember<'a> {
     name: &'a str,
-    readings: [Option<HeaderObservation<'a>>; 3],
+    readings: [Option<HeaderObservation>; 3],
 }
 
 pub struct View {
@@ -105,26 +89,16 @@ pub struct View {
     /// Retained home composition; only the aggregate board view owns it.
     pub home: Option<super::home::Home>,
     pub(super) derived: RefCell<super::derived::Derived>,
-    /// Geometry is read by input/focus while row painters borrow their own cache.
-    pub(super) composition: RefCell<Option<super::composition::Cache>>,
+    /// Authored CLI row projection, independent of interactive workspace geometry.
     pub rows: crate::rows::Rows,
     pub board: Board,
     /// The full-reload interval; `None` reloads only on ctrl-r and actions.
     pub refresh: Option<std::time::Duration>,
-    pub notes: Notes,
     pub render: NotesRender,
     /// The host preset overridden by `[bind]`.
     pub bindings: Bindings,
-    /// Each document section's own bindings, in document order.
-    pub section_bindings: Vec<Bindings>,
-    pub configured_bindings: Bindings,
-    /// `[bind.<host>]`: over `bindings` for a row whose pane is on that host.
-    pub host_bindings: std::collections::BTreeMap<String, Bindings>,
     pub opener: Option<Vec<String>>,
     pub clipboard: Option<Vec<String>>,
-    pub links: crate::links::Handlers,
-    /// `[tabs.colors]`, re-read with every load like the rest of ops.toml.
-    pub tab_colors: crate::config::TabColors,
     /// The user's saved identity, the sender of talk, reply and annotate.
     pub me: Option<String>,
     pub me_id: Option<String>,
@@ -136,18 +110,6 @@ pub struct View {
     pub theme_notice: Option<String>,
 }
 
-/// The lead's notebook, already sanitized for display.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Notes {
-    /// The notes pane is not shown, so nothing was read.
-    NotShown,
-    NoLead,
-    /// The lead has no notebook yet; the board never creates one.
-    Missing,
-    Text(String),
-    Failed(String),
-}
-
 pub struct Snapshot {
     pub(super) references: super::inventory::Inventory,
     pub(super) timing: Option<super::timing::Load>,
@@ -155,7 +117,7 @@ pub struct Snapshot {
     pub squad_keys: Vec<String>,
     /// Tab keys in order: squad names and built-in tabs (`board::tabs`).
     pub tabs: Vec<String>,
-    /// Hidden tabs, still reachable through the switcher.
+    /// Hidden keys retained by the independent CLI tab projection.
     pub hidden: Vec<String>,
     /// How many tabs at the front are pinned.
     pub pinned: usize,
@@ -181,14 +143,15 @@ pub enum Request {
         program: Option<Vec<String>>,
     },
     Run(Vec<String>),
-    RevealFile {
-        path: String,
-        opener: Option<Vec<String>>,
-    },
     Talk {
         me: String,
         squad: String,
         to: String,
+        text: String,
+    },
+    DirectTalk {
+        sender: String,
+        recipient: String,
         text: String,
     },
     Annotate {
@@ -204,15 +167,13 @@ pub enum Request {
         from: String,
         text: String,
     },
-    Leads {
-        sender: String,
-        recipients: Vec<crate::send::LeadRecipient>,
-        all: bool,
-        text: String,
-    },
     Status(Box<super::status_update::Action>),
     /// Save this tab order to `[tabs] order` (tab keys, in order).
-    Reorder(Vec<String>),
+    WorkspacePreferences {
+        expected: crate::config::OpsPreferences,
+        next: crate::config::OpsPreferences,
+    },
+    WorkspaceOperation(crate::membership::workspace::Operation),
     /// A cron job control, with its actor, job and viewed revision resolved.
     Cron(super::cronboard::CronRequest),
     /// Check that the person at the board may change a member's digest.
@@ -226,15 +187,17 @@ impl Request {
     pub fn progress(&self) -> &'static str {
         match self {
             Self::Jump(_) | Self::Back => "Jumping…",
-            Self::Open { .. } | Self::RevealFile { .. } | Self::Run(_) => "Opening…",
+            Self::Open { .. } | Self::Run(_) => "Opening…",
             Self::DigestOpen(_) => "Checking digest access…",
             Self::Digest(_) => "Saving digest…",
             Self::Copy { .. } => "Copying…",
-            Self::Talk { .. } | Self::Annotate { .. } | Self::Reply { .. } | Self::Leads { .. } => {
-                "Sending…"
-            }
+            Self::Talk { .. }
+            | Self::DirectTalk { .. }
+            | Self::Annotate { .. }
+            | Self::Reply { .. } => "Sending…",
             Self::Status(_) => "Updating status…",
-            Self::Reorder(_) => "Saving the tab order…",
+            Self::WorkspacePreferences { .. } => "Saving workspace preferences…",
+            Self::WorkspaceOperation(_) => "Applying workspace operation…",
             Self::Cron(_) => "Updating the job…",
         }
     }
@@ -245,11 +208,12 @@ impl Request {
         matches!(
             self,
             Self::Talk { .. }
+                | Self::DirectTalk { .. }
                 | Self::Annotate { .. }
                 | Self::Reply { .. }
-                | Self::Reorder(_)
+                | Self::WorkspacePreferences { .. }
+                | Self::WorkspaceOperation(_)
                 | Self::Cron(_)
-                | Self::Leads { .. }
                 | Self::Status(_)
                 | Self::Digest(_)
         )
@@ -270,9 +234,6 @@ pub enum Effect {
     CancelSettings,
     PickTheme,
     SaveTheme,
-    PickView,
-    SaveView,
-    CancelView,
     Act(Request),
     Checklist(super::checklist::load::Task),
 }
@@ -280,16 +241,14 @@ pub enum Effect {
 /// What a menu entry does: run a binding, or reply to one open request.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Choice {
+    WorkspaceBegin(super::workspace::manage::Kind),
+    WorkspaceLayout(crate::config::OpsLayout),
     Checklist,
     Action(Action),
     /// Confirms a cron control picked from a menu.
     Cron(super::cronboard::CronRequest),
     /// Leaves the menu without doing anything.
     Dismiss,
-    Leads {
-        recipients: Vec<crate::send::LeadRecipient>,
-        all: bool,
-    },
     Reply {
         request: String,
         from: String,
@@ -329,11 +288,7 @@ pub struct Menu {
 /// Where composed text goes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Compose {
-    Leads {
-        sender: String,
-        recipients: Vec<crate::send::LeadRecipient>,
-        all: bool,
-    },
+    Workspace,
     AskLead {
         to: String,
         sender: String,
@@ -361,7 +316,7 @@ pub enum Compose {
 /// A row occurrence, independent of its position after refresh or sorting.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RowTarget {
-    Home(super::home::Target),
+    Workspace(super::workspace::OpsTarget),
     Member {
         tab: String,
         section: usize,
@@ -376,58 +331,48 @@ pub enum RowTarget {
     },
 }
 
+/// The observed note recipient, including its identity when the source supplies it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct NoteRecipient {
+    id: Option<String>,
+    name: String,
+}
+
+impl NoteRecipient {
+    fn from_row(row: &Value) -> Option<Self> {
+        Some(Self {
+            id: row["id"].as_str().map(str::to_owned),
+            name: row["name"].as_str()?.to_owned(),
+        })
+    }
+}
+
 #[derive(Clone)]
 pub(super) struct RowSend {
     pub target: RowTarget,
     pub sender: String,
+    pub sender_id: Option<String>,
     pub name: String,
     pub note: Option<Compose>,
+    pub note_recipient: Option<NoteRecipient>,
     pub note_member: bool,
-}
-
-/// A successful send keeps its Home row visible through the ensuing refresh,
-/// until the next key clears the confirmation. This is display evidence only.
-pub(super) struct RowFeedback {
-    /// What the send reported, such as `sent` or `queued`; `None` keeps the
-    /// row without claiming a send.
-    pub mark: Option<&'static str>,
-    pub target: RowTarget,
-    pub home: Option<HomeFeedback>,
-}
-
-impl RowFeedback {
-    /// The confirmation shown under `target`, when this feedback is for it.
-    pub(crate) fn line(&self, target: &RowTarget) -> Option<String> {
-        self.mark
-            .filter(|_| &self.target == target)
-            .map(|mark| format!("✓ {mark}"))
-    }
-}
-
-pub(super) struct HomeFeedback {
-    pub row: Value,
-    pub lead: Option<String>,
-    pub index: usize,
 }
 
 impl RowSend {
     pub(super) fn valid(&self, app: &App, input: &Input) -> bool {
-        if matches!(input.compose, Compose::Leads { .. }) {
-            return app.leads_valid(input);
-        }
         if app.loading()
             || app.view.as_ref().and_then(|view| view.me.as_ref()) != Some(&self.sender)
+            || app.view.as_ref().and_then(|view| view.me_id.as_ref()) != self.sender_id.as_ref()
         {
             return false;
         }
-        let squad = match &self.target {
-            RowTarget::Home(target) => &target.squad,
-            RowTarget::Member { squad, .. } | RowTarget::Lead { squad, .. } => squad,
+        let Some(squad) = app.target_squad(&self.target) else {
+            return false;
         };
         let Some(row) = app.target_row(&self.target) else {
             return false;
         };
-        if squad != &input.squad || row["name"].as_str() != Some(&self.name) {
+        if squad != input.squad || row["name"].as_str() != Some(&self.name) {
             return false;
         }
         match &input.compose {
@@ -442,14 +387,13 @@ impl RowSend {
                             .any(|item| item["requestId"].as_str() == Some(request))
                     })
             }
-            Compose::Annotate { to, .. } => {
+            Compose::Annotate { .. } => {
                 self.note.as_ref() == Some(&input.compose)
-                    && (self.note_member || app.note_recipient(&self.target).as_ref() == Some(to))
+                    && (self.note_member || app.note_recipient(&self.target) == self.note_recipient)
             }
-            Compose::AskLead { .. }
-            | Compose::Leads { .. }
-            | Compose::Cron
-            | Compose::Digest(_) => false,
+            Compose::AskLead { .. } | Compose::Cron | Compose::Workspace | Compose::Digest(_) => {
+                false
+            }
         }
     }
 }
@@ -486,15 +430,20 @@ impl Input {
 
     pub(super) fn header(&self) -> String {
         match &self.compose {
-            Compose::Leads { .. } => self.prompt.clone(),
-            Compose::Talk { to } => format!("→ {to} ({}) · talk", self.squad),
+            Compose::Talk { to } => {
+                if self.squad.is_empty() {
+                    format!("→ {to} · talk")
+                } else {
+                    format!("→ {to} ({}) · talk", self.squad)
+                }
+            }
             Compose::Reply { from, .. } => format!("→ {from} ({}) · answer", self.squad),
             Compose::Annotate { to, row } if to != row => {
                 format!("→ {to} ({}) · note · about {row}", self.squad)
             }
             Compose::Annotate { to, .. } => format!("→ {to} ({}) · note", self.squad),
             Compose::AskLead { to, .. } => format!("→ lead {to}"),
-            Compose::Cron | Compose::Digest(_) => self.prompt.clone(),
+            Compose::Cron | Compose::Workspace | Compose::Digest(_) => self.prompt.clone(),
             Compose::AnswerPicker => self.prompt.clone(),
             Compose::Status => format!(
                 "Update status → {} / {}",
@@ -540,11 +489,10 @@ const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 /// Shared routing identifies the active surface; its controller owns effects.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Overlay {
+    Workspace,
     Help,
     Settings,
-    View,
     Theme,
-    Switcher,
     CronList,
     ReplyReader,
     Checklist,
@@ -553,11 +501,10 @@ impl Overlay {
     fn id(self) -> tmt_tui::app::ComponentId {
         vec![
             match self {
+                Self::Workspace => "workspace-form",
                 Self::Help => "help",
                 Self::Settings => "settings",
-                Self::View => "view-picker",
                 Self::Theme => "theme-picker",
-                Self::Switcher => "switcher",
                 Self::CronList => "cron-list",
                 Self::ReplyReader => "reply-reader",
                 Self::Checklist => "checklist",
@@ -567,29 +514,7 @@ impl Overlay {
     }
 }
 
-/// The quick switcher: a filter over every tab, hidden ones included.
-pub struct Switcher {
-    pub(super) unpicked_only: bool,
-    pub(super) surface: RefCell<super::picker_surface::State>,
-}
-impl Default for Switcher {
-    fn default() -> Self {
-        Self::new(String::new())
-    }
-}
-impl Switcher {
-    pub fn new(query: String) -> Self {
-        Self {
-            unpicked_only: false,
-            surface: RefCell::new(super::picker_surface::State::new(Some(query), vec![], None)),
-        }
-    }
-    pub fn query(&self) -> String {
-        self.surface.borrow().picker.query().unwrap_or("").into()
-    }
-}
-
-/// Where one tab was drawn on the tab line, for clicks and drags.
+/// Where a shell destination was drawn, for clipped navigation clicks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TabHit {
     pub y: u16,
@@ -637,29 +562,19 @@ impl std::fmt::Debug for Hit {
     }
 }
 
-/// Config is immutable; only this session presentation set changes on a toggle.
-struct FoldState {
-    board: Board,
-    overrides: BTreeMap<Pane, bool>,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct TitleHit {
-    pub pane: Pane,
-    pub area: ratatui::layout::Rect,
-}
-
 #[derive(Default)]
 pub struct App {
+    pub(super) shell: super::shell::OpsShell,
+    pub(super) workspace: super::workspace::OpsWorkspace,
+    frame_workspace_rows: RefCell<Option<std::rc::Rc<[super::workspace::OpsTreeRow]>>>,
+    pub(super) workspace_startup: Option<String>,
+    pub(super) workspace_form: Option<super::workspace::manage::Draft>,
+    pub(in crate::board) workspace_action_hits:
+        RefCell<Vec<(ratatui::layout::Rect, super::workspace::OpsTarget, Choice)>>,
     pub(super) timing: Option<super::timing::Ui>,
     pub(super) checklist: Option<super::checklist::Controller>,
     pub(super) checklist_generation: u64,
     pub(super) initial_look: Option<crate::look::Look>,
-    pub(super) note_link: Option<(String, usize)>,
-    pub(super) link_hits: RefCell<Vec<(ratatui::layout::Rect, usize)>>,
-    pub(super) note_cursors: RefCell<BTreeMap<String, super::notes::NotesCursor>>,
-    pub(super) note_hits: RefCell<Vec<(ratatui::layout::Rect, usize)>>,
-    pub(super) notebooks: RefCell<super::notes::Notebooks>,
     pub(super) cron: super::cronboard::State,
     pub(super) home_leads: super::home_leads::State,
     /// What the configured label sources last supplied for member rows.
@@ -667,17 +582,10 @@ pub struct App {
     /// The cron form being filled in on the input line, if any.
     pub(super) status_draft: Option<super::status_update::Draft>,
     pub(super) cron_draft: Option<super::cronboard::Draft>,
-    /// The squad tab's jobs half has focus (Tab moves in after the last pane).
-    pub(super) jobs_focus: bool,
-    /// One list state per squad room; selection survives tab switches.
-    pub(super) jobs: RefCell<BTreeMap<String, super::cronboard::JobsPane>>,
-    /// Where the jobs half was last drawn, for the pointer; empty when absent.
-    pub(super) jobs_area: std::cell::Cell<ratatui::layout::Rect>,
     pub(super) home_counters: RefCell<super::home::counters::Counters>,
     /// Provider limits as the worker last sampled them; `None` until the first sample.
     pub(super) limits: Option<super::limits::Snapshot>,
     /// Cell widths and row values that outlive a snapshot, so a refresh cannot move the layout.
-    pub(super) stable: RefCell<super::view::stable::Stable>,
     pub(super) meter: Option<super::meter::Meter>,
     meters: BTreeMap<String, super::meter::Meter>,
     usage_document: Option<Value>,
@@ -685,12 +593,9 @@ pub struct App {
     pub(super) excluded_counters: Vec<String>,
     pub(super) meter_hover: Option<Option<usize>>,
     squad_keys: Vec<String>,
-    pub(super) picks: super::pick::Picks,
     pub tabs: Vec<String>,
     pub hidden: Vec<String>,
     pub pinned: usize,
-    /// The quick switcher (`s`), while open.
-    pub switcher: Option<Switcher>,
     /// The `c` list of every squad's jobs, while open.
     pub(super) cron_list: Option<super::cronboard::List>,
     pub(super) row_details: super::row_detail::State,
@@ -703,28 +608,18 @@ pub struct App {
     pub searching: bool,
     /// Index among visible rows (headers excluded).
     pub selected: usize,
-    pub(super) home_target: Option<super::home::Target>,
-    /// Where the cursor was when the user left HOME; the next visit restores it.
-    home_left: Option<super::home::Target>,
-    /// The cursor still sits where HOME's opening rule put it. The first lead
-    /// read can reorder the leads, so it places the cursor once more.
-    pub(super) home_start: bool,
     pub notice: Option<String>,
     pub(super) migration_notice: Option<String>,
     pub help: bool,
     pub(super) help_state: RefCell<super::help::Help>,
-    overlay_focus: tmt_tui::app::FocusStack,
+    pub(in crate::board) overlay_focus: tmt_tui::app::FocusStack,
     pub menu: Option<Menu>,
-    pub(super) view_picker: Option<super::view_picker::Picker>,
     pub(super) theme_picker: Option<super::theme_picker::Picker>,
     pub(super) settings: Option<super::settings::Overlay>,
     pub input: Option<Input>,
     pub(super) composer: super::composer::State,
     pub(super) mentions: super::mentions::State,
     pub(super) references: super::inventory::Inventory,
-    /// Last successful row send; cleared on the next user action.
-    pub(super) sent: Option<RowFeedback>,
-    pub(super) pending_send: Option<RowFeedback>,
     /// Lane jobs submitted whose events have not arrived.
     pub(super) in_flight: usize,
     /// Current-frame inline band, reserved by the row painter.
@@ -750,41 +645,20 @@ pub struct App {
     cache: BTreeMap<String, View>,
     /// Set from a squad switch until that squad's data arrives.
     pub loading_since: Option<Instant>,
-    /// The current tab's stored display, painted until its fresh view lands.
-    /// It is never a View, so no action resolves against it.
-    pub(super) disk: Option<super::snapshot_cache::Display>,
     /// The squad `view` belongs to.
     shown: Option<String>,
     last_click: Option<(usize, Instant)>,
     /// Where rows were last drawn, for mouse events.
     pub hits: RefCell<Vec<Hit>>,
-    pub(super) detail_more_hits: RefCell<Vec<(ratatui::layout::Rect, super::row_detail::Target)>>,
+    /// Clock text belongs to painted surfaces and is invalidated with frame geometry.
+    pub(in crate::board) frame_clocks: RefCell<Vec<super::view::ClockSurface>>,
     /// Where a row's choice chip was last drawn, with its row.
     pub(super) chip_hits: RefCell<Vec<(ratatui::layout::Rect, usize)>>,
     /// Each record's first visual line in the last rows draw, for paging.
     pub row_starts: RefCell<Vec<usize>>,
     /// Where tabs were last drawn.
     pub tab_hits: RefCell<Vec<TabHit>>,
-    pub(super) unpicked_hit: std::cell::Cell<Option<ratatui::layout::Rect>>,
-    /// The last tab line hid tabs, so the footer offers the switcher.
-    pub(super) tabs_overflow: std::cell::Cell<bool>,
-    /// Only titles actually painted in the last frame can toggle.
-    pub title_hits: RefCell<Vec<TitleHit>>,
-    folds: BTreeMap<String, FoldState>,
     body_width: u16,
-    /// The first tab the tab line showed, so it scrolls only as needed.
-    pub tab_start: std::cell::Cell<usize>,
-    /// The tab a left button went down on, until it is released.
-    dragging: Option<usize>,
-}
-
-fn page_step(code: KeyCode) -> Step {
-    match code {
-        KeyCode::PageUp => Step::Pages(-1),
-        KeyCode::PageDown => Step::Pages(1),
-        KeyCode::Home => Step::Top,
-        _ => Step::Bottom,
-    }
 }
 
 pub(super) fn matches(row: &Value, needle: &str) -> bool {
@@ -811,6 +685,10 @@ pub fn event_name(key: KeyEvent) -> Option<String> {
         KeyCode::Char(' ') => "space".into(),
         KeyCode::Char(character) if character.is_ascii_graphic() => character.to_string(),
         KeyCode::Enter => "enter".into(),
+        KeyCode::Up => "up".into(),
+        KeyCode::Down => "down".into(),
+        KeyCode::Left => "left".into(),
+        KeyCode::Right => "right".into(),
         KeyCode::Backspace => "backspace".into(),
         KeyCode::Tab => "tab".into(),
         KeyCode::Delete => "delete".into(),
@@ -840,9 +718,14 @@ impl App {
         };
         if view.home.is_some() {
             return self
-                .home_entries()
-                .into_iter()
-                .map(|entry| (RowOrigin::Section(0), entry.row))
+                .workspace_rows()
+                .iter()
+                .filter_map(|entry| {
+                    self.workspace_snapshot()?
+                        .rows
+                        .get(&entry.target)
+                        .map(|row| (RowOrigin::Section(0), row))
+                })
                 .collect();
         }
         self.items()
@@ -854,8 +737,8 @@ impl App {
             .collect()
     }
 
-    /// The lead, the members rule, section headers and the rows matching the
-    /// search, in board order. The single default section has no header.
+    /// Independent source rows: lead, authored section headers and admitted
+    /// members. Interactive workspace rows are projected from the roster.
     pub fn items(&self) -> Vec<Item<'_>> {
         let Some(view) = &self.view else {
             return Vec::new();
@@ -870,7 +753,7 @@ impl App {
                 .iter()
                 .map(|member| (member.id(), member))
                 .collect();
-            // Keep lead/rule/authored sections in place; only member order changes.
+            // Keep lead/authored sections in place; only member order changes.
             let mut start = 0;
             while start < items.len() {
                 if !matches!(items[start], Item::Row(RowOrigin::Section(_), _)) {
@@ -913,16 +796,14 @@ impl App {
             self.usage_document = None;
             return;
         };
-        if view.rows.select_window(
+        view.rows.select_window(
             meter
                 .settings
                 .windows
                 .iter()
                 .position(|window| *window == self.token_window)
                 .unwrap_or(0),
-        ) {
-            view.derived.borrow_mut().grid = None;
-        }
+        );
         let mut document = view.document.clone();
         crate::display_rows::each_row(&mut document, |row| {
             if let Some(id) = row["id"].as_str().map(str::to_owned) {
@@ -952,7 +833,6 @@ impl App {
             }
         });
         if self.usage_document.as_ref() != Some(&document) {
-            view.derived.borrow_mut().grid = None;
             self.usage_document = Some(document);
         }
     }
@@ -1021,19 +901,33 @@ impl App {
         })
     }
 
+    /// Stable acquired squad order for aggregate usage and counter identity.
+    /// Search admission stays shared with the source document; cursor-only
+    /// attention, lead and timer entries never participate in this projection.
+    fn home_usage_squads(&self) -> impl Iterator<Item = &str> {
+        self.view.iter().flat_map(move |view| {
+            view.home
+                .iter()
+                .flat_map(|home| &home.squads)
+                .filter(move |squad| {
+                    view.document["sections"][0]["rows"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .any(|row| row["squad"] == squad.squad && matches(row, &self.search))
+                })
+                .map(|squad| squad.squad.as_str())
+        })
+    }
+
     pub(super) fn home_header_usage(&self, now: Instant) -> Option<HomeHeaderUsage<'_>> {
         let view = self.view.as_ref()?;
         let windows = view.home.as_ref()?.windows;
         // Stable displayed squad order decides equal-evidence UUID collisions.
-        let shown = self.home_entries();
         let mut enabled = false;
         let mut identities = BTreeMap::new();
         let mut members: Vec<HeaderMember<'_>> = Vec::new();
-        for entry in shown
-            .iter()
-            .filter(|entry| entry.target.section == "squads")
-        {
-            let squad = &entry.target.squad;
+        for squad in self.home_usage_squads() {
             let Some(rate) = view
                 .home_rate
                 .get(squad)
@@ -1062,7 +956,6 @@ impl App {
                             .map(|(reading, covered_slots)| HeaderObservation {
                                 reading,
                                 covered_slots,
-                                model: meter.model(id),
                             })
                     });
                     if let Some(candidate) = candidate
@@ -1096,12 +989,7 @@ impl App {
             }
             measured.then_some(sum)
         });
-        let unreported = members
-            .iter()
-            .filter(|member| member.readings[2].is_none())
-            .count();
         let mut top = None;
-        let mut by_model = BTreeMap::<Option<&str>, u128>::new();
         if let Some(total) = totals[2].filter(|total| total.tokens > 0) {
             let share = |tokens| UsageShare {
                 fraction: tokens as f64 / total.tokens as f64,
@@ -1109,70 +997,29 @@ impl App {
             };
             let mut highest = 0;
             for member in &members {
-                if let Some(HeaderObservation { reading, model, .. }) = member.readings[2] {
-                    *by_model.entry(model).or_default() += reading.tokens;
-                    if reading.tokens > highest {
-                        highest = reading.tokens;
-                        top = Some(UsageTop {
-                            member: member.name,
-                            share: share(reading.tokens),
-                        });
-                    }
+                if let Some(HeaderObservation { reading, .. }) = member.readings[2]
+                    && reading.tokens > highest
+                {
+                    highest = reading.tokens;
+                    top = Some(UsageTop {
+                        member: member.name,
+                        share: share(reading.tokens),
+                    });
                 }
             }
-            let mut models = by_model.into_iter().collect::<Vec<_>>();
-            models.sort_by(|(a, x), (b, y)| y.cmp(x).then_with(|| a.cmp(b)));
-            return Some(HomeHeaderUsage {
-                windows,
-                totals,
-                top,
-                unreported,
-                models: models
-                    .into_iter()
-                    .map(|(model, tokens)| UsageModel {
-                        model,
-                        share: share(tokens),
-                    })
-                    .collect(),
-            });
         }
         Some(HomeHeaderUsage {
             windows,
             totals,
             top,
-            models: Vec::new(),
-            unreported,
-        })
-    }
-
-    pub(super) fn home_counter_keys(&self, squad: &str) -> [String; 3] {
-        let view = self.view.as_ref().expect("HOME counter has a view");
-        let rate = &view.home_rate[squad];
-        let lead = view
-            .home
-            .as_ref()
-            .unwrap()
-            .squads
-            .iter()
-            .find(|line| line.squad == squad)
-            .and_then(|line| line.lead.as_ref())
-            .and_then(|lead| lead["id"].as_str());
-        let owner = format!(
-            "lead:{:?}:{squad:?}:{:?}:{lead:?}:{:?}:{:?}",
-            view.me_id, rate.input.room, self.token_window, rate.settings
-        );
-        std::array::from_fn(|index| {
-            format!("{owner}:{}", rate.settings.windows[index].milliseconds())
         })
     }
 
     pub(super) fn home_header_counter_keys(&self) -> [String; 3] {
         let view = self.view.as_ref().expect("HOME header has a view");
         let owners = self
-            .home_entries()
-            .into_iter()
-            .filter(|entry| entry.target.section == "squads")
-            .filter_map(|entry| view.home_rate.get(&entry.target.squad))
+            .home_usage_squads()
+            .filter_map(|squad| view.home_rate.get(squad))
             .filter(|rate| rate.settings.enabled)
             .map(|rate| {
                 (
@@ -1187,28 +1034,6 @@ impl App {
             format!(
                 "{owner}:{}",
                 view.home.as_ref().unwrap().windows[index].milliseconds()
-            )
-        })
-    }
-
-    pub(super) fn home_digits(
-        &self,
-        squad: &str,
-        usage: &HomeUsage<'_>,
-        now: Instant,
-    ) -> [String; 3] {
-        let reduced = self.view.as_ref().unwrap().home_rate[squad]
-            .settings
-            .reduced_motion;
-        let keys = self.home_counter_keys(squad);
-        let mut counters = self.home_counters.borrow_mut();
-        let mut keys = keys.into_iter();
-        std::array::from_fn(|index| {
-            counters.digits(
-                keys.next().unwrap(),
-                usage.lead[index],
-                reduced || self.loading(),
-                now,
             )
         })
     }
@@ -1273,80 +1098,27 @@ impl App {
     }
 
     fn clamp(&mut self) {
+        if self.workspace_snapshot().is_some() {
+            self.workspace_reconcile();
+            return;
+        }
         self.reconcile_row_details();
-        let anchor = self
-            .input
-            .as_ref()
-            .and_then(Input::target)
-            .or(self.sent.as_ref().map(|feedback| &feedback.target));
+        let anchor = self.input.as_ref().and_then(Input::target);
         if let Some(target) = anchor
             && let Some(index) = (0..self.rows().len())
                 .find(|&index| self.row_target(index).as_ref() == Some(target))
         {
             self.selected = index;
-            if let RowTarget::Home(target) = target {
-                self.home_target = Some(target.clone());
-            }
         }
-        if self.view.as_ref().is_some_and(|view| view.home.is_some()) {
-            let entries = self.home_entries();
-            let index = self
-                .home_target
-                .as_ref()
-                .and_then(|target| entries.iter().position(|entry| &entry.target == target))
-                .unwrap_or(self.selected.min(entries.len().saturating_sub(1)));
-            let target = entries.get(index).map(|entry| entry.target.clone());
-            self.selected = index;
-            self.home_target = target;
-        } else {
-            self.home_target = None;
-            self.selected = self.selected.min(self.rows().len().saturating_sub(1));
-        }
+        self.selected = self.selected.min(self.rows().len().saturating_sub(1));
     }
 
     /// Another squad is now on screen: its selection and scrolling start over.
-    /// HOME alone returns to the row the user left.
     fn shown_changed(&mut self) {
-        self.note_link = None;
-        self.home_target = None;
-        self.home_start = false;
         self.selected = 0;
         self.scrolls = Scrolls::default();
         self.follow = true;
-        self.reconcile_folds();
-        if self.view.as_ref().is_some_and(|view| view.home.is_some()) {
-            let left = self.home_left.take();
-            let index = left.and_then(|target| {
-                self.home_entries()
-                    .iter()
-                    .position(|entry| entry.target == target)
-            });
-            match index {
-                Some(index) => self.selected = index,
-                None => return self.place_home_start(),
-            }
-        }
-        self.clamp();
-    }
-
-    /// HOME opens on its first row from the top: a blocked row, else the first
-    /// lead, else the first squad. The cron line
-    /// is never the opening row. Squad tabs have no home entries and keep the
-    /// lead they start on.
-    fn place_home_start(&mut self) {
-        let entries = self.home_entries();
-        let first = |section: &str| {
-            entries
-                .iter()
-                .position(|entry| entry.target.section == section)
-        };
-        let index = ["blocked", super::home::LEADS, "squads"]
-            .into_iter()
-            .find_map(first);
-        self.home_start =
-            index.is_some_and(|index| entries[index].target.section == super::home::LEADS);
-        self.selected = index.unwrap_or(0);
-        self.home_target = None;
+        self.restore_focus();
         self.clamp();
     }
 
@@ -1355,27 +1127,9 @@ impl App {
         self.shown.as_deref()
     }
 
-    #[cfg(test)]
-    pub(crate) fn set_tab_focus_for_test(&mut self, key: &str) {
-        self.current = Some(key.to_owned());
-        self.shown = self.current.clone();
-        self.loading_since = None;
-    }
-
     /// The view on screen belongs to another squad while a switch loads.
     pub fn loading(&self) -> bool {
         self.view.is_some() && self.shown != self.current
-    }
-
-    /// Keeps a stored display only for the tab still waiting on its first fresh view.
-    pub(super) fn adopt_cached(&mut self, display: super::snapshot_cache::Display) -> bool {
-        if self.current.as_deref() != Some(display.tab())
-            || (self.view.is_some() && !self.loading())
-        {
-            return false;
-        }
-        self.disk = Some(display);
-        true
     }
 
     /// Completes the shown squad's view with its deferred reads. Focus follows the
@@ -1409,19 +1163,8 @@ impl App {
         true
     }
 
-    /// The stored display on screen instead of a view, if any.
-    pub(super) fn cached_display(&self) -> Option<&super::snapshot_cache::Display> {
-        self.disk.as_ref().filter(|display| {
-            self.current.as_deref() == Some(display.tab())
-                && (self.view.is_none() || self.loading())
-        })
-    }
-
     pub(super) fn apply_home_leads(&mut self, read: super::home_leads::Read) {
         self.home_leads.replace(read);
-        if std::mem::take(&mut self.home_start) {
-            self.place_home_start();
-        }
         self.clamp();
     }
 
@@ -1506,7 +1249,6 @@ impl App {
             }
             self.current = shown;
             self.loading_since = None;
-            self.disk = None;
             self.notice = None;
             self.error = Some(error.clone());
             self.project_usage(now);
@@ -1518,26 +1260,12 @@ impl App {
         self.references = snapshot.references;
         self.squad_keys = snapshot.squad_keys;
 
-        self.invalidate_overlay_frames();
+        self.invalidate_frame_geometry();
         self.tabs = snapshot.tabs;
         self.hidden = snapshot.hidden;
-        // A failed inventory read has no keys, including no built-ins. Keep
-        // this board's policy until an authoritative inventory returns.
-        if !self.tabs.is_empty() || !self.hidden.is_empty() {
-            self.picks.reconcile(&self.switchable());
-        }
         self.pinned = snapshot.pinned;
-        self.reconcile_switcher(false);
-        self.note_cursors
-            .borrow_mut()
-            .retain(|key, _| self.tabs.contains(key) || self.hidden.contains(key));
         self.meters
             .retain(|key, _| self.tabs.contains(key) || self.hidden.contains(key));
-        self.folds
-            .retain(|key, _| self.tabs.contains(key) || self.hidden.contains(key));
-        if let (Some(key), Ok(view)) = (&snapshot.squad, &snapshot.view) {
-            self.remember_folds(key.clone(), &view.board);
-        }
         self.attention
             .retain(|key, _| self.tabs.contains(key) || self.hidden.contains(key));
         self.attention.extend(snapshot.attention);
@@ -1550,13 +1278,12 @@ impl App {
         }
         self.current = snapshot.squad;
         self.loading_since = None;
-        // Any result for this tab, fresh or failed, ends the stored display.
-        self.disk = None;
         match snapshot.view {
             Ok(mut view) => {
                 let now = Instant::now();
                 self.home_leads.set_sender(view.me_id.as_deref());
                 if let Some(home) = &view.home {
+                    self.token_window = home.window.available(home.windows);
                     self.home_leads.reconcile(home, view.me_id.as_deref());
                     for (name, meter) in &mut self.meters {
                         if view
@@ -1635,10 +1362,7 @@ impl App {
                             .collect()
                     })
                     .unwrap_or_default();
-                let panes = self
-                    .view_picker
-                    .as_ref()
-                    .map_or(view.board.panes.len(), |picker| picker.board().panes.len());
+                let panes = self.focus_panes().len();
                 self.focus = self.focus.min(panes.saturating_sub(1));
                 let changed = self.loading() || self.view.is_none();
                 if let Some(overlay) = &mut self.settings {
@@ -1647,10 +1371,7 @@ impl App {
                 }
                 self.usage_document = None;
                 // A refresh can reorder rows; the cursor follows its member.
-                let anchor = (!changed)
-                    .then(|| self.row_target(self.selected))
-                    .flatten()
-                    .filter(|target| !matches!(target, RowTarget::Home(_)));
+                let anchor = (!changed).then(|| self.row_target(self.selected)).flatten();
                 let previous = self.view.replace(view);
                 let previous_squad = std::mem::replace(&mut self.shown, self.current.clone());
                 // A result that arrived for it meanwhile is newer: keep that.
@@ -1663,7 +1384,7 @@ impl App {
                     self.shown_changed();
                     self.restore_pending();
                 } else {
-                    self.reconcile_folds();
+                    self.restore_focus();
                     if let Some(anchor) = anchor {
                         self.follow_member(&anchor);
                     }
@@ -1671,6 +1392,19 @@ impl App {
                 self.error = None;
             }
             Err(error) => {
+                if let Some(snapshot) = self
+                    .view
+                    .as_mut()
+                    .and_then(|view| view.home.as_mut())
+                    .map(|home| &mut home.workspace)
+                {
+                    snapshot.roster.observation = super::workspace::OpsObservation::Stale;
+                    for squad in &mut snapshot.roster.squads {
+                        if squad.observation == super::workspace::OpsObservation::Complete {
+                            squad.observation = super::workspace::OpsObservation::Stale;
+                        }
+                    }
+                }
                 // A reload's state belongs to a view that did not arrive.
                 self.pending_resume = None;
                 self.home_counters.get_mut().clear();
@@ -1699,152 +1433,6 @@ impl App {
     fn prune_views(&mut self) {
         self.cache
             .retain(|key, _| self.tabs.contains(key) || self.hidden.contains(key));
-    }
-
-    /// Canonical indices survive selection, so hit maps and saved order share one identity.
-    pub(super) fn picked_indices(&self) -> Vec<usize> {
-        self.tabs
-            .iter()
-            .enumerate()
-            .filter_map(|(index, key)| self.picks.contains(key).then_some(index))
-            .collect()
-    }
-
-    pub(super) fn unpicked_squads(&self) -> Vec<&String> {
-        self.tabs
-            .iter()
-            .filter(|key| !super::tabs::aggregate(key) && !self.picks.contains(key))
-            .collect()
-    }
-
-    fn switch(&mut self, step: isize) -> Effect {
-        let picked = self.picked_indices();
-        let Some(position) = picked
-            .iter()
-            .position(|&index| self.current.as_ref() == self.tabs.get(index))
-        else {
-            return Effect::None;
-        };
-        let next = picked[(position as isize + step).rem_euclid(picked.len() as isize) as usize];
-        self.go(self.tabs[next].clone())
-    }
-
-    /// An inventory removal cannot leave navigation on an excluded or vanished tab.
-    pub(super) fn reconcile_pick_current(&mut self) -> Effect {
-        let inventory = self.switchable();
-        if self
-            .current
-            .as_ref()
-            .is_some_and(|key| inventory.contains(key) && self.picks.contains(key))
-            || inventory.is_empty()
-        {
-            return Effect::None;
-        }
-        let next = self
-            .tabs
-            .iter()
-            .find(|key| self.picks.contains(key))
-            .cloned()
-            .or_else(|| {
-                inventory
-                    .iter()
-                    .find(|key| key.as_str() == super::ALL)
-                    .cloned()
-            });
-        next.map_or(Effect::None, |key| self.go(key))
-    }
-
-    fn toggle_tab_pick(&mut self, key: String) -> Effect {
-        let inventory = self.switchable();
-        if !inventory.contains(&key) {
-            return Effect::None;
-        }
-        self.picks.toggle(&key, &inventory);
-        self.tab_hits.borrow_mut().clear();
-        self.unpicked_hit.set(None);
-        self.dragging = None;
-        self.invalidate_overlay_frames();
-        let effect = if self.current.as_ref() == Some(&key) && !self.picks.contains(&key) {
-            let position = self.tabs.iter().position(|tab| tab == &key).unwrap_or(0);
-            let next = self
-                .tabs
-                .iter()
-                .skip(position + 1)
-                .chain(self.tabs.iter().take(position + 1))
-                .find(|tab| self.picks.contains(tab))
-                .cloned()
-                .unwrap_or_else(|| super::ALL.to_owned());
-            self.go(next)
-        } else {
-            Effect::None
-        };
-        self.reconcile_switcher(false);
-        effect
-    }
-
-    /// Default Space is local to the switcher; an explicit pick binding replaces it.
-    pub(super) fn pick_keys(&self) -> Vec<String> {
-        let bindings = self.bindings();
-        let keys = bindings
-            .iter()
-            .filter(|(_, action)| action.verb == Verb::PickTab)
-            .map(|(key, _)| key.clone())
-            .collect::<Vec<_>>();
-        if keys.is_empty() && !bindings.contains_key("space") {
-            vec!["space".into()]
-        } else {
-            keys
-        }
-    }
-
-    pub(super) fn switcher_keys(&self) -> Vec<String> {
-        if self
-            .switcher
-            .as_ref()
-            .is_some_and(|switcher| switcher.unpicked_only)
-        {
-            self.unpicked_squads().into_iter().cloned().collect()
-        } else {
-            self.switchable()
-        }
-    }
-
-    /// Shift+←/→: the current tab trades places with its neighbor, and the
-    /// new order is saved. The ends do not wrap.
-    fn move_current(&mut self, step: isize) -> Effect {
-        let Some(from) = self
-            .current
-            .as_ref()
-            .and_then(|current| self.tabs.iter().position(|tab| tab == current))
-        else {
-            return Effect::None;
-        };
-        let picked = self.picked_indices();
-        let Some(position) = picked.iter().position(|&index| index == from) else {
-            return Effect::None;
-        };
-        match position
-            .checked_add_signed(step)
-            .and_then(|index| picked.get(index))
-        {
-            Some(&to) => self.move_tab(from, to),
-            None => Effect::None,
-        }
-    }
-
-    /// Moves one tab to another position and saves the order. Pinned tabs
-    /// keep `[tabs] pin`'s order, so only the others move, and never among
-    /// them: a saved `order` could not change where a pin is drawn.
-    fn move_tab(&mut self, from: usize, to: usize) -> Effect {
-        if from == to || from >= self.tabs.len() || to >= self.tabs.len() {
-            return Effect::None;
-        }
-        if from < self.pinned || to < self.pinned {
-            return self.say("Pinned tabs keep the order in [tabs] pin.");
-        }
-        let tab = self.tabs.remove(from);
-        self.tabs.insert(to, tab);
-        Effect::Act(Request::Reorder(self.tabs.clone()))
     }
 
     /// Close the current tab's meter continuity and resume the target's cached
@@ -1889,8 +1477,22 @@ impl App {
 
     /// Shows the tab `next`, from the cache at once when it was visited.
     pub(super) fn go(&mut self, next: String) -> Effect {
+        if let Some(snapshot) = self.workspace_snapshot() {
+            let target = snapshot
+                .roster
+                .squads
+                .iter()
+                .find(|squad| squad.name == next)
+                .map(|squad| super::workspace::OpsTarget::Squad(squad.room_id.clone()));
+            if let Some(target) = target {
+                self.workspace.selected = Some(target);
+                self.shell.tab = super::shell::OpsTab::Agents;
+                self.workspace_reconcile();
+                return Effect::None;
+            }
+            return self.say("Select a squad from the workspace; old squad tabs are retired.");
+        }
         self.meter_hover = None;
-        self.picks.include(&next);
         if Some(&next) == self.current.as_ref() {
             return Effect::None;
         }
@@ -1898,13 +1500,8 @@ impl App {
             view.history_pending = false;
         }
         self.handoff_meters(&next, Instant::now());
-        if self.shown.as_deref() == Some(super::ALL) && self.home_target.is_some() {
-            self.home_left = self.home_target.clone();
-        }
         self.current = Some(next.clone());
-        self.disk = None;
         self.error = None;
-        self.jobs_focus = false;
         self.menu = None;
         self.loading_since = Some(Instant::now());
         // Never blank the screen: a visited squad shows from the cache at
@@ -1920,35 +1517,6 @@ impl App {
             self.shown_changed();
         }
         Effect::Load(next)
-    }
-
-    fn remember_folds(&mut self, key: String, board: &Board) {
-        if self.view_picker.is_some() || (!self.tabs.contains(&key) && !self.hidden.contains(&key))
-        {
-            return;
-        }
-        if self
-            .folds
-            .get(&key)
-            .is_none_or(|state| state.board != *board)
-        {
-            self.folds.insert(
-                key,
-                FoldState {
-                    board: board.clone(),
-                    overrides: BTreeMap::new(),
-                },
-            );
-        }
-    }
-
-    fn reconcile_folds(&mut self) {
-        if let (Some(key), Some(view)) = (&self.shown, &self.view) {
-            let key = key.clone();
-            let board = view.board.clone();
-            self.remember_folds(key, &board);
-        }
-        self.restore_focus();
     }
 
     pub(super) fn open_settings(&mut self, config: Config) -> Result<(), crate::core::SquadError> {
@@ -2045,91 +1613,32 @@ impl App {
         self.restore_focus();
     }
 
-    /// All geometry consumers see the in-memory draft while the picker is open.
+    /// Authored board values belong to the independent CLI/config projection.
     pub fn effective_board(&self) -> Option<&Board> {
-        self.view_picker
-            .as_ref()
-            .map(|picker| picker.board())
-            .or_else(|| self.view.as_ref().map(|view| &view.board))
+        self.view.as_ref().map(|view| &view.board)
     }
 
-    pub fn open_view_picker(&mut self, config: Config) -> Result<(), crate::core::SquadError> {
-        let Some(board) = self.effective_board().cloned() else {
-            return Ok(());
-        };
-        let squad = self
-            .current
-            .clone()
-            .filter(|name| !super::tabs::aggregate(name));
-        self.view_picker = Some(super::view_picker::Picker::open(
-            config, squad, board, self.focus,
-        )?);
-        self.help = false;
-        Ok(())
-    }
-
-    pub fn close_view_picker(&mut self, saved: bool) {
-        if let Some(picker) = self.view_picker.take() {
-            let board = if saved {
-                picker.board().clone()
-            } else {
-                picker.opening.clone()
-            };
-            if let Some(view) = &mut self.view {
-                view.board = board;
-            }
-            if saved {
-                self.reconcile_folds();
-            } else {
-                self.focus = picker.opening_focus;
-                self.restore_focus();
-            }
+    /// Logical placement survives invalidating pointer rectangles. A refresh
+    /// must not turn a retained Reader focus into a list/Host key scope.
+    fn conversation_area(&self) -> ratatui::layout::Rect {
+        let mut area = self.conversation.borrow().area;
+        if self.body_width > 0 {
+            area.width = self.body_width;
         }
-    }
-
-    /// Resolve immutable defaults and user overrides for the board body width.
-    pub fn folds_at(&self, width: u16) -> BTreeSet<Pane> {
-        let Some(board) = self.effective_board() else {
-            return BTreeSet::new();
-        };
-        let mut collapsed = board.collapsed.clone();
-        if let Some(rule) = &board.fold_below
-            && width < rule.width
-        {
-            collapsed.extend(&rule.panes);
-        }
-        if let Some(state) = self.shown.as_ref().and_then(|key| self.folds.get(key)) {
-            for (pane, folded) in &state.overrides {
-                if *folded {
-                    collapsed.insert(*pane);
-                } else {
-                    collapsed.remove(pane);
-                }
-            }
-        }
-        collapsed
+        area
     }
 
     pub fn collapsed_panes(&self) -> BTreeSet<Pane> {
-        let mut folds = self.folds_at(self.body_width);
-        if self.view.as_ref().is_some_and(|view| view.home.is_some())
-            && super::conversation::layout::overview(self.conversation.borrow().area)
-                .conversation
-                .is_none()
+        if self.workspace_snapshot().is_none()
+            || (self.shell.tab == super::shell::OpsTab::Overview
+                && super::conversation::layout::overview(self.conversation_area())
+                    .conversation
+                    .is_none())
         {
-            folds.insert(Pane::Replies);
+            [Pane::Replies].into()
+        } else {
+            BTreeSet::new()
         }
-        if let Some(board) = self.effective_board()
-            && let Some(view) = &self.view
-            && let Some(cache) = &*view.composition.borrow()
-        {
-            folds.extend(cache.derived_folds(board, &folds, self.body_width));
-        }
-        folds
-    }
-
-    pub(super) fn body_width(&self) -> u16 {
-        self.body_width
     }
 
     pub fn set_body_width(&mut self, width: u16) {
@@ -2137,15 +1646,21 @@ impl App {
         self.restore_focus();
     }
 
+    fn focus_panes(&self) -> &[Pane] {
+        &[Pane::Rows, Pane::Replies]
+    }
+
     pub fn focused_pane(&self) -> Option<Pane> {
-        self.effective_board()
-            .and_then(|board| board.panes.get(self.focus).copied())
-            .filter(|pane| !self.collapsed_panes().contains(pane) && !self.jobs_focus)
+        self.focus_panes()
+            .get(self.focus)
+            .copied()
+            .filter(|pane| !self.collapsed_panes().contains(pane))
     }
 
     pub fn focused(&self) -> Pane {
-        self.effective_board()
-            .and_then(|board| board.panes.get(self.focus).copied())
+        self.focus_panes()
+            .get(self.focus)
+            .copied()
             .unwrap_or(Pane::Rows)
     }
 
@@ -2157,22 +1672,34 @@ impl App {
         else {
             return;
         };
-        if let Some(position) = self
-            .effective_board()
-            .and_then(|board| board.panes.iter().position(|p| *p == pane))
-        {
+        if let Some(position) = self.focus_panes().iter().position(|p| *p == pane) {
             self.focus = position;
         }
     }
 
     /// A hidden focus returns to rows; boards without visible rows use the next pane.
     fn restore_focus(&mut self) {
-        if self.jobs_focus || self.focused_pane().is_some() {
+        if self.workspace_snapshot().is_some() {
+            self.focus = self.focus.min(self.focus_panes().len().saturating_sub(1));
+            if self.focus == 1
+                && self.shell.tab == super::shell::OpsTab::Overview
+                && super::conversation::layout::overview(self.conversation_area())
+                    .conversation
+                    .is_none()
+            {
+                self.shell.tab = super::shell::OpsTab::Agents;
+                self.invalidate_frame_geometry();
+            }
+            return;
+        }
+
+        if self.focused_pane().is_some() {
             return;
         }
         if let Some(position) = self
-            .effective_board()
-            .and_then(|board| board.panes.iter().position(|pane| *pane == Pane::Rows))
+            .focus_panes()
+            .iter()
+            .position(|pane| *pane == Pane::Rows)
             && !self.collapsed_panes().contains(&Pane::Rows)
         {
             self.focus = position;
@@ -2182,93 +1709,15 @@ impl App {
     }
 
     fn next_pane(&mut self) {
-        if self.jobs_focus {
-            self.jobs_leave(false);
-            return;
-        }
-        if let Some(board) = self.effective_board() {
-            let collapsed = self.collapsed_panes();
-            let count = board.panes.len();
-            // After the last visible pane, Tab enters the jobs half when it is drawn.
-            if self.jobs_painted()
-                && !(self.focus + 1..count).any(|index| !collapsed.contains(&board.panes[index]))
-            {
-                self.jobs_focus = true;
-                return;
-            }
-            if let Some(next) = (1..=count)
-                .map(|step| (self.focus + step) % count)
-                .find(|index| !collapsed.contains(&board.panes[*index]))
-            {
-                self.focus = next;
-            }
-        }
-    }
-
-    /// Leaves the jobs half for the first (or, backwards, last) visible pane.
-    pub(super) fn jobs_leave(&mut self, backwards: bool) {
-        self.jobs_focus = false;
+        let panes = self.focus_panes();
         let collapsed = self.collapsed_panes();
-        let visible = |pane: &Pane| !collapsed.contains(pane);
-        let target = self.effective_board().and_then(|board| {
-            if backwards {
-                board.panes.iter().rposition(visible)
-            } else {
-                board.panes.iter().position(visible)
-            }
-        });
-        if let Some(target) = target {
-            self.focus = target;
+        let count = panes.len();
+        if let Some(next) = (1..=count)
+            .map(|step| (self.focus + step) % count)
+            .find(|index| !collapsed.contains(&panes[*index]))
+        {
+            self.focus = next;
         }
-    }
-
-    fn toggle_panes(&mut self, panes: &[Pane]) -> Effect {
-        self.jobs_focus = false;
-        if self.loading() {
-            return self.say(format!(
-                "Loading {}…",
-                self.current.clone().unwrap_or_default()
-            ));
-        }
-        let Some(board) = self.effective_board().cloned() else {
-            return Effect::None;
-        };
-        if board.mode != BoardMode::Split {
-            return self.say("toggle applies to split mode only.");
-        }
-        let panes: Vec<_> = panes
-            .iter()
-            .filter(|pane| board.panes.contains(pane))
-            .copied()
-            .collect();
-        if panes.is_empty() {
-            return Effect::None;
-        }
-        let position = board
-            .panes
-            .iter()
-            .position(|pane| Some(pane) == panes.first())
-            .expect("validated toggle panes");
-        let had_focus = self.focused_pane().is_some();
-        let Some(key) = self.shown.clone() else {
-            return Effect::None;
-        };
-        self.remember_folds(key.clone(), &board);
-        let collapsed = self.collapsed_panes();
-        let expanding = panes.iter().all(|pane| collapsed.contains(pane));
-        let Some(state) = self.folds.get_mut(&key) else {
-            return Effect::None;
-        };
-        for pane in &panes {
-            state.overrides.insert(*pane, !expanding);
-        }
-        if expanding && !had_focus {
-            self.focus = position;
-        } else {
-            self.restore_focus();
-        }
-        self.last_click = None;
-        Effect::None
     }
 
     pub(super) fn selected_section(&self) -> Option<usize> {
@@ -2280,31 +1729,7 @@ impl App {
     /// The selected row's section overrides its host table, which overrides the
     /// tab/global bindings and the preset.
     pub fn bindings(&self) -> Bindings {
-        let Some(view) = &self.view else {
-            return Bindings::new();
-        };
-        let section = self
-            .rows()
-            .get(self.selected)
-            .and_then(|(slot, _)| view.section_bindings.get(slot.section()?));
-        let enabled = view
-            .token_rate
-            .as_ref()
-            .is_some_and(|rate| rate.settings.enabled)
-            || self
-                .meter
-                .as_ref()
-                .is_some_and(|meter| meter.settings.enabled);
-        let mut bindings = view.bindings.clone();
-        // Core's published host for the row's pane picks the table; no host, no table.
-        if let Some(host) = self
-            .selected_row()
-            .and_then(|row| row["pane"]["location"]["host"].as_str())
-            .and_then(|host| view.host_bindings.get(host))
-        {
-            bindings.extend(host.clone());
-        }
-        crate::action::effective_bindings(bindings, section, enabled)
+        self.workspace_bindings()
     }
 
     pub(super) fn say(&mut self, notice: impl Into<String>) -> Effect {
@@ -2316,59 +1741,41 @@ impl App {
     /// the action with a notice; nothing runs half-filled. While a switch
     /// loads, the rows on screen are another squad's, so nothing acts on them.
     pub fn perform(&mut self, action: &Action) -> Effect {
+        if let Err(error) = crate::config::admit_workspace_action(action, "action") {
+            return self.say(error.message);
+        }
+        if let Verb::Ui(action) = action.verb {
+            return self.workspace_action(action);
+        }
         if action.verb == Verb::Menu {
             return self.context_menu();
         }
-        if action.verb == Verb::PickTab {
-            self.switcher = Some(Switcher::default());
-            self.reconcile_switcher(false);
-            return Effect::None;
-        }
-        if (self.loading() || self.cached_display().is_some())
-            && !matches!(action.verb, Verb::NextPane | Verb::Refresh | Verb::Notes)
-        {
+        if self.loading() && !matches!(action.verb, Verb::NextPane | Verb::Refresh | Verb::Notes) {
             let loading = self.current.clone().unwrap_or_default();
             return self.say(format!("Loading {loading}…"));
         }
-        if self.view.as_ref().is_some_and(|view| view.home.is_some()) {
-            match action.verb {
-                Verb::Tab | Verb::Jump
-                    if action.args.first().and_then(|arg| arg.literal()) != Some("lead") =>
-                {
-                    return self.home_enter();
-                }
-                Verb::Annotate => return self.home_answer(),
-                _ => {}
-            }
-        }
-        if action.verb == Verb::Annotate && self.focused_pane() == Some(Pane::Notes) {
-            return self.annotate_note();
+        if self.workspace_snapshot().is_some()
+            && action.verb.acts_on_member()
+            && self.workspace_selected_member().is_none()
+        {
+            return self.say("Select a visible named member before running this action.");
         }
         match action.verb {
-            Verb::Toggle => {
-                let panes: Vec<_> = action
-                    .args
-                    .iter()
-                    .map(|arg| {
-                        arg.literal()
-                            .and_then(Pane::parse)
-                            .expect("validated toggle pane")
-                    })
-                    .collect();
-                return self.toggle_panes(&panes);
-            }
             Verb::TokenWindow => {
                 return self.cycle_token_window();
             }
             Verb::HomeMessage => return self.toggle_row_detail(),
             Verb::ViewReply => return self.view_row_reply(),
-            Verb::HomeWrite => return self.home_write(),
-            Verb::HomePick => return self.home_pick(),
             Verb::AskLead => return self.ask_lead(),
             Verb::Digest => return self.digest_row(self.selected),
-            Verb::Settings => return Effect::Settings,
+            Verb::Settings => {
+                return if self.workspace_snapshot().is_some() {
+                    self.workspace_settings()
+                } else {
+                    Effect::Settings
+                };
+            }
             Verb::Theme => return Effect::PickTheme,
-            Verb::View => return Effect::PickView,
             Verb::NextPane => {
                 self.next_pane();
                 return Effect::None;
@@ -2377,31 +1784,7 @@ impl App {
                 self.notice = Some("Refreshing…".into());
                 return Effect::Refresh;
             }
-            Verb::Notes => {
-                if self.effective_board().is_some_and(|board| board.members) {
-                    return self.toggle_panes(&[Pane::Notes]);
-                }
-                let position = self
-                    .effective_board()
-                    .and_then(|board| board.panes.iter().position(|p| *p == Pane::Notes));
-                return match position {
-                    Some(position) => {
-                        if self.loading() && self.collapsed_panes().contains(&Pane::Notes) {
-                            return self.say(format!(
-                                "Loading {}…",
-                                self.current.clone().unwrap_or_default()
-                            ));
-                        }
-                        if self.collapsed_panes().contains(&Pane::Notes) {
-                            self.toggle_panes(&[Pane::Notes]);
-                        }
-                        self.jobs_focus = false;
-                        self.focus = position;
-                        Effect::None
-                    }
-                    None => self.say("The notes pane is not on this board; add it to panes."),
-                };
-            }
+            Verb::Notes => return self.say("The old lead notebook pane is retired. The binding is preserved in Config for explicit migration; it does not change the selected agent."),
             Verb::Back => return Effect::Act(Request::Back),
             Verb::Jump if action.args.first().and_then(|arg| arg.literal()) == Some("lead") => {
                 return match self.lead() {
@@ -2410,9 +1793,6 @@ impl App {
                 };
             }
             _ => {}
-        }
-        if self.jobs_focus && action.verb.acts_on_member() {
-            return self.say("Tab returns to the members; this key acts on a member row.");
         }
         let Some(row) = self.selected_row().cloned() else {
             return self.say("No row is selected.");
@@ -2426,7 +1806,11 @@ impl App {
                     None => self.say("tab: this row has no squad."),
                 };
             }
-            Verb::Jump => match row["name"].as_str() {
+            Verb::Jump => match if self.workspace_snapshot().is_some() {
+                row["id"].as_str()
+            } else {
+                row["name"].as_str()
+            } {
                 Some(name) => Ok(Request::Jump(name.to_owned())),
                 None => Err("This row has no member name.".to_owned()),
             },
@@ -2505,11 +1889,6 @@ impl App {
         let named = |name: Option<&str>| name.filter(|name| !name.is_empty()).map(str::to_owned);
         let lead = match self.current.as_deref() {
             Some(super::LEADS) => named(self.selected_row().and_then(|row| row["name"].as_str())),
-            Some(super::ALL) if view.home.is_some() => named(
-                self.home_entries()
-                    .get(self.selected)
-                    .and_then(|entry| entry.lead),
-            ),
             Some(super::ALL) => named(
                 self.selected_row()
                     .and_then(|row| row["fields"]["lead"].as_str()),
@@ -2580,8 +1959,11 @@ impl App {
     /// Selects the same row, else the same member elsewhere; otherwise the index stays.
     fn follow_member(&mut self, anchor: &RowTarget) {
         let member = |target: &RowTarget| match target {
+            RowTarget::Workspace(super::workspace::OpsTarget::Member { identity_id, .. }) => {
+                Some(identity_id.clone())
+            }
+            RowTarget::Workspace(_) => None,
             RowTarget::Member { id, .. } | RowTarget::Lead { id, .. } => Some(id.clone()),
-            RowTarget::Home(_) => None,
         };
         let targets: Vec<_> = (0..self.rows().len())
             .map(|index| self.row_target(index))
@@ -2601,11 +1983,13 @@ impl App {
     }
 
     pub(super) fn row_target(&self, index: usize) -> Option<RowTarget> {
-        if self.view.as_ref()?.home.is_some() {
-            return self
-                .home_entries()
-                .get(index)
-                .map(|entry| RowTarget::Home(entry.target.clone()));
+        if self.workspace_snapshot().is_some() {
+            if index == self.selected && !self.workspace_selection_visible() {
+                return None;
+            }
+            let target = self.workspace_rows().get(index)?.target.clone();
+            return matches!(target, super::workspace::OpsTarget::Member { .. })
+                .then_some(RowTarget::Workspace(target));
         }
         let (slot, row) = *self.rows().get(index)?;
         self.projected_row_target(slot, row)
@@ -2629,11 +2013,14 @@ impl App {
 
     pub(super) fn target_row(&self, target: &RowTarget) -> Option<&Value> {
         match target {
-            RowTarget::Home(target) => self
-                .home_entries()
-                .into_iter()
-                .find(|entry| &entry.target == target)
-                .map(|entry| entry.row),
+            RowTarget::Workspace(target) => {
+                let snapshot = self.workspace_snapshot()?;
+                snapshot
+                    .roster
+                    .contains(target)
+                    .then(|| snapshot.rows.get(target))
+                    .flatten()
+            }
             RowTarget::Member {
                 tab,
                 section,
@@ -2656,46 +2043,62 @@ impl App {
         }
     }
 
-    fn note_recipient(&self, target: &RowTarget) -> Option<String> {
+    fn note_recipient(&self, target: &RowTarget) -> Option<NoteRecipient> {
         match target {
-            RowTarget::Home(target) => self
-                .home_entries()
-                .into_iter()
-                .find(|entry| &entry.target == target)
-                .and_then(|entry| entry.lead.map(str::to_owned)),
+            RowTarget::Workspace(super::workspace::OpsTarget::Member {
+                room_id: Some(room),
+                ..
+            }) => {
+                let snapshot = self.workspace_snapshot()?;
+                let lead = snapshot
+                    .roster
+                    .squads
+                    .iter()
+                    .find(|squad| squad.room_id == *room)?
+                    .lead
+                    .as_ref()?;
+                snapshot
+                    .roster
+                    .members
+                    .get(lead)
+                    .map(|member| NoteRecipient {
+                        id: Some(member.id.clone()),
+                        name: member.name.clone(),
+                    })
+            }
+            RowTarget::Workspace(_) => None,
             RowTarget::Member { tab, .. } if tab == super::LEADS => {
-                self.target_row(target)?["name"].as_str().map(str::to_owned)
+                NoteRecipient::from_row(self.target_row(target)?)
             }
             RowTarget::Member { tab, .. } | RowTarget::Lead { tab, .. }
                 if !super::tabs::aggregate(tab) =>
             {
-                self.view.as_ref()?.document["squad"]["lead"]["name"]
-                    .as_str()
-                    .map(str::to_owned)
+                NoteRecipient::from_row(&self.view.as_ref()?.document["squad"]["lead"])
             }
             _ => None,
         }
     }
 
-    pub(super) fn row_send(&self, index: usize, member_note: bool) -> Option<RowSend> {
-        let target = self.row_target(index)?;
-        self.send_target(target, member_note)
-    }
-
     pub(super) fn send_target(&self, target: RowTarget, member_note: bool) -> Option<RowSend> {
         let sender = self.view.as_ref()?.me.clone()?;
         let name = self.target_row(&target)?["name"].as_str()?.to_owned();
-        let to = if member_note {
-            Some(name.clone())
+        let recipient = if member_note {
+            NoteRecipient::from_row(self.target_row(&target)?)
         } else {
             self.note_recipient(&target)
         };
+        let note = recipient.as_ref().map(|recipient| Compose::Annotate {
+            to: recipient.name.clone(),
+            row: name.clone(),
+        });
         Some(RowSend {
             target,
             sender,
-            name: name.clone(),
+            sender_id: self.view.as_ref()?.me_id.clone(),
+            name,
             note_member: member_note,
-            note: to.map(|to| Compose::Annotate { to, row: name }),
+            note,
+            note_recipient: recipient,
         })
     }
 
@@ -2721,6 +2124,10 @@ impl App {
     }
     /// One composer for row answers and notes; several requests still need a choice.
     pub(super) fn compose_row(&mut self, mut send: RowSend, verb: Verb, squad: String) -> Effect {
+        if squad.is_empty() && verb == Verb::Annotate {
+            return self
+                .say("Notes require a squad context; use Talk for this Common pool identity.");
+        }
         self.status_draft = None;
         let row = self.target_row(&send.target).expect("opening row exists");
         let pending = row["pending"].as_str().is_some_and(|text| !text.is_empty());
@@ -2760,17 +2167,15 @@ impl App {
             Verb::Reply => return self.say(format!("{} is not waiting on you.", send.name)),
             _ => match send.note.clone() {
                 Some(note) => note,
-                None if matches!(&send.target,RowTarget::Home(target) if target.member.is_none()) =>
-                {
-                    return self.say(
-                        "This squad has no lead; choose a lead before writing to its squad row.",
-                    );
-                }
                 None => Compose::Talk {
                     to: send.name.clone(),
                 },
             },
         };
+        if squad.is_empty() && matches!(compose, Compose::Annotate { .. }) {
+            return self
+                .say("Notes require a squad context; use Talk for this Common pool identity.");
+        }
         let effect = self.ask(String::new(), compose, squad.clone());
         self.attach_row(send, squad);
         effect
@@ -2785,24 +2190,44 @@ impl App {
         {
             return self.say("Who is sending? Record yourself with tmt ops squad me <name>, or open the board from your named pane.");
         }
-        let rows = self.rows();
-        let index = rows
-            .get(self.selected)
-            .filter(|(_, candidate)| *candidate == row)
-            .map(|_| self.selected)
-            .or_else(|| rows.iter().position(|(_, candidate)| *candidate == row));
-        let target = index.and_then(|index| self.row_target(index)).or_else(|| {
-            let view = self.view.as_ref()?;
-            (row == &view.document["squad"]["lead"])
-                .then(|| {
-                    Some(RowTarget::Lead {
-                        tab: self.shown_tab()?.to_owned(),
-                        squad: self.current.clone()?,
-                        id: row["id"].as_str()?.to_owned(),
+        // Workspace selection already owns the exact membership. Do not infer
+        // its target from a filtered flat row index or equal row payload.
+        let target = if self.workspace_snapshot().is_some() {
+            self.workspace_selected_member()
+                .cloned()
+                .map(RowTarget::Workspace)
+        } else {
+            let rows = self.rows();
+            let index = rows
+                .get(self.selected)
+                .filter(|(_, candidate)| *candidate == row)
+                .map(|_| self.selected)
+                .or_else(|| rows.iter().position(|(_, candidate)| *candidate == row));
+            index.and_then(|index| self.row_target(index)).or_else(|| {
+                let view = self.view.as_ref()?;
+                (row == &view.document["squad"]["lead"])
+                    .then(|| {
+                        Some(RowTarget::Lead {
+                            tab: self.shown_tab()?.to_owned(),
+                            squad: self.current.clone()?,
+                            id: row["id"].as_str()?.to_owned(),
+                        })
                     })
-                })
-                .flatten()
-        });
+                    .flatten()
+            })
+        };
+        if action.verb == Verb::Annotate
+            && matches!(
+                target,
+                Some(RowTarget::Workspace(super::workspace::OpsTarget::Member {
+                    room_id: None,
+                    ..
+                }))
+            )
+        {
+            return self
+                .say("Notes require a squad context; use Talk for this Common pool identity.");
+        }
         let Some(send) = target.and_then(|target| {
             self.send_target(
                 target,
@@ -2811,21 +2236,20 @@ impl App {
         }) else {
             return self.say("This row has no stable member target.");
         };
-        let squad = row["squad"]
-            .as_str()
-            .map(str::to_owned)
-            .or_else(|| self.current.clone())
-            .unwrap_or_default();
+        let Some(squad) = self.target_squad(&send.target) else {
+            return self.say("The retained membership is unavailable.");
+        };
         self.compose_row(send, action.verb, squad)
     }
 
     pub(super) fn choose(&mut self, choice: Choice) -> Effect {
         match choice {
+            Choice::WorkspaceBegin(kind) => self.workspace_begin(kind),
+            Choice::WorkspaceLayout(layout) => self.workspace_layout(layout),
             Choice::Checklist => self.open_checklist(),
             Choice::Action(action) => self.perform(&action),
             Choice::Cron(request) => Effect::Act(Request::Cron(request)),
             Choice::Dismiss => Effect::None,
-            Choice::Leads { recipients, all } => self.compose_leads(recipients, all),
             Choice::Reply { request, from } => self.ask(
                 format!("→ {from}"),
                 Compose::Reply { request, from },
@@ -2876,8 +2300,11 @@ impl App {
             Some(Compose::Talk {
                 to: send.name.clone(),
             }),
-            (!matches!(&send.target,RowTarget::Home(target) if target.member.is_none()))
-                .then_some(Compose::Status),
+            (!matches!(
+                &send.target,
+                RowTarget::Workspace(super::workspace::OpsTarget::Member { room_id: None, .. })
+            ))
+            .then_some(Compose::Status),
         ];
         let rank = |compose: &Compose| compose.mode().map(|(rank, _)| rank);
         let here = rank(current);
@@ -2903,6 +2330,7 @@ impl App {
             input.row_send = Some(send);
             input.prompt = input.header();
         }
+        self.workspace_focus_conversation();
         self.follow = true;
     }
 
@@ -2964,26 +2392,39 @@ impl App {
         self.bind_draft();
     }
 
-    /// The next token window of the summary meter, when the squad samples one.
+    /// Cycle the acquired workspace window or the independent sampled source.
     fn cycle_token_window(&mut self) -> Effect {
-        if self.meter.is_some() {
+        if self.next_token_window().is_some() {
             Effect::CycleTokenWindow
         } else {
             Effect::None
         }
     }
     pub(super) fn next_token_window(&self) -> Option<crate::config::TokenWindow> {
-        self.meter
+        let windows = self
+            .view
             .as_ref()
-            .map(|meter| self.token_window.next(meter.settings.windows))
+            .and_then(|view| view.home.as_ref())
+            .map(|home| home.windows)
+            .or_else(|| self.meter.as_ref().map(|meter| meter.settings.windows))?;
+        Some(self.token_window.next(windows))
     }
     pub(super) fn apply_token_window(&mut self, config: &Config) -> String {
-        let key = self.current.clone().unwrap_or_default();
+        let shared = self.view.as_ref().is_some_and(|view| view.home.is_some());
+        let key = if shared {
+            String::new()
+        } else {
+            self.current.clone().unwrap_or_default()
+        };
         let window = config
             .token_rate(&key)
             .expect("validated window write")
             .window;
         self.token_window = window;
+        if let Some(home) = self.view.as_mut().and_then(|view| view.home.as_mut()) {
+            home.window = window.available(home.windows);
+            self.token_window = home.window;
+        }
         let now = Instant::now();
         if let Some(meter) = &mut self.meter {
             meter.settings.window = window;
@@ -2994,45 +2435,11 @@ impl App {
             "Token window: {}{}",
             window.label(),
             if config.has_setting_override(&key, "board.token_rate.window") {
-                " · this squad · r reset in ,"
+                " · this squad override remains"
             } else {
                 ""
             }
         )
-    }
-
-    fn annotate_note(&mut self) -> Effect {
-        let Some(view) = &self.view else {
-            return Effect::None;
-        };
-        let Notes::Text(text) = &view.notes else {
-            return self.say("No notebook line to annotate.");
-        };
-        if view.me.is_none() {
-            return self.say("Record yourself with tmt ops squad me <name> before annotating.");
-        }
-        let Some(to) = view.document["squad"]["lead"]["name"]
-            .as_str()
-            .map(str::to_owned)
-        else {
-            return self.say("This squad has no lead to annotate for.");
-        };
-        let squad = self.current.clone().unwrap_or_default();
-        let (row, prompt) = {
-            let mut cursors = self.note_cursors.borrow_mut();
-            let cursor = cursors.entry(squad.clone()).or_default();
-            cursor.reconcile(text);
-            let source = text.split('\n').nth(cursor.source).unwrap_or_default();
-            (
-                crate::requests::note_row(&squad, cursor.source, source),
-                format!(
-                    "note for {to} · L{} “{}”",
-                    cursor.source + 1,
-                    super::notes::display_quote(source)
-                ),
-            )
-        };
-        self.ask(prompt, Compose::Annotate { to, row }, squad)
     }
 
     fn link_member(&self, name: &str) -> Option<&Value> {
@@ -3046,180 +2453,6 @@ impl App {
                 (lead["name"].as_str() == Some(name) || lead["id"].as_str() == Some(name))
                     .then_some(lead)
             })
-    }
-
-    pub(super) fn selected_link(&self) -> Option<super::markdown::Link> {
-        let (target, offset) = self.note_link.as_ref()?;
-        self.view
-            .as_ref()?
-            .derived
-            .borrow()
-            .notes
-            .as_ref()?
-            .links
-            .iter()
-            .find(|link| &link.target == target && &link.offset == offset)
-            .cloned()
-    }
-
-    fn note_binding(&self, key: KeyEvent) -> Option<Action> {
-        let view = self.view.as_ref()?;
-        let event = event_name(key)?;
-        self.rows()
-            .get(self.selected)
-            .and_then(|(slot, _)| view.section_bindings.get(slot.section()?))
-            .and_then(|bindings| bindings.get(&event))
-            .or_else(|| view.configured_bindings.get(&event))
-            .cloned()
-    }
-
-    fn choose_link(&mut self, id: usize) -> bool {
-        let Some(view) = &self.view else {
-            return false;
-        };
-        let derived = view.derived.borrow();
-        let Some(notes) = &derived.notes else {
-            return false;
-        };
-        let Some(link) = notes.links.get(id) else {
-            return false;
-        };
-        self.note_link = Some((link.target.clone(), link.offset));
-        self.notice = None;
-        if let (Some(key), Notes::Text(text), Some(hit)) = (
-            self.shown_tab(),
-            &view.notes,
-            notes.hits.iter().find(|hit| hit.link == id),
-        ) {
-            let mut cursors = self.note_cursors.borrow_mut();
-            let cursor = cursors.entry(key.to_owned()).or_default();
-            cursor.select_visual(text, &notes.sources, hit.line);
-            cursor.follow = true;
-        }
-        true
-    }
-
-    fn select_link(&mut self, step: isize) -> Effect {
-        let state = self.view.as_ref().and_then(|view| {
-            view.derived.borrow().notes.as_ref().map(|notes| {
-                (
-                    notes.links.len(),
-                    notes.links.iter().position(|link| {
-                        self.note_link.as_ref() == Some(&(link.target.clone(), link.offset))
-                    }),
-                )
-            })
-        });
-        let Some((len, old)) = state else {
-            return Effect::None;
-        };
-        if len == 0 {
-            self.note_link = None;
-            self.next_pane();
-            return Effect::None;
-        }
-        let next = old.map_or(if step < 0 { len - 1 } else { 0 }, |old| {
-            (old as isize + step).rem_euclid(len as isize) as usize
-        });
-        self.choose_link(next);
-        Effect::None
-    }
-
-    fn activate_link(&mut self) -> Effect {
-        if self.loading() {
-            return self.say("The board is loading; link refused.");
-        }
-        let Some(link) = self.selected_link() else {
-            return Effect::None;
-        };
-        let view = self.view.as_ref().expect("rendered link has a view");
-        match link.kind {
-            Kind::Web | Kind::Github => Effect::Act(Request::Open {
-                link: link.target,
-                opener: view.opener.clone(),
-            }),
-            Kind::File(path) => Effect::Act(Request::RevealFile {
-                path,
-                opener: view.opener.clone(),
-            }),
-            Kind::Custom { scheme, path } => {
-                match crate::links::argv(&view.links, &scheme, &path) {
-                    Ok(argv) => Effect::Act(Request::Run(argv)),
-                    Err(reason) => self.say(reason),
-                }
-            }
-            Kind::Tmt {
-                verb: Verb::Back, ..
-            } => Effect::Act(Request::Back),
-            Kind::Tmt {
-                verb,
-                member: Some(member),
-                text,
-            } => {
-                let Some(row) = self.link_member(&member).cloned() else {
-                    return self.say("Link target is not a current squad member.");
-                };
-                let member = row["name"].as_str().unwrap_or_default().to_owned();
-                match verb {
-                    Verb::Jump => Effect::Act(Request::Jump(member)),
-                    Verb::Copy => match Action::parse("copy").unwrap().args[0].fill(&row) {
-                        Ok(text) => Effect::Act(Request::Copy {
-                            text,
-                            program: view.clipboard.clone(),
-                        }),
-                        Err(reason) => self.say(reason),
-                    },
-                    Verb::Open => match effects::default_link(&row)
-                        .ok_or_else(|| "This member has no link.".to_owned())
-                        .and_then(effects::web_link)
-                    {
-                        Ok(link) => Effect::Act(Request::Open {
-                            link: link.to_owned(),
-                            opener: view.opener.clone(),
-                        }),
-                        Err(reason) => self.say(reason),
-                    },
-                    Verb::Talk | Verb::Reply | Verb::Annotate => {
-                        let sender = view.me.clone().unwrap_or_default();
-                        let action = Action::parse(verb.name()).expect("built-in verb");
-                        let effect = self.compose(&action, &row);
-                        if let Some(input) = &mut self.input {
-                            input.text = text.clone().into();
-                            input.link = Some(LinkSend {
-                                member: member.clone(),
-                                sender: sender.clone(),
-                            });
-                        }
-                        if let Some(menu) = &mut self.menu {
-                            menu.prefill = text;
-                            menu.link = Some(LinkSend { member, sender });
-                        }
-                        effect
-                    }
-                    _ => self.say("Unsupported link verb."),
-                }
-            }
-            _ => self.say("Invalid link target."),
-        }
-    }
-
-    fn move_note(&self, step: Step) {
-        let (Some(view), Some(key)) = (&self.view, self.shown_tab()) else {
-            return;
-        };
-        let Notes::Text(text) = &view.notes else {
-            return;
-        };
-        let derived = view.derived.borrow();
-        let sources = derived
-            .notes
-            .as_ref()
-            .map_or(&[][..], |notes| notes.sources.as_slice());
-        self.note_cursors
-            .borrow_mut()
-            .entry(key.to_owned())
-            .or_default()
-            .move_by(text, sources, step, self.scrolls.page_lines(Pane::Notes));
     }
 
     pub(super) fn paste(&mut self, text: &str) -> Effect {
@@ -3270,7 +2503,7 @@ impl App {
         Effect::None
     }
 
-    fn input_key(&mut self, key: KeyEvent) -> Effect {
+    pub(in crate::board) fn input_key(&mut self, key: KeyEvent) -> Effect {
         if matches!(key.code, KeyCode::Esc | KeyCode::Enter) {
             self.remember_draft();
         }
@@ -3288,6 +2521,11 @@ impl App {
         };
         match key.code {
             KeyCode::Esc => {
+                if input.compose == Compose::Workspace {
+                    self.input = None;
+                    self.workspace_form = None;
+                    return self.say("Cancelled; nothing changed.");
+                }
                 let cron = matches!(input.compose, Compose::Cron);
                 let digest = matches!(input.compose, Compose::Digest(_));
                 self.input = None;
@@ -3339,6 +2577,9 @@ impl App {
                 .say("Still working on the previous request; press Enter again in a moment.");
         }
         let input = self.input.take().expect("composing");
+        if input.compose == Compose::Workspace {
+            return self.workspace_submit_field(input.text.into_string());
+        }
         if matches!(input.compose, Compose::Cron) {
             // A job message is stored exactly as typed: no trim, unlike talk.
             return self.cron_submit(input.text.into_string());
@@ -3378,10 +2619,10 @@ impl App {
                     Compose::Talk { to } => to == member,
                     Compose::Annotate { to, .. } => self.lead().as_ref() == Ok(to),
                     Compose::Cron
+                    | Compose::Workspace
                     | Compose::Status
                     | Compose::AnswerPicker
-                    | Compose::Digest(_)
-                    | Compose::Leads { .. } => false,
+                    | Compose::Digest(_) => false,
                     Compose::Reply { request, from } => {
                         from == member
                             && row["waitingOnYou"].as_array().is_some_and(|items| {
@@ -3407,9 +2648,23 @@ impl App {
                 .say("Message including quotes exceeds 1 MiB; nothing sent. Draft retained.");
         }
         self.sending_draft(&input);
+        let direct = input.row_send.as_ref().and_then(|send| match &send.target {
+            RowTarget::Workspace(super::workspace::OpsTarget::Member {
+                room_id: None,
+                identity_id,
+            }) => Some((self.view.as_ref()?.me_id.clone()?, identity_id.clone())),
+            _ => None,
+        });
         let squad = input.squad;
-        self.pending_send = self.row_feedback(input.row_send);
         Effect::Act(match input.compose {
+            Compose::Talk { .. } if direct.is_some() => {
+                let (sender, recipient) = direct.unwrap();
+                Request::DirectTalk {
+                    sender,
+                    recipient,
+                    text,
+                }
+            }
             Compose::Talk { to } | Compose::AskLead { to, .. } => Request::Talk {
                 me,
                 squad,
@@ -3423,19 +2678,11 @@ impl App {
                 row,
                 text,
             },
-            Compose::Leads {
-                sender,
-                recipients,
-                all,
-            } => Request::Leads {
-                sender,
-                recipients,
-                all,
-                text,
-            },
             Compose::Status => unreachable!("status submission has its own retained form"),
             Compose::AnswerPicker => unreachable!("answer mode opens the existing request menu"),
-            Compose::Cron => unreachable!("a cron step is submitted before this match"),
+            Compose::Cron | Compose::Workspace => {
+                unreachable!("form steps are submitted before this match")
+            }
             Compose::Digest(_) => unreachable!("a digest value is submitted before this match"),
             Compose::Reply { request, from } => Request::Reply {
                 me,
@@ -3446,59 +2693,14 @@ impl App {
         })
     }
 
-    pub(super) fn row_feedback(&self, send: Option<RowSend>) -> Option<RowFeedback> {
-        send.map(|send| {
-            let home = matches!(&send.target, RowTarget::Home(target) if target.member.is_some())
-                .then(|| {
-                    self.home_entries()
-                        .iter()
-                        .enumerate()
-                        .find(|(_, entry)| RowTarget::Home(entry.target.clone()) == send.target)
-                        .map(|(index, entry)| HomeFeedback {
-                            row: entry.row.clone(),
-                            lead: entry.lead.map(str::to_owned),
-                            index,
-                        })
-                })
-                .flatten();
-            RowFeedback {
-                mark: None,
-                target: send.target,
-                home,
-            }
-        })
-    }
     pub(super) fn finished_status(&mut self, outcome: crate::membership::status_update::Outcome) {
-        if matches!(
-            outcome,
-            crate::membership::status_update::Outcome::Applied { .. }
-                | crate::membership::status_update::Outcome::Unknown(_)
-        ) {
-            if let Some(feedback) = self.pending_send.take() {
-                self.sent = Some(feedback);
-            }
-        } else {
-            self.pending_send = None;
-        }
         if let Some(draft) = &mut self.status_draft {
             draft.finished(outcome);
             self.notice = draft.error.clone();
         }
     }
-    /// Shows how a request ended.
+    /// Shows the observed outcome without a second row-feedback cache.
     pub fn finished(&mut self, outcome: Result<String, String>) {
-        self.finished_as(outcome, "sent");
-    }
-    /// Shows how a request ended; a success marks the row with `mark`.
-    pub fn finished_as(&mut self, outcome: Result<String, String>, mark: &'static str) {
-        self.sent = self
-            .pending_send
-            .take()
-            .filter(|_| outcome.is_ok())
-            .map(|feedback| RowFeedback {
-                mark: Some(mark),
-                ..feedback
-            });
         self.notice = Some(outcome.unwrap_or_else(|error| error));
     }
 
@@ -3534,9 +2736,8 @@ impl App {
         if key.code == KeyCode::Tab
             && let Some(send) = self.menu.as_ref().and_then(|menu| menu.row_send.clone())
         {
-            let squad = match &send.target {
-                RowTarget::Home(target) => target.squad.clone(),
-                RowTarget::Member { squad, .. } | RowTarget::Lead { squad, .. } => squad.clone(),
+            let Some(squad) = self.target_squad(&send.target) else {
+                return self.say("The retained target is unavailable.");
             };
             let prefill = self.menu.as_ref().unwrap().prefill.clone();
             self.menu = None;
@@ -3592,9 +2793,8 @@ impl App {
             input.link = link;
         }
         if let Some(send) = row_send {
-            let squad = match &send.target {
-                RowTarget::Home(target) => target.squad.clone(),
-                RowTarget::Member { squad, .. } | RowTarget::Lead { squad, .. } => squad.clone(),
+            let Some(squad) = self.target_squad(&send.target) else {
+                return self.say("The retained target is unavailable.");
             };
             self.attach_row(send, squad);
         }
@@ -3607,19 +2807,23 @@ impl App {
         use tmt_tui::app::{Routed, route};
         let Some(overlay) = self.overlay() else {
             self.overlay_focus.close();
-            return self.jobs_event(event);
+            return None;
         };
-        let id = overlay.id();
+        let mut id = overlay.id();
+        if overlay == Overlay::Workspace
+            && let Some(draft) = &self.workspace_form
+        {
+            id.push(draft.stage_id());
+        }
         let mut focus = std::mem::take(&mut self.overlay_focus);
         if focus.overlay() != Some(&id) {
             focus.reconcile_base(vec![vec![self.focused().title().into()]]);
             let fields = match overlay {
-                Overlay::Switcher => vec![
-                    vec!["switcher".into(), "query".into()],
-                    vec!["switcher".into(), "choices".into()],
-                ],
+                Overlay::Workspace => self
+                    .workspace_form
+                    .as_ref()
+                    .map_or_else(Vec::new, |draft| draft.focus_fields()),
                 Overlay::Theme => vec![vec!["theme-picker".into(), "choices".into()]],
-                Overlay::View => vec![vec!["view-picker".into(), "choices".into()]],
                 Overlay::Settings => vec![vec!["settings".into(), "content".into()]],
                 Overlay::CronList => vec![vec!["cron-list".into(), "choices".into()]],
                 _ => vec![],
@@ -3648,7 +2852,9 @@ impl App {
     }
 
     fn overlay(&self) -> Option<Overlay> {
-        if self.row_details.reader.is_some() {
+        if self.workspace_form.is_some() {
+            Some(Overlay::Workspace)
+        } else if self.row_details.reader.is_some() {
             Some(Overlay::ReplyReader)
         } else if self.checklist_shown() {
             Some(Overlay::Checklist)
@@ -3656,12 +2862,8 @@ impl App {
             Some(Overlay::Help)
         } else if self.settings.is_some() {
             Some(Overlay::Settings)
-        } else if self.view_picker.is_some() {
-            Some(Overlay::View)
         } else if self.theme_picker.is_some() {
             Some(Overlay::Theme)
-        } else if self.switcher.is_some() {
-            Some(Overlay::Switcher)
         } else if self.cron_list.is_some() {
             Some(Overlay::CronList)
         } else {
@@ -3676,6 +2878,7 @@ impl App {
         event: &Event,
     ) -> Option<Effect> {
         match overlay {
+            Overlay::Workspace => self.workspace_form_event(field, event),
             Overlay::ReplyReader => Some(self.reader_event(event)),
             Overlay::Checklist => self.checklist_event(event),
             Overlay::Help => {
@@ -3719,7 +2922,7 @@ impl App {
                             if id == "theme" {
                                 Effect::PickTheme
                             } else {
-                                Effect::PickView
+                                self.say("Factory views are retired; choose workspace Auto, Side or Stack.")
                             }
                         }
                     })
@@ -3730,17 +2933,6 @@ impl App {
                 }
                 _ => None,
             },
-            Overlay::View => Some(match self.view_picker.as_mut()?.input(event)? {
-                super::view_picker::Input::Preview => {
-                    self.restore_focus();
-                    Effect::None
-                }
-                super::view_picker::Input::Save => Effect::SaveView,
-                super::view_picker::Input::Cancel => {
-                    self.close_view_picker(false);
-                    Effect::CancelView
-                }
-            }),
             Overlay::Theme => Some(match self.theme_picker.as_mut()?.input(event)? {
                 super::theme_picker::Input::Preview => Effect::None,
                 super::theme_picker::Input::Save => Effect::SaveTheme,
@@ -3749,7 +2941,6 @@ impl App {
                     Effect::None
                 }
             }),
-            Overlay::Switcher => self.switcher_event(event, field),
             Overlay::CronList => self.cron_list_event(event),
         }
     }
@@ -3760,14 +2951,6 @@ impl App {
             return effect;
         }
         self.notice = None;
-        if !self
-            .input
-            .as_ref()
-            .is_some_and(|input| matches!(input.compose, Compose::Status))
-            && self.sent.take().is_some()
-        {
-            self.clamp();
-        }
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             return Effect::Quit;
         }
@@ -3812,202 +2995,23 @@ impl App {
             self.clamp();
             return Effect::None;
         }
-        if self.focused_pane().is_none()
-            && !self.bound(key)
-            && matches!(
-                key.code,
-                KeyCode::Up
-                    | KeyCode::Down
-                    | KeyCode::Char('j' | 'k')
-                    | KeyCode::PageUp
-                    | KeyCode::PageDown
-                    | KeyCode::Home
-                    | KeyCode::End
-            )
-        {
-            return Effect::None;
-        }
-        if self.focused_pane() == Some(Pane::Notes) && !self.help {
-            if matches!(key.code, KeyCode::Tab | KeyCode::BackTab | KeyCode::Enter)
-                && let Some(action) = self.note_binding(key)
-            {
-                return self.perform(&action);
-            }
-            if matches!(key.code, KeyCode::Tab | KeyCode::BackTab) {
-                return self.select_link(if key.code == KeyCode::BackTab { -1 } else { 1 });
-            }
-            if key.code == KeyCode::Enter && self.note_link.is_some() {
-                return self.activate_link();
-            }
-            if key.code == KeyCode::Esc && self.note_link.take().is_some() {
-                return Effect::None;
-            }
-            let step = match key.code {
-                KeyCode::Up | KeyCode::Char('k') => Some(Step::Lines(-1)),
-                KeyCode::Down | KeyCode::Char('j') => Some(Step::Lines(1)),
-                KeyCode::PageUp => Some(Step::Pages(-1)),
-                KeyCode::PageDown => Some(Step::Pages(1)),
-                KeyCode::Home | KeyCode::Char('g') => Some(Step::Top),
-                KeyCode::End | KeyCode::Char('G') => Some(Step::Bottom),
-                _ => None,
-            };
-            if let Some(step) = step {
-                if let Some(action) =
-                    event_name(key).and_then(|event| self.bindings().remove(&event))
-                {
-                    return self.perform(&action);
-                }
-                self.note_link = None;
-                self.move_note(step);
-                return Effect::None;
-            }
-        }
-        match key.code {
-            KeyCode::Char('q') => return Effect::Quit,
-            KeyCode::Esc if self.search.is_empty() && !self.help => return Effect::Quit,
-            KeyCode::Esc => {
-                self.help = false;
-                self.search.clear();
-                self.clamp();
-            }
-            // Any pane but rows scrolls its text; rows moves the selection.
-            KeyCode::Up | KeyCode::Char('k') if self.focused() != Pane::Rows => {
-                self.scroll_pane(self.focused(), Step::Lines(-1));
-            }
-            KeyCode::Down | KeyCode::Char('j') if self.focused() != Pane::Rows => {
-                self.scroll_pane(self.focused(), Step::Lines(1));
-            }
-            // Paging keys scroll unless the user bound them (then the
-            // binding runs, below).
-            KeyCode::PageUp | KeyCode::PageDown | KeyCode::Home | KeyCode::End
-                if self.focused() != Pane::Rows && !self.bound(key) =>
-            {
-                self.scroll_pane(self.focused(), page_step(key.code));
-            }
-            KeyCode::Up | KeyCode::Char('k') => self.select(self.selected.saturating_sub(1)),
-            KeyCode::Down | KeyCode::Char('j') => self.select(self.selected + 1),
-            KeyCode::PageUp if !self.bound(key) => {
-                self.page_rows(-1);
-            }
-            KeyCode::PageDown if !self.bound(key) => self.page_rows(1),
-            KeyCode::Home if !self.bound(key) => self.select(0),
-            KeyCode::End if !self.bound(key) => self.select(usize::MAX),
-            KeyCode::Left if key.modifiers.contains(KeyModifiers::SHIFT) => {
-                return self.move_current(-1);
-            }
-            KeyCode::Right if key.modifiers.contains(KeyModifiers::SHIFT) => {
-                return self.move_current(1);
-            }
-            KeyCode::Left => return self.switch(-1),
-            KeyCode::Right => return self.switch(1),
-            KeyCode::Char('/') => self.searching = true,
-            // The switcher's key, unless the user bound `s` to something.
-            KeyCode::Char('s') if !self.bound(key) => self.switcher = Some(Switcher::default()),
-            // Every squad's jobs, unless the user bound `c` to something.
-            KeyCode::Char('c') if !self.bound(key) && self.cron_shown() => {
-                return self.open_cron_list(None);
-            }
-            KeyCode::Char('?') => {
-                self.help_state.borrow_mut().open();
-                self.help = true;
-            }
-            _ => {
-                if let Some(action) =
-                    event_name(key).and_then(|event| self.bindings().remove(&event))
-                {
-                    return self.perform(&action);
-                }
-            }
-        }
-        Effect::None
+        self.workspace_key(key)
     }
 
-    /// Every tab the switcher offers: the tab line's, then hidden ones.
-    pub fn switchable(&self) -> Vec<String> {
-        self.tabs.iter().chain(&self.hidden).cloned().collect()
-    }
-
-    fn reconcile_switcher(&self, reset: bool) {
-        let keys = self.switcher_keys();
-        let Some(switcher) = &self.switcher else {
-            return;
-        };
-        let mut surface = switcher.surface.borrow_mut();
-        let query = surface.picker.query().unwrap_or("");
-        let rows: Vec<_> = super::tabs::matching(&keys, query)
-            .into_iter()
-            .map(|key| tmt_tui::components::ListRow {
-                id: key.clone(),
-                disabled: false,
-            })
-            .collect();
-        let first = rows.first().map(|row| row.id.clone());
-        surface.reconcile(rows);
-        if reset && let Some(id) = first {
-            surface.select(&id);
-        }
-    }
-
-    fn switcher_event(
-        &mut self,
-        event: &Event,
-        field: &tmt_tui::app::ComponentId,
-    ) -> Option<Effect> {
-        use tmt_tui::components::{PickerEvent, PickerField, PickerInput};
-        let field = match field.last().map(String::as_str) {
-            Some("query") => PickerField::Query,
-            Some("choices") => PickerField::List,
-            _ => return None,
-        };
-        self.reconcile_switcher(false);
-        if let Event::Key(key) = event
-            && event_name(*key).is_some_and(|name| self.pick_keys().contains(&name))
-        {
-            let selected = self
-                .switcher
-                .as_ref()?
-                .surface
-                .borrow()
-                .picker
-                .list
-                .selected()
-                .map(str::to_owned);
-            return Some(selected.map_or(Effect::None, |key| self.toggle_tab_pick(key)));
-        }
-        let input = self
-            .switcher
-            .as_ref()?
-            .surface
-            .borrow_mut()
-            .input(event, field);
-        match input {
-            Some(PickerInput::Event(PickerEvent::Cancel)) => self.switcher = None,
-            Some(PickerInput::Event(PickerEvent::Confirm(key))) => {
-                self.switcher = None;
-                return Some(self.go(key));
-            }
-            Some(PickerInput::Event(PickerEvent::QueryChanged(_))) => self.reconcile_switcher(true),
-            Some(_) => {}
-            None if matches!(event, Event::Key(key) if key.code == KeyCode::Enter)
-                && self
-                    .switcher
-                    .as_ref()?
-                    .surface
-                    .borrow()
-                    .picker
-                    .list
-                    .selected()
-                    .is_none() =>
-            {
-                self.switcher = None
-            }
-            None => return None,
-        }
-        Some(Effect::None)
-    }
-
-    pub(super) fn invalidate_overlay_frames(&self) {
+    /// Refuse pointer and viewport authority from a superseded frame. Offsets
+    /// and drafts survive; only a new paint can publish interactive geometry.
+    pub(super) fn invalidate_frame_geometry(&self) {
         self.input_viewport.set(None);
+        self.input_band.set(None);
+        self.hits.borrow_mut().clear();
+        self.frame_clocks.borrow_mut().clear();
+        self.row_starts.borrow_mut().clear();
+        self.tab_hits.borrow_mut().clear();
+        self.workspace_action_hits.borrow_mut().clear();
+        self.chip_hits.borrow_mut().clear();
+        if let Some(draft) = &self.workspace_form {
+            draft.invalidate();
+        }
         self.conversation.borrow_mut().pane = None;
         self.scrolls.begin_frame();
         self.mentions.invalidate();
@@ -4023,28 +3027,17 @@ impl App {
         if let Some(picker) = &self.theme_picker {
             picker.surface.borrow_mut().invalidate();
         }
-        if let Some(picker) = &self.view_picker {
-            picker.surface.borrow_mut().invalidate();
-        }
-        if let Some(switcher) = &self.switcher {
-            switcher.surface.borrow_mut().invalidate();
-        }
         if let Some(list) = &self.cron_list {
             list.invalidate();
         }
-        for pane in self.jobs.borrow_mut().values_mut() {
-            pane.invalidate();
-        }
-    }
-
-    fn bound(&self, key: KeyEvent) -> bool {
-        event_name(key).is_some_and(|event| self.bindings().contains_key(&event))
     }
 
     /// Selects a row and keeps it on screen.
     pub(super) fn select(&mut self, row: usize) {
-        self.home_start = false;
-        self.home_target = None;
+        if self.workspace_snapshot().is_some() {
+            self.workspace_select(row);
+            return;
+        }
         self.selected = row;
         self.clamp();
         self.follow = true;
@@ -4129,15 +3122,6 @@ impl App {
                 .filter(|pane| !self.collapsed_panes().contains(pane))
             {
                 self.scroll_pane(pane, Step::Lines(lines));
-                if pane == Pane::Notes
-                    && let Some(key) = self.shown_tab()
-                {
-                    self.note_cursors
-                        .borrow_mut()
-                        .entry(key.to_owned())
-                        .or_default()
-                        .follow = false;
-                }
                 if pane == Pane::Rows {
                     self.follow = false;
                 }
@@ -4211,6 +3195,22 @@ impl App {
             return Effect::None;
         }
         if !self.loading() && event.kind == MouseEventKind::Down(MouseButton::Left) {
+            let workspace_action = self
+                .workspace_action_hits
+                .borrow()
+                .iter()
+                .find(|(area, _, _)| area.contains((event.column, event.row).into()))
+                .cloned();
+            if let Some((_, target, choice)) = workspace_action {
+                if self.workspace.selected.as_ref() != Some(&target)
+                    || !self.workspace_selection_visible()
+                {
+                    return self.say(
+                        "The painted action target changed; select it and repaint before acting.",
+                    );
+                }
+                return self.choose(choice);
+            }
             let chip = self
                 .chip_hits
                 .borrow()
@@ -4222,19 +3222,6 @@ impl App {
                 self.select(row);
                 return self.digest_row(row);
             }
-            let target = self
-                .detail_more_hits
-                .borrow()
-                .iter()
-                .find(|(area, _)| area.contains((event.column, event.row).into()))
-                .map(|(_, target)| target.clone());
-            if let Some(target) = target.filter(|target| {
-                self.detail(target)
-                    .is_some_and(|detail| detail.reply.is_some())
-            }) {
-                self.row_details.reader = Some(super::row_detail::Reader::new(target, None));
-                return Effect::None;
-            }
         }
 
         if event.kind == MouseEventKind::Down(MouseButton::Left)
@@ -4245,98 +3232,28 @@ impl App {
         {
             return self.cycle_token_window();
         }
-        if let Some(effect) = self.jobs_mouse(event) {
-            return effect;
-        }
         if self.scroll_pointer(event) {
             return Effect::None;
         }
-        if event.kind == MouseEventKind::Down(MouseButton::Left)
-            && self.unpicked_hit.get().is_some_and(|rect| {
-                rect.contains(ratatui::layout::Position::new(event.column, event.row))
-            })
-        {
-            self.dragging = None;
-            self.switcher = Some(Switcher {
-                unpicked_only: true,
-                ..Switcher::default()
-            });
-            self.reconcile_switcher(false);
-            return Effect::None;
-        }
-        // A press on a tab shows it; releasing it over another tab moves it
-        // there and saves the order.
+        // Shell tabs are navigation only, including before the first snapshot.
+        // They never address the old name-based squad tab inventory.
         let tab = self.tab_hits.borrow().iter().copied().find(|hit| {
             hit.y == event.row && (hit.x..hit.x.saturating_add(hit.width)).contains(&event.column)
         });
-        match (event.kind, tab) {
-            (MouseEventKind::Down(MouseButton::Left), Some(hit)) => {
-                self.dragging = Some(hit.tab);
-                return match self.tabs.get(hit.tab).cloned() {
-                    Some(key) => self.go(key),
-                    None => Effect::None,
-                };
-            }
-            (MouseEventKind::Up(MouseButton::Left), hit) => {
-                return match (self.dragging.take(), hit) {
-                    (Some(from), Some(to)) => self.move_tab(from, to.tab),
-                    _ => Effect::None,
-                };
-            }
-            _ => {}
+        if let (MouseEventKind::Down(MouseButton::Left), Some(hit)) = (event.kind, tab) {
+            let action = match hit.tab {
+                0 => crate::action::OpsUiAction::Overview,
+                1 => crate::action::OpsUiAction::Agents,
+                2 => crate::action::OpsUiAction::DigestDashboard,
+                _ => return Effect::None,
+            };
+            self.focus = 0;
+            return self.workspace_action(action);
         }
         if event.kind != MouseEventKind::Down(MouseButton::Left) {
             return Effect::None;
         }
-        let title = self
-            .title_hits
-            .borrow()
-            .iter()
-            .find(|hit| {
-                hit.area
-                    .contains(ratatui::layout::Position::new(event.column, event.row))
-            })
-            .map(|hit| hit.pane);
-        if let Some(pane) = title {
-            self.notice = None;
-            return self.toggle_panes(&[pane]);
-        }
         self.focus_at(event.column, event.row);
-        if self.focused_pane() == Some(Pane::Notes) {
-            let hit = self
-                .link_hits
-                .borrow()
-                .iter()
-                .find(|(area, _)| {
-                    area.contains(ratatui::layout::Position::new(event.column, event.row))
-                })
-                .map(|(_, link)| *link);
-            if let Some(id) = hit {
-                let previous = self.note_link.clone();
-                if self.choose_link(id) {
-                    return if previous == self.note_link {
-                        self.activate_link()
-                    } else {
-                        Effect::None
-                    };
-                }
-            }
-            self.note_link = None;
-            if let (Some(key), Some(view)) = (self.shown_tab(), &self.view)
-                && let Notes::Text(text) = &view.notes
-                && let Some((_, visual)) = self.note_hits.borrow().iter().find(|(area, _)| {
-                    area.contains(ratatui::layout::Position::new(event.column, event.row))
-                })
-            {
-                let mut cursors = self.note_cursors.borrow_mut();
-                let cursor = cursors.entry(key.to_owned()).or_default();
-                if let Some(notes) = &view.derived.borrow().notes {
-                    cursor.select_visual(text, &notes.sources, *visual);
-                    cursor.follow = true;
-                }
-            }
-            return Effect::None;
-        }
         let hit = self.hits.borrow().iter().copied().find(|hit| {
             hit.y == event.row && (hit.x..hit.x.saturating_add(hit.width)).contains(&event.column)
         });
@@ -4362,13 +3279,20 @@ impl App {
     /// The shown squad's theme, or the already resolved startup theme before
     /// the first snapshot arrives.
     pub fn look(&self) -> crate::look::Look {
-        let saved = self.view.as_ref().map_or_else(
-            || {
-                self.initial_look
-                    .unwrap_or_else(|| crate::look::Look::new(tmt_cli_style::Theme::default()))
-            },
-            |view| view.look,
-        );
+        let saved = self
+            .workspace_squad()
+            .and_then(|squad| self.workspace_snapshot()?.squad_looks.get(&squad.room_id))
+            .copied()
+            .unwrap_or_else(|| {
+                self.view.as_ref().map_or_else(
+                    || {
+                        self.initial_look.unwrap_or_else(|| {
+                            crate::look::Look::new(tmt_cli_style::Theme::default())
+                        })
+                    },
+                    |view| view.look,
+                )
+            });
         self.theme_picker
             .as_ref()
             .map_or(saved, |picker| picker.preview(saved.depth))
@@ -4394,219 +3318,22 @@ impl App {
         if let Some(key) = self.detail_read() {
             return Some(super::refresh::SelectedRead::Message(key));
         }
-        self.notebook_identity()
-            .map(super::refresh::SelectedRead::Notebook)
+        None
     }
 
-    /// Lazy acquisition follows the effective detail, including folds and tabs.
-    pub(super) fn notebook_identity(&self) -> Option<String> {
-        let board = self.effective_board()?;
-        if self.loading()
-            || self.selected_is_lead()
-            || !self.scrolls.visible(Pane::Detail)
-            || !board.panes.contains(&Pane::Detail)
-            || self.collapsed_panes().contains(&Pane::Detail)
-            || (board.mode == BoardMode::Tabs && self.focused_pane() != Some(Pane::Detail))
-        {
-            return None;
-        }
-        let row = self.selected_row()?;
-        (row["lifetime"] == "saved")
-            .then(|| row["id"].as_str().map(str::to_owned))
-            .flatten()
-    }
-
+    /// Exact admitted row data for the selected workspace target.
     pub fn selected_row(&self) -> Option<&Value> {
+        if self.workspace_snapshot().is_some() {
+            return self
+                .workspace_selection_visible()
+                .then(|| {
+                    self.workspace_snapshot()?
+                        .rows
+                        .get(self.workspace.selected.as_ref()?)
+                })
+                .flatten();
+        }
         self.rows().get(self.selected).map(|(_, row)| *row)
-    }
-
-    /// The displayed lead occurrence owns no detail notebook acquisition.
-    pub(super) fn selected_is_lead(&self) -> bool {
-        self.rows()
-            .get(self.selected)
-            .is_some_and(|(origin, _)| *origin == RowOrigin::Lead)
-    }
-}
-
-#[cfg(test)]
-mod pick_tests {
-    use super::*;
-    use serde_json::json;
-
-    fn loaded(name: &str) -> Snapshot {
-        let mut snapshot = super::tests::snapshot(name, json!([]));
-        snapshot.tabs = [
-            super::super::ALL,
-            "product",
-            "omitted",
-            "infra",
-            "@tab:needs-me",
-        ]
-        .map(String::from)
-        .to_vec();
-        snapshot.hidden = vec!["hidden".into()];
-        snapshot.pinned = 1;
-        snapshot
-    }
-
-    fn board() -> App {
-        let mut app = App::new(Some("product".into()));
-        app.apply(loaded("product"));
-        app.picks =
-            super::super::pick::Picks::parse(Some("product,infra"), &app.switchable()).unwrap();
-        app
-    }
-
-    fn key(app: &mut App, code: KeyCode) -> Effect {
-        app.key(KeyEvent::new(code, KeyModifiers::NONE))
-    }
-
-    fn highlight(app: &mut App, name: &str) {
-        app.reconcile_switcher(false);
-        app.switcher
-            .as_ref()
-            .unwrap()
-            .surface
-            .borrow_mut()
-            .select(name);
-    }
-
-    #[test]
-    fn space_toggles_only_the_highlighted_tab_and_current_unpick_uses_normal_load() {
-        let mut app = board();
-        let other = board();
-        let canonical = app.tabs.clone();
-        key(&mut app, KeyCode::Char('s'));
-        highlight(&mut app, "product");
-        assert_eq!(
-            key(&mut app, KeyCode::Char(' ')),
-            Effect::Load("infra".into())
-        );
-        assert!(!app.picks.contains("product"));
-        assert_eq!(app.current.as_deref(), Some("infra"));
-        assert!(
-            app.loading(),
-            "an uncached tab retains the old view with the normal stale fence"
-        );
-        assert!(app.switcher.is_some());
-        assert_eq!(app.switcher.as_ref().unwrap().query(), "");
-        assert_eq!(app.tabs, canonical);
-        assert!(
-            other.picks.contains("product"),
-            "another board is independent"
-        );
-        app.apply(loaded("infra"));
-        highlight(&mut app, "infra");
-        assert_eq!(
-            key(&mut app, KeyCode::Char(' ')),
-            Effect::Load(super::super::ALL.into())
-        );
-        assert!(
-            app.picks.contains(super::super::ALL),
-            "last unpick opens home"
-        );
-        assert!(!app.picks.contains("infra"));
-    }
-
-    #[test]
-    fn opening_unpicked_or_hidden_entries_picks_without_changing_global_hide() {
-        let mut app = board();
-        key(&mut app, KeyCode::Char('s'));
-        highlight(&mut app, "omitted");
-        assert_eq!(
-            key(&mut app, KeyCode::Enter),
-            Effect::Load("omitted".into())
-        );
-        assert!(app.picks.contains("omitted"));
-        assert!(app.switcher.is_none());
-        app.apply(loaded("omitted"));
-        app.go("hidden".into());
-        assert!(app.picks.contains("hidden"));
-        assert!(!app.tabs.contains(&"hidden".into()));
-        assert_eq!(app.hidden, ["hidden"]);
-    }
-
-    #[test]
-    fn rebindable_pick_action_opens_the_switcher_and_overrides_space_in_both_fields() {
-        let mut app = board();
-        app.view
-            .as_mut()
-            .unwrap()
-            .bindings
-            .insert("p".into(), Action::parse("pick-tab").unwrap());
-        assert_eq!(app.pick_keys(), ["p"]);
-        assert_eq!(key(&mut app, KeyCode::Char('p')), Effect::None);
-        highlight(&mut app, "infra");
-        key(&mut app, KeyCode::Char('p'));
-        assert!(!app.picks.contains("infra"));
-        key(&mut app, KeyCode::Tab);
-        key(&mut app, KeyCode::Char('p'));
-        assert!(app.picks.contains("infra"));
-        assert_eq!(app.switcher.as_ref().unwrap().query(), "");
-        key(&mut app, KeyCode::Esc);
-        key(&mut app, KeyCode::Char('/'));
-        key(&mut app, KeyCode::Char('p'));
-        assert_eq!(app.search, "p", "text inputs keep printable bindings");
-        assert!(app.switcher.is_none());
-    }
-
-    #[test]
-    fn picks_survive_refresh_cache_switches_and_reorder_retains_omitted_keys() {
-        let mut app = board();
-        let canonical = app.tabs.clone();
-        app.go("infra".into());
-        app.apply(loaded("infra"));
-        app.go("product".into());
-        assert!(!app.loading(), "visited view comes from its original cache");
-        assert!(!app.picks.contains("omitted"));
-        let mut refreshed = loaded("product");
-        refreshed.tabs.push("new-squad".into());
-        app.apply(refreshed);
-        assert!(!app.picks.contains("new-squad"));
-        assert!(app.cache.contains_key("infra"));
-        assert_eq!(app.picked_indices(), [1, 3]);
-        let moved = app.key(KeyEvent::new(KeyCode::Right, KeyModifiers::SHIFT));
-        let Effect::Act(Request::Reorder(order)) = moved else {
-            panic!("expected reorder");
-        };
-        assert_eq!(order.len(), canonical.len() + 1);
-        assert!(canonical.iter().all(|key| order.contains(key)));
-        assert_eq!(order[0], super::super::ALL);
-        assert!(order.contains(&"omitted".into()));
-    }
-
-    #[test]
-    fn default_follows_additions_but_explicit_removal_reconciles_to_home() {
-        let mut app = board();
-        app.picks = Default::default();
-        let mut refreshed = loaded("product");
-        refreshed.tabs.push("new-squad".into());
-        app.apply(refreshed);
-        assert!(app.picked_indices().contains(&5));
-        app.picks = super::super::pick::Picks::parse(Some("product"), &app.switchable()).unwrap();
-        let mut removed = loaded("product");
-        removed.tabs.retain(|key| key != "product");
-        app.apply(removed);
-        assert_eq!(
-            app.reconcile_pick_current(),
-            Effect::Load(super::super::ALL.into())
-        );
-        assert!(!app.picks.contains("product"));
-        assert!(app.picks.contains(super::super::ALL));
-    }
-
-    #[test]
-    fn an_unavailable_inventory_does_not_erase_this_boards_picks() {
-        let mut app = board();
-        let mut failed = loaded("product");
-        failed.tabs.clear();
-        failed.hidden.clear();
-        failed.view = Err("inventory unavailable".into());
-        app.apply(failed);
-        assert_eq!(app.reconcile_pick_current(), Effect::None);
-        app.apply(loaded("product"));
-        assert!(app.picks.contains("product") && app.picks.contains("infra"));
-        assert!(!app.picks.contains("omitted"));
     }
 }
 
@@ -4628,7 +3355,6 @@ pub(crate) mod tests {
             exchanges: Vec::new(),
             home: None,
             derived: Default::default(),
-            composition: Default::default(),
             document: json!({"squad": {"name": "product"}, "sections": sections}),
             rows: crate::rows::Rows::preset(),
             refresh: Some(crate::config::DEFAULT_REFRESH),
@@ -4638,16 +3364,10 @@ pub(crate) mod tests {
                 vec![crate::config::Pane::Rows],
                 &[100],
             ),
-            notes: super::Notes::NotShown,
             render: crate::config::NotesRender::Markdown,
             bindings: crate::action::with_action_keys(crate::action::preset(true, &[])),
-            section_bindings: Vec::new(),
-            configured_bindings: Default::default(),
-            host_bindings: Default::default(),
             opener: None,
             clipboard: None,
-            links: Default::default(),
-            tab_colors: Default::default(),
             look: Default::default(),
             theme_notice: None,
             me: None,
@@ -4657,70 +3377,18 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn switcher_fields_keep_query_text_and_refresh_selection_by_identity() {
-        let mut app = App::new(Some("product".into()));
-        app.apply(snapshot("product", json!([])));
-        press(&mut app, KeyCode::Char('s'));
-        press(&mut app, KeyCode::Down);
-        let chosen = app
-            .switcher
-            .as_ref()
-            .unwrap()
-            .surface
-            .borrow()
-            .picker
-            .list
-            .selected()
-            .unwrap()
-            .to_owned();
-        let mut updated = snapshot("product", json!([]));
-        updated.tabs.reverse();
-        app.apply(updated);
-        assert_eq!(
-            app.switcher
-                .as_ref()
-                .unwrap()
-                .surface
-                .borrow()
-                .picker
-                .list
-                .selected(),
-            Some(chosen.as_str())
-        );
-        let current = app.current.clone();
-        let focus = app.focus;
-        press(&mut app, KeyCode::Char('q'));
-        assert_eq!(app.switcher.as_ref().unwrap().query(), "q");
-        press(&mut app, KeyCode::Char('?'));
-        assert_eq!(app.switcher.as_ref().unwrap().query(), "q?");
-        press(&mut app, KeyCode::Backspace);
-        press(&mut app, KeyCode::Backspace);
-        press(&mut app, KeyCode::Tab);
-        assert_eq!(
-            app.overlay_focus.focused().unwrap().last().unwrap(),
-            "choices"
-        );
-        press(&mut app, KeyCode::Char('q'));
-        assert!(
-            app.switcher.is_none(),
-            "q closes the list field and stays text in the query"
-        );
-        assert_eq!(app.current, current);
-        assert_eq!(app.focus, focus);
-    }
-
-    #[test]
     fn common_overlay_route_consumes_close_release_and_unknown_mouse() {
         use ratatui::crossterm::event::KeyEventKind;
         let mut app = App::new(Some("product".into()));
         app.apply(snapshot("product", json!([])));
         let current = app.current.clone();
         let focus = app.focus;
-        app.switcher = Some(Switcher::default());
+        app.help_state.borrow_mut().open();
+        app.help = true;
         let mut released = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
         released.kind = KeyEventKind::Release;
         assert_eq!(app.key(released), Effect::None);
-        assert!(app.switcher.is_some(), "release cannot close a modal");
+        assert!(app.help, "release cannot close a modal");
         assert_eq!(
             app.key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL)),
             Effect::None
@@ -4743,7 +3411,7 @@ pub(crate) mod tests {
             app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
             Effect::None
         );
-        assert!(app.switcher.is_none());
+        assert!(!app.help);
         assert!(app.overlay_focus.overlay().is_none());
         assert_eq!(
             app.key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL)),
@@ -4764,12 +3432,13 @@ pub(crate) mod tests {
         let mut home = snapshot(super::super::ALL, json!([]));
         home.tabs.push(super::super::ALL.into());
         home.view.as_mut().unwrap().home = Some(super::super::home::Home {
+            workspace: Default::default(),
+            window: crate::config::TokenWindow::MINUTE,
             windows: crate::config::TokenWindow::DEFAULTS,
             summary: super::super::home::Counts {
                 members: 7,
                 ..Default::default()
             },
-            sections: Vec::new(),
             squads: Vec::new(),
             failures: Vec::new(),
             incomplete: false,
@@ -4811,7 +3480,6 @@ pub(crate) mod tests {
             .iter()
             .filter_map(|item| match item {
                 Item::Section(title) => *title,
-                Item::Rule(_) => Some("--"),
                 Item::Row(_, row) => row["name"].as_str(),
             })
             .collect()
@@ -4887,130 +3555,11 @@ pub(crate) mod tests {
         assert_eq!(app.selected, 0);
     }
 
-    #[test]
-    fn search_filters_rows_by_name_or_field_and_keeps_selection_in_range() {
-        let mut app = App::new(Some("product".into()));
-        app.apply(snapshot(
-            "product",
-            json!([
-                {"title": "Needs me", "rows": [row("auth-fix", "Rotate tokens")]},
-                {"title": "Everyone", "rows": [row("auth-fix", "Rotate tokens"), row("docs-sweep", "install guide")]}
-            ]),
-        ));
-        assert_eq!(
-            names(&app),
-            ["Needs me", "auth-fix", "Everyone", "auth-fix", "docs-sweep"]
-        );
-        press(&mut app, KeyCode::Down);
-        press(&mut app, KeyCode::Down);
-        press(&mut app, KeyCode::Down);
-        assert_eq!(
-            app.selected_row().unwrap()["name"],
-            "docs-sweep",
-            "clamped to the last row"
-        );
-        press(&mut app, KeyCode::Char('/'));
-        for character in "TOKEN".chars() {
-            press(&mut app, KeyCode::Char(character));
-        }
-        assert_eq!(
-            names(&app),
-            ["Needs me", "auth-fix", "Everyone", "auth-fix"]
-        );
-        assert_eq!(app.selected, 1);
-        press(&mut app, KeyCode::Esc);
-        assert!(app.search.is_empty() && !app.searching);
-        assert!(matches!(press(&mut app, KeyCode::Esc), Effect::Quit));
-    }
-
-    #[test]
-    fn squad_switch_keeps_the_frame_caches_and_never_shows_another_squads_result() {
-        let mut app = App::new(Some("product".into()));
-        app.apply(snapshot(
-            "product",
-            json!([{"title": null, "rows": [row("a", "")]}]),
-        ));
-        let Effect::Load(next) = press(&mut app, KeyCode::Right) else {
-            panic!("switch");
-        };
-        assert_eq!(next, "infra");
-        // Nothing is blanked: product's frame stays until infra arrives, and
-        // its rows take no actions meanwhile.
-        assert_eq!(names(&app), ["a"]);
-        assert!(app.loading() && app.loading_since.is_some());
-        assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
-        assert_eq!(app.notice.as_deref(), Some("Loading infra…"));
-        // A late product result is kept for switching back, never shown.
-        app.apply(snapshot(
-            "product",
-            json!([{"title": null, "rows": [row("late", "")]}]),
-        ));
-        assert_eq!(names(&app), ["a"]);
-        app.apply(snapshot(
-            "infra",
-            json!([{"title": null, "rows": [row("i", "")]}]),
-        ));
-        assert_eq!(names(&app), ["i"]);
-        assert!(!app.loading() && app.loading_since.is_none());
-        // Back to product: at once, from the cache (the late result).
-        assert_eq!(
-            press(&mut app, KeyCode::Left),
-            Effect::Load("product".into())
-        );
-        assert_eq!(names(&app), ["late"]);
-        assert!(!app.loading(), "a cached squad is the current one at once");
-    }
-
-    #[test]
-    fn a_failed_switch_returns_to_the_retained_view_and_shows_its_error() {
-        for error in [
-            "infra: room not found",
-            "tmt did not finish in time; the outcome is unknown.",
-        ] {
-            let mut app = App::new(Some("product".into()));
-            app.apply(snapshot(
-                "product",
-                json!([{"title": null, "rows": [row("a", "")]}]),
-            ));
-            app.meter = Some(super::super::meter::Meter::new(
-                crate::config::TokenRate {
-                    enabled: true,
-                    ..Default::default()
-                },
-                &super::super::rate::tests::input(100),
-                Instant::now(),
-            ));
-            press(&mut app, KeyCode::Right);
-            assert!(app.meter.is_none() && app.meters.contains_key("product"));
-            app.apply(Snapshot {
-                references: Default::default(),
-                timing: None,
-                squad_keys: Vec::new(),
-                tabs: vec!["product".into(), "infra".into()],
-                hidden: Vec::new(),
-                pinned: 0,
-                attention: Default::default(),
-                squad: Some("infra".into()),
-                view: Err(error.into()),
-            });
-            assert!(!app.loading() && app.loading_since.is_none());
-            assert_eq!(app.current.as_deref(), Some("product"));
-            assert_eq!(app.shown_tab(), Some("product"));
-            assert_eq!(names(&app), ["a"]);
-            assert_eq!(app.error.as_deref(), Some(error));
-            assert!(app.notice.is_none(), "the footer must show the error");
-            assert!(app.meter.is_some() && !app.meters.contains_key("product"));
-        }
-    }
-
     fn member(name: &str, fields: Value) -> Value {
         json!({"id": name, "name": name, "state": "working", "fields": fields})
     }
 
-    pub(in crate::board) fn crew(
-        bindings: crate::action::Bindings,
-        sections: Vec<crate::action::Bindings>,
-    ) -> App {
+    pub(in crate::board) fn crew(bindings: crate::action::Bindings) -> App {
         let mut app = App::new(Some("product".into()));
         let mut snapshot = snapshot(
             "product",
@@ -5020,202 +3569,10 @@ pub(crate) mod tests {
             ]),
         );
         let view = snapshot.view.as_mut().unwrap();
-        view.configured_bindings = bindings.clone();
         view.bindings = bindings;
-        view.section_bindings = sections;
         view.clipboard = Some(vec!["pbcopy".into()]);
         app.apply(snapshot);
         app
-    }
-
-    pub(super) fn bind(entries: &[(&str, &str)]) -> crate::action::Bindings {
-        crate::action::parse_bindings(entries.iter().map(|(e, a)| (*e, Some(*a))), "bind").unwrap()
-    }
-
-    #[test]
-    fn ask_lead_requires_confirmation_and_revalidates_sender_and_lead() {
-        let mut app = crew(crate::action::preset(true, &[]), Vec::new());
-        app.view.as_mut().unwrap().me = Some("Ben".into());
-        app.view.as_mut().unwrap().document["squad"]["lead"] = json!({"name": "sol"});
-        assert_eq!(press(&mut app, KeyCode::Char('A')), Effect::None);
-        assert_eq!(app.input.as_ref().unwrap().prompt, "→ lead sol");
-        assert_eq!(
-            app.input.as_ref().unwrap().text,
-            crate::config::DEFAULT_ASK_LEAD
-        );
-        assert_eq!(press(&mut app, KeyCode::Esc), Effect::None);
-        assert!(app.input.is_none());
-        press(&mut app, KeyCode::Char('A'));
-        assert_eq!(
-            press(&mut app, KeyCode::Enter),
-            Effect::Act(Request::Talk {
-                me: "Ben".into(),
-                squad: "product".into(),
-                to: "sol".into(),
-                text: crate::config::DEFAULT_ASK_LEAD.into(),
-            })
-        );
-        for change in ["lead", "sender", "squad"] {
-            let mut app = crew(crate::action::preset(true, &[]), Vec::new());
-            app.view.as_mut().unwrap().me = Some("Ben".into());
-            app.view.as_mut().unwrap().document["squad"]["lead"] = json!({"name": "sol"});
-            press(&mut app, KeyCode::Char('A'));
-            match change {
-                "lead" => {
-                    app.view.as_mut().unwrap().document["squad"]["lead"] = json!({"name": "other"})
-                }
-                "sender" => app.view.as_mut().unwrap().me = Some("other".into()),
-                _ => app.current = Some("other".into()),
-            }
-            assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
-            assert!(app.notice.as_deref().unwrap().contains("nothing sent"));
-        }
-    }
-
-    #[test]
-    fn ask_lead_missing_lead_and_rebinding_never_send_on_open() {
-        let mut app = crew(bind(&[("z", "ask-lead")]), Vec::new());
-        app.view.as_mut().unwrap().me = Some("Ben".into());
-        press(&mut app, KeyCode::Char('z'));
-        assert!(app.input.is_none());
-        assert!(app.notice.as_deref().unwrap().contains("no lead"));
-        app.view.as_mut().unwrap().document["squad"]["lead"] = json!({"name": "sol"});
-        app.view.as_mut().unwrap().ask_lead = "What needs a decision?".into();
-        assert_eq!(press(&mut app, KeyCode::Char('z')), Effect::None);
-        assert_eq!(app.input.as_ref().unwrap().text, "What needs a decision?");
-        app.input.as_mut().unwrap().text.clear();
-        assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
-        assert_eq!(app.notice.as_deref(), Some("Nothing sent."));
-    }
-
-    /// A bound `jump lead` goes to the squad's lead on its own tab, and to the
-    /// selected row's squad's lead on the leads and all tabs; without one it
-    /// says why and nothing runs.
-    #[test]
-    fn jump_lead_goes_to_the_lead_of_the_tab_or_the_selected_row_s_squad() {
-        let lead = |app: &mut App| press(app, KeyCode::Char('L'));
-        // No preset binds `jump lead`; a user binding does.
-        let bound = |mut snapshot: Snapshot| {
-            let view = snapshot.view.as_mut().unwrap();
-            view.bindings
-                .insert("L".into(), Action::parse("jump lead").unwrap());
-            snapshot
-        };
-        let mut app = App::new(Some("product".into()));
-        let mut own = snapshot(
-            "product",
-            json!([{"title": null, "rows": [row("rin", "x")]}]),
-        );
-        own.view.as_mut().unwrap().document["squad"]["lead"] = json!({"name": "sol"});
-        app.apply(bound(own));
-        assert_eq!(lead(&mut app), Effect::Act(Request::Jump("sol".into())));
-
-        // An empty squad still has its lead.
-        let mut app = App::new(Some("product".into()));
-        let mut empty = snapshot("product", json!([{"title": null, "rows": []}]));
-        empty.view.as_mut().unwrap().document["squad"]["lead"] = json!({"name": "sol"});
-        app.apply(bound(empty));
-        assert_eq!(lead(&mut app), Effect::Act(Request::Jump("sol".into())));
-
-        let mut app = App::new(Some("product".into()));
-        app.apply(bound(snapshot(
-            "product",
-            json!([{"title": null, "rows": [row("rin", "x")]}]),
-        )));
-        assert_eq!(lead(&mut app), Effect::None);
-        assert_eq!(
-            app.notice.as_deref(),
-            Some("jump lead: this squad has no lead; set one with tmt ops squad lead <name>.")
-        );
-
-        // The all tab: a row per squad, with its lead as a field.
-        let mut app = App::new(Some(crate::board::ALL.into()));
-        app.apply(bound(snapshot(
-            crate::board::ALL,
-            json!([{"title": null, "rows": [
-                {"name": "product", "squad": "product", "fields": {"lead": "sol"}},
-                {"name": "quiet", "squad": "quiet", "fields": {"lead": null}},
-            ]}]),
-        )));
-        assert_eq!(lead(&mut app), Effect::Act(Request::Jump("sol".into())));
-        press(&mut app, KeyCode::Down);
-        assert_eq!(lead(&mut app), Effect::None);
-        assert_eq!(
-            app.notice.as_deref(),
-            Some("jump lead: this squad has no lead; set one with tmt ops squad lead <name>.")
-        );
-
-        // A missing lead is data, so a custom binding gets the same missing-field
-        // notice as any other absent value instead of copying a display glyph.
-        assert_eq!(
-            app.perform(&Action::parse("copy {lead}").unwrap()),
-            Effect::None
-        );
-        assert_eq!(
-            app.notice.as_deref(),
-            Some("copy: lead is empty for this row.")
-        );
-
-        // The leads tab: the selected row is the lead.
-        let mut app = App::new(Some(crate::board::LEADS.into()));
-        app.apply(bound(snapshot(
-            crate::board::LEADS,
-            json!([{"title": null, "rows": [
-                {"name": "sol", "squad": "product", "fields": {}},
-                {"name": "rin", "squad": "infra", "fields": {}},
-            ]}]),
-        )));
-        press(&mut app, KeyCode::Down);
-        assert_eq!(lead(&mut app), Effect::Act(Request::Jump("rin".into())));
-    }
-
-    #[test]
-    fn the_leads_tab_jumps_to_a_lead_and_talks_in_that_lead_s_squad() {
-        let mut app = App::new(Some(crate::board::LEADS.into()));
-        let mut snapshot = snapshot(
-            crate::board::LEADS,
-            json!([{"title": null, "rows": [
-                member("sol", json!({"squad": "product"})),
-                member("rin", json!({"squad": "infra"})),
-            ]}]),
-        );
-        for (row, squad) in [(0, "product"), (1, "infra")] {
-            snapshot.view.as_mut().unwrap().document["sections"][0]["rows"][row]["squad"] =
-                json!(squad);
-        }
-        snapshot.view.as_mut().unwrap().me = Some("Ben".into());
-        snapshot.tabs = ["product", crate::board::LEADS, "infra"]
-            .map(String::from)
-            .to_vec();
-        app.apply(snapshot);
-        press(&mut app, KeyCode::Down);
-        // Enter jumps through tmt focus, as on a squad's own tab.
-        assert_eq!(
-            press(&mut app, KeyCode::Enter),
-            Effect::Act(Request::Jump("rin".into()))
-        );
-        press(&mut app, KeyCode::Char('t'));
-        typed(&mut app, "status?");
-        assert_eq!(
-            press(&mut app, KeyCode::Enter),
-            Effect::Act(Request::Talk {
-                me: "Ben".into(),
-                squad: "infra".into(),
-                to: "rin".into(),
-                text: "status?".into()
-            }),
-            "sent in the lead's own squad room, not a tab's"
-        );
-        press(&mut app, KeyCode::Char('a'));
-        assert_eq!(app.input.as_ref().unwrap().header(), "→ rin (infra) · note");
-        typed(&mut app, "check the queue");
-        assert!(matches!(press(&mut app, KeyCode::Enter),
-            Effect::Act(Request::Annotate { squad, to, .. }) if squad == "infra" && to == "rin"));
-        // ← → walk every tab, the built-in one included.
-        assert_eq!(
-            press(&mut app, KeyCode::Right),
-            Effect::Load("infra".into())
-        );
     }
 
     #[test]
@@ -5233,104 +3590,76 @@ pub(crate) mod tests {
         assert!(!app.cache.contains_key(key), "late load cannot restore it");
     }
 
-    #[test]
-    fn enter_on_the_all_tab_opens_that_squad_s_tab() {
-        let mut app = App::new(Some(crate::board::ALL.into()));
-        let mut snapshot = snapshot(
-            crate::board::ALL,
-            json!([{"title": null, "rows": [
-                {"name": "product", "squad": "product", "fields": {}},
-                {"name": "infra", "squad": "infra", "fields": {}},
-            ]}]),
-        );
-        snapshot.view.as_mut().unwrap().bindings =
-            bind(&[("enter", "tab"), ("t", "talk"), ("o", "open")]);
-        app.apply(snapshot);
-        press(&mut app, KeyCode::Down);
-        assert_eq!(
-            press(&mut app, KeyCode::Enter),
-            Effect::Load("infra".into())
-        );
-        assert_eq!(app.current.as_deref(), Some("infra"));
-        // A member's row has no squad of its own to open.
-        let mut app = crew(bind(&[("enter", "tab")]), Vec::new());
-        assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
-        assert_eq!(app.notice.as_deref(), Some("tab: this row has no squad."));
-    }
-
-    #[test]
-    fn keys_resolve_the_selected_row_into_requests_or_refuse_with_a_notice() {
-        let mut app = crew(
-            crate::action::with_action_keys(crate::action::preset(true, &[])),
-            Vec::new(),
-        );
-        assert_eq!(
-            press(&mut app, KeyCode::Enter),
-            Effect::Act(Request::Jump("auth-fix".into()))
-        );
-        assert_eq!(
-            press(&mut app, KeyCode::Char('o')),
-            Effect::Act(Request::Open {
-                link: "https://example.com/pull/412".into(),
-                opener: None
-            })
-        );
-        assert_eq!(
-            press(&mut app, KeyCode::Char('y')),
-            Effect::Act(Request::Copy {
-                text: "auth-fix: rotate (working)".into(),
-                program: Some(vec!["pbcopy".into()])
-            })
-        );
-        press(&mut app, KeyCode::Down);
-        assert_eq!(press(&mut app, KeyCode::Char('o')), Effect::None);
-        assert!(
-            app.notice
-                .as_deref()
-                .unwrap()
-                .contains("Only http(s) links open"),
-            "{:?}",
-            app.notice
-        );
-        assert_eq!(press(&mut app, KeyCode::Char('t')), Effect::None);
-        assert!(
-            app.notice
-                .as_deref()
-                .unwrap()
-                .starts_with("Who is sending? Record yourself with tmt ops squad me"),
-            "sending needs me"
-        );
-        assert_eq!(press(&mut app, KeyCode::Char('x')), Effect::None);
-        assert_eq!(app.notice, None, "an unbound key does nothing");
-        assert_eq!(press(&mut app, KeyCode::Char('q')), Effect::Quit);
-    }
-
     fn typed(app: &mut App, text: &str) {
         for character in text.chars() {
             press(app, KeyCode::Char(character));
         }
     }
 
+    const COMPOSER_LEAD: &str = "44444444-4444-4444-8444-444444444441";
+    const COMPOSER_DOCS: &str = "44444444-4444-4444-8444-444444444442";
+
+    fn composer_row<'a>(view: &'a mut View, id: &str) -> &'a mut Value {
+        view.home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .rows
+            .get_mut(&super::super::workspace::OpsTarget::Member {
+                room_id: Some(super::workspace::tests::ROOM.into()),
+                identity_id: id.into(),
+            })
+            .unwrap()
+    }
+
+    pub(in crate::board) fn workspace_composer() -> App {
+        use super::super::workspace::OpsTarget;
+        use super::workspace::tests::{MEMBER, ROOM};
+        let mut app = super::workspace::tests::board();
+        let view = app.view.as_mut().unwrap();
+        view.me = Some("Ben".into());
+        let workspace = &mut view.home.as_mut().unwrap().workspace;
+        workspace.roster.members.get_mut(MEMBER).unwrap().name = "auth-fix".into();
+        workspace
+            .rows
+            .get_mut(&OpsTarget::Member {
+                room_id: Some(ROOM.into()),
+                identity_id: MEMBER.into(),
+            })
+            .unwrap()["name"] = json!("auth-fix");
+        for (id, name) in [(COMPOSER_LEAD, "sol"), (COMPOSER_DOCS, "docs")] {
+            let mut member = workspace.roster.members[MEMBER].clone();
+            member.id = id.into();
+            member.name = name.into();
+            workspace.roster.members.insert(id.into(), member);
+            workspace.roster.squads[0].members.push(id.into());
+            workspace.rows.insert(
+                OpsTarget::Member {
+                    room_id: Some(ROOM.into()),
+                    identity_id: id.into(),
+                },
+                json!({"id":id,"name":name}),
+            );
+        }
+        workspace.roster.squads[0].lead = Some(COMPOSER_LEAD.into());
+        app.workspace_reconcile();
+        app
+    }
+
     #[test]
     fn talk_annotate_and_reply_compose_one_line_and_empty_sends_nothing() {
-        let mut app = crew(
-            crate::action::with_action_keys(crate::action::preset(true, &[])),
-            Vec::new(),
-        );
+        let mut app = workspace_composer();
         {
             let view = app.view.as_mut().unwrap();
             view.me = Some("Ben".into());
-            view.me_id = Some("ben-id".into());
-            view.document["squad"]["lead"] = json!({"id": "L", "name": "sol"});
-            view.document["sections"][0]["rows"][0]["waitingOnYou"] = json!([
+            composer_row(view, super::workspace::tests::MEMBER)["waitingOnYou"] = json!([
                 {"requestId": "q2", "preview": "approve the plan?"},
                 {"requestId": "q1", "preview": "which database?"}
             ]);
-            view.document["sections"][1]["rows"][0]["waitingOnYou"] =
+            composer_row(view, COMPOSER_DOCS)["waitingOnYou"] =
                 json!([{"requestId": "q9", "preview": "ok to merge?"}]);
         }
-        // The cursor starts on the lead; these cases act on the first member.
-        app.select(1);
+        app.workspace_reconcile();
         press(&mut app, KeyCode::Char('t'));
         assert_eq!(
             app.input.as_ref().unwrap().prompt,
@@ -5360,7 +3689,7 @@ pub(crate) mod tests {
         assert_eq!(press(&mut app, KeyCode::Esc), Effect::None);
         assert!(app.input.is_none() && app.notice.as_deref() == Some("Nothing sent."));
 
-        press(&mut app, KeyCode::Char('a'));
+        app.perform(&Action::parse("annotate").unwrap());
         assert_eq!(app.menu.as_ref().unwrap().entries.len(), 2);
         press(&mut app, KeyCode::Char('1'));
         press(&mut app, KeyCode::Tab);
@@ -5382,7 +3711,7 @@ pub(crate) mod tests {
         );
 
         // Two open requests: the user picks; the newest is never assumed.
-        press(&mut app, KeyCode::Char('r'));
+        app.perform(&Action::parse("reply").unwrap());
         let menu = app.menu.as_ref().expect("picker");
         assert_eq!(menu.title, "answer auth-fix");
         assert_eq!(menu.entries.len(), 2);
@@ -5403,9 +3732,10 @@ pub(crate) mod tests {
                 text: "postgres".into()
             })
         );
-        // One open request goes straight to the composer.
+        // Return from the conversation to the tree before choosing the next agent.
+        press(&mut app, KeyCode::Tab);
         press(&mut app, KeyCode::Down);
-        press(&mut app, KeyCode::Char('r'));
+        app.perform(&Action::parse("reply").unwrap());
         assert!(app.menu.is_none());
         typed(&mut app, "yes");
         assert!(matches!(
@@ -5415,12 +3745,21 @@ pub(crate) mod tests {
         assert!(!Request::Back.sends());
 
         // Nothing open, or no lead to annotate for, is a notice.
-        app.view.as_mut().unwrap().document["sections"][1]["rows"][0]["waitingOnYou"] = json!([]);
-        app.view.as_mut().unwrap().document["squad"]["lead"] = Value::Null;
+        composer_row(app.view.as_mut().unwrap(), COMPOSER_DOCS)["waitingOnYou"] = json!([]);
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .roster
+            .squads[0]
+            .lead = None;
         app.clamp();
-        press(&mut app, KeyCode::Char('r'));
+        app.perform(&Action::parse("reply").unwrap());
         assert_eq!(app.notice.as_deref(), Some("docs is not waiting on you."));
-        press(&mut app, KeyCode::Char('a'));
+        app.perform(&Action::parse("annotate").unwrap());
         assert!(matches!(
             app.input.as_ref().unwrap().compose,
             Compose::Talk { .. }
@@ -5433,15 +3772,14 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn row_composer_switches_modes_preserves_draft_and_marks_only_success() {
-        let mut app = crew(crate::action::preset(true, &[]), vec![]);
+    fn row_composer_switches_modes_preserves_draft_and_reports_observed_outcomes() {
+        let mut app = workspace_composer();
         let view = app.view.as_mut().unwrap();
         view.me = Some("Ben".into());
-        view.document["squad"]["lead"] = json!({"name":"sol"});
-        view.document["sections"][0]["rows"][0]["waitingOnYou"] =
+        composer_row(view, super::workspace::tests::MEMBER)["waitingOnYou"] =
             json!([{"requestId":"q", "preview":"Ship tonight?"}]);
-        app.select(1);
-        press(&mut app, KeyCode::Char('a'));
+        app.workspace_reconcile();
+        app.perform(&Action::parse("annotate").unwrap());
         assert!(app.menu.is_none(), "a single request opens in place");
         assert_eq!(
             app.input.as_ref().unwrap().header(),
@@ -5479,61 +3817,69 @@ pub(crate) mod tests {
             Some("Ship tonight?"),
             "the question is quoted again when the mode returns to answer"
         );
-        let target = app.row_target(1).unwrap();
+        let target = app.row_target(app.selected).unwrap();
         assert!(
             matches!(press(&mut app, KeyCode::Enter), Effect::Act(Request::Reply { ref text, .. }) if text == "draft")
         );
-        assert!(app.sent.is_none(), "dispatch intent is not send success");
+        assert!(
+            app.notice.is_none(),
+            "opening a dispatch does not claim success"
+        );
         app.finished(Err("delivery uncertain".into()));
-        assert!(app.sent.is_none());
-        press(&mut app, KeyCode::Char('a'));
+        assert_eq!(app.notice.as_deref(), Some("delivery uncertain"));
+        app.perform(&Action::parse("annotate").unwrap());
         typed(&mut app, "approved");
         press(&mut app, KeyCode::Enter);
         app.finished(Ok("Replied".into()));
-        assert_eq!(
-            app.sent
-                .as_ref()
-                .map(|feedback| (&feedback.target, feedback.mark)),
-            Some((&target, Some("sent")))
-        );
-        assert_eq!(app.selected, 1);
-        press(&mut app, KeyCode::Char('x'));
+        assert_eq!(app.notice.as_deref(), Some("Replied"));
+        assert_eq!(app.row_target(app.selected).as_ref(), Some(&target));
+        press(&mut app, KeyCode::Tab);
         assert!(
-            app.sent.is_none(),
-            "the next key clears the row confirmation"
+            app.notice.is_none(),
+            "the next key clears the completion notice"
         );
-        press(&mut app, KeyCode::Char('a'));
+        app.perform(&Action::parse("annotate").unwrap());
         typed(&mut app, "later");
         press(&mut app, KeyCode::Enter);
-        app.finished_as(
-            Ok("Message queued in auth-fix's inbox (r).".into()),
-            "queued",
-        );
+        app.finished(Ok("Message queued in auth-fix's inbox (r).".into()));
         assert_eq!(
-            app.sent
-                .as_ref()
-                .and_then(|feedback| feedback.line(&target)),
-            Some("✓ queued".into()),
-            "an accepted request is marked with what Core reported"
+            app.notice.as_deref(),
+            Some("Message queued in auth-fix's inbox (r)."),
+            "the visible outcome reports Core acceptance"
         );
+    }
+
+    fn composer_bindings(app: &mut App, text: &str) {
+        let path = std::env::temp_dir().join(format!(
+            "ops-composer-bindings-{}.toml",
+            crate::id::new_v4().unwrap()
+        ));
+        std::fs::write(&path, text).unwrap();
+        let config = Config::read(path.clone()).unwrap();
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .configure(&config)
+            .unwrap();
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]
     fn t_opens_talk_on_a_squad_tab_and_user_bindings_still_override_it() {
-        let mut app = crew(crate::action::preset(true, &[]), vec![]);
+        let mut app = workspace_composer();
         app.view.as_mut().unwrap().me = Some("Ben".into());
-        app.select(0);
+        app.workspace_reconcile();
         assert_eq!(press(&mut app, KeyCode::Char('t')), Effect::None);
         assert_eq!(
             app.input.as_ref().unwrap().header(),
             "→ auth-fix (product) · talk"
         );
         app.input = None;
-        app.view
-            .as_mut()
-            .unwrap()
-            .bindings
-            .insert("t".into(), crate::action::Action::parse("menu").unwrap());
+        composer_bindings(&mut app, "[bind]\nt = 'menu'\n");
         press(&mut app, KeyCode::Char('t'));
         assert!(app.input.is_none() && app.menu.is_some());
     }
@@ -5545,13 +3891,12 @@ pub(crate) mod tests {
 
     #[test]
     fn tab_cycles_answer_note_talk_for_the_modes_the_row_allows() {
-        let mut app = crew(crate::action::preset(true, &[]), vec![]);
+        let mut app = workspace_composer();
         let view = app.view.as_mut().unwrap();
         view.me = Some("Ben".into());
-        view.document["squad"]["lead"] = json!({"name":"sol"});
         // Nothing waits: `a` opens the note; Tab reaches talk and back.
-        app.select(1);
-        press(&mut app, KeyCode::Char('a'));
+        app.workspace_reconcile();
+        app.perform(&Action::parse("annotate").unwrap());
         assert_eq!(
             modes_of(&app),
             (
@@ -5584,9 +3929,9 @@ pub(crate) mod tests {
         ));
         // Something waits: answer, note, talk in that cycle; a talk start
         // (a user's own `talk` binding) cycles on to answer, then note.
-        app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["waitingOnYou"] =
+        composer_row(app.view.as_mut().unwrap(), super::workspace::tests::MEMBER)["waitingOnYou"] =
             json!([{"requestId": "q", "preview": "Ship?"}]);
-        press(&mut app, KeyCode::Char('a'));
+        app.perform(&Action::parse("annotate").unwrap());
         assert_eq!(
             modes_of(&app),
             (
@@ -5595,11 +3940,7 @@ pub(crate) mod tests {
             )
         );
         press(&mut app, KeyCode::Esc);
-        app.view
-            .as_mut()
-            .unwrap()
-            .bindings
-            .insert("x".into(), crate::action::Action::parse("talk").unwrap());
+        composer_bindings(&mut app, "[bind]\nx = 'talk'\n");
         press(&mut app, KeyCode::Char('x'));
         assert_eq!(
             app.input.as_ref().unwrap().header(),
@@ -5624,14 +3965,19 @@ pub(crate) mod tests {
 
     #[test]
     fn a_row_without_a_lead_or_request_can_cycle_talk_and_status() {
-        let mut app = crew(crate::action::preset(true, &[]), vec![]);
-        app.view.as_mut().unwrap().me = Some("Ben".into());
+        let mut app = workspace_composer();
         app.view
             .as_mut()
             .unwrap()
-            .bindings
-            .insert("x".into(), crate::action::Action::parse("talk").unwrap());
-        app.select(0);
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .roster
+            .squads[0]
+            .lead = None;
+        composer_bindings(&mut app, "[bind]\nx = 'talk'\n");
+        app.workspace_reconcile();
         press(&mut app, KeyCode::Char('x'));
         assert_eq!(
             modes_of(&app),
@@ -5648,17 +3994,13 @@ pub(crate) mod tests {
 
     #[test]
     fn an_explicit_member_note_binding_cycles_note_talk_status() {
-        let mut app = crew(crate::action::preset(true, &[]), vec![]);
+        let mut app = workspace_composer();
         let view = app.view.as_mut().unwrap();
         view.me = Some("Ben".into());
-        view.document["squad"]["lead"] = json!({"name":"sol"});
-        view.document["sections"][0]["rows"][0]["waitingOnYou"] =
+        composer_row(view, super::workspace::tests::MEMBER)["waitingOnYou"] =
             json!([{"requestId": "q", "preview": "Ship?"}]);
-        view.bindings.insert(
-            "x".into(),
-            crate::action::Action::parse("annotate member").unwrap(),
-        );
-        app.select(1);
+        composer_bindings(&mut app, "[bind]\nx = 'annotate member'\n");
+        app.workspace_reconcile();
         press(&mut app, KeyCode::Char('x'));
         assert_eq!(
             modes_of(&app),
@@ -5671,17 +4013,30 @@ pub(crate) mod tests {
 
     #[test]
     fn composer_anchors_the_selected_occurrence_and_explicit_member_notes_stay_notes() {
-        let mut app = crew(crate::action::preset(true, &[]), vec![]);
-        let view = app.view.as_mut().unwrap();
-        view.me = Some("Ben".into());
-        view.document["squad"]["lead"] = json!({"name":"sol"});
-        let mut duplicate = member("auth-fix", json!({}));
-        duplicate["waitingOnYou"] = json!([{"requestId":"q", "preview":"Choose?"}]);
-        view.document["sections"] = json!([
-            {"rows":[duplicate.clone()]}, {"rows":[duplicate]}
-        ]);
-        app.selected = 1;
-        press(&mut app, KeyCode::Char('a'));
+        use super::super::workspace::OpsTarget;
+        use super::workspace::tests::MEMBER;
+        const OTHER_ROOM: &str = "55555555-5555-4555-8555-555555555555";
+        let mut app = workspace_composer();
+        let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+        let mut squad = snapshot.roster.squads[0].clone();
+        squad.room_id = OTHER_ROOM.into();
+        squad.name = "other-product".into();
+        snapshot.roster.squads.push(squad);
+        let selected = OpsTarget::Member {
+            room_id: Some(OTHER_ROOM.into()),
+            identity_id: MEMBER.into(),
+        };
+        let mut row = snapshot.rows[&OpsTarget::Member {
+            room_id: Some(super::workspace::tests::ROOM.into()),
+            identity_id: MEMBER.into(),
+        }]
+            .clone();
+        row["waitingOnYou"] = json!([{"requestId":"q", "preview":"Choose?"}]);
+        snapshot.rows.insert(selected.clone(), row);
+        app.workspace.expanded.insert(OTHER_ROOM.into());
+        app.workspace.selected = Some(selected.clone());
+        app.workspace_reconcile();
+        app.perform(&Action::parse("annotate").unwrap());
         assert_eq!(
             app.input
                 .as_ref()
@@ -5690,59 +4045,88 @@ pub(crate) mod tests {
                 .as_ref()
                 .unwrap()
                 .target,
-            app.row_target(1).unwrap()
+            RowTarget::Workspace(selected.clone())
         );
         press(&mut app, KeyCode::Esc);
-        let note = Action::parse("annotate member").unwrap();
-        app.perform(&note);
+        app.perform(&Action::parse("annotate member").unwrap());
         assert_eq!(
             app.input.as_ref().unwrap().header(),
-            "→ auth-fix (product) · note"
+            "→ auth-fix (other-product) · note"
         );
         typed(&mut app, "context");
         assert!(
-            matches!(press(&mut app, KeyCode::Enter), Effect::Act(Request::Annotate { ref to, ref row, .. }) if to == "auth-fix" && row == "auth-fix")
+            matches!(press(&mut app, KeyCode::Enter), Effect::Act(Request::Annotate { ref squad, ref to, ref row, .. }) if squad == "other-product" && to == "auth-fix" && row == "auth-fix")
         );
+        assert_eq!(app.workspace.selected, Some(selected));
     }
 
     #[test]
     fn row_composer_follows_identity_on_refresh_and_refuses_changed_authority() {
-        for change in ["reorder", "sender", "lead", "request", "identity", "tab"] {
-            let mut app = crew(crate::action::preset(true, &[]), vec![]);
-            let view = app.view.as_mut().unwrap();
-            view.me = Some("Ben".into());
-            view.document["squad"]["lead"] = json!({"name":"sol"});
-            view.document["sections"][0]["rows"][0]["waitingOnYou"] =
+        use super::workspace::tests::MEMBER;
+        for change in [
+            "reorder", "sender", "lead", "request", "identity", "loading",
+        ] {
+            let mut app = workspace_composer();
+            composer_row(app.view.as_mut().unwrap(), MEMBER)["waitingOnYou"] =
                 json!([{"requestId":"q", "preview":"Choose?"}]);
-            app.select(1);
-            press(&mut app, KeyCode::Char('a'));
+            app.perform(&Action::parse("annotate").unwrap());
+            let target = app
+                .input
+                .as_ref()
+                .unwrap()
+                .row_send
+                .as_ref()
+                .unwrap()
+                .target
+                .clone();
             typed(&mut app, "yes");
             if change == "lead" {
                 press(&mut app, KeyCode::Tab);
             }
             match change {
-                "reorder" => app.view.as_mut().unwrap().document["sections"][0]["rows"]
-                    .as_array_mut()
-                    .unwrap()
-                    .insert(0, member("before", json!({}))),
+                "reorder" => {
+                    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+                    snapshot.roster.members.get_mut(COMPOSER_DOCS).unwrap().name =
+                        "a-before".into();
+                    composer_row(app.view.as_mut().unwrap(), COMPOSER_DOCS)["name"] =
+                        json!("a-before");
+                }
                 "sender" => app.view.as_mut().unwrap().me = Some("other".into()),
                 "lead" => {
-                    app.view.as_mut().unwrap().document["squad"]["lead"]["name"] = json!("other")
+                    app.view
+                        .as_mut()
+                        .unwrap()
+                        .home
+                        .as_mut()
+                        .unwrap()
+                        .workspace
+                        .roster
+                        .members
+                        .get_mut(COMPOSER_LEAD)
+                        .unwrap()
+                        .name = "other".into()
                 }
                 "request" => {
-                    app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["waitingOnYou"] =
-                        json!([])
+                    composer_row(app.view.as_mut().unwrap(), MEMBER)["waitingOnYou"] = json!([])
                 }
                 "identity" => {
-                    app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["id"] =
-                        json!("replacement")
+                    app.view
+                        .as_mut()
+                        .unwrap()
+                        .home
+                        .as_mut()
+                        .unwrap()
+                        .workspace
+                        .roster
+                        .members
+                        .remove(MEMBER);
                 }
-                _ => app.current = Some("infra".into()),
+                _ => app.current = Some("unloaded".into()),
             }
             app.clamp();
             let effect = press(&mut app, KeyCode::Enter);
             if change == "reorder" {
-                assert_eq!(app.selected, 2);
+                assert_eq!(app.row_target(app.selected).as_ref(), Some(&target));
                 assert!(
                     matches!(effect, Effect::Act(Request::Reply { ref request, ref from, .. }) if request == "q" && from == "auth-fix")
                 );
@@ -5752,28 +4136,14 @@ pub(crate) mod tests {
                     app.notice.as_ref().unwrap().contains("nothing sent"),
                     "{change}"
                 );
-                assert!(app.sent.is_none());
             }
         }
     }
 
     #[test]
-    fn back_is_one_request_and_outcomes_become_the_notice() {
-        let mut app = crew(crate::action::preset(true, &[]), Vec::new());
-        assert_eq!(
-            press(&mut app, KeyCode::Backspace),
-            Effect::Act(Request::Back)
-        );
-        app.finished(Ok("Nothing to go back to.".into()));
-        assert_eq!(app.notice.as_deref(), Some("Nothing to go back to."));
-        app.finished(Err("Pane '%5' was not found.".into()));
-        assert_eq!(app.notice.as_deref(), Some("Pane '%5' was not found."));
-    }
-
-    #[test]
     fn ctrl_r_refreshes_without_typing_into_search_or_message_inputs() {
         for tmux in [false, true] {
-            let mut app = crew(crate::action::preset(tmux, &[]), Vec::new());
+            let mut app = crew(crate::action::preset(tmux, &[]));
             let refresh = KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL);
             assert_eq!(app.key(refresh), Effect::Refresh);
             assert_eq!(press(&mut app, KeyCode::F(5)), Effect::None);
@@ -5818,279 +4188,6 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn ctrl_r_keeps_normalization_and_effective_binding_overrides() {
-        let mut global = crate::action::preset(true, &[]);
-        global.extend(bind(&[("ctrl-r", "copy"), ("f5", "refresh")]));
-        let mut app = crew(global, vec![bind(&[("ctrl-r", "refresh")])]);
-        let refresh = KeyEvent::new(
-            KeyCode::Char('R'),
-            KeyModifiers::CONTROL | KeyModifiers::SHIFT,
-        );
-        assert_eq!(event_name(refresh).as_deref(), Some("ctrl-r"));
-        assert_eq!(app.key(refresh), Effect::Refresh, "section wins");
-        app.view.as_mut().unwrap().section_bindings.clear();
-        assert!(matches!(
-            app.key(refresh),
-            Effect::Act(Request::Copy { .. })
-        ));
-        assert_eq!(
-            press(&mut app, KeyCode::F(5)),
-            Effect::Refresh,
-            "explicit F5 works"
-        );
-        app.searching = true;
-        app.search = "auth".into();
-        assert_eq!(
-            app.key(refresh),
-            Effect::None,
-            "rebound ctrl-r does not refresh an input"
-        );
-        assert_eq!(app.search, "auth", "control keys never become search text");
-    }
-
-    #[test]
-    fn section_bindings_win_over_bind_which_wins_over_the_preset() {
-        let mut global = crate::action::preset(true, &[]);
-        global.extend(bind(&[("o", "open {pr_link}"), ("f5", "refresh")]));
-        let sections = vec![
-            Bindings::new(),
-            bind(&[("o", "run code {name} --task={task}")]),
-        ];
-        let mut app = crew(global, sections);
-        assert_eq!(press(&mut app, KeyCode::F(5)), Effect::Refresh);
-        assert!(matches!(
-            press(&mut app, KeyCode::Char('o')),
-            Effect::Act(Request::Open { .. })
-        ));
-        press(&mut app, KeyCode::Down);
-        assert_eq!(
-            press(&mut app, KeyCode::Char('o')),
-            Effect::Act(Request::Run(vec![
-                "code".into(),
-                "docs".into(),
-                "--task=guide".into()
-            ]))
-        );
-        // A missing field refuses rather than running with a gap.
-        let mut app = crew(bind(&[("o", "open {pr_link}")]), Vec::new());
-        press(&mut app, KeyCode::Down);
-        assert_eq!(press(&mut app, KeyCode::Char('o')), Effect::None);
-        assert_eq!(
-            app.notice.as_deref(),
-            Some("open: pr_link is empty for this row.")
-        );
-    }
-
-    fn located(name: &str, pane: Value) -> Value {
-        let mut row = member(name, json!({}));
-        row["pane"] = pane;
-        row
-    }
-
-    #[test]
-    fn a_host_table_overrides_bind_for_rows_on_that_host_and_only_for_them() {
-        let mut flat = crate::action::preset(true, &[]);
-        flat.extend(bind(&[("enter", "run flat {name}")]));
-        let hosts = [
-            (
-                "tmux".to_owned(),
-                bind(&[(
-                    "enter",
-                    "run tmux switch-client -t {pane} {host} {session} {window}",
-                )]),
-            ),
-            (
-                "herdr".to_owned(),
-                bind(&[("enter", "run herdr pane focus {pane} {session}")]),
-            ),
-        ];
-        let mut snapshot = snapshot(
-            "product",
-            json!([{"title": "Crew", "rows": [
-                located("a", json!({"id": "%1", "location":
-                    {"host": "tmux", "session": "work", "window": "2"}})),
-                located("b", json!({"id": "%2", "location": {"host": "herdr"}})),
-                located("c", json!({"id": "%3"})),
-                located("d", json!({"id": "%4", "location": {"host": "other"}})),
-            ]}]),
-        );
-        let view = snapshot.view.as_mut().unwrap();
-        view.configured_bindings = flat.clone();
-        view.bindings = flat;
-        view.host_bindings = hosts.into_iter().collect();
-        view.section_bindings = vec![Bindings::new()];
-        let mut app = App::new(Some("product".into()));
-        app.apply(snapshot);
-        let run = |args: &[&str]| {
-            Effect::Act(Request::Run(args.iter().map(|arg| (*arg).into()).collect()))
-        };
-        // The tmux table fills its coordinates from Core's published location.
-        assert_eq!(
-            press(&mut app, KeyCode::Enter),
-            run(&["tmux", "switch-client", "-t", "%1", "tmux", "work", "2"])
-        );
-        // A host table with a field its host does not report refuses; nothing runs.
-        press(&mut app, KeyCode::Down);
-        assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
-        assert_eq!(
-            app.notice.as_deref(),
-            Some("run: session is empty for this row.")
-        );
-        // No location, or a host with no table, keeps the flat binding.
-        for _ in 0..2 {
-            press(&mut app, KeyCode::Down);
-            let name = app.selected_row().unwrap()["name"]
-                .as_str()
-                .unwrap()
-                .to_owned();
-            assert_eq!(
-                press(&mut app, KeyCode::Enter),
-                run(&["flat", &name]),
-                "{name}"
-            );
-        }
-    }
-
-    #[test]
-    fn a_section_binding_still_wins_over_a_host_table() {
-        let mut flat = crate::action::preset(true, &[]);
-        flat.extend(bind(&[("enter", "run flat {name}")]));
-        let mut snapshot = snapshot(
-            "product",
-            json!([{"title": "Crew", "rows": [located(
-                "a",
-                json!({"id": "%1", "location": {"host": "tmux", "session": "s", "window": "0"}})
-            )]}]),
-        );
-        let view = snapshot.view.as_mut().unwrap();
-        view.configured_bindings = flat.clone();
-        view.bindings = flat;
-        view.host_bindings = [(
-            "tmux".to_owned(),
-            bind(&[("enter", "run host {pane}"), ("o", "run host-o {pane}")]),
-        )]
-        .into_iter()
-        .collect();
-        view.section_bindings = vec![bind(&[("enter", "run section {name}")])];
-        let mut app = App::new(Some("product".into()));
-        app.apply(snapshot);
-        let run = |args: &[&str]| {
-            Effect::Act(Request::Run(args.iter().map(|arg| (*arg).into()).collect()))
-        };
-        assert_eq!(press(&mut app, KeyCode::Enter), run(&["section", "a"]));
-        // The host table still supplies what the section leaves alone.
-        assert_eq!(press(&mut app, KeyCode::Char('o')), run(&["host-o", "%1"]));
-    }
-
-    #[test]
-    fn the_menu_lists_the_rows_actions_first_then_the_boards_and_user_keys_follow_their_verb() {
-        let mut bindings = crate::action::with_action_keys(crate::action::preset(false, &[]));
-        bindings.insert(
-            "x".into(),
-            crate::action::Action::parse("reply").expect("reply"),
-        );
-        let mut app = crew(bindings, Vec::new());
-        press(&mut app, KeyCode::Enter);
-        let menu = app.menu.as_ref().expect("menu");
-        let order: Vec<&str> = menu.entries.iter().map(|e| e.key.as_str()).collect();
-        assert_eq!(
-            order,
-            [
-                "r",
-                "x",
-                "t",
-                "a",
-                "o",
-                "y",
-                "n",
-                "A",
-                "e",
-                "v",
-                "l",
-                "T",
-                ",",
-                "ctrl-r",
-                "backspace",
-                ""
-            ]
-        );
-    }
-
-    #[test]
-    fn the_plain_host_menu_lists_row_actions_and_runs_the_chosen_one() {
-        let mut app = crew(crate::action::preset(false, &[]), Vec::new());
-        assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
-        let menu = app.menu.as_ref().expect("menu");
-        assert_eq!(menu.title, "auth-fix");
-        let events: Vec<&str> = menu.entries.iter().map(|e| e.key.as_str()).collect();
-        assert!(events.contains(&"y") && events.contains(&"backspace"));
-        assert!(!events.iter().any(|e| ["click", "enter", "tab"].contains(e)));
-        assert_eq!(press(&mut app, KeyCode::Char('j')), Effect::None);
-        assert!(app.menu.is_some(), "j moves inside the menu");
-        assert!(matches!(
-            press(&mut app, KeyCode::Char('y')),
-            Effect::Act(Request::Copy { .. })
-        ));
-        assert!(app.menu.is_none());
-        press(&mut app, KeyCode::Enter);
-        assert_eq!(press(&mut app, KeyCode::Esc), Effect::None);
-        assert!(app.menu.is_none(), "Esc closes the menu, not the board");
-    }
-
-    #[test]
-    fn clicks_select_rows_and_run_click_or_double_click_bindings() {
-        use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
-        let mut global = crate::action::preset(true, &[]);
-        global.extend(bind(&[("click", "notes"), ("double-click", "jump")]));
-        let mut app = crew(global, Vec::new());
-        *app.hits.borrow_mut() = vec![
-            Hit {
-                y: 3,
-                x: 0,
-                width: 40,
-                target: HitTarget::Row(0),
-            },
-            Hit {
-                y: 5,
-                x: 0,
-                width: 40,
-                target: HitTarget::Row(1),
-            },
-        ];
-        let click = |row, column| MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Left),
-            column,
-            row,
-            modifiers: KeyModifiers::NONE,
-        };
-        let start = Instant::now();
-        assert_eq!(app.mouse(click(5, 3), start), Effect::None);
-        assert_eq!(app.selected, 1);
-        assert_eq!(
-            app.notice.as_deref(),
-            Some("The notes pane is not on this board; add it to panes.")
-        );
-        assert_eq!(
-            app.mouse(click(5, 3), start + Duration::from_millis(200)),
-            Effect::Act(Request::Jump("docs".into()))
-        );
-        assert_eq!(
-            app.mouse(click(3, 3), start + Duration::from_millis(300)),
-            Effect::None,
-            "a click on another row is a new single click"
-        );
-        assert_eq!(app.selected, 0);
-        assert_eq!(
-            app.mouse(click(3, 3), start + Duration::from_secs(2)),
-            Effect::None,
-            "too slow for a double click"
-        );
-        assert_eq!(app.mouse(click(9, 3), start), Effect::None);
-        assert_eq!(app.mouse(click(3, 45), start), Effect::None);
-        assert_eq!(app.selected, 0, "clicks outside rows change nothing");
-    }
-
-    #[test]
     fn failed_refreshes_keep_the_last_view() {
         let mut app = App::new(Some("product".into()));
         app.apply(snapshot(
@@ -6119,577 +4216,20 @@ pub(crate) mod tests {
             Effect::Quit
         ));
     }
-    fn folding_snapshot(squad: &str) -> Snapshot {
-        let mut snapshot = snapshot(squad, json!([]));
-        let view = snapshot.view.as_mut().unwrap();
-        view.board = Board::simple(
-            BoardMode::Split,
-            crate::config::Direction::TopBottom,
-            vec![Pane::Rows, Pane::Detail, Pane::Notes],
-            &[40, 30, 30],
-        );
-        view.bindings = crate::action::preset(true, &view.board.panes);
-        snapshot
-    }
-
-    #[test]
-    fn short_pane_folds_share_paint_hits_and_existing_focus_reconciliation() {
-        use ratatui::{Terminal, backend::TestBackend};
-        let mut app = App::new(Some("product".into()));
-        let mut snapshot = folding_snapshot("product");
-        snapshot.view.as_mut().unwrap().document["sections"] = json!([{
-            "title": null, "rows": [{"id": "alpha-id", "name": "alpha", "presence": "offline",
-                "state": "working", "fields": {"task": "resize evidence"}}]
-        }]);
-        snapshot.view.as_mut().unwrap().board = Board::simple(
-            BoardMode::Split,
-            crate::config::Direction::TopBottom,
-            vec![Pane::Rows, Pane::Detail],
-            &[50, 50],
-        );
-        app.apply(snapshot);
-        app.focus = 1;
-        assert!(
-            app.collapsed_panes().is_empty(),
-            "no geometry before first paint"
-        );
-        let mut terminal = Terminal::new(TestBackend::new(80, 7)).unwrap();
-        terminal
-            .draw(|frame| {
-                super::super::view::prepare(&mut app, frame.area());
-                super::super::view::render(frame, &app);
-            })
-            .unwrap();
-        assert_eq!(app.collapsed_panes(), BTreeSet::from([Pane::Detail]));
-        assert_eq!(app.focused_pane(), Some(Pane::Rows));
-        assert!(
-            app.folds_at(80).is_empty(),
-            "geometry never writes an override"
-        );
-        let title = app
-            .title_hits
-            .borrow()
-            .iter()
-            .find(|hit| hit.pane == Pane::Detail)
-            .unwrap()
-            .area;
-        assert_eq!(title.height, 1);
-        assert_ne!(
-            app.scrolls.pane_at(title.x + 1, title.y),
-            Some(Pane::Detail)
-        );
-        assert!(!app.scrolls.visible(Pane::Detail));
-        app.focus_at(title.x + 1, title.y);
-        assert_eq!(app.focused_pane(), Some(Pane::Rows));
-        press(&mut app, KeyCode::Tab);
-        assert_eq!(app.focused_pane(), Some(Pane::Rows));
-        terminal.backend_mut().resize(80, 11);
-        terminal
-            .draw(|frame| {
-                super::super::view::prepare(&mut app, frame.area());
-                super::super::view::render(frame, &app);
-            })
-            .unwrap();
-        assert!(
-            app.scrolls.visible(Pane::Detail),
-            "growth restores the body and its scroll region"
-        );
-        assert!(
-            app.collapsed_panes().is_empty(),
-            "growth restores expanded geometry"
-        );
-        press(&mut app, KeyCode::Char('d'));
-        assert_eq!(app.folds_at(80), BTreeSet::from([Pane::Detail]));
-        for height in [7, 11] {
-            terminal.backend_mut().resize(80, height);
-            terminal
-                .draw(|frame| {
-                    super::super::view::prepare(&mut app, frame.area());
-                    super::super::view::render(frame, &app);
-                })
-                .unwrap();
-            assert!(!app.scrolls.visible(Pane::Detail));
-            assert_eq!(app.collapsed_panes(), BTreeSet::from([Pane::Detail]));
-            assert_eq!(app.focused_pane(), Some(Pane::Rows));
-        }
-    }
-
-    #[test]
-    fn fold_focus_skips_hidden_bodies_and_recovers_from_every_pane_folded() {
-        let mut app = App::new(Some("product".into()));
-        app.apply(folding_snapshot("product"));
-        app.focus = 1;
-        // No selected row is needed: d goes through the normal binding path.
-        press(&mut app, KeyCode::Char('d'));
-        assert_eq!(app.focused_pane(), Some(Pane::Rows));
-        press(&mut app, KeyCode::Tab);
-        assert_eq!(app.focused_pane(), Some(Pane::Notes));
-        app.perform(&Action::parse("toggle rows").unwrap());
-        assert_eq!(app.focused_pane(), Some(Pane::Notes));
-        app.perform(&Action::parse("toggle notes").unwrap());
-        assert_eq!(app.focused_pane(), None);
-        for key in [KeyCode::Tab, KeyCode::Down, KeyCode::End, KeyCode::PageDown] {
-            press(&mut app, key);
-            assert_eq!(app.selected, 0);
-            assert_eq!(app.focused_pane(), None);
-        }
-        press(&mut app, KeyCode::Char('d'));
-        assert_eq!(app.focused_pane(), Some(Pane::Detail));
-        press(&mut app, KeyCode::Char('n'));
-        assert_eq!(app.focused_pane(), Some(Pane::Notes));
-        assert!(!app.collapsed_panes().contains(&Pane::Notes));
-        assert!(
-            app.view.as_ref().unwrap().board.collapsed.is_empty(),
-            "configured board remains immutable"
-        );
-    }
-
-    #[test]
-    fn fold_state_survives_refresh_and_cached_switch_but_config_change_resets_it() {
-        let mut app = App::new(Some("product".into()));
-        app.apply(folding_snapshot("product"));
-        press(&mut app, KeyCode::Char('d'));
-        app.apply(folding_snapshot("product"));
-        assert!(app.collapsed_panes().contains(&Pane::Detail));
-        app.apply(folding_snapshot("infra"));
-        app.go("infra".into());
-        assert!(app.collapsed_panes().is_empty());
-        app.go("product".into());
-        assert!(app.collapsed_panes().contains(&Pane::Detail));
-        let mut changed = folding_snapshot("product");
-        changed
-            .view
-            .as_mut()
-            .unwrap()
-            .board
-            .collapsed
-            .insert(Pane::Rows);
-        app.apply(changed);
-        assert_eq!(app.collapsed_panes(), BTreeSet::from([Pane::Rows]));
-        let mut removed = folding_snapshot("product");
-        removed.tabs = vec!["product".into()];
-        app.apply(removed);
-        assert!(!app.folds.contains_key("infra"));
-    }
-
-    #[test]
-    fn responsive_folds_respect_toggles_resize_focus_and_config_reset() {
-        let responsive = || {
-            let mut snapshot = folding_snapshot("product");
-            snapshot.view.as_mut().unwrap().board.fold_below = Some(crate::config::FoldBelow {
-                width: 100,
-                panes: [Pane::Detail].into(),
-            });
-            snapshot
-        };
-        let mut app = App::new(Some("product".into()));
-        app.set_body_width(120);
-        app.apply(responsive());
-        assert!(app.collapsed_panes().is_empty());
-        app.focus = 1;
-        app.set_body_width(80);
-        assert_eq!(app.collapsed_panes(), [Pane::Detail].into());
-        assert_eq!(app.focused_pane(), Some(Pane::Rows));
-        app.set_body_width(120);
-        assert!(app.collapsed_panes().is_empty());
-        assert_eq!(
-            app.focused_pane(),
-            Some(Pane::Rows),
-            "widening never steals focus"
-        );
-        app.set_body_width(80);
-        app.toggle_panes(&[Pane::Detail]);
-        assert!(
-            app.collapsed_panes().is_empty(),
-            "explicit expansion wins below threshold"
-        );
-        app.set_body_width(120);
-        app.apply(responsive());
-        assert!(
-            app.collapsed_panes().is_empty(),
-            "override survives refresh and widening"
-        );
-        app.toggle_panes(&[Pane::Detail]);
-        assert!(
-            app.collapsed_panes().contains(&Pane::Detail),
-            "explicit collapse wins above threshold"
-        );
-        app.set_body_width(80);
-        app.set_body_width(200);
-        assert!(app.collapsed_panes().contains(&Pane::Detail));
-        let mut changed = responsive();
-        changed
-            .view
-            .as_mut()
-            .unwrap()
-            .board
-            .fold_below
-            .as_mut()
-            .unwrap()
-            .width = 90;
-        app.apply(changed);
-        assert!(
-            app.collapsed_panes().is_empty(),
-            "changed board clears overrides"
-        );
-        assert!(app.view.as_ref().unwrap().board.collapsed.is_empty());
-        app.apply(folding_snapshot("product"));
-        for width in [80, 120, 200] {
-            app.set_body_width(width);
-            assert!(
-                app.collapsed_panes().is_empty(),
-                "no rule keeps the original presentation"
-            );
-        }
-    }
-
-    #[test]
-    fn grouped_toggle_folds_mixed_panes_then_expands_and_keeps_each_override() {
-        for tmux in [false, true] {
-            let mut snapshot = folding_snapshot("product");
-            let view = snapshot.view.as_mut().unwrap();
-            view.board = crate::config::Config::read(
-                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .join("tests/fixtures/markup-parity.toml"),
-            )
-            .unwrap()
-            .preview_view(
-                &crate::view::ViewScope::Board,
-                Some(crate::view::ViewName::Team),
-                "team",
-            )
-            .unwrap()
-            .board("team")
-            .unwrap();
-            view.bindings = crate::action::preset(tmux, &view.board.panes);
-            let mut app = App::new(Some("product".into()));
-            app.set_body_width(120);
-            app.apply(snapshot);
-            app.focus = 1;
-            press(&mut app, KeyCode::Char('d'));
-            assert_eq!(app.collapsed_panes(), [Pane::Detail, Pane::Replies].into());
-            assert_eq!(app.focused_pane(), Some(Pane::Rows));
-            press(&mut app, KeyCode::Char('d'));
-            assert_eq!(
-                app.focused_pane(),
-                Some(Pane::Rows),
-                "unfolding never steals focus"
-            );
-            assert!(app.collapsed_panes().is_empty());
-            app.toggle_panes(&[Pane::Detail]);
-            assert_eq!(app.collapsed_panes(), [Pane::Detail].into());
-            press(&mut app, KeyCode::Char('d'));
-            assert_eq!(
-                app.collapsed_panes(),
-                [Pane::Detail, Pane::Replies].into(),
-                "any expanded member folds the whole group"
-            );
-            press(&mut app, KeyCode::Char('d'));
-            for width in [80, 120, 200] {
-                app.set_body_width(width);
-                assert!(
-                    app.collapsed_panes().is_empty(),
-                    "both explicit expansions override fold_below"
-                );
-            }
-            press(&mut app, KeyCode::Char('d'));
-            app.set_body_width(200);
-            assert_eq!(app.collapsed_panes(), [Pane::Detail, Pane::Replies].into());
-            assert!(app.view.as_ref().unwrap().board.collapsed.is_empty());
-        }
-    }
-
-    #[test]
-    fn pane_defaults_cover_every_layout_and_group_state_is_per_squad_and_session() {
-        let config = crate::config::Config::read(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("tests/fixtures/markup-parity.toml"),
-        )
-        .unwrap();
-        for layout in ["crew", "pr-queue", "minimal", "team"] {
-            let board = config.board(layout).unwrap();
-            let snapshot = |squad: &str| {
-                let mut snapshot = folding_snapshot(squad);
-                let view = snapshot.view.as_mut().unwrap();
-                view.board = board.clone();
-                view.bindings = config.bindings(true, &board.panes).unwrap();
-                snapshot
-            };
-            let mut app = App::new(Some("product".into()));
-            app.set_body_width(120);
-            app.apply(snapshot("product"));
-            let targets: BTreeSet<_> = board
-                .panes
-                .iter()
-                .filter(|pane| [Pane::Detail, Pane::Replies].contains(pane))
-                .copied()
-                .collect();
-            press(&mut app, KeyCode::Char('d'));
-            assert_eq!(app.collapsed_panes(), targets, "{layout}");
-            assert!(app.notice.is_none());
-            app.apply(snapshot("product"));
-            assert_eq!(app.collapsed_panes(), targets, "reload retains overrides");
-            app.apply(snapshot("infra"));
-            app.go("infra".into());
-            assert!(
-                app.collapsed_panes().is_empty(),
-                "another squad has its own defaults"
-            );
-            app.go("product".into());
-            assert_eq!(
-                app.collapsed_panes(),
-                targets,
-                "tab switch retains group state"
-            );
-            let mut restarted = App::new(Some("product".into()));
-            restarted.set_body_width(120);
-            restarted.apply(snapshot("product"));
-            assert!(
-                restarted.collapsed_panes().is_empty(),
-                "restart uses config, never persisted overrides"
-            );
-        }
-    }
-
-    #[test]
-    fn partial_group_toggles_present_panes_and_an_absent_group_is_silent() {
-        let mut snapshot = folding_snapshot("product");
-        let view = snapshot.view.as_mut().unwrap();
-        view.board = Board::simple(
-            BoardMode::Split,
-            crate::config::Direction::TopBottom,
-            vec![Pane::Detail],
-            &[100],
-        );
-        view.bindings = crate::action::preset(true, &view.board.panes);
-        let mut app = App::new(Some("product".into()));
-        app.apply(snapshot);
-        app.perform(&Action::parse("toggle detail replies").unwrap());
-        assert_eq!(
-            app.collapsed_panes(),
-            [Pane::Detail].into(),
-            "partially present group acts on its available subset"
-        );
-        assert!(app.notice.is_none());
-        app.perform(&Action::parse("toggle rows notes").unwrap());
-        assert_eq!(
-            app.collapsed_panes(),
-            [Pane::Detail].into(),
-            "entirely absent group changes nothing"
-        );
-        assert!(app.notice.is_none());
-        app.perform(&Action::parse("toggle detail replies").unwrap());
-        press(&mut app, KeyCode::Char('d'));
-        assert_eq!(app.focused_pane(), None);
-        press(&mut app, KeyCode::Char('d'));
-        assert_eq!(app.focused_pane(), Some(Pane::Detail));
-    }
-
-    #[test]
-    fn folding_refuses_a_stale_frame_tabs_and_an_absent_pane() {
-        let mut app = App::new(Some("product".into()));
-        app.apply(folding_snapshot("product"));
-        app.go("infra".into());
-        press(&mut app, KeyCode::Char('d'));
-        assert!(app.collapsed_panes().is_empty());
-        assert_eq!(app.notice.as_deref(), Some("Loading infra…"));
-        let mut tabs = folding_snapshot("infra");
-        tabs.view.as_mut().unwrap().board.mode = BoardMode::Tabs;
-        app.apply(tabs);
-        press(&mut app, KeyCode::Char('d'));
-        assert_eq!(
-            app.notice.as_deref(),
-            Some("toggle applies to split mode only.")
-        );
-        app.apply(snapshot("infra", json!([])));
-        press(&mut app, KeyCode::Char('d'));
-        app.notice = None;
-        press(&mut app, KeyCode::Char('d'));
-        assert!(
-            app.notice.is_none(),
-            "no detail/replies means d is a silent no-op"
-        );
-    }
-}
-
-#[cfg(test)]
-mod lead_row_tests {
-    use super::tests::snapshot;
-    use super::*;
-    use serde_json::json;
-
-    fn press(app: &mut App, code: KeyCode) -> Effect {
-        app.key(KeyEvent::new(code, KeyModifiers::NONE))
-    }
-
-    fn lead() -> Value {
-        json!({"id": "L", "name": "sol", "fields": {"task": "coordinate"}})
-    }
-
-    fn member(name: &str) -> Value {
-        json!({"id": name, "name": name, "fields": {"task": "work"}})
-    }
-
-    /// `product` with a lead and the named members, as a loaded board.
-    fn board(members: &[&str]) -> App {
-        let mut app = App::new(Some("product".into()));
-        let rows: Vec<_> = members.iter().map(|name| member(name)).collect();
-        let mut loaded = snapshot("product", json!([{"title": null, "rows": rows}]));
-        let view = loaded.view.as_mut().unwrap();
-        view.document["squad"]["lead"] = lead();
-        view.bindings = crate::action::with_action_keys(crate::action::preset(true, &[]));
-        view.configured_bindings = view.bindings.clone();
-        view.me = Some("Ben".into());
-        app.apply(loaded);
-        app
-    }
-
-    fn shape(app: &App) -> Vec<String> {
-        app.items()
-            .iter()
-            .filter_map(|item| match item {
-                Item::Section(title) => title.map(|title| format!("# {title}")),
-                Item::Rule(rule) => Some(format!("-- {}", rule.label())),
-                Item::Row(_, row) => Some(row["name"].as_str().unwrap().to_owned()),
-            })
-            .collect()
-    }
-
-    #[test]
-    fn the_lead_is_the_first_row_and_the_cursor_starts_on_it() {
-        let mut app = board(&["amy", "bob"]);
-        assert_eq!(shape(&app), ["sol", "-- members · 2", "amy", "bob"]);
-        assert_eq!(app.selected_row().unwrap()["name"], "sol");
-        // The rule is not a row: one step goes from the lead to the first member.
-        press(&mut app, KeyCode::Down);
-        assert_eq!(app.selected_row().unwrap()["name"], "amy");
-        press(&mut app, KeyCode::Up);
-        assert_eq!(app.selected_row().unwrap()["name"], "sol");
-    }
-
-    #[test]
-    fn showing_another_squad_puts_the_cursor_on_its_lead() {
-        let mut app = board(&["amy", "bob"]);
-        press(&mut app, KeyCode::Down);
-        press(&mut app, KeyCode::Down);
-        assert_eq!(app.selected_row().unwrap()["name"], "bob");
-        app.current = Some("infra".into());
-        let mut other = snapshot("infra", json!([{"title": null, "rows": [member("cai")]}]));
-        other.view.as_mut().unwrap().document["squad"]["lead"] =
-            json!({"id": "M", "name": "mia", "fields": {}});
-        app.apply(other);
-        assert_eq!(app.selected_row().unwrap()["name"], "mia");
-    }
-
-    #[test]
-    fn a_lead_with_no_members_and_a_squad_without_a_lead() {
-        let app = board(&[]);
-        assert_eq!(shape(&app), ["sol", "-- members · 0 · none yet"]);
-        let mut app = App::new(Some("product".into()));
-        app.apply(snapshot(
-            "product",
-            json!([{"title": null, "rows": [member("amy")]}]),
-        ));
-        assert_eq!(shape(&app), ["amy"]);
-        assert_eq!(app.selected_row().unwrap()["name"], "amy");
-    }
-
-    #[test]
-    fn search_matches_the_lead_and_keeps_the_rule() {
-        let mut app = board(&["amy", "bob"]);
-        app.search = "sol".into();
-        assert_eq!(shape(&app), ["sol", "-- members · 0"]);
-        app.search = "bob".into();
-        assert_eq!(shape(&app), ["-- members · 1", "bob"]);
-    }
-
-    #[test]
-    fn r_answers_a_request_else_notes_a_pending_only_member_else_says_so() {
-        let mut app = board(&["amy", "bob", "cai"]);
-        let view = app.view.as_mut().unwrap();
-        view.document["sections"][0]["rows"][0]["pending"] = json!("pick a database");
-        view.document["sections"][0]["rows"][0]["waitingOnYou"] =
-            json!([{"requestId": "q1", "preview": "ship it?"}]);
-        view.document["sections"][0]["rows"][1]["pending"] = json!("review the plan");
-        app.select(1);
-        // A real request wins over the pending text.
-        press(&mut app, KeyCode::Char('r'));
-        assert!(matches!(
-            app.input.as_ref().unwrap().compose,
-            Compose::Reply { ref request, .. } if request == "q1"
-        ));
-        press(&mut app, KeyCode::Esc);
-        // Pending alone opens a note to that member; nothing is sent by opening,
-        // cancelling or an empty Enter.
-        app.select(2);
-        assert_eq!(press(&mut app, KeyCode::Char('r')), Effect::None);
-        assert_eq!(
-            app.input.as_ref().unwrap().header(),
-            "→ bob (product) · note"
-        );
-        assert_eq!(press(&mut app, KeyCode::Esc), Effect::None);
-        assert!(app.input.is_none());
-        press(&mut app, KeyCode::Char('r'));
-        assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
-        assert_eq!(app.notice.as_deref(), Some("Nothing sent."));
-        press(&mut app, KeyCode::Char('r'));
-        for character in "go ahead".chars() {
-            press(&mut app, KeyCode::Char(character));
-        }
-        assert_eq!(
-            press(&mut app, KeyCode::Enter),
-            Effect::Act(Request::Annotate {
-                me: "Ben".into(),
-                squad: "product".into(),
-                to: "bob".into(),
-                row: "bob".into(),
-                text: "go ahead".into()
-            })
-        );
-        // The pending text stays: nothing acknowledged or cleared it.
-        assert_eq!(app.rows()[2].1["pending"], "review the plan");
-        // Neither a request nor pending text: the notice, and no composer.
-        app.select(3);
-        press(&mut app, KeyCode::Char('r'));
-        assert_eq!(app.notice.as_deref(), Some("cai is not waiting on you."));
-        assert!(app.input.is_none());
-    }
-
-    #[test]
-    fn the_lead_row_takes_the_ordinary_row_actions() {
-        let mut app = board(&["amy"]);
-        assert_eq!(
-            press(&mut app, KeyCode::Enter),
-            Effect::Act(Request::Jump("sol".into()))
-        );
-        press(&mut app, KeyCode::Char('t'));
-        assert_eq!(app.input.as_ref().unwrap().prompt, "→ sol (product) · talk");
-        for character in "hello".chars() {
-            press(&mut app, KeyCode::Char(character));
-        }
-        assert_eq!(
-            press(&mut app, KeyCode::Enter),
-            Effect::Act(Request::Talk {
-                me: "Ben".into(),
-                squad: "product".into(),
-                to: "sol".into(),
-                text: "hello".into()
-            })
-        );
-        // The lead's occurrence is the lead's own, so a member row never shares it.
-        assert!(matches!(app.row_target(0), Some(RowTarget::Lead { .. })));
-        assert!(matches!(app.row_target(1), Some(RowTarget::Member { .. })));
-    }
 }
 
 #[cfg(test)]
 mod token_window_tests {
-    use super::tests::{bind, crew};
+    use super::tests::crew;
     use super::*;
     use crate::config::{TokenRate, TokenWindow};
     use serde_json::json;
     fn saved_cycle(app: &mut App, key: KeyEvent) {
         assert_eq!(app.key(key), Effect::CycleTokenWindow);
+        save_window(app);
+    }
+
+    fn save_window(app: &mut App) {
         static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let root = std::env::temp_dir().join(format!(
             "tmt-window-choice-{}-{}",
@@ -6712,10 +4252,10 @@ mod token_window_tests {
     }
 
     fn app() -> App {
-        let mut app = crew(
-            crate::action::with_action_keys(crate::action::preset(false, &[])),
-            Vec::new(),
-        );
+        let mut app = crew(crate::action::with_action_keys(crate::action::preset(
+            false,
+            &[],
+        )));
         app.meter = Some(super::super::meter::Meter::new(
             TokenRate {
                 enabled: true,
@@ -6771,16 +4311,16 @@ mod token_window_tests {
         let mut snapshot = super::tests::snapshot(super::super::ALL, serde_json::json!([]));
         let view = snapshot.view.as_mut().unwrap();
         view.home = Some(super::super::home::Home {
+            workspace: Default::default(),
+            window: crate::config::TokenWindow::MINUTE,
             windows: TokenWindow::DEFAULTS,
             summary: Default::default(),
-            sections: Vec::new(),
             failures: Vec::new(),
             incomplete: false,
             squads: vec![super::super::home::SquadLine {
                 squad: "product".into(),
                 lead: Some(serde_json::json!({"id":"a"})),
                 counts: Default::default(),
-                members: Default::default(),
             }],
         });
         let mut input = super::super::rate::tests::input(100);
@@ -6823,7 +4363,6 @@ mod token_window_tests {
                 squad: "extra".into(),
                 lead: Some(json!({"id":"a"})),
                 counts: Default::default(),
-                members: Default::default(),
             });
         view.document["sections"][0]["rows"]
             .as_array_mut()
@@ -6905,7 +4444,6 @@ mod token_window_tests {
         let raw = app.home_header_usage(start).unwrap();
         let totals = raw.totals;
         let top = raw.top.unwrap().share;
-        let model = raw.models[0].share.fraction;
         assert_eq!(totals.map(|reading| reading.unwrap().tokens), [450; 3]);
         app.home_counters.borrow_mut().begin();
         assert!(
@@ -6934,17 +4472,21 @@ mod token_window_tests {
         let settled = app.home_header_usage(start).unwrap();
         assert_eq!(settled.totals, totals);
         assert_eq!(settled.top.unwrap().share, top);
-        assert_eq!(settled.models[0].share.fraction, model);
         assert_eq!(
             app.view.as_ref().unwrap().document,
             document,
             "pending and request state are immutable"
         );
         assert_eq!(app.selected, selection);
-        app.go("product".into());
+        app.workspace_action(crate::action::OpsUiAction::Agents);
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(160, 36)).unwrap();
+        terminal
+            .draw(|frame| super::super::view::render(frame, &app))
+            .unwrap();
         assert!(
             app.home_counters.borrow().wait(start).is_none(),
-            "leaving HOME drops all animation wakeups"
+            "an Agents frame drops invisible Overview animation wakeups"
         );
     }
 
@@ -6954,15 +4496,13 @@ mod token_window_tests {
         let mut app = header(now);
         let initial = app.home_header_usage(now).unwrap();
         assert_eq!(initial.totals, [None; 3]);
-        assert_eq!(initial.unreported, 2);
-        assert!(initial.top.is_none() && initial.models.is_empty());
+        assert!(initial.top.is_none());
         let time = now + Duration::from_secs(10);
         app.sample_home(Ok(&super::super::rate::tests::input(100).resumes), time);
         let zero = app.home_header_usage(time).unwrap();
         assert_eq!(zero.totals[2].unwrap().tokens, 0);
         assert!(zero.totals[2].unwrap().partial);
-        assert_eq!(zero.unreported, 1);
-        assert!(zero.top.is_none() && zero.models.is_empty());
+        assert!(zero.top.is_none());
         app.search = "not-shown".into();
         assert!(app.home_header_usage(time).is_none());
         app.search.clear();
@@ -6978,7 +4518,7 @@ mod token_window_tests {
     }
 
     #[test]
-    fn header_deduplicates_lead_members_and_uses_one_model_share_denominator() {
+    fn header_deduplicates_memberships_and_uses_one_observed_total_for_top_share() {
         let now = Instant::now();
         let mut app = header(now);
         let mut input = super::super::rate::tests::input(100);
@@ -7009,10 +4549,6 @@ mod token_window_tests {
         app.sample_home(Ok(&resumes), time);
         let usage = app.home_header_usage(time).unwrap();
         assert_eq!(usage.totals.map(|total| total.unwrap().tokens), [600; 3]);
-        assert_eq!(
-            usage.unreported, 1,
-            "duplicate UUID a is counted once, not once per squad"
-        );
         let top = usage.top.unwrap();
         assert_eq!(top.member, "worker-b");
         assert_eq!(
@@ -7022,15 +4558,10 @@ mod token_window_tests {
                 partial: true
             }
         );
-        assert_eq!(usage.models.len(), 2);
-        assert_eq!(usage.models[0].model, Some("model-b"));
-        assert_eq!(usage.models[0].share.fraction, 0.75);
-        assert_eq!(usage.models[1].share.fraction, 0.25);
         assert_eq!(app.view.as_ref().unwrap().document, public);
         app.search = "product".into();
         let filtered = app.home_header_usage(time).unwrap();
         assert_eq!(filtered.totals[2].unwrap().tokens, 150);
-        assert_eq!(filtered.models.len(), 1);
         app.search.clear();
         app.view.as_mut().unwrap().home_rate.remove("extra");
         assert_eq!(
@@ -7081,7 +4612,6 @@ mod token_window_tests {
             150,
             "more tokens cannot override better evidence"
         );
-        assert_eq!(usage.models[0].model, Some("better-covered"));
         let mut tied =
             super::super::meter::Meter::new(settings, &super::super::rate::tests::input(100), now);
         tied.sample(Ok(&super::super::rate::tests::input(300)), time);
@@ -7152,20 +4682,25 @@ mod token_window_tests {
     }
 
     #[test]
-    fn failed_switch_back_to_home_restores_its_member_meter() {
+    fn workspace_shell_navigation_retains_scoped_usage_and_failed_inventory_marks_it_stale() {
         let now = Instant::now();
         let mut app = home(now);
-        assert!(matches!(app.go("product".into()), Effect::Load(_)));
-        assert!(app.loading() && app.meter.is_some());
-        assert!(!app.meters.contains_key("product"));
-
-        let mut failed = super::tests::snapshot("product", serde_json::json!([]));
-        failed.view = Err("product load failed".into());
-        app.apply(failed);
+        assert_eq!(
+            app.workspace_action(crate::action::OpsUiAction::Agents),
+            Effect::None
+        );
         assert_eq!(app.current.as_deref(), Some(super::super::ALL));
+        assert!(!app.loading());
         assert!(app.meter.is_none() && app.meters.contains_key("product"));
+        let mut failed = super::tests::snapshot(super::super::ALL, serde_json::json!([]));
+        failed.view = Err("workspace inventory failed".into());
+        app.apply(failed);
         assert!(app.home_usage("product", now).is_some());
-        assert_eq!(app.error.as_deref(), Some("product load failed"));
+        assert_eq!(app.error.as_deref(), Some("workspace inventory failed"));
+        assert_eq!(
+            app.workspace_snapshot().unwrap().roster.observation,
+            super::super::workspace::OpsObservation::Stale
+        );
     }
 
     #[test]
@@ -7291,7 +4826,8 @@ mod token_window_tests {
     }
 
     #[test]
-    fn home_receipts_ignore_loading_other_tabs_and_unrelated_identities() {
+    fn workspace_receipts_keep_source_scope_across_shell_navigation_and_ignore_unrelated_identities()
+     {
         let now = Instant::now();
         let mut app = home(now);
         let mut receipt = super::super::rate::tests::input(200).resumes;
@@ -7304,22 +4840,51 @@ mod token_window_tests {
                 .tokens,
             150
         );
-        app.go("other".into());
-        assert!(!app.sample_home(Ok(&receipt), time + Duration::from_secs(10)));
-        app.apply(super::tests::snapshot("other", serde_json::json!([])));
-        assert!(!app.sample_home(Ok(&receipt), time + Duration::from_secs(20)));
-        assert!(app.home_usage("product", time).is_none());
+        assert_eq!(app.go("other".into()), Effect::None);
+        assert_eq!(app.current.as_deref(), Some(super::super::ALL));
+        app.workspace_action(crate::action::OpsUiAction::Agents);
+        app.workspace_action(crate::action::OpsUiAction::DigestDashboard);
+        app.sample_home(Ok(&receipt), time + Duration::from_secs(10));
+        assert_eq!(
+            app.home_usage("product", time + Duration::from_secs(10))
+                .unwrap()
+                .squad[2]
+                .unwrap()
+                .tokens,
+            150
+        );
+        assert!(app.home_usage("product", time).is_some());
+    }
+
+    fn configure_window_keys(app: &mut App, text: &str) {
+        let path = std::env::temp_dir().join(format!(
+            "ops-window-keys-{}.toml",
+            crate::id::new_v4().unwrap()
+        ));
+        std::fs::write(&path, text).unwrap();
+        let config = Config::read(path.clone()).unwrap();
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .configure(&config)
+            .unwrap();
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]
     fn window_binding_overrides_and_text_inputs_keep_their_owner() {
-        let mut app = app();
-        let key = KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE);
+        let mut app = super::workspace::tests::board();
+        configure_window_keys(&mut app, "[bind]\nu = \"token-window\"\n");
+        let key = KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE);
         saved_cycle(&mut app, key);
         assert_eq!(app.token_window, TokenWindow::FIVE_MINUTES);
         app.searching = true;
         assert_eq!(app.key(key), Effect::None);
-        assert_eq!(app.search, "w");
+        assert_eq!(app.search, "u");
         assert_eq!(app.token_window, TokenWindow::FIVE_MINUTES);
         app.searching = false;
         for compose in [
@@ -7347,29 +4912,28 @@ mod token_window_tests {
                 hint: None,
             });
             app.key(key);
-            assert_eq!(app.input.as_ref().unwrap().text, "w");
+            assert_eq!(app.input.as_ref().unwrap().text, "u");
             assert_eq!(app.token_window, TokenWindow::FIVE_MINUTES);
         }
         app.input = None;
         app.search.clear();
-        app.view
-            .as_mut()
-            .unwrap()
-            .bindings
-            .extend(bind(&[("w", "refresh"), ("W", "token-window")]));
+        configure_window_keys(&mut app, "[bind]\nu = \"refresh\"\nU = \"token-window\"\n");
         assert_eq!(app.key(key), Effect::Refresh);
         assert_eq!(app.token_window, TokenWindow::FIVE_MINUTES);
         saved_cycle(
             &mut app,
-            KeyEvent::new(KeyCode::Char('W'), KeyModifiers::NONE),
+            KeyEvent::new(KeyCode::Char('U'), KeyModifiers::NONE),
         );
         assert_eq!(app.token_window, TokenWindow::HOUR);
-        app.view.as_mut().unwrap().section_bindings = vec![bind(&[("w", "token-window")])];
+        configure_window_keys(
+            &mut app,
+            "[bind]\nu = \"refresh\"\n[[squad.product.section]]\ntitle = \"Members\"\n[squad.product.section.bind]\nu = \"token-window\"\n",
+        );
         saved_cycle(&mut app, key);
         assert_eq!(app.token_window, TokenWindow::MINUTE);
     }
     #[test]
-    fn window_switch_updates_column_priority_even_with_unchanged_zero_values() {
+    fn source_window_changes_prioritize_columns_even_with_unchanged_zero_values() {
         let mut app = app();
         let settings = crate::config::Config::read(
             std::env::temp_dir().join(format!("active-window-{}.toml", std::process::id())),
@@ -7382,10 +4946,11 @@ mod token_window_tests {
             for (index, column) in view.rows.columns[5..].iter().enumerate() {
                 assert_eq!(column.priority == Some(1), index == selected);
             }
-            saved_cycle(
-                &mut app,
-                KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE),
+            assert_eq!(
+                app.perform(&Action::parse("token-window").unwrap()),
+                Effect::CycleTokenWindow
             );
+            save_window(&mut app);
         }
     }
 
@@ -7474,197 +5039,5 @@ mod token_window_tests {
             app.usage_document, projected,
             "loading preserves painted owner"
         );
-    }
-}
-
-#[cfg(test)]
-mod link_tests {
-    use super::*;
-    use serde_json::json;
-    fn app(target: &str) -> App {
-        let mut app = tests::crew(Default::default(), Vec::new());
-        let view = app.view.as_mut().unwrap();
-        view.me = Some("Ben".into());
-        view.document["squad"]["lead"] = json!({"name":"auth-fix"});
-        view.notes = Notes::Text(format!("[action]({target})"));
-        let Notes::Text(text) = &view.notes else {
-            unreachable!()
-        };
-        let mapped = super::super::markdown::render_links(text, 80, view.look, &view.links);
-        view.derived.borrow_mut().notes = Some(super::super::derived::NotebookLines {
-            width: 80,
-            look: view.look,
-            lines: mapped.lines,
-            sources: mapped.sources,
-            links: mapped.links,
-            hits: mapped.hits,
-        });
-        app.select_link(1);
-        app
-    }
-    fn enter(app: &mut App) -> Effect {
-        app.input_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
-    }
-    #[test]
-    fn builtins_use_the_existing_prompt_and_cancel_or_stale_targets_send_nothing() {
-        for verb in ["talk", "annotate"] {
-            let mut app = app(&format!("tmt:{verb}/auth-fix?text=hello%20%24%28id%29"));
-            assert_eq!(app.activate_link(), Effect::None);
-            assert_eq!(app.input.as_ref().unwrap().text, "hello $(id)");
-            assert_eq!(
-                app.input_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
-                Effect::None
-            );
-            assert!(app.input.is_none());
-            app.activate_link();
-            app.view.as_mut().unwrap().document["sections"][0]["rows"] = json!([]);
-            app.view.as_mut().unwrap().document["squad"]["lead"] = serde_json::Value::Null;
-            assert_eq!(enter(&mut app), Effect::None);
-            assert!(app.notice.as_ref().unwrap().contains("nothing sent"));
-        }
-        let mut app = app("tmt:talk/auth-fix?text=hello");
-        app.activate_link();
-        app.view.as_mut().unwrap().me = Some("Other".into());
-        assert_eq!(enter(&mut app), Effect::None);
-        app.view.as_mut().unwrap().me = Some("Ben".into());
-        app.activate_link();
-        assert_eq!(
-            enter(&mut app),
-            Effect::Act(Request::Talk {
-                me: "Ben".into(),
-                squad: "product".into(),
-                to: "auth-fix".into(),
-                text: "hello".into()
-            })
-        );
-    }
-    #[test]
-    fn notebook_send_to_a_lead_outside_member_rows_keeps_its_validation() {
-        for changed in [false, true] {
-            let mut app = app("tmt:talk/Lead?text=hello");
-            app.view.as_mut().unwrap().document["squad"]["lead"] =
-                json!({"id":"lead-id", "name":"Lead"});
-            assert_eq!(app.activate_link(), Effect::None);
-            assert_eq!(
-                app.input.as_ref().unwrap().header(),
-                "→ Lead (product) · talk"
-            );
-            if changed {
-                app.view.as_mut().unwrap().document["squad"]["lead"]["id"] = json!("replacement");
-                assert_eq!(enter(&mut app), Effect::None);
-            } else {
-                assert!(
-                    matches!(enter(&mut app), Effect::Act(Request::Talk { ref to, .. }) if to == "Lead")
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn answer_picker_is_prefilled_and_revalidates_current_open_requests() {
-        let mut app = app("tmt:answer/auth-fix?text=answer");
-        app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["waitingOnYou"] = json!([
-            {"requestId":"one", "preview":"first"}, {"requestId":"two", "preview":"second"}
-        ]);
-        assert_eq!(app.activate_link(), Effect::None);
-        assert!(app.input.is_none());
-        assert_eq!(app.menu.as_ref().unwrap().prefill, "answer");
-        app.menu_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        assert_eq!(app.input.as_ref().unwrap().text, "answer");
-        assert_eq!(
-            enter(&mut app),
-            Effect::Act(Request::Reply {
-                me: "Ben".into(),
-                request: "one".into(),
-                from: "auth-fix".into(),
-                text: "answer".into()
-            })
-        );
-        app.activate_link();
-        app.menu_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["waitingOnYou"] = json!([]);
-        assert_eq!(enter(&mut app), Effect::None);
-    }
-    #[test]
-    fn answer_selection_uses_core_inbox_after_withdrawal_and_preserves_manual_state() {
-        let mut app = app("tmt:answer/auth-fix?text=answer");
-        let view = app.view.as_mut().unwrap();
-        let row = &mut view.document["sections"][0]["rows"][0];
-        row["pending"] = json!("independent decision");
-        let state = row["state"].clone();
-        let room = crate::requests::Window {
-            items: vec![json!({
-                "requestId":"withdrawn", "kind":"request", "recipientId":"ME",
-                "sender":{"identityId":"auth-fix"}, "preview":"obsolete question",
-                "final":{"status":"withdrawn", "reason":"obsolete", "withdrawnAtMs":20}
-            })],
-            complete: true,
-        };
-        // Core's inbox has already excluded the withdrawal. Squad must use that
-        // projection rather than deriving answer candidates from room history.
-        let mut inbox = crate::requests::Window {
-            items: vec![json!({"requestId":"open", "from":{"identityId":"auth-fix"},
-                "preview":"current question", "preparedAtMs":10})],
-            complete: true,
-        };
-        crate::requests::apply(&mut view.document, "product", "ME", &room, &inbox);
-        assert_eq!(
-            view.document["sections"][0]["rows"][0]["waitingOnYou"],
-            json!([{"requestId":"open", "preview":"current question", "preparedAtMs":10}])
-        );
-        app.activate_link();
-        assert!(app.menu.is_none(), "one Core-open request needs no picker");
-        assert_eq!(
-            enter(&mut app),
-            Effect::Act(Request::Reply {
-                me: "Ben".into(),
-                request: "open".into(),
-                from: "auth-fix".into(),
-                text: "answer".into()
-            })
-        );
-        app.activate_link();
-        assert!(
-            app.input.is_some(),
-            "reopen the still-current answer before refresh"
-        );
-        inbox.items.clear();
-        let view = app.view.as_mut().unwrap();
-        crate::requests::apply(&mut view.document, "product", "ME", &room, &inbox);
-        let row = &view.document["sections"][0]["rows"][0];
-        assert_eq!(row["waitingOnYou"], json!([]));
-        assert_eq!(row["pending"], "independent decision");
-        assert_eq!(row["state"], state);
-        assert!(
-            crate::attention::waits_on_you(row),
-            "manual pending remains independent"
-        );
-        assert_eq!(
-            enter(&mut app),
-            Effect::None,
-            "stale answer cannot be submitted"
-        );
-    }
-    #[test]
-    fn all_member_verbs_refuse_nonmembers_and_a_retained_loading_frame() {
-        for verb in ["jump", "talk", "answer", "open", "copy", "annotate"] {
-            let mut app = app(&format!("tmt:{verb}/missing"));
-            assert_eq!(app.activate_link(), Effect::None);
-            assert!(app.input.is_none() && app.menu.is_none());
-        }
-        let mut lead = app("tmt:jump/Lead");
-        lead.view.as_mut().unwrap().document["squad"]["lead"] =
-            json!({"id":"lead-id", "name":"Lead"});
-        assert_eq!(
-            lead.activate_link(),
-            Effect::Act(Request::Jump("Lead".into()))
-        );
-        let mut app = app("tmt:jump/auth-fix");
-        assert_eq!(
-            app.activate_link(),
-            Effect::Act(Request::Jump("auth-fix".into()))
-        );
-        app.current = Some("infra".into());
-        assert_eq!(app.activate_link(), Effect::None);
     }
 }

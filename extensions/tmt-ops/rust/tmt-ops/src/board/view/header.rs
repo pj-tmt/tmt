@@ -1,8 +1,6 @@
 //! Summary, token meter and frame invalidation text.
 
-use crate::board::app::App;
-use crate::config::{BoardMode, Pane};
-use crate::requests::age;
+use crate::board::app::{App, RowTarget};
 use ratatui::{
     Frame,
     layout::Rect,
@@ -39,74 +37,41 @@ pub(in crate::board) fn spinner_wait(
     })
 }
 
-/// Request and reply ages are clock-derived text. Hidden replies do not
-/// invalidate a frame, and minute/hour marks redraw only when their text changes.
-pub(in crate::board) fn time_marks(app: &App, now: u64) -> Vec<String> {
-    let Some(view) = &app.view else {
-        return Vec::new();
-    };
-    if let Some(home) = &view.home {
-        return home
-            .sections
-            .iter()
-            .flat_map(|section| &section.rows)
-            .filter_map(|row| row.age.as_ref())
-            .map(|age| crate::board::home::age_label(age, now))
-            .chain(
-                home.sections
+/// Clock-dependent surfaces actually admitted to the last frame. Stable target
+/// keys avoid rebuilding/filtering the whole roster on every UI clock tick.
+pub(in crate::board) enum ClockSurface {
+    Labels { target: RowTarget, width: usize },
+    Limits { width: u16, rows: usize },
+}
+
+impl ClockSurface {
+    fn mark(&self, app: &App, now: u64) -> String {
+        match self {
+            Self::Labels { target, width } => {
+                let Some(row) = app.target_row(target) else {
+                    return String::new();
+                };
+                let chips = crate::board::row_chips::of(&app.labels, row, now);
+                chips
                     .iter()
-                    .flat_map(|section| &section.rows)
-                    .filter_map(|row| {
-                        crate::board::row_chips::clock(&app.labels, &row.member, now)
-                    }),
-            )
-            .chain(
-                app.home_leads
-                    .leads
-                    .iter()
-                    .filter_map(|lead| crate::board::row_chips::clock(&app.labels, &lead.row, now)),
-            )
-            .chain(app.home_leads.leads.iter().filter_map(|lead| {
-                lead.exchange
-                    .as_ref()?
-                    .since_ms
-                    .map(|at| crate::requests::age(now, at))
-            }))
-            .collect();
-    }
-    let board = app.effective_board().expect("loaded view has a board");
-    let visible = match board.mode {
-        BoardMode::Split => {
-            board.panes.contains(&Pane::Replies) && !app.collapsed_panes().contains(&Pane::Replies)
+                    .take(crate::board::row_chips::prefix(&chips, *width))
+                    .map(|chip| chip.text.as_str())
+                    .collect()
+            }
+            Self::Limits { width, rows } => {
+                crate::board::home::limit_clock_marks(app.limits.as_deref(), now, *width, *rows)
+            }
         }
-        BoardMode::Tabs => app.focused() == Pane::Replies,
-    };
-    let mut marks: Vec<String> = app
-        .rows()
-        .into_iter()
-        .filter_map(|(_, row)| super::waiting::age(row, now))
-        .collect();
-    marks.extend(
-        app.rows()
-            .into_iter()
-            .filter_map(|(_, row)| crate::board::row_chips::clock(&app.labels, row, now)),
-    );
-    if board.members {
-        marks.extend(app.rows().into_iter().filter_map(|(_, row)| {
-            row["staleness"]["unchangedSinceMs"]
-                .as_u64()
-                .filter(|at| *at <= now)
-                .map(|at| tmt_cli_style::value::relative_time(now - at))
-        }));
     }
-    if visible {
-        marks.extend(
-            view.replies
-                .iter()
-                .filter_map(|reply| reply["submittedAtMs"].as_u64().map(|at| age(now, at))),
-        );
-    }
-    marks
+}
+
+/// No commands or source reads: compare only the visible text/style projections.
+pub(in crate::board) fn time_marks(app: &App, now: u64) -> Vec<String> {
+    app.frame_clocks
+        .borrow()
+        .iter()
+        .map(|surface| surface.mark(app, now))
+        .collect()
 }
 
 /// The second header line: the shown squad's summary or delayed loading indicator.

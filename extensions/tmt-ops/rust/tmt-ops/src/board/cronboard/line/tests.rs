@@ -1,5 +1,5 @@
 use super::*;
-use crate::board::cronboard::Cron;
+use crate::board::cronboard::{Cron, State};
 use tmt_ops::cron::{Holder, Job, Schedule, ScheduleInput};
 
 pub(in crate::board) const NOW: i64 = 1_791_124_200_000; // 2026-10-04T14:30:00Z
@@ -23,6 +23,7 @@ pub(in crate::board) fn view(owner: &str, message: &str, next: Option<i64>) -> J
             schedule,
         ),
         owner_name: Some(owner.into()),
+        owner_missing: false,
         next_ms: next.into_iter().collect(),
         warnings: vec![],
     }
@@ -61,29 +62,6 @@ pub(in crate::board) fn cron(jobs: Vec<JobView>, clock: ClockStatus) -> Cron {
     }
 }
 
-fn running() -> ClockStatus {
-    ClockStatus::Running(Holder {
-        pane: Some("%41".into()),
-        pid: 7,
-        since_ms: NOW - 12 * 60_000,
-        expires_ms: NOW + 5_000,
-    })
-}
-
-fn state(cron: Cron) -> State {
-    State {
-        cron: Some(cron),
-        failure: None,
-        reads: 2,
-    }
-}
-
-fn text(state: &State, width: u16) -> String {
-    line(state, NOW, width, Look::default())
-        .unwrap()
-        .to_string()
-}
-
 #[test]
 fn running_clock_age_matches_command_wording_and_steps_aside_whole() {
     let status = ClockStatus::Running(Holder {
@@ -111,155 +89,6 @@ fn running_clock_age_matches_command_wording_and_steps_aside_whole() {
 }
 
 #[test]
-fn home_line_keeps_only_count_time_and_owner_at_supported_widths() {
-    for width in [200, 160, 113, 100, 80] {
-        for clock in [running(), ClockStatus::NoClock, ClockStatus::Unknown] {
-            let jobs = vec![view("tmt-lead", "merge queue sweep", Some(NOW + 3_600_000))];
-            let state = state(cron(jobs, clock));
-            let rendered = line(&state, NOW, width, Look::default()).unwrap();
-            let shown = rendered.to_string();
-            assert!(rendered.width() <= usize::from(width), "{width}: {shown}");
-            assert!(shown.starts_with("cron · 1 job"), "{shown}");
-            assert!(shown.contains("next Mon 10-05 00:30"), "{shown}");
-            assert!(
-                shown.contains("tmt-lead · clock ") && shown.ends_with(" · c list"),
-                "{shown}"
-            );
-        }
-    }
-}
-
-#[test]
-fn home_never_discloses_job_prompts_paths_or_clock_details() {
-    let jobs = vec![view(
-        "tmt-lead",
-        "/Users/Ben/private prompt",
-        Some(NOW + 3_600_000),
-    )];
-    let state = state(cron(jobs, running()));
-    for width in [80, 100, 113, 160, 200] {
-        let shown = text(&state, width);
-        assert_eq!(
-            shown,
-            "cron · 1 job · next Mon 10-05 00:30 tmt-lead · clock on · c list"
-        );
-        assert!(!shown.contains("private") && !shown.contains("%41") && !shown.contains("ago"));
-    }
-}
-
-#[test]
-fn home_clock_state_and_list_key_survive_narrow_owner_text() {
-    for (status, reads, label) in [
-        (running(), 1, "on"),
-        (ClockStatus::NoClock, 1, "checking"),
-        (ClockStatus::NoClock, 2, "off"),
-        (ClockStatus::Unknown, 2, "checking"),
-    ] {
-        let mut state = state(cron(
-            vec![view(
-                &"owner".repeat(40),
-                "/private/prompt",
-                Some(NOW + 60_000),
-            )],
-            status,
-        ));
-        state.reads = reads;
-        for width in [40, 80, 100, 113, 160, 200] {
-            let shown = text(&state, width);
-            assert!(shown.starts_with("cron · 1 job"), "{width}: {shown}");
-            assert!(
-                shown.ends_with(&format!("clock {label} · c list")),
-                "{width}: {shown}"
-            );
-        }
-    }
-}
-
-#[test]
-fn no_jobs_invents_no_next_slot_and_paused_jobs_have_none() {
-    let none = text(&state(cron(vec![], ClockStatus::Unknown)), 100);
-    assert!(none.starts_with("cron · 0 jobs"), "{none}");
-    assert!(!none.contains("next"), "{none}");
-    assert!(none.contains("clock checking · c list"), "{none}");
-    let paused = text(&state(cron(vec![view("a", "m", None)], running())), 100);
-    assert!(paused.starts_with("cron · 1 job"), "{paused}");
-}
-
-#[test]
-fn the_earliest_active_slot_wins() {
-    let jobs = vec![
-        view("late", "x", Some(NOW + 7_200_000)),
-        view("soon", "y", Some(NOW + 1_800_000)),
-    ];
-    let shown = text(&state(cron(jobs, running())), 160);
-    assert!(shown.contains("next Mon 10-05 00:00 soon"), "{shown}");
-}
-
-#[test]
-fn failures_are_distinct_from_empty_and_keep_the_previous_jobs() {
-    let failed = State {
-        cron: None,
-        failure: Some("storage unreachable\nsecond".into()),
-        reads: 2,
-    };
-    let shown = text(&failed, 160);
-    assert_eq!(shown, "cron · ✗ jobs unavailable: storage unreachable");
-    assert_eq!(line(&State::default(), NOW, 160, Look::default()), None);
-    let stale = State {
-        cron: Some(cron(vec![view("a", "m", None)], running())),
-        failure: Some("boom".into()),
-        reads: 2,
-    };
-    assert!(text(&stale, 160).contains("1 job · ! stale"));
-}
-
-#[test]
-fn untrusted_text_is_neutralized_and_only_the_first_line_shows() {
-    let message = "  investigate\u{1b}[31m\u{202e}界 e\u{301}\nsecond line  ";
-    let job = view("o\u{1b}[2Jwner", message, Some(NOW + 60_000));
-    let clock = ClockStatus::Running(Holder {
-        pane: Some("%4\u{1b}[2J1".into()),
-        pid: 1,
-        since_ms: NOW,
-        expires_ms: NOW,
-    });
-    let shown = text(&state(cron(vec![job], clock)), 160);
-    assert!(
-        !shown.contains('\u{1b}') && !shown.contains('\u{202e}'),
-        "{shown}"
-    );
-    assert!(!shown.contains("second line"), "{shown}");
-}
-
-#[test]
-fn every_width_stays_inside_the_available_cells() {
-    let jobs = vec![view(
-        "界界 e\u{301}",
-        "界界 e\u{301} long text",
-        Some(NOW + 1),
-    )];
-    let state = state(cron(jobs, ClockStatus::NoClock));
-    for width in 0..=160 {
-        let rendered = line(&state, NOW, width, Look::default()).unwrap();
-        assert!(rendered.width() <= usize::from(width), "width {width}");
-    }
-}
-
-#[test]
-fn a_long_clock_holder_never_displaces_time_or_key() {
-    let clock = ClockStatus::Running(Holder {
-        pane: Some("holder界".repeat(30)),
-        pid: 1,
-        since_ms: NOW,
-        expires_ms: NOW,
-    });
-    let state = state(cron(vec![view("a", "p", Some(NOW + 3_600_000))], clock));
-    let shown = text(&state, 80);
-    assert!(shown.contains("next Mon 10-05 00:30"), "{shown}");
-    assert!(shown.ends_with("a · clock on · c list"), "{shown}");
-}
-
-#[test]
 fn instants_use_the_stored_zone_and_show_the_date_when_not_today() {
     let next = NOW + 3_600_000;
     assert_eq!(
@@ -271,75 +100,55 @@ fn instants_use_the_stored_zone_and_show_the_date_when_not_today() {
     assert_eq!(time(i64::MAX, NOW, "UTC"), None);
 }
 
-fn snapshots() -> serde_json::Value {
-    let job = view(
-        "tmt-lead",
-        "merge queue sweep and check every pending review",
-        Some(NOW + 3_600_000),
-    );
-    let mut frames = Vec::new();
-    for (scenario, state) in [
-        ("running", self::state(cron(vec![job.clone()], running()))),
-        (
-            "no clock",
-            self::state(cron(vec![job.clone()], ClockStatus::NoClock)),
-        ),
-        (
-            "unknown",
-            self::state(cron(vec![job], ClockStatus::Unknown)),
-        ),
-        ("empty", self::state(cron(vec![], ClockStatus::NoClock))),
-        (
-            "failed",
-            State {
-                cron: None,
-                failure: Some("storage unreachable".into()),
-                reads: 2,
-            },
-        ),
-    ] {
-        for width in [160u16, 100, 80] {
-            frames.push(serde_json::json!({
-                "scenario": scenario, "width": width, "line": text(&state, width),
-            }));
-        }
-    }
-    serde_json::json!(frames)
+#[test]
+fn job_next_time_uses_its_first_observed_slot_and_unknown_never_becomes_zero() {
+    let mut active = view("same-name", "instruction", Some(NOW + 1_800_000));
+    active.next_ms.push(NOW + 7_200_000);
+    assert_eq!(next_time(&active, NOW).as_deref(), Some("Mon 10-05 00:00"));
+    active.next_ms.clear();
+    assert_eq!(next_time(&active, NOW), None);
+    active.next_ms.push(i64::MAX);
+    assert_eq!(next_time(&active, NOW), None);
 }
 
 #[test]
-fn home_line_snapshots_at_each_width() {
-    assert_eq!(
-        snapshots(),
-        serde_json::from_str::<serde_json::Value>(include_str!("snapshots.json")).unwrap()
-    );
+fn failed_refresh_keeps_observed_jobs_actor_and_clock_until_a_new_success() {
+    let mut state = State::default();
+    state.replace(Err("not reported".into()));
+    assert!(state.cron.is_none());
+    assert_eq!(state.failure.as_deref(), Some("not reported"));
+    assert_eq!(state.reads, 0);
+    let loaded = cron(vec![view("owner", "unchanged", None)], ClockStatus::Unknown);
+    state.replace(Ok(loaded));
+    state.replace(Err("storage unreachable".into()));
+    let retained = state.cron.as_ref().unwrap();
+    assert_eq!(retained.jobs.len(), 1);
+    assert_eq!(retained.jobs[0].job.message, "unchanged");
+    assert_eq!(retained.actor.as_ref().unwrap().id, "user-id");
+    assert_eq!(retained.clock, ClockStatus::Unknown);
+    assert_eq!(state.reads, 1);
+    assert!(state.clock_note(None).checking);
+    state.replace(Ok(cron(vec![], ClockStatus::NoClock)));
+    assert!(state.cron.as_ref().unwrap().jobs.is_empty());
+    assert_eq!(state.failure, None);
+    assert_eq!(state.reads, 2);
+    assert!(!state.clock_note(None).checking);
 }
 
 #[test]
-#[ignore = "explicit reviewed home cron captures; frozen parity is separate"]
-fn record_home_line_snapshots() {
-    std::fs::write(
-        concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/src/board/cronboard/line/snapshots.json"
-        ),
-        serde_json::to_string_pretty(&snapshots()).unwrap() + "\n",
-    )
-    .unwrap();
-}
-
-#[test]
-fn compact_home_prioritizes_the_next_time_and_owner_without_disclosing_job_text() {
-    let jobs = vec![view(
-        "tmt-lead",
-        "private instruction",
-        Some(NOW + 3_600_000),
-    )];
-    let state = state(cron(jobs, running()));
-    let shown = text(&state, 60);
-    assert!(
-        shown.starts_with("cron next ") && shown.ends_with("tmt-lead"),
-        "{shown}"
-    );
-    assert!(!shown.contains("private") && shown.width() <= 60);
+fn current_clock_and_job_text_neutralize_controls_and_remain_single_lines() {
+    let text = "  investigate\u{1b}[31m\u{202e}界 e\u{301}\nsecond line";
+    let shown = first_line(text);
+    assert!(shown.contains("investigate"));
+    assert!(!shown.contains(['\u{1b}', '\u{202e}', '\n']));
+    assert!(!shown.contains("second line"));
+    let status = ClockStatus::Running(Holder {
+        pane: Some("%4\u{1b}[2J1\nforged".into()),
+        pid: 7,
+        since_ms: NOW,
+        expires_ms: NOW,
+    });
+    let shown = clock(&status, NOW, false, ClockNote::default()).0;
+    assert!(!shown.contains(['\u{1b}', '\n']));
+    assert!(!shown.contains("forged"));
 }

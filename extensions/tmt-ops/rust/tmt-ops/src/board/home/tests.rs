@@ -7,32 +7,8 @@ use std::{
 };
 
 #[test]
-fn authored_home_and_cron_labels_use_only_registered_spaced_marks_and_structural_typography() {
-    use crate::board::home::tiles::{self, TileItem};
+fn authored_home_labels_use_only_registered_spaced_marks_and_structural_typography() {
     for width in [80, 100, 113, 160, 200] {
-        let counts = Counts {
-            members: 6,
-            waiting: 1,
-            blocked: 1,
-            review: 1,
-            working: 1,
-            idle: 1,
-        };
-        let squad = SquadLine {
-            squad: "squad".into(),
-            lead: Some(json!({"name":"lead"})),
-            counts: Counts::default(),
-            members: counts,
-        };
-        let item = TileItem {
-            squad: &squad,
-            members: &squad.members,
-            lead_model: Some("claude-opus-4-7"),
-            usage: None,
-        };
-        for line in tiles::paint(&[item], width, crate::look::Look::default(), None).lines {
-            assert_eq!(glyph_error(&line.to_string()), None);
-        }
         let mut app = interaction::board(&[(
             "squad",
             document(
@@ -74,17 +50,6 @@ fn authored_home_and_cron_labels_use_only_registered_spaced_marks_and_structural
                 .collect();
             assert_eq!(glyph_error(&line), None, "width {width}, row {y}: {line}");
         }
-        let state = crate::board::cronboard::State {
-            cron: Some(crate::board::cronboard::test_cron(
-                Vec::new(),
-                tmt_ops::cron::ClockStatus::NoClock,
-            )),
-            failure: None,
-            reads: 2,
-        };
-        let line =
-            crate::board::cronboard::home_line(&state, state.now_ms(), width, app.look()).unwrap();
-        assert_eq!(glyph_error(&line.to_string()), None);
     }
 }
 
@@ -159,12 +124,10 @@ fn document(name: &str, lead: Value, rows: Vec<Value>) -> Value {
 }
 
 #[test]
-fn empty_and_quiet_home_keep_only_current_sections_and_squad_order() {
+fn aggregate_model_keeps_summary_and_acquired_squad_order() {
     let f = Fixture::new("");
-    let empty = model(&[], &f.acquired(&[]), 100);
+    let empty = model(&[], &f.acquired(&[]));
     assert_eq!(empty.summary.members, 0);
-    assert_eq!(empty.sections.len(), 1);
-    assert_eq!(empty.sections[0].key, "blocked");
     assert!(empty.squads.is_empty());
     assert!(!empty.incomplete);
     let acquired = f.acquired(&[
@@ -185,7 +148,7 @@ fn empty_and_quiet_home_keep_only_current_sections_and_squad_order() {
             ),
         ),
     ]);
-    let home = model(&["shown".into()], &acquired, 100);
+    let home = model(&["shown".into()], &acquired);
     assert_eq!(
         home.summary,
         Counts {
@@ -209,13 +172,10 @@ fn empty_and_quiet_home_keep_only_current_sections_and_squad_order() {
     );
     assert_eq!(home.squads[1].squad, "hidden");
     assert_eq!(home.squads[0].lead.as_ref().unwrap()["name"], "lead");
-    assert_eq!(home.squads[0].members.members, 1);
-    assert_eq!(home.squads[0].members.review, 1);
-    assert!(home.sections.iter().all(|section| section.rows.is_empty()));
 }
 
 #[test]
-fn the_blocked_section_deduplicates_within_a_squad_and_keeps_cross_squad_memberships() {
+fn acquired_squad_counts_deduplicate_authored_rows_and_keep_distinct_memberships() {
     let f = Fixture::new("");
     let mut waiting = row("A", "asker", "blocked");
     waiting["waitingOnYou"] = json!([{"requestId":"q-new","preparedAtMs":90,"preview":"private question"}, {"requestId":"q-old","preparedAtMs":20}]);
@@ -233,30 +193,22 @@ fn the_blocked_section_deduplicates_within_a_squad_and_keeps_cross_squad_members
         .unwrap()
         .push(json!({"rows":[waiting.clone(),pending]}));
     let acquired = f.acquired(&[("a", a), ("b", document("b", Value::Null, vec![waiting]))]);
-    let home = model(&["a".into(), "b".into()], &acquired, 100);
+    let home = model(&["a".into(), "b".into()], &acquired);
     assert_eq!(home.summary.members, 4);
     assert_eq!(home.summary.waiting, 3);
     assert_eq!(home.summary.blocked, 3);
-    // Requests and pending text no longer have a section of their own: only
-    // blocked members do, and the counts row carries who waits on the user.
-    assert_eq!(home.sections.len(), 1);
-    // Shared user sections retain overlapping matches; a waiting blocked
-    // member appears in both while squad summary counts it once per state.
-    let blocked = &home.sections[0].rows;
-    assert_eq!(blocked.len(), 3);
-    assert_eq!(blocked[0].member["id"], "A");
-    assert_eq!(blocked[0].lead.as_deref().unwrap(), "pending-lead");
-    assert_eq!(blocked[0].age, Some(Age { since_ms: 10 }));
-    assert_eq!(blocked[1].member["id"], "B");
-    assert_eq!(blocked[1].age, Some(Age { since_ms: 30 }));
-    assert_eq!(blocked[2].squad, "b");
-    assert_eq!(home.squads[0].members.members, 2);
-    assert_eq!(home.squads[0].members.waiting, 1);
-    assert_eq!(home.squads[0].members.blocked, 1);
+    assert_eq!(home.squads[0].squad, "a");
+    assert_eq!(home.squads[0].counts.members, 3);
+    assert_eq!(home.squads[0].counts.waiting, 2);
+    assert_eq!(home.squads[0].counts.blocked, 2);
+    assert_eq!(home.squads[1].squad, "b");
+    assert_eq!(home.squads[1].counts.members, 1);
+    assert_eq!(acquired.documents["a"]["sections"][1]["rows"][0]["id"], "A");
+    assert_eq!(acquired.documents["b"]["sections"][0]["rows"][0]["id"], "A");
 }
 
 #[test]
-fn ages_require_authoritative_nonfuture_timestamps_and_partial_is_visible() {
+fn partial_observations_and_failures_stay_explicit_in_the_aggregate_model() {
     let f = Fixture::new("");
     let mut blocked = row("B", "blocked", "blocked");
     blocked["staleness"] = json!({"unchangedSinceMs":101});
@@ -270,12 +222,7 @@ fn ages_require_authoritative_nonfuture_timestamps_and_partial_is_visible() {
     acquired
         .failures
         .push(json!({"source":"inbox","error":{"code":"FAILED"}}));
-    let home = model(&[], &acquired, 100);
-    for section in &home.sections {
-        for row in &section.rows {
-            assert!(row.age.is_none());
-        }
-    }
+    let home = model(&[], &acquired);
     assert!(home.incomplete);
     assert_eq!(home.failures[0]["source"], "inbox");
 }
@@ -383,13 +330,20 @@ fn home_acquisition_reuses_public_reads_and_preserves_all_json_and_text() {
     assert_eq!(home.summary.blocked, 2);
     assert_eq!(home.summary.waiting, 1);
     assert!(home.incomplete);
-    assert_eq!(home.sections[0].rows[0].member["name"], "worker-a");
-    assert!(home.sections[0].rows.iter().all(|row| row.age.is_none()));
+    assert!(
+        home.workspace
+            .roster
+            .members
+            .values()
+            .any(|member| member.name == "worker-a")
+    );
 }
 
 #[test]
 fn home_global_windows_do_not_replace_named_squad_overrides() {
-    let f = Fixture::new("[board]\ntok='1m/1h/2h'\n[squad.a.board]\ntok='2m/5m/10m'\n");
+    let f = Fixture::new(
+        "[board]\ntok='1m/1h/2h'\n[board.token_rate]\nwindow='1h'\n[squad.a.board]\ntok='2m/5m/10m'\n",
+    );
     fs::write(f.root.join("inbox"), r#"{"items":[],"more":false}"#).unwrap();
     for name in ["a", "b"] {
         fs::write(f.root.join(name), roster(name).to_string()).unwrap();
@@ -413,6 +367,21 @@ fn home_global_windows_do_not_replace_named_squad_overrides() {
         ["2m", "5m", "10m"]
     );
     assert_eq!(rates["b"].settings.windows, home.windows);
+    assert_eq!(home.window, crate::config::TokenWindow::HOUR);
+    let mut published = crate::board::app::tests::snapshot(ALL, json!([]));
+    let view = published.view.as_mut().unwrap();
+    view.home = Some(home);
+    view.home_rate = rates;
+    let mut app = crate::board::app::App::new(Some(ALL.into()));
+    app.apply(published);
+    assert!(app.meter.is_none(), "aggregate uses per-squad rings");
+    assert_eq!(app.token_window, crate::config::TokenWindow::HOUR);
+    assert_eq!(app.next_token_window().unwrap().label(), "2h");
+    app.token_window = crate::config::TokenWindow::MINUTE;
+    let mut reloaded = crate::board::app::tests::snapshot(ALL, json!([]));
+    reloaded.view = Ok(app.view.take().unwrap());
+    app.apply(reloaded);
+    assert_eq!(app.token_window, crate::config::TokenWindow::HOUR);
 }
 
 #[test]
@@ -515,12 +484,11 @@ fn failed_roster_and_inbox_are_reported_and_recovery_replaces_the_partial_model(
 mod cache;
 mod cron;
 mod interaction;
-mod leads;
 mod limits;
 pub(in crate::board) mod oracle;
 
 #[test]
-fn tile_members_exclude_the_lead_and_choose_one_urgent_mark_per_membership() {
+fn aggregate_state_counts_preserve_public_attention_semantics_including_the_lead() {
     let fixture = Fixture::new("");
     let mut lead = row("L", "lead", "blocked");
     lead["pending"] = json!("lead decision");
@@ -541,18 +509,7 @@ fn tile_members_exclude_the_lead_and_choose_one_urgent_mark_per_membership() {
             ],
         ),
     )]);
-    let home = model(&["a".into()], &acquired, 100);
-    assert_eq!(
-        home.squads[0].members,
-        Counts {
-            members: 6,
-            waiting: 1,
-            blocked: 1,
-            review: 1,
-            working: 1,
-            idle: 1,
-        }
-    );
+    let home = model(&["a".into()], &acquired);
     assert_eq!(home.summary.members, 7);
     assert_eq!(home.summary.waiting, 2);
     assert_eq!(
@@ -563,23 +520,7 @@ fn tile_members_exclude_the_lead_and_choose_one_urgent_mark_per_membership() {
         "a",
         document("a", Value::Null, vec![row("W", "worker", "idle")]),
     )]);
-    let home = model(&["a".into()], &acquired, 100);
-    assert_eq!(home.squads[0].members.members, 1);
-    assert_eq!(home.squads[0].members.idle, 1);
-}
-
-#[test]
-fn home_ages_use_registered_relative_time_and_identify_observed_provenance() {
-    for (elapsed, expected) in [(0, "just now"), (45_000, "45s ago"), (180_000, "3m ago")] {
-        let now = 1_000_000;
-        assert_eq!(
-            paint::age_label(
-                &Age {
-                    since_ms: now - elapsed
-                },
-                now
-            ),
-            format!("observed {expected}")
-        );
-    }
+    let home = model(&["a".into()], &acquired);
+    assert_eq!(home.squads[0].counts.members, 1);
+    assert_eq!(home.squads[0].counts.idle, 1);
 }

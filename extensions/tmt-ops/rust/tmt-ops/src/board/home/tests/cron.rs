@@ -1,140 +1,84 @@
-use super::interaction::{board, press, waiting};
+//! The current workspace opens scoped timers without restoring the old HOME cursor.
 use crate::board::{
+    app::workspace::tests::{ROOM, board},
     app::{App, Effect},
     cronboard::{TEST_NOW, test_cron, test_view},
-    home::paint,
 };
-use ratatui::{Terminal, backend::TestBackend, crossterm::event::KeyCode::*, layout::Rect};
+use ratatui::{
+    Terminal,
+    backend::TestBackend,
+    crossterm::event::{KeyCode, KeyEvent, KeyModifiers},
+};
 use tmt_ops::cron::ClockStatus;
 
 fn with_jobs(app: &mut App) {
-    let mut job = test_view("lead-a", "merge queue sweep", Some(TEST_NOW + 3_600_000));
-    job.job.squad = "a".into();
+    let mut job = test_view("worker", "merge queue sweep", Some(TEST_NOW + 3_600_000));
+    job.job.squad = "product".into();
+    job.job.room_id = ROOM.into();
     app.cron
         .replace(Ok(test_cron(vec![job], ClockStatus::NoClock)));
 }
-
-fn screen(app: &App, width: u16) -> Vec<String> {
-    let mut terminal = Terminal::new(TestBackend::new(width, 24)).unwrap();
+fn press(app: &mut App, code: KeyCode) -> Effect {
+    app.key(KeyEvent::new(code, KeyModifiers::NONE))
+}
+fn screen(app: &App) -> String {
+    let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
     terminal
-        .draw(|frame| paint::render_at(frame, app, Rect::new(0, 0, width, 24), 100))
+        .draw(|frame| crate::board::view::render(frame, app))
         .unwrap();
     terminal
         .backend()
         .buffer()
         .content
-        .chunks(width as usize)
-        .map(|cells| {
-            cells
-                .iter()
-                .map(|cell| cell.symbol())
-                .collect::<String>()
-                .trim_end()
-                .to_owned()
-        })
+        .iter()
+        .map(|cell| cell.symbol())
         .collect()
 }
-
 #[test]
-fn the_cron_line_follows_squads_in_one_cursor_order() {
-    let mut app = board(&[("a", waiting())]);
-    assert!(
-        !screen(&app, 120).join("\n").contains("cron ·"),
-        "no read yet: no line"
-    );
-    with_jobs(&mut app);
-    for width in [160, 100, 80] {
-        let lines = screen(&app, width);
-        let at = |needle: &str| lines.iter().position(|line| line.contains(needle)).unwrap();
-        assert!(at("✗ blocked") < at("cron · 1 job"), "{lines:#?}");
-        assert!(at("Squads") < at("cron · 1 job"), "{lines:#?}");
-        assert!(
-            !lines[at("cron · 1 job")].contains("merge queue sweep"),
-            "{lines:#?}"
-        );
-    }
-    let sections = |app: &App| {
-        app.home_entries()
-            .iter()
-            .map(|entry| entry.target.section.clone())
-            .collect::<Vec<_>>()
-    };
-    assert_eq!(
-        sections(&app),
-        ["usage", "blocked", "leads", "all-leads", "squads", "cron"]
-    );
-    press(&mut app, Down);
-    assert_eq!(app.home_target.as_ref().unwrap().section, "leads");
-    press(&mut app, Down);
-    assert_eq!(app.home_target.as_ref().unwrap().section, "all-leads");
-    press(&mut app, Down);
-    assert_eq!(app.home_target.as_ref().unwrap().section, "squads");
-    press(&mut app, Down);
-    assert_eq!(app.home_target.as_ref().unwrap().section, "cron");
-    press(&mut app, Up);
-    assert_eq!(app.home_target.as_ref().unwrap().section, "squads");
-    // A search hides the cron line like any non-matching row.
-    app.search = "worker".into();
-    assert!(!sections(&app).contains(&"cron".to_owned()));
-}
-
-#[test]
-fn enter_and_c_open_the_list_and_esc_restores_the_cursor() {
-    let mut app = board(&[("a", waiting())]);
-    assert_eq!(press(&mut app, Char('c')), Effect::None);
-    assert!(app.cron_list.is_none(), "nothing read yet");
-    with_jobs(&mut app);
-    let cursor = app
-        .home_entries()
-        .iter()
-        .position(|entry| entry.target.section == "cron")
-        .unwrap();
-    app.select(cursor);
-    assert_eq!(press(&mut app, Enter), Effect::None);
-    assert!(app.cron_list.is_some());
-    // The modal swallows keys that would act on the board underneath.
-    press(&mut app, Char('s'));
-    press(&mut app, Char('a'));
-    assert!(app.switcher.is_none() && app.input.is_none() && app.menu.is_none());
-    press(&mut app, Esc);
+fn scoped_timer_list_opens_after_a_read_and_cancel_keeps_the_exact_target() {
+    let mut app = board();
+    let selected = app.workspace.selected.clone();
+    assert_eq!(press(&mut app, KeyCode::Char('c')), Effect::None);
     assert!(app.cron_list.is_none());
-    assert_eq!(app.home_target.as_ref().unwrap().section, "cron");
-    press(&mut app, Char('c'));
-    assert!(app.cron_list.is_some());
-    assert_eq!(press(&mut app, Enter), Effect::Load("a".into()));
-    assert!(app.cron_list.is_none());
-}
-
-#[test]
-fn a_user_binding_on_c_keeps_priority() {
-    let mut app = board(&[("a", waiting())]);
     with_jobs(&mut app);
-    app.view
+    press(&mut app, KeyCode::Char('c'));
+    assert!(app.cron_list.is_some());
+    let rendered = screen(&app);
+    assert!(rendered.contains("merge queue sweep"), "{rendered}");
+    press(&mut app, KeyCode::Char('s'));
+    press(&mut app, KeyCode::Char('a'));
+    assert!(app.input.is_none() && app.menu.is_none());
+    press(&mut app, KeyCode::Esc);
+    assert!(app.cron_list.is_none());
+    assert_eq!(app.workspace.selected, selected);
+    assert_eq!(app.current.as_deref(), Some(crate::board::ALL));
+}
+#[test]
+fn configured_timer_key_keeps_priority_over_workspace_defaults() {
+    let mut app = board();
+    with_jobs(&mut app);
+    let keys = &mut app
+        .view
         .as_mut()
         .unwrap()
-        .bindings
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .keys;
+    keys.get_mut(&crate::config::OpsKeyScope::Member)
+        .unwrap()
         .insert("c".into(), crate::action::Action::parse("refresh").unwrap());
-    assert_eq!(press(&mut app, Char('c')), Effect::Refresh);
+    assert_eq!(press(&mut app, KeyCode::Char('c')), Effect::Refresh);
     assert!(app.cron_list.is_none());
 }
-
 #[test]
-fn a_failed_read_is_a_selectable_line_and_the_list_says_why() {
-    let mut app = board(&[("a", waiting())]);
+fn failed_timer_reads_are_inspectable_without_inventing_an_empty_job_list() {
+    let mut app = board();
     app.cron.replace(Err("storage unreachable".into()));
-    let lines = screen(&app, 120);
-    assert!(
-        lines
-            .iter()
-            .any(|line| line.contains("cron · ✗ jobs unavailable: storage unreachable")),
-        "{lines:#?}"
-    );
-    let cron = app
-        .home_entries()
-        .iter()
-        .position(|entry| entry.target.section == "cron")
-        .unwrap();
-    app.select(cron);
-    press(&mut app, Enter);
+    press(&mut app, KeyCode::Char('c'));
     assert!(app.cron_list.is_some());
+    let rendered = screen(&app);
+    assert!(rendered.contains("storage unreachable"), "{rendered}");
+    assert_eq!(app.cron.failure.as_deref(), Some("storage unreachable"));
 }

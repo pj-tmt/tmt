@@ -56,10 +56,28 @@ if a[0]=='api':
    try: fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
    except BlockingIOError: locked=True
  m['calls'].append({'request':q,'locked':locked})
+ if m.get('failOperation')==op: save(m); fail('STORAGE_UNAVAILABLE')
  if op=='storage.root': out={'dataRoot':str(p)}
- elif op=='rooms.roster': out={'members':[x for x in m['members'] if x['id'] not in m['retired'] and x['id'] not in m['rosterWithout']]}
+ elif op=='rooms.write':
+  assert q.get('identity') or q.get('originator')=='anonymous'
+  if m.get('roomWriteFailure'): save(m); fail(m['roomWriteFailure'])
+  if i['roomId']!=m['room'] or i['room']['expectedRevision']!=m.get('roomRevision',1): save(m); fail('ROOM_REVISION_CONFLICT')
+  m['roomName']=i['room']['name']; m['roomRevision']=m.get('roomRevision',1)+1
+  out={'id':m['room'],'name':m['roomName'],'revision':m['roomRevision'],'retired':False,'memberIds':i['room']['memberIds']}
+  if m.get('loseRoomWriteResponse'): save(m); print('interrupted'); sys.exit(0)
+  if m.get('malformedRoomWriteResponse'): out={}
+ elif op=='rooms.roster':
+  if i['room']==m['room']:
+   ids=[x['id'] for x in m['members'] if x['id'] not in m['rosterWithout']]
+   room={'id':m['room'],'name':m.get('roomName','squad-product'),'revision':m.get('roomRevision',1),'retired':False,'memberIds':ids}
+  else:
+   room=m.get('otherRooms',{}).get(i['room'])
+   if room is None: save(m); fail('ROOM_NOT_FOUND')
+   ids=room['memberIds']
+  out={'room':room,'members':[x for x in m['members'] if x['id'] not in m['retired'] and x['id'] in ids]}
  elif op=='references.resolve':
   out={'identities':[dict(next((x for x in m['members'] if x['id']==id),{'id':id}),found=any(x['id']==id for x in m['members']),retired=id in m['retired']) for id in i.get('identityIds',[])]}
+  if m.get('malformedReferences'): out={'identities':[]}
  elif op=='identity.meta.apply':
   assert 'identity' not in q and 'originator' not in q
   if m.get('applyFailure'): save(m); fail(m['applyFailure'])
@@ -77,6 +95,7 @@ if a[0]=='api':
    if change['then']=='remove': metadata.pop(change['key'],None)
    else: metadata[change['key']]=change['then']['set']
   out={'identityId':i['identityId'],'changed':metadata!=before}
+  if m.get('malformedApplyResponse'): out={}
   if m.get('loseApplyResponse'):
    save(m); print('interrupted'); sys.exit(0)
  elif op=='identityHooks.register':
@@ -115,8 +134,46 @@ if a[0]=='api':
  else: fail('API_INPUT_INVALID')
  save(m); print(json.dumps(out))
 elif a[0]=='config': print(json.dumps({'paths':{'global':str(p/'config.toml')}}))
-elif a[0]=='room' and a[1]=='show': print(json.dumps({'room':{'id':m['room']}}))
-elif a[0]=='room': print(json.dumps({'rooms':[{'id':m['room'],'name':'squad-product'}]}))
+elif a[0]=='room' and a[1]=='leave':
+ m['calls'].append({'command':a})
+ jobs=p/'ops/cron/jobs.json'
+ m['jobsAtLeave']=json.loads(jobs.read_text()) if jobs.exists() else {'jobs':[]}
+ if m.get('leaveFailure'): save(m); fail(m['leaveFailure'])
+ id=a[a.index('--identity')+1]
+ if id not in m['rosterWithout']: m['rosterWithout'].append(id)
+ save(m)
+ if m.get('loseLeaveResponse'): print('interrupted'); sys.exit(0)
+ print(json.dumps({}))
+elif a[0]=='room' and a[1]=='join':
+ m['calls'].append({'command':a})
+ if m.get('joinFailure'): save(m); fail(m['joinFailure'])
+ id=a[a.index('--identity')+1]
+ if a[2]==m['room']:
+  if id in m['rosterWithout']: m['rosterWithout'].remove(id)
+ else:
+  room=m.get('otherRooms',{}).get(a[2])
+  if room is None: save(m); fail('ROOM_NOT_FOUND')
+  if id not in room['memberIds']: room['memberIds'].append(id)
+ save(m); print(json.dumps({}))
+elif a[0]=='room' and a[1]=='show':
+ if a[2] in [m['room'],m.get('roomName','squad-product')]: room={'id':m['room'],'name':m.get('roomName','squad-product'),'revision':m.get('roomRevision',1),'retired':False,'memberIds':[x['id'] for x in m['members'] if x['id'] not in m['rosterWithout']]}
+ else:
+  room=next((room for room in m.get('otherRooms',{}).values() if a[2] in [room['id'],room['name']]),None)
+  if room is None: fail('ROOM_NOT_FOUND')
+ print(json.dumps({'room':room}))
+elif a[0]=='room': print(json.dumps({'rooms':[{'id':m['room'],'name':m.get('roomName','squad-product')}]}))
+elif a[0]=='identity' and a[1]=='meta':
+ id=a[a.index('--identity')+1]
+ x=next((x for x in m['members'] if x['id']==id and id not in m['retired']),None)
+ if x is None: fail('NAME_NOT_FOUND')
+ m['calls'].append({'command':a})
+ if a[2]=='list': out={'metadata':x['metadata']}
+ elif a[2]=='rm':
+  if m.get('metaRemoveFailure'): save(m); fail(m['metaRemoveFailure'])
+  x['metadata'].pop(a[3],None); out={}
+ elif a[2]=='set': x['metadata'][a[3]]=a[4]; out={}
+ else: fail('UNKNOWN_COMMAND')
+ save(m); print(json.dumps(out))
 elif a[0]=='identity':
  x=next((x for x in m['members'] if a[2] in [x['id'],x['name']] and x['id'] not in m['retired']),None)
  if x is None: fail('NAME_NOT_FOUND')

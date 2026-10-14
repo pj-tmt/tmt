@@ -260,7 +260,7 @@ pub fn text(document: &Value, terminal: Terminal) -> String {
                     Cell::from(job["owner"].as_str().unwrap_or("no owner")),
                     Cell::from(text(&job["message"])),
                     Cell::styled(text(&job["scheduleText"]), Token::Dim),
-                    Cell::from(text(&job["state"])),
+                    Cell::from(text(job.get("stateLabel").unwrap_or(&job["state"]))),
                     Cell::styled(next_text(job), Token::Dim),
                 ]);
             }
@@ -287,18 +287,23 @@ pub fn text(document: &Value, terminal: Terminal) -> String {
             .iter()
             .filter(|key| **key != "pause" || !job[*key].is_null())
             .map(|key| {
+                let value = if *key == "state" {
+                    job.get("stateLabel").unwrap_or(&job[key])
+                } else {
+                    &job[key]
+                };
                 (
                     if *key == "scheduleText" {
                         "schedule".to_owned()
                     } else {
                         (*key).to_owned()
                     },
-                    if job[key].is_null() {
+                    if value.is_null() {
                         "–".into()
-                    } else if job[key].is_string() {
-                        text(&job[key])
+                    } else if value.is_string() {
+                        text(value)
                     } else {
-                        job[key].to_string()
+                        value.to_string()
                     },
                 )
             })

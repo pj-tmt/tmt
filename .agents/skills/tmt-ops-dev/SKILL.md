@@ -8,30 +8,27 @@ description: Build and verify the Ops extension (`tmt-ops`, the board, notebook,
 ## Board surface ownership
 
 `board/view.rs` owns frame orchestration and one frame-level hit/scroll-map reset.
-Its surface modules under `board/view/` retain the existing painters:
+The interactive board acquires the global workspace once and selects its
+Overview, Agents or Digest destination through `shell::OpsShell`.
 
-| Module      | Responsibility                                                     |
-| ----------- | ------------------------------------------------------------------ |
-| `header`    | Summary, token meter, spinner and clock-derived invalidation text  |
-| `tabs`      | Tab labels, windows and painted tab hits                           |
-| `panes`     | Split/tab composition dispatch, `Outline` borders, folded titles   |
-| `rows`      | Cached row scene preparation, scroll reveal and clipped row hits   |
-| `row_paint` | Row scene: admitted cells, ages, waiting line, `paint_with` hits   |
-| `notes`     | Shared notebook lines, lead notes selection, links and hits        |
-| `detail`    | Selected row fields; member notebook                               |
-| `replies`   | Safe final bodies, their derived cache and scrolling               |
-| `footer`    | Effective hints, notices, link previews and unanchored input strip |
-| `waiting`   | Acquired decision text, inline composer bands and docked ask-lead  |
-| `overlays`  | Overlay dispatch and switcher painting                             |
+| Module                | Responsibility                                               |
+| --------------------- | ------------------------------------------------------------ |
+| `shell`               | Scoped destination selection, outside editors and overlays   |
+| `workspace::observe`  | Roster, room and document projection from one acquisition    |
+| `workspace::render`   | Dense tree, clipped hits, squad detail and management dialog |
+| `workspace::manage`   | Frozen management operations and guarded effects             |
+| `app::workspace`      | UUID selection, effective bindings and workspace routing     |
+| `conversation`        | Shared selected-agent response, source and follow state      |
+| `view::waiting`       | WP1 composer and completion geometry                         |
+| `view::header/footer` | Summary, meters and effective action hints                   |
+| `home::limits/paint`  | Existing Overview quota/usage presentation over held data    |
+| `view::overlays`      | Shared overlay dispatch                                      |
 
 `board/row_detail.rs` owns the shared in-place detail projection and renderer,
 expansion reconciliation, worker-acquired reply cache and read-only full-reply
-reader. Member, HOME and cron surfaces reserve lines and retain their existing
-list geometry; they call this owner for detail content.
-
-`row_paint` builds the rows scene (admitted cells, solved boxes, ages, waiting line,
-annotation, `✓ sent` line, reserved input lines) and paints it through
-`tmt-tui::paint::paint_with`; `rows` only prepares and caches it.
+reader. The workspace conversation and cron surfaces reuse its source and reply
+projection. Notebook/source utilities retain their independent CLI/data owners;
+they are not a separate interactive Notes destination.
 
 Every strip, border and scroll line is painted through `tmt-tui` (`Strip`,
 `Outline`, `Modal`): no board module names a ratatui widget. The action menu is a
@@ -45,10 +42,10 @@ and snapshot file; `board/app/carry.rs` owns what `App` captures and restores
 
 `App`, terminal/worker lifecycle, acquisition, `Scrolls` (position math; it paints
 its lines and overflow indicator through `Strip`), home and shared TUI
-components keep their separate owners. Home dispatch precedes ordinary panes;
-its painter alone produces home row starts and continuation hits. Existing
-`view` helper entry points remain available to those callers. Integrated renderer
-tests live in `view/tests.rs`, with help, meter and frozen parity submodules.
+components keep their separate owners. Workspace dispatch owns interactive row
+starts and hits. `home` retains shared counts, rates, limits and admitted scene
+utilities. Integrated renderer tests live in `view/tests.rs` and workspace tests;
+the frozen baseline gate remains in the TUI development reference.
 
 Raw ratatui widget enforcement and its verification belong to the
 [tmt-tui skill](../tmt-tui/SKILL.md). A surface split preserves captured cells,
@@ -114,9 +111,9 @@ grammar or key tables into the references below.
 | Membership, leadership marker, `me`, field providers, staleness, reminders, cron     | [data-and-state.md](references/data-and-state.md)         |
 | `ops.toml` layering and writes, themes, views, settings, link and action effects     | [config-and-effects.md](references/config-and-effects.md) |
 | Board frame, row grid, composition, tabs, scrolling, composers, overlays, validation | [board.md](references/board.md)                           |
-| HOME model, section scenes, cursor projection and cache invalidation                 | [board-home.md](references/board-home.md)                 |
-| Lead/member notebooks, links, annotations, detail and replies                        | [board-notebooks.md](references/board-notebooks.md)       |
-| Board cron acquisition, jobs half/list, forms and scoped input                       | [board-cron.md](references/board-cron.md)                 |
+| Workspace projection, acquired HOME summaries and header cache                       | [board-home.md](references/board-home.md)                 |
+| Inert agent text, notebook/source utilities, conversation and reply authority        | [board-notebooks.md](references/board-notebooks.md)       |
+| Board cron acquisition, scoped Timers modal, forms and input                         | [board-cron.md](references/board-cron.md)                 |
 | Refresh worker, change detection, token meter, shutdown                              | [refresh-and-meter.md](references/refresh-and-meter.md)   |
 
 ## Invariants

@@ -146,18 +146,6 @@ impl Intent {
     }
 }
 
-pub(super) fn send(
-    core: &Core,
-    config: &Config,
-    sender: &str,
-    recipients: &[LeadRecipient],
-    kind: &str,
-    room: Option<&str>,
-    text: &str,
-) -> Result<String, SquadError> {
-    Intent::new(sender, recipients.to_vec(), kind, room, text)?.attempt(core, config)
-}
-
 fn io_error(error: std::io::Error) -> SquadError {
     SquadError::new("SQUAD_DISPATCH_IO", error.to_string())
 }
@@ -199,3 +187,6 @@ pub(super) fn acceptance(
     }
     Ok(outcomes.join("; "))
 }
+
+#[cfg(test)]
+mod tests;

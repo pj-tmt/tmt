@@ -1,4 +1,4 @@
-//! Shared component state for Squad's settings, preview pickers and tab filter.
+//! Shared component state for Ops settings, menus and modal pickers.
 //! Controllers own projection, previews and persistence; this owner retains
 //! only the component cursor, query, scene and currently painted hit map.
 use crate::look::Look;
@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use tmt_tui::{
     binding::{Schema, Schemas, Scopes, Sources},
     components::{
-        ListFrame, ListRow, Picker, PickerField, PickerInput, RowGeometry, collection,
+        ListFrame, ListRow, Picker, PickerField, PickerInput, RowGeometry,
         surface::{self, FrameMap, ModalSurface, RenderStyle},
     },
 };
@@ -49,11 +49,6 @@ pub(super) fn schema(fields: &[&str]) -> Schema {
 pub(super) fn compile(file: &str, markup: &str, schema: Schema) -> surface::Template<()> {
     let parsed = tmt_tui::parse(file, markup).expect("embedded picker markup");
     surface::compile(file, &parsed, &schema, &Data).expect("embedded picker schema")
-}
-
-pub(super) fn collection(file: &str, markup: &str, schema: Schema) -> collection::Table<()> {
-    let parsed = tmt_tui::parse(file, markup).expect("embedded list markup");
-    collection::compile(file, &parsed, &schema, &Data).expect("embedded list schema")
 }
 
 pub(super) struct State {

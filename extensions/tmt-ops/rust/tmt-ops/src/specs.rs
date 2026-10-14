@@ -27,6 +27,13 @@ macro_rules! spec {
     };
 }
 
+pub const RENAME: &CommandSpec = spec!(
+    "rename", "Rename a squad while retaining its room and history",
+    details = "A partial result retains the renamed room and prints an explicit repair command; no automatic retry or room-name rollback.",
+    ["Rename a squad" => "tmt ops squad rename product platform",
+     "Repair the retained Ops step" => "tmt ops squad rename product platform --room-id 44444444-4444-4444-8444-444444444444 --repair"]
+);
+
 pub const CONFIG: &CommandSpec = spec!(
     "config", "Inspect effective Squad board settings",
     ["Inspect board defaults and their sources" => "tmt ops squad config show"]

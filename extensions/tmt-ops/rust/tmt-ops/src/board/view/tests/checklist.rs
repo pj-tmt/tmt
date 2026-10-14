@@ -8,7 +8,6 @@ fn checklist_masks_body_and_owns_keys_without_claiming_base_receiving_focus() {
     app.open_checklist();
     assert!(app.checklist_shown());
     assert!(app.menu.is_none());
-    assert_eq!(super::super::panes::receiving_pane(&app), None);
     let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
     terminal.draw(|frame| render(frame, &app)).unwrap();
     let text = terminal

@@ -14,7 +14,6 @@ use std::{
 /// The overlay a config read is for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Opening {
-    ViewPicker,
     Settings,
     /// The theme picker, for this squad tab (none on the aggregate tabs).
     ThemePicker(Option<String>),
@@ -33,7 +32,6 @@ impl Job {
     pub fn progress(&self) -> &'static str {
         match self {
             Self::Act(request) => request.progress(),
-            Self::Open(Opening::ViewPicker) => "Loading views…",
             Self::Open(Opening::Settings) => "Loading settings…",
             Self::Open(Opening::ThemePicker(_)) => "Loading themes…",
             Self::TokenWindow(_) => "Saving the token window…",

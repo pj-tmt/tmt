@@ -1,11 +1,18 @@
 //! Membership changes through public core commands. Each command is idempotent
-//! and reports exactly what it applied; a re-run converges after a failure.
+//! and reports exactly what it applied. Unknown publication is reconciled, not
+//! automatically retried.
 
 use crate::{
     config::{Config, Layout},
     core::{Core, SquadError},
     squad::{self, Squad, name_invalid, valid_name},
 };
+mod assign;
+mod rename;
+pub(crate) mod workspace;
+pub use assign::assign;
+pub use rename::{Rename, rename_squad};
+
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -13,6 +20,7 @@ use std::collections::{BTreeMap, BTreeSet};
 const METADATA_ENTRY_LIMIT: usize = 64;
 
 /// A command result plus whether every requested change was applied.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Outcome {
     pub document: Value,
     pub complete: bool,
@@ -235,20 +243,70 @@ pub fn add(
 
 pub fn remove(core: &Core, squad: &Squad, name: &str) -> Result<Outcome, SquadError> {
     let (member, _) = identity(core, name)?;
-    // Membership is the authority; leave first, then clear this squad's fields.
-    core.json(&["room", "leave", &squad.room_id, "--identity", &member.id])?;
-    let cleared: Vec<_> = fields(core, squad, &member.id)?.into_keys().collect();
-    for field in &cleared {
-        core.json(&[
+    let (paused, leave) = crate::cron_service::with_departure_pause(
+        core,
+        &squad.room_id,
+        &member.id,
+        jiff::Timestamp::now().as_millisecond(),
+        || core.json(&["room", "leave", &squad.room_id, "--identity", &member.id]),
+    )?;
+    finish_remove(core, squad, &member, paused, leave)
+}
+
+fn finish_remove(
+    core: &Core,
+    squad: &Squad,
+    member: &Resolved,
+    paused: Vec<String>,
+    leave: Result<Value, SquadError>,
+) -> Result<Outcome, SquadError> {
+    let mut document = json!({"squad": squad.name, "removed": null,
+        "cleared": [], "pausedTimers": paused});
+    if let Err(error) = leave {
+        return Ok(removal_failed(document, "membership", &error));
+    }
+    document["removed"] = json!({"id": member.id, "name": member.name});
+    let fields = match fields(core, squad, &member.id) {
+        Ok(fields) => fields,
+        Err(error) => return Ok(removal_failed(document, "metadata read", &error)),
+    };
+    for field in fields.into_keys() {
+        if let Err(error) = core.json(&[
             "identity",
             "meta",
             "rm",
             &format!("{}{field}", squad.prefix()),
             "--identity",
             &member.id,
-        ])?;
+        ]) {
+            return Ok(removal_failed(document, "metadata clear", &error));
+        }
+        document["cleared"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!(field));
     }
-    Ok(json!({"squad": squad.name, "removed": {"id": member.id, "name": member.name}, "cleared": cleared}).into())
+    Ok(document.into())
+}
+
+fn removal_failed(mut document: Value, stage: &str, error: &SquadError) -> Outcome {
+    // Transport loss is not evidence that the write did not happen. The board
+    // must reconcile Unknown rather than turn another click into a retry.
+    let status = if matches!(
+        error.code.as_str(),
+        "SQUAD_CORE_UNAVAILABLE" | "STORAGE_UNAVAILABLE"
+    ) || error.was_cancelled()
+    {
+        "Unknown"
+    } else {
+        "Not applied"
+    };
+    document["failed"] = json!({"stage": stage, "status": status,
+        "error": {"code": error.code, "message": error.message}});
+    Outcome {
+        document,
+        complete: false,
+    }
 }
 
 enum Change {

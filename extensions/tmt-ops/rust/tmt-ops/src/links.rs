@@ -1,40 +1,9 @@
-//! Notebook destinations. Only user configuration grants program authority.
-use crate::action::{Action, Verb};
-use serde_json::json;
+//! Authored handler admission and inert response-link styling. This module
+//! never constructs an effect from an agent-provided destination.
+use crate::action::Action;
 use std::collections::BTreeMap;
 
 pub type Handlers = BTreeMap<String, Action>;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Kind {
-    Web,
-    Github,
-    File(String),
-    Tmt {
-        verb: Verb,
-        member: Option<String>,
-        text: String,
-    },
-    Custom {
-        scheme: String,
-        path: String,
-    },
-}
-
-impl Kind {
-    pub fn label(&self) -> &'static str {
-        match self {
-            Self::Web => "web",
-            Self::Github => "github",
-            Self::File(_) => "file",
-            Self::Tmt {
-                verb: Verb::Reply, ..
-            } => "answer",
-            Self::Tmt { verb, .. } => verb.name(),
-            Self::Custom { .. } => "configured",
-        }
-    }
-}
 
 pub fn scheme(name: &str) -> bool {
     !name.is_empty()
@@ -44,76 +13,43 @@ pub fn scheme(name: &str) -> bool {
         })
 }
 
-pub fn classify(target: &str, handlers: &Handlers) -> Option<Kind> {
+/// Whether a built-in destination is recognized for text styling only.
+/// Custom handlers remain authored Config data, not response activation routes.
+pub fn styled_target(target: &str) -> bool {
     if target.is_empty() || target.len() > 4096 || target.chars().any(char::is_control) {
-        return None;
+        return false;
     }
     if crate::effects::web_link(target).is_ok() {
-        let path = target
-            .strip_prefix("https://github.com/")
-            .or_else(|| target.strip_prefix("http://github.com/"));
-        let github = path.is_some_and(|path| {
-            let parts: Vec<_> = path.split('/').collect();
-            parts.len() >= 4
-                && !parts[0].is_empty()
-                && !parts[1].is_empty()
-                && matches!(parts[2], "issues" | "pull")
-                && parts[3]
-                    .split(['?', '#'])
-                    .next()
-                    .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
-        });
-        return Some(if github { Kind::Github } else { Kind::Web });
+        return true;
     }
     if target.starts_with('/') {
-        return Some(Kind::File(decode(target)?));
+        return decode(target).is_some();
     }
     if let Some(path) = target.strip_prefix("file://") {
-        return path
-            .starts_with('/')
-            .then(|| decode(path))
-            .flatten()
-            .map(Kind::File);
+        return path.starts_with('/') && decode(path).is_some();
     }
-    let (name, path) = target.split_once(':')?;
-    if name == "tmt" {
-        let (path, text) = path.split_once("?text=").unwrap_or((path, ""));
-        let (verb, member) = path
-            .split_once('/')
-            .map_or((path, None), |(v, m)| (v, Some(m)));
-        let verb = match verb {
-            "jump" => Verb::Jump,
-            "back" => Verb::Back,
-            "talk" => Verb::Talk,
-            "answer" => Verb::Reply,
-            "open" => Verb::Open,
-            "copy" => Verb::Copy,
-            "annotate" => Verb::Annotate,
-            _ => return None,
-        };
-        if (verb == Verb::Back && (member.is_some() || !text.is_empty()))
-            || (verb != Verb::Back && member.is_none())
-            || member.is_some_and(|m| {
-                m.is_empty()
-                    || m.contains(['/', '?', '#', '%'])
-                    || m.chars().any(char::is_whitespace)
-            })
-            || (!matches!(verb, Verb::Talk | Verb::Reply | Verb::Annotate) && !text.is_empty())
-        {
-            return None;
-        }
-        // Query data is one message value, never parsed as command arguments.
-        let text = decode(text)?;
-        return Some(Kind::Tmt {
-            verb,
-            member: member.map(str::to_owned),
-            text,
-        });
+    let Some(path) = target.strip_prefix("tmt:") else {
+        return false;
+    };
+    let (path, text) = path.split_once("?text=").unwrap_or((path, ""));
+    let (verb, member) = path
+        .split_once('/')
+        .map_or((path, None), |(v, m)| (v, Some(m)));
+    if !matches!(
+        verb,
+        "jump" | "back" | "talk" | "answer" | "open" | "copy" | "annotate"
+    ) || (verb == "back" && (member.is_some() || !text.is_empty()))
+        || (verb != "back" && member.is_none())
+        || member.is_some_and(|member| {
+            member.is_empty()
+                || member.contains(['/', '?', '#', '%'])
+                || member.chars().any(char::is_whitespace)
+        })
+        || (!matches!(verb, "talk" | "answer" | "annotate") && !text.is_empty())
+    {
+        return false;
     }
-    handlers.contains_key(name).then(|| Kind::Custom {
-        scheme: name.to_owned(),
-        path: path.to_owned(),
-    })
+    decode(text).is_some()
 }
 
 fn decode(text: &str) -> Option<String> {
@@ -131,19 +67,12 @@ fn decode(text: &str) -> Option<String> {
     (text.chars().count() <= 4000 && !text.chars().any(char::is_control)).then_some(text)
 }
 
-pub fn argv(handlers: &Handlers, scheme: &str, path: &str) -> Result<Vec<String>, String> {
-    handlers
-        .get(scheme)
-        .ok_or("The link handler is no longer configured.")?
-        .argv(&json!({"fields":{"path":path}}))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
-    fn schemes_and_fixed_verbs_have_no_program_authority_from_notes() {
-        let mut handlers = Handlers::new();
+    fn response_destinations_have_only_inert_style_recognition() {
         for target in [
             "javascript:alert(1)",
             "gh:42",
@@ -155,43 +84,30 @@ mod tests {
             "file://host/etc/passwd",
             "./relative",
             "../relative",
+            "file:///%GG",
+            "tmt:talk/id?text=%FF",
+            "tmt:talk/id?text=%",
+            "https://example.test/\u{1b}",
         ] {
-            assert!(classify(target, &handlers).is_none(), "{target}");
+            assert!(!styled_target(target), "{target}");
         }
-        assert_eq!(
-            classify("https://github.com/o/r/pull/42", &handlers),
-            Some(Kind::Github)
-        );
-        assert_eq!(
-            classify("https://github.com.evil/o/r/pull/42", &handlers),
-            Some(Kind::Web)
-        );
-        assert_eq!(
-            classify("/my%20file", &handlers),
-            Some(Kind::File("/my file".into()))
-        );
-        assert_eq!(
-            classify("tmt:answer/auth-fix?text=hello%20%24%28id%29", &handlers),
-            Some(Kind::Tmt {
-                verb: Verb::Reply,
-                member: Some("auth-fix".into()),
-                text: "hello $(id)".into()
-            })
-        );
-        handlers.insert(
-            "gh".into(),
-            Action::parse("run gh issue view {path}").unwrap(),
-        );
-        assert!(matches!(
-            classify("gh:42", &handlers),
-            Some(Kind::Custom { .. })
-        ));
-        assert_eq!(
-            argv(&handlers, "gh", "a b;$(id)").unwrap(),
-            ["gh", "issue", "view", "a b;$(id)"]
-        );
-        assert!(argv(&handlers, "gh", "--repo=evil").is_err());
-        handlers.clear();
-        assert!(argv(&handlers, "gh", "42").is_err());
+        for target in [
+            "https://github.com/o/r/pull/42",
+            "https://github.com.evil/o/r/pull/42",
+            "/my%20file",
+            "file:///my%20file",
+            "tmt:back",
+            "tmt:answer/auth-fix?text=hello%20%24%28id%29",
+        ] {
+            assert!(styled_target(target), "{target}");
+        }
+        assert!(!styled_target(&format!(
+            "https://example.test/{}",
+            "x".repeat(4096)
+        )));
+        assert!(!styled_target(&format!(
+            "tmt:talk/id?text={}",
+            "x".repeat(4001)
+        )));
     }
 }

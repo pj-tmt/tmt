@@ -4,7 +4,7 @@
 //! new process loads, and a row that is gone falls back to the usual start.
 
 use super::{App, RowTarget};
-use crate::board::{pick::Picks, resume::Resume};
+use crate::board::resume::Resume;
 
 impl App {
     /// Whether replacing the process now would lose something the user has open
@@ -15,8 +15,8 @@ impl App {
             || self.loading_since.is_some()
             || self.pending_resume.is_some()
             || self.in_flight > 0
-            || self.pending_send.is_some()
             || self.input.is_some()
+            || self.workspace_form.is_some()
             || self.composer.has_drafts()
             || self.status_draft.is_some()
             || self.cron_draft.is_some()
@@ -24,9 +24,7 @@ impl App {
             || self.settings.is_some()
             || self.help
             || self.menu.is_some()
-            || self.view_picker.is_some()
             || self.theme_picker.is_some()
-            || self.switcher.is_some()
             || self.cron_list.is_some()
             || self.checklist_shown()
             || self.row_details.reader.is_some()
@@ -41,23 +39,18 @@ impl App {
     pub(in crate::board) fn resume(&self) -> Option<Resume> {
         let tab = self.current.clone()?;
         Some(Resume {
-            selected: self.row_target(self.selected),
+            shell: self.shell.tab,
+            squads_expanded: self.workspace.expanded.iter().cloned().collect(),
+            pool_expanded: self.workspace.pool_expanded,
+            selected: if self.workspace_snapshot().is_some() {
+                self.workspace.selected.clone().map(RowTarget::Workspace)
+            } else {
+                self.row_target(self.selected)
+            },
             focus: self.focus,
             follow: self.follow,
             scrolls: self.scrolls.offsets(),
             expanded: self.row_details.expanded.clone(),
-            folds: self
-                .folds
-                .get(&tab)
-                .map(|state| {
-                    state
-                        .overrides
-                        .iter()
-                        .map(|(pane, fold)| (*pane, *fold))
-                        .collect()
-                })
-                .unwrap_or_default(),
-            picks: self.picks.keys(),
             search: self.search.clone(),
             tab,
         })
@@ -66,7 +59,6 @@ impl App {
     /// Takes a reload's state in at startup; it applies when the first fresh view of
     /// its tab (the one `App::new` was given) lands.
     pub(in crate::board) fn carry(&mut self, resume: Resume) {
-        self.picks = Picks::from_keys(resume.picks.clone());
         self.pending_resume = Some(resume);
     }
 
@@ -83,31 +75,16 @@ impl App {
             return;
         };
         self.search = resume.search;
-        if let Some(state) = self
-            .current
-            .as_ref()
-            .and_then(|tab| self.folds.get_mut(tab))
-        {
-            state.overrides.extend(resume.folds);
-            self.reconcile_folds();
-        }
+        self.shell.tab = resume.shell;
+        self.workspace.expanded = resume.squads_expanded.into_iter().collect();
+        self.workspace.pool_expanded = resume.pool_expanded;
         self.row_details.expanded = resume.expanded;
-        let panes = self.view.as_ref().map_or(0, |view| view.board.panes.len());
-        self.focus = resume.focus.min(panes.saturating_sub(1));
+        self.focus = resume.focus.min(self.focus_panes().len().saturating_sub(1));
         self.scrolls.restore(resume.scrolls);
         self.follow = resume.follow;
         match resume.selected {
-            Some(RowTarget::Home(target)) => {
-                if let Some(index) = self
-                    .home_entries()
-                    .iter()
-                    .position(|entry| entry.target == target)
-                {
-                    // The cursor target set by the opening placement would win over the index.
-                    self.home_target = None;
-                    self.selected = index;
-                    self.home_start = false;
-                }
+            Some(RowTarget::Workspace(target)) => {
+                self.workspace.selected = Some(target);
             }
             Some(anchor) => self.follow_member(&anchor),
             None => {}
@@ -222,14 +199,15 @@ mod tests {
             }),
             ("carried state not yet applied", |app| {
                 app.carry(Resume {
+                    shell: crate::board::shell::OpsTab::Overview,
+                    squads_expanded: vec![],
+                    pool_expanded: false,
                     tab: "product".into(),
                     selected: None,
                     focus: 0,
                     follow: true,
                     scrolls: Vec::new(),
                     expanded: Vec::new(),
-                    folds: Vec::new(),
-                    picks: None,
                     search: String::new(),
                 });
             }),
@@ -315,28 +293,42 @@ mod tests {
     }
 
     #[test]
-    fn the_admitted_tabs_and_a_fold_come_back() {
-        let mut before = loaded(&["a", "b"]);
-        before.picks = Picks::from_keys(Some(vec!["product".into(), "infra".into()]));
+    fn workspace_reload_keeps_reader_target_tree_expansion_and_scroll_without_tab_picks() {
+        use crate::board::{
+            ALL,
+            app::workspace::tests::{ROOM, board},
+            shell::OpsTab,
+        };
+        let mut before = board();
+        before.focus = 1;
+        before.follow = false;
+        before.workspace.pool_expanded = true;
         before
-            .folds
-            .get_mut("product")
-            .unwrap()
-            .overrides
-            .insert(Pane::Detail, true);
+            .scrolls
+            .restore([(Pane::Rows, 3), (Pane::Replies, 5)]);
+        let target = before.workspace.selected.clone();
         let resume = arrive(&before.resume().unwrap());
-        assert_eq!(resume.folds, [(Pane::Detail, true)]);
-
-        let mut after = App::new(Some("product".into()));
+        assert_eq!(resume.tab, ALL);
+        let mut after = App::new(Some(ALL.into()));
         after.carry(resume);
+        let mut fresh = board();
+        let mut snapshot = snapshot(ALL, json!([]));
+        snapshot.tabs = fresh.tabs.clone();
+        snapshot.view = Ok(fresh.view.take().unwrap());
+        after.apply(snapshot);
+        assert_eq!(after.shell.tab, OpsTab::Agents);
+        assert_eq!(after.workspace.selected, target);
+        assert!(after.workspace.expanded.contains(ROOM));
+        assert!(after.workspace.pool_expanded);
         assert_eq!(
-            after.picks.keys(),
-            Some(vec!["infra".into(), "product".into()])
+            after.focused(),
+            Pane::Replies,
+            "authored CLI pane count cannot reset the current Reader focus"
         );
-        after.apply(product(&["a", "b"]));
-        assert_eq!(
-            after.folds["product"].overrides.get(&Pane::Detail),
-            Some(&true)
-        );
+        assert_eq!(after.scrolls.offset(Pane::Rows), 3);
+        assert_eq!(after.scrolls.offset(Pane::Replies), 5);
+        assert!(!after.follow);
+        assert!(after.pending_resume.is_none());
+        assert!(!after.reload_blocked());
     }
 }

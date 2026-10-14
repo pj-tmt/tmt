@@ -3,7 +3,7 @@ use crate::board::app::tests::crew;
 use serde_json::json;
 
 fn app() -> App {
-    let mut app = crew(Default::default(), vec![]);
+    let mut app = crew(Default::default());
     app.view.as_mut().unwrap().me = Some("Ben".into());
     app.view.as_mut().unwrap().me_id = Some("ben-id".into());
     app

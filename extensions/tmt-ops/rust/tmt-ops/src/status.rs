@@ -401,13 +401,12 @@ fn squad_text(document: &Value, terminal: Terminal, output: &mut Vec<u8>) {
     if fields.is_empty() && hidden.is_none() {
         fields = vec!["member", "state"];
     }
-    // The lead first, then the sections, in the board's display order; the
-    // shared list heading of the members section is the rule between them.
+    // Lead first, then authored sections; list heading counts belong to the
+    // emitted group rather than to interactive workspace decoration.
     let mut groups: Vec<(&str, Option<usize>, Vec<&Value>)> = Vec::new();
     for item in crate::display_rows::project(document, |_| true) {
         match item {
             Item::Row(RowOrigin::Lead, row) => groups.push(("lead", None, vec![row])),
-            Item::Rule(_) => {}
             Item::Section(title) => groups.push((title.unwrap_or("members"), Some(0), Vec::new())),
             Item::Row(RowOrigin::Section(_), row) => {
                 if let Some(group) = groups.last_mut() {

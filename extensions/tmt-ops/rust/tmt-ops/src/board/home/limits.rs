@@ -112,13 +112,6 @@ fn rate_text(figures: &Figures) -> String {
     )
 }
 
-fn window_text(figures: &Figures) -> String {
-    figures.short.map_or_else(
-        || "5h reading not available".into(),
-        |left| format!("5h {}", percent(left.percent)),
-    )
-}
-
 fn meter(standing: &Standing, now_ms: u64, width: u16) -> Vec<Value> {
     let provider = standing.provider.label();
     let figures = match standing.outlook(now_ms) {
@@ -223,51 +216,23 @@ fn rows(standings: Option<&[Standing]>, now_ms: u64, width: u16) -> Value {
     Value::Array(rows)
 }
 
-/// Hidden values use the same projection/budget as the meter, so detail never
-/// repeats a rate/window/label that already survives in the current strip.
-pub(in crate::board) fn hidden_limits(
-    standings: &[Standing],
+/// The same admitted pieces as the provider strip, including role changes;
+/// clipped or hidden provider rows cannot invalidate the frame.
+pub(in crate::board) fn clock_marks(
+    standings: Option<&[Standing]>,
     now_ms: u64,
     width: u16,
-) -> Vec<(&'static str, String)> {
-    let available = if width >= super::WIDE {
-        width.saturating_sub(7) / 2
-    } else {
-        width
-    };
-    let mut fields = Vec::new();
-    for standing in standings {
-        let provider = standing.provider.label();
-        let parts = meter(standing, now_ms, available);
-        let shown = parts
+    count: usize,
+) -> String {
+    serde_json::to_string(
+        &rows(standings, now_ms, width)
+            .as_array()
+            .unwrap()
             .iter()
-            .map(|part| part["text"].as_str().unwrap())
-            .collect::<String>();
-        let label = parts
-            .iter()
-            .filter(|part| matches!(part["id"].as_str(), Some("filled" | "track")))
-            .map(|part| part["text"].as_str().unwrap())
-            .collect::<String>();
-        if !label.contains(&provider) {
-            fields.push(("provider", provider.clone()));
-        }
-        let Outlook::Known(figures) = standing.outlook(now_ms) else {
-            continue;
-        };
-        let reset = reset(figures.weekly.resets_in_ms);
-        if !shown.contains(&reset) {
-            fields.push(("reset", format!("{provider} {reset}")));
-        }
-        let rate = rate_text(&figures);
-        if !shown.contains(&rate) {
-            fields.push(("rate", format!("{provider} {rate}")));
-        }
-        let short = window_text(&figures);
-        if !shown.contains(&short) {
-            fields.push(("window", format!("{provider} {short}")));
-        }
-    }
-    fields
+            .take(count)
+            .collect::<Vec<_>>(),
+    )
+    .unwrap()
 }
 
 fn branch(name: &str) -> String {

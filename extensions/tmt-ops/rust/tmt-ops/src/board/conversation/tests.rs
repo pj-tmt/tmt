@@ -221,12 +221,117 @@ fn malicious_response_remains_inert_and_full_source_is_available() {
                 .chars()
                 .any(|ch| ch.is_control() && ch != '\n' || ch == '\u{202e}')
         );
-        assert_eq!(mapped.links[0].target, "https://example.test/page");
+        let link = mapped
+            .lines
+            .iter()
+            .flat_map(|line| &line.spans)
+            .find(|span| span.content.contains("Colab"))
+            .unwrap();
+        assert!(
+            link.style
+                .add_modifier
+                .contains(ratatui::style::Modifier::UNDERLINED)
+        );
+        assert_eq!(mapped.lines.len(), mapped.sources.len());
         assert_eq!(
             session.reply.as_ref().unwrap().body,
             raw,
             "escaping does not rewrite quote source"
         );
+    }
+}
+
+#[test]
+fn clicking_response_links_does_not_open_or_execute_destinations() {
+    use ratatui::crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    for target in [
+        "https://example.test/page",
+        "tmt:jump/other",
+        "javascript:alert(1)",
+    ] {
+        let mut app = workspace_fixture();
+        app.view.as_mut().unwrap().replies[0]["response"] = json!(format!("[InertLink]({target})"));
+        let selected = app.workspace.selected.clone();
+        let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
+        terminal
+            .draw(|frame| {
+                crate::board::view::prepare(&mut app, frame.area());
+                crate::board::view::render(frame, &app);
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let (x, y) = (0..buffer.area.height)
+            .find_map(|y| {
+                let line: String = (0..buffer.area.width)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect();
+                line.find("InertLink")
+                    .map(|x| (u16::try_from(line[..x].width()).unwrap(), y))
+            })
+            .expect("the response label is visibly painted");
+        let pane = app.conversation.borrow().pane.expect("response pane");
+        assert!(pane.contains((x, y).into()));
+        assert_eq!(
+            app.mouse(
+                MouseEvent {
+                    kind: MouseEventKind::Down(MouseButton::Left),
+                    column: x,
+                    row: y,
+                    modifiers: KeyModifiers::NONE,
+                },
+                std::time::Instant::now()
+            ),
+            app::Effect::None,
+            "{target}"
+        );
+        assert_eq!(app.workspace.selected, selected);
+        assert!(app.input.is_none());
+        assert!(app.menu.is_none());
+    }
+}
+
+#[test]
+fn narrow_response_header_keeps_source_and_choice_label_together() {
+    use crate::labels::{Choose, Label, Supplied};
+    let choose = Choose::parse(
+        "digest",
+        &json!({
+            "kind":"choose", "options":[{"label":"Auto","value":"auto"}],
+            "current":"auto", "argv":["digest", "member", "{value}"]
+        }),
+    )
+    .unwrap();
+    for (width, visible) in [(12, false), (13, true), (40, true)] {
+        let mut app = workspace_fixture();
+        app.labels = Supplied::from_rows(vec![(
+            "digest".into(),
+            [(
+                crate::board::app::workspace::tests::MEMBER.into(),
+                vec![Label {
+                    text: "Auto".into(),
+                    role: Role::Text,
+                    action: Some(choose.clone()),
+                }],
+            )]
+            .into(),
+        )]);
+        let screen = draw(&app, width, 24);
+        assert_eq!(
+            screen.contains("digest Auto ▾"),
+            visible,
+            "{width}: {screen}"
+        );
+        if !visible {
+            assert!(
+                !screen.contains("digest"),
+                "a source cannot appear without its label"
+            );
+        }
+        assert_eq!(app.chip_hits.borrow().len(), usize::from(visible));
+        for (area, row) in app.chip_hits.borrow().iter() {
+            assert_eq!(*row, app.selected);
+            assert!(area.right() <= width);
+        }
     }
 }
 
@@ -362,21 +467,59 @@ fn timer_counts_use_owner_uuid_and_distinguish_unknown_zero_and_stale() {
     assert!(draw(&app, 40, 24).contains("timers 0/0"));
 }
 
+fn workspace_fixture() -> App {
+    let mut app = crate::board::app::workspace::tests::board();
+    app.view.as_mut().unwrap().replies = vec![json!({
+        "recipientId":crate::board::app::workspace::tests::MEMBER,
+        "requestId":"req_44444444-4444-4444-8444-444444444444",
+        "response":body("worker", 90)
+    })];
+    app
+}
+
 #[test]
 fn link_hint_uses_effective_action_and_truncates_url_before_hint() {
-    let mut app = fixture();
-    let view = app.view.as_mut().unwrap();
-    view.bindings = crate::action::preset(false, &[Pane::Rows, Pane::Replies]);
-    view.document["sections"][0]["rows"][0]["fields"]["link"] =
+    let mut app = workspace_fixture();
+    let selected = app.workspace.selected.clone().unwrap();
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .rows
+        .get_mut(&selected)
+        .unwrap()["fields"]["link"] =
         json!(format!("https://example.test/{}", "long-path/".repeat(20)));
     assert!(draw(&app, 60, 24).contains("(press o - open $link)"));
-    app.view.as_mut().unwrap().bindings.insert(
-        "o".into(),
-        crate::action::Action::parse("copy custom").unwrap(),
-    );
-    assert!(draw(&app, 60, 24).contains("(press o - copy custom)"));
-    app.view.as_mut().unwrap().bindings.remove("o");
-    assert!(!draw(&app, 60, 24).contains("press o"));
+    let path = std::env::temp_dir()
+        .join(format!("ops-conversation-link-{}", std::process::id()))
+        .join("ops.toml");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    for (text, expected) in [
+        ("[bind]\no = 'copy custom'\n", "(press o - copy custom)"),
+        ("", "(press o - open $link)"),
+    ] {
+        std::fs::write(&path, text).unwrap();
+        let config = crate::config::Config::read(path.clone()).unwrap();
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .configure(&config)
+            .unwrap();
+        let shown = draw(&app, 60, 24);
+        assert!(shown.contains(expected), "{shown}");
+        assert!(
+            !shown.contains("long-path/long-path/long-path/long-path/long-path/"),
+            "URL must truncate before the effective action hint"
+        );
+    }
+    std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
 }
 
 fn workspace(app: &mut App, width: u16, height: u16) {
@@ -390,27 +533,122 @@ fn workspace(app: &mut App, width: u16, height: u16) {
 }
 
 #[test]
+fn switching_shell_with_a_link_keeps_response_and_effective_link_hint() {
+    use crate::board::shell::OpsTab;
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let mut app = workspace_fixture();
+    let selected = app.workspace.selected.clone().unwrap();
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .rows
+        .get_mut(&selected)
+        .unwrap()["fields"]["link"] = json!("https://example.test/pr");
+    let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
+    for (key, tab) in [
+        ('2', OpsTab::Agents),
+        ('1', OpsTab::Overview),
+        ('3', OpsTab::Digest),
+        ('2', OpsTab::Agents),
+    ] {
+        app.focus = 0;
+        app.key(KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE));
+        assert_eq!(app.shell.tab, tab);
+        terminal
+            .draw(|frame| {
+                crate::board::view::prepare(&mut app, frame.area());
+                crate::board::view::render(frame, &app);
+            })
+            .unwrap();
+        let text = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(
+            text.contains("https://example.test/pr (press o - open $link)"),
+            "{tab:?}: {text}"
+        );
+        assert!(text.contains("worker line 089"), "{tab:?}: {text}");
+        assert_eq!(app.workspace.selected.as_ref(), Some(&selected));
+        assert!(app.conversation.borrow().pane.is_some());
+    }
+}
+
+#[test]
+fn response_wheel_uses_painted_viewport_independently_of_keyboard_focus() {
+    use ratatui::crossterm::event::{KeyModifiers, MouseEvent, MouseEventKind};
+    for layout in [
+        crate::config::OpsLayout::Side,
+        crate::config::OpsLayout::Stack,
+    ] {
+        for focus in [0, 1] {
+            let mut app = workspace_fixture();
+            app.view
+                .as_mut()
+                .unwrap()
+                .home
+                .as_mut()
+                .unwrap()
+                .workspace
+                .preferences
+                .layout = layout;
+            app.focus = focus;
+            workspace(&mut app, 160, 36);
+            let selected = app.workspace.selected.clone();
+            let keyboard = app.focused_pane();
+            let rows = app.scrolls.offset(Pane::Rows);
+            let pane = app.conversation.borrow().pane.unwrap();
+            let latest = app.scrolls.offset(Pane::Replies);
+            assert!(latest > 0);
+            let wheel = |app: &mut App, kind| {
+                app.mouse(
+                    MouseEvent {
+                        kind,
+                        column: pane.x + 1,
+                        row: pane.y + 1,
+                        modifiers: KeyModifiers::NONE,
+                    },
+                    std::time::Instant::now(),
+                )
+            };
+            assert_eq!(wheel(&mut app, MouseEventKind::ScrollUp), app::Effect::None);
+            workspace(&mut app, 160, 36);
+            let older = app.scrolls.offset(Pane::Replies);
+            assert!(older < latest);
+            assert_eq!(app.scrolls.offset(Pane::Rows), rows);
+            assert_eq!(app.workspace.selected, selected);
+            assert_eq!(app.focused_pane(), keyboard);
+            assert_eq!(
+                wheel(&mut app, MouseEventKind::ScrollDown),
+                app::Effect::None
+            );
+            workspace(&mut app, 160, 36);
+            assert!(app.scrolls.offset(Pane::Replies) > older);
+            assert_eq!(app.workspace.selected, selected);
+            assert_eq!(app.focused_pane(), keyboard);
+        }
+    }
+}
+
+#[test]
 fn resize_keeps_one_editor_and_wheel_scrolls_response_without_changing_recipient() {
-    use crate::config::{Board, BoardMode, Direction};
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
-    let mut app = fixture();
-    let mut board = Board::simple(
-        BoardMode::Split,
-        Direction::LeftRight,
-        vec![Pane::Rows, Pane::Replies],
-        &[40, 60],
-    );
-    board.members = true;
-    app.view.as_mut().unwrap().board = board;
-    app.view.as_mut().unwrap().bindings =
-        crate::action::preset(false, &[Pane::Rows, Pane::Replies]);
+    let mut app = workspace_fixture();
+    let selected = app.workspace.selected.clone();
     workspace(&mut app, 160, 36);
     app.key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
     assert!(app.input.is_some());
     app.paste("draft 界 e\u{301}\nsecond line");
     let key = app.input.as_ref().unwrap().draft_key.clone();
     for (width, height) in [(160, 36), (100, 36), (80, 24), (60, 18), (140, 44)] {
-        app.invalidate_overlay_frames();
+        app.invalidate_frame_geometry();
         workspace(&mut app, width, height);
         let (editor, _) = app
             .input_viewport
@@ -438,6 +676,6 @@ fn resize_keeps_one_editor_and_wheel_scrolls_response_without_changing_recipient
     );
     assert!(app.scrolls.offset(Pane::Replies) < before);
     assert_eq!(app.input.as_ref().unwrap().draft_key, key);
-    assert_eq!(app.selected, 0);
-    assert_eq!(app.focused(), Pane::Rows);
+    assert_eq!(app.workspace.selected, selected);
+    assert_eq!(app.focused(), Pane::Replies);
 }

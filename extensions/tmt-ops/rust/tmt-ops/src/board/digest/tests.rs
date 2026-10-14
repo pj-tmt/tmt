@@ -1,7 +1,7 @@
 //! Changing a digest from the board: who may, what the dropdown offers, what runs.
 use super::*;
 use crate::{
-    board::{BoardEvent, app::tests::crew, lane},
+    board::{BoardEvent, app::workspace::tests::MEMBER, lane},
     cron_service::test_support::{Fixture, LEAD, WORKER},
     labels::{Label, Reader, Supplied, Timing},
     test_support::write_ready_executable,
@@ -57,7 +57,13 @@ fn label(text: &str, action: Option<Choose>) -> Label {
 
 /// A board on `auth-fix` whose digest source supplied a mode chip with a choice.
 fn app() -> App {
-    let mut app = crew(crate::action::preset(true, &[]), Vec::new());
+    let mut app = crate::board::app::workspace::tests::board();
+    let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    workspace.roster.members.get_mut(MEMBER).unwrap().name = "auth-fix".into();
+    workspace
+        .rows
+        .get_mut(app.workspace.selected.as_ref().unwrap())
+        .unwrap()["name"] = json!("auth-fix");
     supply(&mut app);
     app
 }
@@ -66,7 +72,7 @@ fn supply(app: &mut App) {
     app.labels = Supplied::from_rows(vec![(
         "digest".into(),
         [(
-            "auth-fix".to_owned(),
+            MEMBER.to_owned(),
             vec![
                 label("Auto", Some(choose("default"))),
                 label("2 held", None),
@@ -126,7 +132,7 @@ fn highlight(app: &mut App, label: &str) {
 #[test]
 fn the_key_asks_core_before_any_dropdown_opens() {
     let mut app = app();
-    let Effect::Act(Request::DigestOpen(ask)) = press(&mut app, KeyCode::Char('i')) else {
+    let Effect::Act(Request::DigestOpen(ask)) = press(&mut app, KeyCode::Char('D')) else {
         panic!("the key asks for access first");
     };
     assert_eq!(
@@ -140,8 +146,9 @@ fn the_key_asks_core_before_any_dropdown_opens() {
 #[test]
 fn without_a_choice_to_make_nothing_opens_or_runs() {
     // No extension: nothing supplied labels.
-    let mut bare = crew(crate::action::preset(true, &[]), Vec::new());
-    assert_eq!(press(&mut bare, KeyCode::Char('i')), Effect::None);
+    let mut bare = app();
+    bare.labels = Supplied::default();
+    assert_eq!(press(&mut bare, KeyCode::Char('D')), Effect::None);
     assert_eq!(
         bare.notice.as_deref(),
         Some("auth-fix has no digest choices to change.")
@@ -150,9 +157,9 @@ fn without_a_choice_to_make_nothing_opens_or_runs() {
     let mut display = app();
     display.labels = Supplied::from_rows(vec![(
         "digest".into(),
-        [("auth-fix".to_owned(), vec![label("Auto", None)])].into(),
+        [(MEMBER.to_owned(), vec![label("Auto", None)])].into(),
     )]);
-    assert_eq!(press(&mut display, KeyCode::Char('i')), Effect::None);
+    assert_eq!(press(&mut display, KeyCode::Char('D')), Effect::None);
     assert!(
         display
             .notice
@@ -164,14 +171,17 @@ fn without_a_choice_to_make_nothing_opens_or_runs() {
     let mut loading = app();
     loading.current = Some("infra".into());
     assert!(loading.loading());
-    assert_eq!(press(&mut loading, KeyCode::Char('i')), Effect::None);
+    assert_eq!(press(&mut loading, KeyCode::Char('D')), Effect::None);
     assert_eq!(loading.notice.as_deref(), Some("Loading infra…"));
 }
 
 #[test]
 fn the_row_menu_lists_the_change_only_for_a_member_whose_source_offers_one() {
     let keys = |app: &mut App| {
-        press(app, KeyCode::Enter);
+        assert_eq!(
+            app.perform(&crate::action::Action::parse("menu").unwrap()),
+            Effect::None
+        );
         let keys: Vec<_> = app
             .menu
             .take()
@@ -182,16 +192,15 @@ fn the_row_menu_lists_the_change_only_for_a_member_whose_source_offers_one() {
             .collect();
         keys
     };
-    let bindings = || crate::action::with_action_keys(crate::action::preset(false, &[]));
-    let mut offering = crew(bindings(), Vec::new());
-    supply(&mut offering);
+    let mut offering = app();
     let offered = keys(&mut offering);
     assert!(
-        offered.contains(&("i".into(), "digest".into())),
+        offered.contains(&("D".into(), "digest".into())),
         "{offered:?}"
     );
-    let mut bare = crew(bindings(), Vec::new());
-    assert!(keys(&mut bare).iter().all(|(key, _)| key != "i"));
+    let mut bare = app();
+    bare.labels = Supplied::default();
+    assert!(keys(&mut bare).iter().all(|(key, _)| key != "D"));
 }
 
 #[test]

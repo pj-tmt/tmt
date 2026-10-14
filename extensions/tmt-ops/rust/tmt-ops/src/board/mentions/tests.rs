@@ -5,7 +5,7 @@ fn key(app: &mut App, code: KeyCode) -> Effect {
     app.key(KeyEvent::new(code, KeyModifiers::NONE))
 }
 fn app() -> App {
-    let mut app = crew(Default::default(), vec![]);
+    let mut app = crew(Default::default());
     app.view.as_mut().unwrap().me = Some("Ben".into());
     app.view.as_mut().unwrap().me_id = Some("ben-id".into());
     app.references = crate::board::inventory::Inventory::from_listed(

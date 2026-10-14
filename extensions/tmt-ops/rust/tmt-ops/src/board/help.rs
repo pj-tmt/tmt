@@ -106,244 +106,83 @@ fn section(id: &str, title: &str, rows: &[(&str, &str)]) -> KeyHelpSection {
     }
 }
 pub(super) fn model(app: &App) -> KeyHelp {
-    let home = app.view.as_ref().is_some_and(|view| view.home.is_some());
-    let navigation = if home {
+    let entries = app
+        .bindings()
+        .into_iter()
+        .map(|(key, action)| entry(&format!("binding-{key}"), &key, action.description()))
+        .collect();
+    let mut sections = vec![
+        KeyHelpSection {
+            id: "bindings".into(),
+            title: "effective scoped bindings".into(),
+            entries,
+        },
         section(
-            "navigation",
-            "navigation",
+            "workspace",
+            "workspace navigation",
             &[
                 (
-                    "↑↓ / j k",
-                    "move through attention rows, leads, cron and squads",
+                    "shell",
+                    "effective bindings above select Overview / Agents / Digest; editors, search, readers and popups own input first",
                 ),
-                ("Enter", "go to a member or open the selected squad"),
-                ("a", "answer or note; Tab reaches talk and status"),
                 (
-                    "a → Tab → status",
-                    "change chosen manual fields with a reason; notify the row UUID",
+                    "tree",
+                    "effective bindings above collapse/expand the selected squad; no squad-tab switching",
                 ),
-                ("e", "expand or collapse the selected row details"),
-                ("t", "talk to the selected member"),
                 (
-                    "v",
-                    "view the selected row’s full reply; no reply does nothing",
+                    "Shift-Left/Right",
+                    "old tab reorder is removed; use squad pins/sort instead",
                 ),
-                ("A / @", "write to all leads / pick one lead"),
+                ("w", "reserved for Workspace snapshots; no list binding"),
                 (
-                    "c",
-                    "list every squad's cron jobs (also Enter on the cron line)",
+                    "wheel",
+                    "scroll the pane under the pointer without moving the selected target",
                 ),
-                ("← →", "switch tabs"),
-                ("s", "switch to any tab"),
-                ("/", "search names and squads"),
-                (
-                    "obs age",
-                    "time since observed unchanged task or state, not time blocked",
-                ),
-                ("?", "show help"),
-                ("q / Esc", "close the board"),
             ],
-        )
-    } else {
+        ),
         section(
-            "navigation",
-            "navigation",
+            "reader",
+            "conversation reader",
             &[
                 (
-                    "↑↓ / j k",
-                    "select a row or notebook line; scroll detail or replies",
+                    "scoped keys",
+                    "Reader uses its own effective bindings above; defaults scroll without jumping, and explicit compatible overrides win",
                 ),
+                ("Esc", "return focus to the list"),
                 (
-                    "a → Tab → status",
-                    "change chosen manual fields with a reason; notify the row UUID",
-                ),
-                ("g G", "go to the first or last notebook line"),
-                ("PgUp / PgDn", "page the focused pane"),
-                ("Home / End", "go to the top or bottom of the focused pane"),
-                ("wheel", "scroll the pane under the pointer"),
-                (
-                    "title click",
-                    "fold or expand a split pane (▸ means folded)",
-                ),
-                (
-                    "Shift-drag",
-                    "select text to copy (Option-drag in some terminals)",
-                ),
-                ("← →", "switch tabs; Shift+← → or drag a tab to move it"),
-                ("/", "search; Esc clears"),
-                ("?", "show help"),
-                ("q / Esc", "close the board"),
-            ],
-        )
-    };
-    let mut sections = vec![navigation];
-    if !home && !app.bindings().contains_key("s") {
-        sections[0].entries.push(entry(
-            "switcher",
-            "s",
-            "switch to any tab, hidden ones too (type to filter)",
-        ));
-    }
-    let pick_keys = app
-        .pick_keys()
-        .iter()
-        .map(|key| {
-            if key == "space" {
-                "Space".to_owned()
-            } else {
-                key.clone()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" / ");
-    if !pick_keys.is_empty() {
-        sections.push(section(
-            "board-picks",
-            "tab switcher",
-            &[(
-                &pick_keys,
-                "pick or unpick the highlighted tab on this board; writes no configuration",
-            )],
-        ));
-    }
-    if app.jobs_focus {
-        sections.push(section(
-            "cron-jobs",
-            "cron jobs (while the jobs half has focus)",
-            &crate::board::cronboard::help_keys(),
-        ));
-    }
-    if !home && app.cron_shown() && !app.bindings().contains_key("c") {
-        sections[0]
-            .entries
-            .push(entry("cron", "c", "list every squad's cron jobs"));
-    }
-    if let Some(view) = &app.view {
-        sections[0].entries.push(entry(
-            "reload",
-            "reload",
-            match view.refresh {
-                Some(every) => format!("automatically every {}s", every.as_secs()),
-                None => "automatic reload is off".into(),
-            },
-        ));
-    }
-    if let Some(rate) = app.view.as_ref().and_then(|view| view.token_rate.as_ref()) {
-        let windows = format!(
-            "{}; tokens per window, never per-second rates",
-            rate.settings
-                .windows
-                .map(|window| window.label())
-                .join(" / ")
-        );
-        let mut meter = section(
-            "meter",
-            "token meter",
-            &[
-                ("windows", &windows),
-                ("trend", "eight bucket-aligned observed-token slices"),
-                (
-                    "coverage",
-                    "measured zero is 0; unreported members are excluded; ~ marks incomplete coverage; – and no usage reported yet mean unavailable",
+                    "pane focus",
+                    "use the effective next-pane binding to move between visible list and conversation panes",
                 ),
             ],
-        );
-        meter.entries.insert(
-            0,
-            entry(
-                "sampling",
-                "tokens",
-                format!(
-                    "completed requests observed every {} s; best effort, current session model",
-                    rate.settings.every.as_secs()
-                ),
-            ),
-        );
-        if !app.excluded_counters.is_empty() {
-            let names = app
-                .excluded_counters
-                .iter()
-                .map(|id| {
-                    rate.input
-                        .names
-                        .get(id)
-                        .map(String::as_str)
-                        .unwrap_or("unknown member")
-                })
-                .collect::<Vec<_>>()
-                .join(", ");
-            meter.entries.push(entry(
-                "excluded",
-                "excluded",
-                format!("{names}: no usage counters at last board refresh"),
-            ));
-        }
-        let mut order = rate.settings.windows.map(|window| window.label()).to_vec();
-        order.push(order[0].clone());
-        let keys = app
-            .bindings()
-            .iter()
-            .filter(|(_, action)| action.verb == crate::action::Verb::TokenWindow)
-            .map(|(key, _)| key.as_str())
-            .collect::<Vec<_>>()
-            .join(" / ");
-        meter.entries.insert(
-            1,
-            entry(
-                "cycle",
-                if keys.is_empty() {
-                    "token-window"
-                } else {
-                    &keys
-                },
-                format!(
-                    "switch window: {} (also without data); click meter or use ,; saves all boards",
-                    order.join(" → ")
-                ),
-            ),
-        );
-        meter.entries.insert(
-            2,
-            entry(
-                "tok",
-                "tok",
-                "set [board] tok = \"5m/60m/24h\"; [squad.<name>.board] tok overrides it",
-            ),
-        );
-        meter.entries.push(entry(
-            "hover",
-            "hover bar",
-            "read that slice's token total and age in place; leaving restores live total",
-        ));
-        sections.insert(0, meter);
-    }
-    if home
-        && app
-            .view
-            .as_ref()
-            .is_some_and(|view| view.home_rate.values().any(|rate| rate.settings.enabled))
+        ),
+    ];
+    if app.shell.tab == super::shell::OpsTab::Overview
+        && super::home::limits_enabled(app)
+        && app.limits.as_ref().is_none_or(|values| !values.is_empty())
     {
-        sections.push(section(
-            "limits",
-            "provider limits",
-            &[
-                (
-                    "limits bar",
-                    "weekly remaining share inside the bar; reset time, pace and trend appear only if depletion is expected before reset. e on overview shows hidden values",
-                ),
-                (
-                    "~N%/h",
-                    "average weekly use over the last 6 hours, after an hour of samples. ! ~time: at this pace the week runs out before it resets. ✗ ~time: it runs out within 12 hours. No forecast until there is measured use.",
-                ),
-                (
-                    "no reading",
-                    "the last sample is older than 2 hours, so no number is shown; the board samples only while it is open",
-                ),
-            ],
-        ));
+        sections.push(section("provider-limits", "provider limits", &[
+            ("balance", "weekly remaining share inside the bar; (7d) is the provider quota window, separate from token usage windows"),
+            ("freshness", "missing or invalid readings, or readings older than 2 hours, remain unknown; they are never zero"),
+            ("warning", "a depletion estimate is shown only from measured weekly use; reset countdown, pace and trend fit only when reported and space permits"),
+        ]));
+    }
+    if let Some(snapshot) = app
+        .workspace_snapshot()
+        .filter(|snapshot| !snapshot.notices.is_empty())
+    {
+        sections.push(KeyHelpSection {
+            id: "migration-notices".into(),
+            title: "configuration migration (file preserved)".into(),
+            entries: snapshot
+                .notices
+                .iter()
+                .enumerate()
+                .map(|(index, notice)| entry(&format!("notice-{index}"), "", notice.clone()))
+                .collect(),
+        });
     }
     sections.push(section("editor", "message editor", &[
-        ("Enter", "send to the displayed recipient; while @ completion is open, insert the selected reference instead"),
+        ("Enter", "send to the displayed recipient; while @ completion is open, Enter/Tab insert the selected reference instead"),
         ("Shift-Enter / Ctrl-N", "insert a newline; Ctrl-N also works without extended terminal key reporting"),
         ("Esc", "leave the editor and keep its draft; drafts and folded pastes are session-only and do not survive restart"),
         ("arrows / Home / End", "move by grapheme or wrapped line; Shift selects; Ctrl-A selects all"),
@@ -354,32 +193,9 @@ pub(super) fn model(app: &App) -> KeyHelp {
         ("Alt-Backspace", "remove the last response quote from the draft"),
         ("native selection", "use the terminal emulator's selection override modifier, or use source selection inside the response reader"),
     ]));
-    let mut bindings = app.bindings();
-    let mut entries = Vec::new();
-    for key in ["l", "T"].into_iter().map(str::to_owned).chain(
-        bindings
-            .keys()
-            .filter(|key| !matches!(key.as_str(), "l" | "T"))
-            .cloned()
-            .collect::<Vec<_>>(),
-    ) {
-        if let Some(action) = bindings.remove(&key) {
-            let mut description = action.description();
-            if action.verb == crate::action::Verb::Toggle
-                && super::view::toggle_label(app, &action).is_some()
-            {
-                description.push_str(" (▾ open, ▸ folded)");
-            }
-            entries.push(entry(&format!("binding-{key}"), &key, description));
-        }
-    }
-    sections.push(KeyHelpSection {
-        id: "bindings".into(),
-        title: "bindings".into(),
-        entries,
-    });
     KeyHelp { sections }
 }
+
 pub(super) fn render(frame: &mut Frame, app: &App, body: Rect) {
     let mut help = app.help_state.borrow_mut();
     help.render(frame, model(app), app.look(), body);

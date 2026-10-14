@@ -1,7 +1,91 @@
-//! Frozen output from #1087 selected-notebook implementation f8c73805; production row adoption is gated by this capture.
+//! Public list bytes retain their #1087 provenance; frames exercise the current
+//! workspace entry point. Frozen output changes require decoded-diff approval.
 //! Existing CJK fixture strings intentionally exercise terminal width.
 use super::*;
 use crate::config::{Config, Layout};
+
+/// Literal UUIDs supply fixture identity independently of display names. The
+/// saved public document below remains unchanged by this UI-only projection.
+fn workspace_board(config: &Config, document: &Value) -> App {
+    use crate::board::{
+        app::workspace::tests::{MEMBER, ROOM},
+        workspace::{OpsMember, OpsMembershipState, OpsTarget},
+    };
+    let mut app = crate::board::app::workspace::tests::board();
+    let home = app.view.as_mut().unwrap().home.as_mut().unwrap();
+    let snapshot = &mut home.workspace;
+    snapshot.roster.members.clear();
+    snapshot.rows.retain(|target, _| *target == OpsTarget::Pool);
+    let squad = &mut snapshot.roster.squads[0];
+    squad.members.clear();
+    squad.member_states.clear();
+    let ids = [
+        MEMBER,
+        "44444444-4444-4444-8444-444444444444",
+        "55555555-5555-4555-8555-555555555555",
+    ];
+    let rows = document["sections"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|section| section["rows"].as_array().unwrap());
+    for (id, row) in ids.into_iter().zip(rows) {
+        let state = row["fields"]["state"]
+            .as_str()
+            .filter(|state| !state.is_empty())
+            .map(str::to_owned);
+        let waiting = crate::attention::waits_on_you(row);
+        let mut projected = row.clone();
+        projected["id"] = json!(id);
+        projected["state"] = json!(state);
+        squad.members.push(id.into());
+        squad.member_states.insert(
+            id.into(),
+            OpsMembershipState {
+                state: state.clone(),
+                waiting,
+                rank: None,
+            },
+        );
+        snapshot.roster.members.insert(
+            id.into(),
+            OpsMember {
+                id: id.into(),
+                name: row["name"].as_str().unwrap().into(),
+                state,
+                waiting,
+                presence: None,
+                usage: None,
+            },
+        );
+        snapshot.rows.insert(
+            OpsTarget::Member {
+                room_id: Some(ROOM.into()),
+                identity_id: id.into(),
+            },
+            projected,
+        );
+    }
+    assert_eq!(squad.members.len(), ids.len());
+    snapshot.rows.insert(
+        OpsTarget::Squad(ROOM.into()),
+        json!({"name":"product","roomId":ROOM,"revision":2,"memberIds":squad.members}),
+    );
+    snapshot.configure(config).unwrap();
+    // This approved parity fixture records uncolored cells. Config resolves
+    // real terminal depth from NO_COLOR; pin fixture depth instead of inheriting
+    // the runner's environment. Color coverage lives in the HOME/look fixtures.
+    for look in snapshot.squad_looks.values_mut() {
+        look.depth = tmt_cli_style::Depth::None;
+    }
+    home.summary.members = 3;
+    home.summary.working = 1;
+    home.summary.blocked = 1;
+    app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
+    app.select(1);
+    assert_eq!(app.look().depth, tmt_cli_style::Depth::None);
+    app
+}
 
 pub(super) fn capture(app: &mut App, width: u16) -> Value {
     app.set_body_width(width);
@@ -59,6 +143,9 @@ fn baseline() -> Value {
             view.document["hidden_columns"] = hidden.clone();
         }
         let document = view.document.clone();
+        // Factory layouts still define these public CLI bytes. They do not
+        // instantiate another interactive shell or an implicit notebook pane.
+        let mut app = workspace_board(&config, &document);
         let frames: Vec<_> = [120, 80, 120]
             .into_iter()
             .map(|width| capture(&mut app, width))
@@ -67,28 +154,25 @@ fn baseline() -> Value {
             frames[0], frames[2],
             "resize must restore full cells and hit identities"
         );
-        let fold = if app.effective_board().is_some_and(|board| board.members) {
-            'n'
-        } else {
-            'd'
-        };
-        let folded_frames: Vec<_> = if app.bindings().contains_key(&fold.to_string()) {
-            app.key(KeyEvent::new(KeyCode::Char(fold), KeyModifiers::NONE));
-            let folded: Vec<_> = [120, 80, 120]
-                .into_iter()
-                .map(|width| capture(&mut app, width))
-                .collect();
-            assert_eq!(folded[0], folded[2], "manual fold survives resize");
-            app.key(KeyEvent::new(KeyCode::Char(fold), KeyModifiers::NONE));
-            assert_eq!(
-                frames[0],
-                capture(&mut app, 120),
-                "unfold restores full cells, styles and hit identities"
-            );
-            folded
-        } else {
-            Vec::new()
-        };
+        app.key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+        let folded_frames: Vec<_> = [120, 80, 120]
+            .into_iter()
+            .map(|width| capture(&mut app, width))
+            .collect();
+        assert_eq!(
+            folded_frames[0], folded_frames[2],
+            "UUID tree expansion survives resize"
+        );
+        assert_ne!(
+            frames[0], folded_frames[0],
+            "collapse changes the actual tree"
+        );
+        app.key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        assert_eq!(
+            frames[0],
+            capture(&mut app, 120),
+            "expansion restores full cells, styles and hit identities"
+        );
         fixtures.push(
             json!({"layout": layout.as_str(), "frames": frames, "folded_frames": folded_frames,
             "ls_text": crate::status::text(&document, tmt_cli_style::Terminal::PLAIN),

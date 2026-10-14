@@ -16,25 +16,29 @@ impl App {
         if self.input.is_some()
             || self.settings.is_some()
             || self.help
-            || self.view_picker.is_some()
             || self.theme_picker.is_some()
-            || self.switcher.is_some()
             || self.cron_list.is_some()
         {
             return self.say("Close the current input or overlay before opening Checklist.");
         }
         self.menu = None;
-        let room = self
-            .view
-            .as_ref()
-            .filter(|v| {
-                v.home.is_none()
-                    && self
-                        .shown_tab()
-                        .is_some_and(|tab| !crate::tabs::aggregate(tab))
-            })
-            .and_then(|v| v.document["squad"]["roomId"].as_str())
-            .and_then(|id| Id::parse(id).ok());
+        let room = if self.workspace_snapshot().is_some() {
+            self.workspace_selection_visible()
+                .then(|| self.workspace_squad())
+                .flatten()
+                .and_then(|squad| Id::parse(&squad.room_id).ok())
+        } else {
+            self.view
+                .as_ref()
+                .filter(|v| {
+                    v.home.is_none()
+                        && self
+                            .shown_tab()
+                            .is_some_and(|tab| !crate::tabs::aggregate(tab))
+                })
+                .and_then(|v| v.document["squad"]["roomId"].as_str())
+                .and_then(|id| Id::parse(id).ok())
+        };
         let return_to = Return {
             tab: self.shown_tab().map(str::to_owned),
             room: self
@@ -43,7 +47,6 @@ impl App {
                 .and_then(|v| v.document["squad"]["roomId"].as_str())
                 .map(str::to_owned),
             pane: self.focused(),
-            jobs: self.jobs_focus,
             row: self.row_target(self.selected),
         };
         // A retained draft belongs to its original room even after the board navigates.
@@ -69,7 +72,12 @@ impl App {
                 .view
                 .as_ref()
                 .and_then(|v| v.document["squad"]["roomId"].as_str());
-            if self.shown_tab() == saved.tab.as_deref() && room == saved.room.as_deref() {
+            // The workspace already retains its UUID selection and focus while
+            // Checklist owns input. Legacy row indexes must not retarget it.
+            if self.workspace_snapshot().is_none()
+                && self.shown_tab() == saved.tab.as_deref()
+                && room == saved.room.as_deref()
+            {
                 if let Some(target) = saved.row
                     && let Some(index) = (0..self.rows().len())
                         .find(|index| self.row_target(*index).as_ref() == Some(&target))
@@ -82,7 +90,6 @@ impl App {
                 {
                     self.focus = position;
                 }
-                self.jobs_focus = saved.jobs && self.jobs_painted();
             }
         }
         self.checklist = Some(controller);

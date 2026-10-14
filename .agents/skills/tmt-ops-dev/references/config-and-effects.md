@@ -126,8 +126,11 @@ exception admits a named former program outside that namespace and `ui`, with
 the same bounded flags and values.
 Deliberately forged argv[0] can retire another invocation of the same retiring binary; this bounded one-time risk is accepted.
 
-The switch preserves pane IDs, cwd, `--tabs` (including omitted defaults),
-`--squad` and `--popup`. A shell-launched board restarts through the same shell,
+The switch preserves pane IDs, cwd, explicit `--squad` and `--popup`. Its private
+journal keeps the original argv. Only a consented replacement launch omits the
+retired `--tabs` pair and shows a first-frame migration notice; it opens Overview
+unless an explicit squad selects Agents, without guessing a recipient or filter.
+Ordinary `ui --tabs` still refuses. A shell-launched board restarts through the same shell,
 inheriting its environment; a dedicated pane respawns with the tmux pane environment.
 Both set `TMT_EXECUTABLE` to current Core. Process environments are never captured
 from `ps`. The original shell must regain the foreground; dedicated panes are
@@ -151,42 +154,32 @@ they never roll back cutover or bypass configuration CAS fences.
 
 ## Team preset
 
-The `team` preset uses the same `Layout`/`Board::preset` and config readers as the
-others. Workflow defaults are crew states, pending-first order,
-a member/state/task/pr/model grid with a pending line, a 60-second `github-pr` field and
-a 30-minute observed-age default. Everything is configurable; the other presets keep
-their defaults. Model reads the existing session projection and providers stay on the
-shared fetcher path.
+The `team` preset retains the same `Layout`/`Board::preset` and config readers for
+CLI listing: crew states, pending-first order, member/state/task/pr/model values,
+a pending line, a 60-second `github-pr` field and a 30-minute observed-age default.
+These do not compose a second interactive grid. Model reads the existing session
+projection and providers stay on the shared fetcher path.
 
 ## Views (pane arrangements)
 
-- The `view` command module owns the factory catalog and registers `view ls` (hidden
-  `list` alias), `set` and `rm`; bare `view` lists. `members` is the default boxed
-  squad list with notes below. `team` preserves the previous side-pane arrangement;
-  `focus`, `notes`, `detail` and `wide` keep their arrangements and initial folds.
-  `Board.members` selects the shared HOME list scene without replacing configured
-  row/public-list projections. A view changes no states, rows, providers, reminders or
-  meter policy. Explicit per-squad fold settings override factory defaults through the
-  same Board reader; pane acquisition reads the resolved Board independently of the
-  workflow layout. `wide` folds its middle column below 180 cells and relies on the
-  solver's 40:30 redistribution; there is no width-dependent arrangement resolver.
-- `Config::set_view`/`remove_view` edit only `view` in the chosen board layer. A scoped
-  set refuses a hand-written layout with a manual-removal hint; reset keeps custom keys,
-  and drops only a table that the reset emptied when its header has no comments.
-  All-boards choices stay masked by custom or scoped arrangements.
-- The bindable `view` verb (`l`) opens `board::view_picker`, mirroring the theme picker's
-  scope, navigation and save/cancel lifecycle. The opening Config is the save baseline and
-  refresh never replaces that draft. `App::effective_board` is the single presentation
-  accessor for preview geometry, fold defaults and focus; per-tab `FoldState` keeps session
-  overrides. Esc restores the opening Board and focus with the latest data and writes
-  nothing; a successful save uses the normal changed-Board fold reconciliation. A custom
-  arrangement previews in this-squad scope on a disposable Config copy, but scoped save
-  refuses to remove hand-written keys; in all-boards scope a custom squad keeps its Board,
-  shows the masking note and saves the global view for other tabs. The reset entry removes
-  only the chosen layer's `view` key. The Reload request carries `preview_panes` only while
-  the picker is open, loading missing notes/replies through the same loader and
-  cancellation fence; closing it returns to resolved-pane acquisition. Built-in leads/all
-  tabs keep their fixed composition throughout and offer all-boards scope only.
+The new interactive shell uses `config::workspace` preferences Auto/Side/Stack,
+room-UUID pins and sort/reverse, written by the existing Config CAS owner. One
+effective action table resolves defaults/global/host/section overrides for
+dispatch, footer and help. Retired pane/view/tab keys get located notices; authored
+bytes remain intact. The shell has no legacy mode or factory-view picker.
+
+Independent `view` CLI configuration, workflow/layout readers and offline markup
+validation retain their own command contracts. A CLI view key changes no roster,
+state, provider, reminder or sampling policy and no longer selects an interactive
+arrangement. `set_view`/`remove_view` preserve unrelated/custom keys and comments,
+refuse concurrent file changes and never write during inspection.
+
+Authored `[squad.<name>]` layout/rows/columns/sections remain accepted through their
+existing parsers and continue shaping public CLI documents and lists. Their old
+grid, wrapping and pending-continuation geometry no longer shapes the workspace;
+located migration notices explain this while preserving the file. Invalid values
+still fail admission. Section action bindings remain effective on the acquired
+membership target; unsupported legacy actions are reported rather than remapped.
 
 ## Themes
 
@@ -200,54 +193,31 @@ shared fetcher path.
   configuration errors, validated per layer including masked values.
 - `Config::set_theme_base`/`remove_theme_base` change only `base`. Squad never writes
   `config.json`, and command and picker text say that CLI colors stay unchanged.
-- The bindable `theme` action (`T` in both host presets and the all tab) opens
+- The bindable `theme` action, offered in Workspace settings, opens
   `board::theme_picker`. The session reads its Config at opening and keeps that baseline
   across refreshes. Preview applies the same in-memory edit as CLI set, cached by
   selection and scope, without writing; `App::look` supplies it to every pane and tab. Tab
-  switches board/squad scope (built-in tabs have board scope only; a masking squad base is
+  switches board/squad scope (Overview/Common pool have board scope only; a masking squad base is
   named). Pickers open in all-boards scope, even when a squad override masks it;
-  the notice points to `r reset in ,`. Overlay input cannot operate underlying rows, tabs or panes. Enter calls the
+  the notice directs an intentional this-squad edit. Overlay input cannot operate underlying rows, tabs or panes. Enter calls the
   named edit once; a failed save keeps the draft and notice without retry; Esc drops the
   preview and uses the latest saved view.
 
 ## Settings inspection and editing
 
-Board preference choices use the shared layer by default; explicit squad keys
-remain opt-in overrides. The comma menu derives its `≠` marks and deduplicated
-count from actual squad keys, not inherited source labels. Its selected override
-alone offers `r reset`; `Config::reset_setting` removes exactly that key through
-the existing validated CAS writer, preserving siblings and comments. Failure
-keeps the effective state and existing diagnostic. Reset drops only an empty
-immediate parent table whose header has no comments. Quick theme/view/window rows
-share the full settings entry's provenance. Workflow and geometry edits retain
-their required squad scope.
+The comma menu offers workspace layout, Theme, Token window and Actions. It does
+not expose the former general configuration-inspection overlay. `config show`
+retains effective values/provenance independently; provider argv, run bindings,
+patterns and nested structures remain inert/read-only to inspection.
 
-- `settings` coordinates arrangement, rows, notebook/state, meter, theme and tab/program
-  projections. `config show` and the bindable inspection overlay (comma by default) share
-  those results; the overlay owns its scroll position, blocks underlying input and keeps
-  its opening snapshot through refresh (close/reopen reads later configuration). Provider
-  argv, run bindings, state patterns and nested split structures are read-only, and neither
-  inspection nor edit validation ever executes configured programs. `Config::bindings_for_tab`, `action::effective_bindings`
-  and `tab_view::rows` keep inspection and loaded tab/section rules together. Aggregate
-  tabs show fixed grids and global appearance without squad providers. `config show`
-  without scope inspects board defaults; `--squad` and `--tab` are exclusive.
-- `board.view` is editable globally and for squads without custom layout/panes.
-  `preview_setting` uses the same `view_draft` as the view command/picker; it never
-  writes during preview and global choices remain masked by scoped/custom layouts.
-- Editing in the overlay (`board/settings.rs`): an editable entry opens a local input
-  prompt. Each valid value calls `Config::preview_setting`, and the app applies the
-  disposable board, rows, notes mode, state colors, interval and tab policy to the newest
-  acquired data; the loader keeps raw core squad order so clearing tab order previews the
-  same fallback as a reload. Invalid input leaves no draft. Esc restores the opening
-  configuration and focus without discarding refreshed rows. Enter saves only through
-  `Config::set_setting`, then refreshes values and sources; a file conflict stays in the
-  prompt and never replaces concurrent edits. While the overlay is open the ordinary loader
-  acquires preview notes/replies and metadata behind its existing cancellation fence, and
-  closing returns to resolved-pane acquisition.
-- `board.home_replies` remains a recognized obsolete global key so existing TOML
-  loads. Its value is ignored, with one deprecation notice; inspection exposes no
-  editable entry, and `config set` refuses it without changing authored bytes.
-  HOME reply previews are collapsed by default; row expansion belongs to `row_detail`.
+Workspace preferences use one Config CAS writer: compare the opening values and
+file bytes, validate before publication and preserve comments/unrelated keys.
+Theme picker preview remains disposable across refresh, names masking squad
+settings and offers explicit board/squad scope. Enter saves once; failure retains
+the draft and error without retry; Esc restores saved appearance. Global choices
+never silently remove a squad override. Token window keeps the shared writer and
+scoped override semantics; CLI configuration remains available for explicit edits.
+
 - `config::edit` owns the shared edit policy and a disposable validated Config draft.
   `sq config set KEY VALUE` accepts layout preset, flat split panes/direction/sizes,
   refresh, notes mode, hidden tracks, exact state colors, global tabs order/hide and the
@@ -270,13 +240,15 @@ their required squad scope.
 
 ## Actions and effects
 
-- `action` parses `[bind]` and `[squad.<name>.section.bind]` once per load into events and
-  actions whose arguments are templates; bad events, actions or field syntax are config
-  errors. The board resolves the selected row's section binding, then the `[bind.<host>]`
-  table named by the host Core publishes in the row's `location` (`tmux`, or an external
-  host's name; no location, no table), then `[bind]`, then the host preset (tmux: Enter and
-  double-click jump; plain terminal: they open the row's action menu) into a fully filled
-  request before anything runs; a missing value is a notice, never a partial action. A
+- `action` parses explicit global, host and section bindings into events and template
+  arguments; bad events, actions or field syntax are configuration errors. Config owns
+  the workspace defaults and overlays compatible global, host, then section bindings.
+  Dispatch, help and footer consume that same table in the current list or Reader scope.
+  Enter and double-click inspect; list `j` jumps, while Reader `j/k` scroll. The host table
+  uses only Core's published `location.host` (`tmux` or an external host); missing or
+  unknown location supplies no host override. Retired actions produce located migration
+  notices and preserve authored bytes. Arguments are fully resolved before execution;
+  missing values refuse rather than constructing a partial action. A
   `[bind.<host>]` table takes the same events and actions as `[bind]`, is parsed apart from
   the flat entries (`Config::host_bindings`), and its name must be a host token
   (`[a-z][a-z0-9-]{0,31}`); an unknown host never matches. One parser/dispatcher owns
@@ -304,11 +276,12 @@ their required squad scope.
   client `tmt focus` reports; `back` asks core for the invoker's client with
   `tmt focus --client`, pops its entry and focuses it.
 - `send` uses public commands only: detached `talk --identity <sender> --room squad-<name>`
-  with operands after `--`; annotations as a talk tagged `[<squad> · <row>]`; answers as one
+  with operands after `--`; Common pool Talk omits the room rather than inventing one.
+  Annotations require a squad and use a talk tagged `[<squad> · <row>]`; answers use one
   `tmt answer <member> --request <id>` (core selects and proves the request, no receipt
   passes through Squad); nothing acknowledges. Squad has no talk, reply, replies or annotate
-  command: conversation is core's, and a note on a row is the board's `a` key only (an in-process
-  `Request::Annotate`), never a command or a hidden `__` entry.
+  command: conversation is Core's, and configured annotation actions and response quotes
+  use the board composer and in-process requests, never a command or hidden `__` entry.
 - `hotkeys` generates `ops.tmux.conf` (bindings noted `tmt ops popup|pane|back|lead`;
   the optional lead key's `run-shell` job has `TMUX` but no `TMUX_PANE`, so it passes
   `TMUX_PANE=#{pane_id}` for core to name the caller) and owns one `source-file` line in
@@ -336,12 +309,12 @@ so the lead skill and `tmt extension rm squad` are unaffected. Squad never write
 directory and never executes a playbook. The lead skill source is embedded only in the squad
 executable, never in the core skill bundle.
 
-## HOME lead sends
+## Shared dispatch intents
 
-`send::leads` owns all-leads and picked-lead audience validation; `send::dispatch` owns the shared frozen intent, private journal and acceptance recovery used by it and status announcements. The existing `App.input`
-keeps the opening user UUID and squad/lead occurrences; both submission and the
-send effect validate current authority. The public dispatch deduplicates recipient
-UUIDs. `send::new_operation` supplies a fresh UUID for explicit sends, shared with
+`send::dispatch` owns the frozen intent, private journal and acceptance recovery
+used by status announcements. Status drafts retain the opening actor
+and room/member context; `membership::status_update` revalidates that authority
+before constructing an intent. Public dispatch deduplicates recipient UUIDs. `send::new_operation` supplies a fresh UUID for explicit sends, shared with
 manual cron sends. Before dispatch, a private 0600 intent under
 `board-dispatches/<operation>.json` beside Squad configuration is synced. Confirmed
 acceptance removes it; uncertain acceptance retains it for manual inspection.

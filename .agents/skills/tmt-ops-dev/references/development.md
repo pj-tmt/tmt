@@ -64,11 +64,11 @@ cron_service` and the native `ops.test.ts` cron cases cover actor permission, lo
   corroborates one slot acceptance and one causal peer wake with independent SQL,
   rejects a second clock, replays standalone ticks without another send and
   verifies signal cleanup. Run Docker lifecycle verification twice.
-- Board cron: `cargo test --locked -p tmt-ops cronboard` covers the projection, line, list and
-  controls against disposable roots (`cron_service::test_support::Fixture`); `view::tests::cron`
-  covers the split squad tab, focus transfer, scoped keys and forms; `home::tests::cron` the home
-  cursor. Capture the home line, `c` list, split tab, expanded job and forms at 160/100/80 in
-  `tmt`, `tmt-light` and `NO_COLOR` with a private HOME, `TMT_HOME` and tmux socket.
+- Board cron: `cargo test --locked -p tmt-ops cronboard` covers projection/list/forms
+  with disposable service roots. Workspace App tests cover scoped room/member entry;
+  native service tests pin rename/counters and sticky missing-owner pauses. Capture
+  Timers/list/forms at 160/100/80/60, including low height, dark/light/16-colour/
+  `NO_COLOR`, with private HOME, `TMT_HOME`, XDG roots and tmux socket.
 - Row paint: `cargo test --locked -p tmt-ops board::view` covers painted cells and hits. A
   scene change keeps the frozen parity capture and compares the old and new renderers on
   literal buffers, styles and hits (themes, depths, widths, selection, stale, waiting, cron labels,
@@ -79,13 +79,28 @@ cron_service` and the native `ops.test.ts` cron cases cover actor permission, lo
   draws on that thread, restores nested/unwound scopes and leaves worker/production
   clocks unchanged. These buffers are deterministic renderer evidence, not a
   frozen live-terminal clock or permission to regenerate parity.
-- Frame cost: the `#[ignore]` harness `board/view/tests/frame_timing.rs` times one 160x50 frame
-  of crew rows, team rows, home with attention sections only (meter on) and home with every
-  section through `Terminal::draw`, split by the phases of
-  `view::render`, plus a `strip::paint_left` microbench. Run it with
-  `CARGO_BUILD_JOBS=2 cargo test --release -p tmt-ops frame_timing -- --ignored --nocapture`;
-  compare runs from one machine and build, never as a CI threshold. A render change keeps
-  `render_replica_matches_render` passing (it pins the replica to `view::render`).
+- Frame cost: from `rust/`, run `CARGO_BUILD_JOBS=2 cargo test --release --locked
+-p tmt-ops conversation_frame_timing -- --ignored --nocapture --test-threads=2` for
+  steady, scoped update, response append, Reader scroll, real backend resize,
+  1/10/100 KiB paste and typing after paste (36 squads, 150/1,000/10,000 agents,
+  2,000 response lines, 160×36 cells). To separate event/paint/diff-and-ANSI phases,
+  run `TMT_WORKSPACE_ANSI_SAMPLES=/absolute/task-owned/samples.json
+CARGO_BUILD_JOBS=2 cargo test --release --locked -p tmt-ops workspace_ansi_phase_timing
+-- --ignored --nocapture --test-threads=2`. Run its resulting test executable
+  directly under `/usr/bin/time -lp` with the same environment and filter to
+  measure process CPU/peak footprint separately; fixture/startup cost is included.
+  The sink is memory, not a physical terminal latency measurement. Retain raw
+  samples/outliers and match baseline/candidate source, toolchain and profile.
+  The agreed local regression profile is Mac16,8, 12 logical CPUs, 48 GiB RAM,
+  macOS 26.6.2, arm64 Rust 1.98.1/LLVM 22.1.8, release opt-level 3. Event+draw
+  p95 must be ≤10/50/50 ms at 150/1,000/10,000 agents for each vector; the ANSI
+  probe's whole-process user+system CPU must be ≤6.2 s and footprint ≤51 MB.
+  Unchanged content keeps identical ANSI-byte/changed-cell vectors; approved new
+  surfaces change only their expected regions. Input/paint performs no source I/O.
+  An exceeded limit requires diagnosis or an agreed adjustment, not relabelling.
+  These are probe/profile limits, not CI gates or user-facing/cross-machine SLOs.
+  `workspace_frame_cost` is the separate roster-only 160×50 steady/scroll/resize
+  probe; `frame_timing` is the independent CLI crew/team row-painter harness.
 - Layout validation: `cargo test --locked -p tmt-ops layout` and the native `ops.test.ts`
   offline case cover invalid core/config inputs, located errors, the size bound and the
   human/JSON exit codes.
@@ -97,17 +112,15 @@ cron_service` and the native `ops.test.ts` cron cases cover actor permission, lo
   create-new directory private to the test process (never the host's `XDG_CACHE_HOME`/`~/.cache`;
   a later run sweeps the directories of finished owners), so tests need no cache injection;
   process tests still set their own roots.
-- Home tile checks cover literal 200/160/113/100/80 single-column geometry, exclusive non-lead marks/counts,
-  missing/zero/partial observations, configured and mixed window labels, full selection
-  in `tmt`, `tmt-light` and `NO_COLOR`, continuation clicks, complete selected-range
-  reveal, clipped hits and resize without target drift. Capture quiet/waiting/blocked/many
-  squads with isolated state. The board glyph guard reads registered marks from
-  `design/tokens/tokens.json`, rejects Ambiguous and emoji-presentation decorations,
-  and requires spaces before and after state marks, including overflow tab labels.
-  Structural exceptions have explicit
-  reasons in the guard; dynamic names, tasks and notebooks are outside its scope.
-  Decode cell/style/hit differences from current main parity before requesting approval
-  for any fixture regeneration; an approved regeneration has its own attributed commit.
+- Workspace checks cover zero/8/36 squads, dense identities, UUID selection, scoped
+  state/count truth, low-height scroll, clipped/stale hits, modal lifecycle and
+  reload. `capture_workspace_packet` writes explicit cells/styles/hits to the
+  task-owned `TMT_WORKSPACE_CAPTURE` path, never a golden fixture. Real private-tmux
+  captures corroborate runtime behavior. The glyph guard uses the shared registered
+  marks; untrusted names/tasks/notebooks remain inert text.
+  Frozen HOME and row parity retain their provenance until UX and Core approve a
+  decoded cell/style/hit/oracle comparison plus byte-identical public list proof.
+  Approved regeneration has its own attributed commit.
 - Settings editor changes: cover live preview, focus and age-evidence restoration on cancel,
   invalid input, read-only command entries and stale-file refusal (native edits verify shared
   staleness after reload, including the disabled no-publication path); capture normal and

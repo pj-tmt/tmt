@@ -49,6 +49,7 @@ impl ProjectedRow {
 pub(crate) struct Acquired {
     active_ids: BTreeSet<String>,
     pub documents: BTreeMap<String, Value>,
+    pub rooms: BTreeMap<String, Value>,
     rows: BTreeMap<String, Vec<ProjectedRow>>,
     pub failures: Vec<Value>,
 }
@@ -266,6 +267,7 @@ fn roster_documents_with(
     let mut acquired = Acquired {
         active_ids: BTreeSet::new(),
         documents: BTreeMap::new(),
+        rooms: BTreeMap::new(),
         rows: BTreeMap::new(),
         failures: Vec::new(),
     };
@@ -307,7 +309,8 @@ fn roster_documents_with(
                     ))
                 })
                 .transpose()?;
-            let mut members = squad.roster_with(core, rows.reads_metadata())?;
+            let snapshot = squad.roster_snapshot(core, rows.reads_metadata())?;
+            let mut members = snapshot.members;
             if let Some(listed) = listed {
                 crate::squad::join_presence(&mut members, listed);
             }
@@ -343,13 +346,14 @@ fn roster_documents_with(
                 ages.apply(&mut flat);
             }
             let projected = project_rows(&squad.name, &flat, &members, &states);
-            Ok::<_, SquadError>((document, projected, active_ids))
+            Ok::<_, SquadError>((document, projected, active_ids, snapshot.room))
         })();
         match result {
-            Ok((document, rows, active_ids)) => {
+            Ok((document, rows, active_ids, room)) => {
                 acquired.active_ids.extend(active_ids);
                 acquired.documents.insert(squad.name.clone(), document);
                 acquired.rows.insert(squad.name.clone(), rows);
+                acquired.rooms.insert(squad.name.clone(), room);
             }
             Err(error) => failure("squad", Some(&squad.name), error),
         }
@@ -394,6 +398,14 @@ fn project_rows(
 }
 
 impl Acquired {
+    /// Full admitted roster projections before user sections repeat or omit rows.
+    pub(crate) fn projected_rows(&self, squad: &str) -> impl Iterator<Item = (&Value, Rank)> {
+        self.rows
+            .get(squad)
+            .into_iter()
+            .flatten()
+            .map(|row| (&row.value, row.rank))
+    }
     /// One optional batched policy read shared by source documents and flat rows.
     pub fn digest(&mut self, core: &Core) {
         let mut values = self

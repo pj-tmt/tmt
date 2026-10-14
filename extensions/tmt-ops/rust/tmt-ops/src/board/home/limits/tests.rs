@@ -258,37 +258,6 @@ fn reset_and_percent_preserve_the_actual_units() {
 }
 
 #[test]
-fn overview_detail_contains_only_the_values_hidden_at_each_width() {
-    let standings = mock();
-    for width in [160, 100, 80, 60] {
-        let hidden = hidden_limits(&standings, NOW, width);
-        let detail = hidden
-            .iter()
-            .map(|(_, text)| text.as_str())
-            .collect::<Vec<_>>()
-            .join(" · ");
-        assert!(!detail.contains("~2.1%/h"), "{width}: {detail}");
-        assert!(detail.contains("5h 97%"), "{width}: {detail}");
-        assert!(!detail.contains("4d03h"), "{width}: {detail}");
-        assert!(detail.contains("2d10h"), "{width}: {detail}");
-        assert!(detail.contains("~0.4%/h"), "{width}: {detail}");
-        assert!(!hidden.iter().any(|(label, _)| *label == "provider"));
-        assert!(
-            !detail.contains("44%"),
-            "the visible weekly reading is never repeated"
-        );
-    }
-    let mut long = standings[0].clone();
-    long.provider = Provider::named("longprovider");
-    let hidden = hidden_limits(&[long], NOW, 60);
-    assert!(
-        hidden
-            .iter()
-            .any(|(label, text)| *label == "provider" && text == "Longprovider")
-    );
-}
-
-#[test]
 fn arrows_fit_only_beside_pace_and_use_their_semantic_roles() {
     for (trend, glyph, role) in [
         (Trend::Up, "↗", Role::Waiting),

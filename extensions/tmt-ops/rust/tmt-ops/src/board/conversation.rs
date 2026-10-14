@@ -162,8 +162,10 @@ impl App {
             .filter(|pane| pane.height >= 9)?;
         let input = self.input.as_ref()?;
         let target = self.conversation_target()?;
-        let recipient = self.target_row(&target)?["id"].as_str()?;
-        (input.draft_key.as_ref()?.1 == recipient).then_some(pane)
+        // Placement follows the selected membership being discussed. A note
+        // can be delivered to its lead, and Status has no message draft key.
+        // Neither changes the conversation that owns this input band.
+        (input.target() == Some(&target)).then_some(pane)
     }
 
     pub(super) fn conversation_target(&self) -> Option<RowTarget> {
@@ -243,6 +245,36 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
     } else {
         area
     };
+    // Effective bindings depend on logical conversation placement. Acquire them
+    // before mutably borrowing the response sessions that own that placement.
+    let link = crate::effects::default_link(row)
+        .filter(|url| !url.is_empty())
+        .map(|url| {
+            let bindings = app.bindings();
+            let hint = bindings
+                .get("o")
+                .map(|action| {
+                    let action =
+                        if action.verb == crate::action::Verb::Open && action.args.is_empty() {
+                            "open $link".to_owned()
+                        } else {
+                            sanitize(&action.text)
+                        };
+                    format!(" (press o - {action})")
+                })
+                .unwrap_or_default();
+            let hint = super::view::fit(&hint, hint.width().min(usize::from(area.width)));
+            let url = sanitize(url);
+            let url = super::view::fit(
+                &url,
+                url.width()
+                    .min(usize::from(area.width).saturating_sub(hint.width())),
+            );
+            Line::from(vec![
+                Span::styled(url, look.role(Role::Link)),
+                Span::styled(hint, look.role(Role::Dim)),
+            ])
+        });
     let mut state = app.conversation.borrow_mut();
     let switched = state.active.as_ref() != Some(&identity);
     state.active = Some(identity.clone());
@@ -283,7 +315,10 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
         &format!("{} · {}", sanitize(runtime), sanitize(model)),
         runtime_width,
     );
-    let chips = super::row_chips::of(&app.labels, row, crate::status::now_ms());
+    let mut chips = super::row_chips::of(&app.labels, row, crate::status::now_ms());
+    // A source name and its first label form one unit. Never paint a bare source
+    // or clip the choice mark away from the label whose action it represents.
+    chips.truncate(super::row_chips::prefix(&chips, usize::from(area.width)));
     let mut header = vec![
         Line::styled(format!("Conversation · {name}"), look.role(Role::Accent)),
         Line::styled(
@@ -307,30 +342,8 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 .collect::<Vec<_>>(),
         ));
     }
-    if let Some(url) = crate::effects::default_link(row).filter(|url| !url.is_empty()) {
-        let bindings = app.bindings();
-        let hint = bindings
-            .get("o")
-            .map(|action| {
-                let action = if action.verb == crate::action::Verb::Open && action.args.is_empty() {
-                    "open $link".to_owned()
-                } else {
-                    sanitize(&action.text)
-                };
-                format!(" (press o - {action})")
-            })
-            .unwrap_or_default();
-        let hint = super::view::fit(&hint, hint.width().min(usize::from(area.width)));
-        let url = sanitize(url);
-        let url = super::view::fit(
-            &url,
-            url.width()
-                .min(usize::from(area.width).saturating_sub(hint.width())),
-        );
-        header.push(Line::from(vec![
-            Span::styled(url, look.role(Role::Link)),
-            Span::styled(hint, look.role(Role::Dim)),
-        ]));
+    if let Some(link) = link {
+        header.push(link);
     }
     header.push(Line::styled(
         if session.change == Change::NewOutput {
@@ -370,6 +383,14 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
         .enumerate()
     {
         if retained_chip && index == 3 {
+            if super::row_chips::clock(&app.labels, row, crate::status::now_ms()).is_some() {
+                app.frame_clocks
+                    .borrow_mut()
+                    .push(super::view::ClockSurface::Labels {
+                        target: target.clone(),
+                        width: usize::from(area.width),
+                    });
+            }
             let mut x = 0;
             for span in &line.spans {
                 let width = span.width();

@@ -385,33 +385,43 @@ Digest owns [history, pricing and valuation](extensions/tmt-digest/contracts/dig
 
 ## Ops extension
 
-`extensions/tmt-ops/rust/tmt-ops` builds optional `tmt-ops`, reached through
-external dispatch as `tmt ops`; `ui`, `hotkeys`, `skill` and `playbook` are Ops commands,
-while member and state commands live under `tmt ops squad` (alias `sq`).
-Independent releases use `tmt-ops-v<version>`; module/drawing ownership and guard verification: [Ops](.agents/skills/tmt-ops-dev/SKILL.md) and [TUI](.agents/skills/tmt-tui/SKILL.md) developer skills.
+`extensions/tmt-ops/rust/tmt-ops` builds optional `tmt-ops`, dispatched as `tmt ops`.
+`ui`, `hotkeys`, `skill` and `playbook` are Ops commands; member/state commands
+use `squad` (alias `sq`). Releases use `tmt-ops-v<version>`.
+[Ops](.agents/skills/tmt-ops-dev/SKILL.md) and [TUI](.agents/skills/tmt-tui/SKILL.md)
+own module/drawing boundaries and verification.
 
 - **Seam.** Ops uses public `tmt --json`/`tmt api` and starts `tmt digest tick`
-  via `TMT_EXECUTABLE` (else PATH `tmt`), bounded by `tmt-invoke`. Digest owns
-  locking, deadlines and delivery ([clock](.agents/skills/tmt-ops-dev/references/data-and-state.md#cron)). No direct core state, tmux or provider writes.
-  The guard rejects Cargo/source edges from TMT crates to Ops or Ops to core.
-  Its TMT dependencies are `tmt-tui`, `tmt-cli-style` and `tmt-invoke`,
-  plus dev-only `tmt-test-support`.
-  New `tmt api` methods need tmt-lead review.
-- **Data ownership.** A squad is the core room `squad-<name>`; member fields are
-  identity metadata `squad.<name>.<field>`, with no Ops membership store. Ops owns
-  `<dataRoot>/ops` (`storage.root`), including private, bounded display snapshots in `cache/board` ([cache contract](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md#display-snapshot-cache)), and disposable `$XDG_CACHE_HOME/tmt-ops` caches.
-  `ops.toml` is the user's file: agents never write it; Ops uses its compare-and-set
-  writer. `migration` owns the locked, byte-preserving legacy cutover and `board_switch` the
-  consented switch of former boards ([config reference](.agents/skills/tmt-ops-dev/references/config-and-effects.md)); no startup path runs the switch. No Ops data goes into `config.json` or the core database.
-- **Checklist.** `checklist_command` exposes the native grammar over the existing `checklist`
-  caller/room admission and the versioned room-UUID JSON under `<dataRoot>/ops/checklist`.
-  Reads create no checklist files, a failed prepublication preserves bytes, and uncertainty stays
-  Unknown after readback; the board controller consumes the same typed service
-  ([data and state reference](.agents/skills/tmt-ops-dev/references/data-and-state.md#checklist-storage-and-service)).
-- **Row detail, digest, timing and entry.** Shared detail ownership and Core-owned digest policy live in the [Ops skill](.agents/skills/tmt-ops-dev/SKILL.md); the [board reference](.agents/skills/tmt-ops-dev/references/board.md) owns worker fences; the [refresh reference](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md#load-timing-trace) owns timing fields; the [config reference](.agents/skills/tmt-ops-dev/references/config-and-effects.md#cli-entry-and-public-json) owns CLI entry and display-document contracts.
-- **Contracts.** The [embedded lead skill](extensions/tmt-ops/skills/tmt-ops/SKILL.md) owns the public JSON
-  shapes of `ops sq ls`, `config`, `checklist` and `cron`; `typescript/test/native/ops.test.ts` checks them.
-  A change to row JSON updates the lead skill and runs the native row-shape test in the same PR.
+  through `TMT_EXECUTABLE` (else PATH), bounded by `tmt-invoke`. Digest owns
+  locking, deadlines and delivery. No direct Core state, tmux or provider writes.
+  The guard rejects TMT-to-Ops and Ops-to-Core Cargo/source edges. Dependencies
+  are `tmt-tui`, `tmt-cli-style`, `tmt-invoke` and dev-only `tmt-test-support`.
+  New API methods require tmt-lead review.
+- **Data.** Squads are Core rooms `squad-<name>`; fields are identity metadata
+  `squad.<name>.<field>`, with no Ops membership store. Ops owns `<dataRoot>/ops`
+  (`storage.root`) and disposable `$XDG_CACHE_HOME/tmt-ops` caches. The workspace
+  neither reads nor writes the retired internal `cache/board` display format;
+  existing files are left untouched. `ops.toml` is user-owned: agents never write it;
+  Ops uses CAS. `migration` owns locked byte-preserving legacy cutover. Its shared invocation notice decision warns once on CLI stderr; admitted UI projects the same notice through App without out-of-band terminal writes.
+  `board_switch` owns the consented former-board switch: only its replacement launch drops retired `--tabs`, preserving the journal argv; startup runs neither. No Ops
+  data enters `config.json` or Core's database.
+- **Workspace.** Overview/Agents/Digest share one acquired roster and a frame-scoped tree projection.
+  UUID squad anchors and virtual Common pool define selection; paint/input do no Core reads. WP1 owns conversation/editor/drafts.
+  The shell replaces named-tab/factory/switcher navigation and HOME cursors; reload carries UUID anchors.
+  Acquired summaries, rates and replies remain source data.
+  Membership removal pauses jobs before leave;
+  only explicit Resume clears pause. Rename CAS keeps the room UUID, then moves
+  Ops metadata/config and cron namespaces under owned locks; partial results
+  offer repair without room rollback. [Surface ownership](.agents/skills/tmt-ops-dev/references/board-home.md).
+- **Checklist.** `checklist_command` uses the existing caller/room admission and
+  versioned room-UUID JSON in `<dataRoot>/ops/checklist`. Reads create no files;
+  failed prepublication preserves bytes; uncertainty remains Unknown after
+  readback. The board consumes the same typed service.
+- **Contracts.** The [embedded skill](extensions/tmt-ops/skills/tmt-ops/SKILL.md)
+  owns `sq ls`, `config`, `checklist` and `cron` JSON; native `ops.test.ts` verifies
+  them. Row JSON changes update that skill and its native regression in the same
+  PR. The Ops developer references own worker fences, cache/timing fields,
+  Core-owned Digest policy and independent CLI display projections.
 
 ## Testing and evidence boundaries
 

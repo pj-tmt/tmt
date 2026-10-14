@@ -1,7 +1,6 @@
-//! HOME's three strips outside the body: the summary under the tab line, the
-//! usage line under it and the key line in the footer. Each is a literal template
-//! whose named width steps and content fit are projected here before painting.
-//! Member names shrink and whole hints drop according to the same held data.
+//! Overview summary and usage strips over held data. Named width steps and
+//! content budgets are projected here before shared scene painting. Footer
+//! actions are generated separately from Config's effective scoped key table.
 use super::{
     Home,
     scene::{self, Kept, Key, Painted, Part},
@@ -13,10 +12,7 @@ use crate::{
     },
     look::Look,
 };
-use ratatui::{
-    style::Style,
-    text::{Line, Span},
-};
+use ratatui::{style::Style, text::Line};
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, sync::OnceLock};
 use tmt_cli_style::{Role, grid::Align, table::escape};
@@ -169,39 +165,6 @@ fn summary_pieces(home: &Home, width: u16) -> Vec<Piece> {
     pieces
 }
 
-/// Only names omitted by the actual fitted summary belong in overview detail.
-pub(in crate::board) fn hidden_needs(home: &Home, width: u16) -> Option<String> {
-    let shown = summary_pieces(home, width)
-        .into_iter()
-        .map(|(text, _)| text)
-        .collect::<String>();
-    let names = home
-        .squads
-        .iter()
-        .filter(|squad| squad.counts.waiting > 0)
-        .collect::<Vec<_>>();
-    let mut prefix = if width < super::SM.cells {
-        format!(
-            "◆ {} need{} you ",
-            names.len(),
-            if names.len() == 1 { "s" } else { "" }
-        )
-    } else {
-        "◆ Needs you  ".into()
-    };
-    let mut hidden = Vec::new();
-    for (index, squad) in names.iter().enumerate() {
-        if index > 0 {
-            prefix.push_str(if width < super::SM.cells { " " } else { " · " });
-        }
-        prefix.push_str(&escape(&squad.squad));
-        if !shown.starts_with(&prefix) {
-            hidden.push(squad.squad.as_str());
-        }
-    }
-    (!hidden.is_empty()).then(|| hidden.join(" · "))
-}
-
 /// The strip's line: its content, without the unpainted tail of the row.
 pub(super) fn lines(painted: Painted) -> Option<Line<'static>> {
     let mut line = painted.lines.into_iter().next()?;
@@ -319,69 +282,6 @@ fn usage_pieces(
     vec![("  ".into(), Some(Role::Muted)), (text, Some(Role::Muted))]
 }
 
-pub(in crate::board) fn hidden_usage(
-    usage: &HomeHeaderUsage<'_>,
-    width: u16,
-) -> Vec<(&'static str, String)> {
-    let shown = usage_pieces(usage, width, None)
-        .into_iter()
-        .map(|(text, _)| text)
-        .collect::<String>();
-    let mut fields = (0..2)
-        .map(|index| {
-            (
-                "usage",
-                format!(
-                    "{} {}",
-                    usage.windows[index].label(),
-                    if usage.totals[index].is_some() {
-                        format!("{} tok", usage_number(usage, index))
-                    } else {
-                        "no reading".into()
-                    }
-                ),
-            )
-        })
-        .collect::<Vec<_>>();
-    fields.push((
-        "coverage",
-        format!(
-            "{} {} without data",
-            usage.unreported,
-            if usage.unreported == 1 {
-                "member"
-            } else {
-                "members"
-            }
-        ),
-    ));
-    if let Some(top) = &usage.top {
-        let full = format!("{} {}", escape(top.member), percent(&top.share));
-        if !shown.contains(&full) {
-            fields.push(("top", full));
-        }
-    }
-    let models = usage
-        .models
-        .iter()
-        .map(|model| {
-            format!(
-                "{} {}",
-                model
-                    .model
-                    .map(crate::source::model_name)
-                    .unwrap_or("model not known"),
-                percent(&model.share)
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
-    if !models.is_empty() {
-        fields.push(("models", models));
-    }
-    fields
-}
-
 /// The longest-window usage line, including explicit missing-data wording.
 #[cfg(test)]
 pub(crate) fn usage(usage: &HomeHeaderUsage<'_>, width: u16, look: Look) -> Option<Line<'static>> {
@@ -410,92 +310,6 @@ pub(super) fn usage_in(
     };
     slot.get(key, |key| lines(paint(key, FILE, template)))
         .clone()
-}
-
-/// The key line: whole hints drop from the end until the line and the two exit
-/// hints fit (a fit, not a step).
-fn key_line(width: usize, overflow: bool, view_reply: bool) -> String {
-    if (usize::from(super::COMPACT)..usize::from(super::SM.cells)).contains(&width) {
-        let mut keys = vec!["↑↓", "⏎", "t", "e", "/"];
-        if view_reply {
-            keys.push("v");
-        }
-        if overflow {
-            keys.push("s");
-        }
-        keys.extend(["? more", "q"]);
-        return keys.join("  ");
-    }
-    // The other keys (tabs, cron, refresh, ...) are in `?` help;
-    // `s switch` comes back only while the tab line hides tabs.
-    let mut optional = vec!["↑↓ move", "⏎ open", "t talk", "e expand", "/ search"];
-    if view_reply {
-        optional.insert(4, "v view");
-    }
-    if overflow {
-        optional.push("s switch");
-    }
-    loop {
-        let text = optional
-            .iter()
-            .copied()
-            .chain(["? more", "q quit"])
-            .collect::<Vec<_>>()
-            .join("  ");
-        if text.width() <= width || optional.is_empty() {
-            return text;
-        }
-        optional.pop();
-    }
-}
-
-#[cfg(test)]
-pub(crate) fn hints(width: usize, overflow: bool) -> String {
-    hints_in(&mut Kept::default(), width, overflow, true, false)
-}
-
-/// The key line, painted again only when its key changed.
-pub(super) fn hints_in(
-    slot: &mut Kept<String>,
-    width: usize,
-    overflow: bool,
-    _receiving: bool,
-    view_reply: bool,
-) -> String {
-    static TEMPLATE: OnceLock<Template<()>> = OnceLock::new();
-    const FILE: &str = "squad.home.keys.xml";
-    let template = TEMPLATE.get_or_init(|| {
-        scene::compile(
-            FILE,
-            r#"<tmt-view version="1"><tmt-text id="line" bind="$.line" token="muted" class="w-full h-1"/></tmt-view>"#,
-            &Schema::Object(BTreeMap::from([("line".to_owned(), Schema::Scalar)])),
-        )
-    });
-    let width = width.min(usize::from(u16::MAX)) as u16;
-    let key = Key {
-        width,
-        look: Look::default(),
-        selected: None,
-        data: json!({"line": key_line(usize::from(width), overflow,view_reply)}),
-    };
-    slot.get(key, |key| {
-        let painted = scene::paint(FILE, template, &key.data, key.width, &mut |_| {
-            (Style::new(), Align::Left)
-        });
-        painted
-            .lines
-            .first()
-            .map(|line| {
-                line.spans
-                    .iter()
-                    .map(|span: &Span<'_>| span.content.as_ref())
-                    .collect::<String>()
-                    .trim_end()
-                    .to_owned()
-            })
-            .unwrap_or_default()
-    })
-    .clone()
 }
 
 /// Numeric cells of the admitted header branch, before viewport placement.

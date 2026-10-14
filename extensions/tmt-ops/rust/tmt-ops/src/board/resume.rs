@@ -3,7 +3,7 @@
 //! it by that pid and deletes it. It is a hint: a missing, old, unreadable or
 //! foreign file means a normal start, and nothing here is evidence about Core.
 
-use super::{app::RowTarget, home::Target as HomeTarget, row_detail::Target as DetailTarget};
+use super::{app::RowTarget, row_detail::Target as DetailTarget};
 use crate::{cache, config::Pane};
 use serde_json::{Value, json};
 use std::{
@@ -12,7 +12,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-const VERSION: u64 = 1;
+const VERSION: u64 = 3;
 /// A snapshot older than this is a leftover, not a handoff.
 const FRESH_MS: u64 = 60_000;
 /// A real snapshot is a few hundred bytes; the cap bounds a foreign file.
@@ -21,15 +21,14 @@ const MAX_BYTES: u64 = 64 * 1024;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Resume {
     pub tab: String,
+    pub shell: super::shell::OpsTab,
+    pub squads_expanded: Vec<String>,
+    pub pool_expanded: bool,
     pub selected: Option<RowTarget>,
     pub focus: usize,
     pub follow: bool,
     pub scrolls: Vec<(Pane, usize)>,
     pub expanded: Vec<DetailTarget>,
-    /// Pane fold overrides of the shown tab; `true` is folded.
-    pub folds: Vec<(Pane, bool)>,
-    /// The tabs this board admits; `None` while every tab is.
-    pub picks: Option<Vec<String>>,
     pub search: String,
 }
 
@@ -50,6 +49,9 @@ impl Resume {
             "pid": pid,
             "writtenAtMs": now_ms,
             "tab": self.tab,
+            "shell": match self.shell {super::shell::OpsTab::Overview=>"overview",super::shell::OpsTab::Agents=>"agents",super::shell::OpsTab::Digest=>"digest"},
+            "squadsExpanded": self.squads_expanded,
+            "poolExpanded": self.pool_expanded,
             "selected": self.selected.as_ref().map(row_json),
             "focus": self.focus,
             "follow": self.follow,
@@ -57,10 +59,6 @@ impl Resume {
                 .map(|(pane, offset)| json!([pane.title(), offset]))
                 .collect::<Vec<_>>(),
             "expanded": self.expanded.iter().map(detail_json).collect::<Vec<_>>(),
-            "folds": self.folds.iter()
-                .map(|(pane, folded)| json!([pane.title(), folded]))
-                .collect::<Vec<_>>(),
-            "picks": self.picks,
             "search": self.search,
         });
         cache::replace(&path(directory, pid), document.to_string().as_bytes())
@@ -96,6 +94,22 @@ impl Resume {
         };
         Some(Self {
             tab: document["tab"].as_str()?.to_owned(),
+            shell: match document["shell"].as_str()? {
+                "overview" => super::shell::OpsTab::Overview,
+                "agents" => super::shell::OpsTab::Agents,
+                "digest" => super::shell::OpsTab::Digest,
+                _ => return None,
+            },
+            squads_expanded: document["squadsExpanded"]
+                .as_array()?
+                .iter()
+                .map(|id| {
+                    id.as_str()
+                        .filter(|id| crate::config::uuid_like(id))
+                        .map(str::to_owned)
+                })
+                .collect::<Option<_>>()?,
+            pool_expanded: document["poolExpanded"].as_bool()?,
             selected: match &document["selected"] {
                 Value::Null => None,
                 value => Some(row_from(value)?),
@@ -111,20 +125,6 @@ impl Resume {
                 .iter()
                 .map(detail_from)
                 .collect::<Option<_>>()?,
-            folds: pairs("folds")?
-                .into_iter()
-                .map(|(pane, folded)| Some((pane, folded.as_bool()?)))
-                .collect::<Option<_>>()?,
-            picks: match &document["picks"] {
-                Value::Null => None,
-                value => Some(
-                    value
-                        .as_array()?
-                        .iter()
-                        .map(|key| key.as_str().map(str::to_owned))
-                        .collect::<Option<_>>()?,
-                ),
-            },
             search: document["search"].as_str()?.to_owned(),
         })
     }
@@ -148,12 +148,16 @@ fn read_regular(path: &Path) -> Option<Vec<u8>> {
 
 fn row_json(target: &RowTarget) -> Value {
     match target {
-        RowTarget::Home(target) => json!({
-            "kind": "home",
-            "section": target.section,
-            "squad": target.squad,
-            "member": target.member,
-        }),
+        RowTarget::Workspace(crate::board::workspace::OpsTarget::Member {
+            room_id,
+            identity_id,
+        }) => json!({"kind":"workspace-member","roomId":room_id,"id":identity_id}),
+        RowTarget::Workspace(crate::board::workspace::OpsTarget::Squad(id)) => {
+            json!({"kind":"workspace-squad","id":id})
+        }
+        RowTarget::Workspace(crate::board::workspace::OpsTarget::Pool) => {
+            json!({"kind":"workspace-pool"})
+        }
         RowTarget::Member {
             tab,
             section,
@@ -169,13 +173,21 @@ fn row_json(target: &RowTarget) -> Value {
 fn row_from(value: &Value) -> Option<RowTarget> {
     let text = |key: &str| value[key].as_str().map(str::to_owned);
     Some(match value["kind"].as_str()? {
-        "home" => RowTarget::Home(HomeTarget {
-            section: text("section")?,
-            squad: text("squad")?,
-            member: match &value["member"] {
+        "workspace-squad" => RowTarget::Workspace(crate::board::workspace::OpsTarget::Squad(
+            text("id").filter(|id| crate::config::uuid_like(id))?,
+        )),
+        "workspace-pool" => RowTarget::Workspace(crate::board::workspace::OpsTarget::Pool),
+        "workspace-member" => RowTarget::Workspace(crate::board::workspace::OpsTarget::Member {
+            room_id: match &value["roomId"] {
                 Value::Null => None,
-                member => Some(member.as_str()?.to_owned()),
+                value => Some(
+                    value
+                        .as_str()
+                        .filter(|id| crate::config::uuid_like(id))?
+                        .to_owned(),
+                ),
             },
+            identity_id: text("id").filter(|id| crate::config::uuid_like(id))?,
         }),
         "member" => RowTarget::Member {
             tab: text("tab")?,
@@ -214,6 +226,9 @@ mod tests {
 
     fn sample() -> Resume {
         Resume {
+            shell: super::super::shell::OpsTab::Overview,
+            squads_expanded: vec![],
+            pool_expanded: false,
             tab: "product".into(),
             selected: Some(RowTarget::Member {
                 tab: "product".into(),
@@ -231,14 +246,12 @@ mod tests {
                     id: "a1".into(),
                 }),
                 DetailTarget::Job("c1".into()),
-                DetailTarget::Row(RowTarget::Home(HomeTarget {
-                    section: "blocked".into(),
-                    squad: "infra".into(),
-                    member: None,
-                })),
+                DetailTarget::Row(RowTarget::Workspace(
+                    crate::board::workspace::OpsTarget::Squad(
+                        "44444444-4444-4444-8444-444444444444".into(),
+                    ),
+                )),
             ],
-            folds: vec![(Pane::Detail, true), (Pane::Replies, false)],
-            picks: Some(vec!["product".into(), "@all".into()]),
             search: "auth".into(),
         }
     }
@@ -255,19 +268,18 @@ mod tests {
         for resume in [
             sample(),
             Resume {
-                selected: Some(RowTarget::Home(HomeTarget {
-                    section: "squads".into(),
-                    squad: "infra".into(),
-                    member: Some("m1".into()),
-                })),
-                picks: None,
+                selected: Some(RowTarget::Workspace(
+                    crate::board::workspace::OpsTarget::Member {
+                        room_id: Some("44444444-4444-4444-8444-444444444444".into()),
+                        identity_id: "55555555-5555-4555-8555-555555555555".into(),
+                    },
+                )),
                 ..sample()
             },
             Resume {
                 selected: None,
                 scrolls: Vec::new(),
                 expanded: Vec::new(),
-                folds: Vec::new(),
                 search: String::new(),
                 ..sample()
             },
@@ -277,6 +289,11 @@ mod tests {
             assert_eq!(
                 fs::metadata(&file).unwrap().permissions().mode() & 0o777,
                 0o600
+            );
+            let stored: Value = serde_json::from_slice(&fs::read(&file).unwrap()).unwrap();
+            assert!(
+                stored.get("picks").is_none() && stored.get("folds").is_none(),
+                "reload cannot carry old named-tab admission or pane folds"
             );
             assert_eq!(Resume::take(&root, 41, 1_500).as_ref(), Some(&resume));
             assert!(!file.exists(), "reading consumes the snapshot");
@@ -322,6 +339,15 @@ mod tests {
         rejects("an unknown pane");
         valid(&|document| document["selected"] = json!({"kind": "guess"}));
         rejects("an unknown target");
+        valid(&|document| {
+            document["selected"] =
+                json!({"kind":"home","section":"blocked","squad":"infra","member":null})
+        });
+        rejects("a retired HOME cursor cannot confer a selection");
+        valid(
+            &|document| document["expanded"] = json!([{"kind":"row","target":{"kind":"home","section":"usage","squad":"","member":null}}]),
+        );
+        rejects("a retired HOME detail cannot reopen a surface");
         valid(&|document| document["focus"] = json!(-1));
         rejects("a negative index");
         write(json!("not an object"));

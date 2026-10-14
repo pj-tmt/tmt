@@ -167,3 +167,6 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod binding_tests;

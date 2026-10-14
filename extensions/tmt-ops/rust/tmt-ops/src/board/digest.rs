@@ -101,13 +101,14 @@ impl App {
     }
 
     fn digest_ask(&self, index: usize) -> Result<Ask, String> {
-        if self.jobs_focus {
-            return Err("Tab returns to the members; this key acts on a member row.".into());
-        }
         let target = self.row_target(index).ok_or("No row is selected.")?;
         let row = self.target_row(&target).ok_or("No row is selected.")?;
         let squad = match &target {
-            RowTarget::Home(target) => target.squad.clone(),
+            RowTarget::Workspace(_) => {
+                self.target_squad(&target)
+                    .filter(|name| !name.is_empty())
+                    .ok_or("Choose a squad membership before managing Digest.")?
+            }
             RowTarget::Member { squad, .. } | RowTarget::Lead { squad, .. } => squad.clone(),
         };
         let (Some(_), Some(member)) = (row["id"].as_str(), row["name"].as_str()) else {

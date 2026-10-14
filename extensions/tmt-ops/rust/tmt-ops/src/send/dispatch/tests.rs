@@ -2,6 +2,16 @@ use super::*;
 use crate::cron_service::test_support::{Fixture, LEAD, USER};
 use std::os::unix::fs::PermissionsExt;
 
+fn attempt(
+    core: &Core,
+    config: &Config,
+    sender: &str,
+    recipients: &[LeadRecipient],
+    text: &str,
+) -> Result<String, SquadError> {
+    Intent::new(sender, recipients.to_vec(), "request", None, text)?.attempt(core, config)
+}
+
 fn audience() -> Vec<LeadRecipient> {
     vec![LeadRecipient {
         squad: "product".into(),
@@ -28,12 +38,11 @@ fn count(fixture: &Fixture, operation: &str) -> usize {
 #[test]
 fn queued_acceptance_cleans_the_intent_without_claiming_delivery() {
     let fixture = Fixture::new();
-    let outcome = run(
+    let outcome = attempt(
         &fixture.core,
         &fixture.config,
         USER,
         &audience(),
-        true,
         "Review the plan",
     )
     .unwrap();
@@ -61,15 +70,7 @@ fn lost_acceptance_recovers_once_without_creating_or_waking_again() {
         let fixture = Fixture::new();
         fixture.change_model(|model| model["loseResponse"] = failure);
         assert_eq!(
-            run(
-                &fixture.core,
-                &fixture.config,
-                USER,
-                &audience(),
-                true,
-                "hello"
-            )
-            .unwrap(),
+            attempt(&fixture.core, &fixture.config, USER, &audience(), "hello").unwrap(),
             "Sol: queued"
         );
         assert_eq!(count(&fixture, "dispatch.create"), 1);
@@ -86,15 +87,7 @@ fn uncertain_acceptance_retains_private_exact_intent_for_recovery() {
         model["loseResponse"] = json!(true);
         model["dispatchShowFailure"] = json!(true);
     });
-    let error = run(
-        &fixture.core,
-        &fixture.config,
-        USER,
-        &audience(),
-        true,
-        "hello",
-    )
-    .unwrap_err();
+    let error = attempt(&fixture.core, &fixture.config, USER, &audience(), "hello").unwrap_err();
     assert!(error.message.contains("Acceptance uncertain"));
     let paths = intents(&fixture);
     assert_eq!(paths.len(), 1);
@@ -112,31 +105,6 @@ fn uncertain_acceptance_retains_private_exact_intent_for_recovery() {
     assert!(error.message.contains(operation));
     assert_eq!(count(&fixture, "dispatch.create"), 1);
     assert_eq!(fixture.model()["wakes"].as_array().unwrap().len(), 1);
-}
-
-#[test]
-fn changed_sender_or_current_lead_refuses_before_journal_or_dispatch() {
-    for changed_sender in [false, true] {
-        let fixture = Fixture::new();
-        if !changed_sender {
-            fixture.change_model(|model| {
-                model["members"][1]["metadata"]["squad.product.lead.marker"] = json!("false")
-            });
-        }
-        assert!(
-            run(
-                &fixture.core,
-                &fixture.config,
-                if changed_sender { LEAD } else { USER },
-                &audience(),
-                true,
-                "hello"
-            )
-            .is_err()
-        );
-        assert!(!fixture.directory.join("board-dispatches").exists());
-        assert_eq!(count(&fixture, "dispatch.create"), 0);
-    }
 }
 
 #[test]

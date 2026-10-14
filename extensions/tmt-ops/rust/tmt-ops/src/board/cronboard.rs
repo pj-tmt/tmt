@@ -5,7 +5,6 @@
 mod act;
 mod controller;
 mod forms;
-mod half;
 mod hints;
 mod line;
 mod list;
@@ -19,11 +18,6 @@ use tmt_ops::cron::ClockStatus;
 
 pub(super) use act::{CronRequest, Op, act};
 pub(super) use forms::Draft;
-pub(super) use half::{render as render_half, wanted as half_wanted};
-pub(super) use hints::{help as help_keys, jobs as jobs_hints};
-#[cfg(test)]
-pub(super) use line::line as home_line;
-pub(super) use line::pieces as home_pieces;
 #[cfg(test)]
 pub(super) use line::tests::{
     NOW as TEST_NOW, cron as test_cron, view as test_view, views as test_views,
@@ -32,7 +26,6 @@ pub(super) use list::{Input as ListInput, List};
 pub(super) use load::{Fetch, fetch};
 pub(super) use place::Places;
 pub(super) use rows::{detail as job_detail, detail_id};
-pub(super) use surface::Pane as JobsPane;
 
 /// One successful read. The same instant produced every field.
 pub struct Cron {
@@ -72,28 +65,12 @@ impl State {
 }
 
 impl Cron {
-    /// Jobs of one squad room; a reused squad name never matches an old room.
-    pub fn of_room<'a>(&'a self, room_id: &'a str) -> impl Iterator<Item = &'a JobView> {
+    /// The same room-UUID admission for picker identities and painted jobs.
+    /// `None` is the explicit all-rooms context, never a squad-name fallback.
+    pub fn jobs_in<'a>(&'a self, room_id: Option<&'a str>) -> impl Iterator<Item = &'a JobView> {
         self.jobs
             .iter()
-            .filter(move |view| view.job.room_id == room_id)
-    }
-
-    /// The earliest future slot among active jobs.
-    pub fn next(&self) -> Option<(i64, &JobView)> {
-        self.jobs
-            .iter()
-            .filter_map(|view| Some((*view.next_ms.first()?, view)))
-            .min_by_key(|(at, _)| *at)
-    }
-
-    /// The owner's earliest active slot, matched by identity UUID.
-    pub fn next_of(&self, owner_id: &str) -> Option<(i64, &JobView)> {
-        self.jobs
-            .iter()
-            .filter(|view| view.job.owner_id.as_deref() == Some(owner_id))
-            .filter_map(|view| Some((*view.next_ms.first()?, view)))
-            .min_by_key(|(at, _)| *at)
+            .filter(move |view| room_id.is_none_or(|room| view.job.room_id == room))
     }
 }
 
@@ -105,61 +82,8 @@ impl State {
         }
     }
 
-    /// The member's next job for the detail pane: when, which job, what it says.
-    pub fn member_detail(&self, member_id: &str, now_ms: i64) -> Option<String> {
-        let (at, view) = self.cron.as_ref()?.next_of(member_id)?;
-        Some(format!(
-            "{} · {} {}",
-            line::time(at, now_ms, &line::zone(view))?,
-            view.job.id(),
-            line::first_line(&view.job.message)
-        ))
-    }
-
     /// The instant the shown text is relative to.
     pub fn now_ms(&self) -> i64 {
         self.cron.as_ref().map_or(0, |cron| cron.read_ms)
-    }
-
-    /// A member row's `cron <next>` label; none without an active job, so the
-    /// label's presence is the job's.
-    pub fn member_label(&self, member_id: &str, now_ms: i64) -> Option<String> {
-        let (at, view) = self.cron.as_ref()?.next_of(member_id)?;
-        Some(format!(
-            "cron {}",
-            line::short_time(at, now_ms, &line::zone(view))?
-        ))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use line::tests::{NOW, cron, view};
-
-    #[test]
-    fn member_labels_match_the_owner_uuid_and_pick_the_earliest_active_slot() {
-        let mut soon = view("a", "x", Some(NOW + 1_800_000));
-        soon.job.owner_id = Some("u1".into());
-        let mut late = view("a", "y", Some(NOW + 7_200_000));
-        late.job.owner_id = Some("u1".into());
-        let mut paused = view("a", "z", None);
-        paused.job.owner_id = Some("u2".into());
-        let state = State {
-            cron: Some(cron(vec![late, soon, paused], ClockStatus::NoClock)),
-            failure: None,
-            reads: 2,
-        };
-        assert_eq!(
-            state.member_label("u1", NOW).as_deref(),
-            Some("cron Mon 00:00")
-        );
-        assert_eq!(
-            state.member_label("u2", NOW),
-            None,
-            "a paused job has no next run"
-        );
-        assert_eq!(state.member_label("someone-else", NOW), None);
-        assert_eq!(State::default().member_label("u1", NOW), None);
     }
 }

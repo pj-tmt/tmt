@@ -92,7 +92,6 @@ struct Return {
     tab: Option<String>,
     room: Option<String>,
     pane: crate::config::Pane,
-    jobs: bool,
     row: Option<super::app::RowTarget>,
 }
 impl Controller {

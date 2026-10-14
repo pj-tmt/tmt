@@ -36,6 +36,11 @@ pub struct Squad {
     pub room_id: String,
 }
 
+pub(crate) struct RosterSnapshot {
+    pub room: Value,
+    pub members: Vec<Member>,
+}
+
 /// A missing squad, named or not, with the command that creates one.
 fn not_found(name: Option<&str>) -> SquadError {
     match name {
@@ -167,6 +172,15 @@ impl Squad {
         core: &Core,
         metadata: bool,
     ) -> Result<Vec<Member>, SquadError> {
+        self.roster_snapshot(core, metadata)
+            .map(|snapshot| snapshot.members)
+    }
+
+    pub(crate) fn roster_snapshot(
+        &self,
+        core: &Core,
+        metadata: bool,
+    ) -> Result<RosterSnapshot, SquadError> {
         let prefix = self.prefix();
         let input = if metadata {
             json!({"room": self.room_id})
@@ -174,7 +188,7 @@ impl Squad {
             json!({"room": self.room_id, "metadataPrefix": prefix})
         };
         let roster = core.api("rooms.roster", input)?;
-        roster["members"]
+        let members = roster["members"]
             .as_array()
             .ok_or_else(|| {
                 SquadError::new(
@@ -212,7 +226,11 @@ impl Squad {
                     failed: Default::default(),
                 })
             })
-            .collect()
+            .collect::<Result<Vec<_>, SquadError>>()?;
+        Ok(RosterSnapshot {
+            room: roster["room"].clone(),
+            members,
+        })
     }
 }
 

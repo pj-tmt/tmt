@@ -449,10 +449,46 @@ fn live_ops(board: &Value, socket: &str, active: &Path) -> Result<bool, SquadErr
     Ok(false)
 }
 
+/// Adapt only a consented saved launch. The journal retains the original argv
+/// for incarnation rechecks; normal `ui --tabs` admission remains unchanged.
+fn replacement_arguments(saved: &[String]) -> Result<(Vec<String>, Option<String>), SquadError> {
+    let mut former = vec!["tmt-squad".into()];
+    former.extend_from_slice(saved);
+    let normalized = process::lease_board_arguments(&former)
+        .ok_or_else(|| fail("Invalid saved former-board launch arguments."))?;
+    let mut current = Vec::new();
+    let mut retired_tabs = None;
+    let mut words = normalized.into_iter();
+    while let Some(word) = words.next() {
+        if word == "--tabs" {
+            retired_tabs = words.next();
+        } else {
+            current.push(word);
+        }
+    }
+    Ok((current, retired_tabs))
+}
+
+/// A verified switch launch names the discarded selector without inventing a
+/// room, filter or recipient. Invalid external text is never shown as a notice.
+pub(crate) fn retired_tabs_notice(tabs: Option<&str>) -> Option<String> {
+    let tabs = tabs?;
+    let former = ["tmt-squad", "board", "--tabs", tabs].map(str::to_owned);
+    process::board_arguments(&former)?;
+    Some(format!(
+        "Former --tabs {tabs} is retired; use 1/2/3, the squad tree and pins."
+    ))
+}
+
 fn launch_line(board: &Value, core: &Core) -> Result<String, SquadError> {
+    let (arguments, retired_tabs) = replacement_arguments(&strings(board, "args")?)?;
     let env = vec![
         format!("TMT_EXECUTABLE={}", core.executable().display()),
         format!("TMT_OPS_SWITCH_READY={}", string(board, "ready")?),
+        format!(
+            "TMT_OPS_SWITCH_RETIRED_TABS={}",
+            retired_tabs.as_deref().unwrap_or_default()
+        ),
     ];
     let mut argv = vec!["/usr/bin/env".to_owned()];
     argv.extend(env);
@@ -460,7 +496,7 @@ fn launch_line(board: &Value, core: &Core) -> Result<String, SquadError> {
         core.executable().to_string_lossy().into_owned(),
         "ops".into(),
     ]);
-    argv.extend(strings(board, "args")?);
+    argv.extend(arguments);
     let line = format!(
         "(cd {} && exec {})",
         quote(string(board, "cwd")?),
@@ -729,4 +765,67 @@ pub(crate) fn acknowledge(file: &mut fs::File) -> std::io::Result<()> {
     file.set_len(0)?;
     file.write_all(std::process::id().to_string().as_bytes())?;
     file.sync_all()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn consented_relaunch_drops_only_tabs_and_keeps_the_original_journal_arguments() {
+        for saved in [
+            vec![
+                "ui",
+                "--tabs",
+                "product,leads",
+                "--squad",
+                "product",
+                "--popup",
+            ],
+            vec![
+                "ui",
+                "--squad",
+                "product",
+                "--tabs=product,leads",
+                "--popup",
+            ],
+        ] {
+            let saved: Vec<_> = saved.into_iter().map(str::to_owned).collect();
+            let journal = json!({"args":saved});
+            let before = journal.clone();
+            let (current, tabs) =
+                replacement_arguments(&strings(&journal, "args").unwrap()).unwrap();
+            assert_eq!(current, ["ui", "--squad", "product", "--popup"]);
+            assert_eq!(tabs.as_deref(), Some("product,leads"));
+            assert_eq!(journal, before);
+            assert!(
+                retired_tabs_notice(tabs.as_deref())
+                    .unwrap()
+                    .contains("is retired")
+            );
+        }
+        let saved = ["ui", "--popup"].map(str::to_owned);
+        assert_eq!(
+            replacement_arguments(&saved).unwrap(),
+            (saved.to_vec(), None)
+        );
+        let saved = ["ui", "--tabs", "product"].map(str::to_owned);
+        assert_eq!(replacement_arguments(&saved).unwrap().0, ["ui"]);
+    }
+
+    #[test]
+    fn invalid_saved_launches_and_control_bearing_notice_text_refuse_before_effects() {
+        for saved in [
+            vec!["ui", "--tabs"],
+            vec!["ui", "--tabs", "product", "--tabs", "infra"],
+            vec!["ui", "--tabs", "product", "--unknown"],
+            vec!["ui", "--tabs", "product\nforged"],
+        ] {
+            let saved: Vec<_> = saved.into_iter().map(str::to_owned).collect();
+            assert!(replacement_arguments(&saved).is_err(), "{saved:?}");
+        }
+        for text in [None, Some(""), Some("product\nforged"), Some("product;run")] {
+            assert_eq!(retired_tabs_notice(text), None);
+        }
+    }
 }

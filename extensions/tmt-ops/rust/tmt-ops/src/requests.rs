@@ -57,22 +57,6 @@ pub fn tag(squad: &str, row: &str) -> String {
     format!("[{squad} · {row}] ")
 }
 
-/// A readable, bounded source-line quote fits inside core's 160-character preview.
-pub fn note_row(squad: &str, line: usize, text: &str) -> String {
-    let mut quote: String = text.chars().take(40).collect();
-    loop {
-        let row = format!(
-            "notes L{} {}",
-            line + 1,
-            serde_json::to_string(&quote).expect("text quote")
-        );
-        if tag(squad, &row).chars().count() <= 150 || quote.is_empty() {
-            return row;
-        }
-        quote.pop();
-    }
-}
-
 fn note_annotations(room: &Window, me: &str, squad: &str, lead: &str) -> Vec<Value> {
     let prefix = format!("[{squad} · notes L");
     room.items
@@ -381,24 +365,23 @@ mod tests {
     }
 
     #[test]
-    fn note_annotations_are_quoted_bounded_and_only_open_mine_to_current_lead() {
+    fn stored_note_annotations_decode_quotes_and_only_open_mine_to_current_lead() {
         let squad = "abcdefghijklmnopqrstuvwx";
-        let text = "\"] malicious ] \\".repeat(100);
-        let row = note_row(squad, 12, &text);
-        let preview = format!("{}message", tag(squad, &row));
-        assert!(tag(squad, &row).chars().count() <= 150);
+        let text = "\"] malicious ] \\";
+        // Stored Core preview from the retired notebook UI, not a writer under test.
+        let preview = r#"[abcdefghijklmnopqrstuvwx · notes L13 "\"] malicious ] \\"] message"#;
         let room = Window {
             items: vec![
-                item("mine", "ME", "L", &preview, false),
+                item("mine", "ME", "L", preview, false),
                 {
-                    let mut withdrawn = item("withdrawn", "ME", "L", &preview, false);
+                    let mut withdrawn = item("withdrawn", "ME", "L", preview, false);
                     withdrawn["final"] =
                         json!({"status": "withdrawn", "reason": "obsolete", "withdrawnAtMs": 2});
                     withdrawn
                 },
-                item("answered", "ME", "L", &preview, true),
-                item("other", "OTHER", "L", &preview, false),
-                item("foreign", "ME", "OTHER", &preview, false),
+                item("answered", "ME", "L", preview, true),
+                item("other", "OTHER", "L", preview, false),
+                item("foreign", "ME", "OTHER", preview, false),
                 item(
                     "broken",
                     "ME",
@@ -419,9 +402,30 @@ mod tests {
         assert_eq!(notes.len(), 1);
         assert_eq!(notes[0]["requestId"], "mine");
         assert_eq!(notes[0]["line"], 12);
-        assert!(text.starts_with(notes[0]["quote"].as_str().unwrap()));
+        assert_eq!(notes[0]["quote"], text);
+        document["squad"]["lead"]["id"] = json!("replacement-lead");
+        apply(&mut document, squad, "ME", &room, &inbox);
+        assert!(document["squad"].get("noteAnnotations").is_none());
+        document["squad"]["lead"]["id"] = json!("L");
+        for malformed in [
+            "[abcdefghijklmnopqrstuvwx · notes L0 \"quote\"] message",
+            "[abcdefghijklmnopqrstuvwx · notes L184467440737095516160 \"quote\"] message",
+            "[abcdefghijklmnopqrstuvwx · notes L13 \"unterminated] message",
+            "[abcdefghijklmnopqrstuvwx · notes L13 \"quote\" wrong terminator",
+            "[other-squad · notes L13 \"quote\"] message",
+        ] {
+            let invalid = Window {
+                items: vec![item("invalid", "ME", "L", malformed, false)],
+                complete: true,
+            };
+            apply(&mut document, squad, "ME", &invalid, &inbox);
+            assert!(
+                document["squad"].get("noteAnnotations").is_none(),
+                "{malformed}"
+            );
+        }
         let answered = Window {
-            items: vec![item("mine", "ME", "L", &preview, true)],
+            items: vec![item("mine", "ME", "L", preview, true)],
             complete: true,
         };
         apply(&mut document, squad, "ME", &answered, &inbox);

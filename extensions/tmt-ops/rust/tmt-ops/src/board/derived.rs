@@ -1,34 +1,8 @@
-//! Disposable derivations retained by one immutable view. Width and search
-//! select the row layout; new snapshots own a new cache.
-use ratatui::text::Line;
+//! Disposable surface derivations retained by one immutable view. New snapshots
+//! own a new cache; workspace rows have no legacy grid or boxed-list cache.
 
 #[derive(Default)]
 pub(super) struct Derived {
-    pub notes: Option<NotebookLines>,
-    pub grid: Option<Grid>,
     /// HOME's painted sections, each held with the inputs it was painted for.
     pub home: super::home::Scenes,
-    /// One boxed-list cache shared by HOME projections and squad rows.
-    pub member_list: super::view::scene::Kept<super::view::member_list::Block>,
-}
-
-pub(super) struct NotebookLines {
-    pub width: usize,
-    pub look: crate::look::Look,
-    pub lines: Vec<Line<'static>>,
-    pub sources: Vec<usize>,
-    pub links: Vec<super::markdown::Link>,
-    pub hits: Vec<super::markdown::LinkHit>,
-}
-
-pub(super) struct Grid {
-    pub width: usize,
-    pub search: String,
-    /// Clock-derived row labels: a changed label rebuilds the layout and scene.
-    pub extras: Vec<super::view::row_paint::Extra>,
-    pub scene: super::view::row_paint::RowPaint,
-    #[cfg(test)]
-    pub layout: crate::markup::Grid,
-    #[cfg(test)]
-    pub cells: Vec<tmt_tui::binding::Node>,
 }

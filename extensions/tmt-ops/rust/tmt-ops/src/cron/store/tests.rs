@@ -303,3 +303,187 @@ fn unsafe_file_types_and_failed_publication_do_not_replace_existing_state() {
     assert!(store.update(|jobs| jobs.insert(job("product"))).is_err());
     assert_eq!(fs::read(&foreign).unwrap(), before);
 }
+
+#[test]
+fn departure_pauses_only_the_original_room_and_never_replaces_a_pause() {
+    let f = Fixture::new();
+    let store = f.store();
+    store
+        .update(|jobs| {
+            jobs.insert(job("product"))?;
+            let mut other = job("other");
+            other.room_id = "other-room".into();
+            jobs.insert(other)?;
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(
+        store
+            .update(|jobs| jobs.pause_owner("room-uuid", "owner-uuid", 500))
+            .unwrap(),
+        ["c1"]
+    );
+    let paused = store.read().unwrap().jobs()[0].clone();
+    assert_eq!(paused.revision, 2);
+    assert_eq!(
+        paused.pause,
+        Some(Pause {
+            by: "owner-uuid".into(),
+            at_ms: 500
+        })
+    );
+    let before = fs::read(store.directory.join("jobs.json")).unwrap();
+    assert_eq!(
+        store
+            .update(|jobs| jobs.pause_owner("room-uuid", "owner-uuid", 900))
+            .unwrap(),
+        ["c1"]
+    );
+    assert_eq!(fs::read(store.directory.join("jobs.json")).unwrap(), before);
+    assert_eq!(store.read().unwrap().jobs()[1].pause, None);
+}
+
+#[test]
+fn squad_rename_preserves_job_identity_content_pause_and_next_counter() {
+    let f = Fixture::new();
+    let store = f.store();
+    store
+        .update(|jobs| {
+            jobs.insert(job("product"))?;
+            jobs.pause_owner("room-uuid", "owner-uuid", 500)?;
+            Ok(())
+        })
+        .unwrap();
+    let before = store.read().unwrap().jobs()[0].clone();
+    assert!(
+        store
+            .update(|jobs| jobs.rename_squad("product", "renamed", "room-uuid"))
+            .unwrap()
+    );
+    let mut expected = before;
+    expected.squad = "renamed".into();
+    assert_eq!(store.read().unwrap().jobs(), &[expected]);
+    assert_eq!(
+        store.update(|jobs| jobs.insert(job("renamed"))).unwrap(),
+        "c2"
+    );
+    assert!(
+        !store
+            .update(|jobs| jobs.rename_squad("product", "renamed", "room-uuid"))
+            .unwrap()
+    );
+}
+
+#[test]
+fn rename_moves_the_counter_after_the_last_job_was_deleted() {
+    let f = Fixture::new();
+    let store = f.store();
+    store
+        .update(|jobs| {
+            jobs.insert(job("product"))?;
+            jobs.remove("product", "c1").unwrap();
+            Ok(())
+        })
+        .unwrap();
+    assert!(store.read().unwrap().jobs().is_empty());
+    assert!(
+        store
+            .update(|jobs| jobs.rename_squad("product", "renamed", "room-uuid"))
+            .unwrap()
+    );
+    assert_eq!(
+        store.update(|jobs| jobs.insert(job("renamed"))).unwrap(),
+        "c2"
+    );
+}
+
+#[test]
+fn conflicting_namespace_and_room_refuse_without_publishing_partial_edits() {
+    let f = Fixture::new();
+    let store = f.store();
+    store
+        .update(|jobs| {
+            jobs.insert(job("product"))?;
+            jobs.insert(job("occupied"))?;
+            Ok(())
+        })
+        .unwrap();
+    let before = fs::read(store.directory.join("jobs.json")).unwrap();
+    assert_eq!(
+        store
+            .update(|jobs| jobs.rename_squad("product", "occupied", "room-uuid"))
+            .unwrap_err()
+            .code,
+        "SQUAD_CRON_NAMESPACE_CONFLICT"
+    );
+    assert_eq!(
+        store
+            .update(|jobs| jobs.rename_squad("product", "new", "wrong-room"))
+            .unwrap_err()
+            .code,
+        "SQUAD_CRON_ROOM_CONFLICT"
+    );
+    assert_eq!(fs::read(store.directory.join("jobs.json")).unwrap(), before);
+}
+
+#[test]
+fn interrupted_rename_publication_keeps_namespace_and_explicit_repair_continues_it() {
+    let f = Fixture::new();
+    let store = f.store();
+    store.update(|jobs| jobs.insert(job("product"))).unwrap();
+    let before = fs::read(store.directory.join("jobs.json")).unwrap();
+    // A real failed temporary publication, after the caller's room CAS, must
+    // retain the old namespace. Explicit repair repeats only this store step.
+    fs::create_dir(store.directory.join("jobs.tmp")).unwrap();
+    assert!(
+        store
+            .update(|jobs| jobs.rename_squad("product", "renamed", "room-uuid"))
+            .is_err()
+    );
+    assert_eq!(fs::read(store.directory.join("jobs.json")).unwrap(), before);
+    fs::remove_dir(store.directory.join("jobs.tmp")).unwrap();
+    assert!(
+        store
+            .update(|jobs| jobs.rename_squad("product", "renamed", "room-uuid"))
+            .unwrap()
+    );
+    assert_eq!(
+        store.update(|jobs| jobs.insert(job("renamed"))).unwrap(),
+        "c2"
+    );
+}
+
+#[test]
+fn committed_pause_is_visible_before_effect_and_locked_until_effect_returns() {
+    let f = Fixture::new();
+    let store = f.store();
+    store.update(|jobs| jobs.insert(job("product"))).unwrap();
+    let (paused, effect) = store
+        .update_then(
+            |jobs| jobs.pause_owner("room-uuid", "owner-uuid", 500),
+            |paused| {
+                assert_eq!(paused, &["c1"]);
+                let bytes: Value =
+                    serde_json::from_slice(&fs::read(store.directory.join("jobs.json")).unwrap())
+                        .unwrap();
+                assert_eq!(bytes["jobs"][0]["state"], "paused");
+                // An independent writer cannot create a new owner job in the gap.
+                assert_eq!(
+                    store
+                        .update(|jobs| jobs.insert(job("product")))
+                        .unwrap_err()
+                        .code,
+                    "SQUAD_CRON_STORE_BUSY"
+                );
+                Err::<(), _>("leave failed")
+            },
+        )
+        .unwrap();
+    assert_eq!(paused, ["c1"]);
+    assert_eq!(effect, Err("leave failed"));
+    assert_eq!(store.read().unwrap().jobs()[0].state(), "paused");
+    assert_eq!(
+        store.update(|jobs| jobs.insert(job("product"))).unwrap(),
+        "c2"
+    );
+}

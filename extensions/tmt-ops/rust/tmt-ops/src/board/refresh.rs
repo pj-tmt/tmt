@@ -5,10 +5,9 @@
 
 use super::{
     ALL, LEADS,
-    app::{Notes, Snapshot, View},
+    app::{Snapshot, View},
     changes::{Changes, Stamp},
-    notes::sanitize,
-    snapshot_cache, tabs, timing,
+    tabs, timing,
 };
 use crate::{
     attention::Attention,
@@ -64,7 +63,6 @@ impl Generation {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum SelectedRead {
-    Notebook(String),
     Status(crate::membership::status_update::Target),
     Message(super::home_leads::MessageKey),
 }
@@ -115,49 +113,20 @@ impl Worker {
             let mut history = super::rate::history::Cache::default();
             let mut places = super::cronboard::Places::new(crate::effects::tmux_socket());
             let mut limits = super::limits::Sampler::new(crate::cache::directory("limits"));
-            // Root discovery and all cache work stay off the UI thread. The store
-            // resolves once, on the first read or after the first publication.
-            let cache = std::cell::RefCell::new(None);
-            // Each tab's stored display is offered once; later loads are fresh.
-            let mut offered = std::collections::BTreeSet::new();
             serve(
                 &pending,
-                |snapshot, rooms, generation| {
+                |snapshot, generation| {
                     let cancellation = read_generation.cancellation(generation);
                     let trace = snapshot.timing.clone();
-                    let display = snapshot_cache::Display::project(
-                        &snapshot,
-                        &rooms,
-                        crate::status::now_ms(),
-                    );
-                    let sent = timing::measure(trace.as_ref(), "snapshot_publish", || {
+                    timing::measure(trace.as_ref(), "snapshot_publish", || {
                         events
                             .send(super::BoardEvent::Snapshot {
-                                cancellation: cancellation.clone(),
+                                cancellation,
                                 snapshot: Box::new(snapshot),
                             })
                             .map_err(|_| ())
                     })
-                    .is_ok();
-                    if sent
-                        && !cancellation.cancelled()
-                        && let Some(display) = display
-                    {
-                        // A failure cannot change the published board's result.
-                        let _ = timing::measure(trace.as_ref(), "snapshot_cache", || {
-                            if !core.paths.is_current() {
-                                return Ok(());
-                            }
-                            let store =
-                                snapshot_store(&cache, &core.cancellable(cancellation.clone()))
-                                    .ok_or_else(|| {
-                                        std::io::Error::other("snapshot root unavailable")
-                                    })?;
-                            store.write(&display, || !cancellation.cancelled())?;
-                            Ok::<_, std::io::Error>(())
-                        });
-                    }
-                    sent
+                    .is_ok()
                 },
                 CHECK_EVERY,
                 &read_generation.number,
@@ -180,19 +149,6 @@ impl Worker {
                         .map(|trace| trace.load(wanted.as_deref(), generation));
                     let started = trace.as_ref().map(|_| Instant::now());
                     let reader = core.cancellable(read_generation.cancellation(generation));
-                    let mut adopt = |tab: &str, rooms: &snapshot_cache::Rooms| {
-                        if !offered.insert(tab.to_owned()) {
-                            return;
-                        }
-                        let display = snapshot_store(&cache, &reader)
-                            .and_then(|store| store.load(tab, rooms));
-                        if let Some(display) = display {
-                            let _ = events.send(super::BoardEvent::Cached {
-                                cancellation: read_generation.cancellation(generation),
-                                display: Box::new(display),
-                            });
-                        }
-                    };
                     let mut loaded = load(
                         &reader,
                         tmux,
@@ -202,7 +158,6 @@ impl Worker {
                         opening,
                         &mut kept,
                         trace.as_ref(),
-                        &mut adopt,
                     );
                     if let (Some(trace), Some(started)) = (&mut trace, started) {
                         trace.completed(
@@ -278,18 +233,6 @@ impl Worker {
                             key,
                             revision,
                             cancellation: cancellation.clone(),
-                        },
-                        Deferred::Selected {
-                            read: SelectedRead::Notebook(identity),
-                            revision,
-                        } => super::BoardEvent::Notebook {
-                            cancellation: cancellation.clone(),
-                            identity: identity.clone(),
-                            revision,
-                            notes: member_notes(
-                                reader
-                                    .api("notes.read", serde_json::json!({"identityId": identity})),
-                            ),
                         },
                         Deferred::Usage(MeterRead::Home) => {
                             home_usage(&reader, &mut limits, cancellation.clone())
@@ -378,7 +321,6 @@ struct Reload {
 }
 
 struct Loaded {
-    rooms: snapshot_cache::Rooms,
     snapshot: Snapshot,
     enrich: Option<EnrichJob>,
     attention: Option<AttentionJob>,
@@ -391,7 +333,6 @@ struct Loaded {
 impl Loaded {
     fn only(snapshot: Snapshot) -> Self {
         Self {
-            rooms: Default::default(),
             snapshot,
             enrich: None,
             attention: None,
@@ -664,7 +605,7 @@ fn fetcher() -> Sender<Fetch> {
 /// interval reloads are requests like any other and never wait on this.
 fn serve(
     pending: &Receiver<Work>,
-    mut publish: impl FnMut(Snapshot, snapshot_cache::Rooms, u64) -> bool,
+    mut publish: impl FnMut(Snapshot, u64) -> bool,
     check_every: Duration,
     generation: &AtomicU64,
     mut stamp: impl FnMut(u64, bool) -> Stamp,
@@ -747,7 +688,6 @@ fn serve(
             continue;
         }
         let Loaded {
-            rooms,
             snapshot,
             enrich,
             attention: job,
@@ -813,7 +753,7 @@ fn serve(
                 .map_or_else(|| Instant::now() + every, |(_, _, due)| *due);
             (read, every, due)
         });
-        if !publish(snapshot, rooms, wanted.generation) {
+        if !publish(snapshot, wanted.generation) {
             break;
         }
         // The shown rows' own reads come before any other tab's or history work.
@@ -855,25 +795,7 @@ fn serve(
     }
 }
 
-/// Resolves the display store once per worker, off the UI thread. Legacy
-/// layouts and an unavailable root have no store.
-fn snapshot_store<'a>(
-    cache: &'a std::cell::RefCell<Option<snapshot_cache::Store>>,
-    core: &Core,
-) -> Option<std::cell::Ref<'a, snapshot_cache::Store>> {
-    if !core.paths.is_current() {
-        return None;
-    }
-    if cache.borrow().is_none() {
-        let store = crate::migration::data_root(core)
-            .ok()
-            .and_then(|root| snapshot_cache::Store::new(&root));
-        *cache.borrow_mut() = store;
-    }
-    std::cell::Ref::filter_map(cache.borrow(), Option::as_ref).ok()
-}
-
-#[allow(clippy::too_many_arguments)] // Acquisition inputs, the cache hook and diagnostics.
+#[allow(clippy::too_many_arguments)] // Acquisition inputs and diagnostics.
 fn load(
     core: &Core,
     tmux: bool,
@@ -883,7 +805,6 @@ fn load(
     opening: bool,
     kept: &mut Kept,
     trace: Option<&timing::Load>,
-    adopt: &mut dyn FnMut(&str, &snapshot_cache::Rooms),
 ) -> Loaded {
     let squads = match timing::measure(trace, "Squad::list", || Squad::list(core)) {
         Ok(squads) => squads,
@@ -902,10 +823,6 @@ fn load(
         }
     };
     let names: Vec<String> = squads.iter().map(|squad| squad.name.clone()).collect();
-    let rooms: snapshot_cache::Rooms = squads
-        .iter()
-        .map(|squad| (squad.name.clone(), squad.room_id.clone()))
-        .collect();
     let config = timing::measure(trace, "Config::load", || Config::load(core));
     // An invalid [tabs] still shows every squad; the view reports the error.
     let settings = config
@@ -936,11 +853,7 @@ fn load(
     };
     // A hidden squad is still shown when asked for by name.
     let chosen = match &wanted {
-        Some(key)
-            if (tabs::builtin(key) && !names.is_empty())
-                || users.contains(key)
-                || names.contains(key) =>
-        {
+        Some(key) if tabs::builtin(key) || users.contains(key) || names.contains(key) => {
             Some(key.clone())
         }
         Some(_) => None,
@@ -964,11 +877,6 @@ fn load(
             squad: wanted,
         });
     };
-    // The stored display needs only the inventory fence; it never waits on the views.
-    let _ = timing::measure(trace, "snapshot_cache_read", || {
-        adopt(&key, &rooms);
-        Ok::<_, ()>(())
-    });
     let listed = timing::measure(trace, "identity_references", || core.json(&["ls"]));
     let references = super::inventory::Inventory::from_listed(&squads, &listed);
     let mut attention = BTreeMap::new();
@@ -1042,7 +950,6 @@ fn load(
         view.history_pending = history.is_some();
     }
     Loaded {
-        rooms,
         snapshot: Snapshot {
             references,
             timing: None,
@@ -1118,24 +1025,21 @@ fn squad_view(
         .iter()
         .map(|member| member.id.clone())
         .collect();
-    let crate::observe::Projected {
-        mut document,
-        sent,
-        notes,
-    } = timing::measure(trace, "observation.document", || {
-        observation.document(
-            core,
-            squad,
-            me.as_ref(),
-            &providers,
-            crate::observe::Shape {
-                layout,
-                states: &states,
-                sections: &sections,
-                rows: &rows,
-            },
-        )
-    })?;
+    let crate::observe::Projected { mut document, sent } =
+        timing::measure(trace, "observation.document", || {
+            observation.document(
+                core,
+                squad,
+                me.as_ref(),
+                &providers,
+                crate::observe::Shape {
+                    layout,
+                    states: &states,
+                    sections: &sections,
+                    rows: &rows,
+                },
+            )
+        })?;
     // Publish with what earlier reads learned; the digest read and missing reply
     // bodies follow as one deferred job on this worker (`EnrichJob`).
     let ids = crate::digest::eligible([&document], &active_ids);
@@ -1161,11 +1065,6 @@ fn squad_view(
         ids,
         replies: unread,
     });
-    let notes = if shows_notes {
-        lead_notes(notes)
-    } else {
-        Notes::NotShown
-    };
     let view = View {
         history_pending: false,
         home: None,
@@ -1173,18 +1072,12 @@ fn squad_view(
         home_rate: Default::default(),
         exchanges: super::home_leads::members(&document, sent.as_ref(), crate::status::now_ms()),
         derived: Default::default(),
-        composition: Default::default(),
         rows,
         render: config.notes_render(&squad.name)?,
         ask_lead: config.ask_lead(&squad.name)?,
         bindings: config.bindings_for_tab(&squad.name, tmux, &board.panes)?,
-        section_bindings: sections.into_iter().map(|section| section.bind).collect(),
-        configured_bindings: config.configured_bindings()?,
-        host_bindings: config.host_bindings()?,
         opener: config.program("opener")?,
         clipboard: config.program("clipboard")?,
-        links: config.links()?,
-        tab_colors: config.tabs()?.colors,
         look: crate::look::Look::new(theme),
         theme_notice,
         me_id: me.as_ref().map(|me| me.id.clone()),
@@ -1192,7 +1085,6 @@ fn squad_view(
         replies,
         refresh: config.refresh(&squad.name)?,
         board,
-        notes,
         document,
     };
     Ok((view, attention, enrich))
@@ -1220,21 +1112,10 @@ fn member_view(
     me: Option<crate::me::Me>,
     key: &str,
 ) -> Result<(View, BTreeMap<String, Attention>), crate::core::SquadError> {
-    let settings = config.tabs()?;
     // The cross-squad tabs have no squad table: the global theme alone.
     let (theme, theme_notice) = config.theme("")?;
     let loaded = tab_view::load(core, config, squads, tabs, me.as_ref(), key)?;
     let bindings = config.bindings_for_tab(key, tmux, &[])?;
-    let tab = settings
-        .user
-        .iter()
-        .find(|tab| Some(tab.name.as_str()) == tabs::user_name(key));
-    let section_bindings = tab.map_or_else(Vec::new, |tab| {
-        tab.sections
-            .iter()
-            .map(|section| section.bind.clone())
-            .collect()
-    });
     let view = View {
         history_pending: false,
         ask_lead: config.ask_lead("")?,
@@ -1243,17 +1124,11 @@ fn member_view(
         exchanges: Vec::new(),
         home: None,
         derived: Default::default(),
-        composition: Default::default(),
         rows: loaded.rows,
         render: NotesRender::Markdown,
         bindings,
-        section_bindings,
-        configured_bindings: config.configured_bindings()?,
-        host_bindings: config.host_bindings()?,
         opener: config.program("opener")?,
         clipboard: config.program("clipboard")?,
-        links: config.links()?,
-        tab_colors: settings.colors,
         look: crate::look::Look::new(theme),
         theme_notice,
         me_id: me.as_ref().map(|me| me.id.clone()),
@@ -1266,15 +1141,13 @@ fn member_view(
             vec![Pane::Rows],
             &[100],
         ),
-        notes: Notes::NotShown,
         document: loaded.document,
     };
     Ok((view, loaded.attention))
 }
 
-/// The built-in `all` tab: one row per squad with its lead, member count
-/// and attention, in tab order. Enter opens that squad's tab; the rows are
-/// squads, not members, so no member binding applies here.
+/// The workspace's acquired aggregate source and global action programs.
+/// Member/host/section key admission belongs to the workspace snapshot.
 fn all_view(
     core: &Core,
     config: &Config,
@@ -1283,7 +1156,6 @@ fn all_view(
     me: Option<crate::me::Me>,
     listed: &Result<Value, crate::core::SquadError>,
 ) -> Result<(View, BTreeMap<String, Attention>), crate::core::SquadError> {
-    let settings = config.tabs()?;
     // The cross-squad tabs have no squad table: the global theme alone.
     let (theme, theme_notice) = config.theme("")?;
     let (loaded, home, home_rate) =
@@ -1297,17 +1169,11 @@ fn all_view(
         exchanges: Vec::new(),
         home: Some(home),
         derived: Default::default(),
-        composition: Default::default(),
         rows: loaded.rows,
         render: NotesRender::Markdown,
         bindings,
-        section_bindings: Vec::new(),
-        configured_bindings: Default::default(),
-        host_bindings: Default::default(),
-        opener: None,
-        clipboard: None,
-        links: Default::default(),
-        tab_colors: settings.colors,
+        opener: config.program("opener")?,
+        clipboard: config.program("clipboard")?,
         look: crate::look::Look::new(theme),
         theme_notice,
         me_id: me.as_ref().map(|me| me.id.clone()),
@@ -1320,30 +1186,9 @@ fn all_view(
             vec![Pane::Rows, Pane::Replies],
             &[40, 60],
         ),
-        notes: Notes::NotShown,
         document: loaded.document,
     };
     Ok((view, loaded.attention))
-}
-
-fn member_notes(read: Result<Value, crate::core::SquadError>) -> Notes {
-    match read {
-        Err(error) if error.code == "NOTEBOOK_SAVED_IDENTITY_REQUIRED" => {
-            Notes::Failed("(temporary identity: no notebook)".into())
-        }
-        other => lead_notes(Some(other)),
-    }
-}
-
-/// The lead's notebook, from the `notes.read` the observation made: bounded,
-/// read-only, and never creating a missing notebook.
-fn lead_notes(read: Option<Result<Value, crate::core::SquadError>>) -> Notes {
-    match read {
-        None => Notes::NoLead,
-        Some(Ok(note)) => Notes::Text(sanitize(note["content"].as_str().unwrap_or_default())),
-        Some(Err(error)) if error.code == "NOTEBOOK_NOT_FOUND" => Notes::Missing,
-        Some(Err(error)) => Notes::Failed(sanitize(&error.to_string())),
-    }
 }
 
 #[cfg(test)]
@@ -1395,7 +1240,7 @@ mod tests {
         std::thread::spawn(move || {
             serve(
                 &pending,
-                |snapshot, _, _| sender.send(snapshot).is_ok(),
+                |snapshot, _| sender.send(snapshot).is_ok(),
                 Duration::from_millis(10),
                 &AtomicU64::new(0),
                 |_, _| Stamp::cursor(read.load(Ordering::SeqCst)),
@@ -1435,7 +1280,7 @@ mod tests {
                 .unwrap();
             sender
                 .send(Work::Selected {
-                    read: Some(SelectedRead::Notebook("obsolete".into())),
+                    read: Some(selected_message("obsolete")),
                     revision: serial,
                     generation: 0,
                 })
@@ -1445,7 +1290,7 @@ mod tests {
         let mut completed = Vec::new();
         serve(
             &pending,
-            |_, _, _| panic!("no reload"),
+            |_, _| panic!("no reload"),
             Duration::from_secs(1),
             &AtomicU64::new(2),
             |_, _| Stamp::cursor(0),
@@ -1655,49 +1500,23 @@ printf '%s\n' '{{}}'
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    fn selected_message(request: &str) -> SelectedRead {
+        SelectedRead::Message(super::super::home_leads::MessageKey {
+            sender: "user".into(),
+            lead: "lead".into(),
+            squad: "product".into(),
+            request: request.into(),
+            kind: super::super::home_leads::Kind::Reply,
+        })
+    }
+
     #[test]
-    fn selected_notebook_reader_uses_public_api_and_shutdown_cancels_the_child() {
-        let dir = std::env::temp_dir().join(format!("squad-selected-notes-{}", std::process::id()));
+    fn selected_message_shutdown_cancels_its_inflight_child() {
+        let dir = std::env::temp_dir().join(format!(
+            "squad-selected-message-cancel-{}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
-        let fake = dir.join("tmt");
-        let calls = dir.join("calls");
-        crate::test_support::write_ready_executable(
-            &fake,
-            &format!(
-                r###"#!/bin/sh
-if [ "$1" = api ]; then
-  request=$(cat)
-  case "$request" in
-    *'"notes.read"'*) printf '%s' "$request" > '{}'; printf '%s\n' '{{"content":"## Now\nSafe"}}'; exit 0 ;;
-  esac
-fi
-printf '%s\n' '{{}}'
-"###,
-                calls.display()
-            ),
-        );
-        let (events, input) = mpsc::channel();
-        let worker = Worker::spawn(Core::at(fake.clone()), false, events, None);
-        worker.selected(7, Some(SelectedRead::Notebook("selected-id".into())));
-        let super::super::BoardEvent::Notebook {
-            identity,
-            revision,
-            notes,
-            cancellation,
-        } = input.recv_timeout(Duration::from_secs(30)).unwrap()
-        else {
-            panic!("notebook event")
-        };
-        assert_eq!((identity.as_str(), revision), ("selected-id", 7));
-        assert_eq!(notes, Notes::Text("## Now\nSafe".into()));
-        assert!(!cancellation.cancelled());
-        let request: Value = serde_json::from_slice(&std::fs::read(&calls).unwrap()).unwrap();
-        assert_eq!(
-            request,
-            json!({"version":1,"operation":"notes.read","input":{"identityId":"selected-id"}})
-        );
-        drop(worker);
-        assert!(cancellation.cancelled());
         let ready = dir.join("started");
         let slow = dir.join("slow");
         crate::test_support::write_ready_executable(
@@ -1706,7 +1525,7 @@ printf '%s\n' '{{}}'
                 r###"#!/bin/sh
 if [ "$1" = api ]; then
   request=$(cat)
-  case "$request" in *'"notes.read"'*) echo $$ > '{}'; exec sleep 30 ;; esac
+  case "$request" in *'"requests.show"'*) echo $$ > '{}'; exec sleep 30 ;; esac
 fi
 printf '%s\n' '{{}}'
 "###,
@@ -1715,7 +1534,7 @@ printf '%s\n' '{{}}'
         );
         let (events, _) = mpsc::channel();
         let worker = Worker::spawn(Core::at(slow), false, events, None);
-        worker.selected(8, Some(SelectedRead::Notebook("selected-id".into())));
+        worker.selected(8, Some(selected_message("request")));
         let deadline = Instant::now() + Duration::from_secs(30);
         while !ready.exists() {
             assert!(Instant::now() < deadline, "reader did not start");
@@ -1737,13 +1556,13 @@ printf '%s\n' '{{}}'
     }
 
     #[test]
-    fn notebooks_coalesce_behind_reload_and_obey_the_existing_generation() {
+    fn selected_messages_coalesce_behind_reload_and_obey_the_existing_generation() {
         let (sender, pending) = mpsc::channel();
         let generation = AtomicU64::new(1);
         let queue = |identity: Option<&str>, revision, expected| {
             sender
                 .send(Work::Selected {
-                    read: identity.map(|id| SelectedRead::Notebook(id.to_owned())),
+                    read: identity.map(selected_message),
                     revision,
                     generation: expected,
                 })
@@ -1760,7 +1579,7 @@ printf '%s\n' '{{}}'
         let steps = std::cell::RefCell::new(Vec::new());
         serve(
             &pending,
-            |_, _, _| {
+            |_, _| {
                 steps.borrow_mut().push("snapshot".to_owned());
                 queue(Some("stale"), 2, 0);
                 queue(Some("old"), 3, 1);
@@ -1773,14 +1592,17 @@ printf '%s\n' '{{}}'
             |_, _, _, _| Loaded::only(crate::board::app::tests::snapshot("product", json!([]))),
             |job, expected| {
                 let Deferred::Selected {
-                    read: SelectedRead::Notebook(identity),
+                    read: SelectedRead::Message(key),
                     revision,
                 } = job
                 else {
                     panic!("other work")
                 };
-                assert_eq!((identity.as_str(), revision, expected), ("selected", 4, 1));
-                steps.borrow_mut().push(identity);
+                assert_eq!(
+                    (key.request.as_str(), revision, expected),
+                    ("selected", 4, 1)
+                );
+                steps.borrow_mut().push(key.request);
                 false
             },
         );
@@ -1789,7 +1611,7 @@ printf '%s\n' '{{}}'
         let (sender, pending) = mpsc::channel();
         sender
             .send(Work::Selected {
-                read: Some(SelectedRead::Notebook("stale".into())),
+                read: Some(selected_message("stale")),
                 revision: 5,
                 generation: 0,
             })
@@ -1797,32 +1619,12 @@ printf '%s\n' '{{}}'
         drop(sender);
         serve(
             &pending,
-            |_, _, _| panic!("no snapshot"),
+            |_, _| panic!("no snapshot"),
             CHECK_EVERY,
             &generation,
             |_, _| Stamp::cursor(0),
             |_, _, _, _| panic!("no load"),
             |_, _| panic!("no read"),
-        );
-        for (code, expected) in [
-            ("NOTEBOOK_NOT_FOUND", "(no notes yet)"),
-            (
-                "NOTEBOOK_SAVED_IDENTITY_REQUIRED",
-                "(temporary identity: no notebook)",
-            ),
-        ] {
-            let note = member_notes(Err(crate::core::SquadError::new(code, "ignored")));
-            let lines = super::super::view::notebook_lines(
-                &note,
-                80,
-                crate::look::Look::default(),
-                NotesRender::Markdown,
-            );
-            assert_eq!(lines[0].to_string(), expected);
-        }
-        assert_eq!(
-            member_notes(Ok(json!({"content":"## Now\n\u{1b}[31mSafe"}))),
-            Notes::Text("## Now\nSafe".into())
         );
     }
 
@@ -2020,7 +1822,19 @@ columns = [{ name = "member" }, { name = "ctx", from = "meta.usage.count", forma
             expected["columns"][1]["title"] = json!("MEMBER");
             assert_eq!(view.rows.value(), expected);
             assert_eq!(view.bindings["enter"].verb, crate::action::Verb::Jump);
-            assert_eq!(view.section_bindings[0]["o"].verb, crate::action::Verb::Tab);
+            assert_eq!(
+                config
+                    .tabs()
+                    .unwrap()
+                    .user
+                    .iter()
+                    .find(|tab| tab.name == "needs-me")
+                    .unwrap()
+                    .sections[0]
+                    .bind["o"]
+                    .verb,
+                crate::action::Verb::Tab
+            );
             if partial {
                 assert_eq!(listed["partial"], true);
                 assert_eq!(listed["failures"].as_array().unwrap().len(), 2);
@@ -2110,7 +1924,6 @@ sys.exit(subprocess.run([str(root/'tmt')]+args,input=body).returncode)
                 false,
                 &mut kept,
                 None,
-                &mut |_, _| {},
             );
             let mut view = loaded
                 .snapshot
@@ -2140,12 +1953,11 @@ sys.exit(subprocess.run([str(root/'tmt')]+args,input=body).returncode)
                 assert_eq!(
                     view.home
                         .unwrap()
-                        .sections
-                        .iter()
-                        .flat_map(|section| &section.rows)
-                        .find(|row| row.member["id"] == WORKER)
-                        .unwrap()
-                        .member["digest"]["heldCount"],
+                        .workspace
+                        .rows
+                        .values()
+                        .find(|row| row["id"] == WORKER)
+                        .unwrap()["digest"]["heldCount"],
                     2
                 );
             } else {
@@ -2167,7 +1979,6 @@ sys.exit(subprocess.run([str(root/'tmt')]+args,input=body).returncode)
             false,
             &mut kept,
             None,
-            &mut |_, _| {},
         );
         assert!(!calls.exists());
         assert!(
@@ -2187,7 +1998,7 @@ sys.exit(subprocess.run([str(root/'tmt')]+args,input=body).returncode)
     }
 
     #[test]
-    fn saved_views_acquire_notes_from_effective_board_without_changing_workflow() {
+    fn source_view_settings_preserve_observation_document_and_single_note_read() {
         let root = std::env::temp_dir().join(format!("squad-view-notes-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
         let executable = root.join("tmt");
@@ -2226,10 +2037,6 @@ esac
                 .unwrap()
                 .0;
             assert!(baseline.board.members);
-            assert!(
-                matches!(baseline.notes, Notes::Text(_)),
-                "default members view keeps the lead notebook below the list"
-            );
             config
                 .set_view(
                     &crate::view::ViewScope::Squad("product".into()),
@@ -2243,10 +2050,6 @@ esac
                 view.document, baseline.document,
                 "workflow projection stays identical"
             );
-            assert_eq!(
-                view.notes,
-                Notes::Text("# Lead notebook\nFinal notebook sentinel".into())
-            );
             assert!(view.board.panes.contains(&Pane::Notes));
             assert_eq!(config.layout("product").unwrap().as_str(), workflow);
         }
@@ -2256,32 +2059,32 @@ esac
                 .lines()
                 .count(),
             4,
-            "one read for each effective notes pane or explicit preview request"
+            "independent source observation reuses one note read per acquisition"
         );
         std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
-    fn fresh_publication_precedes_cache_io_and_cache_failure_preserves_the_view() {
-        use std::{
-            fs,
-            os::unix::fs::{PermissionsExt, symlink},
-        };
+    fn workspace_publication_ignores_and_preserves_retired_display_files() {
+        use std::{fs, os::unix::fs::symlink};
         const ROOM: &str = "11111111-1111-4111-8111-111111111111";
-        let root = std::env::temp_dir().join(format!("ops-worker-snapshot-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!(
+            "ops-worker-snapshot-{}",
+            crate::id::new_v4().unwrap()
+        ));
         fs::create_dir(&root).unwrap();
         // A completed migration owns Ops; the cache must not supply it.
         fs::create_dir(root.join("ops")).unwrap();
         fs::write(root.join(".ops-paths-v1"), "{}").unwrap();
         fs::write(
             root.join("ops.toml"),
-            "[squad.product]\nrefresh = \"off\"\n[board.token_rate]\nenabled = false\n",
+            "opener = [\"fixture-browser\", \"--keep-args\"]\nclipboard = [\"fixture-clipboard\"]\n[squad.product]\nrefresh = \"off\"\n[board.token_rate]\nenabled = false\n",
         )
         .unwrap();
         let fake = root.join("tmt");
         let configured = json!({"paths":{"global":root.join("config.json")}});
         let listed = json!({"rooms":[{"id":ROOM,"name":"squad-product"}]});
-        let roster = json!({"members":[{"id":"22222222-2222-4222-8222-222222222222","name":"alice","lifetime":"saved","metadata":{"squad.product.task":"ship"}}]});
+        let roster = json!({"members":[{"id":"22222222-2222-4222-8222-222222222222","name":"alice","lifetime":"saved","metadata":{"squad.product.task":"ship","squad.product.pr_link":"https://example.test/pull/42"}}]});
         crate::test_support::write_ready_executable(
             &fake,
             &format!(
@@ -2304,95 +2107,85 @@ printf '%s\n' '{{}}'
                 root = root.display()
             ),
         );
-        let path = root.join("ops/cache/board/squad-product.json");
-        for unsafe_path in [false, true] {
-            if unsafe_path {
-                let victim = root.join("untouched");
-                fs::write(&victim, b"preserve").unwrap();
-                fs::remove_file(&path).unwrap();
-                symlink(&victim, &path).unwrap();
-            }
-            let (trace, records) = timing::Trace::buffer();
-            let (events, input) = mpsc::channel();
-            let worker = Worker::spawn(Core::at(fake.clone()), false, events, Some(trace));
-            worker.request(Some("product".into()), false, false);
-            let super::super::BoardEvent::Snapshot {
-                snapshot,
-                cancellation,
-            } = input.recv_timeout(Duration::from_secs(30)).unwrap()
-            else {
-                panic!("fresh snapshot");
-            };
-            assert!(!cancellation.cancelled());
-            assert_eq!(
-                snapshot.view.as_ref().unwrap().document["sections"][0]["rows"][0]["name"],
-                "alice"
-            );
-            // Attention is deferred behind cache publication and enrichment.
-            assert!(
-                (0..4).any(|_| matches!(
-                    input.recv_timeout(Duration::from_secs(30)).unwrap(),
-                    super::super::BoardEvent::Attention { .. }
-                )),
-                "deferred attention follows conversation, cron and cache work"
-            );
-            drop(worker);
-            let records = records.lock().unwrap();
-            let stages = std::str::from_utf8(&records)
+        let cache = root.join("ops/cache/board");
+        fs::create_dir_all(&cache).unwrap();
+        let legacy = cache.join("home.json");
+        let victim = root.join("untouched");
+        fs::write(&victim, b"not a display document").unwrap();
+        symlink(&victim, &legacy).unwrap();
+        let squad_cache = cache.join("squad-product.json");
+        fs::write(&squad_cache, b"legacy bytes").unwrap();
+        let (trace, records) = timing::Trace::buffer();
+        let (events, input) = mpsc::channel();
+        let worker = Worker::spawn(Core::at(fake), false, events, Some(trace));
+        worker.request(Some(ALL.into()), false, false);
+        let super::super::BoardEvent::Snapshot {
+            snapshot,
+            cancellation,
+        } = input.recv_timeout(Duration::from_secs(30)).unwrap()
+        else {
+            panic!("fresh workspace is the first event");
+        };
+        assert!(!cancellation.cancelled());
+        assert_eq!(snapshot.squad.as_deref(), Some(ALL));
+        assert!(snapshot.view.as_ref().unwrap().home.is_some());
+        let mut app = super::super::app::App::new(Some(ALL.into()));
+        app.apply(*snapshot);
+        app.workspace.expanded.insert(ROOM.into());
+        let index = app
+            .workspace_rows()
+            .iter()
+            .position(|row| {
+                matches!(&row.target,
+            super::super::workspace::OpsTarget::Member { identity_id, room_id:Some(room) }
+            if identity_id=="22222222-2222-4222-8222-222222222222" && room==ROOM)
+            })
+            .unwrap();
+        app.select(index);
+        assert_eq!(
+            app.key(ratatui::crossterm::event::KeyEvent::new(
+                ratatui::crossterm::event::KeyCode::Char('o'),
+                ratatui::crossterm::event::KeyModifiers::NONE,
+            )),
+            super::super::app::Effect::Act(super::super::app::Request::Open {
+                link: "https://example.test/pull/42".into(),
+                opener: Some(vec!["fixture-browser".into(), "--keep-args".into()]),
+            })
+        );
+        assert_eq!(
+            app.perform(&crate::action::Action::parse("copy {task}").unwrap()),
+            super::super::app::Effect::Act(super::super::app::Request::Copy {
+                text: "ship".into(),
+                program: Some(vec!["fixture-clipboard".into()]),
+            })
+        );
+        drop(worker);
+        assert!(
+            fs::symlink_metadata(&legacy)
                 .unwrap()
-                .lines()
-                .map(|line| serde_json::from_str::<Value>(line).unwrap())
-                .collect::<Vec<_>>();
-            let published = stages
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(fs::read(&victim).unwrap(), b"not a display document");
+        assert_eq!(fs::read(&squad_cache).unwrap(), b"legacy bytes");
+        assert_eq!(fs::read_dir(&cache).unwrap().count(), 2);
+        let records = records.lock().unwrap();
+        let stages = std::str::from_utf8(&records)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert!(
+            stages
                 .iter()
-                .position(|record| record["stage"] == "snapshot_publish")
-                .unwrap();
-            let cached = stages
+                .any(|record| record["stage"] == "snapshot_publish" && record["status"] == "ok")
+        );
+        assert!(
+            !stages
                 .iter()
-                .position(|record| record["stage"] == "snapshot_cache")
-                .unwrap();
-            assert!(published < cached, "fresh event is sent before cache IO");
-            assert_eq!(stages[published]["status"], "ok");
-            assert_eq!(
-                stages[cached]["status"],
-                if unsafe_path { "error" } else { "ok" }
-            );
-            if unsafe_path {
-                assert_eq!(fs::read(root.join("untouched")).unwrap(), b"preserve");
-            } else {
-                let cached: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-                assert_eq!(cached["rooms"]["product"], ROOM);
-                assert_eq!(cached["view"]["sections"][0]["rows"][0]["name"], "alice");
-                assert_eq!(
-                    fs::metadata(&path).unwrap().permissions().mode() & 0o777,
-                    0o600
-                );
-                // The next board offers the stored display once, before any fresh view.
-                let (events, input) = mpsc::channel();
-                let worker = Worker::spawn(Core::at(fake.clone()), false, events, None);
-                worker.request(Some("product".into()), false, false);
-                let super::super::BoardEvent::Cached { display, .. } =
-                    input.recv_timeout(Duration::from_secs(30)).unwrap()
-                else {
-                    panic!("stored display first");
-                };
-                assert_eq!(display.tab(), "product");
-                assert_eq!(display.0["view"]["sections"][0]["rows"][0]["name"], "alice");
-                let fresh = |input: &mpsc::Receiver<super::super::BoardEvent>| {
-                    (0..4).any(
-                        |_| match input.recv_timeout(Duration::from_secs(30)).unwrap() {
-                            super::super::BoardEvent::Cached { .. } => panic!("offered twice"),
-                            super::super::BoardEvent::Snapshot { .. } => true,
-                            _ => false,
-                        },
-                    )
-                };
-                assert!(fresh(&input));
-                worker.request(Some("product".into()), true, false);
-                assert!(fresh(&input));
-                drop(worker);
-            }
-        }
+                .any(|record| record["stage"] == "snapshot_cache"
+                    || record["stage"] == "snapshot_cache_read")
+        );
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -2477,7 +2270,7 @@ printf '%s\n' '{{}}'
         let worker = std::thread::spawn(move || {
             serve(
                 &pending,
-                |_, _, _| true,
+                |_, _| true,
                 Duration::from_millis(10),
                 &AtomicU64::new(0),
                 |_, _| {
@@ -2665,32 +2458,41 @@ printf '%s\n' '{{}}'
         assert_eq!(rows[0]["fields"]["waiting"], "1");
         assert_eq!(rows[2]["fields"]["lead"], Value::Null);
 
-        let mut snapshot = crate::board::app::tests::snapshot(ALL, json!([]));
-        let view = snapshot.view.as_mut().unwrap();
-        view.document = all;
-        view.rows = crate::rows::Rows::overview();
-        let mut app = crate::board::app::App::new(Some(ALL.into()));
-        app.apply(snapshot);
+        // Public named-tab projections remain independent. The interactive
+        // leadless-squad assertion uses the actual UUID workspace frame.
+        use crate::board::{app::workspace::tests::ROOM, workspace::OpsTarget};
+        let mut app = crate::board::app::workspace::tests::board();
+        let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+        workspace.roster.members.clear();
+        let squad = &mut workspace.roster.squads[0];
+        squad.name = "quiet".into();
+        squad.members.clear();
+        squad.member_states.clear();
+        workspace
+            .rows
+            .retain(|target, _| !matches!(target, OpsTarget::Member { .. }));
+        let target = OpsTarget::Squad(ROOM.into());
+        workspace.rows.get_mut(&target).unwrap()["name"] = json!("quiet");
+        workspace.rows.get_mut(&target).unwrap()["memberIds"] = json!([]);
+        app.workspace.selected = Some(target);
         let mut terminal =
-            ratatui::Terminal::new(ratatui::backend::TestBackend::new(64, 10)).unwrap();
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(160, 24)).unwrap();
         terminal
             .draw(|frame| crate::board::view::render(frame, &app))
             .unwrap();
-        let screen: Vec<String> = terminal
+        let screen = terminal
             .backend()
             .buffer()
             .content()
-            .chunks(64)
-            .map(|line| line.iter().map(|cell| cell.symbol()).collect())
-            .collect();
-        let quiet = screen
-            .iter()
-            .find(|line| line.trim_start().starts_with("quiet"))
-            .expect("the leadless squad is visible on the all tab");
-        assert_eq!(
-            quiet.split_whitespace().collect::<Vec<_>>(),
-            ["quiet", "–", "0", "0", "0"],
-            "the view renders the missing lead as a display placeholder"
+            .chunks(160)
+            .map(|line| line.iter().map(|cell| cell.symbol()).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            screen.contains("quiet")
+                && screen.contains("Lead: not set")
+                && screen.contains("Members: 0"),
+            "{screen}"
         );
 
         assert_eq!(attention["quiet"], Attention::default());
@@ -2720,7 +2522,7 @@ printf '%s\n' '{{}}'
         let mut published = Vec::new();
         serve(
             &pending,
-            |snapshot, _, _| {
+            |snapshot, _| {
                 published.push(snapshot.squad);
                 true
             },
@@ -2772,7 +2574,7 @@ printf '%s\n' '{{}}'
             let steps = std::cell::RefCell::new(Vec::new());
             serve(
                 &pending,
-                |_, _, _| {
+                |_, _| {
                     steps.borrow_mut().push("shown");
                     if cancel {
                         generation.store(1, Ordering::Release);
@@ -2784,9 +2586,10 @@ printf '%s\n' '{{}}'
                 |_, _| Stamp::cursor(0),
                 |_, _, _, _| {
                     let home = super::super::home::Home {
+                        workspace: Default::default(),
+                        window: crate::config::TokenWindow::MINUTE,
                         windows: crate::config::TokenWindow::DEFAULTS,
                         summary: Default::default(),
-                        sections: vec![],
                         squads: vec![],
                         failures: vec![],
                         incomplete: false,
@@ -2836,7 +2639,7 @@ printf '%s\n' '{{}}'
         let mut config = Some(config);
         serve(
             &pending,
-            |_, _, _| {
+            |_, _| {
                 steps.borrow_mut().push("shown");
                 true
             },
@@ -2844,7 +2647,6 @@ printf '%s\n' '{{}}'
             &AtomicU64::new(0),
             |_, _| Stamp::cursor(1),
             |_, _, _, _| Loaded {
-                rooms: Default::default(),
                 enrich: None,
                 history: None,
                 snapshot: crate::board::app::tests::snapshot("product", json!([])),
@@ -2920,7 +2722,7 @@ printf '%s\n' '{{}}'
         let stages = RefCell::new(Vec::new());
         serve(
             &pending,
-            |snapshot, _, current| {
+            |snapshot, current| {
                 let mut app = app.borrow_mut();
                 app.apply(snapshot);
                 assert!(!app.loading());
@@ -3045,7 +2847,7 @@ printf '%s\n' '{{}}'
             let steps = std::cell::RefCell::new(Vec::new());
             serve(
                 &pending,
-                |snapshot, _, _| {
+                |snapshot, _| {
                     assert!(snapshot.view.is_ok());
                     steps.borrow_mut().push("usable");
                     if cancel {
@@ -3143,7 +2945,7 @@ printf '%s\n' '{{}}'
         let mut samples = 0;
         serve(
             &pending,
-            |_, _, _| {
+            |_, _| {
                 let count = published.get() + 1;
                 published.set(count);
                 match count {
@@ -3205,7 +3007,7 @@ printf '%s\n' '{{}}'
             let mut samples = 0;
             serve(
                 &pending,
-                |_, _, _| {
+                |_, _| {
                     loads.set(loads.get() + 1);
                     loads.get() < 60
                 },
@@ -3269,7 +3071,7 @@ printf '%s\n' '{{}}'
         let mut samples = 0;
         serve(
             &pending,
-            |_, _, _| true,
+            |_, _| true,
             Duration::from_millis(1),
             &AtomicU64::new(0),
             |_, _| Stamp::cursor(1),
@@ -3320,7 +3122,7 @@ printf '%s\n' '{{}}'
         let mut openings = Vec::new();
         serve(
             &pending,
-            |_, _, _| {
+            |_, _| {
                 if let Some(next) = names.next() {
                     sender.send(reload(next)).unwrap();
                     true
