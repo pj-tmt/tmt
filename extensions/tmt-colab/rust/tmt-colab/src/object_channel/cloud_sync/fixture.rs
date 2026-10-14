@@ -15,6 +15,8 @@ use std::{
 };
 use tmt_extension_objects::{Bus, ChannelFrame, Uuid4, sync};
 
+pub(crate) mod home;
+
 pub(crate) const PROJECT: &str = "fixture";
 pub(crate) const SPACE: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 pub(crate) const UID: &str = "owner";

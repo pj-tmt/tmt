@@ -14,6 +14,7 @@ use tmt_extension_objects::Uuid4;
 mod activation;
 #[cfg(test)]
 mod fixture;
+mod inbound;
 #[cfg(test)]
 mod interests;
 mod local;
