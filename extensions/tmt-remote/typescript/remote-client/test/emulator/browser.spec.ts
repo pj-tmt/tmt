@@ -16,7 +16,7 @@ const project = 'demo-tmt-colab';
 const blessed = source.head;
 const config = {
   apiKey: 'emulator-public-key',
-  appId: '1:123:web:emulator',
+  appId: '1:12345:web:emulator',
   authDomain: `${project}.firebaseapp.com`,
   projectId: project,
 };

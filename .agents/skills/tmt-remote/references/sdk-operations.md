@@ -95,3 +95,8 @@ Web SDK listener per page interest for coalesced wake hints. The caller supplies
 reservations before REST attempts/listener starts; listener delivery and REST catch-up are
 separate modeled read costs, including the writer's own listener. Native transport and
 credentials remain separate slices. Frozen fixtures are not installed provider evidence.
+
+The explicitly selected native emulator acceptance uses the same Colab vectors; see
+[the runner](../../../../extensions/tmt-remote/typescript/remote-client/test/emulator/README.md#native-acceptance-in-ci).
+The [contract](../../../../contracts/remote-channel-v1.md#extension-scoped-sealed-document-client)
+owns the proof boundary; normal crate tests do not start emulators.
