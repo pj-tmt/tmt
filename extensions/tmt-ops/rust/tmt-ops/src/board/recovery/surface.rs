@@ -56,9 +56,9 @@ fn captured(ms: u64) -> String {
 }
 fn mode(layout_only: bool) -> &'static str {
     if layout_only {
-        "Layout only — layout/shells; no agents or recorded TMT commands"
+        "Layout only — windows and shells; no agents or commands"
     } else {
-        "Full — eligible ordinary resume and recorded TMT commands"
+        "Full — layout, resume agents and rerun recorded tmt commands"
     }
 }
 impl Controller {
@@ -172,7 +172,6 @@ impl Controller {
         }
         match self.screen {
             Screen::List => {
-                notes.push("Named saves preserve the last published capture. Save does not capture the current layout.".into());
                 if self.entries.iter().filter(|e| e.name.is_some()).count() >= 16 {
                     notes.push("16 named snapshots retained; explicitly delete a named save before saving another.".into());
                 }
@@ -187,7 +186,7 @@ impl Controller {
             }
             Screen::Save => {
                 notes.push(
-                    "Save latest capture — copies published bytes, not a fresh capture.".into(),
+                    "Save latest capture — keeps the latest automatic snapshot under a name; it does not take a new capture.".into(),
                 );
                 if let Some(e) = self.entries.iter().find(|e| e.name.is_none()) {
                     notes.push(format!(
@@ -226,9 +225,9 @@ impl Controller {
                             matches!(pane.action.as_str(), "resumable" | "relaunch_command")
                         })
                         .count();
-                    notes.push(if self.layout_only { "Agent/recorded-command launches: 0 (layout only).".into() }
+                    notes.push(if self.layout_only { "No agents or commands will start (layout only).".into() }
                         else { format!("Full-mode pane candidates: {candidates}; existing-session skips and live rechecks still apply.") });
-                    notes.push("Only the original socket. Existing sessions skip. Live checks can change actions. No overwrite, fresh conversation, retry or rollback.".into());
+                    notes.push("Restores only into the original tmux server. Existing sessions are skipped; nothing is overwritten, retried or rolled back. Live changes can still change what happens.".into());
                     if self.screen == Screen::Preview {
                         notes.extend(
                             self.details
@@ -238,13 +237,13 @@ impl Controller {
                                 .cloned(),
                         );
                     } else {
-                        notes.push("Confirm binds this exact snapshot digest. Review the full preview before confirming.".into());
+                        notes.push("Confirm restores exactly the snapshot shown. If it has changed, the restore is refused.".into());
                     }
                 }
             }
             Screen::Results => {
                 if let Some(p) = &self.preview {
-                    notes.push(format!("Current read-only inspection: {} · digest {}. Original restore uncertainty is unchanged.",p.counts(),p.digest));
+                    notes.push(format!("Showing {} as it is now (digest {}). The earlier restore result is unchanged.",p.counts(),p.digest));
                 }
                 if let Some(r) = &self.restored {
                     notes.push(format!(
@@ -268,7 +267,7 @@ impl Controller {
                         safe(unknown)
                     ));
                 }
-                notes.push("Layout mappings confirm creation. Started/relaunched means startup requested, not conversation confirmed. Needs-you outcomes retain Core's explanation; uncertainty is not replay permission.".into());
+                notes.push("Started means the agent was asked to start; check it before relying on it. Items marked Needs you say what to do. Nothing is retried automatically.".into());
             }
         }
         if matches!(self.screen, Screen::Preview | Screen::Results)
