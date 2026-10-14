@@ -703,6 +703,23 @@ fn app_snapshot_action_is_agents_list_only_in_dispatch_help_and_menu_table() {
 }
 
 #[test]
+fn help_has_one_effective_snapshot_binding_and_no_retired_reservation() {
+    use crate::board::shell::OpsTab;
+    let mut app = crate::board::app::workspace::tests::board();
+    for (tab, expected) in [
+        (OpsTab::Agents, 1),
+        (OpsTab::Overview, 0),
+        (OpsTab::Digest, 0),
+    ] {
+        app.shell.tab = tab;
+        let value = crate::board::help::model(&app).value().to_string();
+        assert_eq!(value.matches("\"keys\":\"w\"").count(), expected);
+        assert!(!value.contains("reserved for Workspace snapshots"));
+        assert!(!value.contains("no list binding"));
+    }
+}
+
+#[test]
 fn production_lane_reads_public_snapshot_and_routes_typed_completion_to_the_modal() {
     use crate::board::{BoardEvent, app::Effect, lane, shell::OpsTab};
     let f = Fixture::new();
