@@ -195,7 +195,7 @@ impl Review {
     pub fn render(&self, frame: &mut Frame, app: &App, body: Rect) {
         self.invalidate();
         let look = app.look();
-        let modal = Modal {
+        let mut modal = Modal {
             title: "Review timer · nothing written yet".into(),
             placement: if body.height < 8 {
                 Placement::Body
@@ -204,6 +204,9 @@ impl Review {
             },
         };
         let areas = modal.areas(body, [80, 22], true, true);
+        if areas.content.height == 0 {
+            modal.title = "Enlarge terminal · Esc closes timer review".into();
+        }
         modal.paint(areas, frame.buffer_mut(), &look.theme, look.depth);
         let lines: Vec<_> = self
             .lines()
@@ -455,6 +458,14 @@ mod tests {
         terminal
             .draw(|frame| crate::board::view::render(frame, &app))
             .unwrap();
+        let text = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(text.contains("Enlarge terminal"));
         let enter = Event::Key(ratatui::crossterm::event::KeyEvent::new(
             KeyCode::Enter,
             KeyModifiers::NONE,

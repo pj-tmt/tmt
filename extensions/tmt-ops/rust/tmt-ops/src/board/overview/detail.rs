@@ -28,11 +28,14 @@ impl Details {
     }
     pub fn render(&self, frame: &mut Frame, app: &App, body: Rect) {
         let look = app.look();
-        let modal = Modal {
+        let mut modal = Modal {
             title: "Agent details · observed values at open".into(),
             placement: Placement::Body,
         };
         let areas = modal.areas(body, [body.width, body.height], true, true);
+        if areas.content.height == 0 {
+            modal.title = "Enlarge terminal · Esc closes agent details".into();
+        }
         modal.paint(areas, frame.buffer_mut(), &look.theme, look.depth);
         let retained = app
             .workspace_snapshot()
@@ -277,5 +280,31 @@ mod tests {
         let lines = &app.monitor_details.as_ref().unwrap().lines;
         assert!(lines.iter().any(|line| line == "Cron: CRON unknown"));
         assert!(lines.iter().all(|line| !line.contains('◷')));
+    }
+    #[test]
+    fn a_zero_content_viewport_explains_how_to_read_and_close_details() {
+        let mut app = crate::board::app::workspace::tests::board();
+        app.shell.tab = OpsTab::Overview;
+        assert_eq!(app.overview_details(), Effect::None);
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(60, 8)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        let text = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(text.contains("Enlarge terminal"));
+        assert!(text.contains("Esc closes agent details"));
+        let escape = Event::Key(ratatui::crossterm::event::KeyEvent::new(
+            KeyCode::Esc,
+            KeyModifiers::NONE,
+        ));
+        assert_eq!(app.monitor_details_event(&escape), Some(Effect::None));
+        assert!(app.monitor_details.is_none());
     }
 }
