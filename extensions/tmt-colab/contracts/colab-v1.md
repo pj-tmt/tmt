@@ -2085,7 +2085,9 @@ selected controls and primary actions use the existing link color role.
 The group owns one footer and visible recipient chips using BrowserChips. Asking
 agent names resolve through the existing directory: one default chip for each
 uniquely resolved identity, in tab order, deduplicated within the cap of eight.
-Removing a default is intentional and directory refresh never restores it. The
+Until initial recipient discovery resolves and default chips are committed, Send is pending
+and cannot publish; answer drafts remain editable. Resolved-empty or failed discovery retains
+comment-only Send. Removing a default is intentional and directory refresh never restores it. The
 same directory/UUID recipient policy rechecks explicit chips; absent or ambiguous
 asking names add no recipient. Empty chips allow comment-only Send and show
 `Stays on the page, no one is asked`; at eight, Add is disabled with `At most 8`.

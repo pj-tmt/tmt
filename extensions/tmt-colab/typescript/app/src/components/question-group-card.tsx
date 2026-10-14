@@ -84,8 +84,11 @@ export function QuestionGroupCard({
   connectionPresentation?: ComposerConnectionPresentation;
 }) {
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
-  const [recipients, setRecipients] = useState<AgentDestination[]>([]);
-  const editedRecipients = useRef(false);
+  const [recipientState, setRecipientState] = useState<{
+    recipients: AgentDestination[];
+    initialized: boolean;
+  }>({ recipients: [], initialized: false });
+  const recipients = recipientState.recipients;
   const [query, setQuery] = useState('');
   const [sending, setSending] = useState<readonly string[]>([]);
   const busy = useRef(false);
@@ -96,9 +99,9 @@ export function QuestionGroupCard({
   const modalPresence = useNotificationModalPresence();
   const { directory, retry } = useAgentDirectory(ask);
   const agents = directory.state === 'ready' ? directory.agents : undefined;
-  useEffect(() => {
-    if (editedRecipients.current || !agents) return;
-    editedRecipients.current = true;
+  // Commit the defaults in the same render as the resolved directory: an effect
+  // would briefly expose an enabled comment-only Send before its chips appear.
+  if (!recipientState.initialized && agents) {
     const defaults: AgentDestination[] = [];
     for (const question of members) {
       const matches = agents.filter((agent) => agent.agentName === question.agent);
@@ -108,8 +111,9 @@ export function QuestionGroupCard({
         defaults.push(agent);
       if (defaults.length === MESSAGE_RECIPIENT_LIMIT) break;
     }
-    setRecipients(defaults);
-  }, [agents, members]);
+    setRecipientState({ recipients: defaults, initialized: true });
+  }
+  const resolvingDefaults = !!ask && !recipientState.initialized && directory.state === 'loading';
   useEffect(() => {
     setDrafts((previous) => {
       const verified = members.filter((question) => {
@@ -179,7 +183,15 @@ export function QuestionGroupCard({
         : `Send ${sendingCount} ${sendingCount === 1 ? 'answer' : 'answers'}`;
   const disabled = blocked || readOnly || !!sending.length || !discussion;
   async function send() {
-    if (busy.current || disabled || !decision.allowed || !pending.length || !attached) return;
+    if (
+      busy.current ||
+      disabled ||
+      resolvingDefaults ||
+      !decision.allowed ||
+      !pending.length ||
+      !attached
+    )
+      return;
     const answers: BatchAnswer[] = [];
     for (const row of pending) {
       const selector = selectors.get(row.question.id);
@@ -410,13 +422,13 @@ export function QuestionGroupCard({
               onQueryChange={setQuery}
               addLabel="Add recipient"
               searchLabel="Find an agent"
-              emptyText="No agents match."
+              emptyText={resolvingDefaults ? '' : 'No agents match.'}
               maxItems={MESSAGE_RECIPIENT_LIMIT}
               limitText="At most 8"
               statusText={
                 directory.state === 'failed'
                   ? text.messageAgentsUnavailable
-                  : directory.state === 'loading' && ask
+                  : directory.state === 'loading' && ask && !resolvingDefaults
                     ? text.messageAgentsChecking
                     : undefined
               }
@@ -432,14 +444,18 @@ export function QuestionGroupCard({
                   ) ?? [];
                 if (matches.length !== 1 || recipients.some((agent) => recipientId(agent) === id))
                   return;
-                editedRecipients.current = true;
-                setRecipients((previous) => [...previous, matches[0]]);
+                setRecipientState((previous) => ({
+                  recipients: [...previous.recipients, matches[0]],
+                  initialized: true,
+                }));
                 setQuery('');
               }}
               onRemove={(id, event) => {
                 if (!event.isTrusted || disabled) return;
-                editedRecipients.current = true;
-                setRecipients((previous) => previous.filter((agent) => recipientId(agent) !== id));
+                setRecipientState((previous) => ({
+                  recipients: previous.recipients.filter((agent) => recipientId(agent) !== id),
+                  initialized: true,
+                }));
               }}
             />
             <BrowserAction
@@ -447,9 +463,10 @@ export function QuestionGroupCard({
               visibleLabel={sendLabel}
               type="button"
               variant="primary"
-              busy={!!sending.length}
+              busy={!!sending.length || resolvingDefaults}
               disabled={
                 disabled ||
+                resolvingDefaults ||
                 !attached ||
                 !pending.length ||
                 !decision.allowed ||
@@ -466,11 +483,13 @@ export function QuestionGroupCard({
             </p>
           ) : (
             <p className="annotation-hint" role="status">
-              {decision.unavailable.length
-                ? text.messageRecipientUnavailable(decision.unavailable[0])
-                : !recipients.length
-                  ? 'Stays on the page, no one is asked'
-                  : undefined}
+              {resolvingDefaults
+                ? text.messageAgentsChecking
+                : decision.unavailable.length
+                  ? text.messageRecipientUnavailable(decision.unavailable[0])
+                  : !recipients.length
+                    ? 'Stays on the page, no one is asked'
+                    : undefined}
             </p>
           )}
           {!connectionPresentation && directory.state === 'failed' && (
