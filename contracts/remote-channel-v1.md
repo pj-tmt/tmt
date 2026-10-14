@@ -1994,10 +1994,11 @@ access is the browser sealed-document transport described below.
 ### Native sealed-document carrier
 
 **Status:** the neutral `tmt-extension-objects::sync` DTOs and Remote's injected adapter
-extend the existing object channel. Serve does not register a production provider factory
-in this slice. No factory means typed `REMOTE_STATE_UNAVAILABLE`, with no provider I/O.
-The native provider and project owner are a separate dependency (#2953); production
-registration follows its merge. Colab's accepting adapter (PR-B) must ship before Remote
+extend the existing object channel. Serve registers the native factory for a verified selected
+Firestore project, an existing active sign-in and enabled release declarations. Missing or
+unsafe inputs leave native activation typed `REMOTE_STATE_UNAVAILABLE`, with no provider I/O
+or project fallback; the ordinary door stays usable. v3 remains explicitly opt-in.
+Colab's accepting adapter (PR-B) must ship before Remote
 enables version 3 by default. This carrier does not implement the cloud ObjectBackend
 adapter or change LocalFs startup: accounting still opens fail-closed.
 
@@ -2161,15 +2162,19 @@ Arc<dyn for<'a> Fn(BindInput<'a>)
 Wrong-project configuration/Auth is refused before construction/provider I/O; the returned
 context must match every frozen input. Repeated binding of one space reuses its context.
 The factory captures the selected project's shared runtime/model; it does not create a
-runtime, Auth owner, budget pool or timer per consumer. The later production project owner
-obtains release declarations through InstalledDeclarations, owns Auth cancellation and a
-wakeable minute budget checkpoint even while workers idle/back off, and calls finish after
-carrier/provider joins before releasing the budget writer and Serving lease.
+runtime, Auth owner, budget pool or timer per consumer. Serve obtains exact enabled release
+declarations through InstalledDeclarations and verifies their declaration/admission digests
+without deploying. One selected-project Auth owner loads an existing sign-in; it never signs
+up implicitly. The shared wakeable minute checkpoint runs while workers idle/back off.
+Checkpoint failure fences every project binding and Auth refresh. Normal stop fences new
+work, cancels Auth and wakes the tick, closes/joins carrier/provider workers, joins the tick,
+then calls finish before releasing the budget writer and Serving lease. Early setup failure
+uses the same owned cleanup. Budget refusal performs no provider I/O or allowance reset.
 
 ### Extension-scoped sealed-document client
 
 Browser transport is shipped. Native credentials and REST effects belong to `firebase_auth`
-and `native_sync`; production native registration remains a separate slice.
+and `native_sync`; serve composes their shared project owner behind the opt-in v3 carrier.
 
 The SDK and native types define one bound client port. Provider implementations are separate
 from this pure type boundary. The browser factory `HostedAuth.sealedSync(space, guard)` binds

@@ -30,6 +30,10 @@ impl CoreClient {
         }
         Ok(Self { executable })
     }
+    /// Installed extension discovery uses this same supplied public executable.
+    pub fn executable(&self) -> &std::path::Path {
+        &self.executable
+    }
     pub fn capabilities(&self, stop: &AtomicBool) -> Result<Value, RemoteError> {
         self.call(
             &["api"],

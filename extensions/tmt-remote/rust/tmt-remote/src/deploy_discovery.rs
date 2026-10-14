@@ -191,6 +191,29 @@ pub fn discover(
         hosting,
     })
 }
+/// Capture the exact release declaration without deploying or fetching Hosting.
+/// Reuse the envelope parser and backend/admission-artifact validation used by
+/// deployment; this does not supply provider or owner authority.
+pub fn sealed_declaration(name: &str, reply: &[u8]) -> Result<(Vec<u8>, String), DiscoveryRefusal> {
+    let captured = parse(name, reply)?;
+    deploy_plan::compose(
+        Target {
+            backend: CloudBackend::Firestore,
+            physical_ttl: false,
+        },
+        &[Enabled {
+            name,
+            supplied: Some(Supplied {
+                declaration: &captured.declaration,
+                artifact: &captured.artifact,
+            }),
+        }],
+    )
+    .map_err(DiscoveryRefusal::Plan)?;
+    let digest = deploy_plan::sha256_hex(&captured.declaration);
+    Ok((captured.declaration, digest))
+}
+
 fn parse(name: &str, bytes: &[u8]) -> Result<Bytes, DiscoveryRefusal> {
     if bytes.len() > limits::DEPLOY_DECLARATION_REPLY_BYTES {
         return Err(DiscoveryRefusal::Envelope);

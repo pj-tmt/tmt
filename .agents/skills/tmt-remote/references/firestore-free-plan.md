@@ -37,13 +37,14 @@ page head, and `ext.getAfter` on the head for the create-only sequence) plus, fo
 other N-1 listeners, the delivered document and their lookups again (2). The guard uses this
 pessimistic figure; the optimistic column assumes dependents are cached.
 
-| N   | Reads per append (guard) | Appends/day (guard) | Appends/day (optimistic) | Min flush interval at 70% of 2 active h |
-| --- | ------------------------ | ------------------- | ------------------------ | --------------------------------------- |
-| 1   | 3                        | 16,666              | 16,666                   | 0.6 s                                   |
-| 2   | 6                        | 8,333               | 12,500                   | 1.2 s                                   |
-| 5   | 15                       | 3,333               | 7,142                    | 3.1 s                                   |
-| 10  | 30                       | 1,666               | 4,166                    | 6.2 s                                   |
-| 25  | 75                       | 666                 | 1,851                    | 15.5 s                                  |
+| N   | Reads per append (guard) | Appends/day (guard) | Appends/day (optimistic) | Min flush interval at 70% of 2 active h                                                                                                                                                                                                                                                                                |
+| --- | ------------------------ | ------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | 3                        | 16,666              | 16,666                   | 0.6 s                                                                                                                                                                                                                                                                                                                  |
+| 2   | 6                        | 8,333               | 12,500                   | 1.2 s                                                                                                                                                                                                                                                                                                                  |
+| 4   | 12                       | 4,166               | 8,333                    | 2.5 s; native production assumes N=W=4 when membership is unknown (`NATIVE_DEFAULT_MODEL`): writer share 1,041, warning 728, refusal 936. This advisory guard can exhaust project quota before warning with more than four people; provider `resource-exhausted` remains the backstop (writes unknown, reads refused). |
+| 5   | 15                       | 3,333               | 7,142                    | 3.1 s                                                                                                                                                                                                                                                                                                                  |
+| 10  | 30                       | 1,666               | 4,166                    | 6.2 s                                                                                                                                                                                                                                                                                                                  |
+| 25  | 75                       | 666                 | 1,851                    | 15.5 s                                                                                                                                                                                                                                                                                                                 |
 
 The model covers one page and its appends only; the pool is project-wide, so several active pages, attachment chunks (#2165) and deletes are not in the guard, and the provider's `resource-exhausted` answer is the backstop for their sum. A page the free plan cannot host (its share is too small to allow one append, about 8,333 members with one writer, or 91 when every member writes) is refused when the model is built. Reads bind long before the 20,000 writes. Colab's 10 appends per second per device is only an
 upper bound: one device could spend the whole day in minutes, so the extension coalesces local
@@ -108,4 +109,4 @@ listeners and storage also consume the shared project budget. No per-user/per-sp
 counter companions or preparation reads are part of a sealed-document append: it
 is one write plus the existing three dependent Rules lookups. The shipped modeled
 page-share guard remains a guard, not a hint or aggregate project enforcement.
-Native polling/read costs belong to the later native slice, not this profile.
+Native polling/read costs are in [door and discovery](door-and-discovery.md#native-firestore-sign-in-and-transport); this payload profile adds none.

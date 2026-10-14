@@ -36,12 +36,12 @@ const LEASE_RELEASE_WAIT: Duration = Duration::from_secs(3);
 // Scheduling slack separates the 250 ms attempt from the old 15 s bound.
 const OBJECT_READY_OBSERVATION: Duration = Duration::from_secs(5);
 
-struct ServeObjectFixture {
+pub(super) struct ServeObjectFixture {
     root: PathBuf,
     core: PathBuf,
 }
 impl ServeObjectFixture {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         static NEXT: AtomicUsize = AtomicUsize::new(0);
         let root = PathBuf::from(format!(
             "/tmp/t2082-{}-{}",
@@ -60,7 +60,7 @@ impl ServeObjectFixture {
         .unwrap();
         Self { root, core }
     }
-    fn data(&self) -> PathBuf {
+    pub(super) fn data(&self) -> PathBuf {
         self.root.join("data")
     }
     fn socket(&self) -> UnixListener {
@@ -75,7 +75,7 @@ impl ServeObjectFixture {
         .unwrap();
         listener
     }
-    fn released(&self) {
+    pub(super) fn released(&self) {
         let layout = Layout::open(&self.data()).unwrap();
         let started = Instant::now();
         let lease = layout
@@ -98,7 +98,7 @@ impl Drop for ServeObjectFixture {
 
 /// Own the foreground thread before observing readiness; even an assertion panic
 /// cancels and joins it before the fixture may remove its files.
-struct ServeObjectRun {
+pub(super) struct ServeObjectRun {
     stop: Arc<AtomicBool>,
     thread: Option<JoinHandle<Result<(), RemoteError>>>,
     parent: UnixStream,
@@ -123,7 +123,52 @@ impl ServeObjectRun {
             parent,
         }
     }
-    fn ready(&mut self) -> Ready {
+    pub(super) fn start_native(
+        fixture: &ServeObjectFixture,
+        extensions: &'static [Extension],
+        reply: Vec<u8>,
+        ports: native_factory::NativePorts,
+    ) -> Self {
+        struct Source(Vec<u8>);
+        impl tmt_remote::deploy_discovery::DeclarationSource for Source {
+            fn declaration(
+                &mut self,
+                extension: &str,
+            ) -> Result<Option<Vec<u8>>, tmt_remote::deploy_discovery::DiscoveryRefusal>
+            {
+                assert_eq!(extension, "colab");
+                Ok(Some(self.0.clone()))
+            }
+        }
+        let (parent, worker) = UnixStream::pair().unwrap();
+        let stop = Arc::new(AtomicBool::new(false));
+        let flag = stop.clone();
+        let core = CoreClient::at(fixture.core.clone()).unwrap();
+        let thread = thread::spawn(move || {
+            let mut handoff =
+                Handoff::new(&handshake(), worker, flag.clone()).map_err(from_startup)?;
+            let result = foreground_with_native(
+                core,
+                extensions,
+                Some(0),
+                true,
+                &flag,
+                Some(&mut handoff),
+                native_factory::NativeInputs {
+                    source: &mut Source(reply),
+                    ports,
+                },
+            );
+            handoff.finish();
+            result
+        });
+        Self {
+            stop,
+            thread: Some(thread),
+            parent,
+        }
+    }
+    pub(super) fn ready(&mut self) -> Ready {
         self.ready_after(|| {})
     }
     fn ready_after(&mut self, check: impl FnOnce()) -> Ready {
@@ -140,7 +185,7 @@ impl ServeObjectRun {
             .expect("ready foreground must retain its handoff endpoint");
         ready
     }
-    fn finish(mut self) {
+    pub(super) fn finish(mut self) {
         self.stop.store(true, Ordering::SeqCst);
         self.thread.take().unwrap().join().unwrap().unwrap();
     }
@@ -158,7 +203,7 @@ impl Drop for ServeObjectRun {
     }
 }
 
-fn ordinary_page(ready: &Ready) {
+pub(super) fn ordinary_page(ready: &Ready) {
     let authority = ready
         .address
         .strip_prefix("http://")

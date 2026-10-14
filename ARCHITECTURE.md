@@ -535,10 +535,10 @@ leaf neither discovers roots nor accesses core state or provider configuration.
 
 ## Remote extension pilot
 
-`extensions/tmt-remote` builds `tmt remote`. Fixed public Core process/JSON calls use
-absolute `TMT_EXECUTABLE` via `tmt-invoke` (module reference below). Remote owns
+`extensions/tmt-remote` builds `tmt remote`. Fixed public Core JSON calls use absolute
+`TMT_EXECUTABLE` via `tmt-invoke` (reference below). Remote owns
 `<dataRoot>/remote/` through the [state leaf](#shared-extension-state-layout).
-Core delegates restart after replacement only for Remote observed running; Remote owns
+Core delegates restart for replaced Remote observed running; Remote owns
 [lifecycle admission](contracts/remote-channel-v1.md#local-cli-discovery), listener and state.
 Its archive embeds pages, CSS, SDK and wordlist, no companions/skills; [release gates](.agents/skills/tmt-release/SKILL.md).
 
@@ -551,9 +551,9 @@ and mounts owner-installed extensions. [Colab](#colab-extension) is mounted at
 `/r/<prefix>/x/colab/` and otherwise reaches Remote only through the public CLI, that SDK and
 the extension object channel (`tmt-extension-objects`), never through Remote state files.
 
-The lease-bound `object_service` owns the `objects`/`tmt-extension-objects` carrier and injected
-v3 sync. `firebase_auth` owns credentials; `native_sync` owns COUNT wakes/read budgets;
-Colab owns cursors. Neither adds Core state or a carrier.
+`object_service` owns the leased object/v3 carrier; `firebase_auth` credentials.
+Serve registers shared project Auth/runtime/factory and owns tick/joins/flush; v3 is opt-in.
+`native_sync` owns COUNT/read budgets; Colab owns cursors. No Core state or provider carrier.
 [object-backends](.agents/skills/tmt-remote/references/object-backends.md) owns channels,
 backends and quotas. Declaration, index, Rules and Hosting feed Firestore deploy.
 [Remote internals](.agents/skills/tmt-remote/references/architecture-internals.md) owns module guarantees;
