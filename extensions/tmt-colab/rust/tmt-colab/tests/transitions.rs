@@ -2983,6 +2983,21 @@ fn sharing_and_deletion_failures_roll_back_every_effect_and_allow_exact_retry() 
     let rev = revision(&f);
     let advanced = f.advance(&operation(137), rev).unwrap();
     assert!(!response_wraps(&advanced).is_empty());
+    f.store
+        .track_publication(
+            StreamScope {
+                page: PAGE,
+                epoch: 2,
+                stream: DEVICE,
+            },
+            &tmt_colab::store::publication::CloudBinding {
+                project: "fixture",
+                declaration_digest: &"a".repeat(64),
+                space: &f.key.space_id,
+                uid: "owner",
+            },
+        )
+        .unwrap();
     let rev = revision(&f);
     let before = f.counts();
     f.db().execute_batch("CREATE TRIGGER delete_failure BEFORE INSERT ON owner_operations BEGIN SELECT RAISE(ABORT,'injected'); END;").unwrap();
@@ -3002,9 +3017,22 @@ fn sharing_and_deletion_failures_roll_back_every_effect_and_allow_exact_retry() 
         )
         .unwrap();
     assert_eq!(retained, update.to_json().unwrap());
+    let pending: i64 = f
+        .db()
+        .query_row(
+            "SELECT count(*) FROM cloud_publications WHERE page=?",
+            [PAGE],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        pending, 1,
+        "failed deletion also rolls back publication metadata cleanup"
+    );
     f.db().execute_batch("DROP TRIGGER delete_failure").unwrap();
     let deleted = policy(&mut f, 138, rev, OwnerAction::Delete { page: PAGE }).unwrap();
     for table in [
+        "cloud_publications",
         "receipts",
         "checkpoints",
         "streams",

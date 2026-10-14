@@ -1460,6 +1460,19 @@ updates in that prefix has a committed checkpoint at exactly `n`, each binding
 the same update hash in its signed previous-hash field. An unpaired checkpoint
 is retained without pruning and is not selected for bootstrap. Completing the
 pair atomically prunes both covered prefixes and superseded unpinned checkpoints.
+
+The dormant native publication tracker adds a fence only for an explicitly tracked own
+stream. Its initial pending set is the current paired checkpoint plus its contiguous
+retained tail; older pruned updates are covered by that checkpoint. A stream without
+a checkpoint starts from its entire contiguous retained tail. The cut is not
+presumed published. Only exact publish acknowledgements or verified readbacks advance
+confirmation, either one consecutive update or both originals of a checkpoint cut.
+Update pruning cannot cross that confirmed prefix. The latest paired checkpoint stays
+retained while historical checkpoints may be superseded, so a new checkpoint and its
+unconfirmed tail remain publishable without storing every historical checkpoint.
+Missing bootstrap bytes or a noncontiguous tail refuses with `ResyncRequired`; a wrong
+binding, uid, hash or epoch cannot advance progress. This bounded metadata lives in the
+existing Store, copies no payloads and enables no cloud sync or serve wiring by itself.
 Retain the existing update hash/receipt ledger, pinned checkpoints and the full
 tail from `n+1` in both namespaces for chain verification and exact retries.
 Never delete another namespace's payload solely because its sequence falls in

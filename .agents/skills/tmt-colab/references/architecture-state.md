@@ -329,7 +329,7 @@ is added.
   receipts, checkpoints), 2 owner authority (membership log, recipients, devices, epoch
   secrets, wraps, `owner_operations`), 3 `device_registrations`, 4 `baselines`,
   5 nullable checked server-observed content time on `pages`, 6 nullable original content
-  publication scope on `owner_operations`. Migration leaves legacy times null and legacy
+  publication scope on `owner_operations`, 7 page labels, and 8 bounded confirmed-publication metadata. Migration leaves legacy times null and legacy
   outcomes unscoped without backfill. Epoch
   secrets are local key material, not an encrypted-at-rest guarantee.
 - `Store::open` creates and migrates. `Store::read` and `Store::write_existing` open only
@@ -346,7 +346,16 @@ is added.
 - Receipts are create-only: an exact retry returns the stored receipt, a conflicting
   envelope freezes its stream. Checkpoint publication prunes a shared prefix only when
   every namespace with updates there has a checkpoint at the same sequence/hash; pinned
-  checkpoints and receipts survive. Capacity returns `Fault::Capacity`; nothing is evicted.
+  checkpoints and receipt identities survive. Dormant `store/publication.rs` tracks
+  a stable verified binding and own stream without copying payloads. Initial tracking
+  starts from the current paired checkpoint and contiguous retained tail; its cut
+  is pending, never presumed published. Exact acknowledgements/readbacks advance
+  progress; protected update pruning stops there. The newest paired checkpoint
+  remains available while historical pairs may be superseded. A wrong binding,
+  uid, hash, sequence or epoch cannot advance progress, and missing history refuses.
+  Metadata counts toward page capacity, is bounded by the namespace budget, and
+  is deleted with page data. No serve call enables this tracking or cloud sync yet.
+  Capacity returns `Fault::Capacity`; nothing is evicted.
 - The shared create-only append samples the injected server clock only for new
   content, in the same transaction as its receipt. Page time is nondecreasing; exact
   replay, own/discussion/Ask updates, checkpoints and policy/epoch changes do not
