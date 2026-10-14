@@ -49,6 +49,16 @@ fn until_with(what: &str, ready: &mut dyn FnMut() -> bool, context: impl Fn() ->
     }
 }
 
+/// How many documents of a collection are in the cloud for this page and mention `needle`: a
+/// device's originals in the log, or the device chains in the authority records.
+fn in_cloud(emulator: &Emulator, page: &str, collection: &str, needle: &str) -> usize {
+    emulator
+        .ids(collection)
+        .iter()
+        .filter(|id| id.contains(page) && id.contains(needle))
+        .count()
+}
+
 /// The public remote reference (`tmt remote add`) for a demo project, with its checksum.
 fn remote_link(project: &str) -> String {
     let body = format!(
@@ -162,6 +172,16 @@ struct Running {
 impl Running {
     fn start(&mut self) {
         self.door = Some(self.world.door());
+        self.serve = Some(self.world.serve());
+    }
+    /// Stop the Colab serve and start it again, as a person restarts it. Its first read finds
+    /// every device the cloud holds, whichever home published first: a device that appears
+    /// later without a sharing change is found by the chain recheck instead, which the worker
+    /// and puller tests cover (it waits up to a minute, which a proof should not).
+    fn restart(&mut self) {
+        if let Some(serve) = self.serve.take() {
+            serve.stop(&self.world, "tmt-colab");
+        }
         self.serve = Some(self.world.serve());
     }
     fn socket(&self) -> std::path::PathBuf {
@@ -311,9 +331,25 @@ fn owner_homes_on_one_key_converge_in_both_directions() {
     let (mut peer_a, mut peer_b) = (first.peer(DEVICE_A), second.peer(DEVICE_B));
     peer_a.hello(first.facts.revision);
     peer_b.hello(second.facts.revision);
+    // Each home writes and publishes before it has read the other's device chain.
+    let (sent_a, last_a) = append(&mut peer_a, &first.facts, DEVICE_A, SEED_A, 1, 3, [0; 32]);
+    let (sent_b, last_b) = append(&mut peer_b, &second.facts, DEVICE_B, SEED_B, 1, 2, [0; 32]);
+    until(
+        "the cloud holds both homes' updates and device chains",
+        || {
+            in_cloud(&emulator, &page, "log", DEVICE_A) == 3
+                && in_cloud(&emulator, &page, "log", DEVICE_B) == 2
+                && in_cloud(&emulator, &page, "authority", "_chain_") >= 2
+        },
+    );
+    first.assert_emulator_routing();
+    second.assert_emulator_routing();
+    first.restart();
+    second.restart();
+    let (mut peer_a, mut peer_b) = (first.peer(DEVICE_A), second.peer(DEVICE_B));
+    peer_a.hello(first.facts.revision);
+    peer_b.hello(second.facts.revision);
     peer_b.subscribe();
-
-    let (sent_a, _) = append(&mut peer_a, &first.facts, DEVICE_A, SEED_A, 1, 3, [0; 32]);
     until_with(
         "the second home holds the first home's updates",
         &mut || second.head(DEVICE_A) == Some(3),
@@ -335,9 +371,6 @@ fn owner_homes_on_one_key_converge_in_both_directions() {
             Some(bytes)
         );
     }
-    first.assert_emulator_routing();
-    second.assert_emulator_routing();
-    let (sent_b, _) = append(&mut peer_b, &second.facts, DEVICE_B, SEED_B, 1, 2, [0; 32]);
     until("the first home holds the second home's updates", || {
         first.head(DEVICE_B) == Some(2)
     });
@@ -347,11 +380,37 @@ fn owner_homes_on_one_key_converge_in_both_directions() {
             Some(bytes)
         );
     }
-    // What a home took from the cloud was announced to the browsers connected to it.
-    for seq in 1..=3u64 {
-        let frame = peer_b.next_update(DEVICE_A);
-        assert_eq!(frame["seq"], seq.to_string());
+    // With every device known, later updates cross while both serves keep running.
+    let (more_a, _) = append(&mut peer_a, &first.facts, DEVICE_A, SEED_A, 4, 2, last_a);
+    let (more_b, _) = append(&mut peer_b, &second.facts, DEVICE_B, SEED_B, 3, 1, last_b);
+    until(
+        "the second home holds the first home's later updates",
+        || second.head(DEVICE_A) == Some(5),
+    );
+    until(
+        "the first home holds the second home's later update",
+        || first.head(DEVICE_B) == Some(3),
+    );
+    for (offset, bytes) in more_a.iter().enumerate() {
+        assert_eq!(
+            second.payload(DEVICE_A, offset as u64 + 4).as_ref(),
+            Some(bytes)
+        );
     }
+    // What a home took from the cloud while a browser was connected was announced to it: the
+    // updates before were either announced or handed over by the catch-up, whichever the
+    // browser's subscription met first.
+    let mut announced = Vec::new();
+    loop {
+        let frame = peer_b.next_update(DEVICE_A);
+        let seq: u64 = frame["seq"].as_str().unwrap().parse().unwrap();
+        announced.push(seq);
+        if seq == 5 {
+            break;
+        }
+    }
+    assert!(announced.ends_with(&[4, 5]), "{announced:?}");
+    assert_eq!(first.payload(DEVICE_B, 3).as_ref(), Some(&more_b[0]));
     println!("cloud collections: {:?}", emulator.collections());
     first.stop();
     second.stop();
@@ -476,7 +535,9 @@ fn a_member_converges_inside_its_grant_and_nothing_forged_or_outside_it_does() {
     };
     first.start();
     second.start();
-    let facts = &first.facts;
+    // The same Store facts, read apart, so the homes can be restarted while they are used.
+    let facts = Facts::read(&first.world, &page);
+    let facts = &facts;
     let (mut peer_a, mut peer_b) = (first.peer(DEVICE_A), second.peer(DEVICE_B));
     peer_a.hello(facts.revision);
     peer_b.hello(second.facts.revision);
@@ -533,6 +594,26 @@ fn a_member_converges_inside_its_grant_and_nothing_forged_or_outside_it_does() {
             assert_eq!(emulator.put(&document, None), 200);
         }
     }
+    // The owner's own device writes once, and the cloud holds it with its chain. Then both
+    // homes are restarted, and their first read finds every device: the owner's, the members'
+    // and the wrong ones.
+    let (sent_first, last_first) = append(&mut peer_a, facts, DEVICE_A, SEED_A, 1, 1, [0; 32]);
+    until(
+        "the cloud holds the owner's update and every device chain",
+        || {
+            in_cloud(&emulator, &page, "log", DEVICE_A) == 1
+                && in_cloud(&emulator, &page, "authority", "_chain_") >= 6
+        },
+    );
+    first.restart();
+    second.restart();
+    let (mut peer_a, mut peer_b) = (first.peer(DEVICE_A), second.peer(DEVICE_B));
+    peer_a.hello(facts.revision);
+    peer_b.hello(second.facts.revision);
+    until("the second home holds the owner's first update", || {
+        second.head(DEVICE_A) == Some(1)
+    });
+    assert_eq!(second.payload(DEVICE_A, 1).as_ref(), Some(&sent_first[0]));
     // A member's own writes go through Rules as that member. A record is routed to the page's
     // epoch 1 whatever epoch its signed header says.
     let write = |who: &emulator::Identity,
@@ -651,16 +732,20 @@ fn a_member_converges_inside_its_grant_and_nothing_forged_or_outside_it_does() {
         assert_eq!(lines_with(home, "one writer"), 4, "{}", home.said());
     }
     // The owner's own devices are not disturbed: a later update still crosses.
-    let (sent, _) = append(&mut peer_a, &first.facts, DEVICE_A, SEED_A, 1, 1, [0; 32]);
+    let (sent, _) = append(
+        &mut peer_a,
+        &first.facts,
+        DEVICE_A,
+        SEED_A,
+        2,
+        1,
+        last_first,
+    );
     until_with(
         "the owner's update crosses after the refusals",
-        &mut || second.head(DEVICE_A) == Some(1),
+        &mut || second.head(DEVICE_A) == Some(2),
         || {
-            let in_cloud = emulator
-                .ids("log")
-                .iter()
-                .filter(|id| id.contains(&page) && id.contains(DEVICE_A))
-                .count();
+            let in_cloud = in_cloud(&emulator, &page, "log", DEVICE_A);
             format!(
                 "the first home holds {:?} and the cloud {in_cloud} of its originals\nfirst:\n{}\nsecond:\n{}",
                 first.head(DEVICE_A),
@@ -669,7 +754,7 @@ fn a_member_converges_inside_its_grant_and_nothing_forged_or_outside_it_does() {
             )
         },
     );
-    assert_eq!(second.payload(DEVICE_A, 1).as_ref(), Some(&sent[0]));
+    assert_eq!(second.payload(DEVICE_A, 2).as_ref(), Some(&sent[0]));
     let _ = &mut peer_b;
     first.stop();
     second.stop();
