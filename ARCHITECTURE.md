@@ -528,12 +528,12 @@ leaf neither discovers roots nor accesses core state or provider configuration.
 
 ## Remote extension pilot
 
-`extensions/tmt-remote` builds `tmt remote`. It reaches Core only through fixed public
-process/JSON calls via absolute `TMT_EXECUTABLE` and `tmt-invoke`; the module reference below
-lists them. Remote owns `<dataRoot>/remote/` through the [shared state leaf](#shared-extension-state-layout).
-Core delegates post-replacement restart only for a prior running observation; Remote owns
-[lifecycle admission](contracts/remote-channel-v1.md#local-cli-discovery), listener and state. Its archive embeds
-pages, CSS, SDK and wordlist, with no companions or skills; [release gates](.agents/skills/tmt-release/SKILL.md) stay separate.
+`extensions/tmt-remote` builds `tmt remote`. Fixed public Core process/JSON calls use
+absolute `TMT_EXECUTABLE` via `tmt-invoke` (module reference below). Remote owns
+`<dataRoot>/remote/` through the [state leaf](#shared-extension-state-layout).
+Core delegates restart after replacement only for Remote observed running; Remote owns
+[lifecycle admission](contracts/remote-channel-v1.md#local-cli-discovery), listener and state.
+Its archive embeds pages, CSS, SDK and wordlist, no companions/skills; [release gates](.agents/skills/tmt-release/SKILL.md).
 
 [`contracts/remote-channel-v1.md`](contracts/remote-channel-v1.md) owns the wire, pairing,
 sessions (reattach, caps, held work), operations, settings authority, mounts, serve lifecycle,
