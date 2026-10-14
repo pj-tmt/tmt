@@ -174,7 +174,7 @@ Optional Hosting capture uses the fixed `hosting-bundle --json` command after de
 validation and before provider setup, with a separate bounded stream and waited child cleanup.
 Discovery pairs each admitted raw declaration with its validated bundle; `hosting` does not parse
 those bytes. It composes their bounded file set and deterministic gzip/ServingConfig, including the
-public declaration file owned by the [contract](../../../../contracts/remote-channel-v1.md#proposal-firestore-auth-and-rules),
+public declaration file owned by the [contract](../../../../contracts/remote-channel-v1.md#proposal-extension-backend-declarations),
 and names captured site/web-app creation and foreign replacement in the same frozen envelope.
 The contract owns its schema, bounds, route allow-list and non-atomic publication order.
 The real port inventories Hosting and executes the frozen steps through the same deploy runner.
