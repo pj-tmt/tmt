@@ -64,6 +64,8 @@ struct Session {
     outgoing: std::collections::VecDeque<outgoing::Entry>,
     before_send: String,
     agent_mark: String,
+    authored_roles: BTreeMap<usize, Role>,
+    compact_separators: std::collections::BTreeSet<usize>,
 }
 
 impl Default for Session {
@@ -78,6 +80,8 @@ impl Default for Session {
             outgoing: Default::default(),
             before_send: String::new(),
             agent_mark: String::new(),
+            authored_roles: Default::default(),
+            compact_separators: Default::default(),
         }
     }
 }
@@ -143,10 +147,28 @@ impl Session {
             .as_ref()
             .is_none_or(|rendered| rendered.width != width || rendered.look != look);
         if changed {
+            let mut mapped = markdown::render_mapped(&self.text, width, look);
+            let mut lines = Vec::with_capacity(mapped.lines.len());
+            let mut sources = Vec::with_capacity(mapped.sources.len());
+            for (mut line, source) in mapped.lines.into_iter().zip(mapped.sources) {
+                if line.width() == 0 && self.compact_separators.contains(&source) {
+                    continue;
+                }
+                if let Some(role) = self.authored_roles.get(&source) {
+                    let style = look.role(*role);
+                    line.style = style;
+                    for span in &mut line.spans {
+                        span.style = span.style.patch(style);
+                    }
+                }
+                lines.push(line);
+                sources.push(source);
+            }
+            mapped = Mapped { lines, sources };
             self.rendered = Some(Rendered {
                 width,
                 look,
-                mapped: markdown::render_mapped(&self.text, width, look),
+                mapped,
             });
         }
         changed
@@ -316,6 +338,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
     let session = state.sessions.entry(identity).or_default();
     session.update(reply);
     session.agent_observed(
+        row["name"].as_str().unwrap_or("unknown agent"),
         row["state"].as_str().unwrap_or("unknown"),
         app.loading()
             || app
@@ -399,6 +422,29 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
         };
         Line::styled(text, look.role(role))
     };
+    let runtime_known = runtime != "–" || model != "–";
+    let state_text = format!(
+        "{} · {} · {role}",
+        sanitize(row["state"].as_str().unwrap_or("unknown")),
+        sanitize(&squad)
+    );
+    let state_text = if !full && !runtime_known {
+        super::view::fit(
+            &state_text,
+            usize::from(area.width).saturating_sub(timer_text.width()),
+        )
+    } else {
+        state_text
+    };
+    let state_width = state_text.width();
+    let mut state_spans = vec![Span::styled(state_text, look.role(Role::Muted))];
+    if !full && !runtime_known {
+        let used = state_spans.iter().map(Span::width).sum::<usize>();
+        state_spans.push(Span::raw(" ".repeat(
+            usize::from(area.width).saturating_sub(used + timer_text.width()),
+        )));
+        state_spans.push(Span::styled(timer_text.clone(), look.role(Role::Muted)));
+    }
     let mut header = vec![
         rule(
             format!(
@@ -411,15 +457,11 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
             ),
             Role::Accent,
         ),
-        Line::styled(
-            format!(
-                "{} · {} · {role}",
-                sanitize(row["state"].as_str().unwrap_or("unknown")),
-                sanitize(&squad)
-            ),
-            look.role(Role::Muted),
-        ),
-        Line::from(vec![
+        Line::from(state_spans),
+    ];
+    let runtime_row = runtime_known.then_some(header.len());
+    if runtime_known {
+        header.push(Line::from(vec![
             Span::styled(runtime_text.clone(), look.role(Role::Accent)),
             Span::styled(
                 if full {
@@ -429,8 +471,9 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 },
                 look.role(Role::Muted),
             ),
-        ]),
-    ];
+        ]));
+    }
+    let chip_row = (full || !chips.is_empty()).then_some(header.len());
     if full || !chips.is_empty() {
         let mut spans = vec![Span::styled(prefix.clone(), look.role(Role::Muted))];
         spans.extend(
@@ -467,15 +510,25 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
             .find(|(_, action)| action.verb == crate::action::Verb::Jump)
             .map(|(key, action)| (key.as_str(), action))
     });
-    let host = super::overview::actions::host_preview(row, app.invoker_tmux, host_action);
-    let host = if app.focus == 1 {
-        host.split_once(" · press ")
-            .map_or(host.as_str(), |(metadata, _)| metadata)
-    } else {
-        host.as_str()
+    let host = match host_action {
+        Some((key, action)) if action.verb == crate::action::Verb::Jump => {
+            let host_name = row["pane"]["location"]["host"]
+                .as_str()
+                .unwrap_or("unknown");
+            let action = if !app.invoker_tmux {
+                format!("{key} conversation")
+            } else {
+                super::overview::actions::host(row, true).map_or_else(
+                    |reason| format!("{key} unavailable: {reason}"),
+                    |_| format!("{key} host"),
+                )
+            };
+            format!("Host: {host_name} · {action}")
+        }
+        _ => super::overview::actions::host_preview(row, app.invoker_tmux, host_action),
     };
     header.push(Line::styled(
-        super::view::fit(&sanitize(host), usize::from(area.width)),
+        super::view::fit(&sanitize(&host), usize::from(area.width)),
         look.role(Role::Muted),
     ));
     if let Some(link) = link {
@@ -490,16 +543,8 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
     } else {
         "reading · End resumes follow"
     };
-    let source = session
-        .reply
-        .as_ref()
-        .and_then(|reply| reply.key.as_ref())
-        .map_or_else(
-            || "loaded history".to_owned(),
-            |key| sanitize(&key.request).chars().take(12).collect(),
-        );
     header.push(rule(
-        format!("Response · {source} · {flow}"),
+        format!("Response · {flow}"),
         if session.change != Change::Current {
             Role::Waiting
         } else {
@@ -518,11 +563,13 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
     let retained_prefix = usize::from(header_height)
         .saturating_sub(usize::from(usize::from(header_height) < header.len()));
     let controls_row = controls_row.filter(|index| *index < retained_prefix);
-    let timer_row = if full { 3 } else { 2 };
-    let retained_timer = timer_row < retained_prefix;
-    let retained_chip = !chips.is_empty()
-        && 3 < usize::from(header_height)
-            .saturating_sub(usize::from(usize::from(header_height) < header.len()));
+    let timer_row = if full {
+        chip_row
+    } else {
+        Some(runtime_row.unwrap_or(1))
+    };
+    let retained_timer = timer_row.is_some_and(|row| row < retained_prefix);
+    let retained_chip = !chips.is_empty() && chip_row.is_some_and(|row| row < retained_prefix);
     if header_height >= 2 && usize::from(header_height) < header.len() {
         let response = header.pop().unwrap();
         header.truncate(usize::from(header_height) - 1);
@@ -534,7 +581,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
         .take(usize::from(header_height))
         .enumerate()
     {
-        if retained_chip && index == 3 {
+        if retained_chip && Some(index) == chip_row {
             if super::row_chips::clock(&app.labels, row, crate::status::now_ms()).is_some() {
                 app.frame_clocks
                     .borrow_mut()
@@ -571,11 +618,15 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
             }
         }
         if retained_timer
-            && index == timer_row
+            && Some(index) == timer_row
             && (if full {
                 prefix.width()
             } else {
-                runtime_text.width()
+                if runtime_known {
+                    runtime_text.width()
+                } else {
+                    state_width
+                }
             }) + timer_text.width()
                 <= usize::from(area.width)
             && let RowTarget::Workspace(target) = &target

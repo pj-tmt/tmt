@@ -9,6 +9,7 @@ use crate::{
     core::SquadError,
     send::{Accepted, Disposition},
 };
+use tmt_cli_style::Role;
 
 const MAX_ITEMS: usize = 16;
 const MAX_BYTES: usize = 4 * 1024 * 1024;
@@ -36,10 +37,25 @@ impl Completed {
             .map_or_else(|error| error.request.is_some(), |_| true)
     }
     pub(in crate::board) fn notice(&self) -> String {
-        self.outcome.as_ref().map_or_else(
-            |error| error.message.clone(),
-            |accepted| accepted.describe(&self.what, &self.to),
-        )
+        if self.ticket.is_none() {
+            return self.outcome.as_ref().map_or_else(
+                |error| error.message.clone(),
+                |accepted| accepted.describe(&self.what, &self.to),
+            );
+        }
+        match &self.outcome {
+            Ok(accepted) => {
+                let name = crate::board::notes::sanitize(&self.to);
+                match accepted.disposition {
+                    Disposition::Sent => format!("Sent to {name}"),
+                    Disposition::Queued => format!("Queued for {name}"),
+                    Disposition::Offline => format!("{name} offline; queued"),
+                    Disposition::Held => format!("Held for {name}; digest active"),
+                    Disposition::Uncertain => "Delivery unknown; do not resend".into(),
+                }
+            }
+            Err(error) => error.message.clone(),
+        }
     }
 }
 
@@ -60,21 +76,16 @@ impl Entry {
     }
     fn status(&self) -> String {
         match &self.outcome {
-            None => "sending".into(),
+            None => "◌ sending…".into(),
             Some(Ok(accepted)) => match accepted.disposition {
-                Disposition::Sent => "delivered · written to the pane".into(),
-                Disposition::Queued => "queued · waiting in the inbox".into(),
-                Disposition::Offline => "offline · queued in the inbox".into(),
-                Disposition::Held => "held · until the digest checklist ends".into(),
-                Disposition::Uncertain => "unconfirmed, do not resend".into(),
+                Disposition::Sent => "✓ delivered".into(),
+                Disposition::Queued => "◌ queued · inbox".into(),
+                Disposition::Offline => "○ offline · queued".into(),
+                Disposition::Held => "◌ held · digest".into(),
+                Disposition::Uncertain => "? unknown · do not resend".into(),
             },
-            Some(Err(error)) => match &error.request {
-                Some(request) => format!(
-                    "{} · request {request} retained; do not resend",
-                    error.message
-                ),
-                None => format!("{} · draft retained", error.message),
-            },
+            Some(Err(error)) if error.request.is_some() => "? unknown · do not resend".into(),
+            Some(Err(_)) => "✗ not delivered – draft kept".into(),
         }
     }
 }
@@ -148,11 +159,19 @@ impl Session {
             self.refresh_outgoing();
         }
     }
-    pub(super) fn agent_observed(&mut self, state: &str, stale: bool) {
+    pub(super) fn agent_observed(&mut self, name: &str, state: &str, stale: bool) {
+        let glyph = match state {
+            "working" => "●",
+            "idle" => "◌",
+            "blocked" => "✗",
+            "waiting" => "◆",
+            _ => "?",
+        };
         let mark = format!(
-            "Agent {} · {}",
+            "{glyph} {} {}{}",
+            crate::board::notes::sanitize(name),
             crate::board::notes::sanitize(state),
-            if stale { "stale" } else { "observed" }
+            if stale { " · stale" } else { "" }
         );
         if self.agent_mark != mark {
             self.agent_mark = mark;
@@ -163,24 +182,34 @@ impl Session {
     }
     fn refresh_outgoing(&mut self) {
         let mut text = self.before_send.clone();
+        self.authored_roles.clear();
+        self.compact_separators.clear();
         for entry in &self.outgoing {
             if !text.is_empty() {
                 text.push_str("\n\n");
             }
-            text.push_str("You · now  \n");
-            text.push_str(&crate::board::notes::sanitize(&entry.ticket.text));
+            let header_line = text.bytes().filter(|byte| *byte == b'\n').count();
+            self.authored_roles.insert(header_line, Role::Muted);
+            self.compact_separators.insert(header_line + 1);
+            text.push_str("You · now\n\n");
+            text.push_str(crate::board::notes::sanitize(&entry.ticket.text).trim_end_matches('\n'));
+            let message_end = text.bytes().filter(|byte| *byte == b'\n').count();
+            self.compact_separators.insert(message_end + 1);
+            self.authored_roles.insert(message_end + 2, Role::Muted);
             text.push_str("\n\n");
-            text.push_str(&crate::board::notes::sanitize(&entry.status()));
+            text.push_str(&entry.status());
             text.push_str(" · ");
             text.push_str(&self.agent_mark);
             if let Some(reply) = &entry.reply {
                 text.push_str("\n\n");
+                let header_line = text.bytes().filter(|byte| *byte == b'\n').count();
+                self.authored_roles.insert(header_line, Role::Accent);
+                self.compact_separators.insert(header_line + 1);
                 text.push_str(&format!(
-                    "{} · reply {}\n\n",
-                    crate::board::notes::sanitize(&reply.from),
-                    entry.request().unwrap()
+                    "{} · now\n\n",
+                    crate::board::notes::sanitize(&reply.from)
                 ));
-                text.push_str(&crate::board::notes::sanitize(&reply.body));
+                text.push_str(crate::board::notes::sanitize(&reply.body).trim_end_matches('\n'));
             }
         }
         self.text = text;

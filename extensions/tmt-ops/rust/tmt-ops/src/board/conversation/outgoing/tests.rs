@@ -106,25 +106,22 @@ fn draw(app: &App) -> String {
 #[test]
 fn five_dispositions_keep_delivery_separate_from_the_acquired_agent_state() {
     for (document, label) in [
-        (
-            json!({"requestId":"sent", "status":"sent"}),
-            "delivered · written to the pane",
-        ),
+        (json!({"requestId":"sent", "status":"sent"}), "✓ delivered"),
         (
             json!({"requestId":"queued", "status":"queued"}),
-            "queued · waiting in the inbox",
+            "◌ queued · inbox",
         ),
         (
             json!({"requestId":"offline", "offline":true}),
-            "offline · queued in the inbox",
+            "○ offline · queued",
         ),
         (
             json!({"requestId":"held", "notification":"held"}),
-            "held · until the digest checklist ends",
+            "◌ held · digest",
         ),
         (
             json!({"requestId":"uncertain", "deliveryState":"uncertain"}),
-            "unconfirmed, do not resend",
+            "? unknown · do not resend",
         ),
     ] {
         let fake = Fake::new(document, false);
@@ -140,7 +137,7 @@ fn five_dispositions_keep_delivery_separate_from_the_acquired_agent_state() {
         finish(&mut app, completed);
         let painted = draw(&app);
         assert!(painted.contains(label), "{painted}");
-        assert!(painted.contains("Agent working · observed"), "{painted}");
+        assert!(painted.contains("● auth-fix working"), "{painted}");
         assert!(!painted.contains("read by") && !painted.contains("seen by"));
         assert!(!app.composer.has_drafts());
         let arguments = fake.arguments();
@@ -174,10 +171,10 @@ fn refusal_retains_the_draft_but_an_error_with_a_request_cannot_offer_resend() {
         let painted = draw(&app);
         if request.is_some() {
             assert!(app.input.as_ref().unwrap().text.is_empty());
-            assert!(painted.contains("retained; do not resend"), "{painted}");
+            assert!(painted.contains("? unknown · do not resend"), "{painted}");
         } else {
             assert_eq!(app.input.as_ref().unwrap().text, "kept unless accepted");
-            assert!(painted.contains("draft retained"), "{painted}");
+            assert!(painted.contains("draft kept"), "{painted}");
         }
         assert_eq!(
             fake.arguments()
@@ -231,7 +228,7 @@ fn only_exact_request_and_originator_bodies_attach_even_when_another_reply_is_la
     assert!(!draw(&app).contains("unrelated body"));
     app.view.as_mut().unwrap().replies.push(json!({"recipientId":"auth-fix", "requestId":"accepted", "response":"correlated answer", "submittedAtMs":100}));
     let painted = draw(&app);
-    assert!(painted.contains("reply accepted") && painted.contains("correlated answer"));
+    assert!(painted.contains("auth-fix · now") && painted.contains("correlated answer"));
     assert!(!painted.contains("unrelated body"));
     app.view.as_mut().unwrap().me_id = Some("different-sender".into());
     assert!(!draw(&app).contains("correlated answer"));
@@ -256,4 +253,47 @@ fn outgoing_retention_is_bounded_and_keeps_follow_without_a_transcript_store() {
     drop(state);
     drop(app);
     assert!(fixture().conversation.borrow().sessions.is_empty());
+}
+
+#[test]
+fn turns_have_distinct_roles_tight_status_and_short_notice_without_request_ids() {
+    let fake = Fake::new(
+        json!({"requestId":"req-private-display-id", "status":"sent"}),
+        false,
+    );
+    let mut app = fixture();
+    let completed = send(&mut app, &fake, "literal auth-fix · now");
+    finish(&mut app, completed);
+    assert_eq!(app.notice.as_deref(), Some("Sent to auth-fix"));
+    app.view.as_mut().unwrap().replies = vec![json!({
+        "recipientId":"auth-fix", "requestId":"req-private-display-id", "response":"answer body"
+    })];
+    let shown = draw(&app);
+    assert!(!shown.contains("req-private-display-id"));
+    assert!(!shown.contains("– · –"));
+    let state = app.conversation.borrow();
+    let session = state.sessions.values().next().unwrap();
+    let rendered = session.rendered.as_ref().unwrap();
+    let lines = &rendered.mapped.lines;
+    let text: Vec<_> = lines.iter().map(ToString::to_string).collect();
+    assert_eq!(
+        text,
+        [
+            "You · now",
+            "literal auth-fix · now",
+            "✓ delivered · ● auth-fix working",
+            "",
+            "auth-fix · now",
+            "answer body"
+        ]
+    );
+    assert_eq!(lines[0].style, app.look().role(Role::Muted));
+    assert_eq!(lines[2].style, app.look().role(Role::Muted));
+    assert_eq!(lines[4].style, app.look().role(Role::Accent));
+    assert_ne!(
+        lines[1].style,
+        app.look().role(Role::Accent),
+        "dynamic text has no authored turn role"
+    );
+    assert_eq!(crate::board::glyph_guard::glyph_error(&text[2]), None);
 }
