@@ -74,11 +74,6 @@ pub fn needs_you(left: &Row<'_>, right: &Row<'_>) -> Ordering {
         .then_with(|| left.id.cmp(right.id))
 }
 
-/// A disappeared target is not silently replaced by a neighbor after sorting.
-pub fn selected<'a>(id: &'a str, rows: &[Row<'_>]) -> Option<&'a str> {
-    rows.iter().any(|row| row.id == id).then_some(id)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -179,7 +174,7 @@ mod tests {
     }
 
     #[test]
-    fn cycle_default_priority_and_identity_selection() {
+    fn cycle_and_default_priority() {
         let mut a = row("a");
         let mut b = row("b");
         a.state = Some("waiting");
@@ -189,7 +184,5 @@ mod tests {
             Sort::initial(Column::Model).next(),
             Sort::initial(Column::Agent)
         );
-        assert_eq!(selected("a", &[b, a]), Some("a"));
-        assert_eq!(selected("gone", &[]), None);
     }
 }

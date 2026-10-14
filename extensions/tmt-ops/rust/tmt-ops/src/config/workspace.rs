@@ -132,6 +132,8 @@ pub enum OpsKeyScope {
 
 pub struct WorkspaceKeys {
     pub bindings: Bindings,
+    /// Provenance follows exactly the admitted default/global/host/section merge.
+    pub sources: std::collections::BTreeMap<String, String>,
     pub notices: Vec<String>,
 }
 
@@ -188,6 +190,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("t", "talk"),
             ("j", "jump"),
             ("o", "open"),
+            ("e", "monitor-details"),
             ("s", "sort"),
             ("S", "reverse-sort"),
             ("p", "pin"),
@@ -199,6 +202,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             entries.extend([("p", "pin"), ("m", "manage"), ("n", "create-squad")])
         }
         OpsKeyScope::Member => entries.extend([
+            ("e", "monitor-details"),
             ("t", "talk"),
             ("j", "jump"),
             ("o", "open"),
@@ -473,6 +477,10 @@ impl Config {
         section: Option<&Bindings>,
     ) -> Result<WorkspaceKeys, SquadError> {
         let mut effective = defaults(scope);
+        let mut sources: std::collections::BTreeMap<_, _> = effective
+            .keys()
+            .map(|key| (key.clone(), "workspace default".into()))
+            .collect();
         let mut notices = self.workspace_migration_notices();
         let mut configured = self.configured_bindings()?;
         let hosts = self.host_bindings()?;
@@ -491,10 +499,21 @@ impl Config {
                 notices.push(error.message);
                 continue;
             }
+            let source = if section.is_some_and(|section| section.contains_key(&key)) {
+                "selected squad section.bind".to_owned()
+            } else if let Some(host) =
+                host.filter(|host| hosts.get(*host).is_some_and(|keys| keys.contains_key(&key)))
+            {
+                format!("bind.{host}.{key}")
+            } else {
+                format!("bind.{key}")
+            };
+            sources.insert(key.clone(), source);
             effective.insert(key, action);
         }
         Ok(WorkspaceKeys {
             bindings: effective,
+            sources,
             notices,
         })
     }
@@ -503,6 +522,26 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn action_provenance_tracks_only_the_admitted_effective_merge() {
+        let config =
+            config("[bind]\no = \"open {pr_link}\"\n[bind.tmux]\no = \"open {review_link}\"\n");
+        let section = [("o".into(), Action::parse("open {link}").unwrap())].into();
+        let global = config
+            .workspace_keys(OpsKeyScope::Member, None, None)
+            .unwrap();
+        assert_eq!(global.sources["o"], "bind.o");
+        let host = config
+            .workspace_keys(OpsKeyScope::Member, Some("tmux"), None)
+            .unwrap();
+        assert_eq!(host.sources["o"], "bind.tmux.o");
+        let selected = config
+            .workspace_keys(OpsKeyScope::Member, Some("tmux"), Some(&section))
+            .unwrap();
+        assert_eq!(selected.sources["o"], "selected squad section.bind");
+        assert_eq!(selected.bindings["o"].text, "open {link}");
+        assert_eq!(selected.sources["j"], "workspace default");
+    }
     fn config(text: &str) -> Config {
         Config {
             path: "/fixture/ops.toml".into(),

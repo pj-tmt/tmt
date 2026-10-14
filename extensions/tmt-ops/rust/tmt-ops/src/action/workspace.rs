@@ -8,6 +8,7 @@ pub enum OpsUiAction {
     QuotaDetails,
     UsageControls,
     Inspect,
+    MonitorDetails,
     Previous,
     Next,
     Fold,
@@ -57,6 +58,13 @@ macro_rules! spec {
     };
 }
 const SPECS: &[OpsUiSpec] = &[
+    spec!(
+        MonitorDetails,
+        "monitor-details",
+        "details",
+        "read the selected agent's full monitor values",
+        12
+    ),
     spec!(
         ScrollUp,
         "scroll-up",
@@ -228,7 +236,10 @@ impl OpsUiAction {
     pub fn acts_on_member(self) -> bool {
         matches!(
             self,
-            Self::RemoveMembership | Self::MoveMembership | Self::RenameMember
+            Self::RemoveMembership
+                | Self::MoveMembership
+                | Self::RenameMember
+                | Self::MonitorDetails
         )
     }
 }

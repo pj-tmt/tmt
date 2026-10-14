@@ -445,26 +445,27 @@ fn timer_counts_use_owner_uuid_and_distinguish_unknown_zero_and_stale() {
     use crate::board::cronboard::{test_cron, test_view};
     use tmt_ops::cron::{ClockStatus, Pause};
     let mut app = fixture();
-    assert!(draw(&app, 80, 24).contains("timers –"));
+    assert!(draw(&app, 80, 24).contains("◷ unknown"));
     let mut own = test_view("alpha", "first", None);
     own.job.owner_id = Some("a".into());
-    let mut paused = own.clone();
+    let mut paused = crate::board::cronboard::test_views(2, "alpha", "first")[1].clone();
+    paused.job.owner_id = Some("a".into());
     paused.job.pause = Some(Pause {
         by: "owner".into(),
         at_ms: 1,
     });
-    let mut other = own.clone();
+    let mut other = crate::board::cronboard::test_views(3, "alpha", "first")[2].clone();
     other.job.owner_id = Some("b".into());
     app.cron.replace(Ok(test_cron(
         vec![own, paused, other],
         ClockStatus::NoClock,
     )));
-    assert!(draw(&app, 80, 24).contains("timers 1/2"));
+    assert!(draw(&app, 80, 24).contains("◷ 1/2"));
     app.cron.replace(Err("fixture acquisition failure".into()));
-    assert!(draw(&app, 80, 24).contains("timers 1/2 stale"));
+    assert!(draw(&app, 80, 24).contains("◷ unknown"));
     app.cron
         .replace(Ok(test_cron(vec![], ClockStatus::NoClock)));
-    assert!(draw(&app, 40, 24).contains("timers 0/0"));
+    assert!(draw(&app, 40, 24).contains("◷ 0/0"));
 }
 
 fn workspace_fixture() -> App {
@@ -579,7 +580,7 @@ fn switching_shell_with_a_link_keeps_response_and_effective_link_hint() {
             );
         } else {
             assert!(
-                text.contains("https://example.test/pr (press o - open $link)"),
+                text.contains("https://example.test/pr") && text.contains("(press o - open $link)"),
                 "{tab:?}: {text}"
             );
             assert!(text.contains("worker line 089"), "{tab:?}: {text}");

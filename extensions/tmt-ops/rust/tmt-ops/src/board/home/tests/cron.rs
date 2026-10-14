@@ -15,6 +15,7 @@ fn with_jobs(app: &mut App) {
     let mut job = test_view("worker", "merge queue sweep", Some(TEST_NOW + 3_600_000));
     job.job.squad = "product".into();
     job.job.room_id = ROOM.into();
+    job.job.owner_id = Some(crate::board::app::workspace::tests::MEMBER.into());
     app.cron
         .replace(Ok(test_cron(vec![job], ClockStatus::NoClock)));
 }

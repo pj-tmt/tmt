@@ -175,6 +175,7 @@ pub enum Request {
     },
     WorkspaceOperation(super::workspace::manage::Change),
     /// A cron job control, with its actor, job and viewed revision resolved.
+    CronPreview(Box<super::cronboard::preview::Task>),
     Cron(super::cronboard::CronRequest),
     /// Check that the person at the board may change a member's digest.
     DigestOpen(super::digest::Ask),
@@ -198,6 +199,7 @@ impl Request {
             Self::Status(_) => "Updating status…",
             Self::WorkspacePreferences { .. } => "Saving workspace preferences…",
             Self::WorkspaceOperation(_) => "Applying workspace operation…",
+            Self::CronPreview(_) => "Reading the timer preview…",
             Self::Cron(_) => "Updating the job…",
         }
     }
@@ -497,6 +499,8 @@ pub(super) enum Overlay {
     Settings,
     Theme,
     CronList,
+    CronReview,
+    MonitorDetails,
     ReplyReader,
     Checklist,
     QuotaDetails,
@@ -514,6 +518,8 @@ impl Overlay {
                 Self::Settings => "settings",
                 Self::Theme => "theme-picker",
                 Self::CronList => "cron-list",
+                Self::CronReview => "cron-review",
+                Self::MonitorDetails => "monitor-details",
                 Self::ReplyReader => "reply-reader",
                 Self::Checklist => "checklist",
                 Self::QuotaDetails => "quota-details",
@@ -533,6 +539,15 @@ pub struct TabHit {
     pub x: u16,
     pub width: u16,
     pub tab: usize,
+}
+
+/// A clipped timer count freezes its semantic UUID scope, not the row index.
+#[derive(Clone)]
+pub(in crate::board) struct TimerHit {
+    pub area: ratatui::layout::Rect,
+    pub target: super::workspace::OpsTarget,
+    pub room: Option<String>,
+    pub owner: Option<String>,
 }
 
 /// A currently painted screen region and its row or meter target.
@@ -577,11 +592,21 @@ impl std::fmt::Debug for Hit {
 
 #[derive(Default)]
 pub struct App {
+    /// Injected by the renderer, never inferred from NO_COLOR or stored preferences.
+    pub cron_glyphs: super::overview::cron_counts::GlyphSet,
+    pub(in crate::board) conversation_return: Option<super::shell::OpsTab>,
+    pub(in crate::board) monitor_details: Option<super::overview::detail::Details>,
+    pub(in crate::board) invoker_tmux: bool,
     pub(super) shell: super::shell::OpsShell,
     pub(super) workspace: super::workspace::OpsWorkspace,
     frame_workspace_rows: RefCell<Option<std::rc::Rc<[super::workspace::OpsTreeRow]>>>,
     pub(super) workspace_startup: Option<String>,
     pub(super) workspace_form: Option<super::workspace::manage::Draft>,
+    pub(in crate::board) cron_scope_hits: RefCell<Vec<TimerHit>>,
+    pub(in crate::board) overview_rows: RefCell<super::overview::monitor::Cache>,
+    pub(in crate::board) overview_layout: RefCell<super::overview::columns::Layout>,
+    pub(in crate::board) overview_sort_hits:
+        RefCell<Vec<(ratatui::layout::Rect, crate::config::OverviewColumn)>>,
     pub(in crate::board) workspace_action_hits:
         RefCell<Vec<(ratatui::layout::Rect, super::workspace::OpsTarget, Choice)>>,
     pub(super) timing: Option<super::timing::Ui>,
@@ -597,6 +622,8 @@ pub struct App {
     pub(super) labels: crate::labels::Supplied,
     /// The cron form being filled in on the input line, if any.
     pub(super) status_draft: Option<super::status_update::Draft>,
+    pub(in crate::board) cron_review: Option<super::cronboard::preview::Review>,
+    pub(in crate::board) cron_review_generation: u64,
     pub(super) cron_draft: Option<super::cronboard::Draft>,
     pub(super) home_counters: RefCell<super::home::counters::Counters>,
     /// Provider limits as the worker last sampled them; `None` until the first sample.
@@ -724,6 +751,7 @@ pub fn event_name(key: KeyEvent) -> Option<String> {
 impl App {
     pub fn new(squad: Option<String>) -> Self {
         Self {
+            cron_glyphs: super::overview::cron_counts::GlyphSet::from_ascii(false),
             current: squad,
             loading_since: Some(Instant::now()),
             follow: true,
@@ -885,6 +913,20 @@ impl App {
                     .filter(|_| self.current.as_deref() == Some(squad))
             })
             .filter(|meter| meter.room == rate.input.room && meter.same_policy(rate.settings))
+    }
+
+    pub(in crate::board) fn overview_member_usage(&self, id: &str) -> Option<super::rate::Reading> {
+        let now = Instant::now();
+        let view = self.view.as_ref()?;
+        view.home_rate
+            .iter()
+            .filter(|(_, rate)| rate.settings.enabled)
+            .filter_map(|(squad, _)| {
+                self.home_meter(squad)?
+                    .observation(id, crate::config::TokenWindow::HOUR, now)
+            })
+            .max_by_key(|(reading, evidence)| (*evidence, reading.span, !reading.partial))
+            .map(|(reading, _)| reading)
     }
 
     pub(super) fn home_usage(&self, squad: &str, now: Instant) -> Option<HomeUsage<'_>> {
@@ -1091,6 +1133,7 @@ impl App {
         resumes: Result<&BTreeMap<String, Value>, ()>,
         now: Instant,
     ) -> bool {
+        self.overview_rows.borrow_mut().clear();
         if self.loading() || self.current.as_deref() != Some(super::ALL) {
             return false;
         }
@@ -1199,6 +1242,7 @@ impl App {
         read: super::refresh::HistoryRead,
         now: Instant,
     ) -> bool {
+        self.overview_rows.borrow_mut().clear();
         if self.loading()
             || self.current.as_deref() != Some(&read.owner)
             || self.shown.as_deref() != Some(&read.owner)
@@ -1250,6 +1294,7 @@ impl App {
     }
 
     pub fn apply(&mut self, mut snapshot: Snapshot) {
+        self.overview_rows.borrow_mut().clear();
         if let Some(timing) = &mut self.timing {
             let accepted =
                 snapshot.view.is_ok() && (self.current.is_none() || self.current == snapshot.squad);
@@ -1822,6 +1867,15 @@ impl App {
         let Some(row) = self.selected_row().cloned() else {
             return self.say("No row is selected.");
         };
+        if action.verb == Verb::Jump && self.workspace_snapshot().is_some() {
+            if !self.invoker_tmux {
+                self.conversation_return = Some(self.shell.tab);
+                return self.workspace_action(crate::action::OpsUiAction::Inspect);
+            }
+            if let Err(reason) = super::overview::actions::host(&row, self.invoker_tmux) {
+                return self.say(reason);
+            }
+        }
         let view = self.view.as_ref().expect("a selected row has a view");
         let request = match action.verb {
             Verb::Talk | Verb::Annotate | Verb::Reply => return self.compose(action, &row),
@@ -1839,14 +1893,7 @@ impl App {
                 Some(name) => Ok(Request::Jump(name.to_owned())),
                 None => Err("This row has no member name.".to_owned()),
             },
-            Verb::Open => match action.args.first() {
-                Some(template) => template.fill(&row),
-                None => effects::default_link(&row)
-                    .map(str::to_owned)
-                    .ok_or_else(|| "This row has no link field.".to_owned()),
-            }
-            .and_then(|link| effects::web_link(&link).map(str::to_owned))
-            .map(|link| Request::Open {
+            Verb::Open => effects::resolve_open(action, &row).map(|link| Request::Open {
                 link,
                 opener: view.opener.clone(),
             }),
@@ -2046,8 +2093,11 @@ impl App {
 
     pub(super) fn row_target(&self, index: usize) -> Option<RowTarget> {
         if self.workspace_snapshot().is_some() {
-            if index == self.selected && !self.workspace_selection_visible() {
-                return None;
+            if index == self.selected {
+                return self
+                    .workspace_selected_member()
+                    .cloned()
+                    .map(RowTarget::Workspace);
             }
             let target = self.workspace_rows().get(index)?.target.clone();
             return matches!(target, super::workspace::OpsTarget::Member { .. })
@@ -2888,6 +2938,9 @@ impl App {
                 Overlay::Theme => vec![vec!["theme-picker".into(), "choices".into()]],
                 Overlay::Settings => vec![vec!["settings".into(), "content".into()]],
                 Overlay::CronList => vec![vec!["cron-list".into(), "choices".into()]],
+                Overlay::CronReview => ["cancel", "read", "apply"]
+                    .map(|s| vec!["cron-review".into(), s.into()])
+                    .into(),
                 _ => vec![],
             };
             focus.open(id, fields);
@@ -2918,7 +2971,11 @@ impl App {
     }
 
     fn overlay(&self) -> Option<Overlay> {
-        if self
+        if self.monitor_details.is_some() {
+            Some(Overlay::MonitorDetails)
+        } else if self.cron_review.is_some() {
+            Some(Overlay::CronReview)
+        } else if self
             .workspace_form
             .as_ref()
             .is_some_and(|draft| draft.shown)
@@ -3061,6 +3118,8 @@ impl App {
                 }
             }),
             Overlay::CronList => self.cron_list_event(event),
+            Overlay::CronReview => self.cron_review_event(field, event),
+            Overlay::MonitorDetails => self.monitor_details_event(event),
         }
     }
 
@@ -3134,6 +3193,14 @@ impl App {
         self.row_starts.borrow_mut().clear();
         self.tab_hits.borrow_mut().clear();
         self.workspace_action_hits.borrow_mut().clear();
+        self.overview_sort_hits.borrow_mut().clear();
+        self.cron_scope_hits.borrow_mut().clear();
+        if let Some(details) = &self.monitor_details {
+            details.invalidate();
+        }
+        if let Some(review) = &self.cron_review {
+            review.invalidate();
+        }
         self.chip_hits.borrow_mut().clear();
         if let Some(details) = &self.quota_details {
             details.borrow_mut().invalidate();
@@ -3338,6 +3405,33 @@ impl App {
             return effect;
         }
         if !self.loading() && event.kind == MouseEventKind::Down(MouseButton::Left) {
+            let timer = self
+                .cron_scope_hits
+                .borrow()
+                .iter()
+                .find(|hit| hit.area.contains((event.column, event.row).into()))
+                .cloned();
+            if let Some(hit) = timer {
+                if self
+                    .workspace_snapshot()
+                    .is_none_or(|snapshot| !snapshot.roster.contains(&hit.target))
+                {
+                    return self.say("The painted timer target is no longer observed.");
+                }
+                self.workspace.selected = Some(hit.target);
+                self.workspace_reconcile();
+                return self.workspace_owner_timers(hit.room, hit.owner);
+            }
+            let column = self
+                .overview_sort_hits
+                .borrow()
+                .iter()
+                .find(|(area, _)| area.contains((event.column, event.row).into()))
+                .map(|(_, column)| *column);
+            if let Some(column) = column {
+                return self.overview_sort_column(column);
+            }
+
             let workspace_action = self
                 .workspace_action_hits
                 .borrow()

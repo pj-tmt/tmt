@@ -31,6 +31,17 @@ impl App {
                 Some(Effect::None)
             }
             ListInput::Job(job, id) => {
+                if job == 'n'
+                    && id.is_none()
+                    && self
+                        .cron_list
+                        .as_ref()
+                        .is_some_and(|list| list.scope.is_none())
+                {
+                    return Some(
+                        self.say("Select an explicit squad or job before creating a timer."),
+                    );
+                }
                 // Forms and the delete confirmation need the base layer's input
                 // line and menu; a send or pause keeps the list open to show it.
                 if matches!(job, 'n' | 'E' | 'o' | 'd') {
@@ -48,14 +59,15 @@ impl App {
                     .find(|key| row_id(key) == id)
                     .map(|key| key.room_id)?;
                 let target = crate::board::workspace::OpsTarget::Squad(room);
-                let Some(index) = self
+                let tab = self.shell.tab;
+                self.shell.tab = crate::board::shell::OpsTab::Agents;
+                let index = self
                     .workspace_rows()
                     .iter()
-                    .position(|row| row.target == target)
-                else {
-                    return Some(self.say(
-                        "Timer squad is not visible or no longer observed. Refresh or clear the filter before opening it.",
-                    ));
+                    .position(|row| row.target == target);
+                let Some(index) = index else {
+                    self.shell.tab = tab;
+                    return Some(self.say("Timer squad is not visible or no longer observed. Refresh or clear the filter before opening it."));
                 };
                 self.cron_list = None;
                 self.shell.tab = crate::board::shell::OpsTab::Agents;

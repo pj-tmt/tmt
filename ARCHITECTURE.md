@@ -405,7 +405,7 @@ own module/drawing boundaries and verification.
   Ops uses CAS. `migration` owns locked byte-preserving legacy cutover. Its shared invocation notice decision warns once on CLI stderr; admitted UI projects the same notice through App without out-of-band terminal writes.
   `board_switch` owns the consented former-board switch: only its replacement launch drops retired `--tabs`, preserving the journal argv; startup runs neither. No Ops
   data enters `config.json` or Core's database.
-- **Workspace.** Overview/Agents/Digest share one acquired roster and a frame-scoped tree projection.
+- **Workspace.** Overview/Agents/Digest share one acquired roster; Overview caches monitor order, while tree projections are frame-scoped.
   UUID squad anchors and virtual Common pool define selection; paint/input do no Core reads. WP1 owns conversation/editor/drafts.
   The shell replaces named-tab/factory/switcher navigation and HOME cursors; reload carries UUID anchors.
   Acquired summaries, rates and replies remain source data.

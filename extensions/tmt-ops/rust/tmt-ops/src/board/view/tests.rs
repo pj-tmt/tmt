@@ -687,7 +687,13 @@ fn state_cells_use_the_projected_token_for_pattern_and_exact_states() {
                         .iter()
                         .position(|row| row.target == target)
                         .unwrap();
-                    app.select(if selected { index } else { 0 });
+                    if selected {
+                        app.select(index);
+                    } else {
+                        // Overview now has only identity rows: index zero is the
+                        // tested member, not the old tree's Common pool row.
+                        app.workspace.selected = None;
+                    }
                     let buffer = board_buffer(&app, 160, 24);
                     let hit = *app
                         .hits
@@ -698,9 +704,14 @@ fn state_cells_use_the_projected_token_for_pattern_and_exact_states() {
                     let cells: Vec<_> = (hit.x..hit.x + hit.width)
                         .map(|x| buffer[(x, hit.y)].symbol())
                         .collect();
+                    let shown = if state == "blocked-on-ci" {
+                        "blocked-o…"
+                    } else {
+                        state
+                    };
                     let at = (0..cells.len())
-                        .find(|start| cells[*start..].concat().starts_with(state))
-                        .unwrap();
+                        .find(|start| cells[*start..].concat().starts_with(shown))
+                        .expect("the State column keeps a visible ellipsis for a long state");
                     let token = if state == "waiting" {
                         look.role(Role::Waiting)
                     } else {
@@ -716,7 +727,9 @@ fn state_cells_use_the_projected_token_for_pattern_and_exact_states() {
                     if selected && look.selection().bg.is_some() {
                         expected = expected.fg(look.role(Role::Text).fg.unwrap());
                     }
-                    for x in hit.x + at as u16..hit.x + at as u16 + state.len() as u16 {
+                    for x in hit.x + at as u16
+                        ..hit.x + at as u16 + unicode_width::UnicodeWidthStr::width(shown) as u16
+                    {
                         assert_eq!(
                             painted_at(&buffer, x, hit.y),
                             painted(expected),
@@ -1042,12 +1055,33 @@ fn policy_chips_keep_actual_workspace_row_height_hits_and_selection_at_each_widt
                         let line = (*x..*x + *cells)
                             .map(|column| buffer[(column, *y)].symbol())
                             .collect::<String>();
-                        let label = if tab == OpsTab::Digest {
-                            "unavailable"
-                        } else {
-                            "digest"
+                        let label = match tab {
+                            OpsTab::Digest => "unavailable",
+                            // The monitor's labelled Digest column remains
+                            // unknown without a verified supplied observation.
+                            OpsTab::Overview => "—",
+                            OpsTab::Agents => "digest",
                         };
                         assert!(line.contains(label), "{tab:?}/{width}/{depth:?}: {line}");
+                        if tab == OpsTab::Overview {
+                            let digest = focused
+                                .overview_sort_hits
+                                .borrow()
+                                .iter()
+                                .find(|(_, column)| {
+                                    *column == crate::config::OverviewColumn::Digest
+                                })
+                                .map(|(area, _)| *area)
+                                .expect("Digest column is visible at this width");
+                            let shown = (digest.x..digest.right())
+                                .map(|column| buffer[(column, *y)].symbol())
+                                .collect::<String>();
+                            assert_eq!(
+                                shown.trim(),
+                                "—",
+                                "raw policy does not invent an effective mode"
+                            );
+                        }
                     }
                     assert_eq!(focused.workspace.selected, plain.workspace.selected);
                 }
@@ -1160,6 +1194,9 @@ fn supplied_digest_zero_held_and_mode_changes_replace_old_labels_and_keep_the_ch
                         "the visible mode has an exact hit: {context}"
                     );
                     for (area, _) in hits {
+                        // Every independent activation follows a fresh frame;
+                        // selecting the prior chip retired its old hit map.
+                        board_buffer(&app, width, 36);
                         let effect = app.mouse(
                             MouseEvent {
                                 kind: MouseEventKind::Down(MouseButton::Left),

@@ -153,7 +153,11 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         )
     };
     if let Some(list) = placement.list {
-        tree(frame, app, list);
+        if app.shell.tab == OpsTab::Overview {
+            crate::board::overview::view::render(frame, app, list);
+        } else {
+            tree(frame, app, list);
+        }
     }
     app.conversation.borrow_mut().pane = placement.conversation;
     if let Some(detail) = placement.conversation {
@@ -234,6 +238,50 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                     frame.buffer_mut().set_style(row, look.selection());
                 }
                 strip::paint_left(frame.buffer_mut(), row, text.clone());
+                // Only a complete visible count publishes a UUID-frozen action.
+                let scope = match &tree.target {
+                    OpsTarget::Squad(room) => Some((
+                        Some(room.clone()),
+                        None,
+                        crate::board::overview::cron_counts::Scope::Room(room),
+                    )),
+                    OpsTarget::Member {
+                        room_id,
+                        identity_id,
+                    } => Some((
+                        room_id.clone(),
+                        Some(identity_id.clone()),
+                        crate::board::overview::cron_counts::Scope::Owner {
+                            id: identity_id,
+                            room: room_id.as_deref(),
+                        },
+                    )),
+                    OpsTarget::Pool => None,
+                };
+                if let Some((room, owner, scope)) = scope {
+                    let count = app.cron_glyphs.label(app.cron.counts.count(scope));
+                    if let Some(fixed) = text.spans.first()
+                        && fixed.content.ends_with(&count)
+                        && fixed.width() <= usize::from(row.width)
+                    {
+                        app.cron_scope_hits
+                            .borrow_mut()
+                            .push(crate::board::app::TimerHit {
+                                area: Rect::new(
+                                    row.x
+                                        + (fixed.width()
+                                            - unicode_width::UnicodeWidthStr::width(count.as_str()))
+                                            as u16,
+                                    row.y,
+                                    unicode_width::UnicodeWidthStr::width(count.as_str()) as u16,
+                                    1,
+                                ),
+                                target: tree.target.clone(),
+                                room,
+                                owner,
+                            });
+                    }
+                }
                 let mut x = row.x;
                 for span in &text.spans {
                     let width = span.width().min(usize::from(u16::MAX)) as u16;
@@ -344,10 +392,7 @@ fn tree_line(app: &App, row: &super::OpsTreeRow, width: u16) -> Line<'static> {
     };
     if let Some(scope) = count_scope {
         text.push_str(" · ");
-        text.push_str(&crate::board::overview::cron_counts::label(
-            app.cron.counts.count(scope),
-            false,
-        ));
+        text.push_str(&app.cron_glyphs.label(app.cron.counts.count(scope)));
     }
     let mut line = Line::styled(text, style);
     if let Some(raw) = app

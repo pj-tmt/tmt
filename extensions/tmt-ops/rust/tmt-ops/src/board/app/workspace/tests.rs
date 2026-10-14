@@ -57,7 +57,7 @@ pub(in crate::board) fn board() -> App {
                     room_id: Some(ROOM.into()),
                     identity_id: MEMBER.into(),
                 },
-                json!({"id":MEMBER,"name":"worker","state":"working"}),
+                json!({"id":MEMBER,"name":"worker","state":"working","presence":"active","pane":{"location":{"host":"tmux"}}}),
             ),
         ]
         .into(),
@@ -96,6 +96,8 @@ pub(in crate::board) fn board() -> App {
         identity_id: MEMBER.into(),
     });
     app.workspace_reconcile();
+    app.invoker_tmux = true;
+    app.overview_rows.borrow_mut().clear();
     app
 }
 
@@ -1373,7 +1375,12 @@ fn no_squads_is_a_known_empty_workspace_with_an_explicit_creation_action() {
     app.workspace.selected = Some(OpsTarget::Pool);
     app.shell.tab = OpsTab::Overview;
     app.workspace_reconcile();
-    assert_eq!(app.workspace_rows()[0].count, Some(0));
+    assert!(app.workspace_rows().is_empty());
+    assert!(
+        paint(&app, 80, 24)
+            .join("\n")
+            .contains("No observed agents")
+    );
     assert_eq!(key(&mut app, KeyCode::Char('n')), Effect::None);
     assert_eq!(app.workspace_form.as_ref().unwrap().kind, Kind::Create);
 }
@@ -1429,7 +1436,7 @@ fn supplied_label_role_and_choice_hit_survive_the_workspace_tree_and_digest_tab(
         app.shell.tab = tab;
         for width in [100, 160] {
             let screen = paint(&app, width, 36).join("\n");
-            let mode = if tab == OpsTab::Digest {
+            let mode = if matches!(tab, OpsTab::Digest | OpsTab::Overview) {
                 "Auto ▾"
             } else {
                 "digest Auto ▾"
@@ -1467,6 +1474,14 @@ fn supplied_label_role_and_choice_hit_survive_the_workspace_tree_and_digest_tab(
                 // same exact membership. The whole label, including its last cell,
                 // is actionable; neighbouring text never becomes a dropdown.
                 for column in [area.x, area.right() - 1] {
+                    // Selection invalidates the previous frame's authorities.
+                    // Repaint before the next independent edge activation.
+                    terminal
+                        .draw(|frame| {
+                            crate::board::view::prepare(&mut app, frame.area());
+                            crate::board::view::render(frame, &app);
+                        })
+                        .unwrap();
                     let Effect::Act(Request::DigestOpen(ask)) = app.mouse(
                         MouseEvent {
                             kind: MouseEventKind::Down(MouseButton::Left),

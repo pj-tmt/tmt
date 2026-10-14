@@ -9,6 +9,14 @@ use crate::{
 use crate::{squad::Squad, tab_view::Acquired};
 use serde_json::Value;
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum BindingContext {
+    Global,
+    Host(String),
+    Section(OpsTarget),
+}
+type BindingSources = BTreeMap<String, String>;
+
 #[derive(Debug, Default)]
 pub(crate) struct OpsWorkspaceSnapshot {
     pub roster: OpsRoster,
@@ -20,6 +28,8 @@ pub(crate) struct OpsWorkspaceSnapshot {
     pub keys: BTreeMap<OpsKeyScope, Bindings>,
     pub hosts: BTreeMap<String, BTreeMap<OpsKeyScope, Bindings>>,
     pub sections: BTreeMap<OpsTarget, BTreeMap<OpsKeyScope, Bindings>>,
+    pub config_path: String,
+    pub binding_sources: BTreeMap<(OpsKeyScope, BindingContext), BindingSources>,
     pub notices: Vec<String>,
 }
 
@@ -41,6 +51,7 @@ fn member(row: &Value) -> Option<OpsMember> {
 impl OpsWorkspaceSnapshot {
     pub(crate) fn configure(&mut self, config: &Config) -> Result<(), SquadError> {
         self.preferences = config.workspace_preferences()?;
+        self.config_path = config.path().display().to_string();
         let scopes = [
             OpsKeyScope::Overview,
             OpsKeyScope::Squad,
@@ -50,6 +61,8 @@ impl OpsWorkspaceSnapshot {
         ];
         for scope in scopes {
             let keys = config.workspace_keys(scope, None, None)?;
+            self.binding_sources
+                .insert((scope, BindingContext::Global), keys.sources);
             self.keys.insert(scope, keys.bindings);
             self.notices.extend(keys.notices);
         }
@@ -57,6 +70,8 @@ impl OpsWorkspaceSnapshot {
             let mut tables = BTreeMap::new();
             for scope in scopes {
                 let keys = config.workspace_keys(scope, Some(&host), None)?;
+                self.binding_sources
+                    .insert((scope, BindingContext::Host(host.clone())), keys.sources);
                 tables.insert(scope, keys.bindings);
                 self.notices.extend(keys.notices);
             }
@@ -75,11 +90,25 @@ impl OpsWorkspaceSnapshot {
                 {
                     continue;
                 }
-                if let Some(section) = sections.iter().find(|section| section.includes(row)) {
+                if let Some((index, section)) = sections
+                    .iter()
+                    .enumerate()
+                    .find(|(_, section)| section.includes(row))
+                {
                     let host = row["pane"]["location"]["host"].as_str();
                     let mut tables = BTreeMap::new();
                     for scope in scopes {
-                        let keys = config.workspace_keys(scope, host, Some(&section.bind))?;
+                        let mut keys = config.workspace_keys(scope, host, Some(&section.bind))?;
+                        for (key, source) in &mut keys.sources {
+                            if source == "selected squad section.bind" {
+                                *source =
+                                    format!("squad.{}.section[{index}].bind.{key}", squad.name);
+                            }
+                        }
+                        self.binding_sources.insert(
+                            (scope, BindingContext::Section(target.clone())),
+                            keys.sources,
+                        );
                         tables.insert(scope, keys.bindings);
                         self.notices.extend(keys.notices);
                     }

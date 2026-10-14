@@ -202,6 +202,12 @@ fn spawn_input(sender: Sender<BoardEvent>, mut filter: Option<terminal::backgrou
 /// back stack.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum ActionOutcome {
+    CronPreview(
+        Box<(
+            cronboard::preview::Task,
+            Result<cronboard::preview::Preview, String>,
+        )>,
+    ),
     Workspace(Box<Result<crate::membership::Outcome, crate::core::SquadError>>),
     RenameMember(Box<workspace::rename_member::Completed>),
     Message(String),
@@ -231,6 +237,11 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
         })));
     }
     let outcome = match request {
+        Request::CronPreview(task) => {
+            return Ok(ActionOutcome::CronPreview(Box::new(
+                cronboard::preview::run(*task, jiff::Timestamp::now().as_millisecond()),
+            )));
+        }
         Request::WorkspaceOperation(change) => {
             return Ok(match change {
                 workspace::manage::Change::Membership(operation) => {
@@ -562,6 +573,7 @@ fn session(
                 Effect::None
             }
             Ok(BoardEvent::Labels(supplied)) => {
+                app.overview_rows.borrow_mut().clear();
                 dirty |= app.labels != supplied;
                 app.labels = supplied;
                 Effect::None
@@ -578,6 +590,7 @@ fn session(
             }
             Ok(BoardEvent::Cron { cancellation, read }) => {
                 if !cancellation.cancelled() {
+                    app.overview_rows.borrow_mut().clear();
                     app.cron.replace(read);
                     app.reconcile_row_details();
                     dirty = true;
@@ -596,6 +609,10 @@ fn session(
                     app.finish_draft(outcome.is_ok());
                 }
                 match outcome {
+                    Ok(ActionOutcome::CronPreview(outcome)) => {
+                        let (task, result) = *outcome;
+                        app.cron_review_ready(task, result);
+                    }
                     Ok(ActionOutcome::Workspace(outcome)) => app.finished_workspace(*outcome),
                     Ok(ActionOutcome::RenameMember(outcome)) => {
                         app.finished_member_rename(*outcome)
@@ -889,12 +906,8 @@ pub fn run(
     // The worker's setup reads (caller identity, config location) overlap the config
     // read and the terminal's background query. Loads build looks from that
     // background, so the first request waits until `configure_background` has run.
-    let worker = refresh::Worker::spawn(
-        core.clone(),
-        effects::tmux_socket().is_some(),
-        events.clone(),
-        trace.clone(),
-    );
+    let invoker_tmux = effects::tmux_socket().is_some();
+    let worker = refresh::Worker::spawn(core.clone(), invoker_tmux, events.clone(), trace.clone());
     let config = timing::measure(startup.as_ref(), "startup.Config::load", || {
         Config::load(&core)
     })?;
@@ -928,6 +941,7 @@ pub fn run(
         .as_ref()
         .map(|reply| terminal::background::ReplyFilter::seed(&reply.received, Instant::now()));
     let mut app = App::new(squad);
+    app.invoker_tmux = invoker_tmux;
     app.workspace_startup = startup_squad;
     app.timing = trace.map(timing::Ui::new);
     app.migration_notice = core.paths.board_notice();

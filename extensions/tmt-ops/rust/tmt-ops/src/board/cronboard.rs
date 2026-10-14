@@ -10,6 +10,7 @@ mod line;
 mod list;
 mod load;
 mod place;
+pub(in crate::board) mod preview;
 mod rows;
 mod surface;
 

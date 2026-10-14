@@ -47,7 +47,7 @@ impl Summary {
                 count.total = count.total.saturating_add(1);
                 count.active = count
                     .active
-                    .saturating_add(u32::from(job.on && job.owner_valid));
+                    .saturating_add(u32::from(job.on && job.owner_valid && job.owner.is_some()));
             };
             add(result.rooms.entry(job.room.to_owned()).or_insert(Count {
                 active: 0,
@@ -86,6 +86,22 @@ impl Summary {
 #[cfg(test)]
 fn count(jobs: Option<&[Job<'_>]>, scope: Scope<'_>) -> Option<Count> {
     Summary::of(jobs).count(scope)
+}
+
+/// Renderer-supplied glyph capability; independent of color depth and Config.
+#[derive(Clone, Copy, Default)]
+pub enum GlyphSet {
+    #[default]
+    Unicode,
+    Ascii,
+}
+impl GlyphSet {
+    pub fn from_ascii(ascii: bool) -> Self {
+        if ascii { Self::Ascii } else { Self::Unicode }
+    }
+    pub fn label(self, count: Option<Count>) -> String {
+        label(count, matches!(self, Self::Ascii))
+    }
 }
 
 pub fn label(count: Option<Count>, ascii: bool) -> String {

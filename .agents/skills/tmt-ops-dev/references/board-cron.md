@@ -16,9 +16,12 @@ with their reason; paint and input acquire no job data. Clock location resolutio
 uses the invoker's socket and caches failures, falling back to pane ID.
 
 The workspace's Timers action opens `Overlay::CronList`. A selected squad supplies
-its frozen room UUID; a member supplies that room and prefills its owner when
-creating a job. Overview and Common pool have no invented room context. The list
-filters by room UUID rather than a mutable name, preserves `<room UUID>/<c-id>`
+its frozen room UUID; a member supplies its owner UUID and, in Agents, the observed
+room UUID. Overview owner counts open the same owner's all-room list. Counts derive
+once from the admitted job snapshot, deduplicating room/job keys; on with a valid
+owner is active independently of clock state. A failed read makes counts unknown,
+while retaining prior jobs with the failure. Empty global owner lists cannot invent
+a room for creation. The list filters UUIDs rather than mutable names, preserves `<room UUID>/<c-id>`
 selection across refresh and uses the shared FocusStack/picker surface. Its title
 uses the already acquired name for that exact room UUID, even with no jobs. An
 unobserved room is labelled by UUID; only an unscoped list says `all squads`. No
@@ -54,9 +57,10 @@ schedule fields from edits; owner and schedule input are trimmed at submission.
 Stored multiline/control-bearing or oversized messages remain intact. Submission
 resolves owner names through `identity show`.
 
-Workspace squad timer counts match room UUID; conversation member counts
-match owner UUID. The
-shared cron projection retains earliest active-slot and next-run detail for
+Overview, Agents and conversation reuse `overview::cron_counts::Summary`; room
+context narrows owner counts in Agents and is never inferred from a display name.
+Count clicks freeze the painted UUID scope and reject superseded geometry.
+The shared cron projection retains earliest active-slot and next-run detail for
 job rows; the retired squad-tab jobs half owns no focus, geometry or controls.
 
 ## Verification
@@ -66,3 +70,15 @@ scoped entry/target and native Ops tests cover rename, counters and sticky pause
 [development.md](development.md#checks) owns focused commands and isolated captures;
 [TUI development](../../tmt-tui/references/development.md#board-parity-baseline) owns
 fixture-change approval. Service/clock verification remains with the cron owner.
+
+## Save preview
+
+The existing action lane computes `cronboard::preview` before New/Edit/Reassign
+can apply. It uses the production schedule parser and `next_after`, with an injected
+instant and at most 4,097 next-slot calls: the first 4,096 invocations can be counted
+and one further slot determines the explicit capped result. The next three
+occurrences and rolling 24-hour scheduled-invocation count are not token or money
+estimates and remain subject to owner/clock state. Unavailable previews cannot
+apply. A generation-fenced review retains the exact request; cancellation or
+replacement cannot reopen it when a late result arrives. Apply uses the existing
+service's actor, room and revision revalidation, never the preview as authority.
