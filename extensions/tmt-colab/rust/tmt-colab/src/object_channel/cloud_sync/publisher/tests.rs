@@ -2,7 +2,7 @@
 //! preamble, uncertain effects, conflicts and refusals.
 use super::*;
 use crate::cloud_sync::fixture::{BINDING, Firestore, ScriptedRemote, document, peer};
-use std::collections::VecDeque;
+use std::{collections::VecDeque, time::Duration};
 
 const PAGE: &str = "10000000-0000-4000-8000-000000000001";
 fn page() -> PageRef {
@@ -62,7 +62,15 @@ impl Local for Fake {
             .iter()
             .map(|r| match r {
                 Row::Create(d) => Row::Create(d.clone()),
-                Row::Put(d) => Row::Put(d.clone()),
+                Row::Put {
+                    document,
+                    days,
+                    refresh,
+                } => Row::Put {
+                    document: document.clone(),
+                    days: *days,
+                    refresh: *refresh,
+                },
             })
             .collect();
         self.read();
@@ -302,14 +310,63 @@ fn a_pass_yields_after_a_bounded_number_of_documents_and_the_next_continues() {
     assert_eq!(local.confirmed.len(), 70);
 }
 
+fn page_row(fields: &[(&str, &str)], refresh: Duration) -> Row {
+    lifetime_row(fields, 30, refresh)
+}
+fn lifetime_row(fields: &[(&str, &str)], days: u64, refresh: Duration) -> Row {
+    Row::Put {
+        document: document("pages", "p", fields),
+        days,
+        refresh,
+    }
+}
+
 #[test]
 fn the_page_row_is_put_once_and_not_rewritten_until_it_is_old() {
     let mut rig = rig();
     let mut local = Fake {
-        rows: vec![Row::Put(document("pages", "p", &[("epoch", "1")]))],
+        rows: vec![page_row(&[("epoch", "1")], Duration::from_secs(3600))],
         ..Fake::default()
     };
     rig.publisher.pass(&mut local, &page()).unwrap();
     rig.publisher.pass(&mut local, &page()).unwrap();
     assert_eq!(kinds(&rig), ["put pages/p"]);
+}
+
+#[test]
+fn the_page_row_is_written_again_when_its_content_changes_or_its_refresh_interval_has_passed() {
+    let mut rig = rig();
+    let hour = Duration::from_secs(3600);
+    let mut local = Fake {
+        rows: vec![page_row(&[("epoch", "1"), ("state", "open")], hour)],
+        ..Fake::default()
+    };
+    rig.publisher.pass(&mut local, &page()).unwrap();
+    // The epoch advanced: the row the log creates are checked against must follow at once.
+    local.rows = vec![page_row(&[("epoch", "2"), ("state", "open")], hour)];
+    rig.publisher.pass(&mut local, &page()).unwrap();
+    assert_eq!(kinds(&rig), ["put pages/p", "put pages/p"]);
+    // The page was archived.
+    local.rows = vec![page_row(&[("epoch", "2"), ("state", "archived")], hour)];
+    rig.publisher.pass(&mut local, &page()).unwrap();
+    assert_eq!(kinds(&rig).len(), 3);
+    // Nothing changed and the interval has not passed: not written.
+    rig.publisher.pass(&mut local, &page()).unwrap();
+    assert_eq!(kinds(&rig).len(), 3);
+    // An owner override changed the lifetime and nothing else: the row follows at once.
+    local.rows = vec![lifetime_row(
+        &[("epoch", "2"), ("state", "archived")],
+        90,
+        hour,
+    )];
+    rig.publisher.pass(&mut local, &page()).unwrap();
+    assert_eq!(kinds(&rig).len(), 4);
+    // Nothing changed but the interval is shorter than the row's age: an activity refresh.
+    local.rows = vec![lifetime_row(
+        &[("epoch", "2"), ("state", "archived")],
+        90,
+        Duration::ZERO,
+    )];
+    rig.publisher.pass(&mut local, &page()).unwrap();
+    assert_eq!(kinds(&rig).len(), 5);
 }
