@@ -1949,6 +1949,8 @@ fn an_ingested_original_is_stored_and_announced_like_a_browser_append_without_a_
     let broadcast = receive(&mut bob);
     assert_eq!(broadcast["type"], "broadcast");
     assert_eq!(broadcast["streamId"], ALICE);
+    // One ingested original is exactly one frame: no Ask, reply or other notification follows.
+    assert_eq!(bob.1.poll(), Progress::Pending);
     // The same original again changes and announces nothing.
     assert_eq!(
         f.server.ingest(&scope, &bytes, &alice).unwrap(),

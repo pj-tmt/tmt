@@ -7,6 +7,7 @@ use super::{
     inbound::{Inbound, Puller},
     publisher::{Fault, Local, Publisher},
     reader::Reader,
+    stops::Stops,
 };
 use std::{
     collections::HashSet,
@@ -37,6 +38,8 @@ struct Session {
     local: Box<dyn Local + Send>,
     /// Reading the cloud back, when this serve follows foreign streams.
     inbound: Option<Following>,
+    /// Pages whose cloud read is stopped, for as long as this session lives.
+    stops: Stops,
     page: Option<PageRef>,
     /// Pages whose publication stopped, remembered for this session so a touch neither retries
     /// them nor shows their line again. Another epoch of the page is another entry.
@@ -181,8 +184,8 @@ impl Session {
             self.next_of(&result)
         });
         let second = read.and_then(|result| {
-            if let Err(Fault::Stuck(line)) = &result {
-                report(line);
+            if let Some(line) = self.stops.observe(&page.page, &result, super::now_ms()) {
+                report(&line);
             }
             self.next_of(&result)
         });
@@ -253,6 +256,7 @@ fn establish(parts: &Parts) -> Result<Session, ActivationFailure> {
         local,
         inbound,
         generation: client.generation(),
+        stops: Stops::default(),
         page: None,
         stuck: HashSet::new(),
         pass_at: None,

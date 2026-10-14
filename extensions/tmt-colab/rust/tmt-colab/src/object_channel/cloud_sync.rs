@@ -22,6 +22,7 @@ mod interests;
 mod local;
 mod publisher;
 mod reader;
+mod stops;
 #[cfg(test)]
 mod tests;
 mod worker;

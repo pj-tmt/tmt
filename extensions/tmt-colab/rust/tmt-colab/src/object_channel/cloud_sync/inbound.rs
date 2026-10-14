@@ -102,7 +102,7 @@ impl Puller {
                     Err(Reject::Moved) => return Err(Fault::Moved),
                     Err(Reject::Retry) => return Err(Fault::Retry),
                     Err(Reject::Full) => {
-                        return Err(Fault::Stuck("Cloud sync stopped: this page is full."));
+                        return Err(Fault::Stuck("This page is full."));
                     }
                     Err(Reject::Refused) => {
                         self.stopped.insert(stream.clone());

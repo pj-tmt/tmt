@@ -8,7 +8,7 @@ use super::{
 use std::{
     sync::{
         Arc, Mutex,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -343,4 +343,89 @@ fn the_worker_watches_exactly_the_active_page_and_reads_again_on_a_hint_and_on_a
         6
     );
     assert!(rig.reports.lock().unwrap().is_empty());
+}
+
+/// A Store side whose membership comparison refuses while `stopped` is set.
+struct Gate {
+    stopped: Arc<AtomicBool>,
+    passes: Arc<AtomicUsize>,
+}
+impl Inbound for Gate {
+    fn membership(&mut self, _: &PageRef, _: &[Vec<u8>]) -> Result<(), super::publisher::Fault> {
+        self.passes.fetch_add(1, Ordering::SeqCst);
+        if self.stopped.load(Ordering::SeqCst) {
+            Err(super::publisher::Fault::Stuck(
+                "The cloud has newer sharing changes than this machine.",
+            ))
+        } else {
+            Ok(())
+        }
+    }
+    fn begin(
+        &mut self,
+        _: &PageRef,
+        _: &[Vec<u8>],
+    ) -> Result<Vec<String>, super::publisher::Fault> {
+        Ok(Vec::new())
+    }
+    fn head(&mut self, _: &PageRef, _: &str) -> Result<u64, super::publisher::Fault> {
+        Ok(0)
+    }
+    fn admit(
+        &mut self,
+        _: &PageRef,
+        _: &[u8],
+    ) -> Result<super::inbound::Applied, super::inbound::Reject> {
+        Err(super::inbound::Reject::Retry)
+    }
+}
+
+#[test]
+fn a_stopped_page_is_announced_once_when_it_stops_and_once_when_it_recovers() {
+    let mut peer = peer();
+    let firestore = super::fixture::Firestore::default();
+    let answer = firestore.clone();
+    let remote = ScriptedRemote::serve(peer.remote.take().unwrap(), move |call, id| {
+        answer.answer(call, id)
+    });
+    let (stopped, passes) = (
+        Arc::new(AtomicBool::new(true)),
+        Arc::new(AtomicUsize::new(0)),
+    );
+    let (gate, counter) = (Arc::clone(&stopped), Arc::clone(&passes));
+    let rig = start_following(
+        Arc::clone(&peer.channels),
+        activated,
+        Some(Arc::new(move |_| {
+            Some(Box::new(Gate {
+                stopped: Arc::clone(&gate),
+                passes: Arc::clone(&counter),
+            }))
+        })),
+    );
+    rig.activity.touch(page(FIRST, 1));
+    until("the stopping read", || {
+        rig.reports.lock().unwrap().len() == 1
+    });
+    let lines = || rig.reports.lock().unwrap().clone();
+    assert!(lines()[0].starts_with(&format!("Cloud sync stopped for page {FIRST}.")));
+    assert!(lines()[0].contains("newer sharing changes"));
+    // More reads find the same condition and say nothing more.
+    let group = remote.subscribed.lock().unwrap().clone();
+    for round in 2..=4 {
+        remote.changed(&group[0]);
+        until("another read", || passes.load(Ordering::SeqCst) >= round);
+    }
+    assert_eq!(lines().len(), 1);
+    // The condition clears: one recovery line, then quiet again.
+    stopped.store(false, Ordering::SeqCst);
+    remote.changed(&group[0]);
+    until("the recovery", || lines().len() == 2);
+    assert_eq!(lines()[1], format!("Cloud sync resumed for page {FIRST}."));
+    let seen = passes.load(Ordering::SeqCst);
+    remote.changed(&group[0]);
+    until("a read after the recovery", || {
+        passes.load(Ordering::SeqCst) > seen
+    });
+    assert_eq!(lines().len(), 2);
 }

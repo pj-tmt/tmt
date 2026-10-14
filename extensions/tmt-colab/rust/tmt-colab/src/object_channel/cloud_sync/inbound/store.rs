@@ -25,11 +25,9 @@ pub(super) enum Stop {
 impl Stop {
     fn line(&self) -> &'static str {
         match self {
-            Self::Ahead => {
-                "Cloud sync stopped: the cloud has newer sharing changes than this machine."
-            }
-            Self::Fork => "Cloud sync stopped: the cloud and this machine disagree about sharing.",
-            Self::Invalid => "Cloud sync stopped: the cloud sharing record is not valid.",
+            Self::Ahead => "The cloud has newer sharing changes than this machine.",
+            Self::Fork => "The cloud and this machine disagree about sharing.",
+            Self::Invalid => "The cloud sharing record is not valid.",
         }
     }
 }
@@ -116,14 +114,10 @@ impl<A: Admission> Inbound for StoreInbound<A> {
         let mut streams = Vec::new();
         for bytes in chains {
             let Ok(chain) = certificate::Chain::from_json(bytes) else {
-                return Err(Fault::Stuck(
-                    "Cloud sync stopped: a writer record is not valid.",
-                ));
+                return Err(Fault::Stuck("A writer record in the cloud is not valid."));
             };
             let Ok(cert) = chain.certificate() else {
-                return Err(Fault::Stuck(
-                    "Cloud sync stopped: a writer record is not valid.",
-                ));
+                return Err(Fault::Stuck("A writer record in the cloud is not valid."));
             };
             streams.push(cert.device_id.to_owned());
             devices.push(Device {
@@ -153,7 +147,7 @@ impl<A: Admission> Inbound for StoreInbound<A> {
                     if store::contended(error.as_ref()) {
                         Fault::Retry
                     } else {
-                        Fault::Stuck("Cloud sync stopped: this machine cannot verify this page.")
+                        Fault::Stuck("This machine cannot verify this page.")
                     }
                 },
             )?,
