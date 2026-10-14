@@ -112,8 +112,105 @@ fn configured_member(text: &str, row: serde_json::Value) -> App {
     std::fs::write(&path, text).unwrap();
     let config = Config::read(path.clone()).unwrap();
     workspace.configure(&config).unwrap();
+    let view = app.view.as_mut().unwrap();
+    view.opener = config.program("opener").unwrap();
+    view.clipboard = config.program("clipboard").unwrap();
     std::fs::remove_file(path).unwrap();
     app
+}
+
+#[test]
+fn configured_back_dispatches_once_and_retains_observed_success_or_failure() {
+    let mut app = configured_member(
+        "[bind]\nbackspace = \"back\"\n",
+        json!({"id":MEMBER,"name":"worker"}),
+    );
+    let selected = app.workspace.selected.clone();
+    assert_eq!(
+        key(&mut app, KeyCode::Backspace),
+        Effect::Act(Request::Back)
+    );
+    let outcomes: [Result<String, String>; 2] = [
+        Ok("Nothing to go back to.".into()),
+        Err("Pane '%5' was not found.".into()),
+    ];
+    for outcome in outcomes {
+        let text = outcome.as_ref().unwrap_or_else(|error| error).clone();
+        app.finished(outcome);
+        assert_eq!(app.notice.as_ref(), Some(&text));
+        assert_eq!(app.workspace.selected, selected);
+    }
+}
+
+#[test]
+fn configured_link_copy_and_menu_keep_safe_urls_programs_and_current_scoped_keys() {
+    let mut app = configured_member(
+        r#"opener = ["browser", "--new-tab"]
+clipboard = ["clipboard", "--input"]
+[bind]
+o = "open {link}"
+f2 = "copy {name}"
+enter = "menu"
+"#,
+        json!({"id":MEMBER,"name":"worker","fields":{"link":"https://example.test/pr"}}),
+    );
+    let selected = app.workspace.selected.clone();
+    assert_eq!(
+        key(&mut app, KeyCode::Char('o')),
+        Effect::Act(Request::Open {
+            link: "https://example.test/pr".into(),
+            opener: Some(vec!["browser".into(), "--new-tab".into()]),
+        })
+    );
+    let copy = Effect::Act(Request::Copy {
+        text: "worker".into(),
+        program: Some(vec!["clipboard".into(), "--input".into()]),
+    });
+    assert_eq!(key(&mut app, KeyCode::F(2)), copy);
+    let target = selected.as_ref().unwrap();
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .rows
+        .get_mut(target)
+        .unwrap()["fields"]["link"] = json!("file:///private/prompt");
+    assert_eq!(key(&mut app, KeyCode::Char('o')), Effect::None);
+    assert!(
+        app.notice
+            .as_ref()
+            .unwrap()
+            .contains("Only http(s) links open")
+    );
+    assert_eq!(app.workspace.selected, selected);
+    assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
+    let menu = app.menu.as_ref().unwrap();
+    assert_eq!(menu.title, "worker");
+    assert!(
+        menu.entries
+            .iter()
+            .any(|entry| entry.key == "f2" && entry.label == "copy {name}")
+    );
+    assert!(
+        !menu
+            .entries
+            .iter()
+            .any(|entry| ["click", "double-click", "enter"].contains(&entry.key.as_str()))
+    );
+    assert_eq!(key(&mut app, KeyCode::Char('j')), Effect::None);
+    assert!(
+        app.menu.is_some(),
+        "the menu owns j rather than the Host action"
+    );
+    assert_eq!(key(&mut app, KeyCode::F(2)), copy);
+    assert!(app.menu.is_none());
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(key(&mut app, KeyCode::Esc), Effect::None);
+    assert!(app.menu.is_none());
+    assert_eq!(app.workspace.selected, selected);
 }
 
 #[test]
@@ -1322,6 +1419,11 @@ fn workspace_annotations_recheck_sender_membership_and_lead_identity() {
             },
             json!({"id":LEAD,"name":"lead"}),
         );
+        snapshot
+            .rows
+            .get_mut(app.workspace.selected.as_ref().unwrap())
+            .unwrap()["pending"] =
+            json!("Keep the acquired pending note until an explicit status change");
         app.workspace_reconcile();
         app.perform(&Action::parse("annotate").unwrap());
         assert_eq!(
@@ -1344,6 +1446,11 @@ fn workspace_annotations_recheck_sender_membership_and_lead_identity() {
             row: "worker".into(),
             text: "  observed\nmessage  ".into()
         })
+    );
+    app.finished(Ok("Annotated".into()));
+    assert_eq!(
+        app.selected_row().unwrap()["pending"],
+        "Keep the acquired pending note until an explicit status change"
     );
     for change in [
         "sender",
