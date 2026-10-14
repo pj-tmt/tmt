@@ -1,6 +1,7 @@
 //! The proof's own reads and writes against the loopback emulators: Admin-bypass reads of what
 //! the serves put in Firestore, a fixture member's sign-up and writes, and Admin writes of
 //! documents Rules would refuse. Only the emulators are ever addressed.
+use crate::object_channel::documents::Field;
 use serde_json::{Value, json};
 use std::{
     io::{Read, Write},
@@ -192,6 +193,20 @@ impl Emulator {
             uid: body["localId"].as_str().unwrap().to_owned(),
             token: body["idToken"].as_str().unwrap().to_owned(),
         }
+    }
+    /// Read one document as an identity, so Rules apply. Returns the HTTP status.
+    pub(super) fn get_as(&self, collection: &str, id: &str, identity: &Identity) -> u16 {
+        let path = format!("{}/x/colab/{collection}/{id}", self.documents());
+        http(&self.firestore, "GET", &path, Some(&identity.token), None).0
+    }
+    /// Move one document's expiry, by Admin bypass. Returns the HTTP status.
+    pub(super) fn set_expiry(&self, collection: &str, id: &str, expires_at: &Field) -> u16 {
+        let path = format!(
+            "{}/x/colab/{collection}/{id}?updateMask.fieldPaths=expiresAt",
+            self.documents()
+        );
+        let body = json!({ "fields": { "expiresAt": serde_json::to_value(expires_at).unwrap() } });
+        http(&self.firestore, "PATCH", &path, Some("owner"), Some(&body)).0
     }
     /// Create one document the crate built (typed fields and its own ID), as an identity (Rules
     /// apply) or by Admin bypass. Returns the HTTP status.

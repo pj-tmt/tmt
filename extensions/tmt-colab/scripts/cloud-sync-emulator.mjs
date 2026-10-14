@@ -15,6 +15,7 @@ const root = fileURLToPath(new URL('../../../', import.meta.url));
 const artifacts = path.join(root, 'extensions/tmt-colab/contracts/vectors');
 const project = 'demo-tmt-colab-sync';
 const proofs = 'object_channel::cloud_sync::proof::';
+const scenarios = 3;
 const test = [
   'test',
   '--locked',
@@ -61,7 +62,10 @@ if (process.argv[2] === '--scenario') {
       process.stderr.write(result.stderr ?? '');
       // Both scenarios must have run: a filter that selects nothing is not a pass.
       if (result.status === 0)
-        assert.match(result.stdout, /test result: ok\. 2 passed; 0 failed; 0 ignored;/);
+        assert.match(
+          result.stdout,
+          new RegExp(`test result: ok\\. ${scenarios} passed; 0 failed; 0 ignored;`)
+        );
       return result;
     },
   });
@@ -90,7 +94,7 @@ if (process.argv[2] === '--scenario') {
       'test-emulator',
     ]);
     copyFileSync(built('tmt-remote'), path.join(bins, 'tmt-remote'));
-    // Listing first: the proof must be exactly the two scenarios, selected by name.
+    // Listing first: the proof must be exactly its scenarios, selected by name.
     const listing = spawnSync('cargo', [...test.slice(0, -1), '--list'], {
       cwd: path.join(root, 'rust'),
       encoding: 'utf8',
@@ -98,8 +102,8 @@ if (process.argv[2] === '--scenario') {
     assert.equal(listing.status, 0, 'cargo could not list the proof scenarios');
     assert.equal(
       listing.stdout.split('\n').filter((line) => line.startsWith(proofs) && line.endsWith(': test')).length,
-      2,
-      'select exactly the two ignored cloud sync scenarios',
+      scenarios,
+      'select exactly the ignored cloud sync scenarios',
     );
     writeFileSync(
       path.join(world, 'firebase.json'),
