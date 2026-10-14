@@ -84,6 +84,118 @@ fn scrolling_is_independent_and_follow_only_resumes_explicitly() {
 }
 
 #[test]
+fn intentional_wheel_or_page_reaching_the_painted_bottom_resumes_follow() {
+    for height in [5, 18, 36] {
+        for down in [Step::Lines(isize::MAX), Step::Pages(isize::MAX / 100)] {
+            let mut app = fixture();
+            draw(&app, 80, height);
+            app.scroll_pane(Pane::Replies, Step::Top);
+            assert!(draw(&app, 80, height).contains("alpha line 000"));
+            app.scroll_pane(Pane::Replies, Step::Lines(1));
+            assert!(
+                !app.conversation
+                    .borrow()
+                    .sessions
+                    .values()
+                    .next()
+                    .unwrap()
+                    .follow
+            );
+            draw(&app, 80, height);
+            app.view.as_mut().unwrap().replies[0] =
+                json!({"recipientId":"a","requestId":"new","response":"new correlated source"});
+            draw(&app, 80, height);
+            assert!(
+                !app.conversation
+                    .borrow()
+                    .sessions
+                    .values()
+                    .next()
+                    .unwrap()
+                    .follow
+            );
+            app.scroll_pane(Pane::Replies, down);
+            assert!(
+                app.conversation
+                    .borrow()
+                    .sessions
+                    .values()
+                    .next()
+                    .unwrap()
+                    .follow
+            );
+            assert!(draw(&app, 80, height).contains("new correlated source"));
+        }
+    }
+}
+
+#[test]
+fn resize_update_and_missing_frame_never_resume_a_paused_conversation() {
+    let mut app = fixture();
+    draw(&app, 80, 18);
+    app.scroll_pane(Pane::Replies, Step::Top);
+    app.scroll_pane(Pane::Replies, Step::Lines(70));
+    draw(&app, 80, 18);
+    for (width, height) in [(60, 36), (100, 18), (160, 44)] {
+        app.view.as_mut().unwrap().replies[0]["response"] = json!(body("alpha", 100));
+        draw(&app, width, height);
+        assert!(
+            !app.conversation
+                .borrow()
+                .sessions
+                .values()
+                .next()
+                .unwrap()
+                .follow
+        );
+        app.scroll_pane(Pane::Replies, Step::Lines(0));
+        assert!(
+            !app.conversation
+                .borrow()
+                .sessions
+                .values()
+                .next()
+                .unwrap()
+                .follow
+        );
+    }
+    app.invalidate_frame_geometry();
+    app.scroll_pane(Pane::Replies, Step::Lines(isize::MAX));
+    assert!(
+        !app.conversation
+            .borrow()
+            .sessions
+            .values()
+            .next()
+            .unwrap()
+            .follow
+    );
+    draw(&app, 100, 18);
+    app.scroll_pane(Pane::Replies, Step::Lines(1));
+    assert!(
+        !app.conversation
+            .borrow()
+            .sessions
+            .values()
+            .next()
+            .unwrap()
+            .follow
+    );
+    // A missing frame did not move the source anchor to the bottom. A new
+    // deliberate move must reach the newly painted viewport's actual limit.
+    app.scroll_pane(Pane::Replies, Step::Lines(isize::MAX));
+    assert!(
+        app.conversation
+            .borrow()
+            .sessions
+            .values()
+            .next()
+            .unwrap()
+            .follow
+    );
+}
+
+#[test]
 fn switching_identity_and_renaming_preserves_each_reading_anchor() {
     let mut app = fixture();
     draw(&app, 80, 18);

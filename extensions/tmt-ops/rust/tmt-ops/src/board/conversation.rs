@@ -40,6 +40,7 @@ pub(super) struct State {
     pub header_hits: Vec<HeaderHit>,
     reply_hits: Vec<source::ReplyHit>,
     source_drag: Option<source::ReplyHit>,
+    response_area: Option<Rect>,
     pub area: Rect,
     pub pane: Option<Rect>,
 }
@@ -243,6 +244,9 @@ impl App {
         };
         state.reply_hits.clear();
         state.source_drag = None;
+        let response_area = state
+            .response_area
+            .filter(|_| self.scrolls.visible(Pane::Replies));
         let Some(session) = state.sessions.get_mut(&identity) else {
             return;
         };
@@ -250,7 +254,21 @@ impl App {
             source.invalidate();
             return;
         }
-        session.follow = matches!(step, Step::Bottom);
+        if matches!(step, Step::Lines(0) | Step::Pages(0)) {
+            return;
+        }
+        let forward = matches!(step, Step::Lines(lines) | Step::Pages(lines) if lines > 0);
+        let at_bottom =
+            response_area
+                .zip(session.rendered.as_ref())
+                .is_some_and(|(area, rendered)| {
+                    let content = rendered.mapped.lines.len();
+                    self.scrolls
+                        .offset(pane)
+                        .saturating_add(super::scroll::Scrolls::viewport(area, content))
+                        >= content
+                });
+        session.follow = matches!(step, Step::Bottom) || forward && at_bottom;
         if session.follow {
             session.change = Change::Current;
         } else if let Some(rendered) = &session.rendered {
@@ -269,6 +287,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
     let look = app.look();
     app.conversation.borrow_mut().header_hits.clear();
     app.conversation.borrow_mut().reply_hits.clear();
+    app.conversation.borrow_mut().response_area = None;
     let Some(target) = app.conversation_target() else {
         app.conversation.borrow_mut().active = None;
         strip::paint_left(
@@ -759,6 +778,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
             .select_visual(&session.text, &mapped.sources, offset);
     }
     state.reply_hits = reply_hits;
+    state.response_area = Some(body);
     state.header_hits = painted_controls;
 }
 

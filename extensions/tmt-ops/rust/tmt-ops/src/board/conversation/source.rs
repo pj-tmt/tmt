@@ -47,6 +47,7 @@ impl Source {
 impl State {
     pub(in crate::board) fn invalidate_source_geometry(&mut self) {
         self.reply_hits.clear();
+        self.response_area = None;
         self.source_drag = None;
         for session in self.sessions.values_mut() {
             if let Some(source) = &mut session.exact_source {
