@@ -75,7 +75,7 @@ fn rename_freezes_uuid_literal_expected_name_and_requires_visible_review_once() 
     );
     let screen = paint(&app, 160, 36).join("\n");
     assert!(screen.contains(MEMBER));
-    assert!(screen.contains("Expected current name: \" Worker \""));
+    assert!(screen.contains("\" Worker \" → \" --literal-name \""));
     app.workspace.selected = Some(OpsTarget::Pool);
     let Effect::Act(Request::WorkspaceOperation(Change::RenameMember(request))) =
         app.workspace_confirm()

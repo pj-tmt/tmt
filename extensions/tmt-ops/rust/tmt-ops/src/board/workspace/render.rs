@@ -565,16 +565,29 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
         ),
         Stage::Result(text) => text.clone(),
     };
+    let rename_id = draft.operation.as_ref().and_then(|change| match change {
+        super::manage::Change::RenameMember(request) => Some(format!("ID {}", request.identity_id)),
+        _ => None,
+    });
     let lines: Vec<_> = text
         .lines()
-        .flat_map(|line| crate::board::notes::wrap(&safe(line), usize::from(areas.content.width)))
+        .flat_map(|line| {
+            let role = if rename_id.as_deref() == Some(line) {
+                Role::Muted
+            } else {
+                Role::Text
+            };
+            crate::board::notes::wrap(&safe(line), usize::from(areas.content.width))
+                .into_iter()
+                .map(move |line| (line, role))
+        })
         .collect();
     if draft.stage == Stage::Fields {
         let prompt_height = (lines
             .len()
             .min(usize::from(areas.content.height.saturating_sub(1))))
             as u16;
-        for (index, line) in lines.iter().take(usize::from(prompt_height)).enumerate() {
+        for (index, (line, role)) in lines.iter().take(usize::from(prompt_height)).enumerate() {
             strip::paint_left(
                 frame.buffer_mut(),
                 Rect::new(
@@ -583,7 +596,7 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
                     areas.content.width,
                     1,
                 ),
-                Line::styled(line.clone(), look.role(Role::Text)),
+                Line::styled(line.clone(), look.role(*role)),
             );
         }
         let input = Rect::new(
@@ -597,7 +610,7 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
         let viewport = areas.content;
         let mut scroll = draft.scroll.borrow_mut();
         scroll.update(viewport, lines.len(), None);
-        for (index, line) in lines
+        for (index, (line, role)) in lines
             .iter()
             .skip(scroll.offset())
             .take(usize::from(viewport.height))
@@ -606,7 +619,7 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
             strip::paint_left(
                 frame.buffer_mut(),
                 Rect::new(viewport.x, viewport.y + index as u16, viewport.width, 1),
-                Line::styled(line.clone(), look.role(Role::Text)),
+                Line::styled(line.clone(), look.role(*role)),
             );
         }
         if areas.position.height > 0 {

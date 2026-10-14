@@ -225,17 +225,22 @@ impl Draft {
         };
         let room =
             |room: &RoomTarget| format!("{} · {} · revision {}", room.name, room.id, room.revision);
-        let mut lines = vec![self.title()];
         if let Some(Change::RenameMember(request)) = &self.operation {
-            lines.push(format!("Identity UUID: {}", request.identity_id));
-            lines.push(format!(
-                "Expected current name: {:?}",
-                request.expected_name
-            ));
-            lines.push(format!("New name: {:?}", request.name));
-            lines.push("Rename only this identity while its current name still matches. Lifetime, binding, memberships, history, drafts and timers stay with its UUID.".into());
-            return lines.join("\n");
+            let name = |name: &str| {
+                if name.is_empty() || name.trim() != name {
+                    format!("{name:?}")
+                } else {
+                    name.to_owned()
+                }
+            };
+            return format!(
+                "{} → {}\nMemberships, history, drafts and timers stay with this agent.\nFails safely if someone renames it first.\nID {}",
+                name(&request.expected_name),
+                name(&request.name),
+                request.identity_id,
+            );
         }
+        let mut lines = vec![self.title()];
         let operation = self.operation.as_ref().and_then(|change| match change {
             Change::Membership(operation) => Some(operation),
             Change::RenameMember(_) => None,
