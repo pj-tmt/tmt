@@ -199,8 +199,6 @@ For offline declaration-vector regeneration, run from `rust/`:
 CARGO_BUILD_JOBS=2 cargo run --offline --locked -p tmt-remote --example compose_firestore -- /absolute/envelope.json /absolute/staging
 ```
 
-For the offline Hosting view only: `CARGO_BUILD_JOBS=2 cargo run --offline --locked -p tmt-remote --example compose_hosting -- /absolute/declaration-envelope.json /absolute/hosting-bundle-reply.json`; refusals emit one stderr code and no stdout.
-
 The input is the contract's six-field reply containing exact declaration/artifact strings.
 Staging receives `firestore.rules`, `firestore.indexes.json` and `plan.json`; stdout is a stable
 JSON digest summary. No provider, credentials or product CLI is involved. Colab reviews and copies
@@ -210,6 +208,8 @@ these files beside its vector as `deploy-declaration-v1.firestore.rules`,
 home only; an absent vector reports pending, a present vector needs the complete golden trio.
 Remote-private fixtures under `tests/fixtures/deploy_vectors/` qualify the entry without implying
 Colab provenance. The contract owns the parser boundary and input/output identity rules.
+
+For the offline Hosting view only: `CARGO_BUILD_JOBS=2 cargo run --offline --locked -p tmt-remote --example compose_hosting -- /absolute/declaration-envelope.json /absolute/hosting-bundle-reply.json`; refusals emit one stderr code and no stdout.
 
 `deploy_tools` resolves the installed Firebase launcher's realpath and exact supported package
 layout, then resolves Node from that launcher's absolute or env-node shebang, excluding
