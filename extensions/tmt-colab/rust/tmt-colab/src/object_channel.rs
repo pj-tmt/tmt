@@ -30,7 +30,7 @@ pub(crate) mod sealed;
 pub(crate) use client::CommittedReader;
 pub(crate) use peer::{ObjectRequest, PeerObjects};
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 /// This owner rechecks the actual peer/root-local capture at EACH callback. It
 /// cannot perform a backend bus request: that would recursively wait on admission.

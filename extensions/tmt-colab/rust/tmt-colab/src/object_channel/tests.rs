@@ -17,14 +17,14 @@ use tmt_extension_objects::{
 };
 const HOST: &str = "127.0.0.1:51234";
 const MOUNT: &str = "/r/fixture/x/colab/";
-const GENERATION: &str = "11111111-1111-4111-8111-111111111111";
-fn limit() -> Instant {
+pub(crate) const GENERATION: &str = "11111111-1111-4111-8111-111111111111";
+pub(crate) fn limit() -> Instant {
     Instant::now() + Duration::from_secs(3)
 }
 fn pair() -> (ObjectChannel, Bus) {
     pair_version(false)
 }
-fn pair_version(sync: bool) -> (ObjectChannel, Bus) {
+pub(crate) fn pair_version(sync: bool) -> (ObjectChannel, Bus) {
     let mut accepted = None;
     let mut connect = || {
         let (remote, extension) = UnixStream::pair().unwrap();

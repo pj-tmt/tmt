@@ -127,6 +127,8 @@ fn remote_json(words: &[&str]) -> Option<String> {
 pub struct RemoteFailure {
     pub code: String,
     pub message: String,
+    /// Only a deadline refusal names one (`deadline`): a typed refusal without it is not transient.
+    pub state: Option<String>,
 }
 impl RemoteFailure {
     pub fn parse(json: &str) -> Option<Self> {
@@ -134,6 +136,7 @@ impl RemoteFailure {
         Some(Self {
             code: value["error"]["code"].as_str()?.to_owned(),
             message: value["error"]["message"].as_str()?.to_owned(),
+            state: value["error"]["state"].as_str().map(str::to_owned),
         })
     }
     /// What a person reads: one shared wording for a serve that predates `status` and `stop`,

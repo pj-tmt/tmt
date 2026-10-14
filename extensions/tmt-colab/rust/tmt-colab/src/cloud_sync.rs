@@ -1,119 +1,193 @@
-//! Native cloud page synchronization on the existing neutral bus. Interest
-//! notices are wakeups only; the verified Store owns every publication position.
-use crate::{ChannelError, SealedClient, sealed_documents};
-use std::time::{Duration, Instant};
-use tmt_extension_objects::{Counter, sync};
+//! Native cloud page synchronization on the existing neutral bus. One worker owns each
+//! generation: it asks Remote to activate sync, binds, holds the interests of the one active
+//! page and keeps that page's local originals published. Notices are wakeups only; the verified
+//! Store owns every publication position.
+use crate::{SealedClient, object_channel::ChannelOwner};
+use std::{
+    io,
+    sync::{Arc, Condvar, Mutex, MutexGuard},
+    thread::{self, JoinHandle},
+    time::{Duration, Instant},
+};
+use tmt_extension_objects::Uuid4;
+
+mod activation;
+#[cfg(test)]
+mod fixture;
+mod interests;
+#[cfg(test)]
+mod tests;
+mod worker;
+
+pub(crate) use interests::PageInterests;
 
 /// Remote allows 30 seconds for provider work. The sealed caller leaves room
 /// for that work and cleanup rather than expiring the shared attachment bus.
 pub const REQUEST_BOUND: Duration = Duration::from_secs(60);
 
-/// A single worker owns the active page group. Confirmed cancellation removes
-/// each retained request-ID slot before a successor can register any interest.
-pub(crate) struct PageInterests {
-    client: SealedClient,
-    binding: String,
-    ids: Vec<Counter>,
+/// One page of one space at its current epoch: the unit a watched group follows.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PageRef {
+    pub space: String,
+    pub page: String,
+    pub epoch: u64,
 }
-impl PageInterests {
-    pub(crate) fn new(client: SealedClient, binding: String) -> Self {
-        Self {
-            client,
-            binding,
-            ids: Vec::new(),
-        }
-    }
-    pub(crate) fn select(
-        &mut self,
-        space: &str,
-        page: &str,
-        epoch: u64,
-        deadline: Instant,
-    ) -> Result<(), ChannelError> {
-        // Validate the successor before disturbing the current page.
-        let page_scope = sealed_documents::page_scope(space, page, epoch)
-            .map_err(|_| ChannelError::Unavailable)?;
-        let authority = sealed_documents::authority_scope(space, page, epoch, "membership", "")
-            .map_err(|_| ChannelError::Unavailable)?;
-        self.cancel(deadline)?;
-        for (resource, scope) in [
-            ("log", page_scope.clone()),
-            ("checkpoints", page_scope),
-            ("authority", authority),
-        ] {
-            let reply = self.client.sealed_request(
-                sync::Call::Subscribe {
-                    binding: self.binding.clone(),
-                    interest: sync::Interest {
-                        resource: resource.into(),
-                        scope,
-                    },
-                },
-                deadline,
-            );
-            match reply {
-                Ok((id, sync::Outcome::Subscribed { id: confirmed }))
-                    if confirmed == id.to_string() =>
-                {
-                    self.ids.push(id)
-                }
-                _ => {
-                    // A partly installed group never lends its slots to another
-                    // page. Join cancellations, or invalidate the generation.
-                    if self.cancel(deadline).is_err() {
-                        self.client.end_generation();
-                    }
-                    return Err(ChannelError::Unavailable);
-                }
-            }
-        }
-        Ok(())
-    }
-    pub(crate) fn cancel(&mut self, deadline: Instant) -> Result<(), ChannelError> {
-        while let Some(id) = self.ids.last().copied() {
-            let reply = self.client.sealed_request(
-                sync::Call::Cancel {
-                    binding: self.binding.clone(),
-                    subscription_id: id.to_string(),
-                },
-                deadline,
-            );
-            match reply {
-                Ok((_, sync::Outcome::Cancelled { id: confirmed }))
-                    if confirmed == id.to_string() =>
-                {
-                    self.ids.pop();
-                }
-                _ => {
-                    self.client.end_generation();
-                    self.ids.clear();
-                    return Err(ChannelError::Unavailable);
-                }
-            }
-        }
-        Ok(())
-    }
-    /// Coalesced changes do not carry a cursor or make this page current.
-    pub(crate) fn changed(&self) -> Result<bool, ChannelError> {
-        let mut changed = false;
-        for id in &self.ids {
-            match self.client.sealed_notice(*id)? {
-                Some(sync::InterestNotice::Changed) => changed = true,
-                Some(sync::InterestNotice::Terminal { .. }) => {
-                    return Err(ChannelError::Unavailable);
-                }
-                None => {}
-            }
-        }
-        Ok(changed)
+
+struct Pulse {
+    state: Mutex<PulseState>,
+    wake: Condvar,
+}
+struct PulseState {
+    page: Option<PageRef>,
+    version: u64,
+    stopped: bool,
+}
+fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|p| p.into_inner())
+}
+/// What woke the worker.
+pub(crate) struct Wake {
+    pub version: u64,
+    pub page: Option<PageRef>,
+    pub stopped: bool,
+}
+/// The most recently active page: the one a browser opened or showed, or the CLI wrote to.
+/// Touching it is cheap and never blocks; the worker alone decides what to do about it.
+#[derive(Clone)]
+pub struct Activity(Arc<Pulse>);
+impl Default for Activity {
+    fn default() -> Self {
+        Self(Arc::new(Pulse {
+            state: Mutex::new(PulseState {
+                page: None,
+                version: 0,
+                stopped: false,
+            }),
+            wake: Condvar::new(),
+        }))
     }
 }
-impl Drop for PageInterests {
+impl Activity {
+    pub fn touch(&self, page: PageRef) {
+        let mut state = locked(&self.0.state);
+        state.page = Some(page);
+        state.version += 1;
+        self.0.wake.notify_all();
+    }
+    /// Wake the worker for a reason that is not a page: a local write, or a retry that is due.
+    pub fn nudge(&self) {
+        locked(&self.0.state).version += 1;
+        self.0.wake.notify_all();
+    }
+    fn stop(&self) {
+        locked(&self.0.state).stopped = true;
+        self.0.wake.notify_all();
+    }
+    /// The next state after `seen`, or the unchanged one when `timeout` passes first.
+    pub(crate) fn wait(&self, seen: u64, timeout: Duration) -> Wake {
+        let deadline = Instant::now() + timeout;
+        let mut state = locked(&self.0.state);
+        while state.version == seen && !state.stopped {
+            let Some(left) = deadline.checked_duration_since(Instant::now()) else {
+                break;
+            };
+            state = self
+                .0
+                .wake
+                .wait_timeout(state, left)
+                .unwrap_or_else(|p| p.into_inner())
+                .0;
+        }
+        Wake {
+            version: state.version,
+            page: state.page.clone(),
+            stopped: state.stopped,
+        }
+    }
+}
+
+/// Where the worker finds the current object-channel generation. The serve's `ChannelOwner`
+/// in production; a fixed peer in tests.
+pub(crate) trait Channels: Send + Sync {
+    fn client(&self) -> Option<SealedClient>;
+    /// Counts accepted channels, so a generation nobody activated is noticed.
+    fn started(&self) -> u64;
+}
+impl Channels for ChannelOwner {
+    fn client(&self) -> Option<SealedClient> {
+        ChannelOwner::client(self)
+    }
+    fn started(&self) -> u64 {
+        self.generation()
+    }
+}
+
+/// What Remote's single activation exchange returned: its public project and the generation of
+/// the channel it installed. Neither carries Firebase credentials or authority.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Activation {
+    pub project: String,
+    pub generation: Uuid4,
+}
+/// A typed refusal exactly as Remote wrote it (`state` is only ever `deadline`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Refusal {
+    pub code: String,
+    pub message: String,
+    pub state: Option<String>,
+}
+/// Why one activation gave no generation: Remote said no, or the exchange itself did not
+/// complete (no executable, deadline, unreadable reply).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ActivationFailure {
+    Remote(Refusal),
+    Local,
+}
+type Activate = dyn Fn(Instant) -> Result<Activation, ActivationFailure> + Send + Sync;
+/// Everything the worker needs, injected: the real control exchange and a one-line sink for
+/// the single warning a person may see.
+pub(crate) struct Parts {
+    pub channels: Arc<dyn Channels>,
+    pub activity: Activity,
+    pub activate: Arc<Activate>,
+    pub report: Arc<dyn Fn(&str) + Send + Sync>,
+    pub declaration_digest: String,
+    pub space: String,
+}
+
+/// The serve's one cloud-sync worker.
+pub struct CloudSync {
+    activity: Activity,
+    thread: Option<JoinHandle<()>>,
+}
+impl CloudSync {
+    pub(crate) fn start(parts: Parts) -> io::Result<Self> {
+        let activity = parts.activity.clone();
+        let thread = thread::Builder::new()
+            .name("colab-cloud-sync".into())
+            .spawn(move || worker::run(parts))?;
+        Ok(Self {
+            activity,
+            thread: Some(thread),
+        })
+    }
+    pub fn is_finished(&self) -> bool {
+        self.thread.as_ref().is_none_or(JoinHandle::is_finished)
+    }
+    /// End the worker. The caller closes the object channel first, so a request blocked on the
+    /// bus ends quickly; the worker cancels its interests and joins before this returns.
+    pub fn stop(mut self) {
+        self.activity.stop();
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+impl Drop for CloudSync {
     fn drop(&mut self) {
-        // Normal lifecycle joins cancel explicitly. If unwinding leaves handles,
-        // their generation must not survive to install an overlapping group.
-        if !self.ids.is_empty() {
-            self.client.end_generation();
+        self.activity.stop();
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
         }
     }
 }

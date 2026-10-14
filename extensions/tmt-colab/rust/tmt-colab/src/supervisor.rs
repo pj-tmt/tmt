@@ -17,6 +17,7 @@ use std::{
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
+use tmt_colab::cloud_sync::{Activation, ActivationFailure, Refusal};
 
 /// How long a starting door may take to print its descriptor.
 const READY: Duration = Duration::from_secs(15);
@@ -92,38 +93,37 @@ impl Access {
     }
 }
 
-/// Public project identity and the generation returned by Remote's single
-/// activation exchange. Neither value carries Firebase credentials or authority.
-pub(crate) struct SyncActivation {
-    pub project: String,
-    pub generation: tmt_extension_objects::Uuid4,
-}
 /// Called by the generation worker only after Colab's listener is accepting.
 /// The running Remote owns startup selection; no private records or fallback.
-pub(crate) fn activate_sync(deadline: Instant) -> Result<SyncActivation, RemoteFailure> {
-    let unavailable = || RemoteFailure {
-        code: "REMOTE_STATE_UNAVAILABLE".into(),
-        message: "Cloud sync unavailable.".into(),
-    };
-    let invoke = |words: &[&str]| -> Result<String, RemoteFailure> {
+pub(crate) fn activate_sync(deadline: Instant) -> Result<Activation, ActivationFailure> {
+    let invoke = |words: &[&str]| -> Result<String, ActivationFailure> {
         let (success, reply) =
-            crate::door::remote_call_until(words, deadline).ok_or_else(unavailable)?;
+            crate::door::remote_call_until(words, deadline).ok_or(ActivationFailure::Local)?;
         if success {
             Ok(reply)
         } else {
-            Err(RemoteFailure::parse(&reply).unwrap_or_else(unavailable))
+            Err(
+                RemoteFailure::parse(&reply).map_or(ActivationFailure::Local, |failure| {
+                    ActivationFailure::Remote(Refusal {
+                        // The shared wording for a door that predates the control exchange.
+                        message: failure.text().to_owned(),
+                        code: failure.code,
+                        state: failure.state,
+                    })
+                }),
+            )
         }
     };
     let left = deadline
         .checked_duration_since(Instant::now())
-        .ok_or_else(unavailable)?;
+        .ok_or(ActivationFailure::Local)?;
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map_err(|_| unavailable())?;
+        .map_err(|_| ActivationFailure::Local)?;
     let milliseconds = now
         .checked_add(left)
         .and_then(|n| u64::try_from(n.as_millis()).ok())
-        .ok_or_else(unavailable)?
+        .ok_or(ActivationFailure::Local)?
         .to_string();
     #[derive(serde::Deserialize)]
     #[serde(deny_unknown_fields)]
@@ -138,12 +138,12 @@ pub(crate) fn activate_sync(deadline: Instant) -> Result<SyncActivation, RemoteF
         &milliseconds,
         "--json",
     ])?)
-    .map_err(|_| unavailable())?;
-    let generation =
-        tmt_extension_objects::Uuid4::parse(&activated.generation).map_err(|_| unavailable())?;
+    .map_err(|_| ActivationFailure::Local)?;
+    let generation = tmt_extension_objects::Uuid4::parse(&activated.generation)
+        .map_err(|_| ActivationFailure::Local)?;
     let identity: serde_json::Value =
         serde_json::from_str(&invoke(&["status", "--layers", "--json"])?)
-            .map_err(|_| unavailable())?;
+            .map_err(|_| ActivationFailure::Local)?;
     let project = identity["firestoreDeployment"]["project"]
         .as_str()
         .filter(|p| {
@@ -152,9 +152,9 @@ pub(crate) fn activate_sync(deadline: Instant) -> Result<SyncActivation, RemoteF
                 && p.bytes()
                     .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
         })
-        .ok_or_else(unavailable)?
+        .ok_or(ActivationFailure::Local)?
         .to_owned();
-    Ok(SyncActivation {
+    Ok(Activation {
         project,
         generation,
     })
