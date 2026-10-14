@@ -343,8 +343,8 @@ fullwidth `！` in any text typed into a pane. Details are in the
 
 ### Agent drivers
 
-Each agent driver has one pure `DriverDescriptor` and one adapter module;
-`drivers::Registry` composes detection, setup, launch and caller recognition.
+Each `DriverDescriptor` and adapter feed `drivers::Registry` for detection, setup,
+launch and caller recognition. Muse supports detection and skills.
 Detection never starts an agent. Claude owns the prompt-picker plugin source (`drivers/claude/plugins/`, published by the root `.claude-plugin` marketplace and installed by the user) and a read-only check that hints when it is missing; a launch adds no plugin arguments and no persistent provider settings change. Module rules and name ownership:
 [agent drivers](.agents/skills/tmt-core-runtime/references/hosts-drivers.md#agent-drivers).
 

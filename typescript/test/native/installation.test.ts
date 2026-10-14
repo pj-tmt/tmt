@@ -35,7 +35,7 @@ type InstallDocument = {
   readonly installed: InstallItem[];
 };
 
-const PROVIDERS = ['claude', 'codex', 'gemini', 'agy', 'pi', 'opencode'] as const;
+const PROVIDERS = ['claude', 'codex', 'gemini', 'agy', 'pi', 'opencode', 'muse'] as const;
 
 function canonicalSkill(): Buffer {
   return readFileSync(
@@ -107,6 +107,7 @@ function targetFor(sandbox: Sandbox, provider: (typeof PROVIDERS)[number]): stri
     case 'codex':
     case 'gemini':
     case 'opencode':
+    case 'muse':
       return path.join(sandbox.home, '.agents', 'skills', 'tmt');
   }
 }
@@ -406,7 +407,11 @@ describe('native installation process contract', () => {
       const first = installDocument(await runCli(sandbox, ['install', 'all', '--json']));
       expect(first).toEqual({
         installed: PROVIDERS.flatMap((agent, index) =>
-          expectedInstalled(targets[agent], [true, true, false, true, true, false][index], agent)
+          expectedInstalled(
+            targets[agent],
+            [true, true, false, true, true, false, false][index],
+            agent
+          )
         ),
       });
       for (const target of new Set(Object.values(targets))) {
