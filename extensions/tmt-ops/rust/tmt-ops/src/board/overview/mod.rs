@@ -8,3 +8,9 @@ pub(super) mod detail;
 pub(super) mod monitor;
 pub(super) mod sort;
 pub(super) mod view;
+
+#[cfg(test)]
+mod capture;
+
+#[cfg(test)]
+mod performance;

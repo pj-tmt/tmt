@@ -117,7 +117,12 @@ impl App {
             ),
         ];
         for column in Column::ALL {
-            lines.push(format!("{}: {}", column.title(), values.text(column, row)));
+            let value = if column == Column::Cron {
+                self.cron_glyphs.label(values.cron)
+            } else {
+                values.text(column, row)
+            };
+            lines.push(format!("{}: {value}", column.title()));
         }
         let target = crate::board::app::RowTarget::Workspace(row.target.clone());
         if let Some(raw) = self.target_row(&target) {
@@ -262,5 +267,15 @@ mod tests {
         ));
         assert_eq!(app.monitor_details_event(&event), Some(Effect::None));
         assert!(app.monitor_details.is_none());
+    }
+    #[test]
+    fn details_uses_the_renderers_injected_ascii_count_words() {
+        let mut app = crate::board::app::workspace::tests::board();
+        app.shell.tab = OpsTab::Overview;
+        app.cron_glyphs = super::super::cron_counts::GlyphSet::from_ascii(true);
+        assert_eq!(app.overview_details(), Effect::None);
+        let lines = &app.monitor_details.as_ref().unwrap().lines;
+        assert!(lines.iter().any(|line| line == "Cron: CRON unknown"));
+        assert!(lines.iter().all(|line| !line.contains('◷')));
     }
 }

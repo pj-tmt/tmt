@@ -310,4 +310,60 @@ mod tests {
         assert!(app.overview_sort_hits.borrow().is_empty());
         assert!(app.cron_scope_hits.borrow().is_empty());
     }
+    #[test]
+    fn painted_header_click_and_sort_keys_use_the_same_config_requests() {
+        use ratatui::crossterm::event::{
+            KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+        };
+        let mut clicked = board();
+        let mut keyed = board();
+        let selected = clicked.workspace.selected.clone();
+        for key in ['s', 'S'] {
+            let mut terminal = Terminal::new(TestBackend::new(160, 28)).unwrap();
+            terminal
+                .draw(|frame| crate::board::view::render(frame, &clicked))
+                .unwrap();
+            let area = clicked
+                .overview_sort_hits
+                .borrow()
+                .iter()
+                .find(|(_, column)| *column == OverviewColumn::Agent)
+                .unwrap()
+                .0;
+            let click = clicked.mouse(
+                MouseEvent {
+                    kind: MouseEventKind::Down(MouseButton::Left),
+                    column: area.x,
+                    row: area.y,
+                    modifiers: KeyModifiers::NONE,
+                },
+                std::time::Instant::now(),
+            );
+            let press = keyed.key(KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE));
+            let Effect::Act(Request::WorkspacePreferences { expected, next }) = click else {
+                panic!("painted sort header must request the Config lane")
+            };
+            let Effect::Act(Request::WorkspacePreferences {
+                expected: key_expected,
+                next: key_next,
+            }) = press
+            else {
+                panic!("sort key must request the same Config lane")
+            };
+            assert_eq!(expected, key_expected);
+            assert_eq!(next, key_next);
+            assert_eq!(clicked.workspace.selected, selected);
+            assert_eq!(keyed.workspace.selected, selected);
+            for app in [&mut clicked, &mut keyed] {
+                app.view
+                    .as_mut()
+                    .unwrap()
+                    .home
+                    .as_mut()
+                    .unwrap()
+                    .workspace
+                    .preferences = next.clone();
+            }
+        }
+    }
 }
