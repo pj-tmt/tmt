@@ -158,6 +158,8 @@ fn agents_composer_is_visible_idle_and_escape_keeps_the_uuid_draft_at_every_widt
             painted.contains("Message → worker") && painted.contains("Write a message…"),
             "{width}: {painted}"
         );
+        assert!(painted.contains("│ › Write a message…"));
+        assert!(painted.contains("[ Send ] │"));
         assert!(app.input.is_none());
         assert!(app.input_band.get().unwrap().height >= 1);
         app.key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));

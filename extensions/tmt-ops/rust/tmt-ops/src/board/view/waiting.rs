@@ -116,7 +116,7 @@ pub(in crate::board) fn input_lines(
 ) -> usize {
     if let Some(projection) = app.composer_projection() {
         return projection.text.map_or(1, |text| {
-            text.layout(area.width.saturating_sub(13).max(1))
+            text.layout(area.width.saturating_sub(15).max(1))
                 .lines
                 .len()
                 .clamp(1, 6)
@@ -206,6 +206,11 @@ pub(in crate::board) fn inline_prompt(
             Rect::new(band.x + 1, band.y, band.width - 2, band.height)
         } else {
             band
+        };
+        let content = if content.width >= 5 {
+            Rect::new(content.x + 1, content.y, content.width - 2, content.height)
+        } else {
+            content
         };
         let hint_rows = u16::from(content.height > 1 && band.height >= 4);
         let quote_rows = u16::from(!projection.quotes.is_empty() && content.height > hint_rows + 1);
