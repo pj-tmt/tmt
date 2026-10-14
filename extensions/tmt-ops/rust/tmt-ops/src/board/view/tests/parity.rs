@@ -72,11 +72,18 @@ fn workspace_board(config: &Config, document: &Value) -> App {
         json!({"name":"product","roomId":ROOM,"revision":2,"memberIds":squad.members}),
     );
     snapshot.configure(config).unwrap();
+    // This approved parity fixture records uncolored cells. Config resolves
+    // real terminal depth from NO_COLOR; pin fixture depth instead of inheriting
+    // the runner's environment. Color coverage lives in the HOME/look fixtures.
+    for look in snapshot.squad_looks.values_mut() {
+        look.depth = tmt_cli_style::Depth::None;
+    }
     home.summary.members = 3;
     home.summary.working = 1;
     home.summary.blocked = 1;
     app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
     app.select(1);
+    assert_eq!(app.look().depth, tmt_cli_style::Depth::None);
     app
 }
 
