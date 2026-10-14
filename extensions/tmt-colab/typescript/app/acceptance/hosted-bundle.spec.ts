@@ -47,7 +47,7 @@ function composed(world: AcceptanceWorld) {
   const example = path.join(path.dirname(world.binaries.colab), 'examples', 'compose_hosting');
   if (!fs.existsSync(example))
     throw new Error(
-      `Missing ${example}. Build with: cd rust && cargo build --locked -p tmt-remote --example compose_hosting (or set TMT_ACCEPTANCE_BIN_DIR to a directory that holds examples/compose_hosting).`,
+      `Missing ${example}. Build it in its own invocation, after the three executables: cd rust && cargo build --locked -p tmt-remote --example compose_hosting. Never add it to the executables' build: an example selected next to tmt-cli turns on its dev-dependency features and the resulting tmt refuses to run in a world (or set TMT_ACCEPTANCE_BIN_DIR to a directory that holds examples/compose_hosting).`,
     );
   const declarationFile = path.join(world.root, 'declaration-envelope.json');
   const bundleFile = path.join(world.root, 'hosting-bundle-reply.json');

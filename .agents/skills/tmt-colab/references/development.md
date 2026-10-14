@@ -427,3 +427,9 @@ node typescript/scripts/verify-native-artifact.mjs --product colab \
 The extracted binary is copied to a fresh directory and must serve without
 `--app-dir`, checkout output or pnpm on `PATH`; exact HTML, every asset and both
 Rust and frontend notices must match.
+
+`acceptance/hosted-bundle.spec.ts` runs the embedded bundle through Remote's offline composer
+(`cargo build --locked -p tmt-remote --example compose_hosting`, its own invocation after the three
+executables: an example selected next to `tmt-cli` turns on its dev-dependency features and that
+`tmt` then refuses to run in a world). CI embeds the hosted inventory in the one acceptance build
+(`TMT_COLAB_APP_DIR` and `TMT_COLAB_HOSTING_DIR`; the app's `build:hosted` runs its three Vite modes).

@@ -2657,11 +2657,17 @@ describe('required CI gate', () => {
     const nativeBuild = acceptance.indexOf('cargo build --locked --manifest-path rust/Cargo.toml');
     expect(appBuild).toBeGreaterThan(0);
     expect(nativeBuild).toBeGreaterThan(appBuild);
-    expect(acceptance.match(/cargo build /g)).toHaveLength(1);
-    // Remote's developer-only offline composer (#3048) rides in the same compile: the hosted spec feeds it.
+    // One compile of the three executables; Remote's offline composer (#3048) is its own
+    // invocation, because an example selected next to tmt-cli enables tmt-adapters'
+    // `test-isolation` dev-dependency feature and the resulting `tmt` refuses to run in a world.
+    expect(acceptance.match(/cargo build /g)).toHaveLength(2);
     expect(acceptance).toContain(
-      '-p tmt-cli -p tmt-remote -p tmt-colab --bins --example compose_hosting'
+      'cargo build --locked --manifest-path rust/Cargo.toml -j 2 -p tmt-cli -p tmt-remote -p tmt-colab --bins\n'
     );
+    expect(acceptance).toContain(
+      'cargo build --locked --manifest-path rust/Cargo.toml -j 2 -p tmt-remote --example compose_hosting\n'
+    );
+    expect(acceptance).not.toMatch(/-p tmt-cli[^\n]*--example/);
     expect(acceptance).toContain('test:acceptance --workers=1 --reporter=list,json');
     // Two shards run the one single-worker suite (#2827): each builds its own binaries and world,
     // keeps its own concurrency group and evidence, and neither cancels the other.
@@ -2717,10 +2723,9 @@ describe('required CI gate', () => {
     expect(hosted).not.toContain('actions/cache/save');
     expect(hosted).toContain('shared-key: native-rust\n          save-if: false');
     expect(hosted).toContain('TMT_COLAB_HOSTING_DIR: ${{ github.workspace }}');
-    expect(hosted.match(/cargo build /g)).toHaveLength(1);
-    expect(hosted).toContain(
-      '-p tmt-cli -p tmt-remote -p tmt-colab --bins --example compose_hosting'
-    );
+    expect(hosted.match(/cargo build /g)).toHaveLength(2);
+    expect(hosted).toContain('-p tmt-remote --example compose_hosting');
+    expect(hosted).not.toMatch(/-p tmt-cli[^\n]*--example/);
     expect(hosted).toContain('acceptance/hosted-bundle.spec.ts');
     expect(hosted).not.toContain('colab-acceptance-shards');
     expect(hosted).not.toContain('continue-on-error');

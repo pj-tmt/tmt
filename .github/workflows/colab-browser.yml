@@ -305,7 +305,11 @@ jobs:
       - name: Build all three real executables once
         env:
           TMT_COLAB_HOSTING_DIR: ${{ github.workspace }}/extensions/tmt-colab/typescript/app/dist-hosted
-        run: cargo build --locked --manifest-path rust/Cargo.toml -j 2 -p tmt-cli -p tmt-remote -p tmt-colab --bins --example compose_hosting
+        run: cargo build --locked --manifest-path rust/Cargo.toml -j 2 -p tmt-cli -p tmt-remote -p tmt-colab --bins
+      # A separate invocation on purpose: selecting an example next to tmt-cli enables its
+      # dev-dependency features (tmt-adapters test-isolation), and that `tmt` then refuses to run in a world.
+      - name: Build Remote's offline Hosting composer example
+        run: cargo build --locked --manifest-path rust/Cargo.toml -j 2 -p tmt-remote --example compose_hosting
       - name: Run the hosted bundle spec with one worker
         working-directory: typescript
         run: pnpm --filter @tmt/colab-app --fail-if-no-match test:acceptance --workers=1 --reporter=list acceptance/hosted-bundle.spec.ts
@@ -381,7 +385,11 @@ jobs:
       - name: Build all three real executables once
         env:
           TMT_COLAB_HOSTING_DIR: ${{ github.workspace }}/extensions/tmt-colab/typescript/app/dist-hosted
-        run: cargo build --locked --manifest-path rust/Cargo.toml -j 2 -p tmt-cli -p tmt-remote -p tmt-colab --bins --example compose_hosting
+        run: cargo build --locked --manifest-path rust/Cargo.toml -j 2 -p tmt-cli -p tmt-remote -p tmt-colab --bins
+      # A separate invocation on purpose: selecting an example next to tmt-cli enables its
+      # dev-dependency features (tmt-adapters test-isolation), and that `tmt` then refuses to run in a world.
+      - name: Build Remote's offline Hosting composer example
+        run: cargo build --locked --manifest-path rust/Cargo.toml -j 2 -p tmt-remote --example compose_hosting
       - name: Record the tested source and exact build hashes
         shell: bash
         env:
