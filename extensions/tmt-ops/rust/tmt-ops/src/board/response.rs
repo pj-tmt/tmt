@@ -14,19 +14,6 @@ pub(super) struct Quote {
     pub text: String,
 }
 impl Quote {
-    pub fn label(&self) -> String {
-        let request: String = self
-            .key
-            .request
-            .trim_start_matches("req_")
-            .chars()
-            .take(8)
-            .collect();
-        format!(
-            "quote {} · bytes {}..{}",
-            request, self.range.start, self.range.end
-        )
-    }
     pub fn reference(&self) -> String {
         format!(
             "[Response source: {}; identity {}; bytes {}..{}]\n{}\n[End response source]",

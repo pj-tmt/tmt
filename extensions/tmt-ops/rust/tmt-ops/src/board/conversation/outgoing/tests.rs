@@ -297,3 +297,56 @@ fn turns_have_distinct_roles_tight_status_and_short_notice_without_request_ids()
     );
     assert_eq!(crate::board::glyph_guard::glyph_error(&text[2]), None);
 }
+
+#[test]
+fn every_correlated_reply_has_one_blank_before_the_next_turn_after_source_repaint() {
+    let mut app = fixture();
+    for index in 0..3 {
+        let request = format!("req-turn-{index}");
+        let fake = Fake::new(json!({"requestId":request,"status":"sent"}), false);
+        let completed = send(&mut app, &fake, &format!("message {index}"));
+        finish(&mut app, completed);
+        app.view.as_mut().unwrap().replies = vec![json!({
+            "recipientId":"auth-fix","requestId":request,"response":format!("reply {index}")
+        })];
+        draw(&app);
+    }
+    for repaint in [false, true] {
+        if repaint {
+            for session in app.conversation.borrow_mut().sessions.values_mut() {
+                session.rendered = None;
+            }
+        }
+        draw(&app);
+        let state = app.conversation.borrow();
+        let session = state.sessions.values().next().unwrap();
+        let rendered = session.rendered.as_ref().unwrap();
+        let lines: Vec<_> = rendered
+            .mapped
+            .lines
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        for index in 0..3 {
+            let message = lines
+                .iter()
+                .position(|line| line == &format!("message {index}"))
+                .unwrap();
+            assert!(lines[message + 1].starts_with("✓ delivered"), "{lines:?}");
+            let reply = lines
+                .iter()
+                .position(|line| line == &format!("reply {index}"))
+                .unwrap();
+            assert_eq!(lines[reply - 1], "auth-fix · now", "{lines:?}");
+            if index < 2 {
+                assert_eq!(
+                    &lines[reply + 1..reply + 3],
+                    &["", "You · now"],
+                    "repaint={repaint}; sources={:?}; compact={:?}; {lines:?}",
+                    rendered.mapped.sources,
+                    session.compact_separators
+                );
+            }
+        }
+    }
+}

@@ -3533,6 +3533,16 @@ impl App {
             return Effect::None;
         }
         if event.kind == MouseEventKind::Down(MouseButton::Left) {
+            let quote = self
+                .composer
+                .quote_hit
+                .borrow()
+                .clone()
+                .filter(|hit| hit.area.contains((event.column, event.row).into()));
+            if let Some(hit) = quote {
+                self.remove_painted_quote(&hit);
+                return Effect::None;
+            }
             let send = self
                 .composer
                 .send_hit

@@ -4,6 +4,7 @@ use ratatui::layout::Rect;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use tmt_tui::components::Editor;
+use unicode_width::UnicodeWidthStr;
 
 use super::app::{App, Compose, Input, RowTarget};
 
@@ -25,6 +26,28 @@ pub(super) struct SendHit {
     pub area: Rect,
     pub key: DraftKey,
 }
+#[derive(Clone)]
+pub(super) struct QuoteHit {
+    pub area: Rect,
+    pub key: DraftKey,
+    pub source: super::home_leads::MessageKey,
+    pub range: std::ops::Range<usize>,
+}
+
+/// Bound untrusted text before sanitizing or painting, independently of the
+/// full attachment retained for submission.
+pub(super) fn quote_excerpt(quote: &super::response::Quote) -> String {
+    let mut chars = quote.text.chars();
+    let text: String = chars.by_ref().take(120).collect();
+    let mut excerpt = super::notes::sanitize(&text)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    if chars.next().is_some() {
+        excerpt.push('…');
+    }
+    excerpt
+}
 impl Draft {
     fn from_input(input: &Input) -> Self {
         Self {
@@ -38,33 +61,113 @@ pub(super) struct State {
     drafts: BTreeMap<DraftKey, Draft>,
     pending: Option<(DraftKey, Draft)>,
     pub send_hit: RefCell<Option<SendHit>>,
+    pub quote_hit: RefCell<Option<QuoteHit>>,
 }
 
 impl State {
     pub(super) fn invalidate(&self) {
         *self.send_hit.borrow_mut() = None;
+        *self.quote_hit.borrow_mut() = None;
     }
     pub(super) fn has_drafts(&self) -> bool {
         !self.drafts.is_empty()
     }
 }
 impl App {
+    pub(in crate::board) fn quote_caption(
+        &self,
+        quote: &super::response::Quote,
+        width: usize,
+    ) -> String {
+        if width < 12 {
+            return super::view::fit("Quote", width);
+        }
+        let name = self
+            .workspace_snapshot()
+            .and_then(|snapshot| snapshot.roster.members.get(&quote.key.lead))
+            .map_or("response", |member| member.name.as_str());
+        let name = super::notes::sanitize(name);
+        let name = super::view::fit(&name, width.saturating_sub(16).min(name.width()));
+        let prefix = format!("Quote · {}: \"", name.trim_end());
+        let excerpt = super::view::fit(
+            &quote_excerpt(quote),
+            width.saturating_sub(prefix.width() + 1),
+        );
+        format!("{prefix}{}\"", excerpt.trim_end())
+    }
     pub(in crate::board) fn composer_focus_hint(&self) -> String {
         let bindings = self.bindings();
         let key = bindings
             .get("enter")
             .filter(|action| action.verb == crate::action::Verb::Talk)
-            .map(|_| "Enter")
+            .map(|_| "⏎")
             .or_else(|| {
                 bindings
                     .iter()
                     .find(|(_, action)| action.verb == crate::action::Verb::Talk)
                     .map(|(key, _)| key.as_str())
             });
-        key.map_or_else(
-            || "click to write".into(),
-            |key| format!("{key} write · click to write"),
-        )
+        key.map_or_else(|| "click to write".into(), |key| format!("{key} write"))
+    }
+
+    /// Details consumes frozen display lines; composer owns UUID admission and
+    /// the attachment bounds, with no name-based recipient lookup.
+    pub(in crate::board) fn quote_provenance(&self, identity: &str) -> Vec<String> {
+        let Some(projection) = self
+            .composer_projection()
+            .filter(|projection| projection.key.as_ref().is_some_and(|key| key.1 == identity))
+        else {
+            return Vec::new();
+        };
+        let matching = projection
+            .quotes
+            .iter()
+            .filter(|quote| quote.key.lead == identity);
+        let count = matching.clone().count();
+        let mut lines: Vec<_> = matching
+            .take(8)
+            .map(|quote| {
+                format!(
+                    "Quote · request {} · source {} · bytes {}..{} · {}",
+                    quote.key.request,
+                    quote.key.lead,
+                    quote.range.start,
+                    quote.range.end,
+                    quote_excerpt(quote)
+                )
+            })
+            .collect();
+        if count > 8 {
+            lines.push(format!("{} more attached quotes", count - 8));
+        }
+        lines
+    }
+
+    pub(in crate::board) fn remove_painted_quote(&mut self, hit: &QuoteHit) {
+        let current = self.composer_projection().is_some_and(|projection| {
+            projection.key.as_ref() == Some(&hit.key)
+                && projection
+                    .quotes
+                    .last()
+                    .is_some_and(|quote| quote.key == hit.source && quote.range == hit.range)
+        });
+        if !current {
+            return;
+        }
+        if self.input.is_none() {
+            self.perform(&crate::action::Action::parse("talk").expect("built-in Talk action"));
+        }
+        if let Some(input) = self.input.as_mut().filter(|input| {
+            input.draft_key.as_ref() == Some(&hit.key)
+                && input
+                    .response_quotes
+                    .last()
+                    .is_some_and(|quote| quote.key == hit.source && quote.range == hit.range)
+        }) {
+            input.response_quotes.pop();
+            self.remember_draft();
+        }
+        self.invalidate_frame_geometry();
     }
 
     pub(super) fn draft_identity(&self, input: &Input) -> Option<DraftKey> {

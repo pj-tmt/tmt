@@ -215,18 +215,44 @@ pub(in crate::board) fn inline_prompt(
         let hint_rows = u16::from(content.height > 1 && band.height >= 4);
         let quote_rows = u16::from(!projection.quotes.is_empty() && content.height > hint_rows + 1);
         if quote_rows > 0 {
+            let quote = projection.quotes.last().unwrap();
+            let removable = content.width >= 4;
+            let label = app.quote_caption(
+                quote,
+                usize::from(content.width.saturating_sub(if removable { 2 } else { 0 })),
+            );
             strip::paint_left(
                 frame.buffer_mut(),
-                Rect::new(content.x, content.y, content.width, 1),
+                Rect::new(
+                    content.x,
+                    content.y,
+                    content.width.saturating_sub(if removable { 2 } else { 0 }),
+                    1,
+                ),
                 Line::styled(
-                    format!(
-                        "{} quote(s) · {} · Alt-Backspace removes",
-                        projection.quotes.len(),
-                        projection.quotes.last().unwrap().label()
+                    super::fit(
+                        &label,
+                        usize::from(content.width.saturating_sub(if removable { 2 } else { 0 })),
                     ),
                     look.role(Role::Muted),
                 ),
             );
+            if removable {
+                let remove = Rect::new(content.right() - 1, content.y, 1, 1);
+                strip::paint_left(
+                    frame.buffer_mut(),
+                    remove,
+                    Line::styled("✕", look.role(Role::Accent)),
+                );
+                if let Some(key) = projection.key.clone() {
+                    *app.composer.quote_hit.borrow_mut() = Some(crate::board::composer::QuoteHit {
+                        area: remove,
+                        key,
+                        source: quote.key.clone(),
+                        range: quote.range.clone(),
+                    });
+                }
+            }
         }
         let prefix = u16::from(content.width >= 3) * 2;
         let button_width = if content.width >= 14 { 9 } else { 0 };
@@ -293,11 +319,14 @@ pub(in crate::board) fn inline_prompt(
             }
         }
         if hint_rows > 0 {
-            let hint = if projection.focused {
+            let mut hint = if projection.focused {
                 "Enter send · Shift+Enter newline · Esc list".to_owned()
             } else {
                 app.composer_focus_hint()
             };
+            if !projection.quotes.is_empty() {
+                hint.push_str(" · Alt-⌫ remove");
+            }
             // Keep each hint phrase whole; never paint half of a key name.
             let mut fitted = String::new();
             for phrase in hint.split(" · ") {
@@ -457,15 +486,6 @@ pub(in crate::board) fn inline_prompt(
             1
         };
         if let Some(quote) = input.response_quotes.last() {
-            let hint = "Alt-Backspace removes";
-            let source = super::fit(
-                &format!(
-                    "{} quote(s) · {}",
-                    input.response_quotes.len(),
-                    quote.label()
-                ),
-                usize::from(areas.content.width).saturating_sub(hint.len() + 3),
-            );
             strip::paint_left(
                 frame.buffer_mut(),
                 Rect {
@@ -474,7 +494,10 @@ pub(in crate::board) fn inline_prompt(
                     ..areas.content
                 },
                 Line::styled(
-                    format!("{} · {hint}", source.trim_end()),
+                    super::fit(
+                        &app.quote_caption(quote, usize::from(areas.content.width)),
+                        usize::from(areas.content.width),
+                    ),
                     look.role(Role::Muted),
                 ),
             );
@@ -490,7 +513,7 @@ pub(in crate::board) fn inline_prompt(
             },
         );
     }
-    let hint = if matches!(input.compose, crate::board::app::Compose::Status) {
+    let mut hint = if matches!(input.compose, crate::board::app::Compose::Status) {
         format!(
             "↑↓ field · Enter choose · PgUp/PgDn · Esc cancel · Tab {}",
             if areas.footer.width >= tmt_cli_style::breakpoint::LG.cells {
@@ -507,6 +530,9 @@ pub(in crate::board) fn inline_prompt(
     } else {
         "Enter send · Esc keep draft · Ctrl-N newline · Ctrl-P paste".into()
     };
+    if !input.response_quotes.is_empty() {
+        hint.push_str(" · Alt-⌫ remove");
+    }
     strip::paint_left(
         frame.buffer_mut(),
         areas.footer,
