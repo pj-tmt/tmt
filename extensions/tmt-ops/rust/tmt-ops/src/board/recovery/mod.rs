@@ -418,7 +418,10 @@ impl crate::board::app::App {
         if self.shell.tab != OpsTab::Agents
             || self.input.is_some()
             || self.searching
-            || self.workspace_form.is_some()
+            || self
+                .workspace_form
+                .as_ref()
+                .is_some_and(|draft| draft.shown)
             || self.modal_open() && self.menu.is_none()
         {
             return self.say(

@@ -614,7 +614,7 @@
         "",
         "",
         "────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ? help  q quit"
       ],
       "styles": [
         "0:22=s0 22:10=s1 32:10=s0 42:118=s2",
@@ -652,7 +652,7 @@
         "0:1=s3 1:62=s2 63:1=s3 64:96=s2",
         "0:1=s3 1:62=s2 63:1=s3 64:96=s2",
         "0:64=s3 64:96=s2",
-        "0:1=s9 1:10=s0 11:1=s9 12:7=s0 19:1=s9 20:9=s0 29:1=s9 30:7=s0 37:1=s9 38:9=s0 47:1=s9 48:9=s0 57:1=s9 58:9=s0 67:1=s9 68:9=s0 77:1=s9 78:12=s0 90:1=s9 91:12=s0 103:1=s9 104:11=s0 115:1=s9 116:9=s0 125:6=s9 131:10=s0 141:1=s9 142:7=s0 149:1=s9 150:5=s0 155:5=s2"
+        "0:1=s9 1:10=s0 11:1=s9 12:7=s0 19:1=s9 20:9=s0 29:1=s9 30:7=s0 37:1=s9 38:9=s0 47:1=s9 48:9=s0 57:1=s9 58:9=s0 67:1=s9 68:9=s0 77:1=s9 78:9=s0 87:1=s9 88:12=s0 100:1=s9 101:12=s0 113:1=s9 114:11=s0 125:1=s9 126:9=s0 135:1=s9 136:7=s0 143:1=s9 144:5=s0 149:11=s2"
       ],
       "state": "agents",
       "look": "tmt",
@@ -680,7 +680,7 @@
         " ›   worker · working · active",
         "                                                                                                                                                            ↑ 2",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ? help  q quit"
       ],
       "styles": [
         "0:22=s0 22:10=s1 32:10=s0 42:118=s2",
@@ -690,7 +690,7 @@
         "0:1=s3 1:158=s8 159:1=s3",
         "0:1=s3 1:155=s2 156:4=s3",
         "0:160=s3",
-        "0:1=s9 1:10=s0 11:1=s9 12:7=s0 19:1=s9 20:9=s0 29:1=s9 30:7=s0 37:1=s9 38:9=s0 47:1=s9 48:9=s0 57:1=s9 58:9=s0 67:1=s9 68:9=s0 77:1=s9 78:12=s0 90:1=s9 91:12=s0 103:1=s9 104:11=s0 115:1=s9 116:9=s0 125:6=s9 131:10=s0 141:1=s9 142:7=s0 149:1=s9 150:5=s0 155:5=s2"
+        "0:1=s9 1:10=s0 11:1=s9 12:7=s0 19:1=s9 20:9=s0 29:1=s9 30:7=s0 37:1=s9 38:9=s0 47:1=s9 48:9=s0 57:1=s9 58:9=s0 67:1=s9 68:9=s0 77:1=s9 78:9=s0 87:1=s9 88:12=s0 100:1=s9 101:12=s0 113:1=s9 114:11=s0 125:1=s9 126:9=s0 135:1=s9 136:7=s0 143:1=s9 144:5=s0 149:11=s2"
       ],
       "state": "agents",
       "look": "tmt",
@@ -746,7 +746,7 @@
         "",
         "",
         "",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  ? help  q quit"
       ],
       "styles": [
         "0:22=s0 22:10=s1 32:10=s0 42:58=s2",
@@ -812,7 +812,7 @@
         " ›   worker · working · active",
         "                                                                                                ↑ 2",
         "────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  ? help  q quit"
       ],
       "styles": [
         "0:22=s0 22:10=s1 32:10=s0 42:58=s2",
@@ -878,7 +878,7 @@
         "",
         "",
         "",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  ? help  q quit"
       ],
       "styles": [
         "0:22=s0 22:10=s1 32:10=s0 42:38=s2",
@@ -944,7 +944,7 @@
         " ›   worker · working · active",
         "                                                                            ↑ 2",
         "────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  ? help  q quit"
       ],
       "styles": [
         "0:22=s0 22:10=s1 32:10=s0 42:38=s2",
@@ -2166,7 +2166,7 @@
         "",
         "",
         "────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ? help  q quit"
       ],
       "styles": [
         "0:22=s0 22:10=s1 32:10=s0 42:118=s2",
@@ -2204,7 +2204,7 @@
         "0:1=s3 1:62=s2 63:1=s3 64:96=s2",
         "0:1=s3 1:62=s2 63:1=s3 64:96=s2",
         "0:64=s3 64:96=s2",
-        "0:1=s9 1:10=s0 11:1=s9 12:7=s0 19:1=s9 20:9=s0 29:1=s9 30:7=s0 37:1=s9 38:9=s0 47:1=s9 48:9=s0 57:1=s9 58:9=s0 67:1=s9 68:9=s0 77:1=s9 78:12=s0 90:1=s9 91:12=s0 103:1=s9 104:11=s0 115:1=s9 116:9=s0 125:6=s9 131:10=s0 141:1=s9 142:7=s0 149:1=s9 150:5=s0 155:5=s2"
+        "0:1=s9 1:10=s0 11:1=s9 12:7=s0 19:1=s9 20:9=s0 29:1=s9 30:7=s0 37:1=s9 38:9=s0 47:1=s9 48:9=s0 57:1=s9 58:9=s0 67:1=s9 68:9=s0 77:1=s9 78:9=s0 87:1=s9 88:12=s0 100:1=s9 101:12=s0 113:1=s9 114:11=s0 125:1=s9 126:9=s0 135:1=s9 136:7=s0 143:1=s9 144:5=s0 149:11=s2"
       ],
       "state": "pool",
       "look": "tmt",
@@ -2232,7 +2232,7 @@
         " ›   worker · working · active",
         "                                                                                                                                                  ↑ 1  1 more ↓",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ? help  q quit"
       ],
       "styles": [
         "0:22=s0 22:10=s1 32:10=s0 42:118=s2",
@@ -2242,7 +2242,7 @@
         "0:1=s3 1:158=s8 159:1=s3",
         "0:1=s3 1:145=s2 146:14=s3",
         "0:160=s3",
-        "0:1=s9 1:10=s0 11:1=s9 12:7=s0 19:1=s9 20:9=s0 29:1=s9 30:7=s0 37:1=s9 38:9=s0 47:1=s9 48:9=s0 57:1=s9 58:9=s0 67:1=s9 68:9=s0 77:1=s9 78:12=s0 90:1=s9 91:12=s0 103:1=s9 104:11=s0 115:1=s9 116:9=s0 125:6=s9 131:10=s0 141:1=s9 142:7=s0 149:1=s9 150:5=s0 155:5=s2"
+        "0:1=s9 1:10=s0 11:1=s9 12:7=s0 19:1=s9 20:9=s0 29:1=s9 30:7=s0 37:1=s9 38:9=s0 47:1=s9 48:9=s0 57:1=s9 58:9=s0 67:1=s9 68:9=s0 77:1=s9 78:9=s0 87:1=s9 88:12=s0 100:1=s9 101:12=s0 113:1=s9 114:11=s0 125:1=s9 126:9=s0 135:1=s9 136:7=s0 143:1=s9 144:5=s0 149:11=s2"
       ],
       "state": "pool",
       "look": "tmt",
@@ -2298,7 +2298,7 @@
         "",
         "",
         "",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  ? help  q quit"
       ],
       "styles": [
         "0:22=s0 22:10=s1 32:10=s0 42:58=s2",
@@ -2364,7 +2364,7 @@
         " ›   worker · working · active",
         "                                                                                      ↑ 1  1 more ↓",
         "────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  ? help  q quit"
       ],
       "styles": [
         "0:22=s0 22:10=s1 32:10=s0 42:58=s2",
@@ -2430,7 +2430,7 @@
         "",
         "",
         "",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  ? help  q quit"
       ],
       "styles": [
         "0:22=s0 22:10=s1 32:10=s0 42:38=s2",
@@ -2496,7 +2496,7 @@
         " ›   worker · working · active",
         "                                                                  ↑ 1  1 more ↓",
         "────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  ? help  q quit"
       ],
       "styles": [
         "0:22=s0 22:10=s1 32:10=s0 42:38=s2",
@@ -2694,7 +2694,7 @@
         " ›   worker-150 · idle · active",
         "                                                          ↑ 124",
         "────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ? help  q quit"
       ],
       "styles": [
         "0:22=s0 22:10=s1 32:10=s0 42:118=s2",
@@ -2732,7 +2732,7 @@
         "0:1=s3 1:62=s8 63:1=s3 64:96=s2",
         "0:1=s3 1:57=s2 58:6=s3 64:96=s2",
         "0:64=s3 64:96=s2",
-        "0:1=s9 1:10=s0 11:1=s9 12:7=s0 19:1=s9 20:9=s0 29:1=s9 30:7=s0 37:1=s9 38:9=s0 47:1=s9 48:9=s0 57:1=s9 58:9=s0 67:1=s9 68:9=s0 77:1=s9 78:12=s0 90:1=s9 91:12=s0 103:1=s9 104:11=s0 115:1=s9 116:9=s0 125:6=s9 131:10=s0 141:1=s9 142:7=s0 149:1=s9 150:5=s0 155:5=s2"
+        "0:1=s9 1:10=s0 11:1=s9 12:7=s0 19:1=s9 20:9=s0 29:1=s9 30:7=s0 37:1=s9 38:9=s0 47:1=s9 48:9=s0 57:1=s9 58:9=s0 67:1=s9 68:9=s0 77:1=s9 78:9=s0 87:1=s9 88:12=s0 100:1=s9 101:12=s0 113:1=s9 114:11=s0 125:1=s9 126:9=s0 135:1=s9 136:7=s0 143:1=s9 144:5=s0 149:11=s2"
       ],
       "state": "dense",
       "look": "tmt",
@@ -2910,7 +2910,7 @@
         " ›   worker-150 · idle · active",
         "                                                                                                                                                          ↑ 152",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ? help  q quit"
       ],
       "styles": [
         "0:22=s0 22:10=s1 32:10=s0 42:118=s2",
@@ -2920,7 +2920,7 @@
         "0:1=s3 1:158=s8 159:1=s3",
         "0:1=s3 1:153=s2 154:6=s3",
         "0:160=s3",
-        "0:1=s9 1:10=s0 11:1=s9 12:7=s0 19:1=s9 20:9=s0 29:1=s9 30:7=s0 37:1=s9 38:9=s0 47:1=s9 48:9=s0 57:1=s9 58:9=s0 67:1=s9 68:9=s0 77:1=s9 78:12=s0 90:1=s9 91:12=s0 103:1=s9 104:11=s0 115:1=s9 116:9=s0 125:6=s9 131:10=s0 141:1=s9 142:7=s0 149:1=s9 150:5=s0 155:5=s2"
+        "0:1=s9 1:10=s0 11:1=s9 12:7=s0 19:1=s9 20:9=s0 29:1=s9 30:7=s0 37:1=s9 38:9=s0 47:1=s9 48:9=s0 57:1=s9 58:9=s0 67:1=s9 68:9=s0 77:1=s9 78:9=s0 87:1=s9 88:12=s0 100:1=s9 101:12=s0 113:1=s9 114:11=s0 125:1=s9 126:9=s0 135:1=s9 136:7=s0 143:1=s9 144:5=s0 149:11=s2"
       ],
       "state": "dense",
       "look": "tmt",
@@ -3126,7 +3126,7 @@
         "",
         "",
         "",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  ? help  q quit"
       ],
       "styles": [
         "0:22=s0 22:10=s1 32:10=s0 42:58=s2",
@@ -3342,7 +3342,7 @@
         " ›   worker-150 · idle · active",
         "                                                                                              ↑ 152",
         "────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  ? help  q quit"
       ],
       "styles": [
         "0:22=s0 22:10=s1 32:10=s0 42:58=s2",
@@ -3558,7 +3558,7 @@
         "",
         "",
         "",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  ? help  q quit"
       ],
       "styles": [
         "0:22=s0 22:10=s1 32:10=s0 42:38=s2",
@@ -3774,7 +3774,7 @@
         " ›   worker-150 · idle · active",
         "                                                                          ↑ 152",
         "────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  ? help  q quit"
       ],
       "styles": [
         "0:22=s0 22:10=s1 32:10=s0 42:38=s2",
@@ -9247,11 +9247,11 @@
         "│ pagedown              move one page down                                                                                                                     │",
         "│ pageup                move one page up                                                                                                                       │",
         "│ q                     close the board                                                                                                                        │",
+        "│ r                     review a UUID-safe member rename                                                                                                       │",
         "│ right                 expand the selected squad                                                                                                              │",
         "│ t                     send the member a message                                                                                                              │",
         "│ tab                   move to the next pane                                                                                                                  │",
-        "│ up                    select the previous visible target                                                                                                     │",
-        "│ 1–28 of 54 · 26 more ↓                                                                                                                                       │",
+        "│ 1–28 of 55 · 27 more ↓                                                                                                                                       │",
         "│ ↑↓ scroll · PgUp/PgDn page · Esc close                                                                                                                       │",
         "└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘",
         ""
@@ -9379,11 +9379,11 @@
         "│ pagedown              move one page down                                                         │",
         "│ pageup                move one page up                                                           │",
         "│ q                     close the board                                                            │",
+        "│ r                     review a UUID-safe member rename                                           │",
         "│ right                 expand the selected squad                                                  │",
         "│ t                     send the member a message                                                  │",
         "│ tab                   move to the next pane                                                      │",
-        "│ up                    select the previous visible target                                         │",
-        "│ 1–28 of 65 · 37 more ↓                                                                           │",
+        "│ 1–28 of 66 · 38 more ↓                                                                           │",
         "│ ↑↓ scroll · PgUp/PgDn page · Esc close                                                           │",
         "└──────────────────────────────────────────────────────────────────────────────────────────────────┘",
         ""
@@ -9511,11 +9511,11 @@
         "│ pagedown              move one page down                                     │",
         "│ pageup                move one page up                                       │",
         "│ q                     close the board                                        │",
+        "│ r                     review a UUID-safe member rename                       │",
         "│ right                 expand the selected squad                              │",
         "│ t                     send the member a message                              │",
         "│ tab                   move to the next pane                                  │",
-        "│ up                    select the previous visible target                     │",
-        "│ 1–28 of 76 · 48 more ↓                                                       │",
+        "│ 1–28 of 77 · 49 more ↓                                                       │",
         "│ ↑↓ scroll · PgUp/PgDn page · Esc close                                       │",
         "└──────────────────────────────────────────────────────────────────────────────┘",
         ""
@@ -9647,7 +9647,7 @@
         "│ pagedown              move one page down                 │",
         "│ pageup                move one page up                   │",
         "│ q                     close the board                    │",
-        "│ 1–28 of 96 · 68 more ↓                                   │",
+        "│ 1–28 of 97 · 69 more ↓                                   │",
         "│ ↑↓ scroll · PgUp/PgDn page · Esc close                   │",
         "└──────────────────────────────────────────────────────────┘",
         ""
@@ -12402,7 +12402,7 @@
         "",
         "",
         "────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ? help  q quit"
       ],
       "styles": [
         "0:22=s16 22:10=s17 32:10=s16 42:118=s2",
@@ -12440,7 +12440,7 @@
         "0:1=s18 1:62=s2 63:1=s18 64:96=s2",
         "0:1=s18 1:62=s2 63:1=s18 64:96=s2",
         "0:64=s18 64:96=s2",
-        "0:1=s24 1:10=s16 11:1=s24 12:7=s16 19:1=s24 20:9=s16 29:1=s24 30:7=s16 37:1=s24 38:9=s16 47:1=s24 48:9=s16 57:1=s24 58:9=s16 67:1=s24 68:9=s16 77:1=s24 78:12=s16 90:1=s24 91:12=s16 103:1=s24 104:11=s16 115:1=s24 116:9=s16 125:6=s24 131:10=s16 141:1=s24 142:7=s16 149:1=s24 150:5=s16 155:5=s2"
+        "0:1=s24 1:10=s16 11:1=s24 12:7=s16 19:1=s24 20:9=s16 29:1=s24 30:7=s16 37:1=s24 38:9=s16 47:1=s24 48:9=s16 57:1=s24 58:9=s16 67:1=s24 68:9=s16 77:1=s24 78:9=s16 87:1=s24 88:12=s16 100:1=s24 101:12=s16 113:1=s24 114:11=s16 125:1=s24 126:9=s16 135:1=s24 136:7=s16 143:1=s24 144:5=s16 149:11=s2"
       ],
       "state": "agents",
       "look": "tmt-light",
@@ -12468,7 +12468,7 @@
         " ›   worker · working · active",
         "                                                                                                                                                            ↑ 2",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ? help  q quit"
       ],
       "styles": [
         "0:22=s16 22:10=s17 32:10=s16 42:118=s2",
@@ -12478,7 +12478,7 @@
         "0:1=s18 1:158=s23 159:1=s18",
         "0:1=s18 1:155=s2 156:4=s18",
         "0:160=s18",
-        "0:1=s24 1:10=s16 11:1=s24 12:7=s16 19:1=s24 20:9=s16 29:1=s24 30:7=s16 37:1=s24 38:9=s16 47:1=s24 48:9=s16 57:1=s24 58:9=s16 67:1=s24 68:9=s16 77:1=s24 78:12=s16 90:1=s24 91:12=s16 103:1=s24 104:11=s16 115:1=s24 116:9=s16 125:6=s24 131:10=s16 141:1=s24 142:7=s16 149:1=s24 150:5=s16 155:5=s2"
+        "0:1=s24 1:10=s16 11:1=s24 12:7=s16 19:1=s24 20:9=s16 29:1=s24 30:7=s16 37:1=s24 38:9=s16 47:1=s24 48:9=s16 57:1=s24 58:9=s16 67:1=s24 68:9=s16 77:1=s24 78:9=s16 87:1=s24 88:12=s16 100:1=s24 101:12=s16 113:1=s24 114:11=s16 125:1=s24 126:9=s16 135:1=s24 136:7=s16 143:1=s24 144:5=s16 149:11=s2"
       ],
       "state": "agents",
       "look": "tmt-light",
@@ -12534,7 +12534,7 @@
         "",
         "",
         "",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  ? help  q quit"
       ],
       "styles": [
         "0:22=s16 22:10=s17 32:10=s16 42:58=s2",
@@ -12600,7 +12600,7 @@
         " ›   worker · working · active",
         "                                                                                                ↑ 2",
         "────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  ? help  q quit"
       ],
       "styles": [
         "0:22=s16 22:10=s17 32:10=s16 42:58=s2",
@@ -12666,7 +12666,7 @@
         "",
         "",
         "",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  ? help  q quit"
       ],
       "styles": [
         "0:22=s16 22:10=s17 32:10=s16 42:38=s2",
@@ -12732,7 +12732,7 @@
         " ›   worker · working · active",
         "                                                                            ↑ 2",
         "────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  ? help  q quit"
       ],
       "styles": [
         "0:22=s16 22:10=s17 32:10=s16 42:38=s2",
@@ -13954,7 +13954,7 @@
         "",
         "",
         "────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ? help  q quit"
       ],
       "styles": [
         "0:22=s16 22:10=s17 32:10=s16 42:118=s2",
@@ -13992,7 +13992,7 @@
         "0:1=s18 1:62=s2 63:1=s18 64:96=s2",
         "0:1=s18 1:62=s2 63:1=s18 64:96=s2",
         "0:64=s18 64:96=s2",
-        "0:1=s24 1:10=s16 11:1=s24 12:7=s16 19:1=s24 20:9=s16 29:1=s24 30:7=s16 37:1=s24 38:9=s16 47:1=s24 48:9=s16 57:1=s24 58:9=s16 67:1=s24 68:9=s16 77:1=s24 78:12=s16 90:1=s24 91:12=s16 103:1=s24 104:11=s16 115:1=s24 116:9=s16 125:6=s24 131:10=s16 141:1=s24 142:7=s16 149:1=s24 150:5=s16 155:5=s2"
+        "0:1=s24 1:10=s16 11:1=s24 12:7=s16 19:1=s24 20:9=s16 29:1=s24 30:7=s16 37:1=s24 38:9=s16 47:1=s24 48:9=s16 57:1=s24 58:9=s16 67:1=s24 68:9=s16 77:1=s24 78:9=s16 87:1=s24 88:12=s16 100:1=s24 101:12=s16 113:1=s24 114:11=s16 125:1=s24 126:9=s16 135:1=s24 136:7=s16 143:1=s24 144:5=s16 149:11=s2"
       ],
       "state": "pool",
       "look": "tmt-light",
@@ -14020,7 +14020,7 @@
         " ›   worker · working · active",
         "                                                                                                                                                  ↑ 1  1 more ↓",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ? help  q quit"
       ],
       "styles": [
         "0:22=s16 22:10=s17 32:10=s16 42:118=s2",
@@ -14030,7 +14030,7 @@
         "0:1=s18 1:158=s23 159:1=s18",
         "0:1=s18 1:145=s2 146:14=s18",
         "0:160=s18",
-        "0:1=s24 1:10=s16 11:1=s24 12:7=s16 19:1=s24 20:9=s16 29:1=s24 30:7=s16 37:1=s24 38:9=s16 47:1=s24 48:9=s16 57:1=s24 58:9=s16 67:1=s24 68:9=s16 77:1=s24 78:12=s16 90:1=s24 91:12=s16 103:1=s24 104:11=s16 115:1=s24 116:9=s16 125:6=s24 131:10=s16 141:1=s24 142:7=s16 149:1=s24 150:5=s16 155:5=s2"
+        "0:1=s24 1:10=s16 11:1=s24 12:7=s16 19:1=s24 20:9=s16 29:1=s24 30:7=s16 37:1=s24 38:9=s16 47:1=s24 48:9=s16 57:1=s24 58:9=s16 67:1=s24 68:9=s16 77:1=s24 78:9=s16 87:1=s24 88:12=s16 100:1=s24 101:12=s16 113:1=s24 114:11=s16 125:1=s24 126:9=s16 135:1=s24 136:7=s16 143:1=s24 144:5=s16 149:11=s2"
       ],
       "state": "pool",
       "look": "tmt-light",
@@ -14086,7 +14086,7 @@
         "",
         "",
         "",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  ? help  q quit"
       ],
       "styles": [
         "0:22=s16 22:10=s17 32:10=s16 42:58=s2",
@@ -14152,7 +14152,7 @@
         " ›   worker · working · active",
         "                                                                                      ↑ 1  1 more ↓",
         "────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  ? help  q quit"
       ],
       "styles": [
         "0:22=s16 22:10=s17 32:10=s16 42:58=s2",
@@ -14218,7 +14218,7 @@
         "",
         "",
         "",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  ? help  q quit"
       ],
       "styles": [
         "0:22=s16 22:10=s17 32:10=s16 42:38=s2",
@@ -14284,7 +14284,7 @@
         " ›   worker · working · active",
         "                                                                  ↑ 1  1 more ↓",
         "────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  ? help  q quit"
       ],
       "styles": [
         "0:22=s16 22:10=s17 32:10=s16 42:38=s2",
@@ -14482,7 +14482,7 @@
         " ›   worker-150 · idle · active",
         "                                                          ↑ 124",
         "────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ? help  q quit"
       ],
       "styles": [
         "0:22=s16 22:10=s17 32:10=s16 42:118=s2",
@@ -14520,7 +14520,7 @@
         "0:1=s18 1:62=s23 63:1=s18 64:96=s2",
         "0:1=s18 1:57=s2 58:6=s18 64:96=s2",
         "0:64=s18 64:96=s2",
-        "0:1=s24 1:10=s16 11:1=s24 12:7=s16 19:1=s24 20:9=s16 29:1=s24 30:7=s16 37:1=s24 38:9=s16 47:1=s24 48:9=s16 57:1=s24 58:9=s16 67:1=s24 68:9=s16 77:1=s24 78:12=s16 90:1=s24 91:12=s16 103:1=s24 104:11=s16 115:1=s24 116:9=s16 125:6=s24 131:10=s16 141:1=s24 142:7=s16 149:1=s24 150:5=s16 155:5=s2"
+        "0:1=s24 1:10=s16 11:1=s24 12:7=s16 19:1=s24 20:9=s16 29:1=s24 30:7=s16 37:1=s24 38:9=s16 47:1=s24 48:9=s16 57:1=s24 58:9=s16 67:1=s24 68:9=s16 77:1=s24 78:9=s16 87:1=s24 88:12=s16 100:1=s24 101:12=s16 113:1=s24 114:11=s16 125:1=s24 126:9=s16 135:1=s24 136:7=s16 143:1=s24 144:5=s16 149:11=s2"
       ],
       "state": "dense",
       "look": "tmt-light",
@@ -14698,7 +14698,7 @@
         " ›   worker-150 · idle · active",
         "                                                                                                                                                          ↑ 152",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ? help  q quit"
       ],
       "styles": [
         "0:22=s16 22:10=s17 32:10=s16 42:118=s2",
@@ -14708,7 +14708,7 @@
         "0:1=s18 1:158=s23 159:1=s18",
         "0:1=s18 1:153=s2 154:6=s18",
         "0:160=s18",
-        "0:1=s24 1:10=s16 11:1=s24 12:7=s16 19:1=s24 20:9=s16 29:1=s24 30:7=s16 37:1=s24 38:9=s16 47:1=s24 48:9=s16 57:1=s24 58:9=s16 67:1=s24 68:9=s16 77:1=s24 78:12=s16 90:1=s24 91:12=s16 103:1=s24 104:11=s16 115:1=s24 116:9=s16 125:6=s24 131:10=s16 141:1=s24 142:7=s16 149:1=s24 150:5=s16 155:5=s2"
+        "0:1=s24 1:10=s16 11:1=s24 12:7=s16 19:1=s24 20:9=s16 29:1=s24 30:7=s16 37:1=s24 38:9=s16 47:1=s24 48:9=s16 57:1=s24 58:9=s16 67:1=s24 68:9=s16 77:1=s24 78:9=s16 87:1=s24 88:12=s16 100:1=s24 101:12=s16 113:1=s24 114:11=s16 125:1=s24 126:9=s16 135:1=s24 136:7=s16 143:1=s24 144:5=s16 149:11=s2"
       ],
       "state": "dense",
       "look": "tmt-light",
@@ -14914,7 +14914,7 @@
         "",
         "",
         "",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  ? help  q quit"
       ],
       "styles": [
         "0:22=s16 22:10=s17 32:10=s16 42:58=s2",
@@ -15130,7 +15130,7 @@
         " ›   worker-150 · idle · active",
         "                                                                                              ↑ 152",
         "────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  ? help  q quit"
       ],
       "styles": [
         "0:22=s16 22:10=s17 32:10=s16 42:58=s2",
@@ -15346,7 +15346,7 @@
         "",
         "",
         "",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  ? help  q quit"
       ],
       "styles": [
         "0:22=s16 22:10=s17 32:10=s16 42:38=s2",
@@ -15562,7 +15562,7 @@
         " ›   worker-150 · idle · active",
         "                                                                          ↑ 152",
         "────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  ? help  q quit"
       ],
       "styles": [
         "0:22=s16 22:10=s17 32:10=s16 42:38=s2",
@@ -21035,11 +21035,11 @@
         "│ pagedown              move one page down                                                                                                                     │",
         "│ pageup                move one page up                                                                                                                       │",
         "│ q                     close the board                                                                                                                        │",
+        "│ r                     review a UUID-safe member rename                                                                                                       │",
         "│ right                 expand the selected squad                                                                                                              │",
         "│ t                     send the member a message                                                                                                              │",
         "│ tab                   move to the next pane                                                                                                                  │",
-        "│ up                    select the previous visible target                                                                                                     │",
-        "│ 1–28 of 54 · 26 more ↓                                                                                                                                       │",
+        "│ 1–28 of 55 · 27 more ↓                                                                                                                                       │",
         "│ ↑↓ scroll · PgUp/PgDn page · Esc close                                                                                                                       │",
         "└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘",
         ""
@@ -21167,11 +21167,11 @@
         "│ pagedown              move one page down                                                         │",
         "│ pageup                move one page up                                                           │",
         "│ q                     close the board                                                            │",
+        "│ r                     review a UUID-safe member rename                                           │",
         "│ right                 expand the selected squad                                                  │",
         "│ t                     send the member a message                                                  │",
         "│ tab                   move to the next pane                                                      │",
-        "│ up                    select the previous visible target                                         │",
-        "│ 1–28 of 65 · 37 more ↓                                                                           │",
+        "│ 1–28 of 66 · 38 more ↓                                                                           │",
         "│ ↑↓ scroll · PgUp/PgDn page · Esc close                                                           │",
         "└──────────────────────────────────────────────────────────────────────────────────────────────────┘",
         ""
@@ -21299,11 +21299,11 @@
         "│ pagedown              move one page down                                     │",
         "│ pageup                move one page up                                       │",
         "│ q                     close the board                                        │",
+        "│ r                     review a UUID-safe member rename                       │",
         "│ right                 expand the selected squad                              │",
         "│ t                     send the member a message                              │",
         "│ tab                   move to the next pane                                  │",
-        "│ up                    select the previous visible target                     │",
-        "│ 1–28 of 76 · 48 more ↓                                                       │",
+        "│ 1–28 of 77 · 49 more ↓                                                       │",
         "│ ↑↓ scroll · PgUp/PgDn page · Esc close                                       │",
         "└──────────────────────────────────────────────────────────────────────────────┘",
         ""
@@ -21435,7 +21435,7 @@
         "│ pagedown              move one page down                 │",
         "│ pageup                move one page up                   │",
         "│ q                     close the board                    │",
-        "│ 1–28 of 96 · 68 more ↓                                   │",
+        "│ 1–28 of 97 · 69 more ↓                                   │",
         "│ ↑↓ scroll · PgUp/PgDn page · Esc close                   │",
         "└──────────────────────────────────────────────────────────┘",
         ""
@@ -24190,7 +24190,7 @@
         "",
         "",
         "────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ? help  q quit"
       ],
       "styles": [
         "0:22=s31 22:10=s32 32:10=s31 42:118=s2",
@@ -24228,7 +24228,7 @@
         "0:1=s33 1:62=s2 63:1=s33 64:96=s2",
         "0:1=s33 1:62=s2 63:1=s33 64:96=s2",
         "0:64=s33 64:96=s2",
-        "0:1=s40 1:10=s31 11:1=s40 12:7=s31 19:1=s40 20:9=s31 29:1=s40 30:7=s31 37:1=s40 38:9=s31 47:1=s40 48:9=s31 57:1=s40 58:9=s31 67:1=s40 68:9=s31 77:1=s40 78:12=s31 90:1=s40 91:12=s31 103:1=s40 104:11=s31 115:1=s40 116:9=s31 125:6=s40 131:10=s31 141:1=s40 142:7=s31 149:1=s40 150:5=s31 155:5=s2"
+        "0:1=s40 1:10=s31 11:1=s40 12:7=s31 19:1=s40 20:9=s31 29:1=s40 30:7=s31 37:1=s40 38:9=s31 47:1=s40 48:9=s31 57:1=s40 58:9=s31 67:1=s40 68:9=s31 77:1=s40 78:9=s31 87:1=s40 88:12=s31 100:1=s40 101:12=s31 113:1=s40 114:11=s31 125:1=s40 126:9=s31 135:1=s40 136:7=s31 143:1=s40 144:5=s31 149:11=s2"
       ],
       "state": "agents",
       "look": "terminal",
@@ -24256,7 +24256,7 @@
         " ›   worker · working · active",
         "                                                                                                                                                            ↑ 2",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ? help  q quit"
       ],
       "styles": [
         "0:22=s31 22:10=s32 32:10=s31 42:118=s2",
@@ -24266,7 +24266,7 @@
         "0:1=s33 1:29=s38 30:129=s39 159:1=s33",
         "0:1=s33 1:155=s2 156:4=s33",
         "0:160=s33",
-        "0:1=s40 1:10=s31 11:1=s40 12:7=s31 19:1=s40 20:9=s31 29:1=s40 30:7=s31 37:1=s40 38:9=s31 47:1=s40 48:9=s31 57:1=s40 58:9=s31 67:1=s40 68:9=s31 77:1=s40 78:12=s31 90:1=s40 91:12=s31 103:1=s40 104:11=s31 115:1=s40 116:9=s31 125:6=s40 131:10=s31 141:1=s40 142:7=s31 149:1=s40 150:5=s31 155:5=s2"
+        "0:1=s40 1:10=s31 11:1=s40 12:7=s31 19:1=s40 20:9=s31 29:1=s40 30:7=s31 37:1=s40 38:9=s31 47:1=s40 48:9=s31 57:1=s40 58:9=s31 67:1=s40 68:9=s31 77:1=s40 78:9=s31 87:1=s40 88:12=s31 100:1=s40 101:12=s31 113:1=s40 114:11=s31 125:1=s40 126:9=s31 135:1=s40 136:7=s31 143:1=s40 144:5=s31 149:11=s2"
       ],
       "state": "agents",
       "look": "terminal",
@@ -24322,7 +24322,7 @@
         "",
         "",
         "",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  ? help  q quit"
       ],
       "styles": [
         "0:22=s31 22:10=s32 32:10=s31 42:58=s2",
@@ -24388,7 +24388,7 @@
         " ›   worker · working · active",
         "                                                                                                ↑ 2",
         "────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  ? help  q quit"
       ],
       "styles": [
         "0:22=s31 22:10=s32 32:10=s31 42:58=s2",
@@ -24454,7 +24454,7 @@
         "",
         "",
         "",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  ? help  q quit"
       ],
       "styles": [
         "0:22=s31 22:10=s32 32:10=s31 42:38=s2",
@@ -24520,7 +24520,7 @@
         " ›   worker · working · active",
         "                                                                            ↑ 2",
         "────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  ? help  q quit"
       ],
       "styles": [
         "0:22=s31 22:10=s32 32:10=s31 42:38=s2",
@@ -25742,7 +25742,7 @@
         "",
         "",
         "────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ? help  q quit"
       ],
       "styles": [
         "0:22=s31 22:10=s32 32:10=s31 42:118=s2",
@@ -25780,7 +25780,7 @@
         "0:1=s33 1:62=s2 63:1=s33 64:96=s2",
         "0:1=s33 1:62=s2 63:1=s33 64:96=s2",
         "0:64=s33 64:96=s2",
-        "0:1=s40 1:10=s31 11:1=s40 12:7=s31 19:1=s40 20:9=s31 29:1=s40 30:7=s31 37:1=s40 38:9=s31 47:1=s40 48:9=s31 57:1=s40 58:9=s31 67:1=s40 68:9=s31 77:1=s40 78:12=s31 90:1=s40 91:12=s31 103:1=s40 104:11=s31 115:1=s40 116:9=s31 125:6=s40 131:10=s31 141:1=s40 142:7=s31 149:1=s40 150:5=s31 155:5=s2"
+        "0:1=s40 1:10=s31 11:1=s40 12:7=s31 19:1=s40 20:9=s31 29:1=s40 30:7=s31 37:1=s40 38:9=s31 47:1=s40 48:9=s31 57:1=s40 58:9=s31 67:1=s40 68:9=s31 77:1=s40 78:9=s31 87:1=s40 88:12=s31 100:1=s40 101:12=s31 113:1=s40 114:11=s31 125:1=s40 126:9=s31 135:1=s40 136:7=s31 143:1=s40 144:5=s31 149:11=s2"
       ],
       "state": "pool",
       "look": "terminal",
@@ -25808,7 +25808,7 @@
         " ›   worker · working · active",
         "                                                                                                                                                  ↑ 1  1 more ↓",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ? help  q quit"
       ],
       "styles": [
         "0:22=s31 22:10=s32 32:10=s31 42:118=s2",
@@ -25818,7 +25818,7 @@
         "0:1=s33 1:29=s38 30:129=s39 159:1=s33",
         "0:1=s33 1:145=s2 146:14=s33",
         "0:160=s33",
-        "0:1=s40 1:10=s31 11:1=s40 12:7=s31 19:1=s40 20:9=s31 29:1=s40 30:7=s31 37:1=s40 38:9=s31 47:1=s40 48:9=s31 57:1=s40 58:9=s31 67:1=s40 68:9=s31 77:1=s40 78:12=s31 90:1=s40 91:12=s31 103:1=s40 104:11=s31 115:1=s40 116:9=s31 125:6=s40 131:10=s31 141:1=s40 142:7=s31 149:1=s40 150:5=s31 155:5=s2"
+        "0:1=s40 1:10=s31 11:1=s40 12:7=s31 19:1=s40 20:9=s31 29:1=s40 30:7=s31 37:1=s40 38:9=s31 47:1=s40 48:9=s31 57:1=s40 58:9=s31 67:1=s40 68:9=s31 77:1=s40 78:9=s31 87:1=s40 88:12=s31 100:1=s40 101:12=s31 113:1=s40 114:11=s31 125:1=s40 126:9=s31 135:1=s40 136:7=s31 143:1=s40 144:5=s31 149:11=s2"
       ],
       "state": "pool",
       "look": "terminal",
@@ -25874,7 +25874,7 @@
         "",
         "",
         "",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  ? help  q quit"
       ],
       "styles": [
         "0:22=s31 22:10=s32 32:10=s31 42:58=s2",
@@ -25940,7 +25940,7 @@
         " ›   worker · working · active",
         "                                                                                      ↑ 1  1 more ↓",
         "────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  ? help  q quit"
       ],
       "styles": [
         "0:22=s31 22:10=s32 32:10=s31 42:58=s2",
@@ -26006,7 +26006,7 @@
         "",
         "",
         "",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  ? help  q quit"
       ],
       "styles": [
         "0:22=s31 22:10=s32 32:10=s31 42:38=s2",
@@ -26072,7 +26072,7 @@
         " ›   worker · working · active",
         "                                                                  ↑ 1  1 more ↓",
         "────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  ? help  q quit"
       ],
       "styles": [
         "0:22=s31 22:10=s32 32:10=s31 42:38=s2",
@@ -26270,7 +26270,7 @@
         " ›   worker-150 · idle · active",
         "                                                          ↑ 124",
         "────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ? help  q quit"
       ],
       "styles": [
         "0:22=s31 22:10=s32 32:10=s31 42:118=s2",
@@ -26308,7 +26308,7 @@
         "0:1=s33 1:30=s38 31:32=s39 63:1=s33 64:96=s2",
         "0:1=s33 1:57=s2 58:6=s33 64:96=s2",
         "0:64=s33 64:96=s2",
-        "0:1=s40 1:10=s31 11:1=s40 12:7=s31 19:1=s40 20:9=s31 29:1=s40 30:7=s31 37:1=s40 38:9=s31 47:1=s40 48:9=s31 57:1=s40 58:9=s31 67:1=s40 68:9=s31 77:1=s40 78:12=s31 90:1=s40 91:12=s31 103:1=s40 104:11=s31 115:1=s40 116:9=s31 125:6=s40 131:10=s31 141:1=s40 142:7=s31 149:1=s40 150:5=s31 155:5=s2"
+        "0:1=s40 1:10=s31 11:1=s40 12:7=s31 19:1=s40 20:9=s31 29:1=s40 30:7=s31 37:1=s40 38:9=s31 47:1=s40 48:9=s31 57:1=s40 58:9=s31 67:1=s40 68:9=s31 77:1=s40 78:9=s31 87:1=s40 88:12=s31 100:1=s40 101:12=s31 113:1=s40 114:11=s31 125:1=s40 126:9=s31 135:1=s40 136:7=s31 143:1=s40 144:5=s31 149:11=s2"
       ],
       "state": "dense",
       "look": "terminal",
@@ -26486,7 +26486,7 @@
         " ›   worker-150 · idle · active",
         "                                                                                                                                                          ↑ 152",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ? help  q quit"
       ],
       "styles": [
         "0:22=s31 22:10=s32 32:10=s31 42:118=s2",
@@ -26496,7 +26496,7 @@
         "0:1=s33 1:30=s38 31:128=s39 159:1=s33",
         "0:1=s33 1:153=s2 154:6=s33",
         "0:160=s33",
-        "0:1=s40 1:10=s31 11:1=s40 12:7=s31 19:1=s40 20:9=s31 29:1=s40 30:7=s31 37:1=s40 38:9=s31 47:1=s40 48:9=s31 57:1=s40 58:9=s31 67:1=s40 68:9=s31 77:1=s40 78:12=s31 90:1=s40 91:12=s31 103:1=s40 104:11=s31 115:1=s40 116:9=s31 125:6=s40 131:10=s31 141:1=s40 142:7=s31 149:1=s40 150:5=s31 155:5=s2"
+        "0:1=s40 1:10=s31 11:1=s40 12:7=s31 19:1=s40 20:9=s31 29:1=s40 30:7=s31 37:1=s40 38:9=s31 47:1=s40 48:9=s31 57:1=s40 58:9=s31 67:1=s40 68:9=s31 77:1=s40 78:9=s31 87:1=s40 88:12=s31 100:1=s40 101:12=s31 113:1=s40 114:11=s31 125:1=s40 126:9=s31 135:1=s40 136:7=s31 143:1=s40 144:5=s31 149:11=s2"
       ],
       "state": "dense",
       "look": "terminal",
@@ -26702,7 +26702,7 @@
         "",
         "",
         "",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  ? help  q quit"
       ],
       "styles": [
         "0:22=s31 22:10=s32 32:10=s31 42:58=s2",
@@ -26918,7 +26918,7 @@
         " ›   worker-150 · idle · active",
         "                                                                                              ↑ 152",
         "────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  ? help  q quit"
       ],
       "styles": [
         "0:22=s31 22:10=s32 32:10=s31 42:58=s2",
@@ -27134,7 +27134,7 @@
         "",
         "",
         "",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  ? help  q quit"
       ],
       "styles": [
         "0:22=s31 22:10=s32 32:10=s31 42:38=s2",
@@ -27350,7 +27350,7 @@
         " ›   worker-150 · idle · active",
         "                                                                          ↑ 152",
         "────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  ? help  q quit"
       ],
       "styles": [
         "0:22=s31 22:10=s32 32:10=s31 42:38=s2",
@@ -32823,11 +32823,11 @@
         "│ pagedown              move one page down                                                                                                                     │",
         "│ pageup                move one page up                                                                                                                       │",
         "│ q                     close the board                                                                                                                        │",
+        "│ r                     review a UUID-safe member rename                                                                                                       │",
         "│ right                 expand the selected squad                                                                                                              │",
         "│ t                     send the member a message                                                                                                              │",
         "│ tab                   move to the next pane                                                                                                                  │",
-        "│ up                    select the previous visible target                                                                                                     │",
-        "│ 1–28 of 54 · 26 more ↓                                                                                                                                       │",
+        "│ 1–28 of 55 · 27 more ↓                                                                                                                                       │",
         "│ ↑↓ scroll · PgUp/PgDn page · Esc close                                                                                                                       │",
         "└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘",
         ""
@@ -32955,11 +32955,11 @@
         "│ pagedown              move one page down                                                         │",
         "│ pageup                move one page up                                                           │",
         "│ q                     close the board                                                            │",
+        "│ r                     review a UUID-safe member rename                                           │",
         "│ right                 expand the selected squad                                                  │",
         "│ t                     send the member a message                                                  │",
         "│ tab                   move to the next pane                                                      │",
-        "│ up                    select the previous visible target                                         │",
-        "│ 1–28 of 65 · 37 more ↓                                                                           │",
+        "│ 1–28 of 66 · 38 more ↓                                                                           │",
         "│ ↑↓ scroll · PgUp/PgDn page · Esc close                                                           │",
         "└──────────────────────────────────────────────────────────────────────────────────────────────────┘",
         ""
@@ -33087,11 +33087,11 @@
         "│ pagedown              move one page down                                     │",
         "│ pageup                move one page up                                       │",
         "│ q                     close the board                                        │",
+        "│ r                     review a UUID-safe member rename                       │",
         "│ right                 expand the selected squad                              │",
         "│ t                     send the member a message                              │",
         "│ tab                   move to the next pane                                  │",
-        "│ up                    select the previous visible target                     │",
-        "│ 1–28 of 76 · 48 more ↓                                                       │",
+        "│ 1–28 of 77 · 49 more ↓                                                       │",
         "│ ↑↓ scroll · PgUp/PgDn page · Esc close                                       │",
         "└──────────────────────────────────────────────────────────────────────────────┘",
         ""
@@ -33223,7 +33223,7 @@
         "│ pagedown              move one page down                 │",
         "│ pageup                move one page up                   │",
         "│ q                     close the board                    │",
-        "│ 1–28 of 96 · 68 more ↓                                   │",
+        "│ 1–28 of 97 · 69 more ↓                                   │",
         "│ ↑↓ scroll · PgUp/PgDn page · Esc close                   │",
         "└──────────────────────────────────────────────────────────┘",
         ""
@@ -35978,7 +35978,7 @@
         "",
         "",
         "────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ? help  q quit"
       ],
       "styles": [
         "0:22=s2 22:10=s38 32:128=s2",
@@ -36016,7 +36016,7 @@
         "0:160=s2",
         "0:160=s2",
         "0:160=s2",
-        "0:1=s41 1:10=s2 11:1=s41 12:7=s2 19:1=s41 20:9=s2 29:1=s41 30:7=s2 37:1=s41 38:9=s2 47:1=s41 48:9=s2 57:1=s41 58:9=s2 67:1=s41 68:9=s2 77:1=s41 78:12=s2 90:1=s41 91:12=s2 103:1=s41 104:11=s2 115:1=s41 116:9=s2 125:6=s41 131:10=s2 141:1=s41 142:7=s2 149:1=s41 150:10=s2"
+        "0:1=s41 1:10=s2 11:1=s41 12:7=s2 19:1=s41 20:9=s2 29:1=s41 30:7=s2 37:1=s41 38:9=s2 47:1=s41 48:9=s2 57:1=s41 58:9=s2 67:1=s41 68:9=s2 77:1=s41 78:9=s2 87:1=s41 88:12=s2 100:1=s41 101:12=s2 113:1=s41 114:11=s2 125:1=s41 126:9=s2 135:1=s41 136:7=s2 143:1=s41 144:16=s2"
       ],
       "state": "agents",
       "look": "NO_COLOR",
@@ -36044,7 +36044,7 @@
         " ›   worker · working · active",
         "                                                                                                                                                            ↑ 2",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ? help  q quit"
       ],
       "styles": [
         "0:22=s2 22:10=s38 32:128=s2",
@@ -36054,7 +36054,7 @@
         "0:1=s2 1:29=s38 30:129=s39 159:1=s2",
         "0:160=s2",
         "0:160=s2",
-        "0:1=s41 1:10=s2 11:1=s41 12:7=s2 19:1=s41 20:9=s2 29:1=s41 30:7=s2 37:1=s41 38:9=s2 47:1=s41 48:9=s2 57:1=s41 58:9=s2 67:1=s41 68:9=s2 77:1=s41 78:12=s2 90:1=s41 91:12=s2 103:1=s41 104:11=s2 115:1=s41 116:9=s2 125:6=s41 131:10=s2 141:1=s41 142:7=s2 149:1=s41 150:10=s2"
+        "0:1=s41 1:10=s2 11:1=s41 12:7=s2 19:1=s41 20:9=s2 29:1=s41 30:7=s2 37:1=s41 38:9=s2 47:1=s41 48:9=s2 57:1=s41 58:9=s2 67:1=s41 68:9=s2 77:1=s41 78:9=s2 87:1=s41 88:12=s2 100:1=s41 101:12=s2 113:1=s41 114:11=s2 125:1=s41 126:9=s2 135:1=s41 136:7=s2 143:1=s41 144:16=s2"
       ],
       "state": "agents",
       "look": "NO_COLOR",
@@ -36110,7 +36110,7 @@
         "",
         "",
         "",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  ? help  q quit"
       ],
       "styles": [
         "0:22=s2 22:10=s38 32:68=s2",
@@ -36176,7 +36176,7 @@
         " ›   worker · working · active",
         "                                                                                                ↑ 2",
         "────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  ? help  q quit"
       ],
       "styles": [
         "0:22=s2 22:10=s38 32:68=s2",
@@ -36242,7 +36242,7 @@
         "",
         "",
         "",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  ? help  q quit"
       ],
       "styles": [
         "0:22=s2 22:10=s38 32:48=s2",
@@ -36308,7 +36308,7 @@
         " ›   worker · working · active",
         "                                                                            ↑ 2",
         "────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  ? help  q quit"
       ],
       "styles": [
         "0:22=s2 22:10=s38 32:48=s2",
@@ -37530,7 +37530,7 @@
         "",
         "",
         "────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ? help  q quit"
       ],
       "styles": [
         "0:22=s2 22:10=s38 32:128=s2",
@@ -37568,7 +37568,7 @@
         "0:160=s2",
         "0:160=s2",
         "0:160=s2",
-        "0:1=s41 1:10=s2 11:1=s41 12:7=s2 19:1=s41 20:9=s2 29:1=s41 30:7=s2 37:1=s41 38:9=s2 47:1=s41 48:9=s2 57:1=s41 58:9=s2 67:1=s41 68:9=s2 77:1=s41 78:12=s2 90:1=s41 91:12=s2 103:1=s41 104:11=s2 115:1=s41 116:9=s2 125:6=s41 131:10=s2 141:1=s41 142:7=s2 149:1=s41 150:10=s2"
+        "0:1=s41 1:10=s2 11:1=s41 12:7=s2 19:1=s41 20:9=s2 29:1=s41 30:7=s2 37:1=s41 38:9=s2 47:1=s41 48:9=s2 57:1=s41 58:9=s2 67:1=s41 68:9=s2 77:1=s41 78:9=s2 87:1=s41 88:12=s2 100:1=s41 101:12=s2 113:1=s41 114:11=s2 125:1=s41 126:9=s2 135:1=s41 136:7=s2 143:1=s41 144:16=s2"
       ],
       "state": "pool",
       "look": "NO_COLOR",
@@ -37596,7 +37596,7 @@
         " ›   worker · working · active",
         "                                                                                                                                                  ↑ 1  1 more ↓",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ? help  q quit"
       ],
       "styles": [
         "0:22=s2 22:10=s38 32:128=s2",
@@ -37606,7 +37606,7 @@
         "0:1=s2 1:29=s38 30:129=s39 159:1=s2",
         "0:160=s2",
         "0:160=s2",
-        "0:1=s41 1:10=s2 11:1=s41 12:7=s2 19:1=s41 20:9=s2 29:1=s41 30:7=s2 37:1=s41 38:9=s2 47:1=s41 48:9=s2 57:1=s41 58:9=s2 67:1=s41 68:9=s2 77:1=s41 78:12=s2 90:1=s41 91:12=s2 103:1=s41 104:11=s2 115:1=s41 116:9=s2 125:6=s41 131:10=s2 141:1=s41 142:7=s2 149:1=s41 150:10=s2"
+        "0:1=s41 1:10=s2 11:1=s41 12:7=s2 19:1=s41 20:9=s2 29:1=s41 30:7=s2 37:1=s41 38:9=s2 47:1=s41 48:9=s2 57:1=s41 58:9=s2 67:1=s41 68:9=s2 77:1=s41 78:9=s2 87:1=s41 88:12=s2 100:1=s41 101:12=s2 113:1=s41 114:11=s2 125:1=s41 126:9=s2 135:1=s41 136:7=s2 143:1=s41 144:16=s2"
       ],
       "state": "pool",
       "look": "NO_COLOR",
@@ -37662,7 +37662,7 @@
         "",
         "",
         "",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  ? help  q quit"
       ],
       "styles": [
         "0:22=s2 22:10=s38 32:68=s2",
@@ -37728,7 +37728,7 @@
         " ›   worker · working · active",
         "                                                                                      ↑ 1  1 more ↓",
         "────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  ? help  q quit"
       ],
       "styles": [
         "0:22=s2 22:10=s38 32:68=s2",
@@ -37794,7 +37794,7 @@
         "",
         "",
         "",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  ? help  q quit"
       ],
       "styles": [
         "0:22=s2 22:10=s38 32:48=s2",
@@ -37860,7 +37860,7 @@
         " ›   worker · working · active",
         "                                                                  ↑ 1  1 more ↓",
         "────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  ? help  q quit"
       ],
       "styles": [
         "0:22=s2 22:10=s38 32:48=s2",
@@ -38058,7 +38058,7 @@
         " ›   worker-150 · idle · active",
         "                                                          ↑ 124",
         "────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ? help  q quit"
       ],
       "styles": [
         "0:22=s2 22:10=s38 32:128=s2",
@@ -38096,7 +38096,7 @@
         "0:1=s2 1:30=s38 31:32=s39 63:97=s2",
         "0:160=s2",
         "0:160=s2",
-        "0:1=s41 1:10=s2 11:1=s41 12:7=s2 19:1=s41 20:9=s2 29:1=s41 30:7=s2 37:1=s41 38:9=s2 47:1=s41 48:9=s2 57:1=s41 58:9=s2 67:1=s41 68:9=s2 77:1=s41 78:12=s2 90:1=s41 91:12=s2 103:1=s41 104:11=s2 115:1=s41 116:9=s2 125:6=s41 131:10=s2 141:1=s41 142:7=s2 149:1=s41 150:10=s2"
+        "0:1=s41 1:10=s2 11:1=s41 12:7=s2 19:1=s41 20:9=s2 29:1=s41 30:7=s2 37:1=s41 38:9=s2 47:1=s41 48:9=s2 57:1=s41 58:9=s2 67:1=s41 68:9=s2 77:1=s41 78:9=s2 87:1=s41 88:12=s2 100:1=s41 101:12=s2 113:1=s41 114:11=s2 125:1=s41 126:9=s2 135:1=s41 136:7=s2 143:1=s41 144:16=s2"
       ],
       "state": "dense",
       "look": "NO_COLOR",
@@ -38274,7 +38274,7 @@
         " ›   worker-150 · idle · active",
         "                                                                                                                                                          ↑ 152",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ? help  q quit"
       ],
       "styles": [
         "0:22=s2 22:10=s38 32:128=s2",
@@ -38284,7 +38284,7 @@
         "0:1=s2 1:30=s38 31:128=s39 159:1=s2",
         "0:160=s2",
         "0:160=s2",
-        "0:1=s41 1:10=s2 11:1=s41 12:7=s2 19:1=s41 20:9=s2 29:1=s41 30:7=s2 37:1=s41 38:9=s2 47:1=s41 48:9=s2 57:1=s41 58:9=s2 67:1=s41 68:9=s2 77:1=s41 78:12=s2 90:1=s41 91:12=s2 103:1=s41 104:11=s2 115:1=s41 116:9=s2 125:6=s41 131:10=s2 141:1=s41 142:7=s2 149:1=s41 150:10=s2"
+        "0:1=s41 1:10=s2 11:1=s41 12:7=s2 19:1=s41 20:9=s2 29:1=s41 30:7=s2 37:1=s41 38:9=s2 47:1=s41 48:9=s2 57:1=s41 58:9=s2 67:1=s41 68:9=s2 77:1=s41 78:9=s2 87:1=s41 88:12=s2 100:1=s41 101:12=s2 113:1=s41 114:11=s2 125:1=s41 126:9=s2 135:1=s41 136:7=s2 143:1=s41 144:16=s2"
       ],
       "state": "dense",
       "look": "NO_COLOR",
@@ -38490,7 +38490,7 @@
         "",
         "",
         "",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  ? help  q quit"
       ],
       "styles": [
         "0:22=s2 22:10=s38 32:68=s2",
@@ -38706,7 +38706,7 @@
         " ›   worker-150 · idle · active",
         "                                                                                              ↑ 152",
         "────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  ? help  q quit"
       ],
       "styles": [
         "0:22=s2 22:10=s38 32:68=s2",
@@ -38922,7 +38922,7 @@
         "",
         "",
         "",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  ? help  q quit"
       ],
       "styles": [
         "0:22=s2 22:10=s38 32:48=s2",
@@ -39138,7 +39138,7 @@
         " ›   worker-150 · idle · active",
         "                                                                          ↑ 152",
         "────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  r rename  ? help  q quit"
       ],
       "styles": [
         "0:22=s2 22:10=s38 32:48=s2",
@@ -44611,11 +44611,11 @@
         "│ pagedown              move one page down                                                                                                                     │",
         "│ pageup                move one page up                                                                                                                       │",
         "│ q                     close the board                                                                                                                        │",
+        "│ r                     review a UUID-safe member rename                                                                                                       │",
         "│ right                 expand the selected squad                                                                                                              │",
         "│ t                     send the member a message                                                                                                              │",
         "│ tab                   move to the next pane                                                                                                                  │",
-        "│ up                    select the previous visible target                                                                                                     │",
-        "│ 1–28 of 54 · 26 more ↓                                                                                                                                       │",
+        "│ 1–28 of 55 · 27 more ↓                                                                                                                                       │",
         "│ ↑↓ scroll · PgUp/PgDn page · Esc close                                                                                                                       │",
         "└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘",
         ""
@@ -44743,11 +44743,11 @@
         "│ pagedown              move one page down                                                         │",
         "│ pageup                move one page up                                                           │",
         "│ q                     close the board                                                            │",
+        "│ r                     review a UUID-safe member rename                                           │",
         "│ right                 expand the selected squad                                                  │",
         "│ t                     send the member a message                                                  │",
         "│ tab                   move to the next pane                                                      │",
-        "│ up                    select the previous visible target                                         │",
-        "│ 1–28 of 65 · 37 more ↓                                                                           │",
+        "│ 1–28 of 66 · 38 more ↓                                                                           │",
         "│ ↑↓ scroll · PgUp/PgDn page · Esc close                                                           │",
         "└──────────────────────────────────────────────────────────────────────────────────────────────────┘",
         ""
@@ -44875,11 +44875,11 @@
         "│ pagedown              move one page down                                     │",
         "│ pageup                move one page up                                       │",
         "│ q                     close the board                                        │",
+        "│ r                     review a UUID-safe member rename                       │",
         "│ right                 expand the selected squad                              │",
         "│ t                     send the member a message                              │",
         "│ tab                   move to the next pane                                  │",
-        "│ up                    select the previous visible target                     │",
-        "│ 1–28 of 76 · 48 more ↓                                                       │",
+        "│ 1–28 of 77 · 49 more ↓                                                       │",
         "│ ↑↓ scroll · PgUp/PgDn page · Esc close                                       │",
         "└──────────────────────────────────────────────────────────────────────────────┘",
         ""
@@ -45011,7 +45011,7 @@
         "│ pagedown              move one page down                 │",
         "│ pageup                move one page up                   │",
         "│ q                     close the board                    │",
-        "│ 1–28 of 96 · 68 more ↓                                   │",
+        "│ 1–28 of 97 · 69 more ↓                                   │",
         "│ ↑↓ scroll · PgUp/PgDn page · Esc close                   │",
         "└──────────────────────────────────────────────────────────┘",
         ""

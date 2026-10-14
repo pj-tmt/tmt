@@ -29,6 +29,7 @@ pub enum OpsUiAction {
     CreateSquad,
     RemoveMembership,
     MoveMembership,
+    RenameMember,
     ScrollUp,
     ScrollDown,
     ScrollPageUp,
@@ -183,6 +184,13 @@ const SPECS: &[OpsUiSpec] = &[
     ),
     spec!(Manage, "manage", "manage", "manage the selected squad", 6),
     spec!(
+        RenameMember,
+        "rename-member",
+        "rename",
+        "review a UUID-safe member rename",
+        7
+    ),
+    spec!(
         CreateSquad,
         "create-squad",
         "create",
@@ -218,6 +226,9 @@ impl OpsUiAction {
             .expect("every UI action has a catalog entry")
     }
     pub fn acts_on_member(self) -> bool {
-        matches!(self, Self::RemoveMembership | Self::MoveMembership)
+        matches!(
+            self,
+            Self::RemoveMembership | Self::MoveMembership | Self::RenameMember
+        )
     }
 }

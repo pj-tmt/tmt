@@ -173,7 +173,7 @@ pub enum Request {
         expected: crate::config::OpsPreferences,
         next: crate::config::OpsPreferences,
     },
-    WorkspaceOperation(crate::membership::workspace::Operation),
+    WorkspaceOperation(super::workspace::manage::Change),
     /// A cron job control, with its actor, job and viewed revision resolved.
     Cron(super::cronboard::CronRequest),
     /// Check that the person at the board may change a member's digest.
@@ -1886,6 +1886,20 @@ impl App {
             Choice::Action(action) => action.order(),
             _ => u8::MAX,
         });
+        if let Some(draft) = self.workspace_form.as_ref().filter(|draft| {
+            draft.kind == super::workspace::manage::Kind::RenameMember && !draft.shown
+        }) {
+            entries.push(MenuEntry {
+                key: String::new(),
+                label: if draft.stage == super::workspace::manage::Stage::Pending {
+                    "Pending Rename"
+                } else {
+                    "Rename result"
+                }
+                .into(),
+                choice: Choice::WorkspaceBegin(super::workspace::manage::Kind::RenameMember),
+            });
+        }
         if self.quota_details_available()
             && !entries.iter().any(|entry| matches!(&entry.choice, Choice::Action(action) if action.verb == Verb::Ui(crate::action::OpsUiAction::QuotaDetails)))
         {
@@ -2904,7 +2918,11 @@ impl App {
     }
 
     fn overlay(&self) -> Option<Overlay> {
-        if self.workspace_form.is_some() {
+        if self
+            .workspace_form
+            .as_ref()
+            .is_some_and(|draft| draft.shown)
+        {
             Some(Overlay::Workspace)
         } else if self.recovery_shown() {
             Some(Overlay::Recovery)

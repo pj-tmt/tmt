@@ -56,7 +56,7 @@ pub fn render(frame: &mut Frame, app: &App) {
             || app.menu.is_some()
             || app.cron_list.is_some()
             || app.theme_picker.is_some()
-            || app.workspace_form.is_some(),
+            || app.workspace_form.as_ref().is_some_and(|draft| draft.shown),
     );
 }
 

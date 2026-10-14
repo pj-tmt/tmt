@@ -121,6 +121,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("o", "open"),
             ("x", "remove-membership"),
             ("m", "move-membership"),
+            ("r", "rename-member"),
             ("D", "digest"),
         ]),
         OpsKeyScope::Pool => entries.extend([("m", "manage"), ("n", "create-squad")]),
@@ -505,7 +506,7 @@ mod tests {
             .workspace_keys(OpsKeyScope::Member, None, None)
             .unwrap()
             .bindings;
-        assert!(!member.contains_key("r"));
+        assert_eq!(member["r"].text, "rename-member");
         assert_eq!(member["D"].text, "digest");
         assert_eq!(member["x"].text, "remove-membership");
         assert_eq!(squad["w"].text, "workspace-snapshots");
@@ -541,6 +542,44 @@ mod tests {
         }
         assert!(!defaults(OpsKeyScope::Overview).contains_key("w"));
         assert!(!defaults(OpsKeyScope::Reader).contains_key("w"));
+    }
+    #[test]
+    fn rename_default_yields_to_explicit_global_host_and_section_bindings() {
+        let config = config("[bind]\nr='talk'\n[bind.tmux]\nr='open'\n");
+        let section: Bindings = [("r".into(), Action::parse("copy").unwrap())].into();
+        assert_eq!(defaults(OpsKeyScope::Member)["r"].text, "rename-member");
+        assert_eq!(
+            config
+                .workspace_keys(OpsKeyScope::Member, None, None)
+                .unwrap()
+                .bindings["r"]
+                .verb,
+            Verb::Talk
+        );
+        assert_eq!(
+            config
+                .workspace_keys(OpsKeyScope::Member, Some("tmux"), None)
+                .unwrap()
+                .bindings["r"]
+                .verb,
+            Verb::Open
+        );
+        assert_eq!(
+            config
+                .workspace_keys(OpsKeyScope::Member, Some("tmux"), Some(&section))
+                .unwrap()
+                .bindings["r"]
+                .verb,
+            Verb::Copy
+        );
+        for scope in [
+            OpsKeyScope::Overview,
+            OpsKeyScope::Squad,
+            OpsKeyScope::Pool,
+            OpsKeyScope::Reader,
+        ] {
+            assert!(!defaults(scope).contains_key("r"));
+        }
     }
     #[test]
     fn retired_bindings_are_reported_without_rewriting_config() {

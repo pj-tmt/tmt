@@ -3,6 +3,7 @@
 
 pub(crate) mod manage;
 pub(crate) mod observe;
+pub(crate) mod rename_member;
 pub(crate) mod render;
 
 use std::{

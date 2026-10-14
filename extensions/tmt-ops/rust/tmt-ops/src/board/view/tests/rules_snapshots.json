@@ -124,7 +124,7 @@
       "",
       "",
       "────────────────────────────────────────────────────────────────",
-      "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
+      "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ? help  q quit"
     ]
   },
   {
@@ -156,7 +156,7 @@
       "",
       "",
       "",
-      "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  ? help  q quit"
+      "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  ? help  q quit"
     ]
   },
   {
@@ -188,7 +188,7 @@
       "",
       "",
       "",
-      "⏎ inspect  t talk  D digest  j host  n create  x remove  ? help  q quit"
+      "⏎ inspect  t talk  D digest  j host  n create  r rename  ? help  q quit"
     ]
   },
   {
@@ -316,7 +316,7 @@
       "",
       "",
       "────────────────────────────────────────────────────────────────",
-      "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
+      "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ? help  q quit"
     ]
   },
   {
@@ -348,7 +348,7 @@
       "",
       "",
       "────────────────────────────────────────",
-      "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  ? help  q quit"
+      "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  ? help  q quit"
     ]
   },
   {
@@ -380,7 +380,7 @@
       "",
       "",
       "",
-      "⏎ inspect  t talk  D digest  j host  n create  x remove  ? help  q quit"
+      "⏎ inspect  t talk  D digest  j host  n create  r rename  ? help  q quit"
     ]
   },
   {
@@ -508,7 +508,7 @@
       "",
       "",
       "",
-      "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
+      "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ? help  q quit"
     ]
   },
   {
@@ -540,7 +540,7 @@
       "",
       "",
       "",
-      "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  ? help  q quit"
+      "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  ? help  q quit"
     ]
   },
   {
@@ -572,7 +572,7 @@
       "",
       "",
       "",
-      "⏎ inspect  t talk  D digest  j host  n create  x remove  ? help  q quit"
+      "⏎ inspect  t talk  D digest  j host  n create  r rename  ? help  q quit"
     ]
   }
 ]

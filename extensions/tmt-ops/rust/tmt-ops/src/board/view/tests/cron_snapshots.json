@@ -27,7 +27,7 @@
       "",
       "",
       "────────────────────────────────────────────────────────────────",
-      "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
+      "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ? help  q quit"
     ],
     "hits": "[Hit { y: 4, x: 1, width: 62, row: 0 }, Hit { y: 5, x: 1, width: 62, row: 1 }, Hit { y: 6, x: 1, width: 62, row: 2 }]"
   },
@@ -59,7 +59,7 @@
       "",
       "",
       "",
-      "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  ? help  q quit"
+      "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  ? help  q quit"
     ],
     "hits": "[Hit { y: 4, x: 1, width: 98, row: 0 }, Hit { y: 5, x: 1, width: 98, row: 1 }, Hit { y: 6, x: 1, width: 98, row: 2 }]"
   },
@@ -91,7 +91,7 @@
       "",
       "",
       "",
-      "⏎ inspect  t talk  D digest  j host  n create  x remove  ? help  q quit"
+      "⏎ inspect  t talk  D digest  j host  n create  r rename  ? help  q quit"
     ],
     "hits": "[Hit { y: 4, x: 1, width: 78, row: 0 }, Hit { y: 5, x: 1, width: 78, row: 1 }, Hit { y: 6, x: 1, width: 78, row: 2 }]"
   },

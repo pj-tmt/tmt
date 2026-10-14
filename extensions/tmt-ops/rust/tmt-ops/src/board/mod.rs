@@ -200,6 +200,7 @@ fn spawn_input(sender: Sender<BoardEvent>, mut filter: Option<terminal::backgrou
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum ActionOutcome {
     Workspace(Box<Result<crate::membership::Outcome, crate::core::SquadError>>),
+    RenameMember(Box<workspace::rename_member::Completed>),
     Message(String),
     Status(Box<crate::membership::status_update::Outcome>),
     /// Core agreed that the person at the board may change a member's digest.
@@ -227,12 +228,21 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
         })));
     }
     let outcome = match request {
-        Request::WorkspaceOperation(operation) => {
-            return Ok(ActionOutcome::Workspace(Box::new(
-                Config::load(core).and_then(|mut config| {
-                    crate::membership::workspace::apply(core, &mut config, operation)
-                }),
-            )));
+        Request::WorkspaceOperation(change) => {
+            return Ok(match change {
+                workspace::manage::Change::Membership(operation) => {
+                    ActionOutcome::Workspace(Box::new(Config::load(core).and_then(|mut config| {
+                        crate::membership::workspace::apply(core, &mut config, operation)
+                    })))
+                }
+                workspace::manage::Change::RenameMember(request) => {
+                    let outcome = request.apply(core);
+                    ActionOutcome::RenameMember(Box::new(workspace::rename_member::Completed {
+                        request,
+                        outcome,
+                    }))
+                }
+            });
         }
         Request::Status(_) => unreachable!("handled above"),
         Request::DigestOpen(ask) => {
@@ -574,6 +584,9 @@ fn session(
                 }
                 match outcome {
                     Ok(ActionOutcome::Workspace(outcome)) => app.finished_workspace(*outcome),
+                    Ok(ActionOutcome::RenameMember(outcome)) => {
+                        app.finished_member_rename(*outcome)
+                    }
                     Ok(ActionOutcome::Status(outcome)) => app.finished_status(*outcome),
                     Ok(ActionOutcome::Message(message)) => app.finished(Ok(message)),
                     Ok(ActionOutcome::Digest(granted)) => app.open_digest(*granted),

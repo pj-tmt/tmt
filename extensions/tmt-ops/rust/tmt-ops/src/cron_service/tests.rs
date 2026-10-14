@@ -552,3 +552,32 @@ fn metadata_failure_after_leave_reports_the_confirmed_removal_and_retained_pause
     assert_eq!(outcome.document["pausedTimers"], json!(["c1"]));
     assert_eq!(f.model()["rosterWithout"], json!([WORKER]));
 }
+
+#[test]
+fn member_display_rename_refreshes_owner_name_without_moving_timer_state() {
+    let f = Fixture::new();
+    let user = f.actor(USER);
+    let job = f.add(&user, WORKER).unwrap().job.job;
+    let path = f.directory.join("ops/cron/jobs.json");
+    let before = fs::read(&path).unwrap();
+    f.change_model(|model| {
+        let member = model["members"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|member| member["id"] == WORKER)
+            .unwrap();
+        member["name"] = json!("renamed-worker");
+    });
+    let listed = list_jobs(&f.core, &f.config, Some("product"), 100).unwrap();
+    assert_eq!(listed.jobs.len(), 1);
+    let current = &listed.jobs[0];
+    assert_eq!(current.owner_name.as_deref(), Some("renamed-worker"));
+    assert_eq!(current.job, job);
+    assert!(!current.owner_missing);
+    assert_eq!(fs::read(&path).unwrap(), before);
+    let next = f.add(&user, WORKER).unwrap().job.job;
+    assert_eq!(next.id(), "c2");
+    assert_eq!(next.owner_id.as_deref(), Some(WORKER));
+    assert_eq!(next.room_id, job.room_id);
+}

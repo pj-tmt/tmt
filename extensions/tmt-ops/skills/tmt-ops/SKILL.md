@@ -224,8 +224,9 @@ selected target. Tab moves between the tree and conversation. `1`/`2`/`3` switch
 sections only when an editor, search, completion, overlay or conversation has not
 claimed the key. `s` cycles sort and `S` reverses; `p` pins/unpins a squad, `n`
 creates a squad, `m` manages a squad or assigns a member, `x` removes only the
-selected membership, `D` opens Digest and `c` opens Timers. Member rename has no
-`r` hint or default binding. In the Agents tree, `w` opens saved workspace snapshots;
+selected membership, `D` opens Digest and `c` opens Timers. `r` reviews Rename for
+the selected visible agent by UUID; compatible explicit bindings keep their meaning.
+In the Agents tree, `w` opens saved workspace snapshots;
 compatible explicit `w` bindings retain their configured meaning. Snapshots are
 not offered in Overview, Digest or conversation focus.
 `j` jumps to the selected agent's host when available; it is not tree navigation.
@@ -354,7 +355,8 @@ a squad; notes and manual squad status require a real membership. Explicit
 real request IDs answer through `tmt answer`, and notes retain the actual lead or
 explicit member recipient. Multiple open requests require an explicit choice.
 The recipient and source are frozen and rechecked at submission. Esc cancels and
-empty input sends nothing. No member `r` default is provided.
+empty input sends nothing. Member Rename defaults to `r` in the Agents list only;
+its reviewed UUID and exact current name must still match before Core changes the name.
 
 Use a squad member's shared composer and Tab to **Update status** for the selected lead or member. The
 shared band shows exact raw manual `pending` and `state` values separately from

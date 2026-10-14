@@ -3,7 +3,9 @@
 use super::*;
 use crate::board::{
     shell::OpsTab,
-    workspace::{OpsTarget, OpsTreeRow, SelectionState, observe::OpsWorkspaceSnapshot},
+    workspace::{
+        OpsTarget, OpsTreeRow, SelectionState, manage::Kind, observe::OpsWorkspaceSnapshot,
+    },
 };
 use crate::{
     action::OpsUiAction,
@@ -86,7 +88,7 @@ impl App {
             self.workspace_selection_visible() && matches!(target, OpsTarget::Member { .. })
         })
     }
-    fn workspace_scope(&self) -> OpsKeyScope {
+    pub(in crate::board) fn workspace_scope(&self) -> OpsKeyScope {
         if self.focused_pane() == Some(Pane::Replies) {
             return OpsKeyScope::Reader;
         }
@@ -148,12 +150,19 @@ impl App {
             keys.retain(|_, action| {
                 !matches!(
                     action.verb,
-                    Verb::Ui(OpsUiAction::WorkspaceSnapshots | OpsUiAction::DiscoverAgents)
+                    Verb::Ui(
+                        OpsUiAction::WorkspaceSnapshots
+                            | OpsUiAction::DiscoverAgents
+                            | OpsUiAction::RenameMember
+                    )
                 )
             });
         }
         if !self.usage_chart_available() {
             keys.retain(|_, action| action.verb != Verb::Ui(OpsUiAction::UsageControls));
+        }
+        if !self.workspace_selection_visible() || self.workspace_scope() != OpsKeyScope::Member {
+            keys.retain(|_, action| action.verb != Verb::Ui(OpsUiAction::RenameMember));
         }
         keys
     }
@@ -369,6 +378,7 @@ impl App {
                 ));
                 return Effect::None;
             }
+            RenameMember => return self.workspace_begin(Kind::RenameMember),
             Manage | CreateSquad | RemoveMembership | MoveMembership => {
                 return self.workspace_management(action);
             }
@@ -398,14 +408,15 @@ impl App {
     pub(super) fn workspace_key(&mut self, key: KeyEvent) -> Effect {
         self.restore_focus();
         if self.workspace_form.as_ref().is_some_and(|draft| {
-            matches!(
-                draft.stage,
-                crate::board::workspace::manage::Stage::Pending
-                    | crate::board::workspace::manage::Stage::Result(_)
-            )
+            draft.shown
+                && matches!(
+                    draft.stage,
+                    crate::board::workspace::manage::Stage::Pending
+                        | crate::board::workspace::manage::Stage::Result(_)
+                )
         }) {
             if key.code == KeyCode::Esc {
-                self.workspace_form = None;
+                self.workspace_close();
             }
             return Effect::None;
         }
@@ -607,7 +618,11 @@ impl App {
             }
         };
         self.notice = Some(message.clone());
-        if let Some(draft) = &mut self.workspace_form {
+        if let Some(draft) = self
+            .workspace_form
+            .as_mut()
+            .filter(|draft| draft.kind != Kind::RenameMember)
+        {
             draft.stage = crate::board::workspace::manage::Stage::Result(message);
             draft.invalidate();
             *draft.scroll.borrow_mut() = Default::default();
