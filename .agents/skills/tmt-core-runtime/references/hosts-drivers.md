@@ -76,7 +76,11 @@ channels and the driver protocol. The owner map is in
   `AgentNameRefusal` separates definite refusals (`Rejected`, `NoAgent`, `Foreign`), which keep
   the agent's earlier name, from `Uncertain`, where the host may have set it. A run attempt
   holds the storage write lock while it checks that the binding and name are still its own and
-  calls the host, so a `tmt mv` never loses to a run's older name. Read commands and provider
+  calls the host, so a `tmt mv` never loses to a run's older name. Sampling and naming are
+  separate tick steps, and `InteractiveChild::wait_with_ticks` checks the command's exit and
+  forwards signals before each one. A `name-agent` whose driver process could not be cleaned
+  up stops the run's optional work and fails the run with `CLEANUP_ERROR` after the command
+  exits and its state is recorded. Read commands and provider
   hooks never set a name; `tmt ls` shows the snapshot's `agentName` and its advice. The
   [contract](../../../../contracts/driver-protocol-v1.md#name-agent) owns the driver's guards.
 - Cosmetics: tmux badge and marker refresh (names sanitized before markup); `pane_badge` is

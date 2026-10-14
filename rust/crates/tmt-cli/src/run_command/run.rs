@@ -634,25 +634,28 @@ pub(super) fn run_bound(
         .as_ref()
         .filter(|_| storage_closed && admitted.is_some() && claim.is_some());
     // The host recognizes the agent only some time after it starts, so the
-    // agent name is set at the ticks, never right after the spawn.
+    // agent name is set at the ticks, never right after the spawn. Sampling
+    // and naming are separate steps: the wait checks the command's exit and
+    // forwards signals between them. A driver process that could not be
+    // cleaned up stops both.
     let mut namer = super::agent_name::AgentNamer::default();
+    let leaked = std::cell::Cell::new(false);
+    let mut sample_step = || {
+        if let Some(owner) = sampled.filter(|_| !leaked.get()) {
+            crate::consumption_sample_command::tick(&binding.identity_id, &binding.id, owner);
+        }
+    };
+    let mut naming_step = || {
+        namer
+            .attempt(|| super::agent_name::attempt(paths, host, binding, &bound.presence.identity));
+        leaked.set(namer.leaked());
+    };
     let waited = if already_exited {
         child.wait(on_degraded)
     } else {
         child.wait_with_ticks(
             Duration::from_millis(tmt_adapters::runtime::sampling::CADENCE_MS),
-            || {
-                if let Some(owner) = sampled {
-                    crate::consumption_sample_command::tick(
-                        &binding.identity_id,
-                        &binding.id,
-                        owner,
-                    );
-                }
-                namer.attempt(|| {
-                    super::agent_name::attempt(paths, host, binding, &bound.presence.identity)
-                });
-            },
+            &mut [&mut sample_step, &mut naming_step],
             on_degraded,
         )
     };
@@ -667,11 +670,17 @@ pub(super) fn run_bound(
         .caused_by(error)
     })?;
     // The command owned the terminal until now, so the warning waits for it.
-    if let Some(error) = namer.into_issue() {
-        let (what, fix) =
-            crate::binding_command::agent_name_text(&bound.presence.identity.name, &error);
-        super::warn(&what, Some(&fix));
-    }
+    // A leaked driver process fails the run after its state is recorded.
+    let leaked = match namer.into_outcome() {
+        super::agent_name::Outcome::Quiet => None,
+        super::agent_name::Outcome::Warning(error) => {
+            let (what, fix) =
+                crate::binding_command::agent_name_text(&bound.presence.identity.name, &error);
+            super::warn(&what, Some(&fix));
+            None
+        }
+        super::agent_name::Outcome::Leaked(error) => Some(error),
+    };
     if let Some(session) = &launch.resumed {
         settle_resume(
             paths,
@@ -707,12 +716,22 @@ pub(super) fn run_bound(
                 "command exited, but its final state could not be stored; no command was retried.",
             ),
         }
-        crate::pane_badge::refresh(
-            paths,
-            host,
-            binding,
-            Instant::now() + Duration::from_secs(1),
-        );
+        if leaked.is_none() {
+            crate::pane_badge::refresh(
+                paths,
+                host,
+                binding,
+                Instant::now() + Duration::from_secs(1),
+            );
+        }
+    }
+    if let Some(error) = leaked {
+        return Err(Failure::new(
+            "CLEANUP_ERROR",
+            "The command exited, but a host driver process could not be cleaned up. Effects may already have occurred.",
+            1,
+        )
+        .caused_by(error));
     }
     Ok(u8::try_from(status).unwrap_or(1))
 }

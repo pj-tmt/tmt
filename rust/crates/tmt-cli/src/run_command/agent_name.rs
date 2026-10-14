@@ -28,15 +28,31 @@ pub(super) const ATTEMPTS: u32 = 6;
 /// child while it runs, so an attempt is short, and a timeout ends the loop.
 pub(super) const CALL: Duration = Duration::from_secs(1);
 
-/// An answer's refusal class, which alone decides a retry.
+/// An answer's refusal class, which alone decides a retry, and whether the
+/// driver process could not be cleaned up.
 pub(super) trait Refusal {
     fn class(&self) -> AgentNameRefusal;
+    fn leaked(&self) -> bool;
 }
 
 impl Refusal for HostError {
     fn class(&self) -> AgentNameRefusal {
         AgentNameRefusal::of(self)
     }
+
+    fn leaked(&self) -> bool {
+        self.cleanup_failed()
+    }
+}
+
+/// How the naming ended, for after the command exits.
+pub(super) enum Outcome<E> {
+    /// Named, not linked, moved on, or never tried: nothing to say.
+    Quiet,
+    /// The agent has no confirmed name: one warning.
+    Warning(E),
+    /// A driver process could not be cleaned up: a failure, not a warning.
+    Leaked(E),
 }
 
 /// What one tick did.
@@ -85,6 +101,7 @@ pub(super) struct AgentNamer<E = HostError> {
     attempts: u32,
     settled: bool,
     last: Option<E>,
+    leaked: bool,
 }
 
 impl<E> Default for AgentNamer<E> {
@@ -93,6 +110,7 @@ impl<E> Default for AgentNamer<E> {
             attempts: 0,
             settled: false,
             last: None,
+            leaked: false,
         }
     }
 }
@@ -110,6 +128,11 @@ impl<E: Refusal> AgentNamer<E> {
                 self.last = None;
             }
             Attempt::Skipped => self.settled = self.attempts >= ATTEMPTS,
+            Attempt::Answered(Err(error)) if error.leaked() => {
+                self.settled = true;
+                self.leaked = true;
+                self.last = Some(error);
+            }
             Attempt::Answered(Err(error)) => {
                 self.settled =
                     error.class() != AgentNameRefusal::NoAgent || self.attempts >= ATTEMPTS;
@@ -118,10 +141,28 @@ impl<E: Refusal> AgentNamer<E> {
         }
     }
 
-    /// Why the agent has no confirmed name, for one warning after the
-    /// command exits. A command that exits before the first attempt gets none.
-    pub(super) fn into_issue(self) -> Option<E> {
-        self.last
+    /// Whether a driver process could not be cleaned up: the run then stops
+    /// all optional work and keeps only the command's own supervision.
+    pub(super) fn leaked(&self) -> bool {
+        self.leaked
+    }
+
+    /// How the naming ended. A command that exits before the first attempt
+    /// gets nothing to say.
+    pub(super) fn into_outcome(self) -> Outcome<E> {
+        match self.last {
+            None => Outcome::Quiet,
+            Some(error) if self.leaked => Outcome::Leaked(error),
+            Some(error) => Outcome::Warning(error),
+        }
+    }
+
+    #[cfg(test)]
+    fn into_issue(self) -> Option<E> {
+        match self.into_outcome() {
+            Outcome::Warning(error) => Some(error),
+            Outcome::Quiet | Outcome::Leaked(_) => None,
+        }
     }
 
     #[cfg(test)]
@@ -134,18 +175,36 @@ impl<E: Refusal> AgentNamer<E> {
 mod tests {
     use super::*;
 
-    /// An answer reduced to its class, as the driver's code maps to it.
+    /// An answer reduced to its class, as the driver's code maps to it, and
+    /// whether its driver process was left behind.
     #[derive(Debug)]
-    struct Refused(AgentNameRefusal);
+    struct Refused(AgentNameRefusal, bool);
 
     impl Refusal for Refused {
         fn class(&self) -> AgentNameRefusal {
             self.0
         }
+
+        fn leaked(&self) -> bool {
+            self.1
+        }
     }
 
     fn refused(class: AgentNameRefusal) -> Refused {
-        Refused(class)
+        Refused(class, false)
+    }
+
+    /// A driver process that could not be cleaned up is fatal for the
+    /// naming, even on an answer that would otherwise be retried, and is a
+    /// failure, never a warning.
+    #[test]
+    fn a_leaked_driver_process_stops_the_loop_as_a_failure() {
+        let mut namer = AgentNamer::<Refused>::default();
+        namer.attempt(|| Attempt::Answered(Err(Refused(AgentNameRefusal::NoAgent, true))));
+        assert!(namer.leaked());
+        namer.attempt(|| panic!("no attempt after a leaked driver process"));
+        assert_eq!(namer.attempts(), 1);
+        assert!(matches!(namer.into_outcome(), Outcome::Leaked(_)));
     }
 
     #[test]

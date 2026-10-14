@@ -730,12 +730,50 @@ fn run_names_its_agent_at_the_ticks_and_retries_while_the_agent_is_not_ready() {
     assert_eq!(named[1]["paneId"], "fake-1");
     assert_eq!(named[1]["socket"], "/tmp/fake.sock");
     assert!(named[1]["bindingId"].is_string());
+    // The binding's exact pane process and binding ID.
+    let marker: Value =
+        serde_json::from_str(&fs::read_to_string(fixture.root.join("driver/marker")).unwrap())
+            .unwrap();
+    assert_eq!(named[1]["bindingId"], marker["bindingId"]);
+    assert_eq!(named[1]["panePid"], u64::from(std::process::id()));
+    // No call at the spawn; then one per 5 s tick (whole seconds, with
+    // room for scheduling).
     let at = named_at(&fixture);
     assert!(
         at[0] >= started + 4,
         "first attempt at the first tick: {at:?}, {started}"
     );
+    assert!((4..=7).contains(&(at[1] - at[0])), "5 s spacing: {at:?}");
     assert_eq!(after_the_command(&output), (String::new(), String::new()));
+}
+
+/// A command that ends before the first tick is never named and gets no
+/// warning.
+#[test]
+fn run_with_a_short_command_never_names_its_agent() {
+    register();
+    let fixture = naming("run-short", &["ok"]);
+    fixture.approve();
+    let (output, _) = run_in_pane(&fixture, 2);
+    assert!(fixture.requests("named").is_empty());
+    assert_eq!(after_the_command(&output), (String::new(), String::new()));
+}
+
+/// A definite refusal other than "no agent yet" ends the loop at once with
+/// its own warning after the command.
+#[test]
+fn run_stops_at_a_foreign_name_and_warns_after_the_command() {
+    register();
+    let fixture = naming("run-foreign", &["foreign_name", "ok"]);
+    fixture.approve();
+    let (output, _) = run_in_pane(&fixture, 7);
+    assert_eq!(fixture.requests("named").len(), 1);
+    let (during, after) = after_the_command(&output);
+    assert_eq!(during, "");
+    assert!(
+        after.contains("keeps an agent name TMT did not set"),
+        "{after}"
+    );
 }
 
 /// The host never recognizes the agent: six attempts (about 30 s), then one
@@ -745,8 +783,15 @@ fn run_stops_naming_after_six_attempts_and_warns_once_after_the_command() {
     register();
     let fixture = naming("run-no-agent", &["no_agent"; 8]);
     fixture.approve();
-    let (output, _) = run_in_pane(&fixture, 34);
+    let (output, started) = run_in_pane(&fixture, 34);
     assert_eq!(fixture.requests("named").len(), 6);
+    let at = named_at(&fixture);
+    assert!(at[0] >= started + 4, "{at:?}");
+    assert!(
+        at.windows(2)
+            .all(|pair| (4..=7).contains(&(pair[1] - pair[0]))),
+        "5 s spacing: {at:?}"
+    );
     let (during, after) = after_the_command(&output);
     assert_eq!(during, "");
     assert_eq!(after.matches("No agent to name yet").count(), 1, "{after}");

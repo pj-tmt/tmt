@@ -731,9 +731,9 @@ pub(crate) fn agent_name_text(
         AgentNameRefusal::Uncertain => (
             format!(
                 "TMT could not confirm the agent name {name}: {error}. The host may or may not \
-                 have set it. The binding stays."
+                 have set it; tmt ls shows the agent name the host reports. The binding stays."
             ),
-            format!("To check the agent name, in the agent's pane run: tmt this {name}"),
+            format!("To retry setting the agent name, in the agent's pane run: tmt this {name}"),
         ),
     }
 }
@@ -757,7 +757,7 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
         &[],
     ),
     crate::cli_style_tests::HintSpec::core(
-        "To check the agent name, in the agent's pane run: tmt this {name}",
+        "To retry setting the agent name, in the agent's pane run: tmt this {name}",
         &[""],
         &[],
     ),
