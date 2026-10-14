@@ -34,9 +34,9 @@ fn hint(app: &App) -> Option<String> {
         .find(|(_, action)| action.verb == Verb::Ui(OpsUiAction::UsageControls))
         .map(|(key, _)| key)
 }
-fn chart_height(app: &App, area: Rect, partial: bool) -> Option<u8> {
+fn chart_height(app: &App, area: Rect) -> Option<u8> {
     (1..=5).rev().find(|height| {
-        let used = u16::from(*height) + 4 + controls::height(area.width) + u16::from(partial);
+        let used = u16::from(*height) + 3 + controls::height(area.width);
         area.height >= used
             && list_capacity(
                 app,
@@ -58,7 +58,6 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, mut area: Rect) -> 
     state.visible = true;
     refresh(app, &mut state, crate::status::now_ms());
     let data = Rc::clone(state.observed.as_ref().unwrap());
-    let partial = data.buckets.iter().any(|bucket| !bucket.complete());
     // Unknown/zero data remains honest and reachable through the same controls,
     // without reserving an empty plot or exposing meaningless bucket hit areas.
     let positive = data
@@ -66,7 +65,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, mut area: Rect) -> 
         .iter()
         .any(|bucket| bucket.tokens.is_some_and(|n| n > 0));
     let height = (positive && area.width >= 38 && !app.usage_controls)
-        .then(|| chart_height(app, area, partial))
+        .then(|| chart_height(app, area))
         .flatten();
     if let Some(height) = height {
         let used = paint_chart(frame, app, &mut state, area, look, key, height);
@@ -256,7 +255,8 @@ fn paint_chart(
     state.hits.extend(owned_hits);
     if active == Some(Focus::Bars) {
         for hit in &state.hits {
-            if hit.target == Target::Bar(state.bar) && hit.area.y == plot.y + u16::from(plot_height)
+            if hit.target == Target::Bar(state.bar)
+                && hit.area.y == plot.y + u16::from(plot_height) - 1
             {
                 buffer.set_style(hit.area, look.selection());
             }

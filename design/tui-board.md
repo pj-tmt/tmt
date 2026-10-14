@@ -153,6 +153,9 @@ uses a 60% monitor / one-cell separator / remaining conversation split; narrower
 screens retain the monitor. Agent, Squad, State, TOK/h, MODE, Cron, Runtime and
 Model share one column projection; whole fields drop Model, Runtime, MODE, Cron,
 then Squad, with full values in Details. Each/Range share one row when they fit.
+Unknown usage intervals are dim, compact ghost bars; partial coverage is named
+once in the summary, with no extra dotted baseline or legend row. Overview uses
+two disjoint key-hint lines from effective bindings.
 The All/Needs you filter is session-local and preserves the selected UUID. Row
 range/count reflects painted filtered rows and labels partial observations.
 Recent exchanges use admitted source timestamps, with untimed rows last; failed

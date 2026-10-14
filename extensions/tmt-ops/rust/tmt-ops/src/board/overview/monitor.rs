@@ -674,6 +674,19 @@ mod tests {
             })
             .collect();
         assert_eq!(hits.len(), 2);
+        let header_y = app
+            .overview_sort_hits
+            .borrow()
+            .iter()
+            .find(|(_, column)| *column == Column::Agent)
+            .unwrap()
+            .0
+            .y;
+        assert_eq!(
+            hits[0].2,
+            header_y + 2,
+            "first pin immediately follows header and divider, with no blank row"
+        );
         assert_eq!(hits[1].2, hits[0].2 + 2);
         let selected = app.workspace.selected.clone();
         let outcome = app.mouse(
@@ -793,6 +806,63 @@ mod tests {
                 .draw(|frame| crate::board::view::render(frame, &app))
                 .unwrap();
             assert_eq!(*app.row_starts.borrow(), [0, 2]);
+        }
+    }
+}
+
+#[cfg(test)]
+mod legend_tests {
+    use crate::board::{app::workspace::tests::board, shell::OpsTab, view::footer};
+    use crate::{action::Action, config::OpsKeyScope};
+    use ratatui::{Terminal, backend::TestBackend};
+    #[test]
+    fn overview_legend_is_disjoint_and_names_only_live_bindings() {
+        let mut app = board();
+        app.shell.tab = OpsTab::Overview;
+        let mut terminal = Terminal::new(TestBackend::new(160, 44)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        let [first, second] = footer::overview_legend(&app, 160).unwrap();
+        assert!(
+            first.contains("↑↓ select") && first.contains("⏎ inspect") && first.contains("p pin")
+        );
+        assert!(
+            second.contains("/ search")
+                && second.contains("f needs you")
+                && second.contains("u chart")
+        );
+        assert!(
+            !first.contains("f needs you")
+                && !first.contains("u chart")
+                && !second.contains("p pin")
+        );
+        let keys = &mut app
+            .view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .keys;
+        keys.get_mut(&OpsKeyScope::Overview)
+            .unwrap()
+            .insert("enter".into(), Action::parse("talk").unwrap());
+        keys.get_mut(&OpsKeyScope::Overview)
+            .unwrap()
+            .insert("/".into(), Action::parse("copy {name}").unwrap());
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        let [first, second] = footer::overview_legend(&app, 160).unwrap();
+        assert!(first.contains("⏎ chat") && !first.contains("t chat"));
+        assert!(!first.contains("inspect") && !second.contains("/ search"));
+        for width in [60, 80, 100, 160] {
+            let [first, second] = footer::overview_legend(&app, width).unwrap();
+            assert!(unicode_width::UnicodeWidthStr::width(first.as_str()) <= width);
+            assert!(unicode_width::UnicodeWidthStr::width(second.as_str()) <= width);
+            assert!(second.contains("? help") && second.contains("q quit"));
         }
     }
 }

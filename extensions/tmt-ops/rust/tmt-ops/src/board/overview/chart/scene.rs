@@ -130,7 +130,11 @@ impl Scene {
             let mut pieces = vec![json!({"id":"axis", "text": format!("{axis:>axis_width$}")})];
             for (index, bar) in bars.iter().enumerate() {
                 let (kind, text) = if series.buckets[index].tokens.is_none() {
-                    ("unknown", "·".repeat(bar_width))
+                    if level < usize::from(height).div_ceil(3) {
+                        ("unknown", "·".repeat(bar_width))
+                    } else {
+                        ("empty", " ".repeat(bar_width))
+                    }
                 } else {
                     match bar[level] {
                         Cell::Empty => ("empty", " ".repeat(bar_width)),
@@ -146,31 +150,11 @@ impl Scene {
             }
             rows.push(json!({"id":format!("level-{level}"), "pieces":pieces}));
         }
-        // Retain the baseline's bucket hit identities, without a second zero/partial marker row.
-        let mut baseline = vec![json!({"id":"axis", "text":" ".repeat(axis_width)})];
-        for (index, bucket) in series.buckets.iter().enumerate() {
-            let label = if bucket.tokens.is_none() { "·" } else { "" };
-            let left = bar_width.saturating_sub(label.len()) / 2;
-            let text = format!(
-                "{}{}{}",
-                " ".repeat(left),
-                label,
-                " ".repeat(bar_width - left - label.len())
-            );
-            baseline.push(json!({"id":format!("label-bar-{index}"), "text":text}));
-            if index + 1 < count {
-                baseline.push(json!({"id":format!("gap-{index}"), "text":" "}));
-            }
-        }
-        rows.push(json!({"id":"baseline", "pieces":baseline}));
         let ticks = time_ticks(
             series.selection.range_minutes,
             bar_width * count + count - 1,
         );
         rows.push(json!({"id":"time", "pieces":[{"id":"axis", "text":" ".repeat(axis_width)}, {"id":"time-ticks", "text":ticks}]}));
-        if series.buckets.iter().any(|bucket| bucket.tokens.is_none()) {
-            rows.push(json!({"id":"coverage", "pieces":[{"id":"legend", "text":"· unknown"}]}));
-        }
         let row_count = rows.len() as u16;
         let node = template()
             .materialize(FILE, &json!({"rows":rows}), &Data)
@@ -221,6 +205,8 @@ impl Scene {
                 }
             } else if id.starts_with("half-") {
                 filled
+            } else if id.starts_with("unknown-") {
+                screen::style(theme, Role::Dim, depth)
             } else {
                 muted
             };
@@ -310,10 +296,12 @@ mod tests {
                 .iter()
                 .any(|cell| matches!(cell.symbol(), "?" | "·"))
         );
-        assert!(
-            !line(5).contains('0'),
-            "zero belongs on the y-axis, not an extra baseline row"
+        assert_eq!(
+            scene.rows(),
+            6,
+            "five plot rows followed directly by the time axis"
         );
+        assert!(line(5).contains("−60m") && line(5).contains("now"));
         assert!(line(4).trim_start().starts_with('0'));
         assert_eq!(values.buckets[0].tokens, Some(23_058_051));
     }
@@ -346,10 +334,8 @@ mod tests {
         let line = |y| (0..60).map(|x| buffer[(x, y)].symbol()).collect::<String>();
         assert!(line(0).contains("100"));
         assert!(line(2).trim_start().starts_with('0'));
-        assert!(
-            line(3).trim().is_empty(),
-            "no extra zero or partial-marker baseline"
-        );
+        assert_eq!(scene.rows(), 4, "plot plus time axis only");
+        assert!(line(3).contains("−60m") && line(3).contains("now"));
         assert_eq!(
             series.buckets[1].tokens,
             Some(1),
@@ -373,10 +359,15 @@ mod tests {
                         && hit.rect.x + hit.rect.width as i32 <= 2 + i32::from(width)
                         && hit.rect.y + hit.rect.height as i32 <= 6));
                     assert!(buffer.content.iter().any(|cell| cell.symbol() == "·"));
-                    let legend = (2..width + 2)
-                        .map(|x| buffer[(x, 5)].symbol())
-                        .collect::<String>();
-                    assert!(legend.contains("unknown"));
+                    assert_eq!(scene.rows(), 4, "no separate coverage legend row");
+                    assert!(
+                        !buffer
+                            .content
+                            .iter()
+                            .map(|cell| cell.symbol())
+                            .collect::<String>()
+                            .contains("unknown")
+                    );
                     if depth == Depth::None {
                         assert!(buffer.content.iter().any(|cell| cell.symbol() == "█"));
                         assert!(
@@ -442,7 +433,12 @@ mod tests {
                 .paint(&mut buffer, &Theme::default(), Depth::TrueColor)
                 .unwrap();
             let scale = (0..60).map(|x| buffer[(x, 0)].symbol()).collect::<String>();
-            assert!(scale.contains(expected), "{scale:?}");
+            if tokens.is_none() {
+                assert!(!scale.contains('·') && !scale.contains('0'), "{scale:?}");
+                assert!(buffer.content.iter().any(|cell| cell.symbol() == expected));
+            } else {
+                assert!(scale.contains(expected), "{scale:?}");
+            }
             assert!(!scale.contains("1 tok"));
         }
     }
@@ -489,7 +485,7 @@ mod axis_tests {
                         .map(|x| buffer[(x, y)].symbol())
                         .collect::<String>()
                 };
-                let time = line(4);
+                let time = line(3);
                 assert!(time.contains(&format!("−{range}m")) && time.contains("now"));
                 assert!(!time.contains('?'));
                 let middle = if range == 15 {
@@ -498,23 +494,43 @@ mod axis_tests {
                     format!("−{}m", range / 2)
                 };
                 assert!(time.contains(&middle));
+                assert_eq!(
+                    scene.rows(),
+                    4,
+                    "three plot rows then time; no extra dot row"
+                );
                 for index in 0..series.buckets.len() {
-                    let id = format!("label-bar-{index}");
+                    let suffix = format!("bar-{index}");
                     let hit = hits
                         .iter()
-                        .find(|hit| hit.id.as_ref().is_some_and(|path| path.last() == Some(&id)))
+                        .find(|hit| {
+                            hit.rect.y == 2
+                                && hit.id.as_ref().is_some_and(|path| {
+                                    path.last().is_some_and(|id| id.ends_with(&suffix))
+                                })
+                        })
                         .unwrap();
-                    let marks: Vec<_> = (hit.rect.x..hit.rect.x + hit.rect.width as i32)
-                        .filter(|x| buffer[(*x as u16, 3)].symbol() == "·")
-                        .collect();
-                    if index == 0 {
-                        assert_eq!(buffer[(hit.rect.x as u16 - 1, 3)].symbol(), " ");
-                        assert_eq!(buffer[(hit.rect.x as u16 - 2, 3)].symbol(), " ");
-                    }
-                    if series.buckets[index].tokens.is_some() {
-                        assert!(marks.is_empty());
+                    let columns = hit.rect.x..hit.rect.x + hit.rect.width as i32;
+                    if series.buckets[index].tokens.is_none() {
+                        assert!(
+                            columns
+                                .clone()
+                                .all(|x| buffer[(x as u16, 2)].symbol() == "·")
+                        );
+                        for y in 0..2 {
+                            assert!(
+                                columns
+                                    .clone()
+                                    .all(|x| buffer[(x as u16, y)].symbol() != "·"),
+                                "unknown ghost never fills the upper plot"
+                            );
+                        }
                     } else {
-                        assert_eq!(marks, vec![hit.rect.x + (hit.rect.width as i32 - 1) / 2]);
+                        assert!(
+                            columns
+                                .clone()
+                                .all(|x| buffer[(x as u16, 2)].symbol() != "·")
+                        );
                     }
                 }
                 assert!(buffer.content.iter().any(|cell| cell.symbol() == "█"));

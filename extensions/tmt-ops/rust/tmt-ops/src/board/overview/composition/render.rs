@@ -254,17 +254,15 @@ pub(in crate::board) fn render(
                     ),
                     app,
                 );
-                text(
-                    frame,
-                    Rect::new(rect.x, rect.y + 1, rect.width, 1),
-                    format!(
-                        "{}pin agent · {}filter · {}usage",
-                        key(app, crate::action::OpsUiAction::Pin),
-                        key(app, crate::action::OpsUiAction::OverviewFilter),
-                        key(app, crate::action::OpsUiAction::UsageControls)
-                    ),
-                    app,
-                );
+                if let Some([first, _]) =
+                    crate::board::view::footer::overview_legend(app, usize::from(rect.width))
+                {
+                    tmt_tui::components::strip::paint_left(
+                        frame.buffer_mut(),
+                        Rect::new(rect.x, rect.y + 1, rect.width, 1),
+                        crate::board::view::footer::hint_line(&first, app.look()),
+                    );
+                }
             }
         }
     }
