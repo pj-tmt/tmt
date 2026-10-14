@@ -588,25 +588,54 @@ pub fn rename_identity<R: BindingRepository, O>(
     repository.with_binding_transaction(|records| {
         let entry =
             named_entry(records, old)?.ok_or_else(|| BindingError::NameNotFound(old.into()))?;
-        if name.display_name() == entry.identity.name {
-            return Ok(RenamedIdentity {
-                identity: entry.identity.clone(),
-                previous: entry.identity,
-                binding: entry.binding,
-            });
+        rename_entry(records, entry, &name)
+    })
+}
+
+/// Rename only the exact active UUID whose current display name matches the
+/// caller's preview. Selection, expectation and collision checks share the same
+/// writer transaction as ordinary name-based rename, bind and retirement.
+pub fn rename_identity_by_id<R: BindingRepository, O>(
+    repository: &mut R,
+    identity_id: &str,
+    expected_name: &str,
+    new: &str,
+) -> Result<RenameOutcome, BindingError<R::Error, O>> {
+    let name = crate::names::validate_name(new).map_err(BindingError::InvalidName)?;
+    repository.with_binding_transaction(|records| {
+        let Some(entry) = records.entry_by_id(identity_id)? else {
+            return Ok(RenameOutcome::NotFound);
+        };
+        if entry.identity.name != expected_name {
+            return Ok(RenameOutcome::Conflict(entry.identity));
         }
-        // A case-only change keeps the canonical name, so the holder is itself.
-        if name.canonical_name() != entry.identity.canonical_name
-            && records.find_identity(name.canonical_name())?.is_some()
-        {
-            return Err(BindingError::NameTaken(name.display_name().into()));
-        }
-        let identity = records.rename_identity(&entry.identity, &name)?;
-        Ok(RenamedIdentity {
+        rename_entry(records, entry, &name).map(|result| RenameOutcome::Applied(Box::new(result)))
+    })
+}
+
+fn rename_entry<R, O>(
+    records: &mut dyn BindingRecords<Error = R>,
+    entry: BindingEntry,
+    name: &ValidatedName,
+) -> Result<RenamedIdentity, BindingError<R, O>> {
+    if name.display_name() == entry.identity.name {
+        return Ok(RenamedIdentity {
+            identity: entry.identity.clone(),
             previous: entry.identity,
-            identity,
             binding: entry.binding,
-        })
+        });
+    }
+    // A case-only change keeps the canonical name, so the holder is itself.
+    if name.canonical_name() != entry.identity.canonical_name
+        && records.find_identity(name.canonical_name())?.is_some()
+    {
+        return Err(BindingError::NameTaken(name.display_name().into()));
+    }
+    let identity = records.rename_identity(&entry.identity, name)?;
+    Ok(RenamedIdentity {
+        previous: entry.identity,
+        identity,
+        binding: entry.binding,
     })
 }
 

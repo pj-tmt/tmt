@@ -1,4 +1,4 @@
-//! Bounded identity metadata/status admission and public operation composition.
+//! Bounded identity rename/metadata/status admission and public composition.
 
 use super::{Fault, REFERENCE_LIMIT, Request, invalid};
 use crate::storage::Storage;
@@ -96,6 +96,57 @@ pub(super) fn apply_metadata(
         .map_err(|_| Fault::unavailable())
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RenameInput {
+    identity_id: String,
+    expected_name: String,
+    name: String,
+}
+
+pub(super) fn decode_rename(input: &[u8]) -> Result<Request, Fault> {
+    let wire: RenameInput = serde_json::from_slice(input).map_err(|_| invalid())?;
+    if !tmt_core::dispatch::canonical_id(&wire.identity_id) {
+        return Err(invalid());
+    }
+    Ok(Request::IdentityRename {
+        identity_id: wire.identity_id,
+        expected_name: wire.expected_name,
+        name: wire.name,
+    })
+}
+
+pub(super) fn rename(
+    storage: &mut Storage,
+    identity_id: &str,
+    expected_name: &str,
+    name: &str,
+) -> Result<Vec<u8>, Fault> {
+    use tmt_core::binding::{BindingError, RenameOutcome, rename_identity_by_id};
+    let result = rename_identity_by_id::<_, std::convert::Infallible>(
+        storage,
+        identity_id,
+        expected_name,
+        name,
+    )
+    .map_err(|error| match error {
+        BindingError::InvalidName(error) => Fault::detailed("INVALID_NAME", error.to_string()),
+        BindingError::NameTaken(name) => Fault::detailed(
+            "NAME_ALREADY_ACTIVE",
+            format!("Another identity is already named '{name}'."),
+        ),
+        _ => Fault::unavailable(),
+    })?;
+    let value = match result {
+        RenameOutcome::Applied(result) => json!({"outcome":"applied", "identityId":identity_id,
+            "name":result.identity.name, "changed":result.changed()}),
+        RenameOutcome::Conflict(identity) => json!({"outcome":"conflict", "identityId":identity_id,
+            "name":identity.name}),
+        RenameOutcome::NotFound => json!({"outcome":"not-found", "identityId":identity_id}),
+    };
+    serde_json::to_vec(&value).map_err(|_| Fault::unavailable())
+}
+
 #[cfg(test)]
 mod metadata_tests {
     use super::*;
@@ -168,5 +219,114 @@ mod metadata_tests {
             assert!(api::decode(body).is_err());
         }
         assert!(serde_json::from_slice::<serde_json::Value>(&api::capabilities()).unwrap()["operations"].as_array().unwrap().contains(&json!("identity.meta.apply")));
+    }
+}
+
+#[cfg(test)]
+mod rename_tests {
+    use super::*;
+    use crate::{api, config::ConfigPaths, test_support::TestDirectory};
+    use tmt_core::{
+        binding::BindingRepository,
+        identity::{Lifetime, create_or_resolve},
+    };
+
+    #[test]
+    fn rename_api_pins_cas_outcomes_errors_and_exact_uuid_selection() {
+        let directory = TestDirectory::new();
+        let paths = ConfigPaths::resolve(
+            &directory.path,
+            &directory.path,
+            Some(&directory.path),
+            None,
+        );
+        let mut storage = Storage::open(&paths.database).unwrap();
+        let alice = create_or_resolve(&mut storage, "Alice", Lifetime::Saved)
+            .unwrap()
+            .identity;
+        create_or_resolve(&mut storage, "Bob", Lifetime::Saved).unwrap();
+        storage.close().unwrap();
+        let call = |id: &str, expected: &str, name: &str| {
+            let request = api::decode(&json!({"version":1,"operation":"identity.rename","input":{"identityId":id,"expectedName":expected,"name":name}}).to_string())?;
+            api::execute(&paths, request)
+        };
+        let resource =
+            |bytes: Vec<u8>| serde_json::from_slice::<serde_json::Value>(&bytes).unwrap();
+        assert_eq!(
+            resource(call(&alice.id, "Alice", "Ada").unwrap()),
+            json!({"outcome":"applied","identityId":alice.id,"name":"Ada","changed":true})
+        );
+        assert_eq!(
+            resource(call(&alice.id, "Alice", "Eve").unwrap()),
+            json!({"outcome":"conflict","identityId":alice.id,"name":"Ada"})
+        );
+        assert_eq!(
+            resource(call(&alice.id, "Ada", "Ada").unwrap()),
+            json!({"outcome":"applied","identityId":alice.id,"name":"Ada","changed":false})
+        );
+        for (name, code) in [
+            ("BOB", "NAME_ALREADY_ACTIVE"),
+            ("%1", "INVALID_NAME"),
+            ("", "INVALID_NAME"),
+        ] {
+            let fault = call(&alice.id, "Ada", name).unwrap_err();
+            assert_eq!(fault.code(), code);
+            assert_eq!(fault.status(), 1);
+            assert_eq!(resource(fault.encode())["error"]["code"], code);
+        }
+        let mut storage = Storage::open(&paths.database).unwrap();
+        let ada = storage.find_identity_by_id(&alice.id).unwrap().unwrap();
+        assert_eq!(ada.name, "Ada");
+        storage
+            .with_binding_transaction(|rows| rows.retire_identity(&ada, false))
+            .unwrap();
+        let successor = create_or_resolve(&mut storage, &alice.id, Lifetime::Saved)
+            .unwrap()
+            .identity;
+        storage.close().unwrap();
+        assert_eq!(
+            resource(call(&alice.id, "Ada", "Eve").unwrap()),
+            json!({"outcome":"not-found","identityId":alice.id})
+        );
+        let mut storage = Storage::open(&paths.database).unwrap();
+        assert_eq!(
+            storage.find_identity_by_id(&successor.id).unwrap(),
+            Some(successor)
+        );
+        storage.close().unwrap();
+        for input in [
+            json!({"identityId":"Alice","expectedName":"Alice","name":"Ada"}),
+            json!({"identityId":alice.id,"name":"Ada"}),
+            json!({"identityId":alice.id,"expectedName":42,"name":"Ada"}),
+            json!({"identityId":alice.id,"expectedName":"Ada","name":"Eve","extra":true}),
+        ] {
+            assert_eq!(
+                api::decode(
+                    &json!({"version":1,"operation":"identity.rename","input":input}).to_string()
+                )
+                .err()
+                .unwrap()
+                .code(),
+                "API_INPUT_INVALID"
+            );
+        }
+        for field in ["identity", "originator"] {
+            let mut envelope = json!({"version":1,"operation":"identity.rename","input":{"identityId":alice.id,"expectedName":"Ada","name":"Eve"}});
+            envelope[field] = json!(if field == "identity" {
+                "Alice"
+            } else {
+                "anonymous"
+            });
+            assert_eq!(
+                api::decode(&envelope.to_string()).err().unwrap().code(),
+                "API_INPUT_INVALID"
+            );
+        }
+        assert!(
+            resource(api::capabilities())["operations"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("identity.rename"))
+        );
     }
 }

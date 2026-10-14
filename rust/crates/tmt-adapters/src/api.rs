@@ -59,6 +59,7 @@ const OPS: &[&str] = &[
     "references.resolve",
     "identities.status",
     "identity.meta.apply",
+    "identity.rename",
     "consumption.history",
     "extensions.uses",
 ];
@@ -228,6 +229,11 @@ pub enum Request {
     IdentityStatuses {
         identities: Vec<String>,
     },
+    IdentityRename {
+        identity_id: String,
+        expected_name: String,
+        name: String,
+    },
     MetadataApply {
         identity_id: String,
         changes: tmt_core::identity_metadata::MetadataChanges,
@@ -311,6 +317,7 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
         "references.resolve" => references::decode(input)?,
         "identities.status" => identities::decode(input)?,
         "identity.meta.apply" => identities::decode_metadata(input)?,
+        "identity.rename" => identities::decode_rename(input)?,
         "consumption.history" => consumption::decode(input)?,
         "extensions.uses" => extensions::decode(input)?,
         "identityHooks.pending" => identity_hooks::decode_pending(input)?,
@@ -415,6 +422,11 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
             references::resolve(&mut storage, identities, rooms)
         }
         Request::IdentityStatuses { identities } => identities::status(&storage, identities),
+        Request::IdentityRename {
+            identity_id,
+            expected_name,
+            name,
+        } => identities::rename(&mut storage, &identity_id, &expected_name, &name),
         Request::MetadataApply {
             identity_id,
             changes,

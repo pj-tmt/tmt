@@ -62,7 +62,7 @@ delivery. They install and launch nothing.
   transactions.
 - The pane marker (`@tmt.agent`) proves ownership by identity, binding, server and
   pane-process IDs alone; its name may lag the stored name and readers resolve by ID.
-  `binding::rename_identity` renames inside the immediate binding transaction; the post-commit
+  `binding` owns name-based rename and UUID/exact-name CAS in one immediate transaction; the post-commit
   refresh rewrites the marker only while it is still this binding's. Read paths (`ls`, `talk`)
   never write it.
 - `bindings.pane_incarnation` holds the `ProcessIncarnation` start token core observed for the

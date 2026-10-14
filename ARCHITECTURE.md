@@ -218,7 +218,7 @@ a working directory, active pane or sole identity.
 - `tmt-core::names` owns canonical names; hosts own pane-target syntax.
   `identity` owns lifetime/create/promote; `identity_metadata`/`identity_status`
   own untrusted descriptions granting no authority ([atomic metadata](contracts/extension-api.md#conditional-identity-metadata)).
-  `binding` owns evidence, retirement and binds. [Discovery v1](contracts/discovery-v1.md)
+  `binding` owns evidence, retirement, binds and UUID/name-CAS rename. [Discovery v1](contracts/discovery-v1.md)
   owns candidate bounds and native/UUID fences; guarded `add` uses that binder.
 - Unknown or conflicting endpoint evidence is never proof of death. Saved
   identities detach and stay offline; temporary identities retire only on
