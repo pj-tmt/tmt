@@ -914,7 +914,6 @@ describe('tmt extension install surface', () => {
           version,
           new Uint8Array(),
           product,
-          undefined,
           {},
           undefined,
           declared
@@ -1010,7 +1009,6 @@ describe('tmt extension install surface', () => {
         '0.1.0-alpha.1',
         new Uint8Array(),
         'colab',
-        undefined,
         {},
         undefined,
         '{"version":1,"uses":[{"feature":"Browser Access"}]}'
@@ -1058,7 +1056,7 @@ describe('tmt extension install surface', () => {
           ...extra,
         ]);
       const squad = (version: string, skills: Record<string, string>) =>
-        createArtifact(sandbox, version, new Uint8Array(), 'ops', undefined, skills);
+        createArtifact(sandbox, version, new Uint8Array(), 'ops', skills);
       const first = await squad('0.1.0-alpha.1', {
         'tmt-ops/SKILL.md': 'lead v1\n',
         'tmt-ops/references/usage.md': 'usage\n',
@@ -1146,7 +1144,7 @@ describe('tmt extension install surface', () => {
       );
       const prefix = path.join(sandbox.root, 'Colab skill prefix');
       const artifact = (version: string, content: string) =>
-        createArtifact(sandbox, version, new Uint8Array(), 'colab', undefined, {
+        createArtifact(sandbox, version, new Uint8Array(), 'colab', {
           'tmt-colab/SKILL.md': content,
         });
       const install = (input: ArtifactFixture, skills = false) =>
@@ -1245,14 +1243,9 @@ describe('tmt extension install surface', () => {
       const initial = await createArtifact(sandbox, '0.0.9-alpha.1', new Uint8Array(), 'ops');
       const installed = await runCli(sandbox, replacementArgs(initial, prefix));
       expect(installed.status, installed.stdout + installed.stderr).toBe(0);
-      const artifact = await createArtifact(
-        sandbox,
-        '0.1.0-alpha.1',
-        new Uint8Array(),
-        'ops',
-        undefined,
-        { 'tmt-ops/SKILL.md': 'lead\n' }
-      );
+      const artifact = await createArtifact(sandbox, '0.1.0-alpha.1', new Uint8Array(), 'ops', {
+        'tmt-ops/SKILL.md': 'lead\n',
+      });
       // Publication cannot replace a directory in a root without write permission.
       const conflict = path.join(sandbox.home, '.claude/skills/tmt-ops');
       mkdirSync(conflict, { recursive: true });
@@ -1303,7 +1296,7 @@ describe('tmt extension install surface', () => {
 
 describe('aggregate official upgrades', () => {
   it(
-    'keeps independent CLI/Squad/Remote/Colab pins and skips frozen Office even with invalid state',
+    'keeps independent CLI/Ops/Remote/Colab pins and leaves retired Office bytes untouched',
     { timeout: 60000 },
     async () => {
       await withReleaseSandbox(async (sandbox) => {
@@ -1373,7 +1366,8 @@ describe('aggregate official upgrades', () => {
             hint: 'tmt extension upgrade colab --unpin',
           },
         ]);
-        writeFileSync(path.join(prefix, 'bin/tmt-office'), 'not a managed installation');
+        const retiredOffice = path.join(prefix, 'bin/tmt-office');
+        writeFileSync(retiredOffice, 'not a managed installation');
         const skipped = await runCli(managed, ['upgrade', '--yes', '--json'], {
           deadlineMs: INSTALL_PROCESS_BUDGET_MS,
         });
@@ -1384,6 +1378,7 @@ describe('aggregate official upgrades', () => {
           { product: 'remote', status: 'skippedPinned' },
           { product: 'colab', status: 'skippedPinned' },
         ]);
+        expect(readFileSync(retiredOffice, 'utf8')).toBe('not a managed installation');
         for (const [receipt, before] of extensionReceipts) {
           expect(readFileSync(receipt).equals(before)).toBe(true);
         }

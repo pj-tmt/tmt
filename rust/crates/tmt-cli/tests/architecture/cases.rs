@@ -104,41 +104,21 @@ fn the_herdr_driver_is_referenced_only_by_its_bin() {
 }
 
 #[test]
-fn office_command_edges_are_confined_to_the_reserved_facade() {
+fn retired_office_commands_have_no_core_facade_exception() {
     for package in ["tmt-core", "tmt-adapters", "tmt-cli"] {
-        let violations = policy::source_violations(&[syntax(
-            package,
-            "extra.rs",
-            "use tmt_office_command::execute as office;",
-        )]);
-        assert!(violations.iter().any(|v| v.contains("reserved facade")));
+        for file in ["extra.rs", "office_facade.rs"] {
+            let violations = policy::source_violations(&[syntax(
+                package,
+                file,
+                "use tmt_office_command::execute as retired;",
+            )]);
+            assert!(
+                violations
+                    .iter()
+                    .any(|v| v.contains("Office commands are retired"))
+            );
+        }
     }
-    assert_exact(
-        &[syntax(
-            "tmt-cli",
-            "office_facade.rs",
-            "use tmt_office_command::execute;",
-        )],
-        &[],
-    );
-    assert_exact(
-        &[syntax(
-            "tmt-cli",
-            "grammar.rs",
-            "use crate::office_facade::grammar::grammar;",
-        )],
-        &[],
-    );
-    let violations = policy::source_violations(&[syntax(
-        "tmt-cli",
-        "parser.rs",
-        "use crate::office_facade::execute;",
-    )]);
-    assert!(
-        violations
-            .iter()
-            .any(|v| v.contains("parsing depends on effects"))
-    );
 }
 
 #[test]
@@ -536,44 +516,8 @@ fn package(name: &str, dependencies: Vec<Value>) -> Value {
 }
 
 #[test]
-fn office_model_direction_and_dependency_aliases_are_guarded() {
-    for (owner, dependency_name, alias) in [
-        ("tmt-core", "tmt-office-model", None),
-        ("tmt-office-model", "tmt-adapters", None),
-        ("tmt-office-model", "rusqlite", None),
-        ("tmt-office-model", "tmt-core", Some("hidden")),
-        ("tmt-adapters", "tmt-office-model", None),
-        ("tmt-office-command", "tmt-office-model", Some("hidden")),
-    ] {
-        assert_eq!(
-            policy::dependency_violations(&package(
-                owner,
-                vec![dependency(dependency_name, "normal", None, alias)]
-            ))
-            .len(),
-            1
-        );
-    }
-    assert!(
-        policy::dependency_violations(&package(
-            "tmt-office-model",
-            vec![dependency("tmt-core", "normal", None, None)]
-        ))
-        .is_empty()
-    );
-}
-
-#[test]
 fn office_consumers_cannot_expand_or_hide_behind_reexports() {
     let import = "use tmt_office_model::office_world::WorldLayout as Layout;";
-    for package in [
-        "tmt-office-command",
-        "tmt-office-pairing",
-        "tmt-office-service",
-        "tmt-office-storage",
-    ] {
-        assert_exact(&[syntax(package, "lib.rs", import)], &[]);
-    }
     // The world reply moved to the Office model; core cannot regrow it.
     assert_exact(
         &[syntax("tmt-adapters", "office_world/reply.rs", import)],
@@ -592,14 +536,6 @@ fn office_consumers_cannot_expand_or_hide_behind_reexports() {
         &[
             "tmt-adapters/storage/office_world/layout.rs: unreviewed Office dependency tmt_office_model::office_world::WorldLayout",
         ],
-    );
-    assert_exact(
-        &[syntax(
-            "tmt-office-storage",
-            "office_world/layout.rs",
-            import,
-        )],
-        &[],
     );
     assert_exact(
         &[syntax("tmt-adapters", "storage/new_office.rs", import)],
@@ -658,36 +594,6 @@ fn core_keeps_one_write_once_host_registry_and_no_other_global_state() {
             )],
         );
     }
-}
-
-#[test]
-fn office_model_allows_memory_codecs_not_runtime_effects() {
-    assert_exact(
-        &[syntax(
-            "tmt-office-model",
-            "codec/image.rs",
-            "use std::{io::{Cursor, Error}, sync::OnceLock};",
-        )],
-        &[],
-    );
-    for text in [
-        "use std::fs::File as Hidden;",
-        "pub use std::process::Command;",
-        "fn run() { std::env::var(\"HOME\"); }",
-    ] {
-        assert!(
-            !policy::source_violations(&[syntax("tmt-office-model", "codec/image.rs", text)])
-                .is_empty()
-        );
-    }
-    assert!(
-        !policy::source_violations(&[syntax(
-            "tmt-office-model",
-            "codec/new.rs",
-            "use tmt_core::request::RequestService;"
-        )])
-        .is_empty()
-    );
 }
 
 #[test]
@@ -933,15 +839,8 @@ fn release_tool_cannot_be_published_or_distributed() {
 }
 
 #[test]
-fn fixture_publication_has_exactly_six_dev_consumers_and_no_product_edges() {
-    for owner in [
-        "tmt-adapters",
-        "tmt-cli",
-        "tmt-ops",
-        "tmt-office",
-        "tmt-colab",
-        "tmt-office-command",
-    ] {
+fn fixture_publication_has_exactly_four_dev_consumers_and_no_product_edges() {
+    for owner in ["tmt-adapters", "tmt-cli", "tmt-ops", "tmt-colab"] {
         assert!(
             policy::dependency_violations(&package(
                 owner,
@@ -1090,55 +989,6 @@ fn dependency_policy_rejects_unknown_workspace_packages() {
 }
 
 #[test]
-fn companion_uses_only_reviewed_local_service_dependencies() {
-    assert!(
-        policy::dependency_violations(&package(
-            "tmt-office",
-            vec![
-                dependency("tmt-core", "normal", None, None),
-                dependency("tmt-adapters", "normal", None, None),
-                dependency("base64", "normal", None, None),
-                dependency("getrandom", "normal", None, None),
-                dependency("httparse", "normal", None, None),
-                dependency("serde", "normal", None, None),
-                dependency("serde_json", "normal", None, None),
-                dependency("uuid", "normal", None, None),
-            ]
-        ))
-        .is_empty()
-    );
-    for name in ["tmt-cli", "rusqlite", "ureq", "url"] {
-        assert_eq!(
-            policy::dependency_violations(&package(
-                "tmt-office",
-                vec![dependency(name, "normal", None, None)]
-            )),
-            vec![format!(
-                "tmt-office: unreviewed production dependency {name} (kind=\"normal\", target=null, rename=null)"
-            )]
-        );
-    }
-}
-
-#[test]
-fn office_model_may_parse_link_values_but_cannot_fetch_them() {
-    assert!(
-        policy::dependency_violations(&package(
-            "tmt-office-model",
-            vec![dependency("url", "normal", None, None)]
-        ))
-        .is_empty()
-    );
-    assert!(
-        !policy::dependency_violations(&package(
-            "tmt-office-model",
-            vec![dependency("ureq", "normal", None, None)]
-        ))
-        .is_empty()
-    );
-}
-
-#[test]
 fn receipt_dependencies_stay_at_their_reviewed_layer() {
     assert!(
         policy::dependency_violations(&package(
@@ -1201,34 +1051,6 @@ fn the_shared_cli_style_depends_on_no_tmt_crate() {
             "{crate_name}"
         );
     }
-}
-
-#[test]
-fn png_runtime_dependency_stays_in_the_office_model() {
-    for (owner, expected) in [
-        ("tmt-office-model", 0),
-        ("tmt-adapters", 1),
-        ("tmt-core", 1),
-        ("tmt-cli", 1),
-        ("tmt-office", 1),
-    ] {
-        assert_eq!(
-            policy::dependency_violations(&package(
-                owner,
-                vec![dependency("png", "normal", None, None)],
-            ))
-            .len(),
-            expected,
-            "{owner}",
-        );
-    }
-    assert!(
-        policy::dependency_violations(&package(
-            "tmt-office",
-            vec![dependency("png", "dev", None, None)],
-        ))
-        .is_empty()
-    );
 }
 
 struct FixtureDirectory {
@@ -1421,20 +1243,6 @@ fn collector_fails_closed_for_missing_ambiguous_invalid_and_remapped_modules() {
     assert_eq!(
         error,
         "lib.rs: source include! requires explicit collector support"
-    );
-
-    let generated_assets = FixtureDirectory::new();
-    generated_assets.write(
-        "local_assets.rs",
-        "include!(concat!(env!(\"OUT_DIR\"), \"/office_assets.rs\"));\n",
-    );
-    assert!(
-        source::collect(
-            "tmt-office",
-            &generated_assets.root().join("local_assets.rs")
-        )
-        .is_ok(),
-        "the explicit generated Office asset collector must remain supported"
     );
 
     let colab_assets = FixtureDirectory::new();
@@ -1666,8 +1474,10 @@ fn terminal_hosts_are_reached_only_through_the_host_port() {
 #[test]
 fn core_crates_cannot_add_office_modules() {
     let empty = "";
-    // Only the facade remains until #355's PR B removes it.
-    assert_exact(&[syntax("tmt-cli", "office_facade.rs", empty)], &[]);
+    assert_exact(
+        &[syntax("tmt-cli", "office_facade.rs", empty)],
+        &["tmt-cli/office_facade.rs: core crates cannot declare Office module office_facade"],
+    );
     // Moved or new Office modules cannot return to a core crate.
     assert_exact(
         &[syntax("tmt-adapters", "office_companion.rs", empty)],
@@ -1696,15 +1506,6 @@ fn core_crates_cannot_add_office_modules() {
     assert_exact(
         &[syntax("tmt-core", "office_new.rs", empty)],
         &["tmt-core/office_new.rs: core crates cannot declare Office module office_new"],
-    );
-    // Extension crates own their Office modules.
-    assert_exact(
-        &[syntax("tmt-office-pairing", "office_pairing.rs", empty)],
-        &[],
-    );
-    assert_exact(
-        &[syntax("tmt-office-command", "office_companion.rs", empty)],
-        &[],
     );
 }
 
@@ -2017,7 +1818,7 @@ fn extension_state_is_a_leaf_with_only_the_two_reviewed_executable_consumers() {
 
 /// Every workspace package, so a consumer cannot be forgotten or misspelled: a
 /// misspelled name would be refused as an unreviewed package, not for the leaf.
-const WORKSPACE_PACKAGES: [&str; 24] = [
+const WORKSPACE_PACKAGES: [&str; 18] = [
     "tmt-core",
     "tmt-adapters",
     "tmt-cli",
@@ -2033,12 +1834,6 @@ const WORKSPACE_PACKAGES: [&str; 24] = [
     "tmt-release-tool",
     "tmt-sys",
     "tmt-colab-model",
-    "tmt-office",
-    "tmt-office-model",
-    "tmt-office-command",
-    "tmt-office-storage",
-    "tmt-office-pairing",
-    "tmt-office-service",
     "tmt-ops",
     "tmt-remote",
     "tmt-colab",

@@ -104,7 +104,7 @@ mod tests {
             "skills/tmt-sq-play/SKILL.md",
         ];
         validate(Product::Ops, valid).unwrap();
-        validate(Product::Office, []).unwrap();
+        validate(Product::Remote, []).unwrap();
         assert!(validate(Product::Cli, ["skills/tmt/SKILL.md"]).is_err());
         for bad in [
             vec!["skills/tmt-ops/SKILL.md", "notes.txt"],
@@ -145,7 +145,7 @@ mod tests {
             "0".repeat(64)
         );
         assert!(largest_entry.len() <= RECEIPT_ENTRY_BYTES);
-        for product in [Product::Office, Product::Ops] {
+        for product in [Product::Remote, Product::Ops] {
             assert_eq!(
                 receipt_limit(product),
                 64 * 1024 + MAXIMUM_SKILLS * MAXIMUM_FILES * RECEIPT_ENTRY_BYTES

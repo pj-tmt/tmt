@@ -115,9 +115,9 @@ fn refreshes_both_targets_from_a_genuine_old_two_skill_bundle() {
 }
 
 #[test]
-fn refreshes_an_existing_optional_office_skill_without_creating_missing_siblings() {
+fn retired_bundled_guidance_is_skipped_without_changing_links_or_sources() {
     let (directory, global) = fixture();
-    let (main_source, _inbox_source, office_source) = old_office_bundle(
+    let (main_source, _, office_source) = old_office_bundle(
         &global,
         b"prior core\n",
         b"prior inbox\n",
@@ -126,30 +126,27 @@ fn refreshes_an_existing_optional_office_skill_without_creating_missing_siblings
     let office_target = directory.path.join("home/.agents/skills/tmt-office");
     managed_target(&office_target, &office_source);
     remember(&global, [office_target.clone()]);
-
-    let first = refresh(&global).unwrap();
-    assert_eq!(first.refreshed.len(), 1);
-    assert_eq!(first.refreshed[0].target, office_target);
-    assert!(first.refreshed[0].changed);
-    assert_eq!(
-        fs::read(fs::read_link(&office_target).unwrap().join("SKILL.md")).unwrap(),
-        super::bundled_skill_named("tmt-office").unwrap()
-    );
-    assert!(!directory.path.join("home/.agents/skills/tmt").exists());
-    assert!(
-        !directory
-            .path
-            .join("home/.agents/skills/tmt-inbox")
-            .exists()
-    );
+    let record = fs::read(registry::path(&global)).unwrap();
+    for _ in 0..2 {
+        let report = refresh(&global).unwrap();
+        assert!(report.refreshed.is_empty());
+        assert!(report.conflicts.is_empty());
+        assert_eq!(
+            report.skipped.as_slice(),
+            std::slice::from_ref(&office_target)
+        );
+        assert_eq!(fs::read_link(&office_target).unwrap(), office_source);
+        assert_eq!(
+            fs::read(office_target.join("SKILL.md")).unwrap(),
+            b"prior office\n"
+        );
+        assert_eq!(fs::read(registry::path(&global)).unwrap(), record);
+    }
     assert_eq!(
         fs::read(main_source.join("SKILL.md")).unwrap(),
         b"prior core\n"
     );
-
-    let second = refresh(&global).unwrap();
-    assert_eq!(second.refreshed.len(), 1);
-    assert!(!second.refreshed[0].changed);
+    assert!(!directory.path.join("home/.agents/skills/tmt").exists());
 }
 
 #[test]

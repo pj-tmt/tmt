@@ -212,19 +212,7 @@ pub fn install(
     install_with_publisher(env, global, provider, directory, force, files::link)
 }
 
-/// Install the optional Office and art-creation guidance into detected provider roots and any
-/// custom root that still contains an owned core skill. Explicit Office setup
-/// may add this sibling; ordinary core installation and binary refresh do not.
-pub fn install_office(
-    env: &ProviderEnvironment,
-    global: &Path,
-    force: bool,
-) -> Result<InstallReport, InstallFailure> {
-    install_office_with_publisher(env, global, force, files::link)
-}
-
-/// Skill directories that receive optional (Office and extension-owned)
-/// skills: every detected provider root, plus custom roots that still hold a
+/// Skill directories that receive extension-owned skills: every detected provider root, plus custom roots that still hold a
 /// managed core skill. Call with the installer lock held.
 fn optional_roots(
     env: &ProviderEnvironment,
@@ -250,63 +238,6 @@ fn optional_roots(
     Ok(roots)
 }
 
-fn install_office_with_publisher(
-    env: &ProviderEnvironment,
-    global: &Path,
-    _force: bool,
-    mut publish: impl FnMut(&Path, &Path) -> io::Result<()>,
-) -> Result<InstallReport, InstallFailure> {
-    let mut report = InstallReport::default();
-    let pending_backup = None;
-    let pending = (|| {
-        let global = files::resolved(global)?;
-        let assets = assets::SkillAssets::new(&global);
-        registry::read(&global)?;
-        files::with_lock(&global, || {
-            let mut targets = BTreeMap::<PathBuf, Option<&'static DriverDefinition>>::new();
-            // Once an owner holds a name (Office adopted through the owner
-            // door), core's bundle no longer publishes it.
-            let owned = owned::owned_names(&global)?;
-            for (root, agent) in optional_roots(env, &global)? {
-                for name in catalog::Catalog::bundled().names(catalog::Group::Office) {
-                    if !owned.contains(name) {
-                        targets.entry(root.join(name)).or_insert(agent);
-                    }
-                }
-            }
-            for target in targets.keys() {
-                files::safe_target(assets.root(), target)?;
-            }
-            let sources = assets.materialize_bundle()?;
-            registry::remember(&global, targets.keys().cloned())?;
-            let mut context = PublicationContext {
-                report: &mut report,
-            };
-            for (target, agent) in targets {
-                let skill = target
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .and_then(catalog::bundled)
-                    .expect("an Office target is named after a bundled skill");
-                let name = skill.name;
-                let source = sources.get(name).expect("a bundled source");
-                publish_managed_target(&mut context, &target, source, name, agent, &mut publish)?;
-            }
-            Ok(())
-        })
-    })();
-    match pending {
-        Ok(()) => Ok(report),
-        Err(cause) => Err(InstallFailure {
-            cause,
-            report,
-            pending_backup,
-        }),
-    }
-}
-
-// Keep publication at the existing file boundary so failure tests exercise the
-// real selection, backup, registry, report, and lock lifecycle around it.
 fn install_with_publisher(
     env: &ProviderEnvironment,
     global: &Path,

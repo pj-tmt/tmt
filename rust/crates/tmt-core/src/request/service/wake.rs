@@ -139,7 +139,7 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
         })
     }
 
-    /// A full request paste, unlike an advisory Office wake, satisfies recipient
+    /// A full request paste, unlike an advisory consumer wake, satisfies recipient
     /// attention. It does not acknowledge the originator's eventual response.
     pub fn settle_request_delivery(
         &mut self,

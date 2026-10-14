@@ -80,19 +80,5 @@ pub const EXACT_BODIES: &[Exact] = &[
     },
 ];
 
-/// Files that still write around the style layer. #436 PR 2a migrates core,
-/// 2b Squad; Office's command crate stays until #355 resumes.
-pub const MIGRATING: &[(&str, &str)] = &[
-    ("tmt-office-command", "office_avatar_command.rs"),
-    ("tmt-office-command", "office_block_command.rs"),
-    ("tmt-office-command", "office_board_command.rs"),
-    ("tmt-office-command", "office_command.rs"),
-    ("tmt-office-command", "office_extension_command.rs"),
-    ("tmt-office-command", "office_layout_command.rs"),
-    ("tmt-office-command", "office_pairing_command.rs"),
-    ("tmt-office-command", "office_profile_command.rs"),
-    ("tmt-office-command", "office_prop_command.rs"),
-    ("tmt-office-command", "office_storage_command.rs"),
-    ("tmt-office-command", "office_whiteboard_command.rs"),
-    ("tmt-office-command", "public.rs"),
-];
+/// Files still migrating to the shared output owner.
+pub const MIGRATING: &[(&str, &str)] = &[];

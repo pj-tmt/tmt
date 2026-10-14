@@ -69,7 +69,7 @@ describe('extension verifier replacement contract', () => {
         extensionUpgradeOptions([...base, ...pair.slice(0, index), ...pair.slice(index + 2)])
       ).toThrow('is required for replacement');
     }
-    for (const product of ['remote', 'colab', 'office', 'digest']) {
+    for (const product of ['remote', 'colab', 'digest']) {
       const args = [...base];
       args[1] = product;
       expect(() => extensionUpgradeOptions([...args, ...pair])).toThrow('Only squad -> ops');
@@ -148,8 +148,8 @@ function release(
     targets = [TARGET],
   }: { draft?: boolean; sha?: string; digests?: boolean; targets?: string[] } = {}
 ): DraftRelease {
-  const product = tag.startsWith('tmt-office-v')
-    ? 'office'
+  const product = tag.startsWith('tmt-digest-v')
+    ? 'digest'
     : tag.startsWith('tmt-ops-v')
       ? 'ops'
       : tag.startsWith('tmt-driver-herdr-v')
@@ -201,9 +201,9 @@ describe('versions', () => {
 
   it("names a tag's version by its product and refuses another product's tag", () => {
     expect(versionOfTag('v5.0.0-alpha.9', 'cli')).toBe('5.0.0-alpha.9');
-    expect(versionOfTag('tmt-office-v0.1.0-alpha.4', 'office')).toBe('0.1.0-alpha.4');
+    expect(versionOfTag('tmt-digest-v0.1.0-alpha.4', 'digest')).toBe('0.1.0-alpha.4');
     expect(versionOfTag('tmt-ops-v0.1.0-alpha.2', 'ops')).toBe('0.1.0-alpha.2');
-    expect(() => versionOfTag('tmt-office-v0.1.0', 'cli')).toThrow('not a cli tag');
+    expect(() => versionOfTag('tmt-digest-v0.1.0', 'cli')).toThrow('not a cli tag');
   });
 
   it('lists the published releases of one product, newest version first', () => {
@@ -211,7 +211,7 @@ describe('versions', () => {
       release('v5.0.0-alpha.7'),
       release('v5.0.0-alpha.10', { draft: true }),
       release('v5.0.0-alpha.8'),
-      release('tmt-office-v0.1.0-alpha.3'),
+      release('tmt-digest-v0.1.0-alpha.3'),
       release('v5.0.0-alpha.9'),
     ];
     expect(publishedReleases(releases, 'cli').map((entry) => entry.tag_name)).toEqual([
@@ -229,8 +229,8 @@ describe('selectPrevious', () => {
     release('v5.0.0-alpha.8'),
     release('v5.0.0-alpha.9', { draft: true }),
     release('v5.0.0-alpha.10', { draft: true }),
-    release('tmt-office-v0.1.0-alpha.3'),
-    release('tmt-office-v0.1.0-alpha.4', { draft: true }),
+    release('tmt-digest-v0.1.0-alpha.3'),
+    release('tmt-digest-v0.1.0-alpha.4', { draft: true }),
     release('tmt-ops-v0.1.0-alpha.1'),
   ];
   const previous = (product: string, candidateTag: string) =>
@@ -239,7 +239,7 @@ describe('selectPrevious', () => {
   it('is the newest published release of the same product below the candidate', () => {
     expect(previous('cli', 'v5.0.0-alpha.9')).toBe('v5.0.0-alpha.8');
     expect(previous('cli', 'v5.0.0-alpha.10')).toBe('v5.0.0-alpha.8');
-    expect(previous('office', 'tmt-office-v0.1.0-alpha.4')).toBe('tmt-office-v0.1.0-alpha.3');
+    expect(previous('digest', 'tmt-digest-v0.1.0-alpha.4')).toBe('tmt-digest-v0.1.0-alpha.3');
   });
 
   it('never picks a draft, the candidate itself, a higher version or another product', () => {
@@ -251,12 +251,12 @@ describe('selectPrevious', () => {
   });
 
   it('refuses a candidate tag of another product', () => {
-    expect(() => previous('cli', 'tmt-office-v0.1.0-alpha.4')).toThrow('not a cli tag');
+    expect(() => previous('cli', 'tmt-digest-v0.1.0-alpha.4')).toThrow('not a cli tag');
   });
 
   it('never treats a dev candidate as newer than a published alpha with the same core', () => {
     expect(previous('cli', 'v5.0.0-dev')).toBeNull();
-    expect(previous('office', 'tmt-office-v0.1.0-dev')).toBeNull();
+    expect(previous('digest', 'tmt-digest-v0.1.0-dev')).toBeNull();
     expect(previous('ops', 'tmt-ops-v0.1.0-dev')).toBeNull();
   });
 });
@@ -265,7 +265,7 @@ describe('selectAssets and stageRelease', () => {
   it('selects the archive of the product and target and the manifest, each with a digest', () => {
     for (const [tag, product] of [
       ['v5.0.0-alpha.8', 'cli'],
-      ['tmt-office-v0.1.0-alpha.3', 'office'],
+      ['tmt-digest-v0.1.0-alpha.3', 'digest'],
       ['tmt-ops-v0.1.0-alpha.1', 'ops'],
     ]) {
       const assets = selectAssets({ release: release(tag), product, target: TARGET });
@@ -326,7 +326,7 @@ describe('archiveTargets', () => {
   it('lists the targets a release carries an archive for, and ignores every other asset', () => {
     const cli = release('v5.0.0-alpha.9', { draft: true, targets: [...TARGETS].reverse() });
     expect(archiveTargets({ release: cli, product: 'cli' })).toEqual(TARGETS);
-    expect(archiveTargets({ release: cli, product: 'office' })).toEqual([]);
+    expect(archiveTargets({ release: cli, product: 'digest' })).toEqual([]);
     const withChecksum = {
       ...cli,
       assets: [...(cli.assets ?? []), { id: 999, name: `tmt-cli-${TARGET}.tar.gz.sha256` }],
@@ -340,8 +340,8 @@ describe('fetchUpgrade and proveStaged', () => {
     release('v5.0.0-alpha.7', { targets: TARGETS }),
     release('v5.0.0-alpha.8', { targets: TARGETS }),
     release('v5.0.0-alpha.9', { draft: true, targets: TARGETS }),
-    release('tmt-office-v0.1.0-alpha.3', { targets: TARGETS }),
-    release('tmt-office-v0.1.0-alpha.4', { draft: true, targets: TARGETS }),
+    release('tmt-digest-v0.1.0-alpha.3', { targets: TARGETS }),
+    release('tmt-digest-v0.1.0-alpha.4', { draft: true, targets: TARGETS }),
     release('tmt-ops-v0.1.0-alpha.1', { draft: true, targets: TARGETS }),
     release('tmt-driver-herdr-v0.1.0-alpha.1', { targets: TARGETS }),
     release('tmt-driver-herdr-v0.1.0-alpha.2', { draft: true, targets: TARGETS }),
@@ -497,8 +497,8 @@ describe('fetchUpgrade and proveStaged', () => {
     });
 
     it('stages an extension candidate with the newest published CLI as its driver', () => {
-      const { plan } = stageLocal('office', 'tmt-office-v0.1.0-alpha.999999');
-      expect(plan.previous).toBe('tmt-office-v0.1.0-alpha.3');
+      const { plan } = stageLocal('digest', 'tmt-digest-v0.1.0-alpha.999999');
+      expect(plan.previous).toBe('tmt-digest-v0.1.0-alpha.3');
       expect(plan.driver).toBe('v5.0.0-alpha.8');
     });
 
@@ -687,15 +687,15 @@ describe('fetchUpgrade and proveStaged', () => {
   });
 
   it('adds the newest published CLI as the driver of an extension', () => {
-    const { plan, directory } = fetchInto('office', 'tmt-office-v0.1.0-alpha.4');
-    expect(plan.previous).toBe('tmt-office-v0.1.0-alpha.3');
+    const { plan, directory } = fetchInto('digest', 'tmt-digest-v0.1.0-alpha.4');
+    expect(plan.previous).toBe('tmt-digest-v0.1.0-alpha.3');
     expect(plan.driver).toBe('v5.0.0-alpha.8');
     expect(plan.files[`${TARGET}/driver/tmt-cli-${TARGET}.tar.gz`]).toBe(
       digestOf(`v5.0.0-alpha.8:tmt-cli-${TARGET}.tar.gz`)
     );
     expect(
-      readFileSync(path.join(directory, TARGET, 'candidate', `tmt-office-${TARGET}.tar.gz`), 'utf8')
-    ).toBe(`tmt-office-v0.1.0-alpha.4:tmt-office-${TARGET}.tar.gz`);
+      readFileSync(path.join(directory, TARGET, 'candidate', `tmt-digest-${TARGET}.tar.gz`), 'utf8')
+    ).toBe(`tmt-digest-v0.1.0-alpha.4:tmt-digest-${TARGET}.tar.gz`);
   });
 
   it('stages only driver versions and the published CLI, then calls the driver proof', () => {
@@ -739,7 +739,7 @@ describe('fetchUpgrade and proveStaged', () => {
   it('refuses an unknown tag, an extension without a published CLI and a previous release that lacks a target', () => {
     expect(() => fetchInto('cli', 'v9.9.9')).toThrow('There is no release v9.9.9.');
     expect(() =>
-      fetchInto('office', 'tmt-office-v0.1.0-alpha.4', {
+      fetchInto('digest', 'tmt-digest-v0.1.0-alpha.4', {
         releases: releases.filter((entry) => !entry.tag_name.startsWith('v')),
       })
     ).toThrow('needs a published CLI release');
@@ -1195,20 +1195,20 @@ describe('fetchUpgrade and proveStaged', () => {
   });
 
   it('drives an extension with the staged CLI', () => {
-    const { directory } = fetchInto('office', 'tmt-office-v0.1.0-alpha.4');
+    const { directory } = fetchInto('digest', 'tmt-digest-v0.1.0-alpha.4');
     const { result, calls } = prove(directory, {
-      product: 'office',
-      tag: 'tmt-office-v0.1.0-alpha.4',
+      product: 'digest',
+      tag: 'tmt-digest-v0.1.0-alpha.4',
     });
-    expect(result.previous).toBe('tmt-office-v0.1.0-alpha.3');
+    expect(result.previous).toBe('tmt-digest-v0.1.0-alpha.3');
     const [{ script: name, args }] = calls;
     expect(name).toBe('verify-native-extension-upgrade.mjs');
-    expect(value(args, '--product')).toBe('office');
+    expect(value(args, '--product')).toBe('digest');
     expect(value(args, '--driver-archive')).toBe(
       path.join(directory, TARGET, 'driver', `tmt-cli-${TARGET}.tar.gz`)
     );
     expect(value(args, '--archive')).toBe(
-      path.join(directory, TARGET, 'candidate', `tmt-office-${TARGET}.tar.gz`)
+      path.join(directory, TARGET, 'candidate', `tmt-digest-${TARGET}.tar.gz`)
     );
     expect(args).not.toContain('--skill');
   });
@@ -1231,7 +1231,7 @@ describe('fetchUpgrade and proveStaged', () => {
     expect(() => prove(directory, { product: 'cli', tag: 'v5.0.0-alpha.8', skill: 's' })).toThrow(
       'staged assets are for v5.0.0-alpha.9'
     );
-    expect(() => prove(directory, { product: 'office', tag: 'v5.0.0-alpha.9' })).toThrow(
+    expect(() => prove(directory, { product: 'digest', tag: 'v5.0.0-alpha.9' })).toThrow(
       'staged assets are for'
     );
     expect(() =>

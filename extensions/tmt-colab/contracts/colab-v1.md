@@ -13,8 +13,7 @@ colab MUST use that API rather than redefine it. The
 [remote-client byte rules](../../../contracts/remote-channel-v1.md#bytes-ids-and-the-fixed-m1-suite)
 own LP framing, list framing, exact UTF-8 and canonical binary encodings. Only
 those byte primitives are reused here; the [channel boundary](#channel-boundary)
-names the sections that move to remote. Extension contracts and vectors remain under this extension,
-following the [Office contract convention](../../tmt-office/contracts/README.md#single-source-of-truth).
+names the sections that move to remote. Extension contracts and vectors remain under this extension.
 
 Inputs are the [owning design](https://github.com/wkh237/tmt/issues/828#issuecomment-5932303929)
 (revision 9, including the lead's baseline, decoder and trusted UI decisions), its
@@ -276,8 +275,7 @@ fence agent effects.
 
 Local acceptance precedes Firestore, then Cloudflare. Background service mode,
 a per-page dashboard record store and official installation/release registration
-are outside v1. `serve` runs in the foreground. A future background lifecycle
-must follow Office's start/stop/status shape.
+are outside v1. `serve` runs in the foreground.
 
 ## Canonical values and cryptographic suite
 

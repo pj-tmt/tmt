@@ -54,7 +54,7 @@ export function isAlphaVersion(version) {
   return ALPHA.test(version);
 }
 
-/** The version a product's tag names: `v5.0.0-alpha.9` and `tmt-office-v0.1.0-alpha.4`. */
+/** The version a product's tag names: `v5.0.0-alpha.9` and `tmt-ops-v0.1.0-alpha.4`. */
 export function versionOfTag(tag, product) {
   if (productOfTag(tag) !== product) throw new Error(`${tag} is not a ${product} tag.`);
   return tag.slice(releasePolicy(product).tagPrefix.length);

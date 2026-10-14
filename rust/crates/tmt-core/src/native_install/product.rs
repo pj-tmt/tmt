@@ -1,10 +1,9 @@
-//! Fixed artifact identities for the CLI and its official extensions (Office,
-//! Ops, Remote, Colab and Digest). The table is reviewed code; archive data never adds a product.
+//! Fixed artifact identities for the CLI and its official extensions (Ops,
+//! Remote, Colab and Digest). The table is reviewed code; archive data never adds a product.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Product {
     Cli,
-    Office,
     Ops,
     Remote,
     Colab,
@@ -81,7 +80,6 @@ impl Product {
     pub const fn tag_prefix(self) -> &'static str {
         match self {
             Self::Cli => "v",
-            Self::Office => "tmt-office-v",
             Self::Ops => "tmt-ops-v",
             Self::Remote => "tmt-remote-v",
             Self::Colab => "tmt-colab-v",
@@ -99,15 +97,12 @@ impl Product {
         let pre_release = !version.pre.is_empty();
         match self {
             Self::Cli => pre_release || !flagged,
-            Self::Office | Self::Ops | Self::Remote | Self::Colab | Self::Digest => {
-                flagged == pre_release
-            }
+            Self::Ops | Self::Remote | Self::Colab | Self::Digest => flagged == pre_release,
         }
     }
 
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 5] = [
         Self::Cli,
-        Self::Office,
         Self::Ops,
         Self::Remote,
         Self::Colab,
@@ -117,7 +112,6 @@ impl Product {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Cli => "cli",
-            Self::Office => "office",
             Self::Ops => "ops",
             Self::Remote => "remote",
             Self::Colab => "colab",
@@ -134,7 +128,6 @@ impl Product {
     pub const fn executable(self) -> &'static str {
         match self {
             Self::Cli => "tmt",
-            Self::Office => "tmt-office",
             Self::Ops => "tmt-ops",
             Self::Remote => "tmt-remote",
             Self::Colab => "tmt-colab",
@@ -145,7 +138,6 @@ impl Product {
     pub const fn package(self) -> &'static str {
         match self {
             Self::Cli => "tmt-cli",
-            Self::Office => "tmt-office",
             Self::Ops => "tmt-ops",
             Self::Remote => "tmt-remote",
             Self::Colab => "tmt-colab",
@@ -156,7 +148,6 @@ impl Product {
     pub const fn namespace(self) -> &'static str {
         match self {
             Self::Cli => "lib/tmt",
-            Self::Office => "lib/tmt-office",
             Self::Ops => "lib/tmt-ops",
             Self::Remote => "lib/tmt-remote",
             Self::Colab => "lib/tmt-colab",
@@ -167,7 +158,6 @@ impl Product {
     pub const fn links(self) -> &'static [&'static str] {
         match self {
             Self::Cli => &["tmt", "tmux-team"],
-            Self::Office => &["tmt-office"],
             Self::Ops => &["tmt-ops"],
             Self::Remote => &["tmt-remote"],
             Self::Colab => &["tmt-colab"],
@@ -189,15 +179,6 @@ impl Product {
             .then(|| format!("../{}/current/{}", former.namespace, former.executable))
     }
 
-    /// Releases whose executable must pass the owner's post-write check before
-    /// publication. Native installation refuses such a product without one.
-    pub const fn requires_release_verifier(self) -> bool {
-        match self {
-            Self::Cli | Self::Ops | Self::Remote | Self::Colab | Self::Digest => false,
-            Self::Office => true,
-        }
-    }
-
     /// Executables a release may carry beside the product's own, such as a
     /// first-party host driver in the CLI release (#479). Each is optional:
     /// the receipt records one exactly when the release carries it, so a
@@ -205,7 +186,7 @@ impl Product {
     pub const fn companions(self) -> &'static [&'static str] {
         match self {
             Self::Cli => &["tmt-driver-herdr"],
-            Self::Office | Self::Ops | Self::Remote | Self::Colab | Self::Digest => &[],
+            Self::Ops | Self::Remote | Self::Colab | Self::Digest => &[],
         }
     }
 
@@ -215,7 +196,7 @@ impl Product {
     /// receipt exactly when the release carries it.
     pub const fn optional_files(self) -> &'static [&'static str] {
         match self {
-            Self::Cli | Self::Office => &[],
+            Self::Cli => &[],
             Self::Ops | Self::Remote | Self::Colab | Self::Digest => &["TMT-USES.json"],
         }
     }

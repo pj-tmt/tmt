@@ -7,7 +7,7 @@ const { readCargoWorkspace } = vi.hoisted(() => ({
 
 vi.mock('../../scripts/cargo-workspace.mjs', () => ({ readCargoWorkspace }));
 
-function workspace(officeVersion = '0.2.0-alpha.7'): CargoWorkspace {
+function workspace(remoteVersion = '0.2.0-alpha.7'): CargoWorkspace {
   return {
     packages: [
       {
@@ -31,10 +31,10 @@ function workspace(officeVersion = '0.2.0-alpha.7'): CargoWorkspace {
         dependencies: { normal: [], build: [], dev: [] },
       },
       {
-        name: 'tmt-office',
-        version: officeVersion,
-        manifest: 'extensions/tmt-office/rust/tmt-office/Cargo.toml',
-        dir: 'extensions/tmt-office/rust/tmt-office',
+        name: 'tmt-remote',
+        version: remoteVersion,
+        manifest: 'extensions/tmt-remote/rust/tmt-remote/Cargo.toml',
+        dir: 'extensions/tmt-remote/rust/tmt-remote',
         manifestPath: '/fixture/Cargo.toml',
         binTargets: ['fixture'],
         distMetadata: {},
@@ -50,21 +50,21 @@ beforeEach(() => {
   readCargoWorkspace.mockReset().mockReturnValue(workspace());
 });
 
-it('selects independently versioned CLI and parked Office crates with one metadata read', async () => {
+it('selects independently versioned CLI and Remote crates with one metadata read', async () => {
   const { workspaceVersion } = await import('../support/workspace-version.js');
   expect(readCargoWorkspace).not.toHaveBeenCalled();
   expect(workspaceVersion('tmt-cli')).toBe('5.0.0-alpha.9');
-  expect(workspaceVersion('tmt-office')).toBe('0.2.0-alpha.7');
-  expect(workspaceVersion('tmt-office')).toBe('0.2.0-alpha.7');
+  expect(workspaceVersion('tmt-remote')).toBe('0.2.0-alpha.7');
+  expect(workspaceVersion('tmt-remote')).toBe('0.2.0-alpha.7');
   expect(workspaceVersion('tmt-cli')).toBe('5.0.0-alpha.9');
   expect(workspaceVersion('other')).toBe('1.0.0');
   expect(readCargoWorkspace).toHaveBeenCalledTimes(1);
 });
 
-it('picks up an Office version bump without changing the CLI expectation', async () => {
+it('picks up an Remote version bump without changing the CLI expectation', async () => {
   readCargoWorkspace.mockReturnValue(workspace('0.2.0-alpha.8'));
   const { workspaceVersion } = await import('../support/workspace-version.js');
-  expect(workspaceVersion('tmt-office')).toBe('0.2.0-alpha.8');
+  expect(workspaceVersion('tmt-remote')).toBe('0.2.0-alpha.8');
   expect(workspaceVersion('tmt-cli')).toBe('5.0.0-alpha.9');
   expect(readCargoWorkspace).toHaveBeenCalledTimes(1);
 });

@@ -17,6 +17,6 @@ if (values['check-latest'] !== undefined) {
   );
 } else {
   throw new Error(
-    'Usage: --product <cli|office|ops|driver-herdr|remote|colab|digest> | --check-latest <tag>'
+    'Usage: --product <cli|ops|driver-herdr|remote|colab|digest> | --check-latest <tag>'
   );
 }

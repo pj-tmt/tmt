@@ -9,7 +9,6 @@ dist/
 coverage/
 rust/target/
 target/distrib/
-target/office-spa/
 target/workshop-art/
 target/workshop-concepts/
 

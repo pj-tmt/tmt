@@ -1154,6 +1154,4 @@ will not retry skill work. Check `pathWarning` before assuming the
 shell selects the updated binary. Reload/restart the agent, or read the complete
 `tmt learn --skill` output in an existing conversation.
 
-Office is frozen: installation and upgrade refuse before acquisition. Existing
-Office skills remain readable with `tmt learn --skill tmt-office`. Never disclose
-an Office session token or URL token.
+Office is no longer shipped.

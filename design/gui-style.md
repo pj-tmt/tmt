@@ -1,7 +1,7 @@
 # TMT browser interface style
 
 This document owns how TMT's browser surfaces look and behave: Colab, the Remote
-pages, Office and any later TMT page in a browser. It defines the principles,
+pages and any later TMT page in a browser. It defines the principles,
 the shared components and the interaction rules. Terminal output and the Squad
 board follow the [CLI style](cli-style.md). Colors, type, sizes and breakpoints
 come from [`tokens/tokens.json`](tokens/tokens.json). Use shared roles and the leaf
@@ -94,7 +94,7 @@ status remains visible as mark plus word.
 ### Product switcher
 
 The product word in the header is a menu trigger (`Colab ▾`) listing every TMT
-browser surface: Colab, Remote, Settings (core) and Office, each with its state
+browser surface: Colab, Remote and Settings (core), each with its state
 as mark plus word (`● running`, `○ not installed`) and one action (`Open`,
 `Set up`). The current product is selected. Products that aren't installed
 stay listed and open the setup guide. Same position on every product; compact

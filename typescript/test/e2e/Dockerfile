@@ -2,10 +2,7 @@ FROM rust:1.97.0-bookworm@sha256:8fa55b2f3ddf97471ab6a767bfa3f37e6bad0986ba823e7
 WORKDIR /native/rust
 COPY rust/ ./
 COPY drivers/herdr/rust/ ../drivers/herdr/rust/
-COPY extensions/tmt-office/rust/ ../extensions/tmt-office/rust/
-COPY extensions/tmt-office/contracts/ ../extensions/tmt-office/contracts/
 COPY skills/ ../skills/
-COPY extensions/tmt-office/skills/ ../extensions/tmt-office/skills/
 # The squad extension: built for its E2E scenarios.
 COPY extensions/tmt-ops/ ../extensions/tmt-ops/
 COPY extensions/tmt-remote/rust/ ../extensions/tmt-remote/rust/
@@ -58,9 +55,7 @@ RUN npm install --global pnpm@10.33.0
 WORKDIR /workspace
 COPY typescript/package.json typescript/pnpm-lock.yaml typescript/pnpm-workspace.yaml typescript/
 COPY design/browser-ui/package.json design/browser-ui/package.json
-COPY extensions/tmt-office/typescript/apps/office/package.json extensions/tmt-office/typescript/apps/office/package.json
-RUN cd typescript && pnpm --filter tmt install --frozen-lockfile \
-  && test ! -e ../extensions/tmt-office/typescript/apps/office/node_modules/react
+RUN cd typescript && pnpm --filter tmt install --frozen-lockfile
 COPY . .
 COPY --from=native-tests /native-artifacts/tmux-probe /opt/tmt-tests/tmux-probe
 COPY --from=native-tests /native-artifacts/codex /opt/tmt-tests/codex

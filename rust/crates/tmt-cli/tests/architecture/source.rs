@@ -221,12 +221,12 @@ pub fn collect(package: &str, root: &Path) -> Result<Vec<Source>, String> {
             directory: module_dir,
             children: Vec::new(),
             errors: Vec::new(),
-            // tmt-office/build.rs and tmt-colab/build.rs are the bounded
+            // tmt-colab/build.rs is the bounded
             // inventory owners for these generated const asset tables.
             // Production dependencies remain visible in their source modules.
             allow_generated_asset_include: matches!(
                 (package, file.as_str()),
-                ("tmt-office", "local_assets.rs") | ("tmt-colab", "assets.rs" | "hosting.rs")
+                ("tmt-colab", "assets.rs" | "hosting.rs")
             ),
         };
         modules.visit_file(&syntax);

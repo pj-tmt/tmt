@@ -95,7 +95,8 @@ mod tests {
     fn grammar_reserves_hidden_names_and_aliases() {
         let definition = crate::grammar::grammar();
         let names = reserved(&definition);
-        for name in ["office", "run", "this", "ls", "__complete"] {
+        assert!(!names.contains("office"));
+        for name in ["run", "this", "ls", "__complete"] {
             assert!(names.contains(name), "{name}");
             assert!(parse(&[name, "--help"]).is_none());
             assert!(parse(&["help", name, "child"]).is_none());

@@ -123,7 +123,7 @@ describe('tmt uninstall on a disposable HOME and prefix', () => {
         );
         expect(existsSync(item.path)).toBe(true);
       }
-      expect(report.officeStopped).toBe(false);
+      expect(Object.hasOwn(report, 'officeStopped')).toBe(false);
       expect(report.data).toEqual({ path: sandbox.globalDir, deleted: false });
 
       expect(readFileSync(claudeSettings, 'utf8')).toBe(CLAUDE_ORIGINAL);

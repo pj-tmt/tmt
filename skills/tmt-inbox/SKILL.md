@@ -17,7 +17,7 @@ tmt x listen --identity <name> --timeout 15m --debounce 10s --json
 ```
 
 The command exits after a debounced unread batch or the hard timeout. It does not
-run a daemon, wake an unloaded model, acknowledge mail, or require Office. Avoid
+run a daemon, wake an unloaded model, acknowledge mail, or require an extension. Avoid
 frequent status polling. A normal empty timeout may be re-armed only while the
 user-authorized listening session remains active; user cancellation stops it.
 
@@ -50,5 +50,5 @@ same item. Re-arm only after the batch is deliberately handled.
 
 Directly reachable panes normally receive their pane notification and do not
 need this listener as a ritual. Inbox delivery means durably queued, not executed
-or even displayed. Firestore, WebSocket, cross-machine delivery, and Office
+or even displayed. Firestore, WebSocket, cross-machine delivery, and browser consumers
 presence are outside this local skill.

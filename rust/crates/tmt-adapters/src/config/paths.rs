@@ -49,10 +49,6 @@ impl ConfigPaths {
         self.global_dir.join("hook-notices")
     }
 
-    pub fn office_directory(&self) -> PathBuf {
-        self.global_dir.join("office")
-    }
-
     /// Endpoint records and sockets of provider channel servers, keyed by binding.
     pub fn channel_directory(&self) -> PathBuf {
         Self::channel_directory_in(&self.global_dir)

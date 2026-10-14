@@ -39,7 +39,6 @@ mod mcp_command;
 mod native_install_command;
 mod native_upgrade_command;
 mod notes_command;
-mod office_facade;
 mod output;
 use tmt_adapters::pane_badge;
 mod consumption_sample_command;
@@ -434,9 +433,6 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         }
         Invocation::Uninstall { purge, yes, prefix } => {
             return uninstall_command::execute(purge, yes, prefix.as_deref(), parsed.mode);
-        }
-        Invocation::Office { prefix, operation } => {
-            return office_facade::execute(prefix, operation, parsed.mode);
         }
         Invocation::NativeInstallHandoff { probe, version } => {
             return native_install_command::handoff(version, probe, parsed.mode);

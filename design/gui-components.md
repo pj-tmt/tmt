@@ -45,11 +45,8 @@ them. Consumer changes require the owning lead's code review and UX review.
 
 - Vite's [token projection](tokens/tokens-plugin.ts) and Rust CLI
   [theme tests](../rust/crates/tmt-cli-style/src/theme/tests.rs) consume `tokens.json`.
-- Office references/guidance import the checked CSS through the retained
-  [app stylesheet](../extensions/tmt-office/typescript/apps/office/src/styles.css).
 - Docker stages must preserve the token and checked-CSS inputs; see the
-  [E2E](../typescript/test/e2e/Dockerfile) and
-  [Office](../extensions/tmt-office/typescript/services/office/Dockerfile) stages.
+  [E2E stages](../typescript/test/e2e/Dockerfile).
 - The private `design-tokens` component attributes token changes to Colab and Remote
   through `releaseConsumers` in the [component map](../.github/components.json).
 

@@ -1,8 +1,6 @@
 # Architecture
 
-The shipped CLI runtime is the Rust workspace in `rust/`. An optional Office
-SPA foundation lives in `extensions/tmt-office/typescript/apps/office`; it is not a CLI fallback or a
-shipped connector. The nested `typescript` pnpm workspace owns Vitest, fixture
+The shipped CLI runtime is the Rust workspace in `rust/`. The nested `typescript` pnpm workspace owns Vitest, fixture
 and release-verification tooling; the repository root has no Node package.
 Contributors run Cargo and the nested pnpm scripts directly. The pnpm workspace is not a second CLI runtime, npm product or source-install fallback. A native source checkout selects
 `rust/target/debug/tmt` (or an explicitly supplied native executable); a missing
@@ -15,9 +13,7 @@ or migrate application data.
 TMT remains an invocation-owned local CLI, without a remote MCP server, identity
 memory or a separate inbox service. The one MCP server it ships is the hidden
 `__channel-server`, a stdio server that an opted-in Claude launch starts as its own
-child; it listens on no network port. The independently installed Office companion may
-run one explicit loopback-only browser service; it does not execute CLI work or change
-the CLI's invocation-owned storage policy.
+child; it listens on no network port.
 
 `better-sqlite3` is a private tooling oracle, never a Rust dependency or native state owner.
 
@@ -55,8 +51,8 @@ product-neutral `rust/archive/NATIVE-INSTALL.md`; [dev-only embed](site/README.m
 ## TypeScript workspace boundary
 
 The `typescript` pnpm workspace owns private Node tooling/tests and one lockfile,
-with parent-relative Office packages under `extensions/tmt-office/typescript`,
-the parked browser-addon shell, Remote client SDK, and Colab browser/client packages.
+with parent-relative packages for the parked browser-addon shell, Remote client SDK,
+and Colab browser/client packages.
 It is not a second CLI runtime. Packages resolve declared dependencies, never
 root-hoisted tooling; browser specs reach the tooling SQLite oracle through
 `typescript/test/support`. Rust, root launchers, core contracts and canonical
@@ -67,25 +63,6 @@ Packages retain their separate configs, plugins, formatter selections and warnin
 policies. `typescript/scripts/format-workspace.mjs` owns root code/docs selections;
 `lint-config.mjs` owns shared lint rules. Compiler commands retain their owners;
 site and release tooling stay outside this lockfile.
-
-Office is frozen and optional. Its browser runtime imports no local SQLite,
-process adapters or native test helpers. Build the SPA before its embedded native
-companion, then verify installed-browser behavior; ordinary CLI builds and commands
-remain independent. Office reuses canonical identity, room, request and installation
-owners; it adds no identity registry, exchange engine or command runner. Core's
-[request owner](#sqlite-and-durable-exchanges) retains atomic membership admission,
-immutable receipts, retention and uncertain-delivery policy. Native admission and
-Rules/trusted issuers enforce authority; browser rendering, structural conformance,
-scene placement and untrusted content grant none.
-
-The [Office architecture](extensions/tmt-office/docs/architecture.md) owns app/module,
-storage, renderer and resource lifecycles; its
-[contract index](extensions/tmt-office/contracts/README.md) owns versioned data,
-compatibility and literal vectors, and the
-[Office skill](extensions/tmt-office/skills/tmt-office/SKILL.md) owns retained-install
-workflows. [Office design](extensions/tmt-office/docs/design.md) and
-[workshop references](extensions/tmt-office/docs/references/workshop/README.md)
-label proposals and visual intent separately from implemented behavior.
 
 ### CI selection and worker model
 
@@ -138,11 +115,6 @@ design tokens, marks, values, messages, lists, tables, the column-width solver
 `Interaction`). Both are leaves with no TMT dependency so extension CLIs can share
 them; the architecture guard enforces that. `mark::Mark` owns each shared mark's
 symbol, description and style token.
-
-Office is frozen and lives outside core: see
-[`extensions/tmt-office/docs/architecture.md`](extensions/tmt-office/docs/architecture.md).
-Core keeps only the reserved `tmt office` facade (`tmt-cli/src/office_facade.rs`);
-the architecture guard rejects Office modules in core crates except that facade.
 
 `rust/crates/tmt-tui` is an internal, unpublished, application-neutral presentation
 leaf for TMT terminal UIs (markup admission, one Taffy geometry computation, Ratatui
@@ -229,8 +201,8 @@ bindings (`identity`, `ls`, `add`, `name`/`this`, `marked`, `whoami`, `unbind`,
 `channel`); profiles and exchange (`role`, `preamble`, `x`, `reply`, `result`,
 `inbox`, `answer`, `talk`/`send`, `check`/`read`); rooms and recovery (`room`,
 `workspace`); `focus`; local extension interfaces (`api`, `mcp`); native
-installation (`upgrade`/`update`, `uninstall`, `extension`, `driver`); and the
-frozen `office` facade. Hidden internal commands are not a public surface.
+installation (`upgrade`/`update`, `uninstall`, `extension`, `driver`). Hidden
+internal commands are not a public surface.
 Core owns workspace geometry/names/cap, adapters IO/fenced creation, CLI output.
 Named save copies per-socket latest under its lock; guarded restore pins previewed
 bytes. Full restore uses ordinary resume/external dispatch in created panes;
@@ -372,7 +344,12 @@ Managed agent guidance is a filesystem concern separate from application state.
 `tmt_core::skill_catalog` is the one list of bundled skill names; the bundle is
 embedded and materialized by digest under `skill_installation`, and the
 architecture test fails on a skill-name list anywhere else. Core install exposes
-only `tmt` and `tmt-inbox`. Skill installation never opens configuration,
+only `tmt` and `tmt-inbox`. Retired bundle names are verification metadata only: full
+historical inventories and framed digests still prove old Core-name replacement.
+Refresh and default uninstall preserve retired skill links, owner records and backing
+generations regardless of the recorded owner; explicit generic owner removal retains
+its existing authority, and explicit `--purge` retains its existing semantics. No retired product
+catalog, embedded source, installation or service cleanup remains. Skill installation never opens configuration,
 SQLite or tmux. Core bundled and verified official release publication replaces
 any existing leaf at a catalog skill name in selected roots, without prompt, flag, backup or prior target
 ownership/content checks. Other names and symlink destinations remain untouched;
@@ -588,7 +565,7 @@ bytes without core and storage access.
 - **Dependency direction.** `tmt-colab` depends on `tmt-colab-model` (pure codecs and fixed
   crypto), `tmt-extension-state`, `-objects`, `-serve` and `tmt-invoke`/`tmt-cli-style`; the browser
   depends on Remote's served SDK (`/sdk/remote-v1.js`). Never `tmt-core`, `tmt-adapters`,
-  `tmt-remote` or Office; core is reached through `$TMT_EXECUTABLE api` and the fixed,
+  `tmt-remote`; core is reached through `$TMT_EXECUTABLE api` and the fixed,
   bounded `identity show --json` command at CLI page create/write and proposal operations. Its optional caller
   name is publisher-asserted display metadata, never a creator binding or routing authority.
   The architecture guard enforces the dependency set, that only `tmt-colab` consumes the model and `html5ever`,

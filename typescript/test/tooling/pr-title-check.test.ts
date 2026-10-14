@@ -364,10 +364,16 @@ describe('pull-request title gate', () => {
   it('accepts a conventional title on the same change and any title off released paths', () => {
     expect(check('fix(tmt-remote): keep door origins stable', [remotePath]).ok).toBe(true);
     expect(
-      check('Reword the Office readme', ['extensions/tmt-office/README.md']).components
+      check('Reword the browser addon readme', [
+        'extensions/tmt-remote/typescript/browser-addon/README.md',
+      ]).components
     ).toEqual([]);
-    expect(check('Reword the Office readme', ['extensions/tmt-office/README.md']).ok).toBe(true);
-    expect(check('', ['extensions/tmt-office/README.md']).ok).toBe(true);
+    expect(
+      check('Reword the browser addon readme', [
+        'extensions/tmt-remote/typescript/browser-addon/README.md',
+      ]).ok
+    ).toBe(true);
+    expect(check('', ['extensions/tmt-remote/typescript/browser-addon/README.md']).ok).toBe(true);
   });
   it('rejects an empty or capitalized title when a released component changes', () => {
     for (const title of ['', 'Squad: capitalized type', 'fux: typo', 'feature(cli): unknown type'])
@@ -461,8 +467,8 @@ describe('real pull-request gate command', () => {
         invoke({ title: 'fix(tmt-remote): keep door origins stable', files: [remotePath] }).status
       ).toBe(0);
       const docsOnly = invoke({
-        title: 'Reword the Office readme',
-        files: ['extensions/tmt-office/README.md'],
+        title: 'Reword the browser addon readme',
+        files: ['extensions/tmt-remote/typescript/browser-addon/README.md'],
       });
       expect(docsOnly.status).toBe(0);
       expect(docsOnly.summary).toContain('No released component changed');
@@ -482,7 +488,7 @@ describe('missing live PR title evidence', () => {
       for (const restResponse of ['{}', '{"title":null}', '{"title":17}']) {
         const result = invoke({
           title: 'fix: valid stale input',
-          files: ['extensions/tmt-office/README.md'],
+          files: ['extensions/tmt-remote/typescript/browser-addon/README.md'],
           restResponse,
         });
         expect(result.status).toBe(1);
@@ -496,7 +502,7 @@ describe('workflow wiring', () => {
     const ci = readFileSync(path.join(root, '.github/workflows/ci.yml'), 'utf8');
     const step = ci
       .split('      - name: Check conventional PR titles\n')[1]
-      .split('      - name: Require selected Office verification')[0];
+      .split('      - name: Check current PR Agent attribution')[0];
     expect(step).not.toContain('if:');
     expect(step).toContain('GITHUB_TOKEN: ${{ github.token }}');
     expect(step).toContain('run: node typescript/scripts/pr-title-check.mjs');

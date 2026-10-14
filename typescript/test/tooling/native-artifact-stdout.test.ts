@@ -69,7 +69,7 @@ function artifactFixture(product: string, omitted = '') {
  if [ "$2" = install ]; then test "$3" = --frozen-lockfile; test "$4" = --ignore-scripts; exit 0; fi
  test "$2" = --filter; test "$3" = @tmt/colab-app; test "$4" = --fail-if-no-match; test "$5" = build
  app=../extensions/tmt-colab/typescript/app/dist
-else app=../target/office-spa; fi
+else exit 97; fi
 mkdir -p "$app/assets"
 printf 'index app\\n' > "$app/index.html"
 printf 'SPA license notice\\n' > "$app/THIRD-PARTY-NOTICES.txt"
@@ -119,7 +119,7 @@ fi`
 }
 
 describe('native artifact stdout', () => {
-  it.each(['cli', 'office', 'ops', 'driver-herdr', 'remote', 'colab', 'digest'])(
+  it.each(['cli', 'ops', 'driver-herdr', 'remote', 'colab', 'digest'])(
     'reserves stdout and selects the %s notice manifest',
     (product) => {
       const { root, bin, script } = artifactFixture(product);
@@ -129,8 +129,7 @@ describe('native artifact stdout', () => {
       });
       expect(result.status, result.stderr).toBe(0);
       expect(JSON.parse(result.stdout)).toEqual({ artifacts: {} });
-      if (['office', 'colab'].includes(product))
-        expect(result.stderr).toContain('vite diagnostics');
+      if (product === 'colab') expect(result.stderr).toContain('vite diagnostics');
       else expect(result.stderr).not.toContain('vite diagnostics');
       expect(result.stderr).toContain('notice diagnostics');
       expect(result.stderr).toContain('dist diagnostics');
@@ -143,7 +142,7 @@ describe('native artifact stdout', () => {
       expect(
         readFileSync(path.join(root, 'rust/target/native-notices/THIRD-PARTY-NOTICES.txt'), 'utf8')
       ).toBe(
-        `Rust license notice\n${['office', 'colab'].includes(product) ? 'SPA license notice\n' : product === 'cli' ? 'Rust license notice\n' : ''}`
+        `Rust license notice\n${product === 'colab' ? 'SPA license notice\n' : product === 'cli' ? 'Rust license notice\n' : ''}`
       );
       const config = readFileSync(path.join(root, 'rust/target/native-notices/about.toml'), 'utf8');
       expect(config).toBe(
@@ -159,7 +158,7 @@ describe('native artifact stdout', () => {
       expect(config).not.toMatch(/"__TMT_[A-Z]+_LICENSE__"/);
     }
   );
-  it.each(['cli', 'office', 'ops', 'driver-herdr', 'remote', 'colab', 'digest'])(
+  it.each(['cli', 'ops', 'driver-herdr', 'remote', 'colab', 'digest'])(
     'generates %s notices without building the companion or invoking cargo-dist',
     (product) => {
       const { bin, script } = artifactFixture(product);
@@ -174,7 +173,7 @@ describe('native artifact stdout', () => {
       expect(noticeOnly.stderr).not.toContain('companion build diagnostics');
     }
   );
-  it.each(['cli', 'office', 'ops', 'driver-herdr', 'remote', 'colab', 'digest'])(
+  it.each(['cli', 'ops', 'driver-herdr', 'remote', 'colab', 'digest'])(
     'generates Rust-only %s notices without Node, frontend builds or cargo-dist',
     (product) => {
       const { root, bin, script } = artifactFixture(product);
@@ -194,7 +193,7 @@ describe('native artifact stdout', () => {
   );
   it.each(
     vendored.flatMap(([crate, version, name]) =>
-      ['cli', 'office', 'ops', 'driver-herdr', 'remote', 'colab', 'digest'].map(
+      ['cli', 'ops', 'driver-herdr', 'remote', 'colab', 'digest'].map(
         (product) => [crate, version, name, product] as const
       )
     )
@@ -219,7 +218,7 @@ describe('native artifact stdout', () => {
   );
   it.each(
     vendored.flatMap(([crate, version]) =>
-      ['cli', 'office', 'ops', 'driver-herdr', 'remote', 'colab', 'digest'].map(
+      ['cli', 'ops', 'driver-herdr', 'remote', 'colab', 'digest'].map(
         (product) => [crate, version, product] as const
       )
     )

@@ -64,21 +64,6 @@ Use the [development skill](.agents/skills/tmt-dev/SKILL.md) to apply them.
 
 ## Dependencies and refactoring
 
-Office is a React SPA, not a second CLI runtime. Keep routes, view components
-and UI state under `extensions/tmt-office/typescript/apps/office/src`, with behavioral tests beside the owner.
-Use TanStack Router for navigation and Jotai for shared cross-view presentation
-state; component-local forms and selection may use React state.
-Do not parse URLs or invent an application-wide store in view components.
-Remote state gets one owner, not mirrored Query/Jotai/Firestore copies. See
-[Office architecture](extensions/tmt-office/docs/architecture.md) before adding a service,
-contract, drawing dependency or cross-package abstraction.
-
-The separate Office Functions package uses NodeNext TypeScript and Vite+ for
-Vitest, bundled Oxlint and formatting. Keep SDK initialization in its entry point, transactions in the store
-and credential signing outside transaction retries. Do not import service/Admin
-code into SPA production source. Combined emulator fixtures may import the
-service's test-only owner and have an explicit E2E type-check target.
-
 Native Rust uses edition 2024, rustfmt, snake_case module files, explicit typed
 requests and standard `Result` boundaries. Keep Clap and output in `tmt-cli`,
 pure validity rules/use cases in `tmt-core`, and concrete effects in the

@@ -1,4 +1,4 @@
-//! One status projection for CLI and Office transport adapters.
+//! One status projection for CLI and extension transport adapters.
 
 use serde_json::{Value, json};
 use tmt_core::identity_status::IdentityStatus;

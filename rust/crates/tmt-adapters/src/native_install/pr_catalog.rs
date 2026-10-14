@@ -212,7 +212,6 @@ impl Eligibility {
 impl Candidate {
     pub fn validate(&self, pr: PrNumber, head: &str, producer: &Producer) -> io::Result<()> {
         let product = Product::parse(&self.product)
-            .filter(|product| *product != Product::Office)
             .ok_or_else(|| invalid("Unsupported PR candidate product."))?;
         if !TARGETS.contains(&self.target.as_str())
             || self.version.is_empty()

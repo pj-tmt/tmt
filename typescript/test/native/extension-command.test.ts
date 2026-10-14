@@ -14,6 +14,18 @@ function extension(sandbox: Sandbox, name: string, script: string): string {
 }
 
 describe('PATH extension command contract', () => {
+  it('dispatches an installed retired Office executable through the generic PATH boundary', async () => {
+    await withSandbox(async (sandbox) => {
+      extension(sandbox, 'office', 'printf "%s\\n" "$@"; exit 23');
+      const result = await runCli(sandbox, ['office', 'status', '--json']);
+      expect(result.status).toBe(23);
+      expect(result.stdout).toBe('status\n--json\n');
+      expect(result.stderr).toBe('');
+      expect((await runCli(sandbox, ['help', 'office'])).stdout).toBe('--help\n');
+      expect(existsSync(sandbox.database)).toBe(false);
+    });
+  });
+
   it('recovers rejection mode from the Core prefix without reading or executing the tail', async () => {
     await withSandbox(async (sandbox) => {
       const marker = path.join(sandbox.root, 'extension-executed');
@@ -73,7 +85,7 @@ describe('PATH extension command contract', () => {
         const mixedMessage = json ? JSON.parse(mixed.stdout).error.message : mixed.stderr;
         expect(mixedMessage).toContain("'extension'");
         expect(mixedMessage).not.toContain('__native-install');
-        const publicResult = await runCli(sandbox, ['office', ...prefix, 'uninstal']);
+        const publicResult = await runCli(sandbox, [...prefix, 'extension', 'uninstal']);
         expect(publicResult.status).toBe(1);
         const publicMessage = json
           ? JSON.parse(publicResult.stdout).error.message
@@ -180,10 +192,12 @@ describe('PATH extension command contract', () => {
       expect(JSON.parse(absent.stdout)).toMatchObject({
         error: { code: 'USAGE_ERROR', message: expect.stringContaining('unrecognized subcommand') },
       });
-      for (const name of ['office', 'ls', '__complete']) {
+      for (const name of ['identity', 'ls', '__complete']) {
         extension(sandbox, name, 'printf "WRONG EXTENSION\\n"; exit 99');
       }
-      expect((await runCli(sandbox, ['office', '--help'])).stdout).not.toContain('WRONG EXTENSION');
+      expect((await runCli(sandbox, ['identity', '--help'])).stdout).not.toContain(
+        'WRONG EXTENSION'
+      );
       expect((await runCli(sandbox, ['ls', '--help'])).stdout).not.toContain('WRONG EXTENSION');
       expect((await runCli(sandbox, ['__complete', '--', 'run', ''])).stdout).toBe(
         'identities\nclaude\ncodex\n'
@@ -191,7 +205,7 @@ describe('PATH extension command contract', () => {
       const help = await runCli(sandbox, ['help']);
       expect(help.stdout).toContain('\nExtensions:\n');
       expect(help.stdout).toMatch(/^ {2}example +\S/m);
-      for (const name of ['office', 'ls', '__complete']) {
+      for (const name of ['identity', 'ls', '__complete']) {
         expect(help.stdout).toMatch(
           new RegExp(`^ {2}tmt-${name} +ignored: reserved core command`, 'm')
         );

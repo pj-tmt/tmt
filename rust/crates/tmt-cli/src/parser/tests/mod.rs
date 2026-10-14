@@ -7,7 +7,6 @@ mod messaging;
 mod naming;
 mod native_install;
 mod notes;
-mod office;
 mod profile;
 mod room;
 mod run;

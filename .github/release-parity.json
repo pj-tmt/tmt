@@ -126,7 +126,6 @@
           "uses:actions/checkout@v4",
           "uses:actions/checkout@v4#2",
           "name:Set up Node.js and pnpm",
-          "name:Install embedded Office build dependencies",
           "name:Install native build dependencies",
           "name:Install pinned Rust",
           "name:Cache Rust dependencies",
@@ -139,7 +138,7 @@
           "name:Recheck version-only source after this stage",
           "uses:actions/upload-artifact@v4"
         ],
-        "sha256": "7fffec9cb4a4e7c7b15da396f36703401e51999fcf6a1e1a917373207c0c2595",
+        "sha256": "b2b8e90a0ef010a4c9290aec49107cf3f77f357c5520de7a4327a1995ee55c65",
         "preMerge": [
           {
             "workflow": "ci.yml",
@@ -862,7 +861,11 @@
         {
           "workflow": "ci.yml",
           "job": "unit-tests",
-          "selection": { "kind": "ci-scope", "output": "native_scope", "value": "full" },
+          "selection": {
+            "kind": "ci-scope",
+            "output": "native_scope",
+            "value": "full"
+          },
           "coverage": "policy",
           "tests": [
             "typescript/test/tooling/install-native-verification-dependencies.test.ts",

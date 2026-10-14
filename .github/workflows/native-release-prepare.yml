@@ -72,10 +72,6 @@ jobs:
         uses: ./.github/actions/setup-tooling
         with:
           architecture: ${{ inputs.product == 'cli' && matrix.target == 'x86_64-apple-darwin' && 'x64' || '' }}
-      - name: Install embedded Office build dependencies
-        if: inputs.product == 'office'
-        working-directory: release-source/typescript
-        run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Install native build dependencies
         if: runner.os == 'Linux'
         uses: ./.github/actions/apt-install

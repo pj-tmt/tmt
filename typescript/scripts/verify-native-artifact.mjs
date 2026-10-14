@@ -66,17 +66,9 @@ const inboxSkill =
   values.product === 'cli'
     ? fs.readFileSync(path.join(sourceRoot, 'skills/tmt-inbox/SKILL.md'), 'utf8')
     : undefined;
-const officeSkill =
-  values.product === 'cli'
-    ? fs.readFileSync(
-        path.join(sourceRoot, 'extensions/tmt-office/skills/tmt-office/SKILL.md'),
-        'utf8'
-      )
-    : undefined;
 const notices = fs.readFileSync(values.notices, 'utf8');
 const executable = {
   cli: 'tmt',
-  office: 'tmt-office',
   ops: 'tmt-ops',
   squad: 'tmt-squad',
   digest: 'tmt-digest',
@@ -159,7 +151,6 @@ await withNativeArtifact(values.archive, metadata, async (artifactRoot) => {
     version: metadata.version,
     skill,
     inboxSkill,
-    officeSkill,
     opsSkill:
       values.product === 'ops'
         ? fs.readFileSync(path.join(values.skills, 'tmt-ops', 'SKILL.md'), 'utf8')
@@ -211,7 +202,6 @@ await withNativeArtifact(values.archive, metadata, async (artifactRoot) => {
     `Verified native archive ${metadata.name}: ${
       {
         cli: 'linkage, version, skill bundle, Herdr driver, managed install, SQLite persistence',
-        office: 'linkage, exact Office handshake, no application state',
         ops: 'linkage, version, exact skills tree, no application state',
         squad: 'linkage, version, exact skills tree, no application state',
         digest:

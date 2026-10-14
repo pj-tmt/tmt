@@ -22,7 +22,6 @@ export const PR_RC_REQUIRED_PATHS = Object.freeze([
   'drivers/herdr/rust/tmt-driver-herdr/Cargo.toml',
   'skills/tmt/SKILL.md',
   'skills/tmt-inbox/SKILL.md',
-  'extensions/tmt-office/skills/tmt-office/SKILL.md',
   'scripts/native-cargo.sh',
   'scripts/build-native-artifact.sh',
   'scripts/run-native-verification.sh',

@@ -240,10 +240,6 @@ pub enum Invocation {
         yes: bool,
         prefix: Option<String>,
     },
-    Office {
-        prefix: Option<String>,
-        operation: OfficeOperation,
-    },
     NativeInstallHandoff {
         probe: bool,
         version: u32,
@@ -280,14 +276,6 @@ pub enum RoomOperation {
         kind: tmt_core::request::RequestKind,
     },
 }
-
-pub use crate::office_facade::invocation::OfficeOperation;
-#[cfg(test)]
-pub use crate::office_facade::invocation::{
-    BoardActorSelection, BoardCategorySelection, OfficeAvatarOperation, OfficeBlockOperation,
-    OfficeBlockTarget, OfficeBoardOperation, OfficeLayoutOperation, OfficeProfileOperation,
-    OfficePropOperation,
-};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TalkOptions {

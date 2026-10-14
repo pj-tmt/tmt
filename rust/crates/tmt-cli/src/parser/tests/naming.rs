@@ -47,44 +47,6 @@ const CASES: &[(&[&str], &[&str], &[&str])] = &[
         &["role", "rm"],
         &["--identity", "worker"],
     ),
-    (
-        &["office", "prop", "remove"],
-        &["office", "prop", "rm"],
-        &["--local", "sha256:pack", "--if-revision", "1"],
-    ),
-    (
-        &["office", "prop", "list"],
-        &["office", "prop", "ls"],
-        &["--local", "--limit", "3", "--cursor", "next"],
-    ),
-    (
-        &["office", "avatar", "remove"],
-        &["office", "avatar", "rm"],
-        &["--local", "sha256:avatar", "--if-revision", "2"],
-    ),
-    (
-        &["office", "avatar", "list"],
-        &["office", "avatar", "ls"],
-        &["--local", "--limit", "4", "--cursor", "next"],
-    ),
-    (
-        &["office", "board", "list"],
-        &["office", "board", "ls"],
-        &["--room", "reviewers", "--limit", "5"],
-    ),
-    (
-        &["office", "board", "delete"],
-        &["office", "board", "rm"],
-        &[
-            "entry",
-            "--owner",
-            "--if-revision",
-            "3",
-            "--operation-id",
-            "operation",
-        ],
-    ),
-    (&["office", "uninstall"], &["office", "rm"], &["--yes"]),
     (&["remove"], &["rm"], &["worker", "--force"]),
 ];
 
@@ -168,32 +130,6 @@ fn mv_is_reserved_before_external_dispatch_and_uninstall_remains_distinct() {
             prefix: None
         }
     );
-}
-
-#[test]
-fn office_aliases_preserve_direct_and_embedded_dispatch() {
-    for &(old, primary, operands) in CASES
-        .iter()
-        .filter(|(old, _, _)| old.first() == Some(&"office"))
-    {
-        let direct = |path: &[&str]| {
-            tmt_office_command::parser::parse_public(&args(
-                &[&path[1..], operands, &["--json", "--prefix", "/isolated"]].concat(),
-            ))
-            .unwrap()
-        };
-        let expected = direct(old);
-        assert_eq!(direct(primary), expected);
-        let embedded = parsed(&[primary, operands, &["--json", "--prefix", "/isolated"]].concat());
-        assert_eq!(
-            embedded.invocation,
-            Invocation::Office {
-                prefix: expected.prefix,
-                operation: expected.operation
-            }
-        );
-        assert!(embedded.mode.json);
-    }
 }
 
 #[test]

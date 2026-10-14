@@ -40,7 +40,6 @@ const { packages: crates } = readCargoWorkspace(root, {
 const nativeStages = [
   ['typescript/test/e2e/Dockerfile', 'native-tests', '/native'],
   ['typescript/test/native/artifact.Dockerfile', 'build', '/workspace'],
-  ['extensions/tmt-office/typescript/services/office/Dockerfile', 'native-office', '/workspace'],
 ];
 
 type Copy = { sources: string[]; target: string; workdir: string };
@@ -303,63 +302,6 @@ it.each(nativeStages)('preserves Rust embedded source inputs in %s', (file, stag
   expect(missing(misplaced)).toEqual([token]);
 });
 
-it.each([
-  ['extensions/tmt-office/typescript/apps/office/Dockerfile', 'apps/office/vite.config.ts'],
-  [
-    'extensions/tmt-office/typescript/services/office/Dockerfile',
-    'services/office/functions/vitest.config.ts',
-  ],
-])('preserves shared lint inputs in %s', (file, config) => {
-  const configPath = `extensions/tmt-office/typescript/${config}`;
-  const module = imports(readFileSync(path.join(root, configPath), 'utf8')).find((name) =>
-    name.endsWith('/lint-config.mjs')
-  );
-  expect(module).toBeDefined();
-  const source = path.posix.normalize(path.posix.join(path.posix.dirname(configPath), module!));
-  const inputs = [source, source.replace(/\.mjs$/, '.d.mts')];
-  const dockerfile = readFileSync(path.join(root, file), 'utf8');
-  const missing = (text: string) => {
-    const copied = new Map<string, string>();
-    const beforeChecks = text.split(/^RUN .*\bcheck\b/m)[0];
-    for (const line of beforeChecks.split('\n').filter((value) => value.startsWith('COPY '))) {
-      const args = line
-        .split(/\s+/)
-        .slice(1)
-        .filter((value) => !value.startsWith('--'));
-      const destination = args.pop()!;
-      for (const input of args) {
-        copied.set(input, path.posix.join(destination, path.posix.basename(input)));
-      }
-    }
-    return inputs.filter((input) => copied.get(input) !== `/workspace/${input}`);
-  };
-  expect(missing(dockerfile)).toEqual([]);
-  const absent = dockerfile.replace(/^COPY .*lint-config\.mjs.*\n/gm, '');
-  expect(missing(absent)).toEqual(inputs);
-  const misplaced = dockerfile.replace(/\/workspace\/typescript\/scripts\//g, '/wrong/');
-  expect(missing(misplaced)).toEqual(inputs);
-});
-
-// test/support/cli-process launches every native scenario through the neutral caller fixture,
-// so each image that runs native scenarios must place it where that module resolves it.
-it('places the native caller fixture in the Office browser test image', () => {
-  const dockerfile = readFileSync(
-    path.join(root, 'extensions/tmt-office/typescript/services/office/Dockerfile'),
-    'utf8'
-  );
-  const stage = (name: string) =>
-    dockerfile.split(/^FROM /m).find((part) => part.split('\n')[0].endsWith(` AS ${name}`))!;
-  expect(stage('native-office')).toMatch(
-    /cargo \+\S+ build --locked --release -p tmt-adapters --example runtime-caller-fixture/
-  );
-  expect(stage('browser-tests')).toContain(
-    'COPY --from=native-office --chown=node:node /workspace/rust/target/release/examples/runtime-caller-fixture /workspace/rust/target/debug/examples/runtime-caller-fixture'
-  );
-  expect(readFileSync(path.join(root, 'typescript/test/support/cli-process.ts'), 'utf8')).toContain(
-    "'../../../rust/target/debug/examples/runtime-caller-fixture'"
-  );
-});
-
 it('places the native caller fixture in the Docker E2E image', () => {
   const dockerfile = readFileSync(path.join(root, 'typescript/test/e2e/Dockerfile'), 'utf8');
   // native-tests copies the runtime-caller-fixture build to /native-artifacts/codex.
@@ -420,20 +362,6 @@ const dockerfiles = trackedFiles.filter((file) => /(?:^|\/|\.)Dockerfile$/.test(
 const readSource = (file: string) => readFileSync(path.join(root, file), 'utf8');
 it.each(dockerfiles)('preserves copied script import and file-read closure in %s', (file) => {
   expect(missingScriptInputs(file, readSource(file), trackedFiles, readSource)).toEqual([]);
-});
-
-it('rejects the Office script-only COPY from before #1680', () => {
-  const file = 'extensions/tmt-office/typescript/services/office/Dockerfile';
-  const current = readSource(file);
-  expect(missingScriptInputs(file, current, trackedFiles, readSource)).toEqual([]);
-  const broken = current.replace(
-    /^COPY --chown=node:node typescript\/scripts\/native-artifact-policy\.mjs .*$/m,
-    'COPY --chown=node:node typescript/scripts/native-artifact-policy.mjs /workspace/typescript/scripts/'
-  );
-  expect(broken).not.toBe(current);
-  expect(missingScriptInputs(file, broken, trackedFiles, readSource)).toContain(
-    `${file} [browser-tests-base]: typescript/scripts/native-artifact-policy.mjs -> typescript/scripts/component-skills.mjs (expected /workspace/typescript/scripts/component-skills.mjs)`
-  );
 });
 
 it('rejects missing artifact verifier imports and transitive URL file inputs', () => {
@@ -566,7 +494,6 @@ function missingBrowserManifest(text: string): string[] {
 it('copies the new workspace manifest before filtered root installs and artifact preparation', () => {
   const files = dockerfiles.filter((file) => /pnpm --filter tmt install/.test(readSource(file)));
   expect(files.sort()).toEqual([
-    'extensions/tmt-office/typescript/services/office/Dockerfile',
     'typescript/test/e2e/Dockerfile',
     'typescript/test/native/artifact.Dockerfile',
   ]);

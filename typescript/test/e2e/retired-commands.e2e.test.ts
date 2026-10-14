@@ -111,8 +111,8 @@ function expectRetiredNamesAndFlagsAbsent(output: string, shell?: 'bash' | 'zsh'
     expect(output).not.toMatch(/^\s+migrate\b/m);
     return;
   }
-  // The retired name is the top-level registry command; `tmt office storage
-  // migrate` is a current, nested command and must not trip these checks.
+  // The retired name is the top-level registry command; inspect its completion
+  // candidates separately from nested commands.
   if (shell === 'zsh') {
     const topLevel = output.match(/^_tmt_static_commands\(\) \{\n([\s\S]*?)^\}/m)?.[1];
     expect(topLevel).toBeDefined();

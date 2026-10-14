@@ -254,8 +254,8 @@ describe('release-publish.mjs publish', () => {
 
   it('refuses a draft of another product and an unknown draft', () => {
     const { run, calls } = scenario({ drafts: [draft(TAG, ASSETS)] });
-    expect(run(['publish', '--product', 'office', '--tag', TAG]).stderr).toContain(
-      'is not a office release tag'
+    expect(run(['publish', '--product', 'digest', '--tag', TAG]).stderr).toContain(
+      'is not a digest release tag'
     );
     expect(run(['publish', '--product', 'cli', '--tag', 'v5.0.0-alpha.99']).stderr).toContain(
       'there is no release v5.0.0-alpha.99'

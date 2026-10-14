@@ -75,7 +75,13 @@ fn only_the_cli_crates_are_guarded() {
             [] as [String; 0]
         );
     }
-    for package in ["tmt-cli", "tmt-office-command", "tmt-ops"] {
+    for package in [
+        "tmt-cli",
+        "tmt-remote",
+        "tmt-colab",
+        "tmt-ops",
+        "tmt-digest",
+    ] {
         assert_eq!(check(&[syntax(package, "lib.rs", text)], &[], &[]).len(), 2);
     }
 }

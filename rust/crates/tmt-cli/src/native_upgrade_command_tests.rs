@@ -142,7 +142,7 @@ fn aggregate_report_keeps_cli_and_extension_outcomes_independent() {
         publish_products(Some(&report), None, None, vec![consent], mode).unwrap(),
         0
     );
-    let failure = json!({"product":"office","status":"failed","error":{"code":"EXTENSION_UPGRADE_FAILED","message":"refused"}});
+    let failure = json!({"product":"digest","status":"failed","error":{"code":"EXTENSION_UPGRADE_FAILED","message":"refused"}});
     assert_eq!(
         publish_products(Some(&report), None, None, vec![failure, squad], mode).unwrap(),
         1

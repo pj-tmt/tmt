@@ -628,7 +628,7 @@ describe('full repository-state release sweep', () => {
         workspace
       )
     ).toEqual({ products: ['cli', 'ops'], unpublished: [] });
-    expect(affectedProducts(['extensions/tmt-office/a.rs'], map).products).toEqual(['office']);
+    expect(affectedProducts(['extensions/tmt-remote/rust/a.rs'], map).products).toEqual(['remote']);
     expect(affectedProducts(['extensions/tmt-colab/rust/a.rs'], map)).toEqual({
       products: ['colab'],
       unpublished: [],

@@ -23,7 +23,7 @@ const fn skill(entry: &'static BundledName, bytes: &'static [u8]) -> BundledSkil
 
 /// Each bundled name (`tmt_core::skill_catalog::BUNDLED`, same order) with its
 /// embedded authored bytes.
-pub(super) static BUNDLED: [BundledSkill; 5] = [
+pub(super) static BUNDLED: [BundledSkill; 2] = [
     skill(
         &names::BUNDLED[0],
         include_bytes!("../../../../../skills/tmt/SKILL.md"),
@@ -32,25 +32,7 @@ pub(super) static BUNDLED: [BundledSkill; 5] = [
         &names::BUNDLED[1],
         include_bytes!("../../../../../skills/tmt-inbox/SKILL.md"),
     ),
-    skill(
-        &names::BUNDLED[2],
-        include_bytes!("../../../../../extensions/tmt-office/skills/tmt-office/SKILL.md"),
-    ),
-    skill(
-        &names::BUNDLED[3],
-        include_bytes!("../../../../../extensions/tmt-office/skills/tmt-prop-create/SKILL.md"),
-    ),
-    skill(
-        &names::BUNDLED[4],
-        include_bytes!("../../../../../extensions/tmt-office/skills/tmt-avatar-create/SKILL.md"),
-    ),
 ];
-
-/// Earlier bundle layouts, newest first, still verified so an upgrade can
-/// recognize the sources it published. Each is a prefix of [`BUNDLED`] in
-/// digest order. The oldest layout (only [`MAIN`], digested unframed) is
-/// handled on its own.
-pub(super) const PRIOR_LAYOUTS: [usize; 3] = [4, 3, 2];
 
 pub(super) fn bundled(name: &str) -> Option<&'static BundledSkill> {
     BUNDLED.iter().find(|skill| skill.name == name)
@@ -149,11 +131,6 @@ mod tests {
                 skill.name
             );
         }
-        assert!(
-            PRIOR_LAYOUTS
-                .windows(2)
-                .all(|pair| pair[0] > pair[1] && pair[0] < BUNDLED.len())
-        );
     }
 
     #[test]
@@ -162,12 +139,11 @@ mod tests {
             &BUNDLED,
             [
                 (MAIN.to_owned(), "squad".to_owned()),
-                (BUNDLED[2].name.to_owned(), "office".to_owned()),
+                ("extension-guide".to_owned(), "extension".to_owned()),
                 ("squad-playbook".to_owned(), "squad".to_owned()),
             ],
         );
         assert!(catalog.is_core(MAIN));
-        assert!(!catalog.names(Group::Office).contains(BUNDLED[2].name));
         assert_eq!(
             catalog.entries().last(),
             Some(&CatalogEntry {

@@ -1,7 +1,4 @@
-use super::{
-    ProviderEnvironment, files, install, install_office, install_office_with_publisher,
-    install_with_publisher,
-};
+use super::{ProviderEnvironment, files, install, install_with_publisher};
 use crate::test_support::TestDirectory;
 use std::{fs, io};
 
@@ -47,46 +44,6 @@ fn failed_publication_reports_prior_success_then_releases_lock() {
     assert!(!retry.installed[1].changed);
     assert!(retry.installed[2].changed);
     assert!(fs::symlink_metadata(&second).unwrap().is_symlink());
-}
-
-#[test]
-fn failed_office_publication_preserves_the_unreplaced_entry_and_can_retry() {
-    let root = TestDirectory::new();
-    let home = root.path.join("home");
-    let global = root.path.join("global");
-    fs::create_dir(&home).unwrap();
-    let env = ProviderEnvironment::from_parts(home.clone(), root.path.clone(), Vec::new(), []);
-    let target = home.join(".agents/skills/tmt-office");
-    fs::create_dir_all(&target).unwrap();
-    fs::write(target.join("user.md"), b"user-owned office guidance").unwrap();
-
-    let failure = install_office_with_publisher(&env, &global, true, |published, source| {
-        if published == target {
-            assert!(published.is_dir());
-            return Err(io::Error::other("injected Office publication failure"));
-        }
-        files::link(published, source)
-    })
-    .unwrap_err();
-    assert_eq!(failure.report.installed.len(), 1);
-    assert_eq!(failure.report.installed[0].name, "tmt-avatar-create");
-    assert!(failure.pending_backup.is_none());
-    assert_eq!(
-        fs::read(target.join("user.md")).unwrap(),
-        b"user-owned office guidance"
-    );
-
-    let retry = install_office(&env, &global, false).unwrap();
-    assert_eq!(retry.installed.len(), 3);
-    assert!(
-        retry
-            .installed
-            .iter()
-            .find(|item| item.name == "tmt-office")
-            .unwrap()
-            .changed
-    );
-    assert!(fs::symlink_metadata(&target).unwrap().is_symlink());
 }
 
 #[test]
