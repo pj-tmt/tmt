@@ -27,6 +27,14 @@ flushCount = 10
 
 Member commands save configuration. They do not start a timer or immediately change Core's delivery policy. The next tick applies them.
 
+## Batch updates for a lead
+
+Use a cadence agreed for the work: for example, `5m` for short routine batches or `20m` while a lead reviews a larger change. `tmt digest lead 20m` saves a recurring interval; it does not end a focus session after twenty minutes. Run the minute tick as described below. When the work ends, `tmt digest lead off` clears the interval at the next tick. `default` restores the global default, which may itself be an interval. `tmt focus lead` shows the lead's pane.
+
+Ordinary automatic sends held by Digest return queued with remaining time. Preserve the request ID and wait for the recipient's reply. Remaining time describes the current hold window, not a delivery promise; a turn boundary or the flush threshold can offer delivery sooner, while readiness and approval can delay it. The recorded owner and `--urgent` bypass Digest only. Keep routine updates in the batch; use urgency for a time-sensitive intervention that cannot wait for the batch. No urgency flag bypasses channel, readiness or approval checks.
+
+The recipient receives one checklist with the original reply commands and receipt for each eligible request, plus result-inspection commands for completed replies. Use those commands for each item; reading or receiving the checklist does not acknowledge X. Follow a printed read/cursor for overflow. After an uncertain handoff, inspect Core's state and retain the original request IDs; Core owns settlement and the checklist must not be replayed.
+
 ## Run the minute tick
 
 ```bash

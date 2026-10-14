@@ -41,9 +41,10 @@ Writes validate the whole existing document, preserve comments and unknown field
 serialize extension writers, and atomically replace the file with private permissions.
 Invalid input, invalid files and failed Core discovery leave settings unchanged.
 
-The extension remains unpublished. Member writes save configuration; the
-[minute tick](digest-tick-v1.md) applies it and offers Core delivery opportunities.
-No skill or managed installation is shipped by this settings surface.
+The official Digest extension is installed through `tmt extension install digest --skills`.
+Member writes save configuration; the [minute tick](digest-tick-v1.md) applies it
+and offers Core delivery opportunities. `tmt digest skill` prints its bundled
+usage guidance; settings writes do not install or start it.
 
 ## Status document
 

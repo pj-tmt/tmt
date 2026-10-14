@@ -1,7 +1,8 @@
 # Digest tick contract v1
 
 `tmt digest tick` is the shared entry point for Ops, launchd and cron. Invoke it
-once a minute. The extension remains unpublished until activation.
+once a minute after installing the optional Digest extension. Installation does
+not schedule the tick; the Ops board clock or an external scheduler invokes it.
 
 The process discovers Core's public `storage.root`, takes a nonblocking exclusive
 lock at `<dataRoot>/digest/tick.lock`, and holds it through the run. Another tick
