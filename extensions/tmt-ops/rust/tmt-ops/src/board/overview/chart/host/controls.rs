@@ -22,7 +22,7 @@ impl Sources for Data {
         Err("controls use bound values only".into())
     }
 }
-fn node(selection: Selection) -> Node {
+fn node(selection: Selection, summary: Option<&str>) -> Node {
     static TEMPLATE: OnceLock<Template<()>> = OnceLock::new();
     let template = TEMPLATE.get_or_init(|| {
         let option = Schema::Object(BTreeMap::from([
@@ -40,10 +40,13 @@ fn node(selection: Selection) -> Node {
         let parsed = tmt_tui::parse(FILE, MARKUP).expect("embedded usage controls");
         tmt_tui::binding::compile(FILE, &parsed, &schema, &Data).expect("typed usage controls")
     });
-    let rows: Vec<_> = [("Each  ", "each", Selection::EACH.as_slice(), selection.each_minutes), ("Range ", "range", Selection::RANGE.as_slice(), selection.range_minutes)].into_iter().map(|(label, prefix, values, selected)| {
+    let mut rows: Vec<_> = [("Each  ", "each", Selection::EACH.as_slice(), selection.each_minutes), ("Range ", "range", Selection::RANGE.as_slice(), selection.range_minutes)].into_iter().map(|(label, prefix, values, selected)| {
         let options: Vec<_> = values.iter().map(|value| json!({"id":format!("{prefix}-{value}"), "text": if *value == selected { format!("[{value:>2}m] ") } else { format!(" {value:>2}m  ") }})).collect();
         json!({"label":label,"options":options})
     }).collect();
+    if let Some(summary) = summary {
+        rows = vec![json!({"label":"", "options":[{"id":"open-chart","text":summary}]})];
+    }
     template
         .materialize(FILE, &json!({"rows":rows}), &Data)
         .expect("admitted usage controls")
@@ -56,7 +59,42 @@ pub(super) fn paint(
     draft: usize,
     look: Look,
 ) -> Vec<Hit> {
-    let node = node(selection);
+    paint_node(
+        buffer,
+        area,
+        node(selection, None),
+        selection,
+        focus,
+        draft,
+        look,
+    )
+}
+pub(super) fn summary(
+    buffer: &mut Buffer,
+    area: Rect,
+    selection: Selection,
+    text: &str,
+    look: Look,
+) -> Vec<Hit> {
+    paint_node(
+        buffer,
+        area,
+        node(selection, Some(text)),
+        selection,
+        None,
+        0,
+        look,
+    )
+}
+fn paint_node(
+    buffer: &mut Buffer,
+    area: Rect,
+    node: Node,
+    selection: Selection,
+    focus: Option<Focus>,
+    draft: usize,
+    look: Look,
+) -> Vec<Hit> {
     let mut cells = geometry::layout(&node, [area.width, area.height], text::measure)
         .expect("usage control geometry");
     for cell in &mut cells {
@@ -66,6 +104,9 @@ pub(super) fn paint(
         }
     }
     let target = |id: &str| {
+        if id == "open-chart" {
+            return Some(Target::Controls);
+        }
         let (prefix, value) = id.split_once('-')?;
         let value = value.parse().ok()?;
         match prefix {

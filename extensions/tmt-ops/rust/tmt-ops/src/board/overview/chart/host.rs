@@ -12,17 +12,14 @@ use crate::{
     config::Pane,
 };
 use ratatui::{
-    Frame,
-    buffer::Buffer,
     crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind},
     layout::Rect,
-    text::Line,
 };
 use std::{collections::BTreeSet, rc::Rc};
-use tmt_cli_style::Role;
-use tmt_tui::components::strip;
 
 mod controls;
+mod render;
+pub(in crate::board) use render::{render, render_controls};
 #[cfg(test)]
 mod tests;
 
@@ -37,6 +34,7 @@ pub(super) enum Target {
     Each(u8),
     Range(u8),
     Bar(usize),
+    Controls,
 }
 #[derive(Clone, Copy)]
 pub(super) struct Hit {
@@ -93,7 +91,7 @@ impl State {
         match target {
             Target::Each(v) => next.each_minutes = v,
             Target::Range(v) => next.range_minutes = v,
-            Target::Bar(_) => return Ok(()),
+            Target::Bar(_) | Target::Controls => return Ok(()),
         }
         self.selection.change(next)?;
         self.bar = self.bar.min(next.bars()? - 1);
@@ -159,7 +157,7 @@ pub(in crate::board) fn clock_mark(app: &App, now: u64) -> String {
             .observed
             .as_ref()
             .is_some_and(|source| source.buckets.iter().any(|bucket| bucket.tokens.is_some()));
-    if state.visible && changes_with_time && !app.modal_open() {
+    if state.visible && changes_with_time && (!app.modal_open() || app.usage_controls_active()) {
         format!("{}", now / crate::board::rate::SLOT_MS)
     } else {
         String::new()
@@ -172,8 +170,20 @@ pub(in crate::board) fn focus(app: &mut App) -> Effect {
         );
     }
     if !app.usage_chart.borrow().visible {
-        return app
-            .say("The terminal is too short for chart controls; enlarge it to inspect usage.");
+        return app.say("Usage controls require a visible workspace frame.");
+    }
+    if app.in_flight > 0 {
+        return app.say("Wait for the pending action before opening usage controls.");
+    }
+    if !app
+        .usage_chart
+        .borrow()
+        .hits
+        .iter()
+        .any(|hit| matches!(hit.target, Target::Each(_) | Target::Range(_)))
+    {
+        app.usage_controls = true;
+        app.invalidate_frame_geometry();
     }
     app.usage_chart.borrow_mut().set_focus(Focus::Each);
     Effect::None
@@ -247,6 +257,9 @@ pub(in crate::board) fn key(app: &mut App, key: KeyEvent) -> Option<Effect> {
             return Some(Effect::None);
         }
         _ => {
+            if app.usage_controls {
+                return Some(Effect::None);
+            }
             state.focus = None;
             return None;
         }
@@ -275,6 +288,7 @@ pub(in crate::board) fn mouse(app: &mut App, event: MouseEvent) -> Option<Effect
         return None;
     }
     match target? {
+        Target::Controls => Some(focus(app)),
         Target::Bar(index) => {
             app.usage_chart.borrow_mut().set_focus(Focus::Bars);
             Some(inspect(app, index))
@@ -284,142 +298,4 @@ pub(in crate::board) fn mouse(app: &mut App, event: MouseEvent) -> Option<Effect
             Some(result.map_or_else(|message| app.say(message), |_| Effect::None))
         }
     }
-}
-
-pub(in crate::board) fn render(frame: &mut Frame, app: &App, mut area: Rect) -> Rect {
-    let look = app.look(); // Resolve bindings/theme before borrowing controller state.
-    let key = app
-        .workspace_bindings()
-        .into_iter()
-        .find(|(_, action)| action.verb == Verb::Ui(OpsUiAction::UsageControls))
-        .map(|(key, _)| key);
-    let mut state = app.usage_chart.borrow_mut();
-    state.hits.clear();
-    state.visible = false;
-    // Never consume the usable target list to make room for decoration.
-    if area.width < 38 || area.height < 9 {
-        state.hover = None;
-        return area;
-    }
-    state.visible = true;
-    refresh(app, &mut state, crate::status::now_ms());
-    let data = Rc::clone(state.observed.as_ref().unwrap());
-    let active = state.focus.filter(|_| app.focused() == Pane::Rows);
-    let title = format!(
-        "TOK / {}m · unique identities{}",
-        state.selection.each_minutes,
-        key.map_or(String::new(), |key| format!(" · {key} controls"))
-    );
-    strip::paint_left(
-        frame.buffer_mut(),
-        Rect::new(area.x, area.y, area.width, 1),
-        Line::styled(title, look.role(Role::Muted)),
-    );
-    let controls_area = Rect::new(area.x, area.y + 1, area.width, 2);
-    let controls = controls::paint(
-        frame.buffer_mut(),
-        controls_area,
-        state.selection,
-        active,
-        state.draft,
-        look,
-    );
-    state.hits.extend(controls);
-    let partial = data.buckets.iter().any(|bucket| !bucket.complete());
-    if area.height < 11 + u16::from(partial) {
-        strip::paint_left(
-            frame.buffer_mut(),
-            Rect::new(area.x, area.y + 3, area.width, 1),
-            Line::styled(
-                "Chart hidden at this height · enlarge for interval details",
-                look.role(Role::Muted),
-            ),
-        );
-        area.y += 4;
-        area.height -= 4;
-        if active == Some(Focus::Bars) {
-            state.focus = Some(Focus::Each);
-        }
-        return area;
-    }
-    let plot_height = area
-        .height
-        .saturating_sub(10 + u16::from(partial))
-        .clamp(1, 5) as u8;
-    let plot = Rect::new(
-        area.x,
-        area.y + 3,
-        area.width,
-        u16::from(plot_height) + 1 + u16::from(partial),
-    );
-    let display = project::display(&data, state.selection).expect("validated interval projection");
-    if state.scene.as_ref().is_none_or(|(old, width, height, _)| {
-        old != &display || *width != plot.width || *height != plot_height
-    }) {
-        let scene = Scene::new(&display, plot.width, plot_height).expect("bounded chart scene");
-        state.scene = Some((display, plot.width, plot_height, scene));
-    }
-    // Scene solves/paints the actual sub-rectangle. Copy its bounded cells into
-    // the existing Frame buffer; Ratatui retains the sole terminal diff owner.
-    let mut buffer = Buffer::empty(plot);
-    let hits = state
-        .scene
-        .as_ref()
-        .unwrap()
-        .3
-        .paint(&mut buffer, &look.theme, look.depth)
-        .expect("admitted usage chart");
-    let owned_hits: Vec<_> = hits
-        .iter()
-        .filter_map(|hit| {
-            let id = hit.id?.last()?;
-            let (_, suffix) = id.rsplit_once("bar-")?;
-            let index = suffix.parse::<usize>().ok()?;
-            let rect = hit.rect;
-            Some(Hit {
-                area: Rect::new(
-                    rect.x.try_into().ok()?,
-                    rect.y.try_into().ok()?,
-                    rect.width.try_into().ok()?,
-                    rect.height.try_into().ok()?,
-                ),
-                target: Target::Bar(index),
-            })
-        })
-        .collect();
-    state.hits.extend(owned_hits);
-    if active == Some(Focus::Bars) {
-        for hit in &state.hits {
-            if hit.target == Target::Bar(state.bar) && hit.area.y == plot.y + u16::from(plot_height)
-            {
-                buffer.set_style(hit.area, look.selection());
-            }
-        }
-    }
-    for y in plot.y..plot.bottom() {
-        for x in plot.x..plot.right() {
-            frame.buffer_mut()[(x, y)] = buffer[(x, y)].clone();
-        }
-    }
-    let selected = state.hover.or(active
-        .filter(|focus| *focus == Focus::Bars)
-        .map(|_| state.bar));
-    let label = selected.map_or_else(
-        || project::range_label(&data, state.selection.range_minutes),
-        |index| project::details(&data.buckets[index]).join(" · "),
-    );
-    strip::paint_left(
-        frame.buffer_mut(),
-        Rect::new(area.x, plot.bottom(), area.width, 1),
-        Line::styled(label, look.role(Role::Muted)),
-    );
-    let used = plot.bottom() + 1 - area.y;
-    area.y += used;
-    area.height -= used;
-    if !app.modal_open() {
-        app.frame_clocks
-            .borrow_mut()
-            .push(crate::board::view::ClockSurface::UsageChart);
-    }
-    area
 }

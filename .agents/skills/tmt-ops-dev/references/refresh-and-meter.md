@@ -206,8 +206,12 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   complete roster. Count overflow retains exact detail where representable but
   never wraps or truncates a plot. Sampling/history updates invalidate the bounded
   semantic projection, including replacements in the same clock slot. The visible
-  chart alone registers its five-second range-boundary clock; covered modal
-  backgrounds add no chart clock. Paint and input perform no acquisition.
+  chart or controls modal registers a five-second range clock only when its
+  admitted data or inspection changes with time; an unavailable idle summary
+  does not wake, and a covered chart adds no clock. The single admitted scene
+  paints background-space fills in color and full/half block glyphs in NO_COLOR,
+  time ticks derived from Range and one centred baseline marker per incomplete
+  bucket. Paint and input perform no acquisition.
 - Live sampling: a named-squad load carries public counters; idle reads use only
   `ls --room --json` for those UUIDs on separate 5–10 second deadlines, without
   providers, notes or staleness publication. Full loads take priority, but

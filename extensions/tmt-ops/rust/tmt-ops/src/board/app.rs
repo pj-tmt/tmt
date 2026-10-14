@@ -502,6 +502,7 @@ pub(super) enum Overlay {
     QuotaDetails,
     Discovery,
     UsageDetails,
+    UsageControls,
 }
 impl Overlay {
     fn id(self) -> tmt_tui::app::ComponentId {
@@ -518,6 +519,7 @@ impl Overlay {
                 Self::QuotaDetails => "quota-details",
                 Self::Discovery => "discovery",
                 Self::UsageDetails => "usage-details",
+                Self::UsageControls => "usage-controls",
             }
             .into(),
         ]
@@ -625,6 +627,7 @@ pub struct App {
     pub notice: Option<String>,
     pub(super) migration_notice: Option<String>,
     pub(in crate::board) usage_chart: RefCell<super::overview::chart::host::State>,
+    pub(in crate::board) usage_controls: bool,
     pub(in crate::board) usage_details: Option<RefCell<super::overview::chart::detail::Details>>,
     pub(super) quota_details: Option<RefCell<super::home::quota_detail::Details>>,
     pub help: bool,
@@ -1892,6 +1895,20 @@ impl App {
                 choice: Choice::Action(Action::parse("quota-details").expect("quota action")),
             });
         }
+        if self.usage_chart_available()
+            && !entries.iter().any(|entry| {
+                matches!(&entry.choice, Choice::Action(action)
+                    if action.verb == Verb::Ui(crate::action::OpsUiAction::UsageControls))
+            })
+        {
+            entries.push(MenuEntry {
+                key: String::new(),
+                label: "Usage chart".into(),
+                choice: Choice::Action(
+                    Action::parse("usage-controls").expect("usage controls action"),
+                ),
+            });
+        }
         entries.push(MenuEntry {
             key: String::new(),
             label: "Checklist".into(),
@@ -2882,6 +2899,10 @@ impl App {
         self.overlay().is_some() || self.menu.is_some()
     }
 
+    pub(in crate::board) fn usage_controls_active(&self) -> bool {
+        self.overlay() == Some(Overlay::UsageControls) && self.menu.is_none()
+    }
+
     fn overlay(&self) -> Option<Overlay> {
         if self.workspace_form.is_some() {
             Some(Overlay::Workspace)
@@ -2893,6 +2914,8 @@ impl App {
             Some(Overlay::Checklist)
         } else if self.usage_details.is_some() {
             Some(Overlay::UsageDetails)
+        } else if self.usage_controls {
+            Some(Overlay::UsageControls)
         } else if self.quota_details.is_some() {
             Some(Overlay::QuotaDetails)
         } else if self.discovery_shown() {
@@ -2921,6 +2944,24 @@ impl App {
             Overlay::Recovery => self.recovery_event(event),
             Overlay::ReplyReader => Some(self.reader_event(event)),
             Overlay::Checklist => self.checklist_event(event),
+            Overlay::UsageControls => {
+                if matches!(event, Event::Key(key) if matches!(key.code, KeyCode::Esc | KeyCode::Char('q')))
+                {
+                    self.usage_controls = false;
+                    self.usage_chart.get_mut().release_focus();
+                    self.invalidate_frame_geometry();
+                    return Some(Effect::None);
+                }
+                Some(match event {
+                    Event::Key(key) => {
+                        super::overview::chart::host::key(self, *key).unwrap_or(Effect::None)
+                    }
+                    Event::Mouse(mouse) => {
+                        super::overview::chart::host::mouse(self, *mouse).unwrap_or(Effect::None)
+                    }
+                    _ => Effect::None,
+                })
+            }
             Overlay::UsageDetails => {
                 if matches!(event, Event::Key(key) if matches!(key.code, KeyCode::Esc | KeyCode::Char('q')))
                 {

@@ -12,6 +12,7 @@ pub(super) fn render_body(frame: &mut Frame, app: &App, area: Rect) {
         } else {
             area
         };
+        app.conversation.borrow_mut().area = area;
         crate::board::workspace::render::render(frame, app, area);
     }
 }

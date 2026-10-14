@@ -12,9 +12,7 @@ use std::{collections::BTreeMap, sync::OnceLock};
 use tmt_cli_style::{Depth, Role, Theme, grid::Align, theme::screen};
 use tmt_tui::{
     binding::{Node, Schema, Schemas, Scopes, Sources, Template},
-    geometry, paint,
-    style::TextFlow,
-    text,
+    geometry, paint, text,
 };
 
 const FILE: &str = "ops.overview.chart.xml";
@@ -54,8 +52,38 @@ fn template() -> &'static Template<()> {
     })
 }
 
+fn time_ticks(minutes: u8, width: usize) -> String {
+    let first = format!("−{minutes}m");
+    let middle = if minutes.is_multiple_of(2) {
+        format!("−{}m", minutes / 2)
+    } else {
+        format!("−{}.5m", minutes / 2)
+    };
+    let mut cells = vec![' '; width];
+    let mut put = |at: usize, label: &str| {
+        for (index, ch) in label.chars().enumerate() {
+            if let Some(cell) = cells.get_mut(at + index) {
+                *cell = ch;
+            }
+        }
+    };
+    let first_len = first.chars().count();
+    put(0, &first);
+    let last = width.saturating_sub(3);
+    if last > first_len {
+        put(last, "now");
+    }
+    let middle_len = middle.chars().count();
+    let center = width.saturating_sub(middle_len) / 2;
+    if center > first_len && center + middle_len < last {
+        put(center, &middle);
+    }
+    cells.into_iter().collect()
+}
+
 pub struct Scene {
     node: Node,
+    rows: u16,
 }
 
 impl Scene {
@@ -96,7 +124,7 @@ impl Scene {
                     Cell::Empty => ("empty", " ".repeat(bar_width)),
                     Cell::Full => ("full", " ".repeat(bar_width)),
                     Cell::LowerHalf => ("half", "▄".repeat(bar_width)),
-                    Cell::Unknown => ("unknown", format!("{:width$}", "?", width = bar_width)),
+                    Cell::Unknown => ("unknown", " ".repeat(bar_width)),
                 };
                 pieces.push(json!({"id":format!("{kind}-bar-{index}"), "text":text}));
                 if index + 1 < count {
@@ -107,20 +135,29 @@ impl Scene {
         }
         let mut baseline = vec![json!({"id":"axis", "text":format!("{:>axis_width$}", "0")})];
         for (index, bucket) in series.buckets.iter().enumerate() {
-            // This is a slot label, not a synthetic timestamp. The host's detail
-            // uses the exact source range, tokens and coverage from the model.
-            let label = if bucket.coverage != Coverage::Complete {
-                "?".to_owned()
+            let label = if bucket.coverage == Coverage::Complete {
+                ""
             } else {
-                format!("{}", index + 1)
+                "?"
             };
-            baseline.push(json!({"id":format!("label-bar-{index}"),
-                "text":text::fit_line(&label, bar_width as u16, TextFlow::Truncate, Align::Right)}));
+            let left = bar_width.saturating_sub(label.len()) / 2;
+            let text = format!(
+                "{}{}{}",
+                " ".repeat(left),
+                label,
+                " ".repeat(bar_width - left - label.len())
+            );
+            baseline.push(json!({"id":format!("label-bar-{index}"), "text":text}));
             if index + 1 < count {
                 baseline.push(json!({"id":format!("gap-{index}"), "text":" "}));
             }
         }
         rows.push(json!({"id":"baseline", "pieces":baseline}));
+        let ticks = time_ticks(
+            series.selection.range_minutes,
+            bar_width * count + count - 1,
+        );
+        rows.push(json!({"id":"time", "pieces":[{"id":"axis", "text":" ".repeat(axis_width)}, {"id":"time-ticks", "text":ticks}]}));
         if series
             .buckets
             .iter()
@@ -128,10 +165,18 @@ impl Scene {
         {
             rows.push(json!({"id":"coverage", "pieces":[{"id":"legend", "text":"? unknown or partial coverage"}]}));
         }
+        let row_count = rows.len() as u16;
         let node = template()
             .materialize(FILE, &json!({"rows":rows}), &Data)
             .map_err(|error| error.to_string())?;
-        Ok(Self { node })
+        Ok(Self {
+            node,
+            rows: row_count,
+        })
+    }
+
+    pub fn rows(&self) -> u16 {
+        self.rows
     }
 
     /// Hits come from the same solved/clipped nodes as paint. Resizing requires
@@ -152,7 +197,7 @@ impl Scene {
         }
         let filled = screen::style(theme, Role::Accent, depth);
         let muted = screen::style(theme, Role::Muted, depth);
-        Ok(paint::paint_with(&cells, buffer, |index, _, _| {
+        let hits = paint::paint_with(&cells, buffer, |index, _, _| {
             let id = cells[index]
                 .node
                 .id
@@ -161,7 +206,9 @@ impl Scene {
                 .map(String::as_str)
                 .unwrap_or("");
             let style = if id.starts_with("full-") {
-                if depth == Depth::None || filled.fg.is_none_or(|color| color == Color::Reset) {
+                if depth == Depth::None {
+                    ratatui::style::Style::default()
+                } else if filled.fg.is_none_or(|color| color == Color::Reset) {
                     filled.add_modifier(Modifier::REVERSED)
                 } else {
                     ratatui::style::Style::default().bg(filled.fg.unwrap_or_default())
@@ -172,7 +219,23 @@ impl Scene {
                 muted
             };
             (style, Align::Left)
-        }))
+        });
+        if depth == Depth::None {
+            for hit in &hits {
+                if hit
+                    .id
+                    .as_ref()
+                    .is_some_and(|id| id.last().is_some_and(|id| id.starts_with("full-")))
+                {
+                    for y in hit.rect.y..hit.rect.y + hit.rect.height as i32 {
+                        for x in hit.rect.x..hit.rect.x + hit.rect.width as i32 {
+                            buffer[(x as u16, y as u16)].set_symbol("█");
+                        }
+                    }
+                }
+            }
+        }
+        Ok(hits)
     }
 }
 
@@ -209,7 +272,7 @@ mod tests {
         let series = series();
         let scene = Scene::new(&series, 60, 3).unwrap();
         let theme = Theme::new(Base::Tmt);
-        let mut buffer = Buffer::empty(Rect::new(0, 0, 60, 4));
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 60, scene.rows()));
         let hits = scene.paint(&mut buffer, &theme, Depth::TrueColor).unwrap();
         let full = hits
             .iter()
@@ -260,12 +323,7 @@ mod tests {
                         .collect::<String>();
                     assert!(legend.contains("unknown or partial coverage"));
                     if depth == Depth::None {
-                        assert!(
-                            buffer
-                                .content
-                                .iter()
-                                .any(|cell| cell.modifier.contains(Modifier::REVERSED))
-                        );
+                        assert!(buffer.content.iter().any(|cell| cell.symbol() == "█"));
                         assert!(
                             buffer
                                 .content
@@ -296,7 +354,7 @@ mod tests {
             Theme::new(Base::Mono),
             Theme::default().with(Role::Accent, tmt_cli_style::theme::Paint::Plain),
         ] {
-            let mut buffer = Buffer::empty(Rect::new(0, 0, 60, 4));
+            let mut buffer = Buffer::empty(Rect::new(0, 0, 60, scene.rows()));
             let hits = scene.paint(&mut buffer, &theme, Depth::TrueColor).unwrap();
             let full = hits
                 .iter()
@@ -331,6 +389,86 @@ mod tests {
             let scale = (0..60).map(|x| buffer[(x, 0)].symbol()).collect::<String>();
             assert!(scale.contains(expected), "{scale:?}");
             assert!(!scale.contains("1 tok"));
+        }
+    }
+}
+
+#[cfg(test)]
+mod axis_tests {
+    use super::super::model::{Bucket, Selection};
+    use super::*;
+    use ratatui::layout::Rect;
+    #[test]
+    fn time_axis_and_coverage_marks_share_bar_columns_without_index_labels() {
+        for range in [15, 30, 60] {
+            for width in [60, 80, 100, 160] {
+                let selection = Selection {
+                    each_minutes: 5,
+                    range_minutes: range,
+                };
+                let series = Series::new(
+                    selection,
+                    (0..selection.bars().unwrap())
+                        .map(|index| Bucket {
+                            from_ms: index as i64 * 300_000,
+                            to_ms: (index + 1) as i64 * 300_000,
+                            tokens: if index == 1 { None } else { Some(index as u64) },
+                            coverage: if index == 1 {
+                                Coverage::Unknown
+                            } else if index == 2 {
+                                Coverage::Partial { covered_ms: 50_000 }
+                            } else {
+                                Coverage::Complete
+                            },
+                        })
+                        .collect(),
+                )
+                .unwrap();
+                let scene = Scene::new(&series, width, 3).unwrap();
+                let mut buffer = Buffer::empty(Rect::new(0, 0, width, scene.rows()));
+                let hits = scene
+                    .paint(&mut buffer, &Theme::default(), Depth::None)
+                    .unwrap();
+                let line = |y| {
+                    (0..width)
+                        .map(|x| buffer[(x, y)].symbol())
+                        .collect::<String>()
+                };
+                let time = line(4);
+                assert!(time.contains(&format!("−{range}m")) && time.contains("now"));
+                assert!(!time.contains('?'));
+                let middle = if range == 15 {
+                    "−7.5m".into()
+                } else {
+                    format!("−{}m", range / 2)
+                };
+                assert!(time.contains(&middle));
+                for index in 0..series.buckets.len() {
+                    let id = format!("label-bar-{index}");
+                    let hit = hits
+                        .iter()
+                        .find(|hit| hit.id.as_ref().is_some_and(|path| path.last() == Some(&id)))
+                        .unwrap();
+                    let marks: Vec<_> = (hit.rect.x..hit.rect.x + hit.rect.width as i32)
+                        .filter(|x| buffer[(*x as u16, 3)].symbol() == "?")
+                        .collect();
+                    if series.buckets[index].coverage == Coverage::Complete {
+                        assert!(marks.is_empty());
+                    } else {
+                        assert_eq!(marks, vec![hit.rect.x + (hit.rect.width as i32 - 1) / 2]);
+                    }
+                }
+                assert!(buffer.content.iter().any(|cell| cell.symbol() == "█"));
+                assert!(
+                    buffer
+                        .content
+                        .chunks(usize::from(width))
+                        .take(3)
+                        .flatten()
+                        .all(|cell| cell.symbol() != "?"),
+                    "each incomplete bucket has one baseline mark"
+                );
+            }
         }
     }
 }
