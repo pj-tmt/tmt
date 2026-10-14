@@ -559,10 +559,10 @@ and mounts owner-installed extensions. [Colab](#colab-extension) is mounted at
 `/r/<prefix>/x/colab/` and otherwise reaches Remote only through the public CLI, that SDK and
 the extension object channel (`tmt-extension-objects`), never through Remote state files.
 
-Remote's lease-bound object service owns `objects` and the `rust/crates/tmt-extension-objects`
+The lease-bound object service owns `objects` and the `tmt-extension-objects`
 wire leaf; [object-backends](.agents/skills/tmt-remote/references/object-backends.md) owns
-channels, backends and quotas. Pure declaration, Rules and Hosting composition feeds the
-Firestore deploy CLI. [Remote internals](.agents/skills/tmt-remote/references/architecture-internals.md)
+channels, backends and quotas. V3 sync injects its client. Pure declaration, Rules and Hosting
+feed the Firestore deploy CLI. [Remote internals](.agents/skills/tmt-remote/references/architecture-internals.md)
 own the module table and per-module guarantees;
 [door and discovery](.agents/skills/tmt-remote/references/door-and-discovery.md) owns serve
 lifecycle, status and management implementation; the background start it shares with Colab

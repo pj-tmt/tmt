@@ -15,10 +15,22 @@ use std::{cell::Cell, collections::BTreeSet, fmt};
 /// The body length a big-endian prefix announces. Nothing is allocated from it:
 /// callers read exactly this many bytes only after it passed.
 pub fn decode_length(prefix: [u8; 4]) -> Result<usize, ErrorClass> {
+    decode_length_limit(prefix, FRAME_BYTES)
+}
+/// Apply the negotiated version's cap before allocation.
+pub fn decode_length_for_version(prefix: [u8; 4], version: u8) -> Result<usize, ErrorClass> {
+    let limit = match version {
+        1 | 2 => FRAME_BYTES,
+        3 => crate::limits::V3_FRAME_BYTES,
+        _ => return Err(ErrorClass::Value),
+    };
+    decode_length_limit(prefix, limit)
+}
+fn decode_length_limit(prefix: [u8; 4], limit: usize) -> Result<usize, ErrorClass> {
     let announced = u32::from_be_bytes(prefix);
     usize::try_from(announced)
         .ok()
-        .filter(|length| (MIN_FRAME_BYTES..=FRAME_BYTES).contains(length))
+        .filter(|length| (MIN_FRAME_BYTES..=limit).contains(length))
         .ok_or(ErrorClass::Length)
 }
 
@@ -27,7 +39,10 @@ pub fn decode_length(prefix: [u8; 4]) -> Result<usize, ErrorClass> {
 /// [`JSON_DEPTH`], repeats a member name after decoding escapes, or contains a
 /// number token that is not a canonical unsigned integer within the JSON-safe range.
 pub(crate) fn strict_value(body: &[u8]) -> Result<Value, ErrorClass> {
-    if body.len() > FRAME_BYTES {
+    strict_value_with_limit(body, FRAME_BYTES)
+}
+pub(crate) fn strict_value_with_limit(body: &[u8], limit: usize) -> Result<Value, ErrorClass> {
+    if body.len() > limit {
         return Err(ErrorClass::Length);
     }
     let text = std::str::from_utf8(body).map_err(|_| ErrorClass::Utf8)?;

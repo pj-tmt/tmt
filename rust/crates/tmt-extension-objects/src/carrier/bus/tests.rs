@@ -478,3 +478,46 @@ fn the_absolute_send_deadline_clips_a_blocked_writer() {
     assert!(start.elapsed() < bounds.write);
     assert_eq!(bus.fault(), Some(Fault::Timeout(Stage::Write)));
 }
+
+#[test]
+fn a_v3_bus_carries_sync_and_objects_with_shared_request_order() {
+    let (a, b) = UnixStream::pair().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let accepted =
+        thread::spawn(move || accept(b, &super::super::tests::expect(), &quick(), deadline));
+    let link = crate::negotiate_sync(a, &super::super::tests::offer(), deadline).unwrap();
+    let remote = Bus::start(link, quick(), Caps::contract(), None).unwrap();
+    let extension = Bus::start(
+        accepted.join().unwrap().unwrap(),
+        quick(),
+        Caps::contract(),
+        None,
+    )
+    .unwrap();
+    let call = ChannelFrame::Sync(crate::sync::Frame::Request {
+        version: 1,
+        generation: GEN.into(),
+        request_id: "1".into(),
+        call: crate::sync::Call::Bind {
+            project: "demo-tmt-remote".into(),
+            extension: "colab".into(),
+            declaration_digest: "a".repeat(64),
+            space: "space".into(),
+        },
+    });
+    extension
+        .send_channel(&call)
+        .expect("v3 sync request must use the existing bus");
+    assert_eq!(remote.recv_channel_stamped(soon(5000)).unwrap().frame, call);
+    extension.send(&request(2, transfer(1))).unwrap();
+    assert_eq!(
+        remote.recv_channel_stamped(soon(5000)).unwrap().frame,
+        ChannelFrame::Object(request(2, transfer(1)))
+    );
+    assert_eq!(
+        extension.send(&request(1, transfer(2))),
+        Err(Fault::Correlation(Reason::Order))
+    );
+    remote.close();
+    extension.close();
+}

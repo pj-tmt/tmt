@@ -55,12 +55,17 @@ impl Caps {
 pub struct Budget {
     requests: Arc<(AtomicUsize, usize)>,
     callbacks: Arc<(AtomicUsize, usize)>,
+    subscriptions: Arc<(AtomicUsize, usize)>,
 }
 impl Budget {
     pub fn new(requests: usize, callbacks: usize) -> Self {
         Self {
             requests: Arc::new((AtomicUsize::new(0), requests)),
             callbacks: Arc::new((AtomicUsize::new(0), callbacks)),
+            subscriptions: Arc::new((
+                AtomicUsize::new(0),
+                crate::limits::INSTALLATION_SYNC_INTERESTS,
+            )),
         }
     }
     /// The contract's installation bounds: 32 requests and 32 callbacks.
@@ -89,6 +94,17 @@ struct Open {
 }
 
 #[derive(Debug)]
+struct SyncOpen {
+    method: crate::sync::Method,
+    subscription: Option<u64>,
+}
+#[derive(Debug)]
+struct Interest {
+    ready: bool,
+    last: u64,
+    terminal: bool,
+}
+#[derive(Debug)]
 pub(super) struct Ledger {
     role: Role,
     limits: Caps,
@@ -96,6 +112,8 @@ pub(super) struct Ledger {
     requests: BTreeMap<u64, Open>,
     /// Outstanding callback id -> its request id.
     callbacks: BTreeMap<u64, u64>,
+    sync_requests: BTreeMap<u64, SyncOpen>,
+    subscriptions: BTreeMap<u64, Interest>,
     request_high: u64,
     callback_high: u64,
 }
@@ -107,11 +125,168 @@ impl Ledger {
             budget,
             requests: BTreeMap::new(),
             callbacks: BTreeMap::new(),
+            sync_requests: BTreeMap::new(),
+            subscriptions: BTreeMap::new(),
             request_high: 0,
             callback_high: 0,
         }
     }
 
+    pub(super) fn apply_channel(
+        &mut self,
+        frame: &super::ChannelFrame,
+        sending: bool,
+    ) -> Result<(), Reason> {
+        let frame = match frame {
+            super::ChannelFrame::Object(frame) => return self.apply(frame, sending),
+            super::ChannelFrame::Sync(frame) => frame,
+        };
+        let from_remote = (self.role == Role::Remote) == sending;
+        if let crate::sync::Frame::Notice {
+            subscription_id,
+            sequence,
+            notice,
+            ..
+        } = frame
+        {
+            if !from_remote {
+                return Err(Reason::Direction);
+            }
+            let id = crate::Counter::parse(subscription_id)
+                .map_err(|_| Reason::Mismatch)?
+                .get();
+            let sequence = crate::Counter::parse(sequence)
+                .map_err(|_| Reason::Mismatch)?
+                .get();
+            let interest = self.subscriptions.get_mut(&id).ok_or(Reason::Unknown)?;
+            if !interest.ready || interest.terminal {
+                return Err(Reason::Busy);
+            }
+            if sequence <= interest.last {
+                return Err(Reason::Order);
+            }
+            interest.last = sequence;
+            interest.terminal = matches!(notice, crate::sync::InterestNotice::Terminal { .. });
+            return Ok(());
+        }
+        let id = frame.request_id().map_err(|_| Reason::Mismatch)?.get();
+        match frame {
+            crate::sync::Frame::Request { call, .. } => {
+                if from_remote {
+                    return Err(Reason::Direction);
+                }
+                if id <= self.request_high {
+                    return Err(Reason::Order);
+                }
+                let subscription = match call {
+                    crate::sync::Call::Subscribe { .. } => {
+                        if self.subscriptions.len() >= crate::limits::SYNC_INTERESTS {
+                            return Err(Reason::Capacity);
+                        }
+                        Some(id) // Strict RPC request order makes this ID fresh without history.
+                    }
+                    crate::sync::Call::Cancel {
+                        subscription_id, ..
+                    } => {
+                        let sub = crate::Counter::parse(subscription_id)
+                            .map_err(|_| Reason::Mismatch)?
+                            .get();
+                        if !self
+                            .subscriptions
+                            .get(&sub)
+                            .is_some_and(|entry| entry.ready)
+                        {
+                            return Err(Reason::Unknown);
+                        }
+                        Some(sub)
+                    }
+                    _ => None,
+                };
+                if self.requests.len() + self.sync_requests.len() >= self.limits.requests
+                    || !self
+                        .budget
+                        .as_ref()
+                        .is_none_or(|b| Budget::take(&b.requests))
+                {
+                    return Err(Reason::Capacity);
+                }
+                if call.method() == crate::sync::Method::Subscribe {
+                    if !self
+                        .budget
+                        .as_ref()
+                        .is_none_or(|b| Budget::take(&b.subscriptions))
+                    {
+                        if let Some(budget) = &self.budget {
+                            Budget::give(&budget.requests)
+                        }
+                        return Err(Reason::Capacity);
+                    }
+                    self.subscriptions.insert(
+                        subscription.expect("subscribe names interest"),
+                        Interest {
+                            ready: false,
+                            last: 0,
+                            terminal: false,
+                        },
+                    );
+                }
+                self.request_high = id;
+                self.sync_requests.insert(
+                    id,
+                    SyncOpen {
+                        method: frame.method(),
+                        subscription,
+                    },
+                );
+            }
+            crate::sync::Frame::Result { outcome, .. } => {
+                if !from_remote {
+                    return Err(Reason::Direction);
+                }
+                let open = self.sync_requests.get(&id).ok_or(Reason::Unknown)?;
+                if open.method != frame.method() {
+                    return Err(Reason::Mismatch);
+                }
+                if let crate::sync::Outcome::Subscribed { id }
+                | crate::sync::Outcome::Cancelled { id } = outcome
+                    && Some(
+                        crate::Counter::parse(id)
+                            .map_err(|_| Reason::Mismatch)?
+                            .get(),
+                    ) != open.subscription
+                {
+                    return Err(Reason::Mismatch);
+                }
+                if let Some(sub) = open.subscription {
+                    match (open.method, outcome) {
+                        (
+                            crate::sync::Method::Subscribe,
+                            crate::sync::Outcome::Subscribed { .. },
+                        ) => {
+                            self.subscriptions
+                                .get_mut(&sub)
+                                .ok_or(Reason::Unknown)?
+                                .ready = true
+                        }
+                        (crate::sync::Method::Subscribe, _)
+                        | (crate::sync::Method::Cancel, crate::sync::Outcome::Cancelled { .. }) => {
+                            self.subscriptions.remove(&sub);
+                            if let Some(budget) = &self.budget {
+                                Budget::give(&budget.subscriptions)
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                self.sync_requests.remove(&id);
+                if let Some(budget) = &self.budget {
+                    Budget::give(&budget.requests)
+                }
+            }
+            crate::sync::Frame::Notice { .. } => unreachable!(),
+        }
+        Ok(())
+    }
     /// Apply `frame`, which this end is `sending` or has received. On refusal nothing
     /// changes.
     pub(super) fn apply(&mut self, frame: &Frame, sending: bool) -> Result<(), Reason> {
@@ -131,7 +306,7 @@ impl Ledger {
                 if id <= self.request_high {
                     return Err(Reason::Order);
                 }
-                if self.requests.len() >= self.limits.requests
+                if self.requests.len() + self.sync_requests.len() >= self.limits.requests
                     || !self
                         .budget
                         .as_ref()
@@ -224,8 +399,11 @@ impl Ledger {
 impl Drop for Ledger {
     fn drop(&mut self) {
         if let Some(budget) = &self.budget {
-            for _ in 0..self.requests.len() {
+            for _ in 0..self.requests.len() + self.sync_requests.len() {
                 Budget::give(&budget.requests);
+            }
+            for _ in 0..self.subscriptions.len() {
+                Budget::give(&budget.subscriptions);
             }
             for _ in 0..self.callbacks.len() {
                 Budget::give(&budget.callbacks);
