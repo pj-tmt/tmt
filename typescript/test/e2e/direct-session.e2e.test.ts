@@ -123,7 +123,7 @@ describe('direct provider conversation discovery', { concurrent: false }, () => 
           );
         }
         expect(readFileSync(diagnostic, 'utf8')).not.toContain('caller session not recorded');
-        const database = new Database(path.join(fixture.globalDir, 'tmux-team.db'), {
+        const database = new Database(path.join(fixture.globalDir, 'tmt.db'), {
           readonly: true,
         });
         try {
@@ -213,7 +213,7 @@ describe('direct provider conversation discovery', { concurrent: false }, () => 
       expect(calls[0].code).toBe(0);
       expect(() => JSON.parse(calls[0].stdout)).not.toThrow();
       expect(calls[0].stderr).not.toContain('caller session not recorded');
-      const database = new Database(path.join(fixture.globalDir, 'tmux-team.db'), {
+      const database = new Database(path.join(fixture.globalDir, 'tmt.db'), {
         readonly: true,
       });
       try {
@@ -270,7 +270,7 @@ describe('direct provider conversation discovery', { concurrent: false }, () => 
           index.close();
         }
         if (mode === 'remembered') {
-          const database = new Database(path.join(fixture.globalDir, 'tmux-team.db'));
+          const database = new Database(path.join(fixture.globalDir, 'tmt.db'));
           try {
             database
               .prepare(`INSERT INTO identity_session_preferences
@@ -341,7 +341,7 @@ describe('direct provider conversation discovery', { concurrent: false }, () => 
         fixture.tmux(['send-keys', '-t', pane, 'Enter']);
         await waitForFileContent(checkpoint, { description: 'Codex thread turnover complete' });
         try {
-          const database = new Database(path.join(fixture.globalDir, 'tmux-team.db'), {
+          const database = new Database(path.join(fixture.globalDir, 'tmt.db'), {
             readonly: true,
           });
           try {
@@ -521,7 +521,7 @@ describe('direct provider conversation discovery', { concurrent: false }, () => 
           await waitForFileContent(checkpoint, {
             description: 'direct provider completed its CLI calls',
           });
-          const database = new Database(path.join(fixture.globalDir, 'tmux-team.db'), {
+          const database = new Database(path.join(fixture.globalDir, 'tmt.db'), {
             readonly: true,
           });
           try {

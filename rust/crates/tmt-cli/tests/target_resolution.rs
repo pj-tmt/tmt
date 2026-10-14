@@ -131,7 +131,7 @@ fn explicit_resolution_preserves_completed_and_expired_lookups() {
                 assert!(log.is_empty(), "held mock wrote its completion log");
             }
             let database = rusqlite::Connection::open_with_flags(
-                support::state_dir(&fixture.root).join("tmux-team.db"),
+                support::state_dir(&fixture.root).join("tmt.db"),
                 rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
             )
             .unwrap();

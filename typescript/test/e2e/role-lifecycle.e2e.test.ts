@@ -21,7 +21,7 @@ function successful(result: CliResult<RoleResult>): RoleResult {
 }
 
 function storedProfiles(fixture: E2EFixture): unknown[] {
-  const database = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
+  const database = new Database(path.join(fixture.globalDir, 'tmt.db'), { readonly: true });
   try {
     return database
       .prepare('SELECT identity_id, content, updated_at FROM role_profiles ORDER BY identity_id')
@@ -184,7 +184,7 @@ describe('durable role profiles', { concurrent: false }, () => {
     await withE2EFixture(async (fixture) => {
       const invalid = await fixture.runJsonCli(['role', 'set', 'inline', '--file', 'file.md']);
       expect(invalid.code).toBe(1);
-      expect(fs.existsSync(path.join(fixture.globalDir, 'tmux-team.db'))).toBe(false);
+      expect(fs.existsSync(path.join(fixture.globalDir, 'tmt.db'))).toBe(false);
       const missing = await fixture.runJsonCli(['role', 'show', '--identity', 'missing'], {
         withoutTmux: true,
       });

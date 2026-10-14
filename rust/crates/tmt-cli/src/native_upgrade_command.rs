@@ -1,5 +1,6 @@
 //! Native update composition; the new executable owns skill refresh and extensions.
 
+mod database;
 mod extensions;
 mod rename;
 
@@ -89,7 +90,7 @@ pub fn execute_with_schema_consent(
     };
     if report.skipped_pinned {
         drop(interrupt);
-        return finish(&report, None, None, yes, ran_from_moved_prefix, mode);
+        return finish(&report, None, None, yes, ran_from_moved_prefix, None, mode);
     }
     if interrupt.is_interrupted() {
         return publish(
@@ -116,7 +117,20 @@ pub fn execute_with_schema_consent(
         ));
     }
     drop(interrupt);
-    finish(&report, skills, failure, yes, ran_from_moved_prefix, mode)
+    // The activated executable renames the Core database (#2292), on every
+    // completed unpinned upgrade; whatever happens there never fails the upgrade.
+    let database = failure
+        .is_none()
+        .then(|| database::run(&report.installation.active_executable, &UnixCommandRunner));
+    finish(
+        &report,
+        skills,
+        failure,
+        yes,
+        ran_from_moved_prefix,
+        database,
+        mode,
+    )
 }
 
 fn finish(
@@ -125,6 +139,7 @@ fn finish(
     failure: Option<Failure>,
     yes: bool,
     ran_from_moved_prefix: bool,
+    database: Option<Value>,
     mode: OutputMode,
 ) -> io::Result<u8> {
     let extensions = if failure.is_none() {
@@ -157,21 +172,25 @@ fn finish(
     } else {
         None
     };
+    let named_hints = picker_hint
+        .map(|hint| ("pickerHint", hint))
+        .into_iter()
+        .chain(
+            former_hint
+                .as_deref()
+                .map(|hint| ("formerPrefixHint", hint)),
+        )
+        .collect::<Vec<_>>();
     publish_products_with_hints(
         Some(report),
         skills,
         failure,
         extensions,
-        &rename_hints,
-        &picker_hint
-            .map(|hint| ("pickerHint", hint))
-            .into_iter()
-            .chain(
-                former_hint
-                    .as_deref()
-                    .map(|hint| ("formerPrefixHint", hint)),
-            )
-            .collect::<Vec<_>>(),
+        Notices {
+            pane_rename: &rename_hints,
+            named: &named_hints,
+            database: database.as_ref(),
+        },
         mode,
     )
 }
@@ -266,7 +285,24 @@ fn publish_products(
     extensions: Vec<Value>,
     mode: OutputMode,
 ) -> io::Result<u8> {
-    publish_products_with_hints(report, skills, failure, extensions, &[], &[], mode)
+    publish_products_with_hints(
+        report,
+        skills,
+        failure,
+        extensions,
+        Notices::default(),
+        mode,
+    )
+}
+
+/// What an upgrade tells the user beyond its products: pane option cutover
+/// hints, named hints that also appear in the JSON (the missing prompt picker,
+/// the retained former prefix) and the database rename outcome.
+#[derive(Default)]
+struct Notices<'a> {
+    pane_rename: &'a [String],
+    named: &'a [(&'a str, &'a str)],
+    database: Option<&'a Value>,
 }
 
 fn publish_products_with_hints(
@@ -274,10 +310,14 @@ fn publish_products_with_hints(
     skills: Option<Value>,
     failure: Option<Failure>,
     extensions: Vec<Value>,
-    rename_hints: &[String],
-    named_hints: &[(&str, &str)],
+    notices: Notices<'_>,
     mode: OutputMode,
 ) -> io::Result<u8> {
+    let Notices {
+        pane_rename: rename_hints,
+        named: named_hints,
+        database,
+    } = notices;
     let failure = failure.map(|mut failure| {
         if let Some(report) = report {
             if let Some(version) = &report.state.pinned_version {
@@ -312,6 +352,9 @@ fn publish_products_with_hints(
     }
     for (key, hint) in named_hints {
         document[*key] = (*hint).into();
+    }
+    if let Some(database) = database {
+        document["databaseRename"] = database.clone();
     }
     let mut stdout = tmt_cli_style::stream::stdout(mode.json);
     let terminal = stdout.terminal();
@@ -362,10 +405,12 @@ fn publish_products_with_hints(
         for product in products.iter().skip(1) {
             write_extension_product(&mut stdout, terminal, product)?;
         }
+        let database_hint = database.and_then(database::hint);
         for hint in rename_hints
             .iter()
             .map(String::as_str)
             .chain(named_hints.iter().map(|(_, hint)| *hint))
+            .chain(database_hint.as_deref())
         {
             tmt_cli_style::message::hint(&mut stdout, terminal, hint)?;
         }
@@ -556,6 +601,9 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
         "Installed-executable summary, not a command suggestion.",
     ),
 ];
+
+#[cfg(test)]
+pub(crate) use database::PRINTED_HINTS as DATABASE_HINTS;
 
 #[cfg(test)]
 pub(crate) use extensions::PRINTED_HINTS as EXTENSIONS_HINTS;

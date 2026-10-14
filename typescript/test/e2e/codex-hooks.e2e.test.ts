@@ -107,7 +107,7 @@ it('maps independent Codex then shared exact-thread hooks without using the serv
         id: identity.id,
         sessionState: 'running',
       });
-      const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
+      const db = new Database(path.join(fixture.globalDir, 'tmt.db'), { readonly: true });
       try {
         const read = () =>
           db
@@ -325,7 +325,7 @@ it.each([
           15000,
           'provider end before same-process start'
         );
-        const database = path.join(fixture.globalDir, 'tmux-team.db');
+        const database = path.join(fixture.globalDir, 'tmt.db');
         const db = new Database(database, { readonly: true });
         try {
           const binding = () =>
@@ -469,7 +469,7 @@ it.each([false, true])(
           15000,
           'idle provider-ended runtime'
         );
-        const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'));
+        const db = new Database(path.join(fixture.globalDir, 'tmt.db'));
         let runtimePid = 0;
         try {
           const binding = () =>
@@ -618,7 +618,7 @@ it('requires the hook runtime to exit and be reaped after publishing its report'
           (item: { code: number; stderr: string }) => item.code === 0 && item.stderr === ''
         )
       ).toBe(true);
-      const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
+      const db = new Database(path.join(fixture.globalDir, 'tmt.db'), { readonly: true });
       try {
         const identity = JSON.parse(results[0].stdout);
         expect(JSON.parse(results[1].stdout).hookSpecificOutput.additionalContext).toContain(

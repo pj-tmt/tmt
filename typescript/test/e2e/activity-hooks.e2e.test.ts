@@ -148,7 +148,7 @@ it('a failed synchronous activity write is never deferred past hook return', asy
       fixture.tmux(['send-keys', '-t', pane, '-l', command]);
       fixture.tmux(['send-keys', '-t', pane, 'Enter']);
       await fixture.waitFor(() => fs.existsSync(checkpoint), 15000, 'before stop checkpoint');
-      const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'));
+      const db = new Database(path.join(fixture.globalDir, 'tmt.db'));
       try {
         const read = () =>
           db.prepare('SELECT driver_state FROM identity_session_preferences').all();

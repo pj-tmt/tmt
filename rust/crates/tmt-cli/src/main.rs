@@ -42,6 +42,7 @@ mod office_facade;
 mod output;
 use tmt_adapters::pane_badge;
 mod consumption_sample_command;
+mod database_rename_command;
 mod digest_hook_command;
 mod parser;
 mod profile_command;
@@ -414,6 +415,9 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         }
         Invocation::NativeRefreshSkills { managed } => {
             return skill_refresh_command::execute(managed, parsed.mode);
+        }
+        Invocation::NativeRenameDatabase => {
+            return database_rename_command::execute(parsed.mode);
         }
         Invocation::Uninstall { purge, yes, prefix } => {
             return uninstall_command::execute(purge, yes, prefix.as_deref(), parsed.mode);

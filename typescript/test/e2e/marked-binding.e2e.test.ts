@@ -89,7 +89,7 @@ describe('explicit marked-pane binding', { concurrent: false }, () => {
         message: 'No marked pane was found on the selected tmux server.',
         suggestion: 'Mark the intended pane in tmux, then retry.',
       });
-      expect(fs.existsSync(path.join(fixture.globalDir, 'tmux-team.db'))).toBe(false);
+      expect(fs.existsSync(path.join(fixture.globalDir, 'tmt.db'))).toBe(false);
 
       mark(fixture, fixture.pane);
       const invalid = await fixture.runJsonCli<{ error: { code: string } }>([
