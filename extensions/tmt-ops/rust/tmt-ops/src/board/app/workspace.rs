@@ -133,6 +133,13 @@ impl App {
         self.invalidate_frame_geometry();
     }
     pub(in crate::board) fn workspace_bindings(&self) -> Bindings {
+        let mut keys = self.workspace_effective_bindings();
+        if self.shell.tab != OpsTab::Agents || self.workspace_scope() == OpsKeyScope::Reader {
+            keys.retain(|_, action| action.verb != Verb::Ui(OpsUiAction::WorkspaceSnapshots));
+        }
+        keys
+    }
+    fn workspace_effective_bindings(&self) -> Bindings {
         let Some(snapshot) = self.workspace_snapshot() else {
             return crate::config::workspace_defaults(self.workspace_scope());
         };
@@ -248,6 +255,7 @@ impl App {
             return self.say("Loading the workspace…");
         }
         match action {
+            WorkspaceSnapshots => return self.open_recovery(),
             Previous => self.workspace_select(self.selected.saturating_sub(1)),
             Next => self.workspace_select(self.selected.saturating_add(1)),
             First => self.workspace_select(0),

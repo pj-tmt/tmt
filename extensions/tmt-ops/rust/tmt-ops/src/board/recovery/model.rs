@@ -3,12 +3,12 @@ use crate::core::SquadError;
 use std::collections::BTreeSet;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct Entry {
+pub(super) struct RecoverySnapshotSummary {
     pub name: Option<String>,
     pub digest: String,
     pub captured_at_ms: u64,
 }
-impl Entry {
+impl RecoverySnapshotSummary {
     pub fn label(&self) -> &str {
         self.name.as_deref().unwrap_or("Latest")
     }
@@ -20,7 +20,7 @@ impl Entry {
 pub(super) struct Inventory {
     pub version: u64,
     pub socket: String,
-    pub snapshots: Vec<Entry>,
+    pub snapshots: Vec<RecoverySnapshotSummary>,
 }
 #[derive(Clone, Debug)]
 pub(super) struct Preview {
@@ -76,11 +76,11 @@ pub(super) struct Pane {
     pub width: u64,
     pub height: u64,
     pub cwd: String,
-    pub identity: Option<Identity>,
+    pub identity: Option<RecoveryIdentityEvidence>,
     pub command: Option<Command>,
 }
 #[derive(Clone, Debug)]
-pub(super) struct Identity {
+pub(super) struct RecoveryIdentityEvidence {
     pub id: String,
     pub name: String,
     pub lifetime: String,
@@ -98,7 +98,7 @@ pub(super) struct SessionPlan {
 pub(super) struct PanePlan {
     pub pane: String,
     pub action: String,
-    pub identity: Option<Identity>,
+    pub identity: Option<RecoveryIdentityEvidence>,
 }
 #[derive(Clone, Debug)]
 pub(super) struct Restore {
@@ -302,7 +302,7 @@ macro_rules! document {
         }
     };
 }
-document!(Entry {
+document!(RecoverySnapshotSummary {
     name: "name",
     digest: "digest",
     captured_at_ms: "capturedAtMs"
@@ -360,7 +360,7 @@ document!(Pane {
     identity: "identity",
     command: "command"
 });
-document!(Identity {
+document!(RecoveryIdentityEvidence {
     id: "id",
     name: "name",
     lifetime: "lifetime"

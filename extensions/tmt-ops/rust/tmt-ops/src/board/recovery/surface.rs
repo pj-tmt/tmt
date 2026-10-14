@@ -380,7 +380,9 @@ impl Controller {
 fn status(value: &str) -> String {
     match value {
         "created" | "started" | "relaunched" => format!("{} Applied", Mark::Done.symbol()),
-        "skip_existing" | "skipped" | "shell" => format!("{} Not applied", Mark::Offline.symbol()),
+        "skip_existing" | "skipped" | "shell" => {
+            format!("{} Not applied", Mark::Offline.symbol())
+        }
         _ => format!("{} Unknown", Mark::Warning.symbol()),
     }
 }

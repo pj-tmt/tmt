@@ -9,7 +9,7 @@ mod tests;
 use super::picker_surface;
 use crate::core::SquadError;
 use load::{Job, Outcome, Selection, Task};
-use model::{Entry, Preview, Restore};
+use model::{Preview, RecoverySnapshotSummary, Restore};
 use std::cell::{Cell, RefCell};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -27,7 +27,7 @@ pub(in crate::board) struct Controller {
     serial: u64,
     screen: Screen,
     socket: Option<String>,
-    entries: Vec<Entry>,
+    entries: Vec<RecoverySnapshotSummary>,
     selected: Option<String>,
     preview: Option<Preview>,
     layout_only: bool,
@@ -130,7 +130,7 @@ impl Controller {
         self.screen = Screen::List;
         self.read(Job::List(self.socket.clone()))
     }
-    fn selected_entry(&self) -> Option<&Entry> {
+    fn selected_entry(&self) -> Option<&RecoverySnapshotSummary> {
         self.entries
             .iter()
             .find(|e| self.selected.as_deref() == Some(e.id().as_str()))
@@ -194,7 +194,7 @@ impl Controller {
                     .as_ref()
                     .filter(|id| self.entries.iter().any(|e| e.id() == **id))
                     .cloned()
-                    .or_else(|| self.entries.first().map(Entry::id));
+                    .or_else(|| self.entries.first().map(RecoverySnapshotSummary::id));
                 if let Some(id) = id {
                     let rows = self
                         .rows()
@@ -403,5 +403,47 @@ impl Controller {
         }
         self.invalidate();
         None
+    }
+}
+
+impl crate::board::app::App {
+    pub(in crate::board) fn recovery_shown(&self) -> bool {
+        self.recovery.as_ref().is_some_and(|c| c.active)
+    }
+    pub(in crate::board) fn open_recovery(&mut self) -> crate::board::app::Effect {
+        use crate::board::{app::Effect, shell::OpsTab};
+        if self.shell.tab != OpsTab::Agents
+            || self.input.is_some()
+            || self.searching
+            || self.workspace_form.is_some()
+            || self.modal_open() && self.menu.is_none()
+        {
+            return self.say(
+                "Open snapshots from the Agents list after closing the current input or overlay.",
+            );
+        }
+        self.menu = None;
+        // This controller is never replaced while this App lives. Its frozen
+        // socket and submitted results survive closing the presentation.
+        let controller = self.recovery.get_or_insert_with(|| Controller::new(1));
+        controller.open().map_or(Effect::None, Effect::Recovery)
+    }
+    pub(in crate::board) fn recovery_event(
+        &mut self,
+        event: &ratatui::crossterm::event::Event,
+    ) -> Option<crate::board::app::Effect> {
+        use crate::board::app::Effect;
+        let task = self.recovery.as_mut()?.input(event);
+        Some(task.map_or(Effect::None, Effect::Recovery))
+    }
+    pub(in crate::board) fn finished_recovery(
+        &mut self,
+        completed: load::Completed,
+    ) -> crate::board::app::Effect {
+        use crate::board::app::Effect;
+        self.recovery
+            .as_mut()
+            .and_then(|c| c.loaded(completed))
+            .map_or(Effect::None, Effect::Recovery)
     }
 }

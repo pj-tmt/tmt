@@ -228,7 +228,7 @@ fn duplicate_name_and_cap_do_not_hide_errors_or_evict_saves() {
         "WORKSPACE_SNAPSHOT_EXISTS"
     );
     for i in 0..15 {
-        c.entries.push(Entry {
+        c.entries.push(RecoverySnapshotSummary {
             name: Some(format!("saved-{i}")),
             digest: DIGEST.into(),
             captured_at_ms: 1000,
@@ -348,6 +348,68 @@ fn public_client_preserves_partial_nonzero_report_and_exact_layout_guard() {
         format!(
             "workspace\nrestore\n--socket\n{SOCKET}\n--expect\n{DIGEST}\n--layout-only\nsaved\n--json\n"
         )
+    );
+}
+
+#[test]
+fn full_restore_retains_live_skip_needs_you_and_uncertain_startup_per_item() {
+    let f = Fixture::new();
+    let mut value = restore_value(DIGEST, "partial");
+    value["layoutOnly"] = json!(false);
+    value["sessions"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"recorded":"$2","name":"existing","action":"skip_existing","native":"$8","retainedBootstrap":null}));
+    value["revival"] = json!([
+        {"recorded":"%1","native":"%7","name":"moved","status":"skipped","message":"skipped (already live elsewhere)"},
+        {"recorded":"%2","native":null,"name":"renamed","status":"needs_you","message":"needs you (identity name changed; resume it explicitly)"},
+        {"recorded":"%3","native":null,"name":"retired","status":"needs_you","message":"needs you (original identity is missing)"},
+        {"recorded":"%4","native":null,"name":"stale","status":"needs_you","message":"needs you (stale conversation; explicit retry required)"},
+        {"recorded":"%5","native":"%9","name":"launch","status":"needs_you","message":"needs you (startup refused or uncertain: startup result lost)"}
+    ]);
+    let core = f.core(&value, false);
+    let task = Task {
+        owner: 1,
+        serial: 1,
+        job: Job::Restore(Selection {
+            socket: SOCKET.into(),
+            name: Some("saved".into()),
+            digest: DIGEST.into(),
+            layout_only: false,
+        }),
+    };
+    let result = load::complete(&core, task);
+    let Ok(Outcome::Restored(r)) = result.result else {
+        panic!("partial full report")
+    };
+    let lines = surface::results(&r);
+    assert!(
+        lines
+            .iter()
+            .any(|s| s.contains("Not applied · session existing"))
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|s| s.contains("Not applied") && s.contains("moved"))
+    );
+    // Core's needs_you includes both admission refusal and uncertain startup.
+    // Preserve its detail without inferring effect certainty from message text.
+    for name in ["renamed", "retired", "stale"] {
+        assert!(
+            lines
+                .iter()
+                .any(|s| s.contains("Unknown") && s.contains("needs you") && s.contains(name))
+        );
+    }
+    assert!(
+        lines
+            .iter()
+            .any(|s| s.contains("Unknown") && s.contains("startup result lost"))
+    );
+    assert_eq!(
+        std::fs::read_to_string(f.0.join("argv")).unwrap(),
+        format!("workspace\nrestore\n--socket\n{SOCKET}\n--expect\n{DIGEST}\nsaved\n--json\n")
     );
 }
 #[test]
@@ -580,4 +642,287 @@ fn mouse_choice_close_retains_the_submitted_write_on_every_pending_screen() {
         assert!(c.open().is_none());
         assert_eq!(c.pending.as_ref(), Some(&task));
     }
+}
+
+#[test]
+fn app_snapshot_action_is_agents_list_only_in_dispatch_help_and_menu_table() {
+    use crate::{
+        action::{OpsUiAction, Verb},
+        board::{app::Effect, shell::OpsTab},
+    };
+    let mut app = crate::board::app::workspace::tests::board();
+    for tab in [OpsTab::Overview, OpsTab::Digest] {
+        app.shell.tab = tab;
+        assert!(
+            !app.bindings()
+                .values()
+                .any(|a| a.verb == Verb::Ui(OpsUiAction::WorkspaceSnapshots))
+        );
+        assert!(matches!(app.open_recovery(), Effect::None));
+        assert!(app.recovery.is_none());
+    }
+    app.shell.tab = OpsTab::Agents;
+    app.focus = 0;
+    assert_eq!(
+        app.bindings()["w"].verb,
+        Verb::Ui(OpsUiAction::WorkspaceSnapshots)
+    );
+    app.context_menu();
+    assert!(
+        app.menu
+            .as_ref()
+            .unwrap()
+            .entries
+            .iter()
+            .any(|entry| entry.key == "w" && entry.label == "workspace-snapshots")
+    );
+    app.menu = None;
+    app.focus = 1;
+    assert!(
+        !app.bindings()
+            .values()
+            .any(|a| a.verb == Verb::Ui(OpsUiAction::WorkspaceSnapshots))
+    );
+    app.focus = 0;
+    let Effect::Recovery(read) = app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE))
+    else {
+        panic!("Agents w must emit the public read job")
+    };
+    assert_eq!(read.job, Job::List(None));
+    assert!(app.modal_open());
+    assert!(app.reload_blocked());
+    // Esc is consumed by the modal, never replayed as board Quit.
+    assert!(matches!(
+        app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+        Effect::None
+    ));
+    assert!(!app.recovery_shown());
+    assert!(!app.modal_open());
+    assert_eq!(app.focus, 0);
+    assert!(!app.reload_blocked());
+}
+
+#[test]
+fn production_lane_reads_public_snapshot_and_routes_typed_completion_to_the_modal() {
+    use crate::board::{BoardEvent, app::Effect, lane, shell::OpsTab};
+    let f = Fixture::new();
+    let core = f.core(&inventory_value(), true);
+    let mut app = crate::board::app::workspace::tests::board();
+    app.shell.tab = OpsTab::Agents;
+    let Effect::Recovery(list) = app.open_recovery() else {
+        panic!("inventory job")
+    };
+    let BoardEvent::Recovery(completed) = lane::run(&core, None, lane::Job::Recovery(list)) else {
+        panic!("typed event")
+    };
+    let Effect::Recovery(show) = app.finished_recovery(completed) else {
+        panic!("selected read-only preview")
+    };
+    assert_eq!(
+        show.job,
+        Job::Show {
+            socket: SOCKET.into(),
+            name: None
+        }
+    );
+    let core = f.core(&preview_value(None), true);
+    let BoardEvent::Recovery(completed) = lane::run(&core, None, lane::Job::Recovery(show)) else {
+        panic!("preview event")
+    };
+    assert!(matches!(app.finished_recovery(completed), Effect::None));
+    assert!(app.recovery_shown());
+    let c = app.recovery.as_mut().unwrap();
+    review(c);
+    app.invalidate_frame_geometry();
+    let c = app.recovery.as_mut().unwrap();
+    assert!(!c.readable.get());
+    assert!(c.choose("confirm").is_none());
+    assert!(c.pending.is_none());
+}
+
+fn click(c: &mut Controller, id: &str) -> Option<Task> {
+    use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    render(c, 160, 50);
+    let rect = {
+        let state = if c.screen == Screen::List {
+            &c.list
+        } else if c.screen == Screen::Save {
+            &c.form
+        } else {
+            &c.panel
+        };
+        let state = state.borrow();
+        state
+            .frame
+            .as_ref()
+            .unwrap()
+            .list
+            .as_ref()
+            .unwrap()
+            .geometry
+            .iter()
+            .find(|row| row.id == id)
+            .unwrap()
+            .visible
+    };
+    assert!(rect.width > 0 && rect.height > 0);
+    c.input(&Event::Mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: rect.x,
+        row: rect.y,
+        modifiers: KeyModifiers::NONE,
+    }))
+}
+
+#[test]
+fn painted_mouse_actions_review_confirm_once_and_close_submitted_work() {
+    let mut c = controller();
+    assert!(click(&mut c, "details").is_none());
+    assert_eq!(c.screen, Screen::Preview);
+    assert!(click(&mut c, "review").is_none());
+    assert_eq!(c.screen, Screen::Confirm);
+    let submitted = click(&mut c, "confirm").unwrap();
+    assert!(matches!(submitted.job, Job::Restore(_)));
+    assert!(click(&mut c, "close").is_none());
+    assert!(!c.active);
+    assert_eq!(c.pending.as_ref(), Some(&submitted));
+    assert!(c.open().is_none());
+    assert_eq!(c.pending.as_ref(), Some(&submitted));
+}
+
+#[test]
+fn stale_mouse_geometry_cannot_acquire_restore_authority() {
+    use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let mut c = controller();
+    review(&mut c);
+    let rect = c
+        .panel
+        .borrow()
+        .frame
+        .as_ref()
+        .unwrap()
+        .list
+        .as_ref()
+        .unwrap()
+        .geometry
+        .iter()
+        .find(|r| r.id == "confirm")
+        .unwrap()
+        .visible;
+    c.invalidate();
+    assert!(
+        c.input(&Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: rect.x,
+            row: rect.y,
+            modifiers: KeyModifiers::NONE
+        }))
+        .is_none()
+    );
+    assert!(c.pending.is_none());
+}
+
+/// Explicit task-owned review evidence, never a frozen fixture recorder.
+#[test]
+#[ignore = "recovery TUI matrix; requires TMT_RECOVERY_CAPTURE task-owned path"]
+fn capture_recovery_packet() {
+    let path = std::env::var("TMT_RECOVERY_CAPTURE").expect("task-owned output path");
+    let mut captures = Vec::new();
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        for scene in [
+            "list",
+            "preview",
+            "confirm",
+            "save",
+            "delete",
+            "pending",
+            "applied",
+            "partial",
+            "unknown",
+            "unsupported",
+            "empty",
+        ] {
+            for width in [160, 100, 80, 60] {
+                for height in [36, 18] {
+                    for (theme, look) in picker_surface::evidence::looks().into_iter().enumerate() {
+                        let mut c = controller();
+                        match scene {
+                            "preview" => c.screen = Screen::Preview,
+                            "confirm" => {
+                                c.screen = Screen::Confirm;
+                                c.confirmation = c.selection();
+                            }
+                            "save" => c.screen = Screen::Save,
+                            "delete" => c.screen = Screen::Delete,
+                            "pending" => {
+                                c.screen = Screen::Results;
+                                c.issue(Job::Restore(c.selection().unwrap()));
+                            }
+                            "applied" | "partial" => {
+                                c.screen = Screen::Results;
+                                let r = model::Restore::decode(&restore_value(
+                                    DIGEST,
+                                    if scene == "applied" {
+                                        "completed"
+                                    } else {
+                                        "partial"
+                                    },
+                                ))
+                                .unwrap();
+                                c.details = surface::results(&r);
+                                c.restored = Some(r);
+                                c.preview = None;
+                            }
+                            "unknown" => {
+                                c.screen = Screen::Results;
+                                c.preview = None;
+                                c.unknown = Some("Core result unavailable. Inspect original socket before deciding another action; no automatic retry.".into());
+                            }
+                            "unsupported" => {
+                                c.entries.clear();
+                                c.preview = None;
+                                c.failure = Some(SquadError::new(
+                                    "WORKSPACE_HOST_UNSUPPORTED",
+                                    "tmux only",
+                                ));
+                            }
+                            "empty" => {
+                                c.entries.clear();
+                                c.preview = None;
+                                c.notice = "No snapshots. A successful Core capture is needed before Save latest capture.".into();
+                            }
+                            _ => {}
+                        }
+                        let mut app = crate::board::app::workspace::tests::board();
+                        app.shell.tab = crate::board::shell::OpsTab::Agents;
+                        app.view.as_mut().unwrap().look = look;
+                        app.recovery = Some(c);
+                        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+                        terminal
+                            .draw(|frame| crate::board::view::render(frame, &app))
+                            .unwrap();
+                        let buffer = terminal.backend().buffer();
+                        let c = app.recovery.as_ref().unwrap();
+                        let state = if c.screen == Screen::List {
+                            &c.list
+                        } else if c.screen == Screen::Save {
+                            &c.form
+                        } else {
+                            &c.panel
+                        };
+                        let state = state.borrow();
+                        let cells = buffer.content.iter().map(|cell| json!({"symbol":cell.symbol(),"fg":format!("{:?}",cell.fg),"bg":format!("{:?}",cell.bg),"modifier":format!("{:?}",cell.modifier)})).collect::<Vec<_>>();
+                        let lines = buffer
+                            .content
+                            .chunks(usize::from(width))
+                            .map(|row| row.iter().map(|c| c.symbol()).collect::<String>())
+                            .collect::<Vec<_>>();
+                        captures.push(json!({"scene":scene,"theme":theme,"width":width,"height":height,"cells":cells,"lines":lines,"readable":c.readable.get(),"hits":format!("{:?}",state.frame.as_ref().map(|f|&f.hits)),"list":format!("{:?}",state.frame.as_ref().and_then(|f|f.list.as_ref()))}));
+                    }
+                }
+            }
+        }
+    });
+    assert_eq!(captures.len(), 352);
+    std::fs::write(path, serde_json::to_vec(&captures).unwrap()).unwrap();
 }

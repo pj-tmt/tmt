@@ -1,6 +1,8 @@
 //! Input emits typed jobs; nothing here starts a command.
 use super::*;
-use ratatui::crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers, MouseEventKind};
+use ratatui::crossterm::event::{
+    Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
+};
 use tmt_tui::components::{PickerEvent, PickerField, PickerInput};
 
 impl Controller {
@@ -78,8 +80,41 @@ impl Controller {
         } else {
             PickerField::List
         };
+        // A list's shared click selects. Recovery action rows activate on that
+        // same painted rectangle, including an already selected action. Never
+        // invent geometry or activate a disabled/clipped/stale row.
+        let clicked = if let Event::Mouse(mouse) = event
+            && mouse.kind == MouseEventKind::Down(MouseButton::Left)
+        {
+            state
+                .frame
+                .as_ref()
+                .and_then(|map| map.list.as_ref())
+                .filter(|frame| {
+                    frame.offset == state.picker.list.scroll.offset()
+                        && frame.viewport.contains((mouse.column, mouse.row).into())
+                })
+                .and_then(|frame| {
+                    frame
+                        .geometry
+                        .iter()
+                        .rev()
+                        .find(|row| row.visible.contains((mouse.column, mouse.row).into()))
+                })
+                .and_then(|hit| rows.iter().find(|row| row.id == hit.id && !row.disabled))
+                .map(|row| row.id.clone())
+        } else {
+            None
+        };
         let input = state.input(event, field);
         drop(state);
+        if let Some(id) = clicked {
+            return if self.screen == Screen::List && id.starts_with("snapshot:") {
+                self.select(&id)
+            } else {
+                self.choose(&id)
+            };
+        }
         match input {
             Some(PickerInput::Event(PickerEvent::Changed(id)))
                 if self.screen == Screen::List && id.starts_with("snapshot:") =>

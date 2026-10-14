@@ -38,7 +38,7 @@ pub(crate) struct Task {
 pub(super) enum Outcome {
     List(Inventory),
     Show(Box<Preview>),
-    Saved(Entry),
+    Saved(RecoverySnapshotSummary),
     Removed,
     Restored(Restore),
 }
@@ -117,7 +117,7 @@ fn execute(core: &Core, job: &Job) -> Result<Outcome, SquadError> {
             if value["version"] != 1 || value["socket"] != *socket {
                 return Err(invalid());
             }
-            let entry: Entry = decode(value)?;
+            let entry: RecoverySnapshotSummary = decode(value)?;
             if entry.name.as_ref() != Some(name) || !valid_digest(&entry.digest) {
                 return Err(invalid());
             }
