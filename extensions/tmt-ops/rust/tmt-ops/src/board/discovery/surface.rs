@@ -153,7 +153,7 @@ impl Controller {
             }
             Screen::Confirm => vec![
                 Row::new("cancel", "Cancel", false),
-                Row::new("confirm", "Confirm binding", pending),
+                Row::new("confirm", "Bind agent", pending),
             ],
             Screen::Results => vec![
                 Row::new("previous-result", "Previous result", self.result_index == 0),
@@ -313,9 +313,20 @@ impl Controller {
     }
     pub fn render(&self, frame: &mut Frame, look: Look, body: Rect) {
         static TEMPLATE: OnceLock<surface::Template<()>> = OnceLock::new();
-        let template = TEMPLATE.get_or_init(|| {
-            picker_surface::compile(FILE, MARKUP, picker_surface::schema(&["label", "cursor"]))
-        });
+        static REVIEW_TEMPLATE: OnceLock<surface::Template<()>> = OnceLock::new();
+        let template = if self.screen == Screen::Confirm {
+            REVIEW_TEMPLATE.get_or_init(|| {
+                picker_surface::compile(
+                    FILE,
+                    &MARKUP.replace(" h-38", ""),
+                    picker_surface::schema(&["label", "cursor"]),
+                )
+            })
+        } else {
+            TEMPLATE.get_or_init(|| {
+                picker_surface::compile(FILE, MARKUP, picker_surface::schema(&["label", "cursor"]))
+            })
+        };
         let rows = self.rows();
         let mut ui = self.ui.borrow_mut();
         ui.reconcile(
@@ -358,6 +369,18 @@ impl Controller {
             "↑↓ / PgUp/PgDn read · Tab actions · Esc candidates"
         } else {
             "↑↓ select · Enter opens/selects · Ctrl-R scan · Esc back"
+        };
+        let body = if self.screen == Screen::Confirm {
+            // Keep the existing 38-row modal cap while allowing intrinsic fit.
+            let height = body.height.min(48);
+            Rect::new(
+                body.x,
+                body.y + (body.height - height) / 2,
+                body.width,
+                height,
+            )
+        } else {
+            body
         };
         ui.render(FILE,template,json!({"rows":projected,"notes":projected_notes,"query":query,"status":status,"footer":footer}),frame,look,body);
         self.editor_area.set(None);
