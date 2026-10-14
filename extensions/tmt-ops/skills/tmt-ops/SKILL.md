@@ -238,6 +238,30 @@ when space is short; help remains available.
 Menus, completion and editors own their keys and consume close without replay.
 Pointer controls use only their current visible rectangles.
 
+With Agents tree focus, `a` opens Add agent; configured bindings retain
+precedence. An empty Common pool offers the same visible action. Opening offers
+Scan or Close and performs no discovery or binding itself. Scan reads the
+current tmux environment; review a candidate, choose a new name or exact
+existing identity UUID, and choose Temporary or Saved before confirming.
+Existing-name text never selects an identity; known choices are advisory
+previously observed evidence, and another/offline UUID can be entered directly.
+
+Discovery supports tmux; unsupported hosts, permission/offline failures and
+incomplete observations carry their explanations. Runtime hints and recorded
+state do not prove readiness. A binding does not install or start a runtime,
+extension or hook. Follow the existing [tmux
+guide](https://github.com/pj-tmt/tmt/blob/main/site/src/chapters/drv-tmux.mdx)
+and [runtime/setup
+guide](https://github.com/pj-tmt/tmt/blob/main/site/src/chapters/drivers.mdx)
+for prerequisites.
+
+Confirmation identifies one exact pane/socket, identity choice and lifetime.
+Cancel, rescan, changed selection or resize revokes it; enlarge a clipped
+terminal before confirming. Results retain each Bound, Already bound, Not
+applied, Needs you or Unknown outcome across close/rescan. Nothing replays or
+rolls back automatically. A successful public refresh reveals the returned UUID
+in Agents; uncertainty needs inspection before a new explicit attempt.
+
 ### Saved workspace snapshots
 
 Workspace snapshots support tmux only. The list reads Core's Latest capture and

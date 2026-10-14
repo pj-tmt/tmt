@@ -129,6 +129,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
         OpsKeyScope::Squad | OpsKeyScope::Member | OpsKeyScope::Pool
     ) {
         entries.push(("w", "workspace-snapshots"));
+        entries.push(("a", "discover-agents"));
     }
     entries
         .into_iter()

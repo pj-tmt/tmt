@@ -10,6 +10,7 @@ mod cronboard;
 mod derived;
 mod digest;
 mod digest_dashboard;
+mod discovery;
 #[cfg(test)]
 mod glyph_guard;
 mod help;
@@ -90,6 +91,7 @@ pub(super) enum BoardEvent {
     Migration(Option<String>),
     Recovery(recovery::load::Completed),
     Checklist(checklist::load::Completed),
+    Discovery(discovery::load::Completed),
     Input(Event),
     InputClosed,
     Snapshot {
@@ -432,6 +434,11 @@ fn session(
                 dirty = true;
                 app.finished_recovery(completed)
             }
+            Ok(BoardEvent::Discovery(completed)) => {
+                app.in_flight = app.in_flight.saturating_sub(1);
+                dirty = true;
+                app.finished_discovery(completed)
+            }
             Ok(BoardEvent::Snapshot {
                 cancellation,
                 snapshot,
@@ -649,6 +656,9 @@ fn session(
                 app.paste(&text)
             }
             Ok(BoardEvent::Input(Event::Resize(_, _))) => {
+                if let Some(discovery) = &mut app.discovery {
+                    discovery.changed();
+                }
                 app.meter_hover = None;
                 app.invalidate_frame_geometry();
                 dirty = true;
@@ -675,6 +685,10 @@ fn session(
             }
             Effect::Checklist(task) => checklist(task),
             Effect::Recovery(task) => submit(app, lane::Job::Recovery(task)),
+            Effect::Discovery(task) => {
+                app.in_flight += 1;
+                io(lane::Job::Discovery(task));
+            }
             Effect::Settings => submit(app, lane::Job::Open(lane::Opening::Settings)),
             Effect::SaveSetting => {
                 if app.settings.as_mut().is_some_and(|overlay| overlay.save()) {

@@ -237,6 +237,7 @@ pub enum Effect {
     Act(Request),
     Checklist(super::checklist::load::Task),
     Recovery(super::recovery::load::Task),
+    Discovery(super::discovery::load::Task),
 }
 
 /// What a menu entry does: run a binding, or reply to one open request.
@@ -499,6 +500,7 @@ pub(super) enum Overlay {
     ReplyReader,
     Checklist,
     QuotaDetails,
+    Discovery,
 }
 impl Overlay {
     fn id(self) -> tmt_tui::app::ComponentId {
@@ -513,6 +515,7 @@ impl Overlay {
                 Self::ReplyReader => "reply-reader",
                 Self::Checklist => "checklist",
                 Self::QuotaDetails => "quota-details",
+                Self::Discovery => "discovery",
             }
             .into(),
         ]
@@ -580,6 +583,8 @@ pub struct App {
     pub(super) timing: Option<super::timing::Ui>,
     pub(super) checklist: Option<super::checklist::Controller>,
     pub(super) recovery: Option<super::recovery::Controller>,
+    pub(super) discovery: Option<super::discovery::Controller>,
+    pub(super) discovered_uuid: Option<String>,
     pub(super) checklist_generation: u64,
     pub(super) initial_look: Option<crate::look::Look>,
     pub(super) cron: super::cronboard::State,
@@ -1398,6 +1403,7 @@ impl App {
                     }
                 }
                 self.error = None;
+                self.discovery_refreshed();
             }
             Err(error) => {
                 if let Some(snapshot) = self
@@ -2473,7 +2479,7 @@ impl App {
     }
 
     pub(super) fn paste(&mut self, text: &str) -> Effect {
-        if self.checklist_shown() || self.recovery_shown() {
+        if self.checklist_shown() || self.recovery_shown() || self.discovery_shown() {
             return self
                 .overlay_event(&Event::Paste(text.to_owned()))
                 .unwrap_or(Effect::None);
@@ -2879,6 +2885,8 @@ impl App {
             Some(Overlay::Checklist)
         } else if self.quota_details.is_some() {
             Some(Overlay::QuotaDetails)
+        } else if self.discovery_shown() {
+            Some(Overlay::Discovery)
         } else if self.help {
             Some(Overlay::Help)
         } else if self.settings.is_some() {
@@ -2912,6 +2920,7 @@ impl App {
                 }
                 Some(Effect::None)
             }
+            Overlay::Discovery => self.discovery_event(event),
             Overlay::Help => {
                 let input = self.help_state.borrow_mut().input(event);
                 match input? {
@@ -3057,6 +3066,9 @@ impl App {
         }
         if let Some(recovery) = &self.recovery {
             recovery.invalidate();
+        }
+        if let Some(discovery) = &self.discovery {
+            discovery.invalidate();
         }
         if let Some(settings) = &self.settings {
             settings.surface.borrow_mut().invalidate();

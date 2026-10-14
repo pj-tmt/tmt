@@ -157,6 +157,20 @@ reveals the selected visual range or its first line when taller than the viewpor
 paging uses visual lines. Review/Result's shared ScrollState owns its read region.
 Resize/model replacement invalidates controls before another action can use them.
 
+`board::discovery` owns explicit
+Intro/Scan/candidate/detail/form/confirmation/result presentation. Config
+supplies the Agents-list-only `discover-agents` default `a`; dispatch,
+footer/help/menu and the empty-pool action use the effective table. Only public
+`discover` precedes confirmation; known UUID examples reuse acquired/verified
+evidence, with explicit UUID input for other identities. The existing ordered
+lane owns finite Scan/guarded-add tasks and typed completions. One active scan
+plus one coalesced latest scan owns its generation; submitted writes and
+partial/Unknown results survive close and defer reload. Shared modal/list/scroll
+geometry and Editor own current hit/caret authority. Full visible confirmation
+freezes the original target/socket/digest/selector/lifetime once; Core alone
+validates and binds. The accepted public roster projection reveals the returned
+UUID without a local roster mutation or readiness claim.
+
 ## Workspace and retained identity
 
 `board::shell` selects Overview/Agents/Digest without loading a second roster.
@@ -236,8 +250,8 @@ anchors refuse actions and never retarget to a visible neighbour.
 
 ## Overlays and offline validation
 
-`App::overlay_event` synchronizes help/settings/theme/cron/checklist controllers
-and workspace forms with one caller-owned `FocusStack` before base dispatch. Controllers own saves,
+`App::overlay_event` synchronizes help/settings/theme/cron/checklist/discovery
+controllers and workspace forms with one caller-owned `FocusStack` before base dispatch. Controllers own saves,
 rollback and worker effects; `picker_surface::State` owns component cursor/query,
 admitted scenes and clipped frame maps. Refresh follows stable selected identity;
 resize/model replacement invalidates hits. Query edits select the first match;
