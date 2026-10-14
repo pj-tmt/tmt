@@ -50,6 +50,7 @@ fn selection() -> super::super::settings::host_action::Selection {
         row: Some(json!({"id":"identity", "name":"alpha", "fields":{"board_pane":"%99"}})),
         squad: None,
         scope: OpsKeyScope::Member,
+        invoker_tmux: true,
     }
 }
 

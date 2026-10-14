@@ -233,7 +233,8 @@ Focus agent, Swap beside board (left/right/up/down), or Custom command. It reads
 the winning global/host/selected-section owner through `workspace_keys`, names
 that exact write scope and preserves other bindings. A preview holds the selected
 row at opening, fills argv without execution and leaves missing context unavailable;
-Enter saves a validated draft once, Esc cancels, and a file conflict keeps the
+Preset previews are read-only (`s` saves); Custom command keeps typing and Enter
+save. Esc cancels, and a file conflict keeps the
 unsaved draft/error without retry. Other keys and nested configuration remain
 file-owned; `config show` retains independent values/provenance. Ordinary
 Settings and Theme openings do not acquire host-action context.

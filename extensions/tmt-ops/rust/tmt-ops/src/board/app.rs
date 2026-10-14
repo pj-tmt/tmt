@@ -1783,6 +1783,7 @@ impl App {
                 .and_then(|target| self.target_squad(&RowTarget::Workspace(target.clone())))
                 .filter(|name| !name.is_empty()),
             scope: self.workspace_scope(),
+            invoker_tmux: self.invoker_tmux,
         }
     }
 
