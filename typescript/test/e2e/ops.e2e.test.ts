@@ -128,7 +128,15 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
       fixture.tmux(['send-keys', '-l', '-t', shell.pane, 'worker']);
       fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
       await fixture.waitForCapture(
-        (screen) => screen.includes('Member (@agent') && !screen.includes('worker'),
+        (screen) =>
+          screen
+            .split('\n')
+            .some(
+              (line) =>
+                line.startsWith('Create squad · Member (@agent') &&
+                line.includes('›') &&
+                !line.includes('worker')
+            ),
         shell.pane
       );
       fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
