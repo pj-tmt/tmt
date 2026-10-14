@@ -688,3 +688,96 @@ fn resize_keeps_one_editor_and_wheel_scrolls_response_without_changing_recipient
     assert_eq!(app.workspace.selected, selected);
     assert_eq!(app.focused(), Pane::Replies);
 }
+
+#[test]
+fn mock_header_uses_held_squad_role_usage_and_uuid_fenced_details_buttons() {
+    use ratatui::crossterm::event::{
+        KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    };
+    let mut app = workspace_fixture();
+    app.references = crate::board::inventory::Inventory::from_listed(
+        &[],
+        &Ok(json!({"identities":[{
+            "id":crate::board::app::workspace::tests::MEMBER,"name":"worker","runningDriver":"runtime-long-界","resume":{"model":"model-long-value"}
+        }]})),
+    );
+    let mut terminal = Terminal::new(TestBackend::new(160, 44)).unwrap();
+    terminal
+        .draw(|frame| {
+            crate::board::view::prepare(&mut app, frame.area());
+            crate::board::view::render(frame, &app);
+        })
+        .unwrap();
+    let buffer = terminal.backend().buffer();
+    let screen: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
+    assert!(screen.contains("working · product · member"));
+    assert!(screen.contains("runtime-long-界") && screen.contains("model-long-value"));
+    assert!(screen.contains("tok/h") && screen.contains("[ Details ] [ Links ]"));
+    let hits = app.conversation.borrow().header_hits.clone();
+    assert_eq!(hits.len(), 2);
+    for hit in &hits {
+        assert_eq!(hit.target, app.conversation_target().unwrap());
+        assert_eq!(hit.area.intersection(buffer.area), hit.area);
+        let painted: String = (hit.area.x..hit.area.right())
+            .map(|x| buffer[(x, hit.area.y)].symbol())
+            .collect();
+        assert!(painted == "[ Details ]" || painted == "[ Links ]");
+    }
+    let click = MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: hits[1].area.x,
+        row: hits[1].area.y,
+        modifiers: KeyModifiers::NONE,
+    };
+    app.mouse(click, std::time::Instant::now());
+    assert!(app.monitor_details.is_some());
+    assert!(app.input.is_none());
+    assert_eq!(
+        app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+        crate::board::app::Effect::None
+    );
+    assert!(app.monitor_details.is_none());
+    assert_eq!(app.selected, 2);
+    app.invalidate_frame_geometry();
+    assert!(app.conversation.borrow().header_hits.is_empty());
+    app.mouse(click, std::time::Instant::now());
+    assert!(
+        app.monitor_details.is_none(),
+        "stale controls retain no authority"
+    );
+}
+
+#[test]
+fn shortened_or_missing_header_rows_never_publish_timer_or_details_hits() {
+    for width in [1, 10, 13, 20, 40, 60, 100] {
+        for height in [0, 1, 3, 6, 8, 18, 24, 44] {
+            let app = workspace_fixture();
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            terminal
+                .draw(|frame| {
+                    app.cron_scope_hits.borrow_mut().clear();
+                    render(frame, &app, frame.area());
+                })
+                .unwrap();
+            let buffer = terminal.backend().buffer();
+            for hit in &app.conversation.borrow().header_hits {
+                let painted: String = (hit.area.x..hit.area.right())
+                    .map(|x| buffer[(x, hit.area.y)].symbol())
+                    .collect();
+                assert!(
+                    painted == "[ Details ]" || painted == "[ Links ]",
+                    "{width}x{height}: {painted}"
+                );
+            }
+            for hit in app.cron_scope_hits.borrow().iter() {
+                let painted: String = (hit.area.x..hit.area.right())
+                    .map(|x| buffer[(x, hit.area.y)].symbol())
+                    .collect();
+                assert!(
+                    painted.contains('◷'),
+                    "{width}x{height}: a replaced Response row cannot inherit timer authority: {painted}"
+                );
+            }
+        }
+    }
+}

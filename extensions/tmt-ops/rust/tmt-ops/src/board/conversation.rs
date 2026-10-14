@@ -22,6 +22,12 @@ use unicode_width::UnicodeWidthStr;
 pub(super) mod layout;
 pub(super) mod outgoing;
 
+#[derive(Clone)]
+pub(super) struct HeaderHit {
+    pub area: Rect,
+    pub target: RowTarget,
+}
+
 type ConversationKey = (Option<String>, String);
 
 #[derive(Default)]
@@ -30,6 +36,7 @@ pub(super) struct State {
     active: Option<ConversationKey>,
     sequence: u64,
     pending_send: Option<outgoing::Ticket>,
+    pub header_hits: Vec<HeaderHit>,
     pub area: Rect,
     pub pane: Option<Rect>,
 }
@@ -221,6 +228,7 @@ impl App {
 /// The composer remains owned by App, not by either placement of this painter.
 pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
     let look = app.look();
+    app.conversation.borrow_mut().header_hits.clear();
     let Some(target) = app.conversation_target() else {
         app.conversation.borrow_mut().active = None;
         strip::paint_left(
@@ -317,6 +325,23 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
     );
     let name = sanitize(row["name"].as_str().unwrap_or("unknown agent"));
     session.correlate_loaded(app, &name);
+    let tree = app.workspace_rows();
+    let tree_row = tree
+        .get(app.selected)
+        .filter(|row| RowTarget::Workspace(row.target.clone()) == target);
+    let values = tree_row
+        .zip(app.workspace_snapshot())
+        .map(|(row, snapshot)| super::overview::monitor::values(app, snapshot, row));
+    let squad = app
+        .target_squad(&target)
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "Common pool".into());
+    let role = match &target {
+        RowTarget::Lead { .. } => "lead",
+        _ if tree_row.is_some_and(|row| row.lead) => "lead",
+        _ => "member",
+    };
+    let full = area.height >= 20 && area.width >= 60;
     let observed = app.references.agents.get(row["id"].as_str().unwrap());
     let runtime = observed
         .and_then(|agent| agent.runtime.as_deref())
@@ -340,17 +365,42 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
         },
     ));
     let timer_text = format!(" · {timers}");
-    let runtime_width = usize::from(area.width).saturating_sub(timer_text.width());
+    let runtime_width =
+        usize::from(area.width).saturating_sub(if full { 0 } else { timer_text.width() });
     let runtime_text = super::view::fit(
         &format!("{} · {}", sanitize(runtime), sanitize(model)),
         runtime_width,
     );
+    let usage = values
+        .as_ref()
+        .filter(|values| values.tokens.is_some())
+        .zip(tree_row)
+        .map_or_else(
+            || "unknown".into(),
+            |(values, row)| values.text(super::overview::columns::Column::TokensPerHour, row),
+        );
+    let prefix = if full {
+        format!("{usage} tok/h · ")
+    } else {
+        String::new()
+    };
+    let chip_budget = usize::from(area.width)
+        .saturating_sub(prefix.width() + if full { timer_text.width() } else { 0 });
     let mut chips = super::row_chips::of(&app.labels, row, crate::status::now_ms());
-    // A source name and its first label form one unit. Never paint a bare source
-    // or clip the choice mark away from the label whose action it represents.
-    chips.truncate(super::row_chips::prefix(&chips, usize::from(area.width)));
+    chips.truncate(super::row_chips::prefix(&chips, chip_budget));
+    let rule = |title: String, role| {
+        let text = if title.width() + 2 <= usize::from(area.width) {
+            format!(
+                "{title} {}",
+                "─".repeat(usize::from(area.width) - title.width() - 1)
+            )
+        } else {
+            title
+        };
+        Line::styled(text, look.role(role))
+    };
     let mut header = vec![
-        Line::styled(
+        rule(
             format!(
                 "Conversation · {name}{}",
                 if app.focus == 1 && app.input.is_none() {
@@ -359,28 +409,57 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
                     ""
                 }
             ),
-            look.role(Role::Accent),
+            Role::Accent,
         ),
         Line::styled(
             format!(
-                "{} · {}",
+                "{} · {} · {role}",
                 sanitize(row["state"].as_str().unwrap_or("unknown")),
-                sanitize(row["presence"].as_str().unwrap_or("unknown"))
+                sanitize(&squad)
             ),
             look.role(Role::Muted),
         ),
         Line::from(vec![
             Span::styled(runtime_text.clone(), look.role(Role::Accent)),
-            Span::styled(timer_text.clone(), look.role(Role::Muted)),
+            Span::styled(
+                if full {
+                    String::new()
+                } else {
+                    timer_text.clone()
+                },
+                look.role(Role::Muted),
+            ),
         ]),
     ];
-    if !chips.is_empty() {
-        header.push(Line::from(
+    if full || !chips.is_empty() {
+        let mut spans = vec![Span::styled(prefix.clone(), look.role(Role::Muted))];
+        spans.extend(
             chips
                 .iter()
-                .map(|chip| Span::styled(chip.text.clone(), look.role(chip.role)))
-                .collect::<Vec<_>>(),
-        ));
+                .map(|chip| Span::styled(chip.text.clone(), look.role(chip.role))),
+        );
+        if full {
+            if chips.is_empty() && "Digest unknown".width() <= chip_budget {
+                spans.push(Span::styled("Digest unknown", look.role(Role::Dim)));
+            }
+            let used: usize = spans.iter().map(Span::width).sum();
+            spans.push(Span::raw(" ".repeat(
+                usize::from(area.width).saturating_sub(used + timer_text.width()),
+            )));
+            spans.push(Span::styled(timer_text.clone(), look.role(Role::Muted)));
+        }
+        header.push(Line::from(spans));
+    }
+    let controls_row = (full && tree_row.is_some()).then_some(header.len());
+    if controls_row.is_some() {
+        let mut controls = String::new();
+        if area.width >= 11 {
+            controls.push_str("[ Details ]");
+        }
+        if area.width >= 21 {
+            controls.push_str(" [ Links ]");
+        }
+        header.push(Line::styled(controls, look.role(Role::Accent)));
     }
     let host_action = bindings.get("j").map(|action| ("j", action)).or_else(|| {
         bindings
@@ -402,21 +481,30 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
     if let Some(link) = link {
         header.push(link);
     }
-    header.push(Line::styled(
-        if session.change == Change::NewOutput {
-            "Response · new output · End resumes follow"
-        } else if session.change == Change::Unavailable {
-            "Response · source unavailable · retained for reading"
-        } else if session.follow {
-            "Response · following"
-        } else {
-            "Response · reading · End resumes follow"
-        },
-        look.role(if session.change != Change::Current {
+    let flow = if session.change == Change::NewOutput {
+        "new output · End resumes follow"
+    } else if session.change == Change::Unavailable {
+        "source unavailable · retained for reading"
+    } else if session.follow {
+        "following"
+    } else {
+        "reading · End resumes follow"
+    };
+    let source = session
+        .reply
+        .as_ref()
+        .and_then(|reply| reply.key.as_ref())
+        .map_or_else(
+            || "loaded history".to_owned(),
+            |key| sanitize(&key.request).chars().take(12).collect(),
+        );
+    header.push(rule(
+        format!("Response · {source} · {flow}"),
+        if session.change != Change::Current {
             Role::Waiting
         } else {
             Role::Dim
-        }),
+        },
     ));
     // Keep a response viewport even when an input band or low terminal leaves
     // little vertical room. No decorative blank rows consume that budget.
@@ -425,7 +513,13 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
         .saturating_sub(3)
         .max(1)
         .min(area.height)
-        .min(header.len() as u16);
+        .min(header.len() as u16)
+        .min(if area.height < 12 { 4 } else { u16::MAX });
+    let retained_prefix = usize::from(header_height)
+        .saturating_sub(usize::from(usize::from(header_height) < header.len()));
+    let controls_row = controls_row.filter(|index| *index < retained_prefix);
+    let timer_row = if full { 3 } else { 2 };
+    let retained_timer = timer_row < retained_prefix;
     let retained_chip = !chips.is_empty()
         && 3 < usize::from(header_height)
             .saturating_sub(usize::from(usize::from(header_height) < header.len()));
@@ -434,6 +528,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
         header.truncate(usize::from(header_height) - 1);
         header.push(response);
     }
+    let mut painted_controls = Vec::new();
     for (index, line) in header
         .into_iter()
         .take(usize::from(header_height))
@@ -445,7 +540,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
                     .borrow_mut()
                     .push(super::view::ClockSurface::Labels {
                         target: target.clone(),
-                        width: usize::from(area.width),
+                        width: chip_budget,
                     });
             }
             let mut x = 0;
@@ -462,8 +557,27 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 x += width;
             }
         }
-        if index == 2
-            && runtime_text.width() + timer_text.width() <= usize::from(area.width)
+        if Some(index) == controls_row
+            && let RowTarget::Workspace(_) = &target
+        {
+            for (x, text) in [(0, "[ Details ]"), (12, "[ Links ]")] {
+                let width = text.width();
+                if x + width <= usize::from(area.width) {
+                    painted_controls.push(HeaderHit {
+                        area: Rect::new(area.x + x as u16, area.y + index as u16, width as u16, 1),
+                        target: target.clone(),
+                    });
+                }
+            }
+        }
+        if retained_timer
+            && index == timer_row
+            && (if full {
+                prefix.width()
+            } else {
+                runtime_text.width()
+            }) + timer_text.width()
+                <= usize::from(area.width)
             && let RowTarget::Workspace(target) = &target
             && let super::workspace::OpsTarget::Member { identity_id, .. } = target
         {
@@ -534,6 +648,8 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
             .anchor
             .select_visual(&session.text, &mapped.sources, offset);
     }
+    drop(state);
+    app.conversation.borrow_mut().header_hits = painted_controls;
 }
 
 #[cfg(test)]

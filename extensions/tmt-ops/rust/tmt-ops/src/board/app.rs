@@ -3355,6 +3355,7 @@ impl App {
             draft.invalidate();
         }
         self.conversation.borrow_mut().pane = None;
+        self.conversation.borrow_mut().header_hits.clear();
         self.scrolls.begin_frame();
         self.mentions.invalidate();
         if let Some(reader) = &self.row_details.reader {
@@ -3685,6 +3686,27 @@ impl App {
             }
         }
 
+        if event.kind == MouseEventKind::Down(MouseButton::Left) && !self.loading() {
+            let control = self
+                .conversation
+                .borrow()
+                .header_hits
+                .iter()
+                .find(|hit| hit.area.contains((event.column, event.row).into()))
+                .cloned();
+            if let Some(hit) = control {
+                if self.conversation_target().as_ref() == Some(&hit.target)
+                    && self
+                        .conversation
+                        .borrow()
+                        .pane
+                        .is_some_and(|pane| hit.area.intersection(pane) == hit.area)
+                {
+                    return self.overview_details();
+                }
+                return Effect::None;
+            }
+        }
         if event.kind == MouseEventKind::Down(MouseButton::Left)
             && !self.loading()
             && self

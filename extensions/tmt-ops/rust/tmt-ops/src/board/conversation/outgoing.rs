@@ -167,7 +167,7 @@ impl Session {
             if !text.is_empty() {
                 text.push_str("\n\n");
             }
-            text.push_str("You · now\n\n");
+            text.push_str("You · now  \n");
             text.push_str(&crate::board::notes::sanitize(&entry.ticket.text));
             text.push_str("\n\n");
             text.push_str(&crate::board::notes::sanitize(&entry.status()));
