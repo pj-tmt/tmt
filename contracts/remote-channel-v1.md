@@ -2222,7 +2222,7 @@ reads only the same target to distinguish identical bytes from conflict; this is
 read. Before every REST attempt and listener start, the caller-supplied `guard.admit(cost)` reserves
 cost or refuses with `REMOTE_BUDGET_EXHAUSTED {resetAtMs,retryAfterMs}`. The caller owns the shipped
 [budget model](#free-plan-budget-guard) and durable reservations; this client adds no quota ledger.
-Cost metadata bounds REST reads, names three Rules lookups per delivered document, and marks the
+Cost metadata bounds REST reads, uses the budget model's writer lookups for commits and three Rules lookups per delivered document, and marks the
 listener's full matching initial tail, all deliveries including the writer's own, and additional
 consumer REST catch-up. Memory-only listener reconnects cost a fresh query
 ([Firebase pricing](https://firebase.google.com/docs/firestore/pricing#listening_to_query_results));
@@ -2554,7 +2554,8 @@ guard before sending. Layer 1 must run on the provider's no-cost plan, and the p
 reads them and Rules cannot. A client therefore guards its own modeled share, not the provider's counter. For one
 shared page with `members` listeners and `writers` of them appending, one append costs the project `writeLookups +
 (members - 1) * (1 + readLookups)` reads (the writer's Rules lookups, then for every other listener the delivered
-document and its lookups again), where the lookups are fixed constants of the guard; the page's daily append
+document and its lookups again). The writer count uses the continuing non-owner member path;
+the owning free-plan guide derives it from Colab's Rules. The lookups are fixed guard constants; the page's daily append
 allowance is the daily reads pool divided by that, capped by the writes pool, and a writer's share is the allowance
 divided by `writers`. Below 70% of the share an append is allowed, from 70% the client is warned, from 90% the append
 is refused; both are named constants in one table. The allowance also gives the minimum average interval at which an

@@ -74,8 +74,8 @@ fn the_arithmetic_matches_the_independent_vectors() {
 
 #[test]
 fn a_hand_worked_row_and_the_named_thresholds() {
-    // Five members, three writers: 3 + 4 x (1 + 2) = 15 reads per append; 50,000 / 15 = 3,333
-    // appends; a writer's share is 1,111, warned at 777 (70%) and refused at 999 (90%).
+    // Five members, three writers: 4 + 4 x (1 + 2) = 16 reads per append; 50,000 / 16 = 3,125
+    // appends; a writer's share is 1,041, warned at 728 (70%) and refused at 936 (90%).
     let m = Model::new(5, 3).unwrap();
     assert_eq!(
         (
@@ -85,15 +85,15 @@ fn a_hand_worked_row_and_the_named_thresholds() {
             m.warn_at(),
             m.refuse_at()
         ),
-        (15, 3333, 1111, 777, 999)
+        (16, 3125, 1041, 728, 936)
     );
     assert_eq!(
-        (m.assess(776), m.assess(777), m.assess(998), m.assess(999)),
+        (m.assess(727), m.assess(728), m.assess(935), m.assess(936)),
         (Verdict::Ok, Verdict::Warn, Verdict::Warn, Verdict::Refuse)
     );
     assert_eq!((WARN_PERCENT, REFUSE_PERCENT), (70, 90));
     // One member alone: the writer's own lookups only.
-    assert_eq!(Model::new(1, 1).unwrap().reads_per_append(), 3);
+    assert_eq!(Model::new(1, 1).unwrap().reads_per_append(), 4);
     // The writes pool (20,000) never binds before the reads pool for any accepted model.
     for members in [1, 2, 10, 100] {
         let m = Model::new(members, 1).unwrap();
@@ -130,7 +130,7 @@ fn a_page_the_free_plan_cannot_host_is_refused_when_the_model_is_built() {
             assert_eq!(built, Err(ModelError::FreePlanCannotHost), "{row}");
         }
     }
-    // Hand-checked for one writer: 3N reads per append, so 50,000 / 3N is 2 appends at N = 8,333.
+    // Hand-checked for one writer: 3N + 1 reads per append, so 50,000 / (3N + 1) is 2 appends at N = 8,333.
     assert!(
         Model::new(8333, 1).is_ok() && Model::new(8334, 1) == Err(ModelError::FreePlanCannotHost)
     );
@@ -146,10 +146,10 @@ fn the_guard_warns_then_refuses_before_the_limit_and_the_refusal_is_recoverable(
         ..Usage::new(T)
     };
     assert_eq!(decide(&m, usage(0), T), Decision::Allow);
-    assert_eq!(decide(&m, usage(776), T), Decision::Allow);
-    assert_eq!(decide(&m, usage(777), T), Decision::Warn);
-    assert_eq!(decide(&m, usage(998), T), Decision::Warn);
-    let refused = decide(&m, usage(999), T);
+    assert_eq!(decide(&m, usage(727), T), Decision::Allow);
+    assert_eq!(decide(&m, usage(728), T), Decision::Warn);
+    assert_eq!(decide(&m, usage(935), T), Decision::Warn);
+    let refused = decide(&m, usage(936), T);
     assert_eq!(
         refused,
         Decision::Refuse(Refusal {
@@ -160,9 +160,9 @@ fn the_guard_warns_then_refuses_before_the_limit_and_the_refusal_is_recoverable(
     // Refusal comes at 90% of the share, strictly before the share and the page allowance.
     assert!(m.refuse_at() < m.share() && m.share() * 3 <= m.daily_append_limit());
     // Not silent and not permanent: after the reset the same usage is a fresh day.
-    assert_eq!(decide(&m, usage(999), reset), Decision::Allow);
+    assert_eq!(decide(&m, usage(936), reset), Decision::Allow);
     assert_eq!(
-        decide(&m, usage(999), reset - 1),
+        decide(&m, usage(936), reset - 1),
         refused_at(reset - 1, reset)
     );
     // Counting rolls over by itself.

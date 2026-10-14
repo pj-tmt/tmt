@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 READS, WRITES = 50_000, 20_000
-READ_LOOKUPS, WRITE_LOOKUPS = 2, 3
+READ_LOOKUPS, WRITE_LOOKUPS = 2, 4
 WARN, REFUSE = 70, 90
 ACTIVE_S = 2 * 60 * 60
 
@@ -30,7 +30,7 @@ def append_row(n, w):
         "minFlushIntervalMs": -(-ACTIVE_S * 1000 // max(1, limit * WARN // 100)),
     }
 
-models = [(1, 1), (2, 1), (2, 2), (3, 2), (5, 3), (5, 5), (10, 4), (10, 10), (25, 5), (25, 25), (100, 10)]
+models = [(1, 1), (2, 1), (2, 2), (3, 2), (4, 4), (5, 3), (5, 5), (10, 4), (10, 10), (25, 5), (25, 25), (100, 10)]
 append = [append_row(n, w) for n, w in models]
 
 assess = []

@@ -17,8 +17,8 @@ export const READS_PER_DAY = 50_000;
 export const WRITES_PER_DAY = 20_000;
 /** Rules dependent documents read when a client reads: member projection or link enrollment, plus the page head. */
 export const READ_LOOKUPS = 2;
-/** Dependent documents when a client appends: the same two plus the head read for the create-only sequence. */
-export const WRITE_LOOKUPS = 3;
+/** A continuing non-owner member append reads page, member, space owner and predecessor; model this case even though the owner skips the predecessor. */
+export const WRITE_LOOKUPS = 4;
 /** The guard warns at this share of a client's modeled allowance and refuses at the second one. */
 export const WARN_PERCENT = 70;
 export const REFUSE_PERCENT = 90;

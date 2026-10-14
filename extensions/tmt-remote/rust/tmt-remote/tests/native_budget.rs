@@ -17,25 +17,26 @@ fn reads_charge_before_send_without_refund_and_share_the_append_allowance() {
         usage.reads, 258,
         "an empty response cannot refund the bounded maximum"
     );
-    usage.reads = 34_995;
+    // 12,500 appends x 4 reads = 50,000; warn at 35,000 reads.
+    usage.reads = 34_997;
     assert_eq!(
         charge_native(&model, &mut usage, 3, now).unwrap(),
         Decision::Warn
     );
-    assert_eq!(usage.reads, 34_998);
+    assert_eq!(usage.reads, 35_000);
     let snapshot = usage;
     assert_eq!(
         native_budget_state(&model, usage, now).unwrap(),
         Decision::Warn
     );
     assert_eq!(usage, snapshot);
-    usage.reads = 44_995;
+    usage.reads = 44_997;
     assert!(matches!(
         charge_native(&model, &mut usage, 3, now).unwrap(),
         Decision::Refuse(_)
     ));
     assert_eq!(
-        usage.reads, 44_995,
+        usage.reads, 44_997,
         "refusal must not charge an unsent request"
     );
 }
@@ -45,14 +46,15 @@ fn writer_share_and_existing_write_ceiling_are_not_a_second_quota_pool() {
     let model = Model::new(10, 10).unwrap();
     let now = 1_800_000_000_000;
     let mut usage = NativeUsage::new(now);
-    usage.reads = 3_480;
+    // Share 161 x 31 reads = 4,991; warn at 3,493 and refuse at 4,491.
+    usage.reads = 3_487;
     assert_eq!(
         charge_native(&model, &mut usage, 6, now).unwrap(),
         Decision::Warn
     );
-    usage.reads = 4_480;
+    usage.reads = 4_488;
     let Decision::Refuse(refusal) = charge_native(&model, &mut usage, 3, now).unwrap() else {
-        panic!("must refuse at 90% of 4,980 reads")
+        panic!("must refuse at 90% of 4,991 reads")
     };
     assert!(refusal.reset_at_ms > now);
     assert_eq!(refusal.retry_after_ms, refusal.reset_at_ms - now);

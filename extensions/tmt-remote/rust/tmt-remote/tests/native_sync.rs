@@ -483,7 +483,7 @@ fn publish_is_one_create_and_unknown_never_retries() {
         false
     );
     assert_eq!(requests[0].2["writes"][0]["update"]["fields"], fields(1));
-    assert_eq!(budget.reads(), 3);
+    assert_eq!(budget.reads(), 4);
 }
 #[test]
 fn invalid_binding_expired_or_changed_auth_stops_before_http() {
@@ -527,7 +527,8 @@ fn budget_and_denial_are_typed_and_nothing_is_sent_on_local_refusal() {
         ready(client.read(&doc().target, &io)).err(),
         Some(SyncError::Denied)
     );
-    budget.set_reads(44_995);
+    // One member: 50,000 modeled reads, with refusal at 45,000.
+    budget.set_reads(44_997);
     assert_eq!(client.budget_state().unwrap(), Decision::Warn);
     assert!(matches!(
         ready(client.read(&doc().target, &io)),
@@ -603,7 +604,7 @@ fn provider_exhaustion_refuses_reads_but_preserves_unknown_writes_and_stops_next
             ready(client.read(&doc().target, &io)),
             Err(SyncError::BudgetExhausted(_))
         ));
-        assert_eq!(budget.reads(), 3);
+        assert_eq!(budget.reads(), if mutation { 4 } else { 3 });
         assert!(matches!(
             client.budget_state().unwrap(),
             Decision::Refuse(_)
@@ -794,7 +795,8 @@ fn create_already_present_compares_the_same_frozen_bytes_without_resending() {
         assert_eq!(requests.len(), 2);
         assert_eq!(requests[0].0, Operation::Commit);
         assert_eq!(requests[1].0, Operation::Read);
-        assert_eq!(budget.reads(), 6);
+        // Four append lookups plus the same-target read and its two lookups.
+        assert_eq!(budget.reads(), 7);
     }
 }
 
@@ -1274,7 +1276,7 @@ fn declared_put_and_delete_are_unconditional_single_target_effects() {
             .unwrap()
             .ends_with("writer-stream+1")
     );
-    assert_eq!(budget.reads(), 6);
+    assert_eq!(budget.reads(), 8);
 }
 
 #[test]

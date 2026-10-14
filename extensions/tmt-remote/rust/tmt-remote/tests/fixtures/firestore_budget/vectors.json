@@ -3,118 +3,129 @@
   {
    "members": 1,
    "writers": 1,
-   "readsPerAppend": 3,
-   "optimisticReadsPerAppend": 3,
-   "dailyAppendLimit": 16666,
-   "share": 16666,
-   "warnAt": 11666,
-   "refuseAt": 14999,
-   "minFlushIntervalMs": 618
+   "readsPerAppend": 4,
+   "optimisticReadsPerAppend": 4,
+   "dailyAppendLimit": 12500,
+   "share": 12500,
+   "warnAt": 8750,
+   "refuseAt": 11250,
+   "minFlushIntervalMs": 823
   },
   {
    "members": 2,
    "writers": 1,
-   "readsPerAppend": 6,
-   "optimisticReadsPerAppend": 4,
-   "dailyAppendLimit": 8333,
-   "share": 8333,
-   "warnAt": 5833,
-   "refuseAt": 7499,
-   "minFlushIntervalMs": 1235
+   "readsPerAppend": 7,
+   "optimisticReadsPerAppend": 5,
+   "dailyAppendLimit": 7142,
+   "share": 7142,
+   "warnAt": 4999,
+   "refuseAt": 6427,
+   "minFlushIntervalMs": 1441
   },
   {
    "members": 2,
    "writers": 2,
-   "readsPerAppend": 6,
-   "optimisticReadsPerAppend": 4,
-   "dailyAppendLimit": 8333,
-   "share": 4166,
-   "warnAt": 2916,
-   "refuseAt": 3749,
-   "minFlushIntervalMs": 1235
+   "readsPerAppend": 7,
+   "optimisticReadsPerAppend": 5,
+   "dailyAppendLimit": 7142,
+   "share": 3571,
+   "warnAt": 2499,
+   "refuseAt": 3213,
+   "minFlushIntervalMs": 1441
   },
   {
    "members": 3,
    "writers": 2,
-   "readsPerAppend": 9,
-   "optimisticReadsPerAppend": 5,
-   "dailyAppendLimit": 5555,
-   "share": 2777,
-   "warnAt": 1943,
-   "refuseAt": 2499,
-   "minFlushIntervalMs": 1852
+   "readsPerAppend": 10,
+   "optimisticReadsPerAppend": 6,
+   "dailyAppendLimit": 5000,
+   "share": 2500,
+   "warnAt": 1750,
+   "refuseAt": 2250,
+   "minFlushIntervalMs": 2058
+  },
+  {
+   "members": 4,
+   "writers": 4,
+   "readsPerAppend": 13,
+   "optimisticReadsPerAppend": 7,
+   "dailyAppendLimit": 3846,
+   "share": 961,
+   "warnAt": 672,
+   "refuseAt": 864,
+   "minFlushIntervalMs": 2675
   },
   {
    "members": 5,
    "writers": 3,
-   "readsPerAppend": 15,
-   "optimisticReadsPerAppend": 7,
-   "dailyAppendLimit": 3333,
-   "share": 1111,
-   "warnAt": 777,
-   "refuseAt": 999,
-   "minFlushIntervalMs": 3087
+   "readsPerAppend": 16,
+   "optimisticReadsPerAppend": 8,
+   "dailyAppendLimit": 3125,
+   "share": 1041,
+   "warnAt": 728,
+   "refuseAt": 936,
+   "minFlushIntervalMs": 3293
   },
   {
    "members": 5,
    "writers": 5,
-   "readsPerAppend": 15,
-   "optimisticReadsPerAppend": 7,
-   "dailyAppendLimit": 3333,
-   "share": 666,
-   "warnAt": 466,
-   "refuseAt": 599,
-   "minFlushIntervalMs": 3087
+   "readsPerAppend": 16,
+   "optimisticReadsPerAppend": 8,
+   "dailyAppendLimit": 3125,
+   "share": 625,
+   "warnAt": 437,
+   "refuseAt": 562,
+   "minFlushIntervalMs": 3293
   },
   {
    "members": 10,
    "writers": 4,
-   "readsPerAppend": 30,
-   "optimisticReadsPerAppend": 12,
-   "dailyAppendLimit": 1666,
-   "share": 416,
-   "warnAt": 291,
-   "refuseAt": 374,
-   "minFlushIntervalMs": 6175
+   "readsPerAppend": 31,
+   "optimisticReadsPerAppend": 13,
+   "dailyAppendLimit": 1612,
+   "share": 403,
+   "warnAt": 282,
+   "refuseAt": 362,
+   "minFlushIntervalMs": 6383
   },
   {
    "members": 10,
    "writers": 10,
-   "readsPerAppend": 30,
-   "optimisticReadsPerAppend": 12,
-   "dailyAppendLimit": 1666,
-   "share": 166,
-   "warnAt": 116,
-   "refuseAt": 149,
-   "minFlushIntervalMs": 6175
+   "readsPerAppend": 31,
+   "optimisticReadsPerAppend": 13,
+   "dailyAppendLimit": 1612,
+   "share": 161,
+   "warnAt": 112,
+   "refuseAt": 144,
+   "minFlushIntervalMs": 6383
   },
   {
    "members": 25,
    "writers": 5,
-   "readsPerAppend": 75,
-   "optimisticReadsPerAppend": 27,
-   "dailyAppendLimit": 666,
-   "share": 133,
-   "warnAt": 93,
-   "refuseAt": 119,
-   "minFlushIntervalMs": 15451
+   "readsPerAppend": 76,
+   "optimisticReadsPerAppend": 28,
+   "dailyAppendLimit": 657,
+   "share": 131,
+   "warnAt": 91,
+   "refuseAt": 117,
+   "minFlushIntervalMs": 15687
   },
   {
    "members": 25,
    "writers": 25,
-   "readsPerAppend": 75,
-   "optimisticReadsPerAppend": 27,
-   "dailyAppendLimit": 666,
+   "readsPerAppend": 76,
+   "optimisticReadsPerAppend": 28,
+   "dailyAppendLimit": 657,
    "share": 26,
    "warnAt": 18,
    "refuseAt": 23,
-   "minFlushIntervalMs": 15451
+   "minFlushIntervalMs": 15687
   },
   {
    "members": 100,
    "writers": 10,
-   "readsPerAppend": 300,
-   "optimisticReadsPerAppend": 102,
+   "readsPerAppend": 301,
+   "optimisticReadsPerAppend": 103,
    "dailyAppendLimit": 166,
    "share": 16,
    "warnAt": 11,
@@ -132,31 +143,31 @@
   {
    "members": 1,
    "writers": 1,
-   "used": 11665,
+   "used": 8749,
    "verdict": "ok"
   },
   {
    "members": 1,
    "writers": 1,
-   "used": 11666,
+   "used": 8750,
    "verdict": "warn"
   },
   {
    "members": 1,
    "writers": 1,
-   "used": 14998,
+   "used": 11249,
    "verdict": "warn"
   },
   {
    "members": 1,
    "writers": 1,
-   "used": 14999,
+   "used": 11250,
    "verdict": "refuse"
   },
   {
    "members": 1,
    "writers": 1,
-   "used": 15000,
+   "used": 11251,
    "verdict": "refuse"
   },
   {
@@ -168,31 +179,31 @@
   {
    "members": 2,
    "writers": 1,
-   "used": 5832,
+   "used": 4998,
    "verdict": "ok"
   },
   {
    "members": 2,
    "writers": 1,
-   "used": 5833,
+   "used": 4999,
    "verdict": "warn"
   },
   {
    "members": 2,
    "writers": 1,
-   "used": 7498,
+   "used": 6426,
    "verdict": "warn"
   },
   {
    "members": 2,
    "writers": 1,
-   "used": 7499,
+   "used": 6427,
    "verdict": "refuse"
   },
   {
    "members": 2,
    "writers": 1,
-   "used": 7500,
+   "used": 6428,
    "verdict": "refuse"
   },
   {
@@ -203,68 +214,104 @@
   },
   {
    "members": 2,
-   "writers": 2,
-   "used": 2915,
-   "verdict": "ok"
-  },
-  {
-   "members": 2,
-   "writers": 2,
-   "used": 2916,
-   "verdict": "warn"
-  },
-  {
-   "members": 2,
-   "writers": 2,
-   "used": 3748,
-   "verdict": "warn"
-  },
-  {
-   "members": 2,
-   "writers": 2,
-   "used": 3749,
-   "verdict": "refuse"
-  },
-  {
-   "members": 2,
-   "writers": 2,
-   "used": 3750,
-   "verdict": "refuse"
-  },
-  {
-   "members": 3,
-   "writers": 2,
-   "used": 0,
-   "verdict": "ok"
-  },
-  {
-   "members": 3,
-   "writers": 2,
-   "used": 1942,
-   "verdict": "ok"
-  },
-  {
-   "members": 3,
-   "writers": 2,
-   "used": 1943,
-   "verdict": "warn"
-  },
-  {
-   "members": 3,
    "writers": 2,
    "used": 2498,
-   "verdict": "warn"
+   "verdict": "ok"
   },
   {
-   "members": 3,
+   "members": 2,
    "writers": 2,
    "used": 2499,
+   "verdict": "warn"
+  },
+  {
+   "members": 2,
+   "writers": 2,
+   "used": 3212,
+   "verdict": "warn"
+  },
+  {
+   "members": 2,
+   "writers": 2,
+   "used": 3213,
+   "verdict": "refuse"
+  },
+  {
+   "members": 2,
+   "writers": 2,
+   "used": 3214,
    "verdict": "refuse"
   },
   {
    "members": 3,
    "writers": 2,
-   "used": 2500,
+   "used": 0,
+   "verdict": "ok"
+  },
+  {
+   "members": 3,
+   "writers": 2,
+   "used": 1749,
+   "verdict": "ok"
+  },
+  {
+   "members": 3,
+   "writers": 2,
+   "used": 1750,
+   "verdict": "warn"
+  },
+  {
+   "members": 3,
+   "writers": 2,
+   "used": 2249,
+   "verdict": "warn"
+  },
+  {
+   "members": 3,
+   "writers": 2,
+   "used": 2250,
+   "verdict": "refuse"
+  },
+  {
+   "members": 3,
+   "writers": 2,
+   "used": 2251,
+   "verdict": "refuse"
+  },
+  {
+   "members": 4,
+   "writers": 4,
+   "used": 0,
+   "verdict": "ok"
+  },
+  {
+   "members": 4,
+   "writers": 4,
+   "used": 671,
+   "verdict": "ok"
+  },
+  {
+   "members": 4,
+   "writers": 4,
+   "used": 672,
+   "verdict": "warn"
+  },
+  {
+   "members": 4,
+   "writers": 4,
+   "used": 863,
+   "verdict": "warn"
+  },
+  {
+   "members": 4,
+   "writers": 4,
+   "used": 864,
+   "verdict": "refuse"
+  },
+  {
+   "members": 4,
+   "writers": 4,
+   "used": 865,
    "verdict": "refuse"
   },
   {
@@ -276,31 +323,31 @@
   {
    "members": 5,
    "writers": 3,
-   "used": 776,
+   "used": 727,
    "verdict": "ok"
   },
   {
    "members": 5,
    "writers": 3,
-   "used": 777,
+   "used": 728,
    "verdict": "warn"
   },
   {
    "members": 5,
    "writers": 3,
-   "used": 998,
+   "used": 935,
    "verdict": "warn"
   },
   {
    "members": 5,
    "writers": 3,
-   "used": 999,
+   "used": 936,
    "verdict": "refuse"
   },
   {
    "members": 5,
    "writers": 3,
-   "used": 1000,
+   "used": 937,
    "verdict": "refuse"
   },
   {
@@ -312,31 +359,31 @@
   {
    "members": 5,
    "writers": 5,
-   "used": 465,
+   "used": 436,
    "verdict": "ok"
   },
   {
    "members": 5,
    "writers": 5,
-   "used": 466,
+   "used": 437,
    "verdict": "warn"
   },
   {
    "members": 5,
    "writers": 5,
-   "used": 598,
+   "used": 561,
    "verdict": "warn"
   },
   {
    "members": 5,
    "writers": 5,
-   "used": 599,
+   "used": 562,
    "verdict": "refuse"
   },
   {
    "members": 5,
    "writers": 5,
-   "used": 600,
+   "used": 563,
    "verdict": "refuse"
   },
   {
@@ -348,31 +395,31 @@
   {
    "members": 10,
    "writers": 4,
-   "used": 290,
+   "used": 281,
    "verdict": "ok"
   },
   {
    "members": 10,
    "writers": 4,
-   "used": 291,
+   "used": 282,
    "verdict": "warn"
   },
   {
    "members": 10,
    "writers": 4,
-   "used": 373,
+   "used": 361,
    "verdict": "warn"
   },
   {
    "members": 10,
    "writers": 4,
-   "used": 374,
+   "used": 362,
    "verdict": "refuse"
   },
   {
    "members": 10,
    "writers": 4,
-   "used": 375,
+   "used": 363,
    "verdict": "refuse"
   },
   {
@@ -384,67 +431,67 @@
   {
    "members": 10,
    "writers": 10,
-   "used": 115,
+   "used": 111,
    "verdict": "ok"
   },
   {
    "members": 10,
    "writers": 10,
+   "used": 112,
+   "verdict": "warn"
+  },
+  {
+   "members": 10,
+   "writers": 10,
+   "used": 143,
+   "verdict": "warn"
+  },
+  {
+   "members": 10,
+   "writers": 10,
+   "used": 144,
+   "verdict": "refuse"
+  },
+  {
+   "members": 10,
+   "writers": 10,
+   "used": 145,
+   "verdict": "refuse"
+  },
+  {
+   "members": 25,
+   "writers": 5,
+   "used": 0,
+   "verdict": "ok"
+  },
+  {
+   "members": 25,
+   "writers": 5,
+   "used": 90,
+   "verdict": "ok"
+  },
+  {
+   "members": 25,
+   "writers": 5,
+   "used": 91,
+   "verdict": "warn"
+  },
+  {
+   "members": 25,
+   "writers": 5,
    "used": 116,
    "verdict": "warn"
   },
   {
-   "members": 10,
-   "writers": 10,
-   "used": 148,
-   "verdict": "warn"
-  },
-  {
-   "members": 10,
-   "writers": 10,
-   "used": 149,
+   "members": 25,
+   "writers": 5,
+   "used": 117,
    "verdict": "refuse"
-  },
-  {
-   "members": 10,
-   "writers": 10,
-   "used": 150,
-   "verdict": "refuse"
-  },
-  {
-   "members": 25,
-   "writers": 5,
-   "used": 0,
-   "verdict": "ok"
-  },
-  {
-   "members": 25,
-   "writers": 5,
-   "used": 92,
-   "verdict": "ok"
-  },
-  {
-   "members": 25,
-   "writers": 5,
-   "used": 93,
-   "verdict": "warn"
   },
   {
    "members": 25,
    "writers": 5,
    "used": 118,
-   "verdict": "warn"
-  },
-  {
-   "members": 25,
-   "writers": 5,
-   "used": 119,
-   "verdict": "refuse"
-  },
-  {
-   "members": 25,
-   "writers": 5,
-   "used": 120,
    "verdict": "refuse"
   },
   {
