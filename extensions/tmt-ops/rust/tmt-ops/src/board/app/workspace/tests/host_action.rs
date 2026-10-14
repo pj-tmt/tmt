@@ -1,6 +1,28 @@
 use super::*;
 
 #[test]
+fn workspace_settings_down_saturation_selects_its_final_actions_entry() {
+    let mut app = board();
+    assert_eq!(app.workspace_settings(), Effect::None);
+    let last = app.menu.as_ref().unwrap().entries.last().unwrap();
+    assert_eq!(last.label, "Actions");
+    assert!(
+        matches!(&last.choice, Choice::Action(action) if action.verb == crate::action::Verb::Menu)
+    );
+    paint(&app, 160, 36);
+    for _ in 0..40 {
+        assert_eq!(key(&mut app, KeyCode::Down), Effect::None);
+    }
+    let menu = app.menu.as_ref().unwrap();
+    assert_eq!(menu.selected, menu.entries.len() - 1);
+    assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
+    assert_ne!(
+        app.menu.as_ref().unwrap().title,
+        "Workspace settings · minimum usable size governs placement"
+    );
+}
+
+#[test]
 fn custom_host_binding_wins_in_overview_agents_and_conversation_from_one_table() {
     for tab in [OpsTab::Overview, OpsTab::Agents] {
         let mut app = configured_member(
