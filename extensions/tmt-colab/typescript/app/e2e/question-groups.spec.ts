@@ -463,3 +463,86 @@ for (const width of [1440, 390])
         await capture('one-member');
       });
     }
+
+// #3069: browser DOM is the independent oracle, not the slot claims used by chrome.
+for (const width of [1440, 1024, 390])
+  for (const theme of ['light', 'dark'] as const) {
+    test(`author container bounds ${width} ${theme}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 800 });
+      for (const layout of ['centered', 'nested'] as const) {
+        const group = await mount(page, { layout, darkPage: theme === 'dark' });
+        if (theme === 'dark')
+          await (await pageAction(page.locator('#ask-page-fixture'), 'Theme: Dark')).click();
+        const container = page
+          .frameLocator('#ask-page-fixture iframe')
+          .locator('#author-container');
+        await expect
+          .poll(
+            async () => {
+              const content = await container.boundingBox();
+              const card = await group.locator('.question-group-card').boundingBox();
+              return (
+                !!content &&
+                !!card &&
+                Math.abs(card.x - content.x) <= 1 &&
+                Math.abs(card.width - content.width) <= 1
+              );
+            },
+            { message: 'question card must use the real author container edges' },
+          )
+          .toBe(true);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+          true,
+        );
+        expect(
+          await container.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+        ).toBe(true);
+      }
+    });
+    test(`footer clears floating controls ${width} ${theme}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 800 });
+      const group = await mount(page, { layout: 'centered', darkPage: theme === 'dark' });
+      if (theme === 'dark')
+        await (await pageAction(page.locator('#ask-page-fixture'), 'Theme: Dark')).click();
+      await activeCard(page).getByLabel('Keep it', { exact: true }).check();
+      const send = group.getByRole('button', { name: /^Send 1 answer/ });
+      await expect(send).toBeEnabled();
+      await send.evaluate((node) =>
+        window.scrollBy(0, node.getBoundingClientRect().bottom - innerHeight + 30),
+      );
+      const footer = group.locator('.question-group-footer');
+      const floating = page.locator('.selection-mode');
+      await expect
+        .poll(
+          async () => {
+            const fab = await floating.boundingBox();
+            const controls = await footer.getByRole('button').all();
+            const boxes = await Promise.all(controls.map((control) => control.boundingBox()));
+            return (
+              !!fab &&
+              boxes.every(
+                (box) =>
+                  !box ||
+                  fab.x >= box.x + box.width ||
+                  fab.x + fab.width <= box.x ||
+                  fab.y >= box.y + box.height ||
+                  fab.y + fab.height <= box.y,
+              )
+            );
+          },
+          { message: 'FAB must not cover Send or recipient controls' },
+        )
+        .toBe(true);
+      const captures = process.env.COLAB_QUESTION_CAPTURE_DIR;
+      if (captures) {
+        mkdirSync(captures, { recursive: true });
+        await page.screenshot({ path: `${captures}/container-footer-${width}-${theme}.png` });
+      }
+      // A trusted browser click must reach the recipient control, not chrome above it.
+      await group.getByRole('button', { name: 'Add recipient', exact: true }).click();
+      await expect(page.getByRole('combobox', { name: 'Find an agent' })).toBeVisible();
+      await page.getByRole('combobox', { name: 'Find an agent' }).press('Escape');
+      await send.click();
+      await expect(activeCard(page).locator('.question-answer')).toHaveText('Keep it');
+    });
+  }
