@@ -298,3 +298,105 @@ fn checkpoint_projection_requires_all_original_chunks_and_one_scope() {
     }
     assert!(originals::checkpoint(&wrong).is_err());
 }
+
+#[test]
+fn timestamps_are_exact_whole_second_utc_spellings() {
+    for (ms, text) in [
+        (0, "1970-01-01T00:00:00Z"),
+        (951_782_400_000, "2000-02-29T00:00:00Z"),
+        (1_700_000_000_999, "2023-11-14T22:13:20Z"),
+        (4_102_444_799_000, "2099-12-31T23:59:59Z"),
+    ] {
+        assert_eq!(Field::timestamp(ms).unwrap(), Field::Timestamp(text.into()));
+    }
+}
+
+fn routing() -> originals::Routing<'static> {
+    originals::Routing {
+        space: Box::leak("a".repeat(32).into_boxed_str()),
+        page: PAGE,
+        epoch: 1,
+        uid: "owner",
+        expires_at: Field::timestamp(1_800_000_000_000).unwrap(),
+    }
+}
+#[test]
+fn a_stored_update_publishes_as_exactly_its_own_stream_sequence_hash_and_bytes() {
+    let bytes = sealed_original("update", b"original update");
+    let document = originals::log_document(&routing(), &bytes).unwrap();
+    let parsed = originals::log(&document).unwrap();
+    assert_eq!(parsed.bytes, bytes);
+    assert_eq!(parsed.header.context.author_device, STREAM);
+    let fields = decode(Resource::Log, &document).unwrap();
+    assert_eq!(fields["uid"], string("owner"));
+    assert_eq!(
+        fields["expiresAt"],
+        Field::Timestamp("2027-01-15T08:00:00Z".into())
+    );
+    // A checkpoint is not an update, and another page's update is not this page's.
+    let checkpoint = sealed_original("checkpoint", b"cut");
+    assert!(originals::log_document(&routing(), &checkpoint).is_err());
+    let mut other = routing();
+    other.epoch = 2;
+    assert!(originals::log_document(&other, &bytes).is_err());
+}
+#[test]
+fn a_checkpoint_publishes_through_the_shared_base_and_reads_back_whole() {
+    let bytes = sealed_original("checkpoint", &[9; 70_000]);
+    let base = originals::checkpoint_base(&routing(), &bytes).unwrap();
+    let documents = originals::checkpoint_documents(base, &bytes).unwrap();
+    assert_eq!(documents.len(), 3);
+    assert_eq!(originals::checkpoint(&documents).unwrap().bytes, bytes);
+}
+#[test]
+fn signed_authority_splits_and_reassembles_exactly_and_refuses_anything_partial() {
+    let statement: Vec<u8> = (0..70_000u32).map(|n| (n % 251) as u8).collect();
+    let documents = originals::authority_documents(
+        &routing(),
+        originals::Authority::Membership,
+        "",
+        &statement,
+    )
+    .unwrap();
+    assert_eq!(documents.len(), 3);
+    assert!(documents[0].target.id.contains("_1_membership_"));
+    let (kind, bytes) = originals::authority(&documents).unwrap();
+    assert_eq!(
+        (kind, bytes),
+        (originals::Authority::Membership, statement.clone())
+    );
+    assert!(originals::authority(&documents[..2]).is_err(), "partial");
+    let mut reversed = documents.clone();
+    reversed.reverse();
+    assert!(originals::authority(&reversed).is_err(), "reordered");
+    let mut tampered = documents.clone();
+    let mut fields = decode(Resource::Authority, &tampered[2]).unwrap();
+    fields.insert("bytes".into(), string(&values::encode_binary(&[1, 2, 3])));
+    tampered[2] = encode(Resource::Authority, fields).unwrap();
+    assert!(
+        originals::authority(&tampered).is_err(),
+        "bytes that do not hash to the subject"
+    );
+    // A chain or wrap is exactly one piece, and a wrap names the reading uid.
+    assert!(
+        originals::authority_documents(&routing(), originals::Authority::Chain, "", &statement)
+            .is_err()
+    );
+    let wrap = originals::authority_documents(
+        &routing(),
+        originals::Authority::Wrap,
+        "reader",
+        b"{\"wrap\":1}",
+    )
+    .unwrap();
+    assert_eq!(
+        decode(Resource::Authority, &wrap[0]).unwrap()["recipient"],
+        string("reader")
+    );
+    assert!(
+        originals::authority_documents(&routing(), originals::Authority::Wrap, "", b"x").is_err()
+    );
+    assert!(
+        originals::authority_documents(&routing(), originals::Authority::Chain, "", b"").is_err()
+    );
+}
