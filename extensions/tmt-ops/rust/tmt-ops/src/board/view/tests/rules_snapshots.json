@@ -28,7 +28,7 @@
       "",
       "",
       "──────────────────────────────────────────────────────────────── ───────────────────────────────────────────────────────────────────────────────────────────────",
-      "⏎ inspect  p pin  m manage  n create  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  ? help  q quit"
+      "⏎ inspect  p pin  m manage  n create  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  ? help  q quit"
     ]
   },
   {
@@ -60,7 +60,7 @@
       " Usage: not reported",
       " Timers: not reported",
       "────────────────────────────────────────────────────────────────────────────────────────────────────",
-      "⏎ inspect  p pin  m manage  n create  c timers  w snapshots  , settings  / search  ? help  q quit"
+      "⏎ inspect  p pin  m manage  n create  c timers  w snapshots  a add agent  , settings  ? help  q quit"
     ]
   },
   {
@@ -124,7 +124,7 @@
       "",
       "",
       "────────────────────────────────────────────────────────────────",
-      "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  ? help  q quit"
+      "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
     ]
   },
   {
@@ -220,7 +220,7 @@
       "",
       "",
       "──────────────────────────────────────────────────────────────── ───────────────────────────────────────────────────────────────────────────────────────────────",
-      "⏎ inspect  p pin  m manage  n create  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  ? help  q quit"
+      "⏎ inspect  p pin  m manage  n create  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  ? help  q quit"
     ]
   },
   {
@@ -252,7 +252,7 @@
       "",
       "",
       "──────────────────────────────────────── ───────────────────────────────────────────────────────────",
-      "⏎ inspect  p pin  m manage  n create  c timers  w snapshots  , settings  / search  ? help  q quit"
+      "⏎ inspect  p pin  m manage  n create  c timers  w snapshots  a add agent  , settings  ? help  q quit"
     ]
   },
   {
@@ -316,7 +316,7 @@
       "",
       "",
       "────────────────────────────────────────────────────────────────",
-      "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  ? help  q quit"
+      "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
     ]
   },
   {
@@ -412,7 +412,7 @@
       " Usage: not reported",
       " Timers: not reported",
       "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-      "⏎ inspect  p pin  m manage  n create  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  ? help  q quit"
+      "⏎ inspect  p pin  m manage  n create  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  ? help  q quit"
     ]
   },
   {
@@ -444,7 +444,7 @@
       " Usage: not reported",
       " Timers: not reported",
       "────────────────────────────────────────────────────────────────────────────────────────────────────",
-      "⏎ inspect  p pin  m manage  n create  c timers  w snapshots  , settings  / search  ? help  q quit"
+      "⏎ inspect  p pin  m manage  n create  c timers  w snapshots  a add agent  , settings  ? help  q quit"
     ]
   },
   {
@@ -508,7 +508,7 @@
       "",
       "",
       "",
-      "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  ? help  q quit"
+      "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
     ]
   },
   {
