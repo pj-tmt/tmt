@@ -41,8 +41,17 @@ registered, then each local original in sequence, and `object_channel/cloud_sync
 Store and records a position only after the exact original was created or read back identical
 (`store/publication.rs` owns the positions). `sync.rs` reports the page a peer opened or wrote
 through `ActivePage`; the worker never retries a refusal Remote will not change by itself
-(`object_channel/cloud_sync/activation.rs`) and shows its one line once. Inbound streams and member admission
-are not implemented, so this publication has no reader yet.
+(`object_channel/cloud_sync/activation.rs`) and shows its one line once. The same worker is the reader of that page:
+`object_channel/cloud_sync/interests.rs` holds the three interests whose notices only wake it,
+`reader.rs` discovers the signed authority and one foreign stream's log tail, and
+`inbound.rs` (`Puller`) compares the cloud's membership log with the owner log, then follows
+each foreign stream from the Store's `stream_head`. `inbound/store.rs` admits an original with
+`Snapshot::open_stream_object` (the fold that reads stored objects) and applies it through
+`Server::ingest`, the split of the browser append path, so one apply path serves both and nothing
+that arrived is queued for publication. A refused writer stops alone; `stops.rs` keeps the
+page's stopped state in the worker's memory and the lines announce each transition.
+Checkpoint import, adopting a cloud-only log, forks, attachments and a second machine's own
+enrollment are not implemented.
 Its `admission` module captures the actual peer, current native context, exact
 request and reference/target; `peer` serializes bounded original-ID calls without
 retries. Reader tickets take precedence over a paired cookie and never upload.
