@@ -90,7 +90,10 @@ fn multiple_memberships_require_a_room_choice_before_any_review() {
         assert_eq!(menu.entries[0].label, "product");
         assert_eq!(menu.entries[1].label, "research");
         assert_eq!(app.workspace.selected, selected);
-        paint(&app, 80, 24);
+        let text = paint(&app, 80, 24).join("\n");
+        assert!(text.contains("› product"), "{text}");
+        assert!(text.contains("Enter remove · Esc cancel"), "{text}");
+        assert!(!text.contains("Enter runs"), "{text}");
         assert_eq!(key(&mut app, KeyCode::Down), Effect::None);
         assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
         assert_remove(&app, SECOND_ROOM, 7);
