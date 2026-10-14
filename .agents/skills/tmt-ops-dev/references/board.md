@@ -26,6 +26,9 @@ paint registers only visible dynamic label budgets and Overview quota rows;
 clock checks reuse those projections without roster traversal or source reads.
 Clipped countdown suffixes and hidden members do not wake the frame. Geometry
 invalidation clears this registry, and painting sets the next comparison base.
+`App::workspace_frame_rows` shares one immutable tree projection during paint;
+its scope restores nested paints and unwinding. Input and snapshot updates
+retain no row cache, so changed membership/filtering always resolves fresh.
 
 Workspace tree/detail uses shared Outline/Strip/Scrolls. Conversation and inline
 input retain their WP1 owner and opaque covered-hit mask. Review/Result uses a
@@ -68,12 +71,12 @@ state only, no squad data or durable preference policy.
   verify acquired source values, stable identity admission and refusal of missing
   members without retaining the retired row painter, Grid or projected scene
   adapter. The workspace paints admitted row text from its acquired snapshot.
-- `display_rows::project` supplies lead, nonselectable members rule and authored
-  sections to `App::items`, `App::rows` and text `ls`. The rule counts distinct
-  shown members excluding the lead; `none_yet` depends on the roster, not search.
-  Search also filters the lead; without a lead there is no rule. `each_row` includes
-  the lead in waiting, staleness, usage and color projections. `RowOrigin::Lead`
+- `display_rows::project` supplies the independent document order to text `ls`:
+  lead first, then authored sections, preserving repeats. `each_row` includes the
+  lead in source waiting, staleness, usage and color projections. `RowOrigin::Lead`
   carries no section binding, and public JSON keeps it outside `sections`.
+  The retired UI-only member rule/count is absent; workspace tree rows and counts
+  derive from the acquired UUID roster instead of this document projection.
 - `workspace::render::tree` formats the viewport's admitted UUID targets from one
   acquired roster; it owns no factory grid, boxed-member scene or column-width
   carry cache. Each row reserves its cursor, fits its supplied state/chips, and
@@ -160,18 +163,18 @@ anchors refuse actions and never retarget to a visible neighbour.
 
 ## Decisions and composers
 
-- `attention::waits_on_you` owns the pending/request predicate. `view::waiting`
-  prefers pending text to the oldest acquired request preview and accepts only
-  positive, nonfuture request timestamps for ages. Authored pending cells keep
-  their position; otherwise a continuation carries its own row hit. Header
-  `time_marks` includes request ages, so text advances without another read.
-- `view::footer::hints` derives one allowed action hint from effective bindings
-  (Enter first), ranked by `Action::footer_rank` independently of menu `Action::order`.
-  `row_allows` rejects unavailable row actions; internal verb wording uses `hint_word`. The oldest-member
-  label gets space only after all hints through `FOOTER_ROW_ACTIONS_END` fit.
-  `board::glyph_guard` checks these labels and HOME/cron text. Tail fitting and
-  appearance rules belong to the interaction owner linked above.
-- `App::input` is the shared talk/answer/annotation/status/ask-lead/HOME-audience composer.
+- `attention::waits_on_you` owns the acquired pending/request predicate. The
+  workspace tree does not disclose private waiting previews. Reply/annotation
+  actions use the selected target's acquired row and exact source request; reading
+  or annotating never clears pending data. Visible-clock admission belongs to the
+  frame registry above, not unpainted request ages or retired continuation rows.
+- `view::footer::hints` uses the effective scoped Config table and typed action
+  ranks, independently of menu ordering. `row_allows` rejects unavailable member
+  actions; `hint_word` names compatible custom actions. Whole hints drop from the
+  end, retaining the effective Help/quit tail or Help alone at narrow widths.
+  Input and modals use their own legend; the base footer does not duplicate it.
+  `board::glyph_guard` checks authored HOME/cron typography.
+- `App::input` is the shared Talk/Reply/Annotate/Status composer.
   `RowSend` freezes the occurrence and opening sender. `composer` retains session-only
   drafts, folded paste and response quotes by saved sender/recipient UUID across
   view and membership changes. Successful delivery clears only the submitted

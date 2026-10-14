@@ -44,8 +44,9 @@
   fields are ignored; a label's `choose` action is checked by `labels/action.rs` and carried with the label. A failing source backs off to 60 s; its
   last good rows stand in for 30 s, then drop. The reader sends `BoardEvent::Labels` only
   when the combined result changed, `App` replaces `labels` wholesale, and painters read
-  it through `board/row_chips.rs`. Supplied text never depends on the clock, so only the
-  digest policy chip feeds `header::time_marks`. A `Refresh` handle (`Reader::refresher`) makes the thread read at once and restart its wait;
+  it through `board/row_chips.rs`. Supplied text never depends on the clock;
+  visible digest-policy countdowns use the frame clock registry owned by
+  [board.md](board.md#frame-and-terminal). A `Refresh` handle (`Reader::refresher`) makes the thread read at once and restart its wait;
   the lane uses it after a successful digest change. Dropping the reader cancels the read in
   flight and joins the thread.
 - Squad enrichment: a squad tab publishes without its digest-policy read and reply-body
@@ -64,11 +65,13 @@
   their own rows before publication.
 - HOME exchanges: after publishing HOME, `board::home_leads` reads one bounded
   `requests.list` originator results page and one bounded recipient-history page per
-  distinct current lead UUID (50 items each). Other tabs schedule no exchange reads.
+  distinct current lead UUID (50 items each). Shell tabs share the acquired
+  workspace; changing the shell tab starts no second exchange scan.
   Inbox questions reuse the acquired `waitingOnYou` projection; acknowledged finals
   remain results. Ordering uses submission time for replies and preparation time for
-  asks. The selected `Kind::Question` is also HOME's ◆ mark source: those questions
-  come first, oldest first. Other exchanges follow, newest first. Undated exchanges
+  asks. The source projection orders questions first, oldest first; other exchanges
+  follow, newest first. This is not a retained HOME audience cursor or mark source.
+  Undated exchanges
   follow dated ones within each group; both use stable lead UUID/squad ties.
   Leads without any exchange follow both groups
   in name/squad/UUID order. Read, reconcile and replacement share this ordering.
@@ -76,13 +79,16 @@
   explicit evidence; no room scan or unbounded pagination fills gaps. Observations
   belong to the user's UUID and current lead occurrence, and share the refresh
   generation's cancellation. Preview text is sanitized separately from retained bodies.
-  The same results page supplies HOME member reply metadata. Expanded row replies
+  The same results page supplies workspace member reply metadata. Conversations
   and the full-reply reader schedule `requests.show` on that same worker through
   the selected-read queue. The user/recipient/request/kind key and selection
   revision fence delivery; detail verifies both participants before displaying
-  the retained body. `board::row_detail` drops late bodies for collapsed or removed
-  targets and prunes expansion/cache entries when their rows disappear.
-- Priorities: full loads outrank selection jobs (detail notebook or row reply) and usage-only reads.
+  the retained body. `board::row_detail` rejects late bodies whose exact request
+  or target is no longer active. A pending reader closes when its reply or
+  membership disappears; an acquired frozen source can remain readable while
+  annotation revalidates current authority. Shared Cron expansions and cached
+  bodies are pruned against their current targets and keys.
+- Priorities: full loads outrank selected response/status jobs and usage-only reads.
 
 ## Workspace startup
 
