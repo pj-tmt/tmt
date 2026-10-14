@@ -382,12 +382,16 @@ export function ownerOf(path, map = componentMap()) {
 export function explainCiSelection(paths, map = componentMap()) {
   return paths.map((path) => {
     const rule = map.rules.find(({ patterns }) => patterns.some((pattern) => pattern.test(path)));
+    const nativeSync =
+      rule && !rule.consumers.includes('native') && selectNativeSyncEmulator([path]);
     return {
       path,
       owner: ownerOf(path, map),
-      rule: rule?.id ?? 'unmapped',
-      why: rule?.why ?? 'Unmapped input retains full native verification.',
-      native: rule ? rule.consumers.includes('native') : true,
+      rule: nativeSync ? 'native-sync-emulator' : (rule?.id ?? 'unmapped'),
+      why: nativeSync
+        ? 'Shared native emulator input requires the selected workspace proof.'
+        : (rule?.why ?? 'Unmapped input retains full native verification.'),
+      native: nativeSync || (rule ? rule.consumers.includes('native') : true),
     };
   });
 }
@@ -518,6 +522,26 @@ export function selectColabFirestore(paths) {
       path === '.github/workflows/ci.yml' ||
       path.startsWith('extensions/tmt-colab/contracts/vectors/deploy-declaration-') ||
       COLAB_FIRESTORE_ROOTS.some((root) => within(root, path))
+  );
+}
+
+/** Native ordinary-user Auth and sealed REST proof, selected independently of Rules suites. */
+export function selectNativeSyncEmulator(paths) {
+  return paths.some(
+    (path) =>
+      path === '.github/workflows/ci.yml' ||
+      path === 'typescript/scripts/ci-scope.mjs' ||
+      path === 'extensions/tmt-remote/rust/tmt-remote/src/firebase_auth.rs' ||
+      path === 'extensions/tmt-remote/rust/tmt-remote/src/native_sync.rs' ||
+      path === 'extensions/tmt-remote/rust/tmt-remote/src/sealed_sync.rs' ||
+      path === 'extensions/tmt-remote/rust/tmt-remote/src/declaration.rs' ||
+      [
+        'extensions/tmt-remote/rust/tmt-remote/src/firebase_auth',
+        'extensions/tmt-remote/rust/tmt-remote/src/native_sync',
+        'extensions/tmt-remote/rust/tmt-remote/src/declaration',
+        'extensions/tmt-remote/typescript/remote-client/test/emulator',
+      ].some((root) => within(root, path)) ||
+      path.startsWith('extensions/tmt-colab/contracts/vectors/deploy-declaration-v1.')
   );
 }
 
@@ -775,6 +799,7 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
   const nativeNotices = !seed && (full || selectNativeNotices(selection.paths));
   const remoteFirestore = !seed && !full && selectRemoteFirestore(selection.paths);
   const colabFirestore = !seed && !full && selectColabFirestore(selection.paths);
+  const nativeSyncEmulator = !seed && !full && selectNativeSyncEmulator(selection.paths);
   const evidence =
     (full || seed || fallback
       ? `### CI selection\n\n${fallback ?? (full ? 'Weekly/manual retained-product verification.' : 'Main cache seed.')}\n`
@@ -783,7 +808,8 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
     `\nColab app component suite PR selection (app, client, browser UI, workflow or lockfile): ${colabApp}.\n` +
     `\nNative dependency notices selection: ${nativeNotices}.\n` +
     `\nRemote Firestore Rules emulator selection (Unit tests job): ${remoteFirestore}.\n` +
-    `\nColab Firestore Rules emulator selection (Unit tests job): ${colabFirestore}.\n`;
+    `\nColab Firestore Rules emulator selection (Unit tests job): ${colabFirestore}.\n` +
+    `\nNative Auth+Firestore emulator selection (workspace tests job): ${nativeSyncEmulator}.\n`;
   stderr.write(evidence);
   if (summaryFile) appendFileSync(summaryFile, evidence);
   const { areas, nativeScope } = selection;
@@ -796,6 +822,7 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
       `native_notices=${nativeNotices}\n` +
       `remote_firestore=${remoteFirestore}\n` +
       `colab_firestore=${colabFirestore}\n` +
+      `native_sync_emulator=${nativeSyncEmulator}\n` +
       `native_scope=${nativeScope}\n` +
       `scoped_native_tests=${checks.nativeTests.join(' ')}\n` +
       `e2e_shard_1=${firstShard.join(' ')}\n` +

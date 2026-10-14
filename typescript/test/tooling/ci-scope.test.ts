@@ -36,6 +36,7 @@ import {
   selectNativeScope,
   selectColabApp,
   selectRemoteFirestore,
+  selectNativeSyncEmulator,
   selectColabFirestore,
   selectColabHarness,
   selectNativeNotices,
@@ -1159,6 +1160,7 @@ describe('CI diff and command integration', () => {
         native_notices: 'false',
         remote_firestore: 'false',
         colab_firestore: 'false',
+        native_sync_emulator: 'false',
         scoped_native_tests:
           'ops.test.ts extension-install.test.ts extension-upgrade-proof.test.ts uninstall.test.ts',
         e2e_shard_1: 'ops.e2e.test.ts ops-reminder.e2e.test.ts',
@@ -2762,4 +2764,52 @@ it('enforces current PR Agent attribution for PRs and merge groups in Code quali
   expect(feedback).toContain('contents: read');
   expect(feedback).toContain('pull-requests: read');
   expect(ci).not.toContain('pull-requests: write');
+});
+
+describe('native Auth+Firestore emulator selection', () => {
+  it.each([
+    'extensions/tmt-remote/rust/tmt-remote/src/firebase_auth.rs',
+    'extensions/tmt-remote/rust/tmt-remote/src/firebase_auth/emulator_tests.rs',
+    'extensions/tmt-remote/rust/tmt-remote/src/native_sync/client.rs',
+    'extensions/tmt-remote/rust/tmt-remote/src/sealed_sync.rs',
+    'extensions/tmt-colab/contracts/vectors/deploy-declaration-v1.firestore.rules',
+    'extensions/tmt-colab/contracts/vectors/deploy-declaration-v1.firestore.indexes.json',
+    'extensions/tmt-remote/typescript/remote-client/test/emulator/native-qualify.mjs',
+    '.github/workflows/ci.yml',
+  ])('selects the real native client proof for %s', (file) => {
+    expect(selectNativeSyncEmulator([file])).toBe(true);
+    expect(selectCiAreas([file]).native).toBe(true);
+    expect(selectNativeScope([file])).toBe('full');
+  });
+  it.each([
+    'site/src/chapters/start.mdx',
+    'extensions/tmt-remote/rust/tmt-remote/src/serve.rs',
+    'extensions/tmt-remote/rust/tmt-remote/src/native_sync-other/client.rs',
+    'extensions/tmt-colab/contracts/vectors/deploy-declaration-v1-other.json',
+  ])('does not select unrelated %s', (file) => {
+    expect(selectNativeSyncEmulator([file])).toBe(false);
+  });
+  it('runs one selected ignored test in the existing workspace job, with no new dependency edge', () => {
+    const ci = readFileSync(new URL('../../../.github/workflows/ci.yml', import.meta.url), 'utf8');
+    const job = ci.split('\n  native-workspace-tests:\n')[1].split('\n  native-process-tests:')[0];
+    expect(job).toContain('needs: changes');
+    expect(job).toContain(
+      "native_scope == 'full' && needs.changes.outputs.native_sync_emulator == 'true'"
+    );
+    expect(job).toContain('firebase-tools@15.29.0');
+    expect(job).toContain('timeout-minutes: 8');
+    expect(job).toContain('test/emulator/native-qualify.mjs');
+    const runner = readFileSync(
+      new URL(
+        '../../../extensions/tmt-remote/typescript/remote-client/test/emulator/native-qualify.mjs',
+        import.meta.url
+      ),
+      'utf8'
+    );
+    expect(runner).toMatch(/'--ignored',\s*'--exact'/);
+    expect(runner).toContain('runInPrivateWorld');
+    expect(runner).toContain("'127.0.0.1'");
+    expect(runner).toContain('1 passed; 0 failed; 0 ignored;');
+    expect(runner).not.toContain('docker');
+  });
 });
