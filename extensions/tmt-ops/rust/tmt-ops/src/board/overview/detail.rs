@@ -307,4 +307,45 @@ mod tests {
         assert_eq!(app.monitor_details_event(&escape), Some(Effect::None));
         assert!(app.monitor_details.is_none());
     }
+    #[test]
+    fn details_retains_complete_observed_metadata_and_literal_idn_link() {
+        let mut app = crate::board::app::workspace::tests::board();
+        app.shell.tab = OpsTab::Overview;
+        let target = app.workspace.selected.clone().unwrap();
+        let OpsTarget::Member { identity_id, .. } = &target else {
+            panic!("member")
+        };
+        let model = "model-界界-with-a-long-observed-label";
+        let link = "https://例.test/a/very/long/path?literal=$(id)&value=unchanged";
+        app.references = crate::board::inventory::Inventory::from_listed(
+            &[],
+            &Ok(serde_json::json!({
+                "identities":[{"id":identity_id,"name":"worker","runningDriver":"claude","resume":{"model":model}}]
+            })),
+        );
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .rows
+            .get_mut(&target)
+            .unwrap()["fields"]["pr_link"] = serde_json::json!(link);
+        assert_eq!(app.overview_details(), Effect::None);
+        let lines = &app.monitor_details.as_ref().unwrap().lines;
+        assert!(lines.iter().any(|line| line == &format!("Model: {model}")));
+        assert!(lines.iter().any(|line| line == &format!("pr_link: {link}")));
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.starts_with("o: open · ") && line.contains(link))
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("Manage link (argv; replace field=value)"))
+        );
+    }
 }

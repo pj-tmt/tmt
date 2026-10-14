@@ -11,7 +11,13 @@ use serde_json::json;
 fn capture_monitor_modal_packet() {
     let output = std::env::var("TMT_MONITOR_MODAL_CAPTURE").expect("task-owned evidence path");
     let mut frames = Vec::new();
-    for scene in ["details", "timer-pending", "timer-ready", "timer-failed"] {
+    for scene in [
+        "details",
+        "details-link-end",
+        "timer-pending",
+        "timer-ready",
+        "timer-failed",
+    ] {
         for width in [160, 140, 100, 80, 60] {
             for height in [36, 8] {
                 for (base, depth) in [
@@ -28,7 +34,19 @@ fn capture_monitor_modal_packet() {
                     };
                     let mut app =
                         crate::board::app::workspace::tests::capture_case("overview", look);
-                    if scene == "details" {
+                    if scene.starts_with("details") {
+                        let target = app.workspace.selected.clone().unwrap();
+                        app.view
+                            .as_mut()
+                            .unwrap()
+                            .home
+                            .as_mut()
+                            .unwrap()
+                            .workspace
+                            .rows
+                            .get_mut(&target)
+                            .unwrap()["fields"]["pr_link"] =
+                            json!("https://例.test/a/very/long/path?literal=$(id)&value=unchanged");
                         assert_eq!(app.overview_details(), Effect::None);
                         assert!(app.monitor_details.is_some());
                     } else {
@@ -64,6 +82,17 @@ fn capture_monitor_modal_packet() {
                     terminal
                         .draw(|frame| crate::board::view::render(frame, &app))
                         .unwrap();
+                    if scene == "details-link-end" {
+                        app.monitor_details_event(&ratatui::crossterm::event::Event::Key(
+                            ratatui::crossterm::event::KeyEvent::new(
+                                ratatui::crossterm::event::KeyCode::End,
+                                ratatui::crossterm::event::KeyModifiers::NONE,
+                            ),
+                        ));
+                        terminal
+                            .draw(|frame| crate::board::view::render(frame, &app))
+                            .unwrap();
+                    }
                     let buffer = terminal.backend().buffer();
                     let cells = buffer.content.iter().map(|cell| json!({
                         "symbol":cell.symbol(), "fg":format!("{:?}",cell.fg),
@@ -83,6 +112,6 @@ fn capture_monitor_modal_packet() {
             }
         }
     }
-    assert_eq!(frames.len(), 160);
+    assert_eq!(frames.len(), 200);
     std::fs::write(output, serde_json::to_vec(&frames).unwrap()).unwrap();
 }

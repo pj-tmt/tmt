@@ -366,4 +366,62 @@ mod tests {
             }
         }
     }
+    #[test]
+    fn long_observed_metadata_is_clipped_by_cells_but_keeps_full_values() {
+        let mut app = board();
+        let runtime = "fixture-runtime-with-long-name";
+        // Wide fixture glyphs exercise cell geometry, not a new Core driver.
+        let model = "model-界界-with-a-long-observed-label";
+        let OpsTarget::Member { identity_id, .. } = app.workspace.selected.clone().unwrap() else {
+            panic!("selected observed member")
+        };
+        app.references = crate::board::inventory::Inventory::from_listed(
+            &[],
+            &Ok(json!({
+                "identities": [{"id":identity_id,"name":"worker","runningDriver":runtime,
+                    "resume":{"model":model}}]
+            })),
+        );
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .preferences
+            .layout = crate::config::OpsLayout::Stack;
+        for width in [60, 80, 100, 140, 160] {
+            let mut terminal = Terminal::new(TestBackend::new(width, 36)).unwrap();
+            terminal
+                .draw(|frame| crate::board::view::render(frame, &app))
+                .unwrap();
+            let rows = app.workspace_rows();
+            let index = rows
+                .iter()
+                .position(|row| Some(&row.target) == app.workspace.selected.as_ref())
+                .unwrap();
+            let observed = values(&app, app.workspace_snapshot().unwrap(), &rows[index]);
+            assert_eq!(observed.runtime.as_deref(), Some(runtime));
+            assert_eq!(observed.model.as_deref(), Some(model));
+            assert_eq!(app.row_starts.borrow().len(), 2);
+            if width == 160 {
+                for column in [OverviewColumn::Runtime, OverviewColumn::Model] {
+                    let area = app
+                        .overview_sort_hits
+                        .borrow()
+                        .iter()
+                        .find(|(_, c)| *c == column)
+                        .unwrap()
+                        .0;
+                    let text = (area.x..area.right())
+                        .map(|x| {
+                            terminal.backend().buffer()[(x, area.y + 1 + index as u16)].symbol()
+                        })
+                        .collect::<String>();
+                    assert!(text.contains('…'), "{column:?}: {text}");
+                }
+            }
+        }
+    }
 }
