@@ -1835,7 +1835,14 @@ impl App {
                 return self.cycle_token_window();
             }
             Verb::HomeMessage => return self.toggle_row_detail(),
-            Verb::ViewReply => return self.view_row_reply(),
+            Verb::ViewReply => {
+                let effect = self.view_row_reply();
+                return if self.row_details.reader.is_none() {
+                    self.say("No response is available for the selected agent yet.")
+                } else {
+                    effect
+                };
+            }
             Verb::AskLead => return self.ask_lead(),
             Verb::Digest => return self.digest_row(self.selected),
             Verb::Settings => {
@@ -1919,6 +1926,7 @@ impl App {
                 !matches!(event.as_str(), "click" | "double-click")
                     && !matches!(action.verb, Verb::Menu | Verb::NextPane | Verb::TokenWindow)
                     && (row.is_some() || !action.verb.acts_on_member())
+                    && (action.verb != Verb::ViewReply || self.reply_hint())
                     // Without a digest source there is nothing for this entry to do.
                     && (action.verb != Verb::Digest
                         || row.as_ref().is_some_and(|row| self.digest_choice(row).is_some()))
@@ -1933,18 +1941,15 @@ impl App {
             Choice::Action(action) => action.order(),
             _ => u8::MAX,
         });
-        if let Some(draft) = self.workspace_form.as_ref().filter(|draft| {
-            draft.kind == super::workspace::manage::Kind::RenameMember && !draft.shown
-        }) {
+        if let Some(draft) = self.workspace_form.as_ref().filter(|draft| !draft.shown) {
             entries.push(MenuEntry {
                 key: String::new(),
                 label: if draft.stage == super::workspace::manage::Stage::Pending {
-                    "Pending Rename"
+                    format!("Pending {}", draft.kind.label())
                 } else {
-                    "Rename result"
-                }
-                .into(),
-                choice: Choice::WorkspaceBegin(super::workspace::manage::Kind::RenameMember),
+                    format!("{} result", draft.kind.label())
+                },
+                choice: Choice::WorkspaceBegin(draft.kind),
             });
         }
         if self.quota_details_available()
@@ -3125,13 +3130,98 @@ impl App {
 
     pub fn key(&mut self, key: KeyEvent) -> Effect {
         self.meter_hover = None;
+        if key.kind == ratatui::crossterm::event::KeyEventKind::Release {
+            return Effect::None;
+        }
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+            return Effect::Quit;
+        }
+        // Completion owns its first Escape even when its editor lives inside
+        // a workspace overlay. Closing it must not cancel the enclosing form.
+        let owner = self.workspace_input_owner();
+        if key.code == KeyCode::Esc
+            && owner == super::shell::OpsInputOwner::Completion
+            && let Some(effect) = self.mention_key(key)
+        {
+            return effect;
+        }
+        let typing = matches!(
+            owner,
+            super::shell::OpsInputOwner::Composer
+                | super::shell::OpsInputOwner::Search
+                | super::shell::OpsInputOwner::Completion
+        );
+        if !typing
+            && (self.modal_open() || self.usage_chart.borrow().focused())
+            && let Some(action) = event_name(key).and_then(|name| self.bindings().remove(&name))
+            && matches!(
+                action.verb,
+                Verb::Ui(
+                    crate::action::OpsUiAction::Overview
+                        | crate::action::OpsUiAction::Agents
+                        | crate::action::OpsUiAction::DigestDashboard
+                )
+            )
+        {
+            let mut cleanup = Effect::None;
+            // A destination dismisses an entire read-only overlay through its
+            // existing back owner. The deepest current ladder has three levels;
+            // a fourth back is a bound, never a submit/retry or an event replay.
+            let back = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
+            for _ in 0..4 {
+                if !self.modal_open() {
+                    break;
+                }
+                let effect = if self.menu.is_some() && self.overlay().is_none() {
+                    self.menu_key(back)
+                } else {
+                    self.overlay_event(&Event::Key(back))
+                        .unwrap_or(Effect::None)
+                };
+                match effect {
+                    Effect::None => {}
+                    Effect::CancelSettings => cleanup = effect,
+                    other => return other,
+                }
+            }
+            if self.modal_open() {
+                return self.say(
+                    "This operation is still pending; inspect its outcome before switching tabs.",
+                );
+            }
+            // A covered editor is not the receiving input owner. Once its
+            // overlay is gone, close it through the existing draft-saving path.
+            if self.input.is_some() {
+                let effect = self.input_key(back);
+                if effect != Effect::None {
+                    return effect;
+                }
+            }
+            self.searching = false;
+            let effect = self.perform(&action);
+            return if effect == Effect::None {
+                cleanup
+            } else {
+                effect
+            };
+        }
+        if !typing
+            && key.code == KeyCode::Char('q')
+            && key.modifiers.is_empty()
+            && self.modal_open()
+        {
+            let back = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
+            return if self.menu.is_some() && self.overlay().is_none() {
+                self.menu_key(back)
+            } else {
+                self.overlay_event(&Event::Key(back))
+                    .unwrap_or(Effect::None)
+            };
+        }
         if let Some(effect) = self.overlay_event(&Event::Key(key)) {
             return effect;
         }
         self.notice = None;
-        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
-            return Effect::Quit;
-        }
         // Refresh keeps text inputs intact and uses the same override owner
         // as ordinary keys; rebinding ctrl-r does not force a refresh.
         if event_name(key).as_deref() == Some("ctrl-r")
@@ -3938,7 +4028,14 @@ pub(crate) mod tests {
 
         app.perform(&Action::parse("annotate").unwrap());
         assert_eq!(app.menu.as_ref().unwrap().entries.len(), 2);
-        press(&mut app, KeyCode::Char('1'));
+        let selected = app.workspace.selected.clone();
+        assert_eq!(press(&mut app, KeyCode::Char('1')), Effect::None);
+        assert_eq!(app.shell.tab, crate::board::shell::OpsTab::Overview);
+        assert!(app.menu.is_none() && app.input.is_none());
+        assert_eq!(app.workspace.selected, selected);
+        press(&mut app, KeyCode::Char('2'));
+        app.perform(&Action::parse("annotate").unwrap());
+        press(&mut app, KeyCode::Enter);
         press(&mut app, KeyCode::Tab);
         assert_eq!(
             app.input.as_ref().unwrap().prompt,
@@ -3962,7 +4059,8 @@ pub(crate) mod tests {
         let menu = app.menu.as_ref().expect("picker");
         assert_eq!(menu.title, "answer auth-fix");
         assert_eq!(menu.entries.len(), 2);
-        press(&mut app, KeyCode::Char('2'));
+        press(&mut app, KeyCode::Down);
+        press(&mut app, KeyCode::Enter);
         assert_eq!(
             app.input.as_ref().unwrap().prompt,
             "→ auth-fix (product) · answer"

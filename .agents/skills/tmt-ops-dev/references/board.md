@@ -121,8 +121,11 @@ state only, no squad data or durable preference policy.
   and `Input.others` the rest in cycle order; Tab (`cycle_mode`) rotates them and
   refreshes the quote. `attach_row` builds the list from the row (`other_modes`), so a
   mode appears only when available; multiple answers use the same explicit request menu. `Input::header` names the recipient, its squad and the mode (`→ sol (product) · note`).
-  Workspace dispatch, help and footer resolve the same Config key table. Text,
-  search, completion, overlays and the conversation own input before shell keys.
+  Workspace dispatch, help and footer resolve the same Config key table. Active
+  text, search and completion keep their input; non-typing panes and overlays
+  accept effective destination actions after the overlay's own back path closes it.
+  Esc closes one level and stays at the base list; it is not bindable. Default `q`
+  quits the board body, backs out of an overlay and types in an active editor.
   The footer keeps a whole prefix of ranked hints and the effective Help/quit tail;
   when that tail cannot fit, the effective Help hint remains if it fits alone.
   Opaque modals hide the base hints;

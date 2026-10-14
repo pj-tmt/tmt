@@ -637,7 +637,13 @@ fn job_expansion_is_explicit_shared_between_surfaces_and_pruned_on_removal() {
     assert!(app.row_details.expanded.is_empty());
     app.cron.cron.as_mut().unwrap().actor = Err("actor unavailable".into());
     press(&mut app, KeyCode::Char('e'));
-    assert!(app.input.is_none() && app.row_details.contains(&Target::Job(first.clone())));
+    assert!(
+        app.input.is_none()
+            && app
+                .row_details
+                .expanded
+                .contains(&Target::Job(first.clone()))
+    );
     let shown = draw(&app, 160, 40).join("\n");
     assert!(shown.contains("no details yet"), "{shown}");
     press(&mut app, KeyCode::Down);

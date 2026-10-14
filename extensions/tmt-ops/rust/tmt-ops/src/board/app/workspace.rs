@@ -411,6 +411,7 @@ impl App {
                 if matches!(target, OpsTarget::Member { .. }) {
                     if action == Inspect {
                         if self.shell.tab != OpsTab::Digest {
+                            self.conversation_return.get_or_insert(self.shell.tab);
                             self.shell.tab = OpsTab::Agents;
                             if let OpsTarget::Member {
                                 room_id: Some(room),
@@ -510,14 +511,36 @@ impl App {
         }
         Effect::None
     }
-    fn workspace_input_owner(&self) -> crate::board::shell::OpsInputOwner {
+    pub(super) fn workspace_input_owner(&self) -> crate::board::shell::OpsInputOwner {
         use crate::board::shell::OpsInputOwner;
-        if self.mentions.completion.open() {
+        let overlay = self.overlay();
+        let editing = match overlay {
+            Some(Overlay::Workspace) => self.input.is_some(),
+            Some(Overlay::Settings) => self
+                .settings
+                .as_ref()
+                .is_some_and(|overlay| overlay.editing()),
+            Some(Overlay::Checklist) => self
+                .checklist
+                .as_ref()
+                .is_some_and(|controller| controller.owns_typing()),
+            Some(Overlay::Recovery) => self
+                .recovery
+                .as_ref()
+                .is_some_and(|controller| controller.owns_typing()),
+            Some(Overlay::Discovery) => self
+                .discovery
+                .as_ref()
+                .is_some_and(|controller| controller.owns_typing()),
+            Some(_) => false,
+            None => self.menu.is_none() && self.input.is_some(),
+        };
+        if editing && self.mentions.completion.open() {
             OpsInputOwner::Completion
-        } else if self.modal_open() {
-            OpsInputOwner::Popup
-        } else if self.input.is_some() {
+        } else if editing {
             OpsInputOwner::Composer
+        } else if overlay.is_some() || self.menu.is_some() {
+            OpsInputOwner::Popup
         } else if self.searching {
             OpsInputOwner::Search
         } else if self.focused_pane() == Some(Pane::Replies) {
@@ -541,19 +564,14 @@ impl App {
             }
             return Effect::None;
         }
-        if self.focused_pane() == Some(Pane::Replies) {
-            if key.code == KeyCode::Esc {
-                self.focus = 0;
-                if let Some(tab) = self.conversation_return.take() {
-                    self.shell.tab = tab;
-                    self.workspace_reconcile();
-                }
-                self.invalidate_frame_geometry();
-                return Effect::None;
+        if self.focused_pane() == Some(Pane::Replies) && key.code == KeyCode::Esc {
+            self.focus = 0;
+            if let Some(tab) = self.conversation_return.take() {
+                self.shell.tab = tab;
+                self.workspace_reconcile();
             }
-            if matches!(key.code, KeyCode::Char('1' | '2' | '3')) {
-                return Effect::None;
-            }
+            self.invalidate_frame_geometry();
+            return Effect::None;
         }
         if key.modifiers.contains(KeyModifiers::SHIFT)
             && matches!(key.code, KeyCode::Left | KeyCode::Right)
@@ -562,9 +580,6 @@ impl App {
         }
         if let Some(action) = event_name(key).and_then(|name| self.bindings().remove(&name)) {
             return self.perform(&action);
-        }
-        if key.code == KeyCode::Esc {
-            return Effect::Quit;
         }
         Effect::None
     }

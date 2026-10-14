@@ -102,6 +102,20 @@ impl App {
     }
 }
 impl Controller {
+    pub(in crate::board) fn owns_typing(&self) -> bool {
+        self.active
+            && self.screen == Screen::Form
+            && self.pending.is_none()
+            && self
+                .panel
+                .borrow()
+                .picker
+                .list
+                .selected()
+                .is_some_and(|field| {
+                    self.draft.is_some() && matches!(field, "title" | "body" | "reference")
+                })
+    }
     pub(super) fn loaded(&mut self, completed: load::Completed) {
         if self.pending.as_ref() != Some(&completed.key) {
             return;

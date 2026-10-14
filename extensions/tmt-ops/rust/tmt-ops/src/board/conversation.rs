@@ -326,7 +326,17 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
     // or clip the choice mark away from the label whose action it represents.
     chips.truncate(super::row_chips::prefix(&chips, usize::from(area.width)));
     let mut header = vec![
-        Line::styled(format!("Conversation · {name}"), look.role(Role::Accent)),
+        Line::styled(
+            format!(
+                "Conversation · {name}{}",
+                if app.focus == 1 && app.input.is_none() {
+                    " · focused · Esc back"
+                } else {
+                    ""
+                }
+            ),
+            look.role(Role::Accent),
+        ),
         Line::styled(
             format!(
                 "{} · {}",
@@ -355,8 +365,14 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
             .map(|(key, action)| (key.as_str(), action))
     });
     let host = super::overview::actions::host_preview(row, app.invoker_tmux, host_action);
+    let host = if app.focus == 1 {
+        host.split_once(" · press ")
+            .map_or(host.as_str(), |(metadata, _)| metadata)
+    } else {
+        host.as_str()
+    };
     header.push(Line::styled(
-        super::view::fit(&sanitize(&host), usize::from(area.width)),
+        super::view::fit(&sanitize(host), usize::from(area.width)),
         look.role(Role::Muted),
     ));
     if let Some(link) = link {

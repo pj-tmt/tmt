@@ -3,6 +3,34 @@ use model::{BindReport, ScanObservation};
 use serde_json::{Value, json};
 
 mod performance;
+#[test]
+fn app_discovery_name_owns_typing_and_tab_to_actions_releases_destination_keys() {
+    use crate::board::{app::Effect, shell::OpsTab};
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let mut app = crate::board::app::workspace::tests::board();
+    let mut c = controller();
+    assert!(c.choose("bind").is_none());
+    assert_eq!(c.screen, Screen::Form);
+    app.discovery = Some(c);
+    for ch in "q123".chars() {
+        assert_eq!(
+            app.key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE)),
+            Effect::None
+        );
+    }
+    assert_eq!(app.shell.tab, OpsTab::Agents);
+    assert_eq!(app.discovery.as_ref().unwrap().editor.as_str(), "q123");
+    app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    assert!(!app.discovery.as_ref().unwrap().owns_typing());
+    assert_eq!(
+        app.key(KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE)),
+        Effect::None
+    );
+    assert_eq!(app.shell.tab, OpsTab::Digest);
+    assert!(!app.discovery_shown());
+    assert!(app.discovery.as_ref().unwrap().pending.is_none());
+    assert_eq!(app.discovery.as_ref().unwrap().editor.as_str(), "q123");
+}
 
 const SOCKET: &str = "/tmp/private-discovery.sock";
 const UUID: &str = "11111111-1111-4111-8111-111111111111";

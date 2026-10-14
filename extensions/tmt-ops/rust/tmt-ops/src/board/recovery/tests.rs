@@ -15,6 +15,38 @@ use std::{
 const SOCKET: &str = "/tmp/private-workspace/socket";
 const DIGEST: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const OTHER: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+#[test]
+fn app_save_query_owns_typing_but_its_action_list_allows_destination_keys() {
+    use crate::board::{app::Effect, shell::OpsTab};
+    let mut app = crate::board::app::workspace::tests::board();
+    let mut c = controller();
+    c.screen = Screen::Save;
+    app.recovery = Some(c);
+    for ch in "q123".chars() {
+        assert_eq!(
+            app.key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE)),
+            Effect::None
+        );
+    }
+    assert_eq!(app.shell.tab, OpsTab::Agents);
+    assert_eq!(
+        app.recovery.as_ref().unwrap().form.borrow().picker.query(),
+        Some("q123")
+    );
+    app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    assert!(!app.recovery.as_ref().unwrap().owns_typing());
+    assert_eq!(
+        app.key(KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE)),
+        Effect::None
+    );
+    assert_eq!(app.shell.tab, OpsTab::Digest);
+    assert!(!app.recovery_shown());
+    assert!(app.recovery.as_ref().unwrap().pending.is_none());
+    assert_eq!(
+        app.recovery.as_ref().unwrap().form.borrow().picker.query(),
+        Some("q123")
+    );
+}
 fn preview_value(name: Option<&str>) -> Value {
     json!({"version":1,"name":name,"digest":DIGEST,"snapshot":{"version":1,"capturedAtMs":1000,
         "server":{"socket":SOCKET},"sessions":[{"id":"$1","name":"work","windows":[{"index":0,"window":"@1","active":true}]}],
