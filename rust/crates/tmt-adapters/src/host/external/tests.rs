@@ -646,6 +646,118 @@ mod through_the_driver {
         assert_eq!(error.to_string(), "Host driver fake: the pane closed");
     }
 
+    /// A driver that also declares `name-agent`.
+    fn naming(pane_pid: u64) -> Installed {
+        let installed = installed(pane_pid);
+        installed.answer(
+            "capabilities",
+            &json!({"ok": {"protocols": [1], "kind": "host", "name": "fake",
+                "version": "0.0.0-test",
+                "ops": ["caller", "server", "resolve-target", "snapshot", "probe", "publish",
+                        "clear", "capture", "focus", "name-agent"],
+                "paneId": {"prefix": "fake-"}, "target": "f{n}", "callerEnv": []}})
+            .to_string(),
+        );
+        installed
+    }
+
+    fn refusal(code: &str) -> String {
+        json!({"error": {"code": code, "message": "refused"}}).to_string()
+    }
+
+    #[test]
+    fn an_agent_name_goes_through_name_agent_only_when_the_driver_declares_it() {
+        use crate::host::{AgentNameRefusal, AgentNaming};
+        let (pid, start) = live();
+
+        // A driver without `name-agent` is not linked, and is never asked.
+        let old = installed(pid);
+        let old_drivers = drivers(&old);
+        let mut session = crate::host::external::Session::new(&old_drivers);
+        session.begin_coordination();
+        let driver = session.driver(fake());
+        let bound = binding(server(pid, &start), pid);
+        let before = old.calls().len();
+        assert_eq!(
+            driver.name_agent(&bound, Some("worker")).unwrap(),
+            AgentNaming::NotLinked
+        );
+        assert_eq!(old.calls().len(), before);
+
+        let installed = naming(pid);
+        installed.answer("name-agent", r#"{"ok": {}}"#);
+        let drivers = drivers(&installed);
+        let mut session = crate::host::external::Session::new(&drivers);
+        session.begin_coordination();
+        let driver = session.driver(fake());
+        assert_eq!(
+            driver.name_agent(&bound, Some("worker")).unwrap(),
+            AgentNaming::Done
+        );
+        assert_eq!(installed.calls().last().unwrap(), "name-agent 1");
+        for (code, class) in [
+            ("invalid_name", AgentNameRefusal::Rejected),
+            ("name_taken", AgentNameRefusal::Rejected),
+            ("no_agent", AgentNameRefusal::NoAgent),
+            ("not_ready", AgentNameRefusal::NoAgent),
+            ("foreign_name", AgentNameRefusal::Foreign),
+            ("not_found", AgentNameRefusal::Failed),
+            ("failed", AgentNameRefusal::Failed),
+        ] {
+            installed.answer("name-agent", &refusal(code));
+            let error = driver.name_agent(&bound, Some("worker")).unwrap_err();
+            assert!(matches!(error, HostError::Refused { .. }), "{error:?}");
+            assert_eq!(AgentNameRefusal::of(&error), class, "{code}");
+        }
+        // A code that answers only `prompt` breaks the protocol here.
+        installed.answer("name-agent", &refusal("blocked"));
+        let error = driver.name_agent(&bound, Some("worker")).unwrap_err();
+        assert!(matches!(error, HostError::Driver(_)), "{error:?}");
+    }
+
+    /// Unbind: TMT's agent name goes before the marker, because the driver
+    /// names an agent only on a pane that carries the binding. Its answer,
+    /// whatever it is, never stops the clear.
+    #[test]
+    fn clearing_takes_tmts_agent_name_away_first_and_clears_whatever_it_answers() {
+        let (pid, start) = live();
+        let bound = binding(server(pid, &start), pid);
+        for answer in [
+            r#"{"ok": {}}"#.to_owned(),
+            refusal("foreign_name"),
+            refusal("not_found"),
+            "not json".to_owned(),
+        ] {
+            let installed = naming(pid);
+            installed.answer("clear", r#"{"ok": {"cleared": true}}"#);
+            installed.answer("name-agent", &answer);
+            let drivers = drivers(&installed);
+            let mut session = crate::host::external::Session::new(&drivers);
+            session.begin_coordination();
+            assert!(session.driver(fake()).clear(&bound).unwrap(), "{answer}");
+            assert!(
+                installed
+                    .calls()
+                    .ends_with(&["name-agent 1".to_owned(), "clear 1".to_owned()]),
+                "{answer}: {:?}",
+                installed.calls()
+            );
+        }
+        // A driver without `name-agent` only clears.
+        let installed = installed(pid);
+        installed.answer("clear", r#"{"ok": {"cleared": true}}"#);
+        let drivers = drivers(&installed);
+        let mut session = crate::host::external::Session::new(&drivers);
+        session.begin_coordination();
+        assert!(session.driver(fake()).clear(&bound).unwrap());
+        assert!(
+            !installed
+                .calls()
+                .iter()
+                .any(|call| call.starts_with("name-agent"))
+        );
+    }
+
     #[test]
     fn a_rename_rewrites_only_this_bindings_stale_marker() {
         use crate::host::{Host, PaneCosmetics, PaneRefresh};

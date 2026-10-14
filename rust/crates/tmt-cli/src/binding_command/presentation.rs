@@ -617,9 +617,56 @@ pub(super) fn warnings(
     }
 }
 
+/// The host did not set the agent name after a committed bind or rename:
+/// the cause, that the binding stays, and the fix.
+pub(super) fn agent_name_warning(
+    output: &mut tmt_cli_style::stream::Stream<impl Write>,
+    issue: &super::AgentNameIssue,
+) -> io::Result<()> {
+    use tmt_adapters::host::AgentNameRefusal;
+    let terminal = output.terminal();
+    let name = crate::output::shell_word(&issue.name);
+    let error = &issue.error;
+    let (what, fix) = match AgentNameRefusal::of(error) {
+        AgentNameRefusal::Rejected => (
+            format!("The agent name {name} was not set: {error}. The binding stays."),
+            format!("Choose a name the host takes: tmt mv {name} <name>"),
+        ),
+        AgentNameRefusal::NoAgent => (
+            format!("No agent to name yet: {error}. The binding stays."),
+            format!("When the agent runs, in its pane run: tmt this {name}"),
+        ),
+        AgentNameRefusal::Foreign => (
+            format!("The agent keeps an agent name TMT did not set: {error}. The binding stays."),
+            format!("Clear that agent name in the host, then in its pane run: tmt this {name}"),
+        ),
+        AgentNameRefusal::Failed => (
+            format!("The agent name {name} was not set: {error}. The binding stays."),
+            format!("In the agent's pane, run: tmt this {name}"),
+        ),
+    };
+    message::warning(output, terminal, &what, Some(&fix))
+}
+
 // Source-checked command samples for the printed-command guard.
 #[cfg(test)]
 pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
+        "Choose a name the host takes: tmt mv {name} <name>",
+        &[""],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "When the agent runs, in its pane run: tmt this {name}",
+        &[""],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "Clear that agent name in the host, then in its pane run: tmt this {name}",
+        &[""],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core("In the agent's pane, run: tmt this {name}", &[""], &[]),
     crate::cli_style_tests::HintSpec::core("In pane {pane}, run: tmt this {}", &[""], &[]),
     crate::cli_style_tests::HintSpec::core("tmt add {label} <name>", &[""], &[]),
     crate::cli_style_tests::HintSpec::core("tmt name <name>", &[""], &[]),

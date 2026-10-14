@@ -4,7 +4,10 @@
 
 use super::*;
 use crate::{
-    host::{ActionError, DeliveryError, HostError, driver::HostDriver},
+    host::{
+        ActionError, DeliveryError, HostError,
+        driver::{AgentNaming, HostDriver},
+    },
     process::CommandError,
     tmux::FocusError,
 };
@@ -128,6 +131,11 @@ impl<R: CommandRunner> HostDriver for BindingSession<'_, R> {
                 FocusError::NoNeighbour => ActionError::NoNeighbour,
                 FocusError::Evidence(error) => ActionError::Evidence(error.into()),
             })
+    }
+
+    /// tmux recognizes no agents, so it has no agent names.
+    fn name_agent(&mut self, _: &Binding, _: Option<&str>) -> Result<AgentNaming, HostError> {
+        Ok(AgentNaming::NotLinked)
     }
 }
 
@@ -900,6 +908,13 @@ mod tests {
         }
         fn focus(&mut self, binding: &Binding) -> Result<Focused, ActionError> {
             HostDriver::focus(&mut self.tmux, binding)
+        }
+        fn name_agent(
+            &mut self,
+            binding: &Binding,
+            name: Option<&str>,
+        ) -> Result<AgentNaming, HostError> {
+            HostDriver::name_agent(&mut self.tmux, binding, name)
         }
     }
 

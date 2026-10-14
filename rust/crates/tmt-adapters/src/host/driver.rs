@@ -97,6 +97,52 @@ pub trait HostDriver {
     ) -> Result<PaneSwap, ActionError> {
         Err(ActionError::HostUnsupported)
     }
+
+    /// Gives the agent the host recognizes in the binding's pane the agent
+    /// name `name`, or takes TMT's agent name away (`None`). Never a pane
+    /// label. A driver's refusal is [`HostError::Refused`].
+    fn name_agent(
+        &mut self,
+        binding: &Binding,
+        name: Option<&str>,
+    ) -> Result<AgentNaming, HostError>;
+}
+
+/// What a host did with an agent name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentNaming {
+    /// The host has no agent names, or its driver does not offer them.
+    NotLinked,
+    /// The agent has the name, or no TMT name when none was asked for.
+    Done,
+}
+
+/// Why a host did not set an agent name, as far as the fix differs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentNameRefusal {
+    /// The host does not take this name, or another agent has it.
+    Rejected,
+    /// The host recognizes no agent in the pane yet, or it is starting.
+    NoAgent,
+    /// The agent has an agent name that TMT did not set.
+    Foreign,
+    /// Anything else.
+    Failed,
+}
+
+impl AgentNameRefusal {
+    pub fn of(error: &HostError) -> Self {
+        use tmt_driver_protocol::ErrorCode;
+        match error {
+            HostError::Refused { code, .. } => match code {
+                ErrorCode::InvalidName | ErrorCode::NameTaken => Self::Rejected,
+                ErrorCode::NoAgent | ErrorCode::NotReady => Self::NoAgent,
+                ErrorCode::ForeignName => Self::Foreign,
+                _ => Self::Failed,
+            },
+            _ => Self::Failed,
+        }
+    }
 }
 
 /// After a committed rename, rewrites this binding's own marker so the pane
@@ -373,5 +419,9 @@ impl HostDriver for Unavailable {
 
     fn focus(&mut self, _: &Binding) -> Result<Focused, ActionError> {
         Err(ActionError::Evidence(self.error()))
+    }
+
+    fn name_agent(&mut self, _: &Binding, _: Option<&str>) -> Result<AgentNaming, HostError> {
+        Err(self.error())
     }
 }

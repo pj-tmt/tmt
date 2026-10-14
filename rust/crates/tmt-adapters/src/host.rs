@@ -47,6 +47,7 @@ pub use crate::tmux::{
 pub(crate) use delivery::DeliveryCause;
 pub use delivery::{DeliveryError, DeliveryStage};
 pub use driver::PaneSwap;
+pub use driver::{AgentNameRefusal, AgentNaming};
 pub use tmt_core::host::SwapDirection;
 
 /// Recovery topology and evidence returned by the optional host capture port.
@@ -800,6 +801,29 @@ impl<R: CommandRunner> Host<R> {
                 }
             }
             (HostKind::External(_), PaneCosmetics::Ended) => Ok(PaneRefresh::Absent),
+        }
+    }
+
+    /// After a committed bind or rename: gives the agent in the binding's
+    /// pane the identity's name as its agent name, on a host that has agent
+    /// names. Never a pane label, and never during a read command. A
+    /// refusal is the driver's [`HostError::Refused`]; the binding stands
+    /// either way.
+    pub fn name_agent(
+        &self,
+        binding: &Binding,
+        identity: &Identity,
+    ) -> Result<driver::AgentNaming, HostError> {
+        if identity.id != binding.identity_id {
+            return Ok(driver::AgentNaming::NotLinked);
+        }
+        match binding.server.host {
+            HostKind::Tmux => Ok(driver::AgentNaming::NotLinked),
+            HostKind::External(host) => {
+                let mut session = external::Session::new(&self.external);
+                session.begin_coordination();
+                driver::HostDriver::name_agent(session.driver(host), binding, Some(&identity.name))
+            }
         }
     }
 }

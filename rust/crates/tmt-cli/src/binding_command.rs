@@ -39,6 +39,13 @@ struct ListedRow {
     driver_support: Option<tmt_core::driver::descriptor::Support>,
 }
 
+/// An agent name the host did not set after a committed bind or rename. The
+/// binding stands; the user gets the cause and the fix.
+struct AgentNameIssue {
+    name: String,
+    error: tmt_adapters::host::HostError,
+}
+
 struct ResolvedPane {
     id: String,
     frozen: Option<BindingTargetEvidence>,
@@ -266,7 +273,7 @@ fn listed_target(request: &Invocation) -> Result<ListedTarget, Failure> {
     })
 }
 
-fn run(request: Invocation) -> Result<Report, Failure> {
+fn run(request: Invocation) -> Result<(Report, Option<AgentNameIssue>), Failure> {
     let environment = CallerEnvironment::current();
     let caller = Host::for_caller(&environment);
     let listed = listed_target(&request)?;
@@ -368,7 +375,34 @@ fn run(request: Invocation) -> Result<Report, Failure> {
                 *pane = Some((binding.pane_id.clone(), refresh));
             }
         }
-        Ok(report)
+        // Only an explicit bind or rename sets an agent name; a read never
+        // does. A refusal leaves the binding as it is.
+        let named = match &report {
+            Report::Bound(result) => result
+                .presence
+                .binding
+                .as_ref()
+                .map(|binding| (binding, &result.presence.identity)),
+            Report::Renamed { result, .. } if result.changed() => result
+                .binding
+                .as_ref()
+                .map(|binding| (binding, &result.identity)),
+            _ => None,
+        };
+        let issue = match named {
+            Some((binding, identity)) => {
+                match Host::for_server(&binding.server).name_agent(binding, identity) {
+                    Ok(_) => None,
+                    Err(error) if error.cleanup_failed() => return Err(cosmetic_cleanup(error)),
+                    Err(error) => Some(AgentNameIssue {
+                        name: identity.name.clone(),
+                        error,
+                    }),
+                }
+            }
+            None => None,
+        };
+        Ok((report, issue))
     });
     after_cleanup(pending, || storage.close())
 }
@@ -586,8 +620,8 @@ fn operation(
 }
 
 pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
-    let report = match run(request) {
-        Ok(report) => report,
+    let (report, agent_name) = match run(request) {
+        Ok(ran) => ran,
         Err(error) => return error.publish(mode),
     };
     let mut stdout = tmt_cli_style::stream::stdout(mode.json);
@@ -599,7 +633,11 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
     }
     drop(stdout);
     if !mode.json {
-        presentation::warnings(&mut tmt_cli_style::stream::stderr(), &report)?;
+        let mut stderr = tmt_cli_style::stream::stderr();
+        presentation::warnings(&mut stderr, &report)?;
+        if let Some(issue) = &agent_name {
+            presentation::agent_name_warning(&mut stderr, issue)?;
+        }
     }
     use crate::skill_reminder::Outcome;
     let outcome = match &report {

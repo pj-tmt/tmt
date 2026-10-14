@@ -17,11 +17,11 @@ and guides link here instead of repeating it.
   delivers, reads and focuses through `prompt`, `input`, `capture` and
   `focus`. Users approve, list and remove drivers with
   `tmt driver install|ls|rm`. Herdr is served only by its first-party driver,
-  `tmt-driver-herdr`, which ships in the CLI release (#1082). TMT approves that
-  shipped driver itself on first use in a Herdr pane, unless the user removed it.
-  The format of `name-agent` and of a pane's `agentName` exists and the Herdr
-  driver implements both; core does not call `name-agent` or read `agentName`
-  yet (#2892).
+  `tmt-driver-herdr`, which ships in the CLI release (#1082). TMT approves
+  that shipped driver itself on first use in a Herdr pane, unless the user
+  removed it. The Herdr driver implements `name-agent` and a pane's
+  `agentName`. Core calls `name-agent` after an explicit bind or rename and
+  before it clears a marker; it does not read `agentName` yet (#2892).
 - **Runtime drivers:** the format, the crate's encoding and the conformance
   harness, approval registry and bounded client exist. `tmt driver install|ls|rm`
   accepts either kind. Runtime approval calls `locations`, validates its write
@@ -353,6 +353,13 @@ A host without agent names does not list it.
 - **Fence:** the driver refuses with `not_found` unless the pane still exists,
   runs `panePid` and carries a marker with `bindingId`. Core publishes the
   marker first and takes the name away before it clears the marker.
+- **When core calls it:** with the identity's name after a committed explicit
+  bind (`tmt name`, `this`, `add`, `marked`) and after `tmt mv`; with `null`
+  just before `clear`. Never during a read command and never from a provider
+  hook. Every answer leaves the binding as it is: after a bind or rename core
+  shows a refusal in human output as one warning with its fix, and before `clear` it goes on
+  with the clear whatever the answer. The call before `clear` gets at most
+  half of the time left in the command's budget.
 - **Ownership:** the driver keeps a record on the pane of the agent name the
   host confirmed for this `bindingId`, and treats only that name as TMT's. A
   record of another binding is no record. When the driver observes an agent
