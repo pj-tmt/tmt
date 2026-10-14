@@ -231,6 +231,12 @@ fn a_forged_original_stops_only_its_own_stream_and_is_reported_once() {
     assert_eq!(rig.head(A), None);
     assert_eq!(rig.head(C).unwrap().0, 1);
     assert_eq!(rig.reports.lock().unwrap().len(), 1);
+    assert_eq!(
+        rig.reports.lock().unwrap()[0],
+        format!(
+            "Cloud sync stopped following one writer of page {PAGE}: its page original is not valid."
+        )
+    );
     // The refused stream is not read again.
     assert!(rig.pass().is_ok());
     assert_eq!(rig.reports.lock().unwrap().len(), 1);
@@ -272,6 +278,12 @@ fn a_malformed_record_of_one_writer_stops_that_writer_and_no_other() {
     assert_eq!(rig.head(A), None);
     assert_eq!(rig.head(C).unwrap().0, 1);
     assert_eq!(rig.reports.lock().unwrap().len(), 1);
+    assert_eq!(
+        rig.reports.lock().unwrap()[0],
+        format!(
+            "Cloud sync stopped following one writer of page {PAGE}: one of its cloud records is malformed."
+        )
+    );
     // It is not read again.
     assert!(rig.pass().is_ok());
     assert_eq!(rig.reports.lock().unwrap().len(), 1);
@@ -324,4 +336,10 @@ fn a_sequence_the_cloud_no_longer_holds_stops_that_writer_with_a_line() {
     assert_eq!(rig.pass(), Ok(false));
     assert_eq!(rig.head(A), None);
     assert_eq!(rig.reports.lock().unwrap().len(), 1);
+    assert_eq!(
+        rig.reports.lock().unwrap()[0],
+        format!(
+            "Cloud sync stopped following one writer of page {PAGE}: it is too far behind; open a fresh copy of the page to catch up."
+        )
+    );
 }

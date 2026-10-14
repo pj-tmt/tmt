@@ -44,6 +44,20 @@ fn now_ms() -> u64 {
         .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 }
 
+/// The line shown when a page stops syncing with the cloud. A page is named by its id, as the
+/// page commands name it, because a title would need the decoder; editing is never affected.
+fn stopped_line(page: &str, reason: &str) -> String {
+    format!("Cloud sync stopped for page {page}. {reason} Edits continue on this machine.")
+}
+/// The line shown when a stopped page syncs again.
+fn resumed_line(page: &str) -> String {
+    format!("Cloud sync resumed for page {page}.")
+}
+/// The line shown when the cloud's records of one writer of a page stop being followed.
+fn writer_line(page: &str, reason: &str) -> String {
+    format!("Cloud sync stopped following one writer of page {page}: {reason}")
+}
+
 /// One page of one space at its current epoch: the unit a watched group follows.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct PageRef {

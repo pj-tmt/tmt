@@ -31,12 +31,9 @@ impl Stops {
                 let since_ms = self.0.get(page).map_or(now_ms, |stopped| stopped.since_ms);
                 let before = self.0.insert(page.to_owned(), Stopped { reason, since_ms });
                 (before.is_none_or(|stopped| stopped.reason != *reason))
-                    .then(|| format!("Cloud sync stopped for page {page}. {reason}"))
+                    .then(|| super::stopped_line(page, reason))
             }
-            Ok(_) => self
-                .0
-                .remove(page)
-                .map(|_| format!("Cloud sync resumed for page {page}.")),
+            Ok(_) => self.0.remove(page).map(|_| super::resumed_line(page)),
             // The page was removed or moved to another epoch: the stop was about the old one.
             Err(Fault::Moved) => {
                 self.0.remove(page);
@@ -59,7 +56,12 @@ mod tests {
         let stuck = Err(Fault::Stuck("The cloud has newer sharing changes."));
         let first = stops.observe(PAGE, &stuck, 5).unwrap();
         assert!(first.starts_with("Cloud sync stopped for page "), "{first}");
-        assert!(first.contains(PAGE) && first.ends_with("newer sharing changes."));
+        assert_eq!(
+            first,
+            format!(
+                "Cloud sync stopped for page {PAGE}. The cloud has newer sharing changes. Edits continue on this machine."
+            )
+        );
         // Every later pass finds the same thing and says nothing.
         assert_eq!(stops.observe(PAGE, &stuck, 9), None);
         assert_eq!(stops.0[PAGE].since_ms, 5);
@@ -88,7 +90,7 @@ mod tests {
                 8,
             )
             .unwrap();
-        assert!(second.ends_with("disagree."));
+        assert!(second.contains("disagree. Edits continue"));
         assert_eq!(stops.0[PAGE].since_ms, 5);
     }
 

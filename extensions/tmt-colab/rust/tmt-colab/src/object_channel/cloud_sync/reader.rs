@@ -76,7 +76,9 @@ impl Reader {
             };
             documents.extend(page);
             if documents.len() > RUN_DOCUMENTS {
-                return Err(Fault::Stuck("A page has more cloud records than it may."));
+                return Err(Fault::Stuck(
+                    "This page has more cloud records than the limit allows.",
+                ));
             }
             match next {
                 Some(next) => continuation = Some(next),

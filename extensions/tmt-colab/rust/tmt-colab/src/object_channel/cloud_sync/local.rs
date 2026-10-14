@@ -49,7 +49,9 @@ fn store_fault(fault: store::Fault) -> Fault {
     match fault {
         store::Fault::StaleEpoch => Fault::Moved,
         store::Fault::ResyncRequired => Fault::Retry,
-        store::Fault::Capacity => Fault::Stuck("Too many streams to publish for this page."),
+        store::Fault::Capacity => {
+            Fault::Stuck("This page has more changes to publish than the limit allows.")
+        }
         fault if store::contended(&fault) => Fault::Retry,
         _ => stuck_read(),
     }

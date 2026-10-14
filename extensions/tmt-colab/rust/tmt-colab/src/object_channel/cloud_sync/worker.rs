@@ -179,7 +179,7 @@ impl Session {
         let first = published.and_then(|result| {
             if let Err(Fault::Stuck(line)) = &result {
                 self.stuck.insert(page.clone());
-                report(line);
+                report(&super::stopped_line(&page.page, line));
             }
             self.next_of(&result)
         });

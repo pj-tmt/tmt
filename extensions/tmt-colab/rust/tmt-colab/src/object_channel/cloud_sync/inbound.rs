@@ -90,14 +90,18 @@ impl Puller {
             let originals = match self.reader.tail(page, &stream, head)? {
                 Tail::CatchUpRequired => {
                     self.stopped.insert(stream);
-                    report("Cloud sync stopped for one writer: only a fresh copy can catch up.");
+                    report(&super::writer_line(
+                        &page.page,
+                        "it is too far behind; open a fresh copy of the page to catch up.",
+                    ));
                     continue;
                 }
                 Tail::Malformed => {
                     self.stopped.insert(stream);
-                    report(
-                        "Cloud sync stopped for one writer: one of its cloud records is malformed.",
-                    );
+                    report(&super::writer_line(
+                        &page.page,
+                        "one of its cloud records is malformed.",
+                    ));
                     continue;
                 }
                 Tail::Originals(originals) => originals,
@@ -109,13 +113,14 @@ impl Puller {
                     Err(Reject::Moved) => return Err(Fault::Moved),
                     Err(Reject::Retry) => return Err(Fault::Retry),
                     Err(Reject::Full) => {
-                        return Err(Fault::Stuck("This page is full."));
+                        return Err(Fault::Stuck("This page has reached its size limit."));
                     }
                     Err(Reject::Refused) => {
                         self.stopped.insert(stream.clone());
-                        report(
-                            "Cloud sync refused an original from one writer and stopped following it.",
-                        );
+                        report(&super::writer_line(
+                            &page.page,
+                            "its page original is not valid.",
+                        ));
                         break;
                     }
                 }

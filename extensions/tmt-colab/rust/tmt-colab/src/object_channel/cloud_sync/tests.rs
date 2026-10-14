@@ -143,6 +143,12 @@ fn a_page_row_refused_by_rules_is_reported_once_and_stops_that_pages_pass() {
     until("bind", || remote.methods().first() == Some(&Method::Bind));
     rig.activity.touch(page(FIRST, 1));
     until("one report", || rig.reports.lock().unwrap().len() == 1);
+    assert_eq!(
+        rig.reports.lock().unwrap()[0],
+        format!(
+            "Cloud sync stopped for page {FIRST}. The cloud refused sync for this page. Edits continue on this machine."
+        )
+    );
     let publishes = || {
         remote
             .methods()
