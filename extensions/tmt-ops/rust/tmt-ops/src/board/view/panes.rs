@@ -34,8 +34,12 @@ pub(super) fn render_body(frame: &mut Frame, app: &App, area: Rect) {
                 area.width,
                 height,
             )));
+            let list_height = area.height - height;
+            // The composer paints the shared boundary. Let a decorated tree's
+            // bottom border occupy that same row, rather than stacking rules.
+            let shared_boundary = u16::from(list_height >= 3 && area.width >= 3);
             Rect {
-                height: area.height - height,
+                height: list_height + shared_boundary,
                 ..area
             }
         } else {

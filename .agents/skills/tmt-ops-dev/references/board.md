@@ -212,16 +212,28 @@ retains its richer session carry and explicit hidden/missing action refusal.
   ranks, independently of menu ordering. `row_allows` rejects unavailable member
   actions; `hint_word` names compatible custom actions. Whole hints drop from the
   end, retaining the effective Help/quit tail or Help alone at narrow widths.
-  Input and modals use their own legend; the base footer does not duplicate it.
+  Active input and modals use their own legend; an idle persistent composer keeps
+  the effective list/reader hints.
   `board::glyph_guard` checks authored HOME/cron typography.
-- `App::input` is the shared Talk/Reply/Annotate/Status composer.
-  `RowSend` freezes the occurrence and opening sender. `composer` retains session-only
-  drafts, folded paste and response quotes by saved sender/recipient UUID across
-  view and membership changes. Successful delivery clears only the submitted
-  revision; failed or uncertain delivery retains it. Restart persistence is not
-  promised. Submission revalidates sender, occurrence, actual lead or chosen open
-  request before invoking existing public send effects. Several open requests use
-  an explicit picker; empty submission and cancellation send nothing.
+- `App::input` means active typing in the shared Talk/Reply/Annotate/Status
+  composer. `composer` projects the idle boxed editor at the conversation bottom
+  without claiming input focus. Default Enter focuses a selected agent's editor;
+  active Enter submits, and Esc returns to the list with the draft kept. Group
+  Enter still inspects, and explicit compatible bindings retain their meaning.
+  `RowSend` freezes the occurrence and opening sender. `composer` retains
+  session-only drafts, folded paste and response quotes by saved sender/actual
+  recipient UUID across view and membership changes. Acceptance of a request
+  clears only the submitted revision, including an uncertain delivery or an
+  error carrying a retained request ID; neither permits automatic resend. A
+  refusal without a request restores that draft without replacing newer edits.
+  The composer stays after Send; a blocking owner masks its passive band without
+  losing the draft. Restart persistence is not promised. Submission
+  revalidates sender, occurrence, actual lead or chosen open request before
+  invoking existing public send effects. Several open requests use an explicit
+  picker; empty submission and cancellation send nothing. `conversation` holds
+  bounded session-only outgoing turns, truthful typed delivery labels and replies
+  correlated by exact sender/recipient/request identity. Acquired agent state and
+  freshness remain independent of delivery; delivered means written to the pane.
 - Message fields use `tmt_tui::components::Editor` for grapheme-safe multiline
   editing, source-preserving bracketed paste and cached cell geometry. Enter
   submits, distinct Shift+Enter or portable Ctrl+N inserts a newline, and Escape

@@ -7,6 +7,64 @@ use std::time::{Duration, Instant};
 
 use crate::board::timing::probe::{measure, report};
 
+/// Populate the measured surface through the real composer and typed completion
+/// ports. No lane, subprocess or source acquisition runs inside the probe.
+fn populated_conversation(rows: usize) -> (App, String, OpsTarget) {
+    let mut app = populated_board(36, rows);
+    let squad = &app.workspace_snapshot().unwrap().roster.squads[0];
+    let member = squad.members[0].clone();
+    let target = OpsTarget::Member {
+        room_id: Some(squad.room_id.clone()),
+        identity_id: member.clone(),
+    };
+    let index = app
+        .workspace_rows()
+        .iter()
+        .position(|row| row.target == target)
+        .unwrap();
+    app.select(index);
+    app.view.as_mut().unwrap().replies = vec![json!({
+        "recipientId":member,"requestId":"req_77777777-7777-4777-8777-777777777777",
+        "response":body("response", 2_000)
+    })];
+    for index in 0..3 {
+        if app.input.is_none() {
+            assert_eq!(
+                app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+                app::Effect::None
+            );
+        }
+        let text = format!("Populated outgoing turn {index}: retained exact message");
+        assert_eq!(app.paste(&text), app::Effect::None);
+        let app::Effect::Act(request) = app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+        else {
+            panic!("probe must submit a real composer turn");
+        };
+        let ticket = app.outgoing_ticket(&request).unwrap();
+        assert_eq!(ticket.text, text);
+        assert_eq!(ticket.key.1, member);
+        app.finished_send(crate::board::conversation::outgoing::Completed {
+            ticket: Some(ticket),
+            outcome: Ok(crate::send::Accepted {
+                request: format!("req_88888888-8888-4888-8888-{index:012}"),
+                disposition: crate::send::Disposition::Queued,
+            }),
+            what: "Message".into(),
+            to: "measured member".into(),
+        });
+    }
+    assert_eq!(
+        app.paste("Retained composer draft 漢字 e\u{301}"),
+        app::Effect::None
+    );
+    assert_eq!(
+        app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+        app::Effect::None
+    );
+    app.notice = None;
+    (app, member, target)
+}
+
 #[test]
 #[ignore = "local release-mode timing evidence; no CI threshold"]
 fn conversation_frame_timing() {
@@ -15,25 +73,7 @@ fn conversation_frame_timing() {
     }
     crate::status::with_now_ms(1_791_600_000_000, || {
         for rows in [150, 1_000, 10_000] {
-            let mut app = populated_board(36, rows);
-            let room = app.workspace_snapshot().unwrap().roster.squads[0]
-                .room_id
-                .clone();
-            let member = app.workspace_snapshot().unwrap().roster.squads[0].members[0].clone();
-            let target = OpsTarget::Member {
-                room_id: Some(room.clone()),
-                identity_id: member.clone(),
-            };
-            let index = app
-                .workspace_rows()
-                .iter()
-                .position(|row| row.target == target)
-                .unwrap();
-            app.select(index);
-            app.view.as_mut().unwrap().replies = vec![json!({
-                "recipientId":member,"requestId":"req_77777777-7777-4777-8777-777777777777",
-                "response":body("response", 2_000)
-            })];
+            let (mut app, member, target) = populated_conversation(rows);
             let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
             for _ in 0..10 {
                 measure(&mut app, &mut terminal, |_, _| {});
@@ -254,22 +294,7 @@ fn workspace_ansi_phase_timing() {
     let mut reports = Vec::new();
     crate::status::with_now_ms(1_791_600_000_000, || {
         for rows in [150, 1_000, 10_000] {
-            let mut app = populated_board(36, rows);
-            let squad = &app.workspace_snapshot().unwrap().roster.squads[0];
-            let member = squad.members[0].clone();
-            let target = OpsTarget::Member {
-                room_id: Some(squad.room_id.clone()),
-                identity_id: member.clone(),
-            };
-            let index = app
-                .workspace_rows()
-                .iter()
-                .position(|row| row.target == target)
-                .unwrap();
-            app.select(index);
-            app.view.as_mut().unwrap().replies = vec![json!({"recipientId":member,
-                "requestId":"req_77777777-7777-4777-8777-777777777777",
-                "response":body("response",2_000)})];
+            let (mut app, member, target) = populated_conversation(rows);
             let sink = AnsiSink(Default::default());
             let backend = ratatui::backend::CrosstermBackend::new(sink.clone());
             let mut terminal = Terminal::with_options(
@@ -365,7 +390,7 @@ fn workspace_ansi_phase_timing() {
         }
     });
     let report = json!({"viewport":{"cols":160,"rows":36},"responseLines":2000,
-        "clockMs":1791600000000u64,"output":"Crossterm ANSI encoded into a private memory sink",
+        "outgoingTurns":3,"retainedComposerDraft":true,"clockMs":1791600000000u64,"output":"Crossterm ANSI encoded into a private memory sink",
         "scope":"event/paint/diff+encoding walltime; process CPU requires external resource measurement; no PTY or terminal emulator latency", "reports":reports});
     std::fs::write(output, serde_json::to_vec_pretty(&report).unwrap()).unwrap();
 }

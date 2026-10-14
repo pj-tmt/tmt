@@ -424,3 +424,84 @@ fn delivery_and_acquired_agent_freshness_remain_independent_after_failed_reads()
         assert_eq!(session.outgoing.len(), 1, "a failed read never resends");
     }
 }
+
+#[test]
+fn outgoing_byte_budget_evicts_old_turns_and_late_completion_keeps_new_edits() {
+    let mut app = fixture();
+    let payload = "x".repeat(crate::board::app::MESSAGE_LIMIT);
+    let mut oldest = None;
+    for _ in 0..6 {
+        if app.input.is_some() {
+            app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        }
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        app.paste(&payload);
+        let Effect::Act(request) = app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+        else {
+            panic!("expected explicit send");
+        };
+        let ticket = app.outgoing_ticket(&request).unwrap();
+        assert_eq!(ticket.text, payload);
+        let completed = Completed {
+            ticket: Some(ticket),
+            outcome: Ok(Accepted {
+                request: format!("budget-request-{}", app.conversation.borrow().sequence),
+                disposition: Disposition::Queued,
+            }),
+            what: "Message".into(),
+            to: "worker".into(),
+        };
+        oldest.get_or_insert_with(|| completed.clone());
+        finish(&mut app, completed);
+    }
+    let old = oldest.unwrap();
+    let state = app.conversation.borrow();
+    let ticket = old.ticket.as_ref().unwrap();
+    let session = &state.sessions[&(Some(ticket.key.0.clone()), ticket.key.1.clone())];
+    assert_eq!(session.outgoing.len(), MAX_BYTES / payload.len());
+    assert_eq!(
+        session.outgoing.iter().map(Entry::bytes).sum::<usize>(),
+        MAX_BYTES
+    );
+    assert!(
+        session
+            .outgoing
+            .iter()
+            .all(|entry| entry.ticket.sequence > old.ticket.as_ref().unwrap().sequence)
+    );
+    drop(state);
+    app.paste("newer draft must survive");
+    let notice = app.notice.clone();
+    app.finished_send(old);
+    assert_eq!(
+        app.input.as_ref().unwrap().text.as_str(),
+        "newer draft must survive"
+    );
+    assert_eq!(app.notice, notice);
+}
+
+#[test]
+fn outgoing_preserves_exact_effect_bytes_without_painting_terminal_controls() {
+    let fake = Fake::new(
+        json!({"requestId":"controls-request", "status":"queued"}),
+        false,
+    );
+    let mut app = fixture();
+    let text = "You · now\nalpha · now\nraw\u{1b}[2J\u{7} 漢字 e\u{301}";
+    let completed = send(&mut app, &fake, text);
+    assert!(fake.arguments().iter().any(|argument| argument == text));
+    let state = app.conversation.borrow();
+    let ticket = completed.ticket.as_ref().unwrap();
+    let session = &state.sessions[&(Some(ticket.key.0.clone()), ticket.key.1.clone())];
+    assert_eq!(session.outgoing.back().unwrap().ticket.text, text);
+    drop(state);
+    finish(&mut app, completed);
+    let painted = draw(&app);
+    assert!(
+        painted.contains('漢') && painted.contains('字'),
+        "{painted:?}"
+    );
+    assert!(!painted.contains("delivered"));
+    assert!(!painted.contains('\u{1b}') && !painted.contains('\u{7}'));
+    assert!(painted.contains("queued · inbox"));
+}

@@ -896,3 +896,148 @@ fn colab_link_and_exact_source_context_survive_composer_reader_and_tab_transitio
     );
     assert_eq!(app.input.as_ref().unwrap().response_quotes[0].text, url);
 }
+
+fn open_blocking_owner(app: &mut crate::board::app::App, owner: &str) {
+    use crate::board::app::Effect;
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let effect = match owner {
+        "review" => app.key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
+        "details" => app.key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE)),
+        "help" => app.key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE)),
+        "reader" => app.key(KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE)),
+        "menu" => app.perform(&crate::action::Action::parse("menu").unwrap()),
+        _ => unreachable!(),
+    };
+    assert_eq!(effect, Effect::None, "{owner}");
+    assert!(
+        app.modal_open(),
+        "{owner}: existing blocking owner must open"
+    );
+}
+
+#[test]
+fn blocking_owners_mask_only_the_passive_band_and_restore_the_exact_uuid_draft() {
+    use crate::board::app::Effect;
+    use ratatui::crossterm::event::{
+        KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    };
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        for (width, height) in [(160, 36), (100, 30), (60, 18)] {
+            for owner in ["review", "details", "help", "reader", "menu"] {
+                for remove in [false, true] {
+                    let mut app = crate::board::app::workspace::tests::board();
+                    let id = crate::board::app::workspace::tests::MEMBER;
+                    let quote = attached_quote(id, "source");
+                    app.view.as_mut().unwrap().replies = vec![
+                        json!({"recipientId":id,"requestId":quote.key.request,"response":"source"}),
+                    ];
+                    let _no_acquisition = crate::runner::forbid_commands();
+                    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+                    app.paste("retained message draft");
+                    app.input
+                        .as_mut()
+                        .unwrap()
+                        .response_quotes
+                        .push(quote.clone());
+                    app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+                    // Compare the stable base, not Escape's transient notice.
+                    app.notice = None;
+                    let base = draw(&mut app, width, height);
+                    let band = app.input_band.get().unwrap();
+                    let key = app.composer_projection().unwrap().key.unwrap();
+                    let selected = app.workspace.selected.clone();
+                    let shell = app.shell.tab;
+                    let focus = app.focus;
+                    let expanded = app.workspace.expanded.clone();
+                    let scrolls = app.scrolls.offsets();
+                    let point = if remove {
+                        app.composer.quote_hit.borrow().as_ref().unwrap().area
+                    } else {
+                        app.composer.send_hit.borrow().as_ref().unwrap().area
+                    };
+                    open_blocking_owner(&mut app, owner);
+                    let covered = draw(&mut app, width, height);
+                    assert!(app.composer.send_hit.borrow().is_none(), "{owner}");
+                    assert!(app.composer.quote_hit.borrow().is_none(), "{owner}");
+                    assert!(app.input_viewport.get().is_none(), "{owner}");
+                    let band_text: String = (band.y..band.bottom())
+                        .flat_map(|y| (band.x..band.right()).map(move |x| (x, y)))
+                        .map(|at| covered[at].symbol())
+                        .collect();
+                    assert!(
+                        !band_text.contains("Message →")
+                            && !band_text.contains("[ Send ]")
+                            && !band_text.contains("Quote ·"),
+                        "{owner}: {band_text}"
+                    );
+                    assert_eq!(
+                        app.mouse(
+                            MouseEvent {
+                                kind: MouseEventKind::Down(MouseButton::Left),
+                                column: point.x,
+                                row: point.y,
+                                modifiers: KeyModifiers::NONE
+                            },
+                            std::time::Instant::now()
+                        ),
+                        Effect::None,
+                        "{owner}"
+                    );
+                    if app.modal_open() {
+                        assert_eq!(
+                            app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+                            Effect::None
+                        );
+                    }
+                    assert!(!app.modal_open(), "{owner}: dismissal");
+                    assert_eq!(app.workspace.selected, selected, "{owner}");
+                    assert_eq!(app.workspace.expanded, expanded, "{owner}");
+                    let restored = draw(&mut app, width, height);
+                    assert_eq!(app.scrolls.offsets(), scrolls, "{owner}");
+                    let changed_rows = (0..height)
+                        .filter_map(|y| {
+                            let before: String =
+                                (0..width).map(|x| base[(x, y)].symbol()).collect();
+                            let after: String =
+                                (0..width).map(|x| restored[(x, y)].symbol()).collect();
+                            (before != after).then_some((y, before, after))
+                        })
+                        .collect::<Vec<_>>();
+                    assert!(
+                        restored == base,
+                        "{owner} {width}x{height}: no base reflow; shell {shell:?}->{:?}, focus {focus}->{}, changed rows {changed_rows:?}",
+                        app.shell.tab,
+                        app.focus
+                    );
+                    let draft = app.composer_projection().unwrap();
+                    assert_eq!(draft.key.as_ref(), Some(&key));
+                    assert_eq!(draft.text.unwrap().as_str(), "retained message draft");
+                    assert_eq!(draft.quotes, &[quote]);
+                    assert!(
+                        app.composer.send_hit.borrow().is_some()
+                            && app.composer.quote_hit.borrow().is_some()
+                    );
+                }
+            }
+        }
+    });
+}
+
+#[test]
+fn blocking_owner_preserves_focused_composer_paint() {
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let mut app = crate::board::app::workspace::tests::board();
+    let id = crate::board::app::workspace::tests::MEMBER;
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    app.paste("focused draft");
+    app.input
+        .as_mut()
+        .unwrap()
+        .response_quotes
+        .push(attached_quote(id, "source"));
+    app.help = true;
+    draw(&mut app, 160, 36);
+    assert!(app.composer_projection().unwrap().focused);
+    assert!(app.composer.send_hit.borrow().is_some() && app.composer.quote_hit.borrow().is_some());
+    assert!(app.input_viewport.get().is_some());
+}

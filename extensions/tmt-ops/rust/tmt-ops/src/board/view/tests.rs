@@ -92,22 +92,27 @@ fn buffer_text(buffer: &ratatui::buffer::Buffer) -> Vec<String> {
 }
 
 #[test]
-fn narrow_annotation_header_truncates_source_before_separator_and_removal_hint() {
-    let mut app = board(json!([]));
-    app.ask(
-        String::new(),
-        crate::board::app::Compose::Talk { to: "agent".into() },
-        "product".into(),
-    );
+fn narrow_annotation_caption_keeps_excerpt_and_whole_removal_control_and_hint() {
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let mut app = workspace_board();
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     let request = "req_1a2b3c4d-1234-4567-89ab-0123456789ab";
+    let key = app
+        .input
+        .as_ref()
+        .unwrap()
+        .draft_key
+        .as_ref()
+        .unwrap()
+        .clone();
     app.input
         .as_mut()
         .unwrap()
         .response_quotes
         .push(crate::board::response::Quote {
             key: crate::board::home_leads::MessageKey {
-                sender: "owner".into(),
-                lead: "agent".into(),
+                sender: key.0,
+                lead: key.1,
                 squad: "product".into(),
                 request: request.into(),
                 kind: crate::board::home_leads::Kind::Reply,
@@ -121,16 +126,31 @@ fn narrow_annotation_header_truncates_source_before_separator_and_removal_hint()
         .draw(|frame| waiting::inline_prompt(frame, &app, frame.area()))
         .unwrap();
     let buffer = terminal.backend().buffer();
-    let line = (0..8)
+    let lines = (0..8)
         .map(|y| (0..40).map(|x| buffer[(x, y)].symbol()).collect::<String>())
-        .find(|line| line.contains("Alt-Backspace removes"))
-        .expect("whole removal hint at 40 cells");
-    assert!(line.contains("… · Alt-Backspace removes"), "{line}");
-    assert!(line.contains("1 quote(s)"), "{line}");
+        .collect::<Vec<_>>();
     assert!(
-        !line.contains(request),
-        "source display must be the truncated part"
+        lines
+            .iter()
+            .any(|line| line.contains("Quote · worker: \"source\"")),
+        "{lines:?}"
     );
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.contains("Enter send · Esc list · Alt-⌫ remove")),
+        "{lines:?}"
+    );
+    assert!(!lines.iter().any(|line| line.contains(request)));
+    let hit = app
+        .composer
+        .quote_hit
+        .borrow()
+        .clone()
+        .expect("whole painted removal control");
+    assert_eq!(hit.area.width, 1);
+    assert_eq!(buffer[(hit.area.x, hit.area.y)].symbol(), "✕");
+    assert_eq!(hit.source.request, request);
 }
 
 #[test]

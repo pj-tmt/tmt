@@ -388,4 +388,57 @@ mod tests {
                 .any(|line| line.contains("Manage link (argv; replace field=value)"))
         );
     }
+
+    #[test]
+    fn details_quote_provenance_is_available_while_the_action_menu_is_open() {
+        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let mut app = crate::board::app::workspace::tests::board();
+        let id = crate::board::app::workspace::tests::MEMBER;
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        app.paste("retained draft");
+        let sender = app
+            .input
+            .as_ref()
+            .unwrap()
+            .draft_key
+            .as_ref()
+            .unwrap()
+            .0
+            .clone();
+        app.input
+            .as_mut()
+            .unwrap()
+            .response_quotes
+            .push(crate::board::response::Quote {
+                key: crate::board::home_leads::MessageKey {
+                    sender,
+                    lead: id.into(),
+                    squad: "team".into(),
+                    request: "req-menu-quote-source".into(),
+                    kind: crate::board::home_leads::Kind::Reply,
+                },
+                range: 0..6,
+                text: "source".into(),
+            });
+        app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        let _no_acquisition = crate::runner::forbid_commands();
+        assert_eq!(
+            app.perform(&crate::action::Action::parse("menu").unwrap()),
+            Effect::None
+        );
+        assert!(app.menu.is_some() && app.modal_open());
+        assert_eq!(app.overview_details(), Effect::None);
+        let lines = &app.monitor_details.as_ref().unwrap().lines;
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("req-menu-quote-source")
+                    && line.contains(id)
+                    && line.contains("bytes 0..6"))
+        );
+        assert_eq!(
+            app.composer_projection().unwrap().text.unwrap().as_str(),
+            "retained draft"
+        );
+    }
 }
