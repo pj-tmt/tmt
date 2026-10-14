@@ -3255,19 +3255,39 @@ path-sorted list of exactly `{path,bytesBase64}`; bytes use canonical standard B
 `manifestDigest` is lowercase SHA-256 of the canonical manifest JSON with top-level field
 order `version,files` and file field order `path,sha256,length,contentType,csp`. Manifest
 version is 1, length counts decoded bytes, contentType is bare, and every file carries CSP.
-The build snapshots the manifest and bundle together, preserves the renderer CSP, and
-copies Remote's built SDK byte-for-byte to `/sdk/remote-v1.js` with a digest check.
+The build snapshots the manifest and bundle together and preserves the renderer CSP. It copies
+Remote's built SDK byte for byte to three reserved routes: `/sdk/remote-v1.js` (Remote's
+committed asset, checked against its own copy), `/sdk/remote-firebase-v1.js` and
+`/sdk/THIRD-PARTY-NOTICES-remote.txt`. The last two are Remote's hosted-only build output
+(`remote-client/dist`), and the build checks each against the SHA-256 and length in Remote's pin
+manifest `remote-client/firebase-build-pin.json`. The pin must name exactly those two files; a
+missing build, a missing, malformed or reshaped pin, or any mismatch fails the build, so
+Remote's build must run first. The hosted tree cannot supply any of the three routes.
 Files use site-root paths: `/index.html` is the HTML shell, alongside `/reader.html`,
 `/renderer.html`, `/THIRD-PARTY-NOTICES.txt` and `/assets/...`. The shell uses absolute
 `/assets/` URLs and no `<base>` so short-route rewrites preserve asset resolution.
 Unsafe paths, reserved `/__` paths, SDK overrides and growth reaching
 50% of Remote's v1 file-count, per-file or total-byte cap fail the build.
 
-The build pipeline and command are implemented independently of the deployment declaration.
-The hosted entry, its exact Firebase connect origins, short-route glue, declaration field,
-golden vector and emulator smoke remain the dependent slice of #2487 after #2397 and the
-Remote Firebase SDK surface. This command does not claim that ordinary releases currently
-contain a working hosted entry.
+**Declared manifest.** `tmt colab deploy-declaration --json` declares the same manifest: an
+executable that embeds a hosted inventory adds a last top-level `hosting` key to the declaration
+text, holding the canonical manifest bytes above verbatim (inserted before the closing brace),
+so the declaration digest covers them. Remote compares the `hosting-bundle` reply with that
+section, paths, lengths and digests, before any provider call. An executable with no hosted
+inventory declares no `hosting` key, and its declaration is the static text unchanged. The
+envelope and the 64 KiB caps do not change. The golden vector `deploy-declaration-v1.hosting.json`
+(with its manifest `deploy-declaration-v1.hosting.manifest.json`) is the reply such an
+executable prints for a fixed five-file fixture; the independent oracle rebuilds it.
+
+**Compatibility.** Rules and the declaration change additively first. A client at release N−1
+keeps working with the Rules of release N. A Rules tightening ships only after the client that no
+longer needs the old shape has been the deployed bundle for one release; the bundle and the Rules
+deploy together under one plan, in the order Remote's deploy defines, and open or cached clients
+may run the previous bundle against the new Rules.
+
+The hosted entry glue (the first `firebaseRemote.connect` caller), its exact Firebase connect
+origins and the short-route glue are not part of this command. Ordinary releases embed no hosted
+inventory yet; the release build step is tracked on #2487.
 
 ### `tmt colab stop` (#1594)
 

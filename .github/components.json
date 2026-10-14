@@ -154,7 +154,7 @@
           "includeSite": "extensions/tmt-colab/rust/tmt-colab/src/hosting.rs",
           "expression": "concat!(env!(\"OUT_DIR\"), \"/colab_hosting.rs\")",
           "generator": "extensions/tmt-colab/rust/tmt-colab/build/hosting.rs",
-          "generatorBlob": "0ecd28b7efdda910276cfbd8ae576011d6f9e1ce",
+          "generatorBlob": "35181b8751c7c95bc4bca0565c5c82855a51f728",
           "buildScript": "extensions/tmt-colab/rust/tmt-colab/build.rs",
           "variable": "TMT_COLAB_HOSTING_DIR",
           "inputDirectory": "extensions/tmt-colab/typescript/app/dist-hosted",

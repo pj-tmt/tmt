@@ -1,6 +1,15 @@
 //! The release command survives relocation without core, state, or app-directory fallback.
+use base64::{Engine, engine::general_purpose::STANDARD};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::{fs, os::unix::fs::PermissionsExt, process::Command};
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
 
 #[test]
 fn relocated_bundle_uses_only_embedded_bytes_and_rejects_digest_arguments() {
@@ -61,11 +70,48 @@ fn relocated_bundle_uses_only_embedded_bytes_and_rejects_digest_arguments() {
                 output.stdout.strip_suffix(b"\n").unwrap(),
                 tmt_colab::hosting::bundle().unwrap()
             );
+            // Remote compares the bundle with the declared manifest before any provider call. Here
+            // the two commands agree exactly, from the executable's own bytes and no network: the
+            // manifest is the declaration's last key, verbatim, and every file matches its entry.
+            let bytes = tmt_colab::hosting::manifest().unwrap();
+            let declared = invoke(&["deploy-declaration", "--json"]);
+            assert!(declared.status.success(), "{declared:?}");
+            let reply: Value = serde_json::from_slice(&declared.stdout).unwrap();
+            let declaration = reply["declaration"].as_str().unwrap();
+            let section = format!(
+                ",\n  \"hosting\": {}\n}}\n",
+                std::str::from_utf8(bytes).unwrap()
+            );
+            assert!(declaration.ends_with(&section), "manifest is the last key");
+            assert_eq!(
+                reply["declarationDigest"],
+                sha256_hex(declaration.as_bytes())
+            );
+            assert_eq!(body["manifestDigest"], sha256_hex(bytes));
+            let declared: Value = serde_json::from_slice(bytes).unwrap();
+            let entries = declared["files"].as_array().unwrap();
+            let sent = body["files"].as_array().unwrap();
+            assert_eq!(entries.len(), sent.len());
+            for (entry, wire) in entries.iter().zip(sent) {
+                let decoded = STANDARD
+                    .decode(wire["bytesBase64"].as_str().unwrap())
+                    .unwrap();
+                assert_eq!(wire["path"], entry["path"]);
+                assert_eq!(entry["length"], decoded.len());
+                assert_eq!(entry["sha256"], sha256_hex(&decoded));
+            }
         }
         None => {
             assert!(!output.status.success());
             let error: Value = serde_json::from_slice(&output.stdout).unwrap();
             assert_eq!(error["error"]["code"], "COLAB_UNAVAILABLE");
+            // A binary with no hosted inventory declares no hosting key.
+            let declared = invoke(&["deploy-declaration", "--json"]);
+            assert!(declared.status.success(), "{declared:?}");
+            let reply: Value = serde_json::from_slice(&declared.stdout).unwrap();
+            let declaration: Value =
+                serde_json::from_str(reply["declaration"].as_str().unwrap()).unwrap();
+            assert!(declaration.get("hosting").is_none());
         }
     }
     let invalid = invoke(&["hosting-bundle", "--json", "--digest", "unused"]);
