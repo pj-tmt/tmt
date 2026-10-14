@@ -1,6 +1,6 @@
 //! Controller authority and public-port regressions; no host server or provider.
 use super::*;
-use model::Decode;
+use model::{Decode, Inventory};
 use ratatui::{
     Terminal,
     backend::TestBackend,
@@ -196,14 +196,27 @@ fn lost_restore_stays_unknown_after_close_reopen_and_is_never_replayed() {
     let task = c.choose("confirm").unwrap();
     c.close();
     assert!(c.open().is_none());
-    finish(
+    let inspection = finish(
         &mut c,
         task,
         Err(SquadError::new("SQUAD_CORE_UNAVAILABLE", "Outcome unknown")),
-    );
+    )
+    .unwrap();
+    assert!(matches!(inspection.job, Job::Show { .. }));
     c.close();
     assert!(c.open().is_none());
     assert!(c.unknown.is_some());
+    assert_eq!(c.pending.as_ref(), Some(&inspection));
+    assert!(
+        finish(
+            &mut c,
+            inspection,
+            Ok(Outcome::Show(Box::new(
+                Preview::decode(&preview_value(Some("saved"))).unwrap()
+            )))
+        )
+        .is_none()
+    );
     assert!(c.pending.is_none());
     assert!(render(&c, 160, 50).contains("Unknown"));
 }
@@ -699,7 +712,55 @@ fn app_snapshot_action_is_agents_list_only_in_dispatch_help_and_menu_table() {
     assert!(!app.recovery_shown());
     assert!(!app.modal_open());
     assert_eq!(app.focus, 0);
+    assert!(
+        app.reload_blocked(),
+        "the active read still belongs to the lane"
+    );
+    assert!(matches!(
+        app.finished_recovery(load::Completed {
+            task: read,
+            result: Ok(Outcome::List(
+                Inventory::decode(&inventory_value()).unwrap()
+            ))
+        }),
+        Effect::None
+    ));
+    assert!(!app.recovery_shown());
     assert!(!app.reload_blocked());
+}
+
+#[test]
+fn rapid_close_reopen_retains_one_active_read_and_coalesces_one_refresh() {
+    let mut c = controller();
+    let active = c.select("snapshot:saved").unwrap();
+    for _ in 0..100 {
+        c.close();
+        assert!(c.open().is_none());
+        assert_eq!(c.pending.as_ref(), Some(&active));
+    }
+    let refresh = finish(
+        &mut c,
+        active,
+        Ok(Outcome::Show(Box::new(
+            Preview::decode(&preview_value(Some("saved"))).unwrap(),
+        ))),
+    )
+    .unwrap();
+    assert_eq!(refresh.job, Job::List(Some(SOCKET.into())));
+    c.close();
+    assert!(
+        finish(
+            &mut c,
+            refresh,
+            Ok(Outcome::List(
+                Inventory::decode(&inventory_value()).unwrap()
+            ))
+        )
+        .is_none()
+    );
+    assert!(c.pending.is_none());
+    assert!(!c.active);
+    assert!(c.preview.is_none());
 }
 
 #[test]

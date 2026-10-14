@@ -162,10 +162,8 @@ impl Controller {
         self.active = false;
         self.confirmation = None;
         self.requested_read = None;
-        // Reads may complete, but cannot acquire presentation after close.
-        if self.pending.as_ref().is_some_and(|t| !t.job.writes()) {
-            self.pending = None;
-        }
+        // Keep ownership of the active read until its completion. Reopening
+        // coalesces behind it instead of queuing abandoned reads on the lane.
         self.invalidate();
     }
     pub fn invalidate(&self) {
@@ -179,6 +177,11 @@ impl Controller {
             return None;
         }
         self.pending = None;
+        if !self.active && !completed.task.job.writes() {
+            self.requested_read = None;
+            self.invalidate();
+            return None;
+        }
         if let Some(job) = self.requested_read.take() {
             return Some(self.issue(job));
         }
