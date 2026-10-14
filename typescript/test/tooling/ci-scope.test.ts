@@ -2863,6 +2863,8 @@ describe('native Auth+Firestore emulator selection', () => {
     'extensions/tmt-colab/rust/tmt-colab/src/object_channel/cloud_sync/inbound.rs',
     'extensions/tmt-colab/rust/tmt-colab/src/object_channel/cloud_sync/proof/world.rs',
     'extensions/tmt-colab/rust/tmt-colab/src/object_channel/documents/originals.rs',
+    'extensions/tmt-colab/rust/tmt-colab/src/sync.rs',
+    'extensions/tmt-colab/rust/tmt-colab/src/fold.rs',
     '.github/workflows/ci.yml',
   ])('selects the real native client proof for %s', (file) => {
     expect(selectNativeSyncEmulator([file])).toBe(true);
@@ -2876,6 +2878,9 @@ describe('native Auth+Firestore emulator selection', () => {
     'extensions/tmt-colab/contracts/vectors/deploy-declaration-v1-other.json',
     'extensions/tmt-colab/rust/tmt-colab/src/object_channel/cloud_sync-other/inbound.rs',
     'extensions/tmt-colab/rust/tmt-colab/src/object_channel/attach.rs',
+    'extensions/tmt-colab/rust/tmt-colab/src/sync/wire.rs',
+    'extensions/tmt-colab/rust/tmt-colab/src/syncing.rs',
+    'extensions/tmt-colab/rust/tmt-colab/src/store.rs',
   ])('does not select unrelated %s', (file) => {
     expect(selectNativeSyncEmulator([file])).toBe(false);
   });

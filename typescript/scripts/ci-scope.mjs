@@ -558,6 +558,8 @@ export function selectNativeSyncEmulator(paths) {
       path === 'extensions/tmt-colab/rust/tmt-colab/src/object_channel/cloud_sync.rs' ||
       path === 'extensions/tmt-colab/rust/tmt-colab/src/object_channel/documents.rs' ||
       path === 'extensions/tmt-colab/rust/tmt-colab/src/object_channel/sealed.rs' ||
+      path === 'extensions/tmt-colab/rust/tmt-colab/src/sync.rs' ||
+      path === 'extensions/tmt-colab/rust/tmt-colab/src/fold.rs' ||
       [
         'extensions/tmt-remote/rust/tmt-remote/src/firebase_auth',
         'extensions/tmt-remote/rust/tmt-remote/src/native_sync',
