@@ -22,7 +22,7 @@ and guides link here instead of repeating it.
   removed it. The Herdr driver implements `name-agent` and a pane's
   `agentName`. Core calls `name-agent` after an explicit bind or rename, while
   `tmt run` or `tmt resume` waits for its command, and before it clears a
-  marker; it does not read `agentName` yet (#2892).
+  marker; it shows `agentName` in `tmt ls` (#2892).
 - **Runtime drivers:** the format, the crate's encoding and the conformance
   harness, approval registry and bounded client exist. `tmt driver install|ls|rm`
   accepts either kind. Runtime approval calls `locations`, validates its write
@@ -204,6 +204,7 @@ A `Pane`:
   the driver could not read it. A driver that cannot read agent names still
   answers the snapshot. It is the name of the agent, never a label of the
   pane, and it is not evidence: it proves no binding and names no identity.
+  Core only shows it; it never copies a host's name into an identity.
 - **Text:** all text is free of control characters.
 
 ### `probe`

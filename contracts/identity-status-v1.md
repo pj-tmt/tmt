@@ -121,6 +121,31 @@ its text and meaning as a display string: consumers read `location`, never parse
 `target`, for coordinates. The projection reuses the command's existing observation;
 it adds no probe and grants no dispatch authority.
 
+## List agent name
+
+Collection `tmt ls --json` identity rows with a live pane optionally include
+`agentName`, and the `pane` document of `tmt ls <target>` carries the same text:
+the name the pane's host gives the agent it recognizes there (Herdr's agent
+name). It is absent, never null, when the host has no agent names (tmux), the
+row has no live observation, or the host reports no name. TMT sets that name
+from the identity's name and never reads it back, so `agentName` can differ
+from `name`; human `tmt ls` then shows the difference with the command that sets
+TMT's name, and warns when an identity on such a host is named only by an agent
+kind such as `claude`. The projection reuses the command's existing
+observation; it adds no probe and grants no dispatch authority.
+
+A bind (`tmt name`, `this`, `add`, `marked`) or a `tmt mv` of a binding on an
+external host asks that host for the agent name and adds `agentName` to its JSON
+result: `{"status": "set", "name"}` when the host confirmed it,
+`{"status": "not_linked"}` when its driver does not offer agent names,
+`{"status": "refused", "name", "code", "message"}` when the host
+definitely did not set it and the agent keeps its earlier name, and
+`{"status": "uncertain", "name", "code"?, "message"}` when the call failed,
+possibly after the host set the name. `code` is the driver's error code when it
+gave one. Every status leaves the binding as it is. A tmux binding, a rename
+to the same name, and a command that changed no binding ask nothing and omit
+the member.
+
 ## Verification
 
 Verify byte/control/duration boundaries, exact expiry and clock rollback, atomic

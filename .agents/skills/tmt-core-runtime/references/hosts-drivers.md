@@ -63,7 +63,22 @@ channels and the driver protocol. The owner map is in
   (#1082): they parse as `External(herdr)`, so earlier bindings read as unknown, never lost,
   until the driver is approved. Without an approved driver (a build that ships none, or one
   removed with `tmt driver rm herdr`), a Herdr pane command keeps its result and prints
-  `tmt driver install herdr` on stderr once a day per pane (`hint_cadence`).
+  `tmt driver install herdr` on stderr once a day per pane (`hint_cadence`). An approval covers
+  the operations the driver declared then: a shipped driver that declares a new one, such as
+  `name-agent`, reads as changed, and the next command that works with hosts approves it again
+  itself (below) unless the user removed it.
+- Agent names flow one way, from the identity's name to the host's agent name (Herdr's, never
+  its pane label), through `Host::name_agent` and the optional `name-agent` operation; a driver
+  that does not declare it is `AgentNaming::NotLinked`. Callers: post-commit in
+  `binding_command` after an explicit bind or a changed `tmt mv` (JSON `agentName` member,
+  one human warning on stderr); `run_command::agent_name` at the run/resume wait ticks; and
+  `name: null` inside the external `clear`, before the marker, with half the budget left.
+  `AgentNameRefusal` separates definite refusals (`Rejected`, `NoAgent`, `Foreign`), which keep
+  the agent's earlier name, from `Uncertain`, where the host may have set it. A run attempt
+  holds the storage write lock while it checks that the binding and name are still its own and
+  calls the host, so a `tmt mv` never loses to a run's older name. Read commands and provider
+  hooks never set a name; `tmt ls` shows the snapshot's `agentName` and its advice. The
+  [contract](../../../../contracts/driver-protocol-v1.md#name-agent) owns the driver's guards.
 - Cosmetics: tmux badge and marker refresh (names sanitized before markup); `pane_badge` is
   bounded post-commit presentation, never routing evidence. A badge refresh prefixes the
   inherited border format on that pane only, unless a user-local override or existing badge

@@ -60,6 +60,8 @@ impl CommandRunner for FixtureRunner {
 /// Answers `__tmt-driver 1 <op>` with the file `<itself>.<op>`, and
 /// `unsupported` when there is none. It records `<op> <TMT_DRIVER_CALL>` for
 /// every call, and sleeps for `<itself>.sleep` seconds first when present.
+/// It keeps each request in `<itself>.<op>.in`, and sleeps `<itself>.<op>.sleep`
+/// seconds after reading it when present.
 const SCRIPT: &str = r#"#!/bin/sh
 echo "$3 ${TMT_DRIVER_CALL:-}" >> "$0.calls"
 if [ -f "$0.sleep" ]; then sleep "$(cat "$0.sleep")"; fi
@@ -68,6 +70,8 @@ if [ "$1" != "__tmt-driver" ] || [ "$2" != "1" ] || [ -z "$3" ]; then
   exit 2
 fi
 input=$(cat)
+printf '%s\n' "$input" >> "$0.$3.in"
+if [ -f "$0.$3.sleep" ]; then sleep "$(cat "$0.$3.sleep")"; fi
 if [ "$3" != capabilities ] && [ "$input" = "{" ]; then
   printf '{"error":{"code":"bad_request","message":"not JSON"}}'
   exit 0
@@ -759,6 +763,116 @@ mod through_the_driver {
         assert_eq!(
             crate::host::AgentNameRefusal::of(&error),
             crate::host::AgentNameRefusal::Uncertain
+        );
+    }
+
+    /// The requests the driver received for `op`.
+    fn requests(installed: &Installed, op: &str) -> Vec<Value> {
+        fs::read_to_string(installed.beside(&format!("{op}.in")))
+            .unwrap_or_default()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect()
+    }
+
+    /// The exact `name-agent` request: the binding's socket, pane, pane
+    /// process and binding ID, with the name, or `null` before a clear.
+    #[test]
+    fn name_agent_sends_the_bindings_exact_request() {
+        let (pid, start) = live();
+        let installed = naming(pid);
+        installed.answer("name-agent", r#"{"ok": {}}"#);
+        installed.answer("clear", r#"{"ok": {"cleared": true}}"#);
+        let drivers = drivers(&installed);
+        let bound = binding(server(pid, &start), pid);
+        let mut session = crate::host::external::Session::new(&drivers);
+        session.begin_coordination();
+        session
+            .driver(fake())
+            .name_agent(&bound, Some("worker"))
+            .unwrap();
+        assert!(session.driver(fake()).clear(&bound).unwrap());
+        let expected = |name: Value| {
+            json!({"socket": bound.server.socket_path, "paneId": bound.pane_id,
+                   "panePid": pid, "bindingId": bound.id, "name": name})
+        };
+        let mut sent = requests(&installed, "name-agent");
+        // The envelope's deadline: the operation's own 2 s for a set, at
+        // most half of the 3 s session budget before a clear.
+        let deadlines: Vec<_> = sent
+            .iter_mut()
+            .map(|request| request.as_object_mut().unwrap().remove("deadlineMs"))
+            .map(|deadline| deadline.and_then(|ms| ms.as_u64()).unwrap())
+            .collect();
+        assert!(
+            deadlines[0] <= 2000 && deadlines[1] <= 1500,
+            "{deadlines:?}"
+        );
+        assert_eq!(sent, [expected(json!("worker")), expected(Value::Null)]);
+    }
+
+    /// A slow `name-agent` before a clear ends at half of the budget left,
+    /// and the clear still runs in the rest.
+    #[test]
+    fn a_slow_name_agent_leaves_the_clear_its_half_of_the_budget() {
+        let (pid, start) = live();
+        let installed = naming(pid);
+        installed.answer("name-agent", r#"{"ok": {}}"#);
+        installed.answer("clear", r#"{"ok": {"cleared": true}}"#);
+        let drivers = Drivers::new(TimedRunner, vec![installed.approve().unwrap()]);
+        let bound = binding(server(pid, &start), pid);
+        let mut session = crate::host::external::Session::new(&drivers);
+        session.begin_coordination();
+        let driver = session.driver(fake());
+        fs::write(installed.beside("name-agent.sleep"), "5").unwrap();
+        let started = Instant::now();
+        assert!(driver.clear(&bound).unwrap());
+        let took = started.elapsed();
+        assert!(took < Duration::from_secs(3), "{took:?}");
+        assert!(
+            installed
+                .calls()
+                .ends_with(&["name-agent 1".to_owned(), "clear 1".to_owned()]),
+            "{:?}",
+            installed.calls()
+        );
+    }
+
+    /// Answers every driver call through the fixture, except a `name-agent`
+    /// whose process could not be cleaned up.
+    struct UnreapedNaming;
+
+    impl CommandRunner for UnreapedNaming {
+        fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+            if request.args.iter().any(|arg| arg == "name-agent") {
+                let mut error = CommandError::new(CommandFailure::Timeout);
+                error.cleanup_error = Some(std::io::Error::other("not reaped"));
+                return Err(error);
+            }
+            TimedRunner.execute(request)
+        }
+    }
+
+    /// A driver process that could not be cleaned up stops the clear: TMT
+    /// does not start another driver process past a leaked one.
+    #[test]
+    fn a_name_agent_cleanup_failure_stops_the_clear() {
+        let (pid, start) = live();
+        let installed = naming(pid);
+        installed.answer("clear", r#"{"ok": {"cleared": true}}"#);
+        let drivers = Drivers::new(UnreapedNaming, vec![installed.approve().unwrap()]);
+        let bound = binding(server(pid, &start), pid);
+        let mut session = crate::host::external::Session::new(&drivers);
+        session.begin_coordination();
+        let error = session.driver(fake()).clear(&bound).unwrap_err();
+        assert!(error.cleanup_failed(), "{error:?}");
+        assert!(
+            !installed
+                .calls()
+                .iter()
+                .any(|call| call.starts_with("clear")),
+            "{:?}",
+            installed.calls()
         );
     }
 

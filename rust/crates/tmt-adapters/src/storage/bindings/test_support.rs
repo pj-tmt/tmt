@@ -31,6 +31,7 @@ impl Fixture {
 
 pub(super) fn pane(id: &str, pid: u64) -> PaneObservation {
     PaneObservation {
+        agent_name: None,
         id: id.into(),
         target: None,
         cwd: None,

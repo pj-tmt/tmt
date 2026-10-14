@@ -129,6 +129,7 @@ pub(super) fn parse_snapshot(
         let attached = positive_id(fields[9]).is_some();
         let text = |value: &str| (!value.is_empty()).then(|| value.to_string());
         let pane = PaneObservation {
+            agent_name: None,
             id: fields[4].into(),
             target: text(fields[5]),
             cwd: text(fields[6]),

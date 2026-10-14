@@ -39,11 +39,11 @@ struct ListedRow {
     driver_support: Option<tmt_core::driver::descriptor::Support>,
 }
 
-/// An agent name the host did not set after a committed bind or rename. The
-/// binding stands; the user gets the cause and the fix.
-struct AgentNameIssue {
+/// What the host did with the agent name after a committed bind or rename.
+/// The binding stands either way; a failure gets the cause and the fix.
+struct AgentNameOutcome {
     name: String,
-    error: tmt_adapters::host::HostError,
+    result: Result<tmt_adapters::host::AgentNaming, tmt_adapters::host::HostError>,
 }
 
 struct ResolvedPane {
@@ -273,7 +273,7 @@ fn listed_target(request: &Invocation) -> Result<ListedTarget, Failure> {
     })
 }
 
-fn run(request: Invocation) -> Result<(Report, Option<AgentNameIssue>), Failure> {
+fn run(request: Invocation) -> Result<(Report, Option<AgentNameOutcome>), Failure> {
     let environment = CallerEnvironment::current();
     let caller = Host::for_caller(&environment);
     let listed = listed_target(&request)?;
@@ -390,20 +390,23 @@ fn run(request: Invocation) -> Result<(Report, Option<AgentNameIssue>), Failure>
                 .map(|binding| (binding, &result.identity)),
             _ => None,
         };
-        let issue = match named {
+        // tmux has no agent names, so a tmux binding asks nothing and its
+        // result gains no member.
+        let named = named
+            .filter(|(binding, _)| !matches!(binding.server.host, tmt_core::host::HostKind::Tmux));
+        let outcome = match named {
             Some((binding, identity)) => {
                 match Host::for_server(&binding.server).name_agent(binding, identity, None) {
-                    Ok(_) => None,
                     Err(error) if error.cleanup_failed() => return Err(cosmetic_cleanup(error)),
-                    Err(error) => Some(AgentNameIssue {
+                    result => Some(AgentNameOutcome {
                         name: identity.name.clone(),
-                        error,
+                        result,
                     }),
                 }
             }
             None => None,
         };
-        Ok((report, issue))
+        Ok((report, outcome))
     });
     after_cleanup(pending, || storage.close())
 }
@@ -627,7 +630,11 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
     };
     let mut stdout = tmt_cli_style::stream::stdout(mode.json);
     if mode.json {
-        writeln!(stdout, "{}", presentation::document(&report))?;
+        let mut document = presentation::document(&report);
+        if let Some(outcome) = &agent_name {
+            document["agentName"] = presentation::agent_name_document(outcome);
+        }
+        writeln!(stdout, "{document}")?;
     } else {
         let terminal = stdout.terminal();
         presentation::text(&mut stdout, terminal, &report)?;
@@ -636,8 +643,12 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
     if !mode.json {
         let mut stderr = tmt_cli_style::stream::stderr();
         presentation::warnings(&mut stderr, &report)?;
-        if let Some(issue) = &agent_name {
-            presentation::agent_name_warning(&mut stderr, issue)?;
+        if let Some(AgentNameOutcome {
+            name,
+            result: Err(error),
+        }) = &agent_name
+        {
+            presentation::agent_name_warning(&mut stderr, name, error)?;
         }
     }
     use crate::skill_reminder::Outcome;

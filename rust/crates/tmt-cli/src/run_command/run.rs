@@ -650,11 +650,7 @@ pub(super) fn run_bound(
                     );
                 }
                 namer.attempt(|| {
-                    host.name_agent(
-                        binding,
-                        &bound.presence.identity,
-                        Some(Instant::now() + super::agent_name::CALL),
-                    )
+                    super::agent_name::attempt(paths, host, binding, &bound.presence.identity)
                 });
             },
             on_degraded,

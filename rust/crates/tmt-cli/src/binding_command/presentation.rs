@@ -47,6 +47,10 @@ fn pane_document(pane: &PaneObservation) -> Value {
         }
         value["location"] = place;
     }
+    // Absent, never null, when the host reports no agent name for the pane.
+    if let Some(agent_name) = &pane.agent_name {
+        value["agentName"] = agent_name.clone().into();
+    }
     value
 }
 
@@ -66,7 +70,7 @@ fn presence_document(row: &IdentityPresence) -> Value {
         .into();
     if let Some(pane) = &row.pane {
         let details = pane_document(pane);
-        for key in ["target", "cwd", "location"] {
+        for key in ["target", "cwd", "location", "agentName"] {
             if let Some(detail) = details.get(key) {
                 value[key] = detail.clone();
             }
@@ -313,6 +317,49 @@ fn action(row: &IdentityPresence, remembered: Option<&RememberedSession>) -> Opt
     }
 }
 
+/// Advice on live rows of a host with agent names. TMT sets the agent name
+/// and never reads it back into the identity, so a host's name that differs
+/// is shown with the command that sets TMT's, and a name that is only an
+/// agent kind gets a warning: agents address one another by that name.
+fn agent_name_advice(rows: &[ListedRow]) -> Vec<(String, String)> {
+    let kinds = tmt_adapters::runtime::RuntimeRegistry::first_party();
+    let mut advice = Vec::new();
+    for row in rows {
+        let presence = &row.presence;
+        let (Some(pane), Some(binding)) = (&presence.pane, &presence.binding) else {
+            continue;
+        };
+        let HostKind::External(host) = binding.server.host else {
+            continue;
+        };
+        if presence.presence != Presence::Active {
+            continue;
+        }
+        let name = &presence.identity.name;
+        let word = crate::output::shell_word(name);
+        if let Some(agent_name) = pane.agent_name.as_ref().filter(|agent| *agent != name) {
+            advice.push((
+                format!(
+                    "{name}'s agent has the {} agent name {agent_name}, not {name}",
+                    host.as_str()
+                ),
+                format!("To set the TMT name, in {word}'s pane run: tmt this {word}"),
+            ));
+        }
+        if kinds.harnesses().any(|kind| kind == name.as_str()) {
+            advice.push((
+                format!(
+                    "{name} is an agent kind, not a name; as the {} agent name it does not \
+                     tell agents apart",
+                    host.as_str()
+                ),
+                format!("Choose a distinct name: tmt mv {word} <name>"),
+            ));
+        }
+    }
+    advice
+}
+
 fn folder(pane: Option<&PaneObservation>, home: Option<&Path>) -> String {
     pane.and_then(|pane| pane.cwd.as_deref())
         .map_or_else(String::new, |cwd| value::home_path(Path::new(cwd), home))
@@ -543,7 +590,11 @@ pub(super) fn text(output: &mut impl Write, terminal: Terminal, report: &Report)
                     ),
                 ),
                 None => Ok(()),
+            }?;
+            for (what, fix) in agent_name_advice(rows) {
+                message::warning(output, terminal, &what, Some(&fix))?;
             }
+            Ok(())
         }
         Report::Named {
             row, remembered, ..
@@ -621,11 +672,37 @@ pub(super) fn warnings(
 /// the cause, that the binding stays, and the fix.
 pub(super) fn agent_name_warning(
     output: &mut tmt_cli_style::stream::Stream<impl Write>,
-    issue: &super::AgentNameIssue,
+    name: &str,
+    error: &tmt_adapters::host::HostError,
 ) -> io::Result<()> {
     let terminal = output.terminal();
-    let (what, fix) = agent_name_text(&issue.name, &issue.error);
+    let (what, fix) = agent_name_text(name, error);
     message::warning(output, terminal, &what, Some(&fix))
+}
+
+/// The JSON `agentName` member of a bind or rename that asked the host for
+/// the agent name. `set`: the host confirmed it. `not_linked`: the host has
+/// no agent names. `refused`: the host definitely did not set it, and the
+/// agent keeps its earlier name. `uncertain`: the call failed, possibly after
+/// the host set the name. `code` is the driver's, when it gave one.
+pub(super) fn agent_name_document(outcome: &super::AgentNameOutcome) -> Value {
+    use tmt_adapters::host::{AgentNameRefusal, AgentNaming, HostError};
+    match &outcome.result {
+        Ok(AgentNaming::Done) => json!({"status": "set", "name": outcome.name}),
+        Ok(AgentNaming::NotLinked) => json!({"status": "not_linked"}),
+        Err(error) => {
+            let status = match AgentNameRefusal::of(error) {
+                AgentNameRefusal::Uncertain => "uncertain",
+                _ => "refused",
+            };
+            let mut value =
+                json!({"status": status, "name": outcome.name, "message": error.to_string()});
+            if let HostError::Refused { code, .. } = error {
+                value["code"] = serde_json::to_value(code).unwrap_or(Value::Null);
+            }
+            value
+        }
+    }
 }
 
 /// The warning and its fix for an agent name the host did not confirm. A
@@ -681,6 +758,16 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
     ),
     crate::cli_style_tests::HintSpec::core(
         "To check the agent name, in the agent's pane run: tmt this {name}",
+        &[""],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "To set the TMT name, in {word}'s pane run: tmt this {word}",
+        &[""],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "Choose a distinct name: tmt mv {word} <name>",
         &[""],
         &[],
     ),

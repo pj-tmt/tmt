@@ -318,6 +318,7 @@ mod tests {
                 server_start_time: "1700000000".into(),
             };
             let pane = PaneObservation {
+                agent_name: None,
                 id: format!("%{index}"),
                 target: None,
                 cwd: None,
@@ -648,6 +649,7 @@ mod tests {
             server_start_time: "1700000000".into(),
         };
         let pane = PaneObservation {
+            agent_name: None,
             id: "%9".into(),
             target: None,
             cwd: None,

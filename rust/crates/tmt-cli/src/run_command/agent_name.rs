@@ -4,9 +4,22 @@
 //! retries only while the host recognizes no agent yet, and stops at the
 //! first other answer: a definite refusal is final, and an uncertain one is
 //! never repeated in the loop.
+//!
+//! An attempt holds the storage write lock while it checks that the binding
+//! and the identity's name are still the run's and calls the host. A `tmt mv`
+//! commits only before or after it, and names the agent after its commit, so
+//! a run never sets an old name back over a newer one.
 
-use std::time::Duration;
-use tmt_adapters::host::{AgentNameRefusal, AgentNaming, HostError};
+use std::time::{Duration, Instant};
+use tmt_adapters::{
+    config::ConfigPaths,
+    host::{AgentNameRefusal, AgentNaming, Host, HostError},
+    storage::{Storage, StorageError},
+};
+use tmt_core::{
+    binding::{Binding, BindingRepository},
+    identity::Identity,
+};
 
 /// The most attempts, one per wait tick: about 30 s at the 5 s cadence.
 pub(super) const ATTEMPTS: u32 = 6;
@@ -23,6 +36,48 @@ pub(super) trait Refusal {
 impl Refusal for HostError {
     fn class(&self) -> AgentNameRefusal {
         AgentNameRefusal::of(self)
+    }
+}
+
+/// What one tick did.
+pub(super) enum Attempt<E> {
+    /// The host answered.
+    Answered(Result<AgentNaming, E>),
+    /// The binding or the identity's name changed: whoever changed it names
+    /// the agent, so the run stops without a warning.
+    Moved,
+    /// Storage could not be read in time; the attempt counts, and the next
+    /// tick tries again.
+    Skipped,
+}
+
+/// One attempt under the storage write lock, all of it within [`CALL`].
+pub(super) fn attempt(
+    paths: &ConfigPaths,
+    host: &Host,
+    binding: &Binding,
+    identity: &Identity,
+) -> Attempt<HostError> {
+    let deadline = Instant::now() + CALL;
+    let Ok(mut storage) = Storage::open_hook(&paths.database, deadline) else {
+        return Attempt::Skipped;
+    };
+    let answered = storage.with_binding_transaction::<_, StorageError>(|records| {
+        let current = records
+            .entry_by_id(&binding.identity_id)?
+            .is_some_and(|entry| {
+                entry.identity.name == identity.name
+                    && entry
+                        .binding
+                        .is_some_and(|current| current.id == binding.id)
+            });
+        Ok(current.then(|| host.name_agent(binding, identity, Some(deadline))))
+    });
+    let _ = storage.close();
+    match answered {
+        Ok(Some(answer)) => Attempt::Answered(answer),
+        Ok(None) => Attempt::Moved,
+        Err(_) => Attempt::Skipped,
     }
 }
 
@@ -44,17 +99,18 @@ impl<E> Default for AgentNamer<E> {
 
 impl<E: Refusal> AgentNamer<E> {
     /// One attempt, while the name is still pending.
-    pub(super) fn attempt(&mut self, call: impl FnOnce() -> Result<AgentNaming, E>) {
+    pub(super) fn attempt(&mut self, call: impl FnOnce() -> Attempt<E>) {
         if self.settled {
             return;
         }
         self.attempts += 1;
         match call() {
-            Ok(_) => {
+            Attempt::Answered(Ok(_)) | Attempt::Moved => {
                 self.settled = true;
                 self.last = None;
             }
-            Err(error) => {
+            Attempt::Skipped => self.settled = self.attempts >= ATTEMPTS,
+            Attempt::Answered(Err(error)) => {
                 self.settled =
                     error.class() != AgentNameRefusal::NoAgent || self.attempts >= ATTEMPTS;
                 self.last = Some(error);
@@ -101,7 +157,9 @@ mod tests {
         ]
         .into_iter();
         for _ in 0..10 {
-            namer.attempt(|| answers.next().expect("no call after the name is set"));
+            namer.attempt(|| {
+                Attempt::Answered(answers.next().expect("no call after the name is set"))
+            });
         }
         assert_eq!(namer.attempts(), 2);
         assert!(namer.into_issue().is_none());
@@ -114,7 +172,7 @@ mod tests {
         for _ in 0..10 {
             namer.attempt(|| {
                 calls += 1;
-                Err(refused(AgentNameRefusal::NoAgent))
+                Attempt::Answered(Err(refused(AgentNameRefusal::NoAgent)))
             });
         }
         assert_eq!(calls, ATTEMPTS);
@@ -143,11 +201,29 @@ mod tests {
             let mut namer = AgentNamer::<Refused>::default();
             let mut answer = Some(answer);
             for _ in 0..3 {
-                namer.attempt(|| answer.take().expect("one attempt only"));
+                namer.attempt(|| Attempt::Answered(answer.take().expect("one attempt only")));
             }
             assert_eq!(namer.attempts(), 1);
             assert_eq!(namer.into_issue().map(|issue| issue.class()), issue);
         }
+    }
+
+    /// A `tmt mv` (or another bind) changed the name: the run stops and
+    /// leaves the naming to it, with no warning. A skipped tick counts.
+    #[test]
+    fn a_moved_binding_stops_the_loop_quietly_and_a_skipped_tick_counts() {
+        let mut namer = AgentNamer::<Refused>::default();
+        namer.attempt(|| Attempt::Answered(Err(refused(AgentNameRefusal::NoAgent))));
+        namer.attempt(|| Attempt::Moved);
+        namer.attempt(|| panic!("no attempt after the binding moved"));
+        assert_eq!(namer.attempts(), 2);
+        assert!(namer.into_issue().is_none());
+
+        let mut namer = AgentNamer::<Refused>::default();
+        for _ in 0..10 {
+            namer.attempt(|| Attempt::Skipped);
+        }
+        assert_eq!(namer.attempts(), ATTEMPTS);
     }
 
     #[test]

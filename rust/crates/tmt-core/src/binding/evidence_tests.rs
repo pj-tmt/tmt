@@ -32,6 +32,7 @@ fn fixture(name: &str) -> (Identity, Binding, EndpointSnapshot) {
         session: Default::default(),
     };
     let pane = PaneObservation {
+        agent_name: None,
         id: binding.pane_id.clone(),
         target: Some("main:1.0".into()),
         cwd: Some("/repo".into()),

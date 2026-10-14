@@ -26,6 +26,7 @@ fn identity(name: &str, lifetime: Lifetime) -> Identity {
 
 fn pane(id: &str, command: &str, cwd: &str) -> PaneObservation {
     PaneObservation {
+        agent_name: None,
         id: id.into(),
         target: Some(format!("work:1.{}", id.trim_start_matches('%'))),
         cwd: Some(cwd.into()),

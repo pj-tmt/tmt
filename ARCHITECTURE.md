@@ -307,7 +307,9 @@ The CLI and the `delivery` and `pane_badge` adapters reach a terminal only throu
 port, the tmux module or core's `binding`, `endpoint` or `host` model. Every host,
 the built-in tmux and external drivers alike, implements `host::driver::HostDriver`,
 and one binding policy in `host::driver::{status, send, focus, swap_into}` decides which
-evidence makes a binding present and when input is blocked. Endpoint identity is
+evidence makes a binding present and when input is blocked. A host with agent
+names (Herdr) gets the identity's name as the agent's name, in one direction
+only: the host's name is shown, never evidence and never copied back. Endpoint identity is
 opaque to everything but its host: `HostKind` is pure data, evidence from another
 host is `Unknown`, and only `tmt-core/src/host.rs`, `tmt-adapters/src/host.rs` and
 `tmux/` may spell a built-in host's name. Core's delivery policy rewrites ASCII `!` to
