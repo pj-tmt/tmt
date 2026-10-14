@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "planDigest": "ad65724bcb20fb94540941aad34d06e51bdfe94ee24e0cad8b43bc59d5b2b6ec",
+  "planDigest": "de3811212e737e8dd349f1610f0b7392bb0b2baa8d667f4393016ae160012157",
   "declarationDigest": "2beafac126fa261057bb8fd36616139b3a18e6479afc04adbfc615c0f04b035b",
   "artifactDigest": "ec2a6f45fa1afcf7fe6c452d03337bddb1e98e922d0d3190545c27e0c086acaf",
   "plan": {
@@ -30,7 +30,43 @@
             },
             "ttlField": "expiresAt",
             "ttl": "not-provisioned",
-            "indexes": []
+            "indexes": [],
+            "compositeIndexes": [
+              {
+                "collectionGroup": "authority",
+                "queryScope": "COLLECTION",
+                "fields": [
+                  {
+                    "fieldPath": "epoch",
+                    "order": "ASCENDING"
+                  },
+                  {
+                    "fieldPath": "kind",
+                    "order": "ASCENDING"
+                  },
+                  {
+                    "fieldPath": "page",
+                    "order": "ASCENDING"
+                  },
+                  {
+                    "fieldPath": "recipient",
+                    "order": "ASCENDING"
+                  },
+                  {
+                    "fieldPath": "space",
+                    "order": "ASCENDING"
+                  },
+                  {
+                    "fieldPath": "subject",
+                    "order": "ASCENDING"
+                  },
+                  {
+                    "fieldPath": "seq",
+                    "order": "ASCENDING"
+                  }
+                ]
+              }
+            ]
           },
           {
             "name": "checkpoints",
@@ -43,7 +79,35 @@
             },
             "ttlField": "expiresAt",
             "ttl": "not-provisioned",
-            "indexes": []
+            "indexes": [],
+            "compositeIndexes": [
+              {
+                "collectionGroup": "checkpoints",
+                "queryScope": "COLLECTION",
+                "fields": [
+                  {
+                    "fieldPath": "epoch",
+                    "order": "ASCENDING"
+                  },
+                  {
+                    "fieldPath": "object",
+                    "order": "ASCENDING"
+                  },
+                  {
+                    "fieldPath": "page",
+                    "order": "ASCENDING"
+                  },
+                  {
+                    "fieldPath": "space",
+                    "order": "ASCENDING"
+                  },
+                  {
+                    "fieldPath": "seq",
+                    "order": "ASCENDING"
+                  }
+                ]
+              }
+            ]
           },
           {
             "name": "links",
@@ -69,7 +133,35 @@
             },
             "ttlField": "expiresAt",
             "ttl": "not-provisioned",
-            "indexes": []
+            "indexes": [],
+            "compositeIndexes": [
+              {
+                "collectionGroup": "log",
+                "queryScope": "COLLECTION",
+                "fields": [
+                  {
+                    "fieldPath": "epoch",
+                    "order": "ASCENDING"
+                  },
+                  {
+                    "fieldPath": "page",
+                    "order": "ASCENDING"
+                  },
+                  {
+                    "fieldPath": "space",
+                    "order": "ASCENDING"
+                  },
+                  {
+                    "fieldPath": "stream",
+                    "order": "ASCENDING"
+                  },
+                  {
+                    "fieldPath": "seq",
+                    "order": "ASCENDING"
+                  }
+                ]
+              }
+            ]
           },
           {
             "name": "members",
