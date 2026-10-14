@@ -2,6 +2,7 @@
 //! upgrades the socket; this module never owns HTTP, cookies, keys or Yjs state.
 pub(crate) mod wire;
 use crate::{
+    cloud_sync::{ActivePage, PageRef},
     limits,
     store::{self, Accepted, Store, StreamScope},
 };
@@ -468,6 +469,9 @@ struct State<A> {
     saving: HashMap<(String, String), usize>,
     /// A service replacement finishes admitted saves but admits no new peer mutations.
     draining: bool,
+    /// Tells the cloud-sync worker which page was last opened or written. Nothing waits on it
+    /// unless the serve runs the worker.
+    activity: ActivePage,
 }
 /// Shared queue/admission/store owner. No worker threads; dropping a Connection
 /// removes its subscriber. Mutate authority only through update_admission.
@@ -571,6 +575,13 @@ impl Server<crate::registration::OwnerAdmission> {
             if let Some(combined) = &combined {
                 state.announce_combined(&outputs.0, combined);
             }
+            if let Ok(epoch) = values::decimal(&job.manifest.epoch, false) {
+                state.activity.touch(PageRef {
+                    space: job.manifest.space_id.clone(),
+                    page: job.manifest.page_id.clone(),
+                    epoch,
+                });
+            }
         }
         Ok(crate::page::Published {
             record: committed.record,
@@ -596,6 +607,8 @@ impl Server<crate::registration::OwnerAdmission> {
             .map_err(|_| Fault::Unavailable)?
             .compact(page, received + limits::COMPACT_COMBINE)?;
         if report.compacted {
+            // A new cut changes what the active page has to publish.
+            state.activity.nudge();
             // Whoever is subscribed to this page learns of the checkpoints, in whichever scope.
             let mut scopes: Vec<SyncScope> = Vec::new();
             for scope in state
@@ -629,7 +642,13 @@ impl<A: Admission> Server<A> {
             next: 0,
             saving: HashMap::new(),
             draining: false,
+            activity: ActivePage::default(),
         })))
+    }
+    /// Share the activity the cloud-sync worker waits on.
+    pub fn set_activity(&self, activity: ActivePage) -> Result<(), Code> {
+        self.0.lock().map_err(|_| Code::Denied)?.activity = activity;
+        Ok(())
     }
     /// A preparation outside the mutex remains a live operation until its saved outcome settles.
     pub fn is_idle(&self) -> bool {
@@ -731,6 +750,7 @@ impl<A: Admission> DetachedCatchup<A> {
             next: 1,
             saving: HashMap::new(),
             draining: false,
+            activity: ActivePage::default(),
         };
         // The consumer already admitted current membership and eligible opaque
         // historical keys on its live connection. Name that exact head without
@@ -853,6 +873,22 @@ impl<A: Admission> State<A> {
             return Err(Code::ResyncRequired);
         }
         self.peers.get_mut(&id).ok_or(Code::Denied)?.scope = Some(scope.clone());
+        if matches!(
+            &frame,
+            Frame::Hello { .. }
+                | Frame::Subscribe { .. }
+                | Frame::Append { .. }
+                | Frame::Chunk { .. }
+                | Frame::Save { .. }
+                | Frame::Compact { .. }
+        ) && let Ok(epoch) = values::decimal(&scope.epoch, false)
+        {
+            self.activity.touch(PageRef {
+                space: scope.space.clone(),
+                page: scope.page.clone(),
+                epoch,
+            });
+        }
         let subscribing = matches!(&frame, Frame::Subscribe { .. });
         match frame {
             Frame::Object { .. } => return Err(Code::Invalid),

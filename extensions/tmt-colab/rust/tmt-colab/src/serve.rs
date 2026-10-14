@@ -470,6 +470,13 @@ fn record_failure(
     );
 }
 
+/// The one line a person is shown when cloud sync cannot run.
+fn warn(line: &str) {
+    let mut warning = tmt_cli_style::stream::stderr();
+    let terminal = warning.terminal();
+    let _ = tmt_cli_style::message::warning(&mut warning, terminal, line, None);
+}
+
 /// The serve itself. In a worker (`handoff` is `Some`) it sends the readiness record instead of
 /// printing, never opens the browser, and records a failure it can no longer report.
 fn serve(
@@ -495,6 +502,7 @@ fn serve(
         let keyring = Keyring::open(&layout)?;
         let store = Store::open(&layout)?;
         let space_id = keyring.space_id.clone();
+        let owner = keyring.owner_public();
         let (pages, all_pages) = open_pages(&store, &keyring);
         let save_root = root.to_path_buf();
         let summary_root = root.to_path_buf();
@@ -517,10 +525,23 @@ fn serve(
             tmt_colab::serve_release::Running::detect(),
         ));
         fence(stop, detached)?;
-        let socket = MountSocket::bind(&layout, &space_id, Tunnels::PRODUCT)?
+        let mut socket = MountSocket::bind(&layout, &space_id, Tunnels::PRODUCT)?
             .with_registration(&layout, Arc::clone(&registration))?
             .with_release(Arc::clone(&release))
             .with_app(app);
+        // An executable whose declaration cannot be produced refuses itself everywhere else;
+        // here it simply never syncs.
+        if let Ok(digest) = tmt_colab::deploy_declaration::declaration_digest() {
+            socket = socket.with_cloud_sync(
+                &layout,
+                owner,
+                tmt_colab::cloud_sync::Config {
+                    activate: Arc::new(supervisor::activate_sync),
+                    report: Arc::new(warn),
+                    declaration_digest: digest,
+                },
+            )?;
+        }
         // The socket is bound first, so a door started now mounts it as soon as it is ready.
         let access = supervisor::Access::open(stop);
         if let supervisor::Access::Unavailable {

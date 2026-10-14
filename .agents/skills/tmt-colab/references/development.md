@@ -153,6 +153,7 @@ Each is `(cd rust && cargo test --offline --locked -p tmt-colab <selector>)`:
 | Export and attachment read                          | `--test export`, `export::tests`, `export::attachments::tests`, `--test socket root_local_attachment_read`                                                                        |
 | Object channel and admitted attachments             | `--lib object_channel::tests`, `--test attachments`                                                                                                                               |
 | Native attach                                       | `--lib attachments::slots`, `--lib object_channel::attach`, `--lib object_channel::tests::attach`, `--test cli attachment_attach`, `--test socket root_local_attach`              |
+| Cloud-sync worker (outbound publication)            | `--lib object_channel::cloud_sync`, `--test sync the_page_a_peer_opens`, `--test socket the_serve_runs_cloud_sync`                                                                |
 | Firestore declaration command and vector            | `--test deploy_declaration`, `--lib deploy_declaration`, then Remote's `-p tmt-remote --test deploy_vectors` mirror                                                               |
 
 - Object-channel fixtures exercise the real private socket and neutral Bus with scripted

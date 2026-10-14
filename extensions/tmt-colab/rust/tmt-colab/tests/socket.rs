@@ -101,6 +101,18 @@ impl Running {
         release: Option<Arc<tmt_colab::serve_release::ServeRelease>>,
         rekey_probe: Option<std::sync::mpsc::Sender<()>>,
     ) -> Self {
+        Self::start_all(tunnels, app, release, rekey_probe, None)
+    }
+    fn start_with_cloud(tunnels: Tunnels, cloud: tmt_colab::cloud_sync::Config) -> Self {
+        Self::start_all(tunnels, None, None, None, Some(cloud))
+    }
+    fn start_all(
+        tunnels: Tunnels,
+        app: Option<tmt_colab::assets::App>,
+        release: Option<Arc<tmt_colab::serve_release::ServeRelease>>,
+        rekey_probe: Option<std::sync::mpsc::Sender<()>>,
+        cloud: Option<tmt_colab::cloud_sync::Config>,
+    ) -> Self {
         // Short absolute root: Unix socket paths are limited to about 100 bytes.
         let root = PathBuf::from(format!(
             "/tmp/tmt-1039-colab-{}-{}",
@@ -111,6 +123,7 @@ impl Running {
         let layout = Layout::open(&root).unwrap();
         let key = Keyring::open(&layout).unwrap();
         let space = key.space_id.clone();
+        let owner = key.owner_public();
         let store = Store::open(&layout).unwrap();
         store.create_page(PAGE).unwrap();
         let save_gate: SaveGate = Arc::default();
@@ -158,6 +171,10 @@ impl Running {
             .with_app(app);
         let socket = match release {
             Some(release) => socket.with_release(release),
+            None => socket,
+        };
+        let socket = match cloud {
+            Some(cloud) => socket.with_cloud_sync(&layout, owner, cloud).unwrap(),
             None => socket,
         };
         let socket = if observes_rekey {
@@ -5126,4 +5143,37 @@ fn an_owner_device_asks_for_usage_and_a_combine_and_a_public_reader_cannot() {
         );
     }
     assert_eq!(fs::read(layout.directory.join("space.db")).unwrap(), before);
+}
+
+#[test]
+fn the_serve_runs_cloud_sync_once_listening_asks_remote_once_and_joins_it_at_stop() {
+    use tmt_colab::cloud_sync::{ActivationFailure, Config, Refusal};
+    let activations = Arc::new(AtomicUsize::new(0));
+    let reports = Arc::new(Mutex::new(Vec::<String>::new()));
+    let (count, sink) = (Arc::clone(&activations), Arc::clone(&reports));
+    let server = Running::start_with_cloud(
+        Tunnels::PRODUCT,
+        Config {
+            activate: Arc::new(move |_| {
+                count.fetch_add(1, Ordering::SeqCst);
+                Err(ActivationFailure::Remote(Refusal {
+                    code: "REMOTE_STATE_UNAVAILABLE".into(),
+                    state: None,
+                }))
+            }),
+            report: Arc::new(move |line| sink.lock().unwrap().push(line.to_owned())),
+            declaration_digest: "b".repeat(64),
+        },
+    );
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while activations.load(Ordering::SeqCst) == 0 {
+        assert!(Instant::now() < deadline, "Remote was never asked");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    // A refusal Remote will not change by itself is neither retried nor shown to a person.
+    std::thread::sleep(Duration::from_millis(500));
+    assert_eq!(activations.load(Ordering::SeqCst), 1);
+    assert!(reports.lock().unwrap().is_empty());
+    // Dropping the server stops the serve, which joins the worker before returning.
+    drop(server);
 }

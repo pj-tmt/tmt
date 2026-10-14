@@ -85,11 +85,31 @@ fn reply_of(declaration: &str, artifact: &str) -> Result<String, Unavailable> {
     Ok(line)
 }
 
+/// The reply for a declaration with this hosted inventory, or none.
+fn reply_line_with(manifest: Option<&[u8]>) -> Result<String, Unavailable> {
+    reply_of(&declaration_of(DECLARATION, manifest)?, ARTIFACT)
+}
+/// The one reply this executable makes. `run` prints it and the sync bind takes its digest, so
+/// what a bound client names and what Remote reads cannot differ.
+fn reply_line() -> Result<String, Unavailable> {
+    reply_line_with(crate::hosting::manifest())
+}
+fn digest_of(line: &str) -> Result<String, Unavailable> {
+    let reply: serde_json::Value = serde_json::from_str(line).map_err(|_| Unavailable)?;
+    reply["declarationDigest"]
+        .as_str()
+        .map(str::to_owned)
+        .ok_or(Unavailable)
+}
+
+/// The digest `deploy-declaration --json` reports for this executable: the one declaration a
+/// bound sync client and Remote's deployment must agree on.
+pub fn declaration_digest() -> Result<String, Unavailable> {
+    digest_of(&reply_line()?)
+}
+
 pub fn run() -> crate::Result<()> {
-    let line = reply_of(
-        &declaration_of(DECLARATION, crate::hosting::manifest())?,
-        ARTIFACT,
-    )?;
+    let line = reply_line()?;
     let mut output = tmt_cli_style::stream::stdout(true);
     output.write_all(line.as_bytes()).map_err(|_| Unavailable)?;
     output.flush().map_err(|_| Unavailable)?;
@@ -167,6 +187,26 @@ mod tests {
         let oversized = format!("{{\"pad\":\"{}\"}}", "x".repeat(DECLARATION_TEXT_BYTES));
         let declaration = declaration_of(DECLARATION, Some(oversized.as_bytes())).unwrap();
         assert!(reply_of(&declaration, ARTIFACT).is_err(), "declaration cap");
+    }
+
+    #[test]
+    fn the_digest_a_sync_client_binds_is_the_one_the_printed_reply_reports() {
+        let reply: serde_json::Value = serde_json::from_str(&reply_line().unwrap()).unwrap();
+        let bound = declaration_digest().unwrap();
+        assert_eq!(reply["declarationDigest"], bound);
+        // And it names the declaration text that reply carries, whatever that text holds.
+        assert_eq!(digest(reply["declaration"].as_str().unwrap()), bound);
+    }
+
+    #[test]
+    fn the_digest_a_sync_client_binds_covers_the_hosted_section_the_reply_carries() {
+        let plain = digest_of(&reply_line_with(None).unwrap()).unwrap();
+        let hosted =
+            digest_of(&reply_line_with(Some(MANIFEST.trim_end().as_bytes())).unwrap()).unwrap();
+        assert_ne!(plain, hosted, "the hosted section is part of what is bound");
+        let declaration =
+            declaration_of(DECLARATION, Some(MANIFEST.trim_end().as_bytes())).unwrap();
+        assert_eq!(hosted, digest(&declaration));
     }
 
     #[test]

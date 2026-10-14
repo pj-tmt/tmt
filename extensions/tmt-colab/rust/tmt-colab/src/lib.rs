@@ -27,6 +27,7 @@ pub mod publication;
 pub mod readers;
 pub mod registration;
 mod rekeyer;
+pub use object_channel::cloud_sync;
 pub use object_channel::documents as sealed_documents;
 pub mod serve_release;
 pub mod settings;

@@ -21,6 +21,7 @@ pub(crate) mod admission;
 pub(crate) mod attach;
 mod binding;
 mod client;
+pub mod cloud_sync;
 pub mod documents;
 mod history;
 pub(crate) mod namespace;
@@ -30,7 +31,7 @@ pub(crate) mod sealed;
 pub(crate) use client::CommittedReader;
 pub(crate) use peer::{ObjectRequest, PeerObjects};
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 /// This owner rechecks the actual peer/root-local capture at EACH callback. It
 /// cannot perform a backend bus request: that would recursively wait on admission.
@@ -237,6 +238,9 @@ impl Client {
             let _ = pending.reply.try_send(Err(Error::Unavailable));
         }
         self.0.changed.notify_all();
+    }
+    pub(crate) fn end_generation(&self) {
+        self.0.stop();
     }
     pub(crate) fn generation(&self) -> Uuid4 {
         self.0.generation
