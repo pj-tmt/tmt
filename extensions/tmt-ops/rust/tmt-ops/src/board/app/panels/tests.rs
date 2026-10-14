@@ -463,3 +463,29 @@ fn hidden_monitor_cannot_retain_row_focus_or_a_selected_row_action() {
         assert_eq!(app.workspace.selected, selected);
     }
 }
+#[test]
+fn hiding_conversation_after_tab_focus_does_not_create_an_explicit_message_reveal() {
+    let mut app = board();
+    paint(&mut app, 160, 36);
+    app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    assert_eq!(app.focused_pane(), Some(crate::config::Pane::Replies));
+    assert!(app.input.is_none());
+    let selected = app.workspace.selected.clone();
+    let mut policy = OverviewPanels::default();
+    policy.set_side_shown(false).unwrap();
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .preferences
+        .overview_panels = Some(PanelSetting::configured(policy));
+    app.invalidate_frame_geometry();
+    app.restore_focus();
+    paint(&mut app, 160, 36);
+    assert_eq!(app.focused_pane(), Some(crate::config::Pane::Rows));
+    assert!(app.conversation.borrow().pane.is_none());
+    assert_eq!(app.workspace.selected, selected);
+}

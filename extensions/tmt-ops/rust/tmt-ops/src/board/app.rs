@@ -1838,6 +1838,7 @@ impl App {
             self.focus = self.focus.min(self.focus_panes().len().saturating_sub(1));
             if self.focus == 1
                 && self.shell.tab == super::shell::OpsTab::Overview
+                && self.overview_panels().side_shown()
                 && self
                     .overview_placement(self.conversation_area())
                     .conversation

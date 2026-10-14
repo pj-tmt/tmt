@@ -199,7 +199,9 @@ impl<P: Panel> Panels<P> {
 /// Rendering reads only `effective`; an unrelated save preserves the observation.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PanelSetting<P: Panel> {
-    observed: Observation<P>,
+    // Preferences travel twice in the existing compare-and-save request. Keep
+    // their owned observation out of that action's inline payload.
+    observed: Box<Observation<P>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -226,37 +228,39 @@ impl<P: Panel> PanelSetting<P> {
                 error,
             },
         };
-        Self { observed }
+        Self {
+            observed: Box::new(observed),
+        }
     }
 
     pub fn configured(policy: Panels<P>) -> Self {
         Self {
-            observed: Observation::Valid { policy, fields: 7 },
+            observed: Box::new(Observation::Valid { policy, fields: 7 }),
         }
     }
 
     pub fn effective(&self) -> Panels<P> {
-        match &self.observed {
+        match self.observed.as_ref() {
             Observation::Valid { policy, .. } => policy.clone(),
             Observation::Invalid { .. } => Panels::default(),
         }
     }
 
     pub fn error(&self) -> Option<&str> {
-        match &self.observed {
+        match self.observed.as_ref() {
             Observation::Invalid { error, .. } => Some(error),
             Observation::Valid { .. } => None,
         }
     }
 
     pub(super) fn writable(&self) -> bool {
-        matches!(self.observed, Observation::Valid { fields: 7, .. })
+        matches!(self.observed.as_ref(), Observation::Valid { fields: 7, .. })
     }
 
     /// Only an explicit full Save calls this; partial/invalid observations are
     /// retained unchanged by the enclosing writer until Save or Reset.
     pub(super) fn write(&self, item: &mut Item) {
-        let Observation::Valid { policy, fields: 7 } = &self.observed else {
+        let Observation::Valid { policy, fields: 7 } = self.observed.as_ref() else {
             unreachable!("only configured panel policies are written");
         };
         if item.as_table_like().is_none() {

@@ -2,9 +2,7 @@
 //! the opening preferences remain the stale-save baseline across acquisitions.
 use super::picker_surface;
 use crate::{
-    config::{
-        DigestPanels, OpsPreferences, OverviewPanel, OverviewPanels, Panel, PanelSetting, Panels,
-    },
+    config::{DigestPanels, OpsPreferences, OverviewPanels, Panel, PanelSetting, Panels},
     look::Look,
 };
 use ratatui::{
@@ -338,7 +336,7 @@ pub(super) fn render(frame: &mut Frame, picker: &Picker, look: Look, area: Rect)
         .collect();
     picker.surface.borrow_mut().render(FILE, template(), json!({
         "rows": rows, "query": match picker.draft { Draft::Overview(_) => "Overview panels", Draft::Digest(_) => "Digest panels" },
-        "status": picker.notice.as_deref().unwrap_or(if picker.saving { "Saving…" } else { "" }),
+        "status": picker.notice.as_deref().unwrap_or(""),
         "footer": if picker.saving { "Saving… · Cancel/Esc close" } else { "↑↓ select · Enter toggle/action · u/d move · Esc cancel" }, "notes": []
     }), frame, look, area);
 }

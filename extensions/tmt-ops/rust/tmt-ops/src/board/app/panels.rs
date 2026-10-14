@@ -52,10 +52,16 @@ impl App {
         &self,
         area: ratatui::layout::Rect,
     ) -> crate::board::conversation::layout::Placement {
+        // Reader focus alone may come from Tab. The existing UUID draft owner
+        // distinguishes an explicit message reveal without another open flag.
         crate::board::conversation::layout::overview_policy(
             area,
             &self.overview_panels(),
-            self.focused() == crate::config::Pane::Replies,
+            self.focused() == crate::config::Pane::Replies
+                && self
+                    .input
+                    .as_ref()
+                    .is_some_and(|input| input.draft_key.is_some()),
         )
     }
     pub(in crate::board) fn open_panels(&mut self) -> Effect {

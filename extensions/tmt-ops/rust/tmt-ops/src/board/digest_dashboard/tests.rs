@@ -1418,8 +1418,10 @@ fn moved_or_hidden_status_keeps_meter_and_policy_geometry_bounded_at_every_size(
                 app.shell.tab = crate::board::shell::OpsTab::Digest;
                 app.labels = supplied(serde_json::json!(3), false);
                 app.current = Some("product".into());
-                let mut settings = TokenRate::default();
-                settings.enabled = meter_enabled;
+                let settings = TokenRate {
+                    enabled: meter_enabled,
+                    ..TokenRate::default()
+                };
                 app.meter = Some(crate::board::meter::Meter::new(
                     settings,
                     &crate::board::rate::tests::input(100),

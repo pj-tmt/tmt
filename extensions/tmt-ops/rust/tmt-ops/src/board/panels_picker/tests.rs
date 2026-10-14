@@ -1,4 +1,5 @@
 use super::*;
+use crate::config::OverviewPanel;
 use ratatui::crossterm::event::KeyEvent;
 fn key(code: KeyCode) -> Event {
     Event::Key(KeyEvent::new(code, KeyModifiers::NONE))
