@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
@@ -70,6 +71,74 @@ export function expectedFiles(directory) {
     'Expected app is incomplete'
   );
   return files;
+}
+
+/** Every current release must carry hosted bytes and the same manifest it declares to Remote. */
+export function verifyColabHosting({ executable, cwd, env, notices }, run = runPackedCommand) {
+  // Eight MiB admitted bytes encode to less than twelve MiB, including the bounded inventory.
+  const bundle = JSON.parse(
+    run(executable, ['hosting-bundle', '--json'], {
+      cwd,
+      env,
+      maxBuffer: 12 * 1024 * 1024,
+    })
+  );
+  const declaration = JSON.parse(run(executable, ['deploy-declaration', '--json'], { cwd, env }));
+  assert(
+    declaration.version === 1 && typeof declaration.declaration === 'string',
+    'Colab release lacks a declaration reply'
+  );
+  const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
+  assert.equal(
+    declaration.declarationDigest,
+    sha256(declaration.declaration),
+    'Colab declaration text digest differs'
+  );
+  const manifest = JSON.parse(declaration.declaration).hosting;
+  assert(bundle.version === 1 && manifest?.version === 1, 'Colab release lacks hosted inventory');
+  assert(Array.isArray(bundle.files) && bundle.files.length > 0, 'Colab hosted bundle is empty');
+  assert(Array.isArray(manifest.files), 'Colab declaration lacks hosted files');
+  assert.equal(bundle.files.length, manifest.files.length, 'Colab hosted inventory count mismatch');
+  assert.deepEqual(
+    Object.keys(manifest).sort(),
+    ['files', 'version'],
+    'Unexpected hosted manifest fields'
+  );
+  for (const file of manifest.files)
+    assert.deepEqual(
+      Object.keys(file).sort(),
+      ['contentType', 'csp', 'length', 'path', 'sha256'],
+      'Unexpected hosted file fields'
+    );
+  const files = manifest.files.map(({ path, sha256, length, contentType, csp }) => ({
+    path,
+    sha256,
+    length,
+    contentType,
+    csp,
+  }));
+  assert.equal(
+    bundle.manifestDigest,
+    sha256(JSON.stringify({ version: 1, files })),
+    'Colab declaration and hosted manifest differ'
+  );
+  for (const [index, file] of bundle.files.entries()) {
+    const declared = files[index],
+      bytes = Buffer.from(file.bytesBase64, 'base64');
+    assert.equal(file.path, declared.path, 'Colab hosted file order/path mismatch');
+    assert.equal(bytes.toString('base64'), file.bytesBase64, 'Colab hosted bytes are not base64');
+    assert.equal(bytes.length, declared.length, 'Colab hosted file length mismatch');
+    assert.equal(sha256(bytes), declared.sha256, 'Colab hosted file digest mismatch');
+    if (
+      file.path.endsWith('THIRD-PARTY-NOTICES.txt') ||
+      file.path === '/sdk/THIRD-PARTY-NOTICES-remote.txt'
+    ) {
+      assert(
+        notices.includes(bytes.toString('utf8').trim()),
+        'Colab archive notices omit hosted attribution'
+      );
+    }
+  }
 }
 
 function requestAsset(socket, route, owner = true) {

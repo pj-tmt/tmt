@@ -28,6 +28,15 @@ if [ "$product" = colab ] && [ "$frontend_notices" = true ]; then
   test -s "$TMT_COLAB_APP_DIR/index.html"
   test -d "$TMT_COLAB_APP_DIR/assets"
   test -s "$TMT_COLAB_APP_DIR/THIRD-PARTY-NOTICES.txt"
+  # Keep the same ordering as Colab's hosted acceptance build: Remote's Firebase
+  # client first, then the root-based Colab bundle, then native compilation.
+  hosted_build_started=$(date +%s)
+  corepack pnpm@10.33.0 --filter @tmt/remote-client --fail-if-no-match exec vp build --config vite.firebase.config.ts 1>&2
+  corepack pnpm@10.33.0 --filter @tmt/colab-app --fail-if-no-match build:hosted 1>&2
+  TMT_COLAB_HOSTING_DIR="$repo/extensions/tmt-colab/typescript/app/dist-hosted"
+  export TMT_COLAB_HOSTING_DIR
+  test -s "$TMT_COLAB_HOSTING_DIR/index.html"
+  printf 'Built Colab hosted inputs in %s s.\n' "$(( $(date +%s) - hosted_build_started ))" >&2
 fi
 cd "$repo/rust"
 # Resolve the repository toolchain before cargo-dist discovers the generic root
@@ -122,7 +131,10 @@ if [ "$product" = cli ]; then
   cat target/native-notices/HERDR-NOTICES.txt >> target/native-notices/THIRD-PARTY-NOTICES.txt
 fi
 if [ "$product" = colab ] && [ "$frontend_notices" = true ]; then
-  cat "$TMT_COLAB_APP_DIR/THIRD-PARTY-NOTICES.txt" >> target/native-notices/THIRD-PARTY-NOTICES.txt
+  cat "$TMT_COLAB_APP_DIR/THIRD-PARTY-NOTICES.txt" \
+    "$TMT_COLAB_HOSTING_DIR/THIRD-PARTY-NOTICES.txt" \
+    "$repo/extensions/tmt-remote/typescript/remote-client/dist/THIRD-PARTY-NOTICES.txt" \
+    >> target/native-notices/THIRD-PARTY-NOTICES.txt
 fi
 
 if [ "$notices_only" = true ]; then exit 0; fi

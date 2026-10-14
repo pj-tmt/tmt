@@ -245,7 +245,7 @@ fn canonical_generated_pipeline_rejects_drift_and_app_declarations() {
         &format!("{crate_dir}/src/assets.rs"),
         "include!(concat!(env!(\"OUT_DIR\"), \"/colab_assets.rs\"));\n",
     );
-    fixture.write("scripts/build-native-artifact.sh", &format!("unset TMT_COLAB_HOSTING_DIR\nTMT_COLAB_APP_DIR=\"$repo/{app}/dist\"\nexport TMT_COLAB_APP_DIR\ncorepack pnpm@10.33.0 --filter @tmt/colab-app --fail-if-no-match build 1>&2\n"));
+    fixture.write("scripts/build-native-artifact.sh", &format!("unset TMT_COLAB_HOSTING_DIR\nif [ \"$product\" = colab ] && [ \"$frontend_notices\" = true ]; then\ncorepack pnpm@10.33.0 --filter @tmt/colab-app --fail-if-no-match build 1>&2\nTMT_COLAB_APP_DIR=\"$repo/{app}/dist\"\nexport TMT_COLAB_APP_DIR\ncorepack pnpm@10.33.0 --filter @tmt/remote-client --fail-if-no-match exec vp build --config vite.firebase.config.ts 1>&2\ncorepack pnpm@10.33.0 --filter @tmt/colab-app --fail-if-no-match build:hosted 1>&2\nTMT_COLAB_HOSTING_DIR=\"$repo/{app}/dist-hosted\"\nexport TMT_COLAB_HOSTING_DIR\nfi\n"));
     fixture.metadata["packages"][0]["targets"].as_array_mut().unwrap().push(json!({"kind":["custom-build"],"src_path":fixture.root.join(format!("{crate_dir}/build.rs"))}));
     fixture.map["components"]["product"]["generatedInputs"] = json!([{
         "includeSite":format!("{crate_dir}/src/assets.rs"), "expression":"concat!(env!(\"OUT_DIR\"), \"/colab_assets.rs\")",
@@ -256,7 +256,7 @@ fn canonical_generated_pipeline_rejects_drift_and_app_declarations() {
         "includeSite":format!("{crate_dir}/src/hosting.rs"), "expression":"concat!(env!(\"OUT_DIR\"), \"/colab_hosting.rs\")",
         "generator":format!("{crate_dir}/build/hosting.rs"), "generatorBlob":"63611a9e48ac062a70a4428b09f63d439c078313", "buildScript":format!("{crate_dir}/build.rs"),
         "variable":"TMT_COLAB_HOSTING_DIR", "inputDirectory":format!("{app}/dist-hosted"), "packageRoot":app,
-        "releaseScript":"scripts/build-native-artifact.sh", "reason":"Explicit hosted input excluded from native releases"
+        "releaseScript":"scripts/build-native-artifact.sh", "reason":"Canonical hosted release pipeline"
     }]);
     fixture.check().unwrap();
     fixture.write(
@@ -304,7 +304,7 @@ fn canonical_generated_pipeline_rejects_drift_and_app_declarations() {
             fixture
                 .check()
                 .unwrap_err()
-                .contains("hosted release exclusion drift")
+                .contains("hosted release reset drift")
         );
     }
     fixture.write("scripts/build-native-artifact.sh", &release);
@@ -329,6 +329,27 @@ fn canonical_generated_pipeline_rejects_drift_and_app_declarations() {
         &release.replace("corepack pnpm", "# corepack pnpm"),
     );
     assert!(fixture.check().unwrap_err().contains("directory pin drift"));
+    for changed in [
+        release.replace("/dist-hosted\"", "/other-hosted\""),
+        release.replace(
+            "export TMT_COLAB_HOSTING_DIR",
+            "export TMT_COLAB_HOSTING_DIR=/developer",
+        ),
+    ] {
+        fixture.write("scripts/build-native-artifact.sh", &changed);
+        assert!(fixture.check().unwrap_err().contains("directory pin drift"));
+    }
+    let firebase = "corepack pnpm@10.33.0 --filter @tmt/remote-client --fail-if-no-match exec vp build --config vite.firebase.config.ts 1>&2";
+    fixture.write(
+        "scripts/build-native-artifact.sh",
+        &release.replace(firebase, "# omitted Firebase build"),
+    );
+    assert!(
+        fixture
+            .check()
+            .unwrap_err()
+            .contains("hosted release build order drift")
+    );
     fixture.write("scripts/build-native-artifact.sh", &release);
     fixture.check().unwrap();
     for root in [

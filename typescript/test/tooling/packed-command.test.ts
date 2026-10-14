@@ -19,6 +19,7 @@ const { runPackedCommand } = (await import(
       env?: NodeJS.ProcessEnv;
       expectedStatus?: number;
       timeoutMs?: number;
+      maxBuffer?: number;
     }
   ) => string;
 };
@@ -34,7 +35,7 @@ function removeFixture(root: string): void {
 function runNode(
   root: string,
   script: string,
-  options: { expectedStatus?: number; timeoutMs?: number } = {}
+  options: { expectedStatus?: number; timeoutMs?: number; maxBuffer?: number } = {}
 ): string {
   return runPackedCommand(process.execPath, ['--eval', script], {
     cwd: root,
@@ -217,6 +218,19 @@ describe('packed command verifier', () => {
       expect(signal).toHaveBeenCalledTimes(1);
     } finally {
       signal.mockRestore();
+      removeFixture(root);
+    }
+  });
+
+  it('keeps the default output cap but permits a bounded hosted inventory reply', () => {
+    const root = createFixture();
+    const script = 'process.stdout.write("x".repeat(3 * 1024 * 1024));';
+    try {
+      expect(() => runNode(root, script)).toThrow();
+      expect(runNode(root, script, { maxBuffer: 4 * 1024 * 1024 })).toHaveLength(3 * 1024 * 1024);
+      for (const maxBuffer of [0, -1, 1.5, 17 * 1024 * 1024])
+        expect(() => runNode(root, script, { maxBuffer })).toThrow('output bound');
+    } finally {
       removeFixture(root);
     }
   });

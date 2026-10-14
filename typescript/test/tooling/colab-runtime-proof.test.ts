@@ -6,7 +6,13 @@ import childProcess from 'node:child_process';
 import http from 'node:http';
 import { syncBuiltinESMExports } from 'node:module';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vite-plus/test';
-import { appEntries, expectedFiles, verifyColabApp } from '../../scripts/colab-runtime-proof.mjs';
+import { createHash } from 'node:crypto';
+import {
+  appEntries,
+  expectedFiles,
+  verifyColabApp,
+  verifyColabHosting,
+} from '../../scripts/colab-runtime-proof.mjs';
 import { colabFixtureBinary } from '../support/colab-runtime-fixture.js';
 
 const { nativeHostTarget, verifyNativeRuntime } = await import(
@@ -270,5 +276,106 @@ describe('declared app entries', () => {
       rmSync(path.join(incomplete, missing));
       expect(() => expectedFiles(incomplete), missing).toThrow('Expected app is incomplete');
     }
+  });
+});
+
+describe('embedded Colab hosting inventory', () => {
+  function inventory() {
+    const bytes = Buffer.from('hosted entry');
+    const hash = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
+    const hosting = {
+      version: 1,
+      files: [
+        {
+          path: '/index.html',
+          sha256: hash(bytes),
+          length: bytes.length,
+          contentType: 'text/html; charset=utf-8',
+          csp: "default-src 'none'",
+        },
+      ],
+    };
+    return {
+      declaration: { hosting },
+      bundle: {
+        version: 1,
+        manifestDigest: hash(JSON.stringify(hosting)),
+        files: [{ path: '/index.html', bytesBase64: bytes.toString('base64') }],
+      },
+    };
+  }
+  it('proves the exact declared manifest including CSP and the bundled bytes', () => {
+    const { bundle, declaration } = inventory();
+    const calls: { args: string[]; options: { maxBuffer?: number } }[] = [];
+    verifyColabHosting(
+      { executable: '/fixture', cwd: '/', env: {}, notices: '' },
+      (_executable: string, args: string[], options: { maxBuffer?: number }) => {
+        calls.push({ args, options });
+        return JSON.stringify(
+          args[0] === 'hosting-bundle'
+            ? bundle
+            : {
+                version: 1,
+                declaration: JSON.stringify(declaration),
+                declarationDigest: createHash('sha256')
+                  .update(JSON.stringify(declaration))
+                  .digest('hex'),
+              }
+        );
+      }
+    );
+    expect(calls.map(({ args }) => args)).toEqual([
+      ['hosting-bundle', '--json'],
+      ['deploy-declaration', '--json'],
+    ]);
+    expect(calls[0].options.maxBuffer).toBe(12 * 1024 * 1024);
+    expect(calls[1].options.maxBuffer).toBeUndefined();
+  });
+  it.each([
+    'absent',
+    'empty',
+    'csp',
+    'bytes',
+    'length',
+    'path',
+    'digest',
+    'notices',
+    'extra',
+    'declaration-digest',
+  ])('rejects an incomplete or mismatched inventory: %s', (drift) => {
+    const { bundle, declaration } = inventory();
+    if (drift === 'absent') delete (declaration as Partial<typeof declaration>).hosting;
+    if (drift === 'empty') bundle.files = [];
+    if (drift === 'extra') Object.assign(declaration.hosting, { unexpected: true });
+    if (drift === 'csp') declaration.hosting.files[0].csp += '; img-src data:';
+    if (drift === 'bytes') bundle.files[0].bytesBase64 = Buffer.from('changed').toString('base64');
+    if (drift === 'length') declaration.hosting.files[0].length++;
+    if (drift === 'path') bundle.files[0].path = '/wrong.html';
+    if (drift === 'digest') bundle.manifestDigest = '0'.repeat(64);
+    if (drift === 'notices') {
+      bundle.files[0].path = declaration.hosting.files[0].path =
+        '/sdk/THIRD-PARTY-NOTICES-remote.txt';
+      bundle.manifestDigest = createHash('sha256')
+        .update(JSON.stringify(declaration.hosting))
+        .digest('hex');
+    }
+    expect(() =>
+      verifyColabHosting(
+        { executable: '/fixture', cwd: '/', env: {}, notices: '' },
+        (_executable: string, args: string[]) =>
+          JSON.stringify(
+            args[0] === 'hosting-bundle'
+              ? bundle
+              : {
+                  version: 1,
+                  declaration: JSON.stringify(declaration),
+                  declarationDigest:
+                    drift === 'declaration-digest'
+                      ? '0'.repeat(64)
+                      : createHash('sha256').update(JSON.stringify(declaration)).digest('hex'),
+                }
+          )
+      )
+    ).toThrow();
   });
 });

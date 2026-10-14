@@ -160,7 +160,7 @@
           "inputDirectory": "extensions/tmt-colab/typescript/app/dist-hosted",
           "packageRoot": "extensions/tmt-colab/typescript/app",
           "releaseScript": "scripts/build-native-artifact.sh",
-          "reason": "Hosted inventory is an explicit developer build input; native releases unset it until the reviewed hosted entry pipeline is available."
+          "reason": "The canonical release script builds the pinned Remote Firebase client and hosted app, then pins this directory before Cargo embeds the declared manifest and exact bundle bytes."
         }
       ],
       "release": true,

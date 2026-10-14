@@ -34,7 +34,7 @@ verification derives this argument from `shipsSkills(product)`.
 ## Hosted bundle build
 
 `tmt colab hosting-bundle --json` reads only the executable's embedded hosted inventory,
-without core discovery, storage, or network. Ordinary builds embed none and return
+without core discovery, storage, or network. Ordinary builds without the build-only input embed none and return
 `COLAB_UNAVAILABLE`; `TMT_COLAB_APP_DIR` and native `--app-dir` do not supply hosted bytes.
 
 The build-only `TMT_COLAB_HOSTING_DIR` selects an absolute, separate hosted distribution.
@@ -391,7 +391,11 @@ package. Core registers Colab with the shared installer
 `scripts/build-native-artifact.sh <target> colab` installs frozen dependencies with
 `corepack pnpm@10.33.0`, builds `@tmt/colab-app` (requires index, assets and a
 nonempty `THIRD-PARTY-NOTICES.txt`), exports the absolute dist path as
-`TMT_COLAB_APP_DIR` and appends the Vite notices after cargo-about. The release
+`TMT_COLAB_APP_DIR`. It then builds Remote’s Firebase client followed by Colab’s
+`build:hosted`, pins the absolute `dist-hosted` as `TMT_COLAB_HOSTING_DIR`, and
+builds Cargo with both inputs. This follows the Colab browser workflow’s order;
+ambient hosting overrides are cleared. The archive notices include the mounted
+app, hosted app and Firebase client after cargo-about. The release
 Cargo wrapper gets `TMT_NATIVE_PRODUCT=colab` and rejects a build without an
 absolute existing `TMT_COLAB_APP_DIR`. Fixture checks (no Docker, no release build):
 
@@ -411,7 +415,11 @@ build so a mismatch fails the pull request, not the release.
 
 The fixture binary comes from `rust/target/debug/examples/colab-runtime-fixture` or an
 absolute `TMT_TEST_COLAB_FIXTURE`; tests select defects by `--fixture-variant` and
-never compile during execution. Only the Colab verifier loads its app proof;
+never compile during execution. The common archive proof requires a nonempty embedded
+hosted inventory, checks each file’s bytes against the declared manifest, including
+CSP in its canonical digest, and verifies hosted notices. The hosted-bundle probe
+has a bounded 12 MiB output allowance; other packed commands retain 2 MiB.
+Only the Colab verifier loads its app proof;
 `native-runtime-proof.test.ts` checks that an eager Colab import fails in the raw
 CLI verifier's minimal image. For an actual archive, reserve the heavy slot, build
 the expected Vite app from the same frozen source and move its dist outside the
