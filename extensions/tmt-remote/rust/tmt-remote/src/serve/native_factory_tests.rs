@@ -441,11 +441,13 @@ fn project_checkpoint_persists_while_provider_waits_in_backoff_then_stop_joins()
     ));
     let worker_client = client.clone();
     struct Worker {
+        runtime: Arc<NativeRuntime>,
         release: mpsc::Sender<()>,
         thread: Option<std::thread::JoinHandle<Result<tmt_remote::sealed_sync::Change, SyncError>>>,
     }
     impl Drop for Worker {
         fn drop(&mut self) {
+            self.runtime.stop();
             let _ = self.release.send(());
             if let Some(thread) = self.thread.take() {
                 let _ = thread.join();
@@ -453,11 +455,14 @@ fn project_checkpoint_persists_while_provider_waits_in_backoff_then_stop_joins()
         }
     }
     let mut worker = Worker {
+        runtime: runtime.clone(),
         release,
         thread: Some(std::thread::spawn(move || {
             let cancelled = AtomicBool::new(false);
             let io = IoBudget {
-                deadline: Instant::now() + Duration::from_secs(5),
+                // The simulated minute remains within the caller's lifetime and
+                // the 120-second provider backoff; fixture Drop always cancels it.
+                deadline: Instant::now() + Duration::from_secs(180),
                 cancelled: &cancelled,
             };
             let interest = SyncInterest {
@@ -504,6 +509,7 @@ fn project_checkpoint_persists_while_provider_waits_in_backoff_then_stop_joins()
         Err(SyncError::Cancelled)
     ));
     tick.finish().unwrap();
+    drop(worker);
     drop(client);
     drop(runtime);
     drop(budget);

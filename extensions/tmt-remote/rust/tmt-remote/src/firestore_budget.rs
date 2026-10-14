@@ -2,9 +2,10 @@
 //! modeled limit (#2180). Pure arithmetic: no I/O and no clock (callers pass `now_ms`).
 //!
 //! The official quotas are project-wide, every client sees only its own traffic, and Rules
-//! cannot read quotas, so the guard works from what a client really has: the member count
-//! from the signed membership, the plan's parameters, its own persisted counter for today
-//! and this table. It does not read Google's counter and the emulator cannot enforce one:
+//! cannot read quotas. Browser guards use signed membership; native composition uses the
+//! named unknown-membership assumption below. Both use plan parameters, their own persisted
+//! counter for today and this table. Neither reads Google's counter, and the emulator cannot
+//! enforce quotas:
 //! tests assert this arithmetic against independent vectors. The dated table and the
 //! derivation are in the Remote reference guide's free-plan table.
 //!
