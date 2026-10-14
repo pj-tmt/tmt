@@ -202,6 +202,19 @@ pub(crate) struct LocalObjectReader {
     extension: ExtensionId,
 }
 impl LocalObjectReader {
+    pub(crate) fn transfers_idle(&self, io: &IoBudget<'_>) -> BackendResult<bool> {
+        if self.inner.ledger.installation_usage(io)?.active_uploads != 0 {
+            return Ok(false);
+        }
+        io.check()?;
+        // Ledger and flight owners are observed separately, as for backend effects.
+        // Existing namespace holders include committed reads, not just uploads.
+        match self.inner.flight.state.try_lock() {
+            Ok(state) => Ok(state.namespaces.is_empty()),
+            Err(std::sync::TryLockError::WouldBlock) => Ok(false),
+            Err(std::sync::TryLockError::Poisoned(_)) => Err(BackendError::Unavailable),
+        }
+    }
     pub(crate) fn extension(&self) -> &ExtensionId {
         &self.extension
     }

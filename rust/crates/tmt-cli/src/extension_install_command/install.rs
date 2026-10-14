@@ -49,6 +49,12 @@ pub(super) fn install(
         .or_else(|| current.as_ref().map(|current| current.state.channel))
         .unwrap_or(Channel::Alpha);
     let checkpoint = interruptible("Extension installation interrupted before activation.")?;
+    let before = PostUpgradeNotice::capture(
+        product,
+        current
+            .as_ref()
+            .map(|current| current.active_executable.as_path()),
+    );
     let result = match (archive, manifest) {
         (Some(archive), Some(manifest)) => native_install::install_product(
             product,
@@ -99,10 +105,11 @@ pub(super) fn install(
         .as_ref()
         .map(|current| current.state.version.to_string());
     let report = result.map_err(|error| {
-        let notice = PostUpgradeNotice::after_failure(product, &error, previous_version.as_deref());
+        let notice =
+            PostUpgradeNotice::after_failure(product, &error, previous_version.as_deref(), before);
         notice.retain(installation_failure(error))
     })?;
-    let notice = PostUpgradeNotice::observe(product, &report, previous_version.as_deref());
+    let notice = PostUpgradeNotice::observe(product, &report, previous_version.as_deref(), before);
     let human = if report.changed {
         Human::done(format!(
             "Installed {name} {} at {}.",

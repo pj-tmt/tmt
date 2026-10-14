@@ -93,6 +93,12 @@ impl Approval {
         self.sessions.changed();
         Ok(())
     }
+    pub(crate) fn while_idle(
+        &self,
+        action: impl FnOnce() -> Result<bool, RemoteError>,
+    ) -> Result<bool, RemoteError> {
+        self.sessions.while_idle(action)
+    }
 }
 impl Store {
     pub(crate) fn cancel_pending_holds(

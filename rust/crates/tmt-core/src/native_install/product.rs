@@ -10,8 +10,8 @@ pub enum Product {
     Digest,
 }
 
-/// Optional observation after a replaced release is active. The adapter owns
-/// the bounded process effect; a notice never authorizes a lifecycle mutation.
+/// Optional product-owned step after a replaced release is active. The adapter
+/// captures prior evidence and invokes the product, which owns lifecycle admission.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PostUpgradeCheck {
     RemoteDoor,

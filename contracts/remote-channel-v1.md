@@ -949,6 +949,45 @@ shutdown returns the standard Remote error document and exits nonzero. Stop neve
 signals a process by PID and never starts or migrates stopped state. A concurrent successor may
 make shutdown unconfirmed; stop does not send another request to shut down that successor.
 
+`tmt remote restart --json --no-open` performs one background-only restart. Its fixed result
+is `{outcome,reason}`: `restarted` or `not-running` with `reason:null`; `deferred` with
+`busy`, `foreground` or `legacy`; or `unconfirmed` with `candidate`, `startup` or `unknown`.
+Expected lifecycle refusals exit 0 with that typed result; malformed or lost replies are never
+restart success. Ordinary status stays unchanged. An absent/stopped owner starts nothing.
+
+The replacement checks Core capabilities, read-only schema/key/endpoint prerequisites and the
+trusted mount registrations before cutoff. The owner-only control snapshot supplies this run's
+background mode, window, origin, route and mount policy: persisted home, lease, machine route
+and bound port remain authoritative, but do not record a live generation or background mode.
+Foreground, unknown-mode and legacy owners are left running, including Colab-supervised doors.
+
+Under the held serve lease, Remote briefly checks the existing offer, live-session, Store and
+object-upload owners and sets the existing stop flag in the same control operation. An active
+pairing offer, interactive preview/confirmation, pending held approval or observed in-flight
+transfer defers without stopping or changing that work. Live-session effects, pending uploads
+and committed reads use their existing activity/accounting/transfer-holder state. The shared
+channel budget must have no outstanding admitted requests or callbacks, including a read
+awaiting disclosure; registered page interests are long-lived and do not defer restart.
+Unavailable observations cannot admit a restart.
+There is no new admission fence: work arriving in the narrow check-to-stop race can be interrupted
+as by ordinary stop. Normal pairing/approval cancellation remains unchanged.
+
+After confirmed lease/socket cleanup, one replacement worker starts on the exact old endpoint,
+with the same home/key/grants and trusted mounts, and a fresh window/sessions/cookies. There is
+no port fallback, retry, PID signalling, successor stop or rollback promise after cutoff. Stop
+and startup retain their existing 40-second and 35-second bounds and existing bounded cleanup.
+A lost acknowledgment gets one read-only status observation; inspect status before a manual
+retry, since a missing reply cannot prove that no effect occurred.
+
+Core captures one pre-upgrade running observation through the verified existing executable.
+Only actual replacement of a previously observed running Remote calls the captured replacement
+with exactly `restart --json --no-open`, outside the installation lock with the captured Core
+executable and secret-stripped environment. Initial installs, no-ops and stopped doors have no
+restart outcome or hint. Success reports `Remote upgraded and restarted in the background.`;
+deferred/failed/unknown outcomes retain the existing manual restart hints. A parent human upgrade
+prints terminal-only `Upgrading Remote…` before applying a pending Remote replacement; its JSON
+child remains silent. Colab attachment and fresh-session re-admission retain their existing owners.
+
 A supervising extension can start `tmt remote serve --json` as its child. Serve emits one readiness
 line on stdout after binding the door and control socket and recording the bound port:
 

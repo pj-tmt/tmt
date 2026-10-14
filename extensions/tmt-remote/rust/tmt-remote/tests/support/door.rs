@@ -145,6 +145,7 @@ impl Harness {
             StatusViews {
                 objects: ObjectReadiness::default(),
                 layers,
+                restart: None,
                 native: None,
             },
         )
