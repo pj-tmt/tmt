@@ -1886,6 +1886,20 @@ impl App {
             Choice::Action(action) => action.order(),
             _ => u8::MAX,
         });
+        if let Some(draft) = self.workspace_form.as_ref().filter(|draft| {
+            draft.kind == super::workspace::manage::Kind::RenameMember && !draft.shown
+        }) {
+            entries.push(MenuEntry {
+                key: String::new(),
+                label: if draft.stage == super::workspace::manage::Stage::Pending {
+                    "Pending Rename"
+                } else {
+                    "Rename result"
+                }
+                .into(),
+                choice: Choice::WorkspaceBegin(super::workspace::manage::Kind::RenameMember),
+            });
+        }
         if self.quota_details_available()
             && !entries.iter().any(|entry| matches!(&entry.choice, Choice::Action(action) if action.verb == Verb::Ui(crate::action::OpsUiAction::QuotaDetails)))
         {

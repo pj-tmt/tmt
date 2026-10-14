@@ -10,7 +10,8 @@ fn rename(app: &mut App, name: &str) -> Rename {
         app.workspace_form.as_ref().unwrap().kind,
         Kind::RenameMember
     );
-    app.workspace_submit_field(name.into());
+    app.input.as_mut().unwrap().text = name.into();
+    assert_eq!(key(app, KeyCode::Enter), Effect::None);
     assert_eq!(app.workspace_form.as_ref().unwrap().stage, Stage::Review);
     paint(app, 160, 36);
     let Effect::Act(Request::WorkspaceOperation(Change::RenameMember(request))) =
@@ -323,4 +324,56 @@ fn public_refresh_updates_name_but_retains_uuid_selection_and_session_draft() {
     key(&mut app, KeyCode::Esc);
     app.perform(&Action::parse("talk").unwrap());
     assert_eq!(app.input.as_ref().unwrap().text, "hi");
+}
+
+#[test]
+fn closed_rename_stays_reachable_through_actions_after_its_member_disappears() {
+    let mut app = board();
+    let request = rename(&mut app, "next");
+    app.workspace_close();
+    let home = app.view.as_mut().unwrap().home.as_mut().unwrap();
+    home.workspace.roster.members.clear();
+    home.workspace.roster.squads[0].members.clear();
+    home.workspace
+        .rows
+        .retain(|target, _| !matches!(target, OpsTarget::Member { .. }));
+    app.workspace.selected = Some(OpsTarget::Pool);
+    app.workspace_reconcile();
+    assert!(
+        !app.bindings().contains_key("r"),
+        "no new Rename authority without a visible member"
+    );
+    assert!(app.reload_blocked());
+    for (outcome, label) in [
+        (None, "Pending Rename"),
+        (Some(Outcome::NotFound), "Rename result"),
+    ] {
+        if let Some(outcome) = outcome {
+            app.finished_member_rename(Completed {
+                request: request.clone(),
+                outcome: Ok(outcome),
+            });
+        }
+        app.context_menu();
+        let menu = app.menu.as_mut().unwrap();
+        menu.selected = menu
+            .entries
+            .iter()
+            .position(|entry| entry.label == label)
+            .expect("owned pending/result inspection never needs a new member");
+        paint(&app, 80, 24);
+        assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
+        assert!(app.workspace_form.as_ref().unwrap().shown);
+        assert_eq!(
+            app.workspace_confirm(),
+            Effect::None,
+            "inspection cannot resubmit"
+        );
+        assert_eq!(key(&mut app, KeyCode::Esc), Effect::None);
+    }
+    assert!(app.workspace_form.is_none());
+    assert!(
+        !app.reload_blocked(),
+        "closing the read result releases its existing reload owner"
+    );
 }
