@@ -3183,8 +3183,14 @@ The native sealed-document codecs map these seven resources to canonical REST fi
 page-bound IDs. One dormant client shares the object bus reader and ordered request counter;
 Changed notices coalesce as hints, and a terminal interest keeps its slot until confirmed
 cancellation or generation close. Transport checksums do not authenticate payloads. Neither
-the declaration nor these codecs enable cloud sync: the serve sync loop, native activation,
-signing bootstrap and cloud attachments are not implemented by this foundation. V1 cloud sync does
+the declaration nor these codecs enable cloud sync by themselves. The serve runs one worker per
+object-channel generation: it asks Remote to activate, binds, and publishes the most recently
+active page (opened in a browser or written by the CLI; another page is published when it is
+next touched). It creates the owner's `spaces`, `pages` and own `members` rows, then the signed
+membership, chain and wrap originals, then each local original in sequence, always authority
+before data; a position is recorded only after the exact original was created or read back
+identical. Inbound streams, member admission and cloud attachments are not implemented, so
+nothing reads these records yet. V1 cloud sync does
 not refresh log expiry: the existing Rules permit an owner expiry-only refresh, but the log
 mapping deliberately exposes no put, so entries age out at their `expiresAt`. A long-lived
 page needing log refresh requires a Remote follow-up, not a hidden compatibility path.
