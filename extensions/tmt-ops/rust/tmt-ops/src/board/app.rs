@@ -1127,13 +1127,6 @@ impl App {
         self.shown.as_deref()
     }
 
-    #[cfg(test)]
-    pub(crate) fn set_tab_focus_for_test(&mut self, key: &str) {
-        self.current = Some(key.to_owned());
-        self.shown = self.current.clone();
-        self.loading_since = None;
-    }
-
     /// The view on screen belongs to another squad while a switch loads.
     pub fn loading(&self) -> bool {
         self.view.is_some() && self.shown != self.current
