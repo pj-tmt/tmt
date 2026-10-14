@@ -310,11 +310,15 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
         const adoptedConfig = Buffer.concat([beforeConfig, Buffer.from('\n[bind]\n0 = "help"\n')]);
         fs.writeFileSync(config, adoptedConfig);
         fixture.tmux(['send-keys', '-t', shell.pane, 'C-r', '?']);
-        await fixture.waitFor(
-          () => /\b0\s+help\b/.test(fixture.capture(24, shell.pane)),
-          5_000,
-          'manual refresh adopting the compatible key in effective Help'
-        );
+        try {
+          await fixture.waitFor(
+            () => /\b0\s+show effective scoped bindings\b/.test(fixture.capture(24, shell.pane)),
+            5_000,
+            'manual refresh adopting the compatible key in effective Help'
+          );
+        } catch (error) {
+          throw new Error(`${String(error)}\n${fixture.capture(24, shell.pane)}`, { cause: error });
+        }
         fixture.tmux(['send-keys', '-t', shell.pane, 'Escape', '0']);
         await fixture.waitForCapture(
           (screen) => screen.includes('effective scoped bindings'),
@@ -638,12 +642,13 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
           (screen) => screen.includes('Workspace settings') && screen.includes('Actions'),
           shell.pane
         );
-        fixture.tmux(['send-keys', '-t', shell.pane, 'End', 'Enter']);
+        fixture.tmux(['send-keys', '-t', shell.pane, ...Array(5).fill('Down'), 'Enter']);
         await fixture.waitForCapture(
           (screen) => screen.includes('Checklist') && screen.includes('Esc closes'),
           shell.pane
         );
-        fixture.tmux(['send-keys', '-t', shell.pane, 'End', 'Enter']);
+        // The action menu owns Up/Down; move to its final Checklist entry.
+        fixture.tmux(['send-keys', '-t', shell.pane, ...Array(40).fill('Down'), 'Enter']);
         await fixture.waitForCapture((screen) => screen.includes('No checklist yet'), shell.pane);
         fixture.tmux(['send-keys', '-t', shell.pane, 'Tab', 'Tab', 'Enter']);
         await fixture.waitForCapture((screen) => screen.includes('Create item'), shell.pane);
