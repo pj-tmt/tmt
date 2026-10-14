@@ -2,7 +2,10 @@
 //! generation: it asks Remote to activate sync, binds, holds the interests of the one active
 //! page and keeps that page's local originals published. Notices are wakeups only; the verified
 //! Store owns every publication position.
-use crate::{SealedClient, keyring::Layout, object_channel::ChannelOwner, store::Store};
+use crate::{
+    SealedClient, keyring::Layout, object_channel::ChannelOwner, registration::OwnerAdmission,
+    store::Store, sync::Server,
+};
 use std::{
     io,
     sync::{Arc, Condvar, Mutex, MutexGuard},
@@ -15,7 +18,6 @@ mod activation;
 #[cfg(test)]
 mod fixture;
 mod inbound;
-#[cfg(test)]
 mod interests;
 mod local;
 mod publisher;
@@ -24,7 +26,7 @@ mod reader;
 mod tests;
 mod worker;
 
-#[cfg(test)]
+pub(crate) use inbound::{Inbound, StoreInbound};
 pub(crate) use interests::PageInterests;
 pub(crate) use local::{Bound, StoreLocal};
 pub(crate) use publisher::Local;
@@ -166,6 +168,8 @@ pub enum ActivationFailure {
     Local,
 }
 pub type Activate = dyn Fn(Instant) -> Result<Activation, ActivationFailure> + Send + Sync;
+/// Builds the Store side of reading the cloud back for one bound client.
+pub(crate) type MakeInbound = Arc<dyn Fn(Bound) -> Option<Box<dyn Inbound + Send>> + Send + Sync>;
 /// Everything the worker needs, injected: the real control exchange and a one-line sink for
 /// a page that cloud sync cannot continue.
 pub(crate) struct Parts {
@@ -177,6 +181,8 @@ pub(crate) struct Parts {
     pub space: String,
     /// The publisher's local side for one bound client; its `Bound` is what Remote returned.
     pub local: Arc<dyn Fn(Bound) -> Option<Box<dyn Local + Send>> + Send + Sync>,
+    /// The Store side of reading the cloud back, when this serve follows foreign streams.
+    pub inbound: Option<MakeInbound>,
 }
 
 /// What the serve supplies to run cloud sync: Remote's activation exchange, the one-line sink
@@ -202,13 +208,15 @@ impl CloudSync {
         layout: Layout,
         owner: [u8; 32],
         space: String,
+        server: Server<OwnerAdmission>,
     ) -> io::Result<Self> {
         let Config {
             activate,
             report,
             declaration_digest,
         } = config;
-        let local_space = space.clone();
+        let (local_space, inbound_space, inbound_layout) =
+            (space.clone(), space.clone(), layout.clone());
         Self::start(Parts {
             channels: objects,
             activity,
@@ -226,6 +234,12 @@ impl CloudSync {
                     Arc::new(now_ms),
                 )))
             }),
+            inbound: Some(Arc::new(move |_| {
+                let store =
+                    StoreInbound::new(&inbound_layout, server.clone(), inbound_space.clone())
+                        .ok()?;
+                Some(Box::new(store))
+            })),
         })
     }
     pub(crate) fn start(parts: Parts) -> io::Result<Self> {

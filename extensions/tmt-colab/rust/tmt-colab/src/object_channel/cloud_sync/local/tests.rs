@@ -1,7 +1,7 @@
 //! `StoreLocal` over a real owner Store: real signed statements, chains, wraps and sealed
 //! updates, so what it hands the publisher is what a reader would verify.
 use super::*;
-use crate::object_channel::cloud_sync::fixture::home::{DeviceSpec, Home, PAGE};
+use crate::object_channel::cloud_sync::fixture::home::{DeviceSpec, Home};
 use std::ops::{Deref, DerefMut};
 use tmt_extension_objects::sync;
 

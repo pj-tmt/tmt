@@ -40,6 +40,10 @@ impl Channels for FixedChannel {
 /// A Remote that answers each sync request from a script and records what it was asked.
 pub(crate) struct ScriptedRemote {
     pub calls: Arc<Mutex<Vec<sync::Call>>>,
+    /// Subscription IDs (their request IDs) in the order they were granted.
+    pub subscribed: Arc<Mutex<Vec<String>>>,
+    /// Subscriptions whose next wake the thread should send as a Changed notice.
+    notices: Arc<Mutex<Vec<String>>>,
     stop: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
 }
@@ -49,10 +53,28 @@ impl ScriptedRemote {
         mut answer: impl FnMut(&sync::Call, &str) -> sync::Outcome + Send + 'static,
     ) -> Self {
         let calls = Arc::new(Mutex::new(Vec::new()));
+        let subscribed = Arc::new(Mutex::new(Vec::new()));
+        let notices = Arc::new(Mutex::new(Vec::new()));
         let stop = Arc::new(AtomicBool::new(false));
         let (record, flag) = (Arc::clone(&calls), Arc::clone(&stop));
+        let (granted, wakes) = (Arc::clone(&subscribed), Arc::clone(&notices));
         let thread = thread::spawn(move || {
+            let (mut generation_seen, mut sequence) = (None, 0u64);
             while !flag.load(Ordering::Acquire) {
+                let due: Vec<String> = std::mem::take(&mut *wakes.lock().unwrap());
+                for subscription_id in due {
+                    let Some(generation) = generation_seen.clone() else {
+                        continue;
+                    };
+                    sequence += 1;
+                    let _ = remote.send_channel(&ChannelFrame::Sync(sync::Frame::Notice {
+                        version: 1,
+                        generation,
+                        subscription_id,
+                        sequence: sequence.to_string(),
+                        notice: sync::InterestNotice::Changed,
+                    }));
+                }
                 let Ok(stamped) = remote.recv_channel_stamped(Some(
                     std::time::Instant::now() + Duration::from_millis(50),
                 )) else {
@@ -68,6 +90,12 @@ impl ScriptedRemote {
                     continue;
                 };
                 let outcome = answer(&call, &request_id);
+                generation_seen = Some(generation.clone());
+                if let (sync::Call::Subscribe { .. }, sync::Outcome::Subscribed { id }) =
+                    (&call, &outcome)
+                {
+                    granted.lock().unwrap().push(id.clone());
+                }
                 record.lock().unwrap().push(call.clone());
                 let _ = remote.send_channel(&ChannelFrame::Sync(sync::Frame::Result {
                     version: 1,
@@ -80,9 +108,15 @@ impl ScriptedRemote {
         });
         Self {
             calls,
+            subscribed,
+            notices,
             stop,
             thread: Some(thread),
         }
+    }
+    /// Send a Changed notice for a granted subscription.
+    pub(crate) fn changed(&self, subscription_id: &str) {
+        self.notices.lock().unwrap().push(subscription_id.into());
     }
     pub(crate) fn methods(&self) -> Vec<sync::Method> {
         self.calls

@@ -9,7 +9,7 @@ use crate::{
         owner::{Device, Mutation, Recipient},
     },
 };
-use ed25519_dalek::{Signer, SigningKey};
+use ed25519_dalek::SigningKey;
 use std::{
     fs,
     os::unix::fs::PermissionsExt,

@@ -1,7 +1,8 @@
 //! The worker against a scripted Remote on the real bus: activation, binding, publication of
 //! the active page and the bounds on retrying.
 use super::{
-    Activation, ActivationFailure, ActivePage, Channels, CloudSync, PageRef, Parts, Refusal,
+    Activation, ActivationFailure, ActivePage, Channels, CloudSync, Inbound, MakeInbound, PageRef,
+    Parts, Refusal,
     fixture::{BINDING, DIGEST, OneUpdate, SPACE, ScriptedRemote, activated, friendly, peer},
 };
 use std::{
@@ -40,6 +41,13 @@ fn start(
     channels: Arc<super::fixture::FixedChannel>,
     activate: impl Fn() -> Result<Activation, ActivationFailure> + Send + Sync + 'static,
 ) -> Rig {
+    start_following(channels, activate, None)
+}
+fn start_following(
+    channels: Arc<super::fixture::FixedChannel>,
+    activate: impl Fn() -> Result<Activation, ActivationFailure> + Send + Sync + 'static,
+    inbound: Option<MakeInbound>,
+) -> Rig {
     let activity = ActivePage::default();
     let reports = Arc::new(Mutex::new(Vec::new()));
     let activations = Arc::new(AtomicUsize::new(0));
@@ -55,6 +63,7 @@ fn start(
         declaration_digest: DIGEST.into(),
         space: SPACE.into(),
         local: Arc::new(move |_| Some(Box::new(OneUpdate { next: 1 }))),
+        inbound,
     })
     .unwrap();
     Rig {
@@ -239,4 +248,99 @@ fn a_bind_that_disagrees_with_the_frozen_inputs_is_refused_and_ends_the_generati
             .is_err(),
         "a disagreeing bind ends the generation"
     );
+}
+
+/// A Store side that follows no stream but counts how often a pass prepared to admit.
+struct Follow {
+    prepared: Arc<AtomicUsize>,
+}
+impl Inbound for Follow {
+    fn membership(&mut self, _: &PageRef, _: &[Vec<u8>]) -> Result<(), super::publisher::Fault> {
+        Ok(())
+    }
+    fn begin(
+        &mut self,
+        _: &PageRef,
+        _: &[Vec<u8>],
+    ) -> Result<Vec<String>, super::publisher::Fault> {
+        self.prepared.fetch_add(1, Ordering::SeqCst);
+        Ok(Vec::new())
+    }
+    fn head(&mut self, _: &PageRef, _: &str) -> Result<u64, super::publisher::Fault> {
+        Ok(0)
+    }
+    fn admit(
+        &mut self,
+        _: &PageRef,
+        _: &[u8],
+    ) -> Result<super::inbound::Applied, super::inbound::Reject> {
+        Err(super::inbound::Reject::Retry)
+    }
+}
+
+#[test]
+fn the_worker_watches_exactly_the_active_page_and_reads_again_on_a_hint_and_on_a_switch() {
+    let mut peer = peer();
+    let firestore = super::fixture::Firestore::default();
+    let answer = firestore.clone();
+    let remote = ScriptedRemote::serve(peer.remote.take().unwrap(), move |call, id| {
+        answer.answer(call, id)
+    });
+    let prepared = Arc::new(AtomicUsize::new(0));
+    let counter = Arc::clone(&prepared);
+    let mut rig = start_following(
+        Arc::clone(&peer.channels),
+        activated,
+        Some(Arc::new(move |_| {
+            Some(Box::new(Follow {
+                prepared: Arc::clone(&counter),
+            }))
+        })),
+    );
+    rig.activity.touch(page(FIRST, 1));
+    until("first read and three interests", || {
+        prepared.load(Ordering::SeqCst) >= 1 && remote.subscribed.lock().unwrap().len() == 3
+    });
+    // A wake from the cloud reads again.
+    let first_group = remote.subscribed.lock().unwrap().clone();
+    remote.changed(&first_group[0]);
+    until("a read after a hint", || {
+        prepared.load(Ordering::SeqCst) >= 2
+    });
+    // Another page cancels all three interests before it registers any.
+    rig.activity.touch(page(SECOND, 1));
+    until("second group", || {
+        remote.subscribed.lock().unwrap().len() == 6
+    });
+    let methods = remote.methods();
+    let subscribes: Vec<usize> = methods
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| **m == Method::Subscribe)
+        .map(|(i, _)| i)
+        .collect();
+    let cancels: Vec<usize> = methods
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| **m == Method::Cancel)
+        .map(|(i, _)| i)
+        .collect();
+    assert_eq!(subscribes.len(), 6);
+    assert_eq!(cancels.len(), 3);
+    assert!(
+        cancels
+            .iter()
+            .all(|c| *c > subscribes[2] && *c < subscribes[3])
+    );
+    // Stopping joins the live interests.
+    rig.sync.take().unwrap().stop();
+    assert_eq!(
+        remote
+            .methods()
+            .iter()
+            .filter(|m| **m == Method::Cancel)
+            .count(),
+        6
+    );
+    assert!(rig.reports.lock().unwrap().is_empty());
 }

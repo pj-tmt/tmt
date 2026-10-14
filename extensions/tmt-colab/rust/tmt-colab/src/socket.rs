@@ -266,16 +266,17 @@ impl MountSocket {
             )?),
             _ => None,
         };
-        let cloud = match self.cloud.take() {
-            Some(cloud) => Some(CloudSync::serve(
+        let cloud = match (self.cloud.take(), &self.sync) {
+            (Some(cloud), Some(sync)) => Some(CloudSync::serve(
                 Arc::clone(&self.objects),
                 cloud.activity,
                 cloud.config,
                 cloud.layout,
                 cloud.owner,
                 self.browser.space_id.clone(),
+                sync.clone(),
             )?),
-            None => None,
+            _ => None,
         };
         let result = (|| -> Result<bool> {
             let mut requested = None;

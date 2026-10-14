@@ -21,6 +21,7 @@ const ENTRY_DAYS: u64 = 360;
 /// A page row defaults to 30 days when the owner set no retention.
 const PAGE_DEFAULT_DAYS: u64 = 30;
 /// The identity of one bound cloud client, frozen at bind.
+#[derive(Clone)]
 pub(crate) struct Bound {
     pub project: String,
     pub declaration_digest: String,
