@@ -78,7 +78,7 @@
   "license": "MIT",
   "adaptation": {
     "helper": "src/ui/utils.ts; typed/formatting change and fixed tmt prefix via extendTailwindMerge",
-    "components": "Slice2 adapts Button, Input, Textarea, Checkbox, Switch, Separator, Badge, Alert, Tabs and Select. Layers and selection remain source pins only.",
+    "components": "Slice2 adapts Button, Input, Textarea, Checkbox, Switch, Separator, Badge, Alert and Tabs. Select is excluded pending qualification in #3057; its pinned source remains a reference only, like layers and selection.",
     "combobox": "Pinned Radix Popover plus Command/cmdk; CommandDialog depends on Dialog; do not use current Base UI combobox registry"
   },
   "dependencies": {
@@ -210,18 +210,6 @@
       "module": "dist/index.mjs",
       "moduleSha256": "add042d623442590b3b54de2a5ed9840a8461314a193737414498860e0c49ac8",
       "packageSha256": "47de7d36fb608935e8ab43ccb2bb356472f8b753ed10a20c2b241d1e841ebce4"
-    },
-    "@radix-ui/react-select": {
-      "version": "2.4.1",
-      "license": "MIT",
-      "repository": {
-        "type": "git",
-        "url": "git+https://github.com/radix-ui/primitives.git",
-        "directory": "packages/react/select"
-      },
-      "module": "dist/index.mjs",
-      "moduleSha256": "03f3fb1eaf7e720bed915ff637490253e71ad9fe25294e028a89dd90ea14b71f",
-      "packageSha256": "3aad8930782b6b1de05330192d7bbaac9b74ad6d721732f339cce75fcd058e3d"
     }
   }
 }

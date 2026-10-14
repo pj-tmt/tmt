@@ -18,12 +18,7 @@ import {
   TabsTrigger,
   TabsContent,
   tabsListVariants,
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
 } from '../src/ui/primitives.js';
-import { UiTheme } from '../src/ui/theme.js';
 
 it('keeps busy action copy visible and announced while native activation is disabled', () => {
   const html = renderToStaticMarkup(
@@ -110,22 +105,6 @@ it('renders stock information and tab semantics with their original Radix relati
   expect(tabs).toContain('role="tabpanel"');
   expect(tabs).toContain('aria-selected="true"');
   expect(tabs).toContain('Kept panel');
-});
-it('keeps read-only Select announced and refuses a body portal before its island mounts', () => {
-  const html = renderToStaticMarkup(
-    <UiTheme>
-      <Select readOnly value="one">
-        <SelectTrigger aria-label="Choice">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>Never body</SelectContent>
-      </Select>
-    </UiTheme>,
-  );
-  expect(html).toContain('role="combobox"');
-  expect(html).toContain('aria-readonly="true"');
-  expect(html).not.toContain('Never body');
-  expect(() => renderToStaticMarkup(<SelectContent />)).toThrow('originating UiTheme');
 });
 it('uses genuine variant functions and only complete prefixed utilities', () => {
   for (const classes of [

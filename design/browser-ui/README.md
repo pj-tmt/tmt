@@ -395,7 +395,7 @@ consumer ownership. Component qualification does not grant product authority.
 [`src/ui/provenance.json`](src/ui/provenance.json) records every selected source's
 upstream path and SHA-256 at shadcn/ui commit
 `8720dec73f5aebed9f649ea58636f54599fdedf1`, plus exact direct dependency versions,
-licenses and repositories. Primitives adapt the ten selected sources; layers and
+licenses and repositories. Primitives adapt nine selected sources; layers and
 selection sources remain pins for later slices. The helper is adapted from that revision's
 `apps/v4/registry/new-york-v4/lib/utils.ts` to configure `extendTailwindMerge` with
 our `tmt` prefix. The upstream MIT notice is retained in
@@ -459,7 +459,7 @@ plan rather than introducing a global theme synchronizer.
 
 | Owner after foundation merge | Exclusive source/barrel                                                                                          | Exclusive gallery fragment                                      |
 | ---------------------------- | ---------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| Slice2 Primitives            | `src/ui/{button,input,textarea,checkbox,switch,separator,badge,alert,tabs,select}.tsx`, `src/ui/primitives.ts`   | `test/fixtures/ui/primitives.tsx`                               |
+| Slice2 Primitives            | `src/ui/{button,input,textarea,checkbox,switch,separator,badge,alert,tabs}.tsx`, `src/ui/primitives.ts`   | `test/fixtures/ui/primitives.tsx`                               |
 | Slice3 Layers                | `src/ui/{dialog,sheet,dropdown-menu,tooltip,popover}.tsx`, `src/ui/layers.ts`                                    | `test/fixtures/ui/layers.tsx`                                   |
 | Slice4 Selection             | `src/ui/{command,combobox,chips}.tsx`, `src/ui/selection.ts`                                                     | `test/fixtures/ui/selection.tsx`                                |
 | Foundation/integrator        | `src/ui/index.ts`, `src/ui/{utils.ts,theme.tsx}`, provenance, generator/policy, package/lock, `generated/ui.css` | `test/fixtures/ui/foundation.tsx`, browser fixture wrapper/spec |
@@ -489,9 +489,7 @@ qualification of the unimplemented later components.
 
 `primitives.ts` exports Button/buttonVariants, Input, Textarea, Checkbox, Switch,
 Separator, Badge/badgeVariants, Alert/AlertTitle/AlertDescription,
-Tabs/TabsList/TabsTrigger/TabsContent/tabsListVariants and
-Select/SelectGroup/SelectValue/SelectTrigger/SelectContent/SelectLabel/SelectItem/
-SelectSeparator/SelectScrollUpButton/SelectScrollDownButton. Normal native and
+Tabs/TabsList/TabsTrigger/TabsContent/tabsListVariants. Normal native and
 Radix props, refs, default values and controlled callbacks remain with the host.
 These components contain no product store, command or request state.
 
@@ -504,25 +502,16 @@ uses readOnly plus `aria-busy` and a visible, associated state description.
 Checkbox/Switch `readOnly` blocks value-changing activation while retaining focus.
 Hosts supply visible names/reasons for disabled, busy and read-only states.
 
-Select `readOnly` requires a controlled `value`; it never invents a second
-default-value owner. Its permitted focus/navigation remains Radix-owned, while
-value delivery is suppressed. SelectContent renders only in the originating
-UiTheme container, with Radix Popper geometry constrained by its actual available
-width/height. The host controls open/value admission. Busy hosts veto
-`onOpenChange`, `onEscapeKeyDown` and `onPointerDownOutside`; programmatic requests
-use the same host admission. There is no close-policy registry. Hosts provide
-`onCloseAutoFocus` with `preventDefault()` and a persistent focus fallback when
-their opener is removed. The fixture demonstrates this path.
-
-The [component-specific A2 ruling](https://github.com/pj-tmt/tmt/issues/2951#issuecomment-6149487035)
-accepts stock Select as a modal choice popup for keyboard applicability only:
-Tab/ShiftTab remain trapped while open; arrows/typeahead/Enter/Space retain Radix
-behavior; Escape/outside/controlled close restore focus. Semantics remain
-combobox/listbox, with no added dialog role or `aria-modal`. This does not change
-Menu/Chips/Combobox Tab obligations or qualify the later menu-to-layer pattern.
+Select is excluded from Stage1 exports and its fixture. Its stock Popper and
+item-aligned modes did not satisfy the required after-open visual viewport
+containment contract. [Select qualification #3057](https://github.com/pj-tmt/tmt/issues/3057)
+requires an owner-reviewed minimal adaptation design before implementation.
+Existing product controls remain unchanged; no consumer adoption is included.
+Parking Select is not an A5 pass, and no physical mobile keyboard animation is
+qualified by this slice.
 
 The allocated primitive gallery and existing-runner
-`browser-ui-primitives.spec.ts` cover real values, activation, focus, veto,
-tokens and state captures. The separate foundation coexistence spec and legacy
+`browser-ui-primitives.spec.ts` cover real values, activation, keyboard focus,
+tokens, width containment and state captures. The separate foundation coexistence spec and legacy
 source/static hash guards remain required. CSS adds aliases of existing
 command-size/caption-size/eyebrow-weight metrics, never a second token palette.

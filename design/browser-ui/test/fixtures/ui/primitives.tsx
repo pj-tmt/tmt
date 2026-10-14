@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import {
   Button,
   Input,
@@ -14,14 +14,6 @@ import {
   TabsList,
   TabsTrigger,
   TabsContent,
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectGroup,
-  SelectLabel,
-  SelectItem,
-  SelectSeparator,
 } from '../../../src/ui/primitives.js';
 
 /** Isolated presentation state only; no product store, service or sends. */
@@ -32,17 +24,6 @@ export function PrimitiveFixtures() {
   const [checked, setChecked] = useState<boolean | 'indeterminate'>(false);
   const [enabled, setEnabled] = useState(false);
   const [tab, setTab] = useState('first');
-  const [choice, setChoice] = useState('alpha');
-  const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [readOnly, setReadOnly] = useState(false);
-  const [triggerMounted, setTriggerMounted] = useState(true);
-  const [changes, setChanges] = useState(0);
-  const trigger = useRef<HTMLButtonElement>(null);
-  const fallback = useRef<HTMLButtonElement>(null);
-  const requestOpen = (next: boolean) => {
-    if (!busy) setOpen(next);
-  };
   return (
     <section
       aria-label="Real shadcn primitives"
@@ -211,92 +192,6 @@ export function PrimitiveFixtures() {
         <TabsContent value="north">North panel</TabsContent>
         <TabsContent value="south">South panel</TabsContent>
       </Tabs>
-      <div className="tmt:flex tmt:flex-wrap tmt:gap-2">
-        <Button type="button" ref={fallback} onClick={() => requestOpen(true)}>
-          Open select programmatically
-        </Button>
-        <Button type="button" variant="outline" onClick={() => requestOpen(false)}>
-          Close select programmatically
-        </Button>
-        <Button type="button" variant="outline" onClick={() => setBusy(!busy)}>
-          {busy ? 'Finish select work' : 'Start select work'}
-        </Button>
-        <Button type="button" variant="outline" onClick={() => setReadOnly(!readOnly)}>
-          {readOnly ? 'Enable choice edits' : 'Make choice read-only'}
-        </Button>
-        <Button type="button" variant="outline" onClick={() => setTriggerMounted(!triggerMounted)}>
-          {triggerMounted ? 'Remove select opener' : 'Restore select opener'}
-        </Button>
-      </div>
-      <p role="status">
-        {busy
-          ? 'Select working; dismissal is paused.'
-          : readOnly
-            ? 'Select read-only; value is retained.'
-            : 'Select ready.'}
-      </p>
-      <Select
-        value={choice}
-        open={open}
-        readOnly={readOnly || busy}
-        onOpenChange={requestOpen}
-        onValueChange={(next) => {
-          setChoice(next);
-          setChanges((count) => count + 1);
-        }}
-      >
-        <div data-primitive-anchor-clip="" className="tmt:overflow-hidden tmt:h-9">
-          {triggerMounted && (
-            <SelectTrigger
-              ref={trigger}
-              aria-label="Controlled choice"
-              aria-busy={busy || undefined}
-            >
-              <SelectValue />
-            </SelectTrigger>
-          )}
-        </div>
-        <SelectContent
-          aria-busy={busy || undefined}
-          onEscapeKeyDown={(event) => {
-            if (busy) event.preventDefault();
-          }}
-          onPointerDownOutside={(event) => {
-            if (busy) event.preventDefault();
-          }}
-          onCloseAutoFocus={(event) => {
-            if (!trigger.current?.isConnected) {
-              event.preventDefault();
-              fallback.current?.focus();
-            }
-          }}
-        >
-          <SelectGroup>
-            <SelectLabel>
-              {busy ? 'Working choices' : readOnly ? 'Read-only choices' : 'Real choices'}
-            </SelectLabel>
-            <SelectItem value="alpha">Alpha</SelectItem>
-            <SelectItem value="blocked" disabled>
-              Disabled choice
-            </SelectItem>
-            <SelectItem value="beta">Beta</SelectItem>
-            <SelectSeparator />
-            {Array.from({ length: 12 }, (_, i) => (
-              <SelectItem key={i} value={`long-${i}`}>
-                Long choice {i + 1}: retained full accessible name
-              </SelectItem>
-            ))}
-          </SelectGroup>
-        </SelectContent>
-      </Select>
-      <output aria-label="Choice and change count">
-        {choice}:{changes}
-      </output>
-      <Select disabled defaultValue="fixed">
-        <SelectTrigger aria-label="Disabled choice">
-          <SelectValue>Disabled choice</SelectValue>
-        </SelectTrigger>
-      </Select>
       <Button type="button" variant="outline" onClick={() => setActions((count) => count + 1)}>
         Outside action
       </Button>
