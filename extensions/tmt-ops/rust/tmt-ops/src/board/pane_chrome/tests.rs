@@ -3,6 +3,69 @@ use ratatui::{Terminal, backend::TestBackend};
 
 mod routing;
 
+#[test]
+fn digest_panes_share_focus_chrome_without_stacked_rules_or_a_false_back_hint() {
+    use crate::board::{app::Effect, shell::OpsTab};
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    for depth in [Depth::TrueColor, Depth::None] {
+        for (width, height) in [(80, 36), (100, 35), (100, 36), (100, 37), (160, 36)] {
+            let mut app = app(depth);
+            app.key(KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE));
+            assert_eq!(app.shell.tab, OpsTab::Digest);
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            let mut draw = |app: &mut App| {
+                terminal
+                    .draw(|frame| {
+                        crate::board::view::prepare(app, frame.area());
+                        crate::board::view::render(frame, app);
+                    })
+                    .unwrap();
+                let buffer = terminal.backend().buffer();
+                let lines: Vec<_> = (0..height)
+                    .map(|y| {
+                        (0..width)
+                            .map(|x| buffer[(x, y)].symbol())
+                            .collect::<String>()
+                    })
+                    .collect();
+                assert_eq!(crate::test_support::stacked_rules(&lines), None);
+                let focused: Vec<_> = lines
+                    .into_iter()
+                    .filter(|line| line.contains(" · focused"))
+                    .collect();
+                assert_eq!(focused.len(), 1, "{focused:?}");
+                focused.into_iter().next().unwrap()
+            };
+            let title = draw(&mut app);
+            assert!(title.contains("Digest · focused"), "{title}");
+            assert!(!title.contains("Esc back"));
+            if depth == Depth::None {
+                assert!(title.contains("▶ Digest"), "{title}");
+            }
+            let selected = app.workspace.selected.clone();
+            assert_eq!(
+                app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)),
+                Effect::None
+            );
+            assert_eq!(app.focused_pane(), Some(Pane::Replies));
+            let title = draw(&mut app);
+            assert!(title.contains("Details · focused · Esc back"), "{title}");
+            if depth == Depth::None {
+                assert!(title.contains("▶ Details"), "{title}");
+            }
+            assert_eq!(
+                app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+                Effect::None
+            );
+            assert_eq!(app.focused_pane(), Some(Pane::Rows));
+            assert_eq!(app.shell.tab, OpsTab::Digest);
+            assert_eq!(app.workspace.selected, selected);
+            assert!(draw(&mut app).contains("Digest · focused"));
+        }
+    }
+}
+
 fn app(depth: Depth) -> App {
     let app = crate::board::app::workspace::tests::capture_case(
         "agents",

@@ -933,7 +933,7 @@ fn clipped_label_suffix_does_not_invalidate_until_the_visible_word_expires() {
         let mut app = workspace_board();
         workspace_row(&mut app)["digest"] =
             json!({"active":true, "digestUntilMs":121_000, "heldCount":2});
-        let mut terminal = Terminal::new(TestBackend::new(6, 24)).unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(8, 24)).unwrap();
         terminal
             .draw(|frame| crate::board::conversation::render(frame, &app, frame.area()))
             .unwrap();
