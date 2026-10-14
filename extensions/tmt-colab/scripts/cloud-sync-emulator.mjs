@@ -91,7 +91,7 @@ if (process.argv[2] === '--scenario') {
     ]);
     copyFileSync(built('tmt-remote'), path.join(bins, 'tmt-remote'));
     // Listing first: the proof must be exactly the two scenarios, selected by name.
-    const listing = spawnSync('cargo', [...test.slice(0, -3), '--list', '--ignored'], {
+    const listing = spawnSync('cargo', [...test.slice(0, -1), '--list'], {
       cwd: path.join(root, 'rust'),
       encoding: 'utf8',
     });
