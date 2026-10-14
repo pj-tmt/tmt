@@ -491,11 +491,15 @@ for (const width of [1440, 1024, 390])
             { message: 'question card must use the real author container edges' },
           )
           .toBe(true);
-        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
-          true,
-        );
         expect(
-          await container.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+          await page.evaluate(
+            () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+          ),
+        ).toBe(true);
+        expect(
+          await container.evaluate(
+            () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+          ),
         ).toBe(true);
       }
     });
