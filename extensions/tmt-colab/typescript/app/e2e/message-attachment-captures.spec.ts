@@ -110,12 +110,23 @@ for (const width of [1440, 390])
         .getByRole('button', { name: /^Preview image-\d+\.png$/ });
       await expect(thumbnails).toHaveCount(5);
       await expect(page.getByRole('button', { name: 'Show 2 more images' })).toHaveCount(1);
-      // Thread previews stack below metadata; each reads only when it enters the history viewport.
+      // Preview bytes still read only when each grid tile enters the history viewport.
       for (const thumbnail of await thumbnails.all()) {
         await thumbnail.scrollIntoViewIfNeeded();
         await expect(thumbnail.locator('img')).toBeVisible();
       }
       await expect(page.locator('.attachment-thumbnail img')).toHaveCount(5);
+      const boxes = await thumbnails.evaluateAll((nodes) =>
+        nodes.map((node) => node.getBoundingClientRect().toJSON()),
+      );
+      expect(boxes[0].left).toBeLessThan(boxes[1].left);
+      expect(boxes[1].left).toBeLessThan(boxes[2].left);
+      expect(Math.abs(boxes[0].top - boxes[2].top)).toBeLessThanOrEqual(1);
+      expect(boxes[3].top).toBeGreaterThan(boxes[0].bottom);
+      for (const box of boxes) {
+        expect(Math.abs(box.width - box.height)).toBeLessThanOrEqual(1);
+        expect(box.width).toBeLessThanOrEqual(200);
+      }
       const alignment = await page
         .locator('.attachment-images')
         .evaluate((node) =>

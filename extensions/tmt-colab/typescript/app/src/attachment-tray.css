@@ -282,15 +282,6 @@
 .comment-thread .attachment-pending-preview {
   flex: 1 0 100%;
 }
-.comment-thread .attachment-images {
-  display: flex;
-  flex-wrap: wrap;
-  max-width: 100%;
-  gap: 12px;
-}
-.comment-thread .message-image {
-  flex: 1 1 100%;
-}
 .comment-thread .attachment-thumbnail {
   margin-top: 8px;
 }
