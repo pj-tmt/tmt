@@ -32,6 +32,7 @@ pub fn fit(text: &str, width: usize) -> String {
 }
 
 pub fn render(frame: &mut Frame, app: &App) {
+    let _rows = app.workspace_frame_rows();
     app.home_counters.borrow_mut().begin();
     let global =
         app.workspace_snapshot().is_none() || app.shell.tab == super::shell::OpsTab::Overview;
@@ -94,6 +95,7 @@ pub(in crate::board) fn render_frame(
     home_usage: Option<ratatui::text::Line<'static>>,
     home_limits: Vec<ratatui::text::Line<'static>>,
 ) {
+    let _rows = app.workspace_frame_rows();
     let look = app.look();
     app.input_band.set(None);
     app.input_viewport.set(None);

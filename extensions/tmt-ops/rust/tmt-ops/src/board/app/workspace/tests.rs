@@ -363,6 +363,88 @@ fn paint(app: &App, width: u16, height: u16) -> Vec<String> {
 }
 
 #[test]
+fn frame_rows_share_one_projection_and_release_it_after_nested_paint_or_unwind() {
+    let app = board();
+    {
+        let _frame = app.workspace_frame_rows();
+        let rows = app.workspace_rows();
+        assert!(Rc::ptr_eq(&rows, &app.workspace_rows()));
+        {
+            let _nested = app.workspace_frame_rows();
+            assert!(Rc::ptr_eq(&rows, &app.workspace_rows()));
+        }
+        assert!(Rc::ptr_eq(&rows, &app.workspace_rows()));
+    }
+    assert!(app.frame_workspace_rows.borrow().is_none());
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _frame = app.workspace_frame_rows();
+        panic!("paint failed");
+    }));
+    assert!(result.is_err());
+    assert!(app.frame_workspace_rows.borrow().is_none());
+    let rows = app.workspace_rows();
+    assert!(!Rc::ptr_eq(&rows, &app.workspace_rows()));
+}
+
+#[test]
+fn frame_rows_never_retain_old_roster_filter_or_membership_authority() {
+    let mut app = board();
+    let selected = app.workspace.selected.clone();
+    assert!(
+        paint(&app, 160, 36)
+            .iter()
+            .any(|line| line.contains("worker"))
+    );
+    assert!(app.frame_workspace_rows.borrow().is_none());
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .roster
+        .members
+        .get_mut(MEMBER)
+        .unwrap()
+        .name = "renamed-worker".into();
+    assert!(
+        paint(&app, 160, 36)
+            .iter()
+            .any(|line| line.contains("renamed-worker"))
+    );
+    app.search = "no-match".into();
+    app.workspace_reconcile();
+    paint(&app, 80, 24);
+    assert_eq!(app.workspace_selection_state(), SelectionState::Hidden);
+    assert_eq!(key(&mut app, KeyCode::Char('t')), Effect::None);
+    app.search.clear();
+    app.workspace.expanded.clear();
+    app.workspace_reconcile();
+    paint(&app, 160, 36);
+    assert_eq!(app.workspace_selection_state(), SelectionState::Hidden);
+    app.workspace.expanded.insert(ROOM.into());
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .roster
+        .squads[0]
+        .members
+        .clear();
+    app.workspace_reconcile();
+    paint(&app, 160, 36);
+    assert_eq!(app.workspace_selection_state(), SelectionState::Missing);
+    assert_eq!(key(&mut app, KeyCode::Char('t')), Effect::None);
+    assert!(app.input.is_none());
+    assert_eq!(app.workspace.selected, selected);
+    assert!(app.frame_workspace_rows.borrow().is_none());
+}
+
+#[test]
 fn workspace_shell_is_available_before_data_at_every_theme_depth() {
     for base in tmt_cli_style::Base::ALL {
         for depth in [

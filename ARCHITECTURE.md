@@ -432,6 +432,8 @@ own module/drawing boundaries and verification.
   squads and virtual Common pool. Paint/input do no Core reads; WP1 owns the
   conversation/editor and drafts. The shell replaces named-tab/factory/switcher
   navigation and HOME cursors; reload carries UUID workspace anchors. Acquired summaries, rates and replies remain source data.
+  An immutable paint shares one tree-row projection for that frame only; input
+  and snapshot updates retain no projected-row cache.
   Membership removal pauses jobs before leave;
   only explicit Resume clears pause. Rename CAS keeps the room UUID, then moves
   Ops metadata/config and cron namespaces under owned locks; partial results

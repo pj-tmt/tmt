@@ -9,16 +9,40 @@ use crate::{
     action::OpsUiAction,
     config::{OpsKeyScope, OpsPreferences},
 };
+use std::rc::Rc;
+
+/// Rows are shared only within an immutable paint, never across an input or
+/// snapshot update. Nested paints and unwinding restore the previous scope.
+pub(in crate::board) struct FrameRows<'a> {
+    slot: &'a RefCell<Option<Rc<[OpsTreeRow]>>>,
+    previous: Option<Rc<[OpsTreeRow]>>,
+}
+
+impl Drop for FrameRows<'_> {
+    fn drop(&mut self) {
+        *self.slot.borrow_mut() = self.previous.take();
+    }
+}
 
 impl App {
     pub(in crate::board) fn workspace_snapshot(&self) -> Option<&OpsWorkspaceSnapshot> {
         Some(&self.view.as_ref()?.home.as_ref()?.workspace)
     }
-    pub(in crate::board) fn workspace_rows(&self) -> Vec<OpsTreeRow> {
-        let Some(snapshot) = self.workspace_snapshot() else {
-            return Vec::new();
-        };
-        self.workspace.rows(&snapshot.roster, &snapshot.preferences)
+    pub(in crate::board) fn workspace_rows(&self) -> Rc<[OpsTreeRow]> {
+        if let Some(rows) = self.frame_workspace_rows.borrow().as_ref() {
+            return Rc::clone(rows);
+        }
+        self.workspace_snapshot()
+            .map(|snapshot| self.workspace.rows(&snapshot.roster, &snapshot.preferences))
+            .unwrap_or_default()
+            .into()
+    }
+    pub(in crate::board) fn workspace_frame_rows(&self) -> FrameRows<'_> {
+        let rows = self.workspace_rows();
+        FrameRows {
+            previous: self.frame_workspace_rows.replace(Some(rows)),
+            slot: &self.frame_workspace_rows,
+        }
     }
     pub(in crate::board) fn workspace_selection_state(&self) -> SelectionState {
         let Some(snapshot) = self.workspace_snapshot() else {

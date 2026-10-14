@@ -58,7 +58,9 @@ fn report(rows: usize, action: &str, samples: Vec<Sample>) {
 #[test]
 #[ignore = "local release-mode timing evidence; no CI threshold"]
 fn conversation_frame_timing() {
-    assert!(!cfg!(debug_assertions), "run this probe with --release");
+    if cfg!(debug_assertions) {
+        panic!("run this probe with --release");
+    }
     crate::status::with_now_ms(1_791_600_000_000, || {
         for rows in [150, 1_000, 10_000] {
             let mut app = populated_board(36, rows);

@@ -566,6 +566,7 @@ impl std::fmt::Debug for Hit {
 pub struct App {
     pub(super) shell: super::shell::OpsShell,
     pub(super) workspace: super::workspace::OpsWorkspace,
+    frame_workspace_rows: RefCell<Option<std::rc::Rc<[super::workspace::OpsTreeRow]>>>,
     pub(super) workspace_startup: Option<String>,
     pub(super) workspace_form: Option<super::workspace::manage::Draft>,
     pub(in crate::board) workspace_action_hits:
@@ -718,7 +719,7 @@ impl App {
         if view.home.is_some() {
             return self
                 .workspace_rows()
-                .into_iter()
+                .iter()
                 .filter_map(|entry| {
                     self.workspace_snapshot()?
                         .rows
