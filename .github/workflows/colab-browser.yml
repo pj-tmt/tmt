@@ -24,6 +24,7 @@ jobs:
     outputs:
       colab_harness: ${{ steps.scope.outputs.colab_harness || 'false' }}
       colab_app: ${{ steps.scope.outputs.colab_app || 'false' }}
+      colab_hosted: ${{ steps.scope.outputs.colab_hosted || 'false' }}
     steps:
       - if: github.event_name == 'pull_request'
         uses: actions/checkout@v4
@@ -245,6 +246,70 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+  colab-hosted:
+    name: Colab hosted bundle spec (Chromium)
+    needs: changes
+    # The pin manifest, the hosted build and this spec select it for a PR; the label, weekly and
+    # manual runs include the same spec in full acceptance, so the label never runs it twice.
+    if: >-
+      github.event_name == 'pull_request' && needs.changes.outputs.colab_hosted == 'true' &&
+      !contains(github.event.pull_request.labels.*.name, 'colab-acceptance')
+    concurrency:
+      group: colab-hosted-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      CARGO_PROFILE_DEV_DEBUG: 0
+      CARGO_INCREMENTAL: 0
+      TMT_COLAB_APP_DIR: ${{ github.workspace }}/extensions/tmt-colab/typescript/app/dist
+      TMT_ACCEPTANCE_BIN_DIR: ${{ github.workspace }}/rust/target/debug
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-tooling
+      - uses: ./.github/actions/apt-install
+        with:
+          packages: tmux
+      - name: Install frozen app tooling
+        working-directory: typescript
+        run: pnpm --filter @tmt/colab-app... --fail-if-no-match install --frozen-lockfile --ignore-scripts
+      - name: Install frozen Remote client tooling for the hosted bundle
+        working-directory: typescript
+        run: pnpm --filter @tmt/remote-client... --fail-if-no-match install --frozen-lockfile --ignore-scripts
+      - name: Install Chromium and Linux dependencies
+        working-directory: typescript
+        run: pnpm --filter @tmt/colab-app exec playwright install --with-deps chromium
+      - name: Build the app before embedding it
+        working-directory: typescript
+        run: pnpm --filter @tmt/colab-app --fail-if-no-match build
+      # The hosted inventory rides in the same executable as the app: Remote's pinned Firebase
+      # client first, then the hosted distribution (--base /), both embedded by the one build below.
+      - name: Build Remote's Firebase client before embedding it
+        working-directory: typescript
+        run: pnpm --filter @tmt/remote-client --fail-if-no-match exec vp build --config vite.firebase.config.ts
+      - name: Build the hosted app before embedding it
+        working-directory: typescript
+        run: pnpm --filter @tmt/colab-app --fail-if-no-match build:hosted
+      - name: Install pinned Rust toolchain
+        run: sh scripts/install-ci-rust.sh 1.97.0 --profile minimal
+      - name: Restore shared Rust dependencies without saving
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: rust
+          shared-key: native-rust
+          save-if: false
+      - name: Build all three real executables once
+        env:
+          TMT_COLAB_HOSTING_DIR: ${{ github.workspace }}/extensions/tmt-colab/typescript/app/dist-hosted
+        run: cargo build --locked --manifest-path rust/Cargo.toml -j 2 -p tmt-cli -p tmt-remote -p tmt-colab --bins --example compose_hosting
+      - name: Run the hosted bundle spec with one worker
+        working-directory: typescript
+        run: pnpm --filter @tmt/colab-app --fail-if-no-match test:acceptance --workers=1 --reporter=list acceptance/hosted-bundle.spec.ts
+
   colab-acceptance:
     name: Colab real-binary acceptance (Chromium, shard ${{ matrix.shard }}/2)
     if: >-
@@ -288,12 +353,23 @@ jobs:
       - name: Install frozen app tooling
         working-directory: typescript
         run: pnpm --filter @tmt/colab-app... --fail-if-no-match install --frozen-lockfile --ignore-scripts
+      - name: Install frozen Remote client tooling for the hosted bundle
+        working-directory: typescript
+        run: pnpm --filter @tmt/remote-client... --fail-if-no-match install --frozen-lockfile --ignore-scripts
       - name: Install Chromium and Linux dependencies
         working-directory: typescript
         run: pnpm --filter @tmt/colab-app exec playwright install --with-deps chromium
       - name: Build the app before embedding it
         working-directory: typescript
         run: pnpm --filter @tmt/colab-app --fail-if-no-match build
+      # The hosted inventory rides in the same executable as the app: Remote's pinned Firebase
+      # client first, then the hosted distribution (--base /), both embedded by the one build below.
+      - name: Build Remote's Firebase client before embedding it
+        working-directory: typescript
+        run: pnpm --filter @tmt/remote-client --fail-if-no-match exec vp build --config vite.firebase.config.ts
+      - name: Build the hosted app before embedding it
+        working-directory: typescript
+        run: pnpm --filter @tmt/colab-app --fail-if-no-match build:hosted
       - name: Install pinned Rust toolchain
         run: sh scripts/install-ci-rust.sh 1.97.0 --profile minimal
       - name: Restore shared Rust dependencies without saving
@@ -303,7 +379,9 @@ jobs:
           shared-key: native-rust
           save-if: false
       - name: Build all three real executables once
-        run: cargo build --locked --manifest-path rust/Cargo.toml -j 2 -p tmt-cli -p tmt-remote -p tmt-colab --bins
+        env:
+          TMT_COLAB_HOSTING_DIR: ${{ github.workspace }}/extensions/tmt-colab/typescript/app/dist-hosted
+        run: cargo build --locked --manifest-path rust/Cargo.toml -j 2 -p tmt-cli -p tmt-remote -p tmt-colab --bins --example compose_hosting
       - name: Record the tested source and exact build hashes
         shell: bash
         env:
@@ -312,6 +390,7 @@ jobs:
           printf 'pr-head: %s\ntested-merge: %s\n' "$PR_HEAD_SHA" "$(git rev-parse HEAD)" > "$RUNNER_TEMP/colab-acceptance-results/tested-head.txt"
           sha256sum rust/target/debug/tmt rust/target/debug/tmt-remote rust/target/debug/tmt-colab > "$RUNNER_TEMP/colab-acceptance-results/binaries.sha256"
           find extensions/tmt-colab/typescript/app/dist -type f -print0 | sort -z | xargs -0 sha256sum > "$RUNNER_TEMP/colab-acceptance-results/assets.sha256"
+          find extensions/tmt-colab/typescript/app/dist-hosted -type f -print0 | sort -z | xargs -0 sha256sum > "$RUNNER_TEMP/colab-acceptance-results/hosted-assets.sha256"
       - name: Run this shard of the real-binary suite with one worker
         working-directory: typescript
         shell: bash

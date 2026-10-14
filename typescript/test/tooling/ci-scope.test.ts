@@ -39,6 +39,7 @@ import {
   selectNativeSyncEmulator,
   selectColabFirestore,
   selectColabHarness,
+  selectColabHosted,
   selectNativeNotices,
 } from '../../scripts/ci-scope.mjs';
 
@@ -1128,6 +1129,7 @@ describe('CI diff and command integration', () => {
         native: 'true',
         colab_harness: 'false',
         colab_app: 'false',
+        colab_hosted: 'false',
         native_scope: 'full',
         scoped_native_tests: '',
       });
@@ -1156,6 +1158,7 @@ describe('CI diff and command integration', () => {
         native: 'true',
         colab_harness: 'false',
         colab_app: 'false',
+        colab_hosted: 'false',
         native_scope: 'ops',
         native_notices: 'false',
         remote_firestore: 'false',
@@ -1318,6 +1321,38 @@ describe('CI diff and command integration', () => {
     'unknown/input',
   ])('does not select the advisory Colab app component suite for %s', (file) => {
     expect(selectColabApp([file])).toBe(false);
+  });
+
+  it.each([
+    '.github/workflows/colab-browser.yml',
+    'extensions/tmt-remote/typescript/remote-client/firebase-build-pin.json',
+    'extensions/tmt-remote/typescript/remote-client/vite.firebase.config.ts',
+    'extensions/tmt-colab/rust/tmt-colab/build/hosting.rs',
+    'extensions/tmt-colab/typescript/app/package.json',
+    'extensions/tmt-colab/typescript/app/vite.config.ts',
+    'extensions/tmt-colab/typescript/app/acceptance/hosted-bundle.spec.ts',
+  ])('selects the hosted bundle spec for %s', (file) => {
+    expect(selectColabHosted([file])).toBe(true);
+    expect(selectColabHosted(['DEVELOPMENT.md', file])).toBe(true);
+  });
+
+  // The pin manifest is the drift signal: Remote source or package edits do not select the job.
+  it.each([
+    'extensions/tmt-remote/typescript/remote-client/src/firebase-client.ts',
+    'extensions/tmt-remote/typescript/remote-client/package.json',
+    'extensions/tmt-remote/typescript/remote-client/firebase-build-pin.json.bak',
+    'extensions/tmt-colab/rust/tmt-colab/build.rs',
+    'extensions/tmt-colab/rust/tmt-colab/src/deploy_declaration.rs',
+    'extensions/tmt-colab/typescript/app/src/index.tsx',
+    'extensions/tmt-colab/typescript/app/acceptance/page-save.spec.ts',
+    '.github/workflows/ci.yml',
+    'DEVELOPMENT.md',
+  ])('does not select the hosted bundle spec for %s', (file) => {
+    expect(selectColabHosted([file])).toBe(false);
+  });
+
+  it('does not select the hosted bundle spec for an empty diff', () => {
+    expect(selectColabHosted([])).toBe(false);
   });
 
   it('requires mapped ownership and does not expand empty Colab app scope', () => {
@@ -1634,6 +1669,7 @@ esac
       expect(select(['merge-group', office]).outputs).toMatchObject({
         colab_harness: 'false',
         colab_app: 'false',
+        colab_hosted: 'false',
       });
       expect(select(['merge-group', shared]).outputs).toEqual(full);
       git(['update-ref', 'refs/remotes/origin/main', docs]);
@@ -2237,7 +2273,7 @@ describe('required CI gate', () => {
       'utf8'
     );
     const install = colab.indexOf('sh scripts/install-ci-rust.sh 1.97.0 --profile minimal');
-    expect(colab.match(/sh scripts\/install-ci-rust\.sh /g)).toHaveLength(3);
+    expect(colab.match(/sh scripts\/install-ci-rust\.sh /g)).toHaveLength(4);
     expect(install).toBeGreaterThan(0);
     expect(install).toBeLessThan(colab.indexOf('uses: Swatinem/rust-cache@'));
     expect(colab).toContain('shared-key: native-rust');
@@ -2622,7 +2658,10 @@ describe('required CI gate', () => {
     expect(appBuild).toBeGreaterThan(0);
     expect(nativeBuild).toBeGreaterThan(appBuild);
     expect(acceptance.match(/cargo build /g)).toHaveLength(1);
-    expect(acceptance).toContain('-p tmt-cli -p tmt-remote -p tmt-colab --bins');
+    // Remote's developer-only offline composer (#3048) rides in the same compile: the hosted spec feeds it.
+    expect(acceptance).toContain(
+      '-p tmt-cli -p tmt-remote -p tmt-colab --bins --example compose_hosting'
+    );
     expect(acceptance).toContain('test:acceptance --workers=1 --reporter=list,json');
     // Two shards run the one single-worker suite (#2827): each builds its own binaries and world,
     // keeps its own concurrency group and evidence, and neither cancels the other.
@@ -2646,6 +2685,45 @@ describe('required CI gate', () => {
     expect(upload).toContain('retention-days: 7');
     expect(upload).not.toContain('colab-acceptance-private');
     expect(acceptance).toContain('node typescript/scripts/colab-acceptance-report.mjs');
+    // The hosted inventory rides in the same single build (#2487): Remote's pinned Firebase client
+    // and the hosted app are built first, then embedded by that one compile, never a second one.
+    expect(acceptance).toContain(
+      'TMT_COLAB_HOSTING_DIR: ${{ github.workspace }}/extensions/tmt-colab/typescript/app/dist-hosted'
+    );
+    expect(acceptance).toContain(
+      'pnpm --filter @tmt/remote-client... --fail-if-no-match install --frozen-lockfile --ignore-scripts'
+    );
+    const firebaseBuild = acceptance.indexOf('exec vp build --config vite.firebase.config.ts');
+    const hostedBuild = acceptance.indexOf(
+      'pnpm --filter @tmt/colab-app --fail-if-no-match build:hosted'
+    );
+    expect(firebaseBuild).toBeGreaterThan(appBuild);
+    expect(hostedBuild).toBeGreaterThan(appBuild);
+    expect(nativeBuild).toBeGreaterThan(firebaseBuild);
+    expect(nativeBuild).toBeGreaterThan(hostedBuild);
+    expect(acceptance).toContain('hosted-assets.sha256');
+    // A pull request that moves the Firebase pin, the hosted build or the spec runs only that one
+    // spec in its own job; a label already runs it inside the full suite, so it never runs twice.
+    expect(workflow).toContain("colab_hosted: ${{ steps.scope.outputs.colab_hosted || 'false' }}");
+    const hosted = job('colab-hosted');
+    expect(hosted).toContain('needs: changes');
+    expect(hosted).toContain("needs.changes.outputs.colab_hosted == 'true'");
+    expect(hosted).toContain(
+      "!contains(github.event.pull_request.labels.*.name, 'colab-acceptance')"
+    );
+    expect(hosted).toContain("github.event_name == 'pull_request'");
+    expect(hosted).toContain('permissions:\n      contents: read');
+    expect(hosted).toContain('persist-credentials: false');
+    expect(hosted).not.toContain('actions/cache/save');
+    expect(hosted).toContain('shared-key: native-rust\n          save-if: false');
+    expect(hosted).toContain('TMT_COLAB_HOSTING_DIR: ${{ github.workspace }}');
+    expect(hosted.match(/cargo build /g)).toHaveLength(1);
+    expect(hosted).toContain(
+      '-p tmt-cli -p tmt-remote -p tmt-colab --bins --example compose_hosting'
+    );
+    expect(hosted).toContain('acceptance/hosted-bundle.spec.ts');
+    expect(hosted).not.toContain('colab-acceptance-shards');
+    expect(hosted).not.toContain('continue-on-error');
   });
 });
 

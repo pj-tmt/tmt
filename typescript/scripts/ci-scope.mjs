@@ -487,6 +487,25 @@ export function selectColabApp(paths, map = componentMap()) {
   );
 }
 
+// The hosted bundle embeds Remote's pinned Firebase client next to Colab's hosted app. Only the
+// pin manifest and the inputs that decide the bundle select its one-spec job: a Remote source
+// change that alters the Firebase build must already move the pin in Remote's own CI, so the
+// pin is the drift signal and `remote-client/src/**` stays out.
+const COLAB_HOSTED_INPUTS = new Set([
+  '.github/workflows/colab-browser.yml',
+  'extensions/tmt-remote/typescript/remote-client/firebase-build-pin.json',
+  'extensions/tmt-remote/typescript/remote-client/vite.firebase.config.ts',
+  'extensions/tmt-colab/rust/tmt-colab/build/hosting.rs',
+  'extensions/tmt-colab/typescript/app/package.json',
+  'extensions/tmt-colab/typescript/app/vite.config.ts',
+  'extensions/tmt-colab/typescript/app/acceptance/hosted-bundle.spec.ts',
+]);
+
+/** Empty/unknown diffs do not select advisory work; weekly/manual runs cover shared drift. */
+export function selectColabHosted(paths) {
+  return paths.some((path) => COLAB_HOSTED_INPUTS.has(path));
+}
+
 // The Remote Firestore Rules emulator suite (Java 21 plus firebase-tools, no Docker) runs as
 // steps of the Unit tests job. Remote is a CLI-scope owner, so every selected path below is a
 // full native scope and that job always runs for it; selection stays a plain path match.
@@ -796,6 +815,7 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
   if (full) selection.areas = { native: true };
   const colabHarness = !queue && !seed && !full && selectColabHarness(selection.paths);
   const colabApp = !queue && !seed && !full && selectColabApp(selection.paths);
+  const colabHosted = !queue && !seed && !full && selectColabHosted(selection.paths);
   const nativeNotices = !seed && (full || selectNativeNotices(selection.paths));
   const remoteFirestore = !seed && !full && selectRemoteFirestore(selection.paths);
   const colabFirestore = !seed && !full && selectColabFirestore(selection.paths);
@@ -806,6 +826,7 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
       : renderSelectionEvidence({ base, head, range, ...selection })) +
     `\nColab browser PR selection (client, model, vectors or harness workflow): ${colabHarness}.\n` +
     `\nColab app component suite PR selection (app, client, browser UI, workflow or lockfile): ${colabApp}.\n` +
+    `\nColab hosted bundle spec PR selection (Firebase pin or build config, hosting generator, hosted build or spec): ${colabHosted}.\n` +
     `\nNative dependency notices selection: ${nativeNotices}.\n` +
     `\nRemote Firestore Rules emulator selection (Unit tests job): ${remoteFirestore}.\n` +
     `\nColab Firestore Rules emulator selection (Unit tests job): ${colabFirestore}.\n` +
@@ -819,6 +840,7 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
     `native=${areas.native}\n` +
       `colab_harness=${colabHarness}\n` +
       `colab_app=${colabApp}\n` +
+      `colab_hosted=${colabHosted}\n` +
       `native_notices=${nativeNotices}\n` +
       `remote_firestore=${remoteFirestore}\n` +
       `colab_firestore=${colabFirestore}\n` +
