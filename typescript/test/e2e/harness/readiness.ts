@@ -59,14 +59,25 @@ export async function waitForCapture(
   throw new Error(`Timed out waiting for mock-agent pane output.\n${readCapture()}`);
 }
 
-export function readMockEvents(logPath: string): MockEvent[] {
+/** Appended events are committed only by their newline; reread the tail on the next poll. */
+export function readCompleteJsonLines<T = unknown>(logPath: string): T[] {
   if (!fs.existsSync(logPath)) return [];
   return fs
     .readFileSync(logPath, 'utf8')
-    .trim()
     .split('\n')
+    .slice(0, -1)
     .filter(Boolean)
-    .map((line) => JSON.parse(line) as MockEvent);
+    .map((line) => {
+      try {
+        return JSON.parse(line) as T;
+      } catch (cause) {
+        throw new SyntaxError(`Invalid complete JSON log line in ${logPath}: ${line}`, { cause });
+      }
+    });
+}
+
+export function readMockEvents(logPath: string): MockEvent[] {
+  return readCompleteJsonLines<MockEvent>(logPath);
 }
 
 /**

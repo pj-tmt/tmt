@@ -6,7 +6,11 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vite-plus/test';
-import { withE2EFixture as withFixture, type E2EFixture } from './harness.js';
+import {
+  readCompleteJsonLines,
+  withE2EFixture as withFixture,
+  type E2EFixture,
+} from './harness.js';
 import { installTmuxTrace, type TmuxTrace } from './tmux-trace.js';
 import { waitForFileContent } from './wait-for-file.js';
 
@@ -125,14 +129,7 @@ function start(
   return { home, pane, log, status, channel: channel === true };
 }
 function events(s: Session, name: string): Event[] {
-  return fs.existsSync(s.log)
-    ? fs
-        .readFileSync(s.log, 'utf8')
-        .split('\n')
-        .filter(Boolean)
-        .map((line) => JSON.parse(line) as Event)
-        .filter((e) => e.event === name)
-    : [];
+  return readCompleteJsonLines<Event>(s.log).filter((event) => event.event === name);
 }
 function publishDigestStep(s: Session, step: Record<string, unknown>): void {
   const destination = `${s.log}.digest-step`;
