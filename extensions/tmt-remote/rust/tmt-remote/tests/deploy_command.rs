@@ -1185,12 +1185,13 @@ fn frozen_hosting_plan_covers_content_and_foreign_release_but_cannot_run_rules_a
     )
     .unwrap();
     let reply = json!({"version":1,"manifestDigest":manifest.digest(),"files":[{"path":"/index.html","bytesBase64":STANDARD.encode(b"hello")}]});
-    let content =
-        hosting::compose(&[
-            HostingBundle::parse(&manifest, &serde_json::to_vec(&reply).unwrap()).unwrap(),
-        ])
-        .unwrap()
-        .unwrap();
+    let content = hosting::compose(&[hosting::HostingInput {
+        extension: "colab",
+        declaration: &bytes,
+        bundle: &HostingBundle::parse(&manifest, &serde_json::to_vec(&reply).unwrap()).unwrap(),
+    }])
+    .unwrap()
+    .unwrap();
     let mut inventory = HostingInventory {
         site_exists: true,
         site_app_id: None,

@@ -3,7 +3,7 @@
 use crate::{
     canonical, declaration,
     deploy_plan::{self, CloudBackend, Enabled, Supplied, Target},
-    hosting::{self, HostingBundle, HostingComposition, HostingRefusal},
+    hosting::{self, HostingBundle, HostingComposition, HostingInput, HostingRefusal},
     limits, rules, wire,
 };
 use serde_json::Value;
@@ -180,11 +180,26 @@ pub fn discover(
     for extension in &extensions.view().extensions {
         if let Some(manifest) = &extension.hosting {
             let reply = source.hosting_bundle(&extension.name)?;
-            bundles
-                .push(HostingBundle::parse(manifest, &reply).map_err(DiscoveryRefusal::Hosting)?);
+            let bytes = supplied
+                .iter()
+                .find(|bytes| bytes.name == extension.name)
+                .ok_or(DiscoveryRefusal::Declaration)?;
+            bundles.push((
+                extension.name.as_str(),
+                bytes.declaration.as_slice(),
+                HostingBundle::parse(manifest, &reply).map_err(DiscoveryRefusal::Hosting)?,
+            ));
         }
     }
-    let hosting = hosting::compose(&bundles).map_err(DiscoveryRefusal::Hosting)?;
+    let hosting_inputs: Vec<_> = bundles
+        .iter()
+        .map(|(extension, declaration, bundle)| HostingInput {
+            extension,
+            declaration,
+            bundle,
+        })
+        .collect();
+    let hosting = hosting::compose(&hosting_inputs).map_err(DiscoveryRefusal::Hosting)?;
     Ok(DiscoveredPlan {
         extensions,
         artifacts,
