@@ -752,7 +752,7 @@ pub fn restart_snapshot(remote_directory: &Path) -> Result<Option<RestartSnapsho
         .strip_prefix("http://127.0.0.1:")
         .and_then(|port| port.parse::<u16>().ok())
         .filter(|port| *port != 0);
-    if !port.is_some_and(|port| snapshot.origin == format!("http://127.0.0.1:{port}"))
+    if port.is_none_or(|port| snapshot.origin != format!("http://127.0.0.1:{port}"))
         || !canonical::route_prefix(&snapshot.path)
         || !canonical::is_core_id(&snapshot.window_id)
         || !snapshot.registrations.is_array()
