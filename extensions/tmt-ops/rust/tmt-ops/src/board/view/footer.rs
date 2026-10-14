@@ -105,6 +105,19 @@ fn workspace_hints(app: &App, width: usize) -> String {
     }
     use crate::action::{OpsUiAction, Verb};
     let bindings = app.bindings();
+    let group_scroll = app.focused_pane() == Some(crate::config::Pane::Replies)
+        && [
+            ("up", OpsUiAction::ScrollUp),
+            ("k", OpsUiAction::ScrollUp),
+            ("down", OpsUiAction::ScrollDown),
+            ("j", OpsUiAction::ScrollDown),
+        ]
+        .iter()
+        .all(|(key, verb)| {
+            bindings
+                .get(*key)
+                .is_some_and(|action| action.verb == Verb::Ui(*verb))
+        });
     let mut entries: Vec<_> = bindings
         .iter()
         .filter(|(event, action)| {
@@ -137,6 +150,17 @@ fn workspace_hints(app: &App, width: usize) -> String {
     }
     let mut help_hint = None;
     for (key, action) in entries {
+        if group_scroll
+            && matches!(
+                action.verb,
+                Verb::Ui(OpsUiAction::ScrollUp | OpsUiAction::ScrollDown)
+            )
+        {
+            if seen.insert("reader-scroll") {
+                hints.push("↑↓/jk scroll".into());
+            }
+            continue;
+        }
         if !seen.insert(action.text.as_str()) {
             continue;
         }

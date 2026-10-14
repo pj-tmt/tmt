@@ -13,6 +13,13 @@ fn escape_returns_one_level_and_never_quits_the_board() {
         let screen = paint(&app, width, height).join("\n");
         assert!(screen.contains("Conversation · worker"), "{screen}");
         assert!(screen.contains("Esc back"), "{screen}");
+        assert!(
+            !screen.contains("press j:"),
+            "focused host metadata must not describe scrolling as Host: {screen}"
+        );
+        if width == 160 {
+            assert!(screen.contains("↑↓/jk scroll"), "{screen}");
+        }
         assert_eq!(app.focused_pane(), Some(Pane::Replies));
         assert_eq!(key(&mut app, KeyCode::Esc), Effect::None);
         assert_eq!(app.focused_pane(), Some(Pane::Rows));
