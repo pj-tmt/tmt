@@ -497,7 +497,7 @@ Button retains the upstream variants and sizes. Its native busy form requires
 `busyLabel`, renders that visible state word, sets `aria-busy`/`aria-disabled`
 and disables activation. Busy `asChild` is rejected; links retain their own owner.
 Disabled `asChild` exposes `aria-disabled` and blocks ordinary click and activation
-keys. Native fields retain readOnly/disabled/value and ARIA props; a busy host
+keys, including the slotted target's capture callbacks before Slot composition. Native fields retain readOnly/disabled/value and ARIA props; a busy host
 uses readOnly plus `aria-busy` and a visible, associated state description.
 Checkbox/Switch `readOnly` blocks value-changing activation while retaining focus.
 Hosts supply visible names/reasons for disabled, busy and read-only states.

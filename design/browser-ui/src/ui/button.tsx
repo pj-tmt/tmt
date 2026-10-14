@@ -57,6 +57,35 @@ function Button({
   if (busy && !busyLabel) throw new Error('Busy Button requires a visible busyLabel');
   if (asChild && busy) throw new Error('Busy Button uses its native button, not asChild');
 
+  // Slot merges child callbacks first. Fence the actual target before that composition.
+  const fenceCapture = (child: React.ReactNode): React.ReactNode => {
+    if (!React.isValidElement<React.HTMLAttributes<HTMLElement>>(child)) return child;
+    if (child.type === Slot.Slottable) {
+      const slottable = child as React.ReactElement<React.ComponentProps<typeof Slot.Slottable>>;
+      return 'child' in slottable.props
+        ? React.cloneElement(slottable, { child: fenceCapture(slottable.props.child) })
+        : React.cloneElement(slottable, { children: fenceCapture(slottable.props.children) });
+    }
+    return React.cloneElement(child, {
+      onClickCapture: (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      },
+      onKeyDownCapture: (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          event.stopPropagation();
+        } else child.props.onKeyDownCapture?.(event);
+      },
+    });
+  };
+  const content =
+    asChild && blocked
+      ? React.isValidElement(children)
+        ? fenceCapture(children)
+        : React.Children.map(children, fenceCapture)
+      : children;
+
   return (
     <Comp
       data-slot="button"
@@ -80,7 +109,7 @@ function Button({
         } else onKeyDownCapture?.(event);
       }}
     >
-      {busy ? busyLabel : children}
+      {busy ? busyLabel : content}
     </Comp>
   );
 }

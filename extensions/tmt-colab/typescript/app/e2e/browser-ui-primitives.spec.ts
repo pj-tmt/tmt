@@ -92,6 +92,48 @@ test('native controls and blocked states retain their actual DOM identity and co
   );
 });
 
+test('slotted disabled capture handlers are inert before child effects and preserve enabled events', async ({
+  page,
+}) => {
+  await gallery(page);
+  const enabled = page.getByRole('link', { name: 'Enabled capture child' });
+  const childEffects = page.getByLabel('Enabled child capture effects');
+  const hostEffects = page.getByLabel('Enabled host capture effects');
+  await enabled.click();
+  await expect(childEffects).toHaveText('1');
+  await expect(hostEffects).toHaveText('1');
+  await expect(page.getByLabel('Original event and refs forwarded')).toHaveText('true');
+  await enabled.press('Enter');
+  await expect(childEffects).toHaveText('3');
+  await expect(hostEffects).toHaveText('3');
+  await enabled.press('Space');
+  await expect(childEffects).toHaveText('4');
+  await expect(hostEffects).toHaveText('4');
+  await expect(page.getByLabel('Original event and refs forwarded')).toHaveText('true');
+  for (const name of [
+    'Disabled capture child',
+    'Disabled Slottable children',
+    'Disabled Slottable render',
+  ]) {
+    const blocked = page.getByRole('link', { name });
+    await expect(blocked).toHaveAttribute('data-child-ref', 'yes');
+    await expect(blocked).toHaveAttribute('data-host-ref', 'yes');
+    await blocked.evaluate((node) => node.setAttribute('data-retained-node', 'yes'));
+    await blocked.scrollIntoViewIfNeeded();
+    // Mouse input remains trusted; bypass only locator's aria-disabled actionability wait.
+    const box = await blocked.boundingBox();
+    expect(box).not.toBeNull();
+    await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
+    await expect.soft(page.getByLabel('Blocked capture effects')).toHaveText('0', { timeout: 500 });
+    await blocked.press('Enter');
+    await expect.soft(page.getByLabel('Blocked capture effects')).toHaveText('0', { timeout: 500 });
+    await blocked.press('Space');
+    await expect.soft(page.getByLabel('Blocked capture effects')).toHaveText('0', { timeout: 500 });
+    await expect(blocked).toHaveAttribute('data-retained-node', 'yes');
+  }
+  expect(new URL(page.url()).hash).toBe('');
+});
+
 test('Radix tabs skip disabled items and preserve manual versus automatic activation', async ({
   page,
 }) => {

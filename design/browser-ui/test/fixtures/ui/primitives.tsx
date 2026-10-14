@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useRef, useState, type SyntheticEvent } from 'react';
+import { Slot } from 'radix-ui';
 import {
   Button,
   Input,
@@ -16,6 +17,109 @@ import {
   TabsContent,
 } from '../../../src/ui/primitives.js';
 
+/** Real slotted capture handlers: local counters only, no product activation. */
+function SlottedCaptureFixture() {
+  const [blockedEffects, setBlockedEffects] = useState(0);
+  const [childEffects, setChildEffects] = useState(0);
+  const [hostEffects, setHostEffects] = useState(0);
+  const [forwarded, setForwarded] = useState(false);
+  const childRef = useRef<HTMLAnchorElement>(null);
+  const hostRef = useRef<HTMLElement | null>(null);
+  const originalEvent = useRef<Event | null>(null);
+  const childCapture = (event: SyntheticEvent) => {
+    originalEvent.current = event.nativeEvent;
+    setChildEffects((count) => count + 1);
+  };
+  const hostCapture = (event: SyntheticEvent) => {
+    setForwarded(
+      event.isTrusted &&
+        event.nativeEvent === originalEvent.current &&
+        event.currentTarget === childRef.current &&
+        event.currentTarget === hostRef.current,
+    );
+    setHostEffects((count) => count + 1);
+  };
+  return (
+    <section aria-label="Slotted capture qualification" className="tmt:grid tmt:gap-2">
+      <Button
+        asChild
+        disabled
+        ref={(node) => node?.setAttribute('data-host-ref', 'yes')}
+        onClick={() => setBlockedEffects((count) => count + 1)}
+        onClickCapture={() => setBlockedEffects((count) => count + 1)}
+        onKeyDownCapture={() => setBlockedEffects((count) => count + 1)}
+      >
+        <a
+          ref={(node) => node?.setAttribute('data-child-ref', 'yes')}
+          href="#blocked-capture-navigation"
+          onClick={() => setBlockedEffects((count) => count + 1)}
+          onClickCapture={() => setBlockedEffects((count) => count + 1)}
+          onKeyDownCapture={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') setBlockedEffects((count) => count + 1);
+          }}
+        >
+          Disabled capture child
+        </a>
+      </Button>
+      {(['children', 'render'] as const).map((form) => {
+        const target = (
+          <a
+            ref={(node) => node?.setAttribute('data-child-ref', 'yes')}
+            href="#blocked-slottable-navigation"
+            onClickCapture={() => setBlockedEffects((count) => count + 1)}
+            onKeyDownCapture={(event) => {
+              if (event.key === 'Enter' || event.key === ' ')
+                setBlockedEffects((count) => count + 1);
+            }}
+          >
+            Disabled Slottable {form}
+          </a>
+        );
+        return (
+          <Button
+            asChild
+            disabled
+            key={form}
+            ref={(node) => node?.setAttribute('data-host-ref', 'yes')}
+          >
+            {form === 'children' ? (
+              <Slot.Slottable>{target}</Slot.Slottable>
+            ) : (
+              <Slot.Slottable child={target}>{(content) => content}</Slot.Slottable>
+            )}
+          </Button>
+        );
+      })}
+      <Button
+        asChild
+        ref={(node) => {
+          hostRef.current = node;
+        }}
+        onClickCapture={hostCapture}
+        onKeyDownCapture={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') hostCapture(event);
+        }}
+      >
+        <a
+          ref={childRef}
+          href="#enabled-capture-navigation"
+          onClick={(event) => event.preventDefault()}
+          onClickCapture={childCapture}
+          onKeyDownCapture={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') childCapture(event);
+          }}
+        >
+          Enabled capture child
+        </a>
+      </Button>
+      <output aria-label="Blocked capture effects">{blockedEffects}</output>
+      <output aria-label="Enabled child capture effects">{childEffects}</output>
+      <output aria-label="Enabled host capture effects">{hostEffects}</output>
+      <output aria-label="Original event and refs forwarded">{String(forwarded)}</output>
+    </section>
+  );
+}
+
 /** Isolated presentation state only; no product store, service or sends. */
 export function PrimitiveFixtures() {
   const [actions, setActions] = useState(0);
@@ -30,6 +134,7 @@ export function PrimitiveFixtures() {
       className="tmt:font-body tmt:text-(length:--tmt-foundation-command-size) tmt:grid tmt:gap-4 tmt:p-4 tmt:bg-background tmt:text-foreground"
     >
       <h3>Slice2 primitive qualification</h3>
+      <SlottedCaptureFixture />
       <div className="tmt:flex tmt:flex-wrap tmt:gap-2">
         <Button type="button" onClick={() => setActions((count) => count + 1)}>
           Ready action
