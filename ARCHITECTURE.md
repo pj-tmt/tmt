@@ -428,12 +428,10 @@ own module/drawing boundaries and verification.
   Ops uses CAS. `migration` owns locked byte-preserving legacy cutover and
   `board_switch` the consented former-board switch; startup runs neither. No Ops
   data enters `config.json` or Core's database.
-- **Workspace.** Overview/Agents/Digest use one acquired roster, UUID-anchored
-  squads and virtual Common pool. Paint/input do no Core reads; WP1 owns the
-  conversation/editor and drafts. The shell replaces named-tab/factory/switcher
-  navigation and HOME cursors; reload carries UUID workspace anchors. Acquired summaries, rates and replies remain source data.
-  An immutable paint shares one tree-row projection for that frame only; input
-  and snapshot updates retain no projected-row cache.
+- **Workspace.** Overview/Agents/Digest share one acquired roster and a frame-scoped tree projection.
+  UUID squad anchors and virtual Common pool define selection; paint/input do no Core reads. WP1 owns conversation/editor/drafts.
+  The shell replaces named-tab/factory/switcher navigation and HOME cursors; reload carries UUID anchors.
+  Acquired summaries, rates and replies remain source data.
   Membership removal pauses jobs before leave;
   only explicit Resume clears pause. Rename CAS keeps the room UUID, then moves
   Ops metadata/config and cron namespaces under owned locks; partial results
