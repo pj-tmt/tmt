@@ -45,10 +45,13 @@ through `ActivePage`; the worker never retries a refusal Remote will not change 
 `object_channel/cloud_sync/interests.rs` holds the three interests whose notices only wake it,
 `reader.rs` discovers the signed authority and one foreign stream's log tail, and
 `inbound.rs` (`Puller`) compares the cloud's membership log with the owner log, then follows
-each foreign stream from the Store's `stream_head`. `inbound/store.rs` admits an original with
-`Snapshot::open_stream_object` (the fold that reads stored objects) and applies it through
+each foreign stream from the Store's `stream_head`; the worker reads only when a read is due (a
+newly watched page, a notice, an unfinished read), and chains are read again at most once per
+`CHAIN_RECHECK` after a log notice. `inbound/store.rs` admits an original with
+`Snapshot::open_stream_object` (the fold that reads stored objects), keeps the writer's verified
+chain for later catch-up, and applies it through
 `Server::ingest`, the split of the browser append path, so one apply path serves both and nothing
-that arrived is queued for publication. A refused writer stops alone; `stops.rs` keeps the
+that arrived is queued for publication. A refused writer stops alone, per page and epoch; `stops.rs` keeps the
 page's stopped state in the worker's memory and the lines announce each transition.
 Checkpoint import, adopting a cloud-only log, forks, attachments and a second machine's own
 enrollment are not implemented.
