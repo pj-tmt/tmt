@@ -62,6 +62,9 @@ pub(super) fn render(frame: &mut Frame, app: &App, body: Rect, look: crate::look
     if let Some(picker) = &app.theme_picker {
         crate::board::theme_picker::render(frame, picker, look, body);
     }
+    if let Some(picker) = &app.panels_picker {
+        crate::board::panels_picker::render(frame, picker, look, body);
+    }
     if let Some(overlay) = &app.settings {
         crate::board::settings::render(frame, overlay, look, body);
     }

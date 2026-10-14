@@ -26,6 +26,7 @@ mod meter;
 pub(crate) mod notes;
 mod overview;
 mod pane_chrome;
+mod panels_picker;
 mod picker_surface;
 mod rate;
 mod recovery;

@@ -57,6 +57,7 @@ impl App {
             || self.help
             || self.menu.is_some()
             || self.theme_picker.is_some()
+            || self.panels_picker.is_some()
             || self.cron_list.is_some()
             || self.checklist_shown()
             || self.recovery.as_ref().is_some_and(|c| c.blocks_reload())

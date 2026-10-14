@@ -19,7 +19,7 @@ use std::{collections::BTreeSet, rc::Rc};
 
 mod controls;
 mod render;
-pub(in crate::board) use render::{render, render_controls};
+pub(in crate::board) use render::{demand, render, render_controls, render_panel};
 #[cfg(test)]
 mod tests;
 

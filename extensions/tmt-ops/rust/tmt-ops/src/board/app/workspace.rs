@@ -176,7 +176,14 @@ impl App {
             .selection_state(&snapshot.roster, &self.workspace_rows())
     }
     pub(in crate::board) fn workspace_selection_visible(&self) -> bool {
-        self.workspace_selection_state() == SelectionState::Visible
+        let target_shown = match self.shell.tab {
+            OpsTab::Overview => self
+                .overview_panels()
+                .shown(crate::config::OverviewPanel::Monitor),
+            OpsTab::Digest => self.digest_panels().shown(crate::config::DigestPanel::List),
+            _ => true,
+        };
+        target_shown && self.workspace_selection_state() == SelectionState::Visible
     }
     pub(in crate::board) fn workspace_squad(&self) -> Option<&crate::board::workspace::OpsSquad> {
         if self.shell.tab == OpsTab::Overview {

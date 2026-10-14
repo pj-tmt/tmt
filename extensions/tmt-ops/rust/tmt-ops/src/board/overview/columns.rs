@@ -49,8 +49,10 @@ impl Layout {
         &mut self,
         area: ratatui::layout::Rect,
         quota_rows: u16,
+        policy: &crate::config::OverviewPanels,
+        chart_demand: u16,
     ) -> Vec<(super::composition::Panel, ratatui::layout::Rect)> {
-        self.panels.slots(area, quota_rows)
+        self.panels.slots(area, quota_rows, policy, chart_demand)
     }
     pub fn slots(&mut self, area: ratatui::layout::Rect) -> Vec<(Column, ratatui::layout::Rect)> {
         if self

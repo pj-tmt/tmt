@@ -17,9 +17,9 @@ use tmt_cli_style::Role;
 use tmt_tui::components::strip;
 use unicode_width::UnicodeWidthStr;
 
-pub(in crate::board) fn render(frame: &mut Frame, app: &App, mut area: Rect) {
+fn usage(app: &App, width: u16) -> (Vec<Line<'static>>, std::ops::Range<usize>) {
     let look = app.look();
-    let mut summary = vec![Line::styled(
+    let mut lines = vec![Line::styled(
         if app.workspace.visibility.scope.is_empty() {
             "Usage · unique identities"
         } else {
@@ -49,82 +49,165 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, mut area: Rect) {
             })
             .collect::<Vec<_>>()
             .join(" · ");
-        summary.push(Line::styled(text, look.role(Role::Text)));
+        lines.push(Line::styled(text, look.role(Role::Text)));
     } else {
-        summary.push(Line::styled("Usage unavailable", look.role(Role::Muted)));
+        lines.push(Line::styled("Usage unavailable", look.role(Role::Muted)));
     }
     let mut savings_lines = 0..0;
     if let Some(snapshot) = app.workspace_snapshot() {
         let savings = app.digest_savings(snapshot.roster.members.keys().map(String::as_str));
-        let caption = app.savings_caption(&savings, usize::from(area.width));
+        let caption = app.savings_caption(&savings, usize::from(width));
         for (index, text) in [
             Some(caption),
-            app.digest_savings_start(&savings, usize::from(area.width)),
+            app.digest_savings_start(&savings, usize::from(width)),
         ]
         .into_iter()
         .flatten()
         .enumerate()
         {
-            let start = summary.len();
-            summary.extend(
-                crate::board::notes::wrap(&text, usize::from(area.width))
+            let start = lines.len();
+            lines.extend(
+                crate::board::notes::wrap(&text, usize::from(width))
                     .into_iter()
                     .map(|line| Line::styled(line, look.role(Role::Dim))),
             );
             if index == 0 {
-                savings_lines = start..summary.len();
+                savings_lines = start..lines.len();
             }
         }
     }
-    summary.push(Line::styled(super::summary(app), look.role(Role::Text)));
+    (lines, savings_lines)
+}
+
+pub(in crate::board) fn status_in_body(app: &App) -> bool {
+    let policy = app.digest_panels();
+    !policy.shown(crate::config::DigestPanel::Status)
+        || policy.order().first() != Some(&crate::config::DigestPanel::Status)
+}
+
+pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
+    use crate::config::DigestPanel as Id;
+    let look = app.look();
+    let policy = app.digest_panels();
+    let (usage, savings_lines) = usage(app, area.width);
     let quota = crate::board::home::limits_of(app, area.width, look);
-    let quota_start = summary.len() + 1;
-    let quota_count = quota.len();
-    if !quota.is_empty() {
-        summary.push(Line::styled(
-            "Subscriptions · reported windows",
-            look.role(Role::Muted),
-        ));
-        summary.extend(quota);
-    }
-    // Preserve a usable list/detail area at low height; complete data remains in details.
-    let height = summary
-        .len()
-        .min(usize::from(area.height.saturating_sub(5))) as u16;
-    let quota_visible = usize::from(height)
-        .saturating_sub(quota_start)
-        .min(quota_count);
-    // Modal input owns the body; its retained background adds no clock work.
-    if quota_visible > 0 && !app.modal_open() {
-        app.frame_clocks
-            .borrow_mut()
-            .push(crate::board::view::ClockSurface::Limits {
-                width: area.width,
-                rows: quota_visible,
-            });
-    }
-    for (offset, line) in summary.into_iter().take(usize::from(height)).enumerate() {
-        if offset >= quota_start {
-            app.hits.borrow_mut().push(Hit {
-                x: area.x,
-                y: area.y + offset as u16,
-                width: area.width,
-                target: HitTarget::Quota,
-            });
-        }
-        if savings_lines.contains(&offset) {
-            app.savings_hit(area.x, area.y + offset as u16, line.width(), area.width);
-        }
+    let status_in_body = status_in_body(app);
+    let required_status =
+        status_in_body && (app.loading() || app.labels.digest().is_none_or(|(_, stale)| stale));
+    // Hiding ordinary status does not conceal an unavailable/stale/loading read.
+    let status_rows =
+        u16::from(status_in_body && (policy.shown(Id::Status) || required_status)).min(area.height);
+    let context_budget = area.height.saturating_sub(5);
+    let usage_rows = if policy.shown(Id::Usage) {
+        usage
+            .len()
+            .min(usize::from(context_budget.saturating_sub(status_rows))) as u16
+    } else {
+        0
+    };
+    let quota_rows = if policy.shown(Id::Subscriptions) && !quota.is_empty() {
+        quota.len().saturating_add(1).min(usize::from(
+            context_budget.saturating_sub(status_rows + usage_rows),
+        )) as u16
+    } else {
+        0
+    };
+    let chart_and_target = area
+        .height
+        .saturating_sub(status_rows + usage_rows + quota_rows);
+    let chart_now = crate::status::now_ms();
+    let chart_rows = if policy.shown(Id::Chart) {
+        crate::board::overview::chart::host::demand(app, area.width, chart_and_target, chart_now)
+    } else {
+        0
+    };
+    let target_rows = chart_and_target.saturating_sub(chart_rows);
+    let mut y = area.y;
+    let mut target = Rect::new(area.x, area.y, area.width, 0);
+    let mut painted_chart = false;
+    // A hidden Status warning is internal safety chrome, above ordered content.
+    if required_status && !policy.shown(Id::Status) && status_rows > 0 {
         strip::paint_left(
             frame.buffer_mut(),
-            Rect::new(area.x, area.y + offset as u16, area.width, 1),
-            line,
+            Rect::new(area.x, y, area.width, 1),
+            crate::board::workspace::render::summary(app, area.width),
+        );
+        y += 1;
+    }
+    for panel in policy.order() {
+        let height = match panel {
+            Id::Status if policy.shown(Id::Status) => status_rows,
+            Id::Status => 0,
+            Id::Usage => usage_rows,
+            Id::Subscriptions => quota_rows,
+            Id::Chart => chart_rows,
+            Id::List => target_rows,
+        };
+        if height == 0 {
+            continue;
+        }
+        let rect = Rect::new(area.x, y, area.width, height).intersection(area);
+        y += rect.height;
+        match panel {
+            Id::Status => strip::paint_left(
+                frame.buffer_mut(),
+                rect,
+                crate::board::workspace::render::summary(app, rect.width),
+            ),
+            Id::Usage => {
+                for (offset, line) in usage.iter().take(usize::from(rect.height)).enumerate() {
+                    if savings_lines.contains(&offset) {
+                        app.savings_hit(rect.x, rect.y + offset as u16, line.width(), rect.width);
+                    }
+                    strip::paint_left(
+                        frame.buffer_mut(),
+                        Rect::new(rect.x, rect.y + offset as u16, rect.width, 1),
+                        line.clone(),
+                    );
+                }
+            }
+            Id::Subscriptions => {
+                strip::paint_left(
+                    frame.buffer_mut(),
+                    Rect { height: 1, ..rect },
+                    Line::styled("Subscriptions · reported windows", look.role(Role::Muted)),
+                );
+                let rows = quota.len().min(usize::from(rect.height.saturating_sub(1)));
+                if rows > 0 && !app.modal_open() {
+                    app.frame_clocks
+                        .borrow_mut()
+                        .push(crate::board::view::ClockSurface::Limits {
+                            width: rect.width,
+                            rows,
+                        });
+                }
+                for (offset, line) in quota.iter().take(rows).enumerate() {
+                    let row = Rect::new(rect.x, rect.y + 1 + offset as u16, rect.width, 1);
+                    app.hits.borrow_mut().push(Hit {
+                        x: row.x,
+                        y: row.y,
+                        width: row.width,
+                        target: HitTarget::Quota,
+                    });
+                    strip::paint_left(frame.buffer_mut(), row, line.clone());
+                }
+            }
+            Id::Chart => {
+                crate::board::overview::chart::host::render_panel(frame, app, rect, chart_now);
+                painted_chart = true;
+            }
+            Id::List => target = rect,
+        }
+    }
+    if !painted_chart {
+        crate::board::overview::chart::host::render_panel(
+            frame,
+            app,
+            Rect { height: 0, ..area },
+            chart_now,
         );
     }
-    area.y += height;
-    area.height -= height;
-    area = crate::board::overview::chart::host::render(frame, app, area);
-    app.conversation.borrow_mut().area = area;
+    app.conversation.borrow_mut().area = target;
     let preference = app
         .workspace_snapshot()
         .map_or(Preference::Auto, |snapshot| {
@@ -134,7 +217,19 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, mut area: Rect) {
                 OpsLayout::Stack => Preference::Stack,
             }
         });
-    let placement = layout::agents(area, preference, app.focused() == Pane::Replies);
+    let placement = if !policy.shown(Id::List) {
+        layout::Placement {
+            list: None,
+            conversation: Some(target),
+        }
+    } else if !policy.side_shown() {
+        layout::Placement {
+            list: Some(target),
+            conversation: None,
+        }
+    } else {
+        layout::agents(target, preference, app.focused() == Pane::Replies)
+    };
     if let Some(list) = placement.list {
         members(frame, app, list);
     }

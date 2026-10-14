@@ -1,5 +1,8 @@
 //! Independently placed Overview panels, ready for host-owned order/visibility.
+use crate::config::OverviewPanels;
 use ratatui::layout::Rect;
+mod policy;
+pub(super) use policy::Budget;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Panel {
@@ -21,18 +24,31 @@ struct PanelKey {
     width: u16,
     height: u16,
     quota_rows: u16,
+    policy: OverviewPanels,
+    chart_demand: u16,
 }
 impl Layout {
-    pub fn slots(&mut self, area: Rect, quota_rows: u16) -> Vec<(Panel, Rect)> {
+    pub fn slots(
+        &mut self,
+        area: Rect,
+        quota_rows: u16,
+        policy: &OverviewPanels,
+        chart_demand: u16,
+    ) -> Vec<(Panel, Rect)> {
         let key = PanelKey {
             width: area.width,
             height: area.height,
             quota_rows,
+            policy: policy.clone(),
+            chart_demand,
         };
         if self.held.as_ref().is_none_or(|(old, _)| *old != key) {
             self.held = Some((
                 key,
-                panels(Rect::new(0, 0, area.width, area.height), quota_rows),
+                solve(
+                    Rect::new(0, 0, area.width, area.height),
+                    &Budget::new(area.height, quota_rows, policy).tracks(policy, chart_demand),
+                ),
             ));
         }
         self.held
@@ -53,6 +69,7 @@ impl Layout {
 
 /// Paint budgets do not change sources, chart coverage or target admission.
 /// Short screens preserve the target table before optional context panels.
+#[cfg(test)]
 pub(super) fn panels(area: Rect, quota_rows: u16) -> Vec<(Panel, Rect)> {
     if area.is_empty() {
         return vec![];
@@ -85,6 +102,13 @@ pub(super) fn panels(area: Rect, quota_rows: u16) -> Vec<(Panel, Rect)> {
         (Panel::Exchanges, exchanges),
         (Panel::Legend, legend),
     ];
+    solve(area, &tracks)
+}
+
+fn solve(area: Rect, tracks: &[(Panel, u16)]) -> Vec<(Panel, Rect)> {
+    if area.is_empty() {
+        return Vec::new();
+    }
     let mut markup = String::from("<tmt-view version=\"1\"><tmt-row class=\"flex-col\">");
     for (index, (_, height)) in tracks
         .iter()

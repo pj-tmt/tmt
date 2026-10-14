@@ -511,3 +511,117 @@ fn missing_snapshot_refuses_keyboard_action_and_retained_mouse_controls() {
         }
     });
 }
+
+#[test]
+fn tail_wrapper_and_own_rectangle_have_equal_cells_hits_and_remaining_budget() {
+    crate::status::with_now_ms(fixtures::NOW, || {
+        for populated in [false, true] {
+            for tab in [OpsTab::Overview, OpsTab::Digest] {
+                for width in [0, 37, 38, 53, 54, 60, 100, 160] {
+                    for height in 0..=44 {
+                        let mut app = board();
+                        app.shell.tab = tab;
+                        if populated {
+                            fixtures::populate(&mut app);
+                        }
+                        let area = Rect::new(2, 2, width, height);
+                        let mut tail = Terminal::new(TestBackend::new(164, 48)).unwrap();
+                        let mut returned = area;
+                        tail.draw(|frame| returned = render(frame, &app, area))
+                            .unwrap();
+                        let tail_hits: Vec<_> = app
+                            .usage_chart
+                            .borrow()
+                            .hits
+                            .iter()
+                            .map(|hit| (hit.area, hit.target))
+                            .collect();
+                        let used = demand(&app, width, height, fixtures::NOW);
+                        assert_eq!(
+                            returned,
+                            Rect {
+                                y: area.y + used,
+                                height: area.height - used,
+                                ..area
+                            }
+                        );
+                        let mut owned = Terminal::new(TestBackend::new(164, 48)).unwrap();
+                        owned
+                            .draw(|frame| {
+                                render_panel(
+                                    frame,
+                                    &app,
+                                    Rect {
+                                        height: used,
+                                        ..area
+                                    },
+                                    fixtures::NOW,
+                                )
+                            })
+                            .unwrap();
+                        assert_eq!(
+                            owned.backend().buffer(),
+                            tail.backend().buffer(),
+                            "{populated}/{tab:?}/{width}/{height}"
+                        );
+                        assert_eq!(
+                            app.usage_chart
+                                .borrow()
+                                .hits
+                                .iter()
+                                .map(|hit| (hit.area, hit.target))
+                                .collect::<Vec<_>>(),
+                            tail_hits
+                        );
+                        let final_rect = Rect {
+                            height: used,
+                            ..area
+                        };
+                        assert!(
+                            app.usage_chart
+                                .borrow()
+                                .hits
+                                .iter()
+                                .all(|hit| hit.area.intersection(final_rect) == hit.area)
+                        );
+                    }
+                }
+            }
+        }
+    });
+}
+
+#[test]
+fn chart_budget_and_painter_share_the_captured_existing_clock_across_a_rollover() {
+    let mut app = board();
+    app.shell.tab = OpsTab::Overview;
+    let area = Rect::new(0, 0, 100, 36);
+    let mut original = Terminal::new(TestBackend::new(100, 36)).unwrap();
+    let used = crate::status::with_now_ms(fixtures::NOW, || {
+        fixtures::populate(&mut app);
+        let used = demand(&app, area.width, area.height, fixtures::NOW);
+        original
+            .draw(|frame| {
+                render(frame, &app, area);
+            })
+            .unwrap();
+        used
+    });
+    let mut rolled = Terminal::new(TestBackend::new(100, 36)).unwrap();
+    crate::status::with_now_ms(fixtures::NOW + 3_600_000, || {
+        rolled
+            .draw(|frame| {
+                render_panel(
+                    frame,
+                    &app,
+                    Rect {
+                        height: used,
+                        ..area
+                    },
+                    fixtures::NOW,
+                )
+            })
+            .unwrap();
+    });
+    assert_eq!(rolled.backend().buffer(), original.backend().buffer());
+}
