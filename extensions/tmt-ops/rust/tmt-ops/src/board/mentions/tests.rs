@@ -233,3 +233,147 @@ fn cron_message_completes_plain_text_but_schedule_is_not_a_message_field() {
     key(&mut app, KeyCode::Char('@'));
     assert!(!app.mentions.completion.open());
 }
+
+fn message_surface(name: &str) -> App {
+    let mut app = app();
+    match name {
+        "talk" => {}
+        "reply" => {
+            app.ask(
+                String::new(),
+                Compose::Reply {
+                    request: "request-id".into(),
+                    from: "questioner".into(),
+                },
+                "product".into(),
+            );
+        }
+        "annotation" => {
+            app.ask(
+                String::new(),
+                Compose::Annotate {
+                    to: "lead".into(),
+                    row: "worker".into(),
+                },
+                "product".into(),
+            );
+        }
+        "ask-lead" => {
+            app.ask(
+                String::new(),
+                Compose::AskLead {
+                    to: "lead".into(),
+                    sender: "Ben".into(),
+                },
+                "product".into(),
+            );
+        }
+        "status" => {
+            let target = app.row_target(0).unwrap();
+            let send = app.send_target(target, true).unwrap();
+            app.attach_row(send, "product".into());
+            app.input.as_mut().unwrap().compose = Compose::Status;
+            app.start_status();
+            app.status_draft.as_mut().unwrap().focus = 2;
+        }
+        "cron" => {
+            use crate::board::cronboard::{detail_id, test_cron, test_view};
+            let job = test_view("auth-fix", "old message", None);
+            let id = detail_id(&job);
+            app.cron.replace(Ok(test_cron(
+                vec![job],
+                tmt_ops::cron::ClockStatus::NoClock,
+            )));
+            assert_eq!(app.cron_key('E', Some(&id)), Effect::None);
+        }
+        _ => unreachable!(),
+    }
+    app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL));
+    key(&mut app, KeyCode::Backspace);
+    app
+}
+
+#[test]
+fn every_message_surface_owns_literal_keys_completion_escape_and_painted_mouse_choice() {
+    for name in ["talk", "reply", "annotation", "ask-lead", "status", "cron"] {
+        let mut app = message_surface(name);
+        let compose = app.input.as_ref().unwrap().compose.clone();
+        let current = app.current.clone();
+        for ch in "@pxoj1".chars() {
+            assert_eq!(
+                key(&mut app, KeyCode::Char(ch)),
+                Effect::None,
+                "{name}: {ch}"
+            );
+        }
+        assert_eq!(app.reference_editor().unwrap().as_str(), "@pxoj1");
+        assert!(app.mentions.completion.open() && app.mentions.completion.matches.is_empty());
+        assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
+        assert_eq!(app.input.as_ref().unwrap().compose, compose);
+        assert_eq!(app.current, current);
+        assert_eq!(key(&mut app, KeyCode::Esc), Effect::None);
+        assert!(!app.mentions.completion.open() && app.input.is_some());
+        assert_eq!(app.reference_editor().unwrap().as_str(), "@pxoj1");
+        app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL));
+        key(&mut app, KeyCode::Backspace);
+        for ch in "@docs".chars() {
+            key(&mut app, KeyCode::Char(ch));
+        }
+        assert_eq!(app.mentions.completion.matches[0].kind, "agent");
+        draw_completion(&app);
+        let (area, _) = app.mentions.hits.borrow()[0];
+        assert_eq!(
+            app.mouse(
+                MouseEvent {
+                    kind: MouseEventKind::Down(MouseButton::Left),
+                    column: area.x,
+                    row: area.y,
+                    modifiers: KeyModifiers::NONE
+                },
+                std::time::Instant::now()
+            ),
+            Effect::None
+        );
+        assert_eq!(app.reference_editor().unwrap().as_str(), "@docs ", "{name}");
+        assert_eq!(app.input.as_ref().unwrap().compose, compose);
+        assert_eq!(app.current, current);
+        assert!(!app.mentions.completion.open());
+        assert!(
+            app.message_field(),
+            "{name}: choosing a reference never advances the form"
+        );
+    }
+}
+
+#[test]
+fn status_reference_completion_cannot_bypass_the_reason_byte_limit() {
+    let mut app = message_surface("status");
+    let original = format!("{} @d", "x".repeat(crate::board::app::INPUT_LIMIT - 3));
+    assert_eq!(app.paste(&original), Effect::None);
+    assert_eq!(app.reference_editor().unwrap().as_str(), original);
+    assert_eq!(
+        app.reference_editor().unwrap().as_str().len(),
+        crate::board::app::INPUT_LIMIT
+    );
+    assert!(app.mentions.completion.open() && !app.mentions.completion.matches.is_empty());
+    assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
+    assert_eq!(
+        app.reference_editor().unwrap().as_str(),
+        original,
+        "completion uses the same 4,000-byte bound as typing and paste"
+    );
+    assert!(app.status_draft.as_ref().unwrap().outcome.is_none());
+}
+
+#[test]
+fn name_and_search_input_do_not_gain_message_completion() {
+    let mut app = app();
+    app.ask(String::new(), Compose::Workspace, "product".into());
+    key(&mut app, KeyCode::Char('@'));
+    assert!(!app.message_field() && !app.mentions.completion.open());
+    app.input = None;
+    app.searching = true;
+    key(&mut app, KeyCode::Char('@'));
+    assert_eq!(app.search, "@");
+    assert!(!app.mentions.completion.open());
+}

@@ -825,3 +825,74 @@ fn removing_last_membership_restores_the_same_uuid_draft_in_pool_and_name_reuse_
         payload
     );
 }
+
+#[test]
+fn colab_link_and_exact_source_context_survive_composer_reader_and_tab_transitions() {
+    use crate::board::app::{Effect, Request};
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let mut app = crate::board::app::workspace::tests::board();
+    let id = crate::board::app::workspace::tests::MEMBER;
+    let selected = app.workspace.selected.clone();
+    let url = "https://example.test/colab/e85910cf";
+    let request = "req_66666666-6666-4666-8666-666666666666";
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .rows
+        .get_mut(selected.as_ref().unwrap())
+        .unwrap()["fields"]["link"] = json!(url);
+    app.view.as_mut().unwrap().replies =
+        vec![json!({"recipientId":id,"requestId":request,"response":url})];
+    let _no_acquisition = crate::runner::forbid_commands();
+    let painted: String = draw(&mut app, 160, 44)
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    assert!(painted.contains(url));
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    app.paste(&format!("Literal Colab reference {url}"));
+    app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE));
+    assert!(app.row_details.reader.is_some());
+    app.key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+    draw(&mut app, 160, 44);
+    app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL));
+    assert_eq!(
+        app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)),
+        Effect::None
+    );
+    let input = app.input.as_ref().unwrap();
+    assert_eq!(
+        input.text.as_str(),
+        format!("Literal Colab reference {url}")
+    );
+    let quote = &input.response_quotes[0];
+    assert_eq!(quote.key.request, request);
+    assert_eq!(quote.key.lead, id);
+    assert_eq!(quote.range, 0..url.len());
+    assert_eq!(quote.text, url);
+    app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    for tab in ['1', '2'] {
+        app.key(KeyEvent::new(KeyCode::Char(tab), KeyModifiers::NONE));
+        draw(&mut app, 100, 36);
+        assert_eq!(app.workspace.selected, selected);
+    }
+    assert_eq!(
+        app.key(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::NONE)),
+        Effect::Act(Request::Open {
+            link: url.into(),
+            opener: None
+        })
+    );
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(
+        app.input.as_ref().unwrap().text.as_str(),
+        format!("Literal Colab reference {url}")
+    );
+    assert_eq!(app.input.as_ref().unwrap().response_quotes[0].text, url);
+}

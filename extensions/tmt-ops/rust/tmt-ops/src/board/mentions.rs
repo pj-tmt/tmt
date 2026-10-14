@@ -46,7 +46,11 @@ impl App {
     }
     fn accept_reference(&mut self) -> bool {
         let mut completion = std::mem::take(&mut self.mentions.completion);
-        let limit = if self.message_field() {
+        let status_reason = self
+            .input
+            .as_ref()
+            .is_some_and(|input| matches!(input.compose, Compose::Status));
+        let limit = if self.message_field() && !status_reason {
             MESSAGE_LIMIT
         } else {
             super::app::INPUT_LIMIT
