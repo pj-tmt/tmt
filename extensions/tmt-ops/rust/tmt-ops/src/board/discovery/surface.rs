@@ -26,6 +26,16 @@ impl Row {
 fn safe(text: &str) -> String {
     super::super::notes::sanitize(&tmt_cli_style::table::escape(text))
 }
+fn preview(text: &str, width: u16) -> String {
+    tmt_tui::text::fit_line(
+        &safe(text),
+        width,
+        tmt_tui::style::TextFlow::Truncate,
+        tmt_cli_style::grid::Align::Left,
+    )
+    .trim_end()
+    .to_owned()
+}
 fn selector(selection: &BindSelection) -> String {
     match &selection.selector {
         AgentSelector::NewName(name) => format!("New agent name: {}", safe(&format!("{name:?}"))),
@@ -70,11 +80,15 @@ impl Controller {
                                     format!(
                                         "{} · {} · {}{}",
                                         safe(&p.key.pane),
-                                        safe(p.session.as_deref().unwrap_or("session unknown")),
-                                        safe(
+                                        preview(
+                                            p.session.as_deref().unwrap_or("session unknown"),
+                                            24
+                                        ),
+                                        preview(
                                             p.identity
                                                 .as_ref()
-                                                .map_or(p.title.as_str(), |a| a.name.as_str())
+                                                .map_or(p.title.as_str(), |a| a.name.as_str()),
+                                            72,
                                         ),
                                         if p.adoptable {
                                             " · review"

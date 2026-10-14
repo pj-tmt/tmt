@@ -2,6 +2,8 @@ use super::*;
 use model::{BindReport, ScanObservation};
 use serde_json::{Value, json};
 
+mod performance;
+
 const SOCKET: &str = "/tmp/private-discovery.sock";
 const UUID: &str = "11111111-1111-4111-8111-111111111111";
 const DIGEST: &str = "bf591b8c42ee4d8f2cd13fb00375c9a7807bca32370c9e9c191c9698b32dade8";
@@ -417,6 +419,27 @@ fn untrusted_candidate_text_is_inert_on_the_shared_surface() {
     assert!(rendered.contains("#{run-shell:never} $(never)\\nnew row\\tstill one title"));
     assert!(!rendered.contains('\u{1b}'));
     assert!(c.pending.is_none());
+}
+
+#[test]
+fn candidate_preview_is_bounded_while_details_keep_complete_literal_evidence() {
+    use unicode_width::UnicodeWidthStr;
+    let mut value = document();
+    let title = "#{literal} ".repeat(93);
+    let session = "untrusted-session-".repeat(50);
+    value["candidates"][0]["display"]["title"] = title.clone().into();
+    value["candidates"][0]["session"] = session.clone().into();
+    let mut c = controller();
+    c.observation = Some(ScanObservation::decode(&value).unwrap());
+    c.choose("back");
+    let candidate = &c.rows()[0];
+    assert!(candidate.label.width() <= 116);
+    assert!(candidate.label.contains('…'));
+    assert!(candidate.label.ends_with(" · review"));
+    c.choose("candidate:0");
+    let details = c.notes();
+    assert!(details.contains(&format!("Title: {title}")));
+    assert!(details.iter().any(|line| line.contains(&session)));
 }
 
 #[test]

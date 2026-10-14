@@ -7,7 +7,7 @@ use ratatui::{Terminal, backend::TestBackend};
 use serde_json::json;
 use unicode_width::UnicodeWidthStr;
 
-mod performance;
+pub(in crate::board) mod performance;
 
 fn fixture() -> App {
     let mut app = App::new(Some("product".into()));

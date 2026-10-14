@@ -442,4 +442,4 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 #[cfg(test)]
-mod tests;
+pub(in crate::board) mod tests;

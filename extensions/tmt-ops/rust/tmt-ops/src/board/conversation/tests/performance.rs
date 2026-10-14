@@ -151,8 +151,8 @@ fn conversation_frame_timing() {
 }
 
 /// Capture real Crossterm encoding into a private memory sink; no host TTY is opened.
-#[derive(Clone)]
-struct AnsiSink(std::rc::Rc<std::cell::RefCell<Vec<u8>>>);
+#[derive(Clone, Default)]
+pub(in crate::board) struct AnsiSink(std::rc::Rc<std::cell::RefCell<Vec<u8>>>);
 impl std::io::Write for AnsiSink {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         self.0.borrow_mut().extend_from_slice(bytes);
@@ -163,7 +163,7 @@ impl std::io::Write for AnsiSink {
     }
 }
 
-struct AnsiSample {
+pub(in crate::board) struct AnsiSample {
     event_us: f64,
     paint_us: f64,
     diff_encode_us: f64,
@@ -172,7 +172,7 @@ struct AnsiSample {
     changed_cells: usize,
 }
 
-fn ansi_measure(
+pub(in crate::board) fn ansi_measure(
     app: &mut App,
     terminal: &mut Terminal<ratatui::backend::CrosstermBackend<AnsiSink>>,
     sink: &AnsiSink,
@@ -215,7 +215,11 @@ fn ansi_measure(
     }
 }
 
-fn ansi_report(rows: usize, action: &str, samples: &[AnsiSample]) -> serde_json::Value {
+pub(in crate::board) fn ansi_report(
+    rows: usize,
+    action: &str,
+    samples: &[AnsiSample],
+) -> serde_json::Value {
     let quantiles = |values: Vec<f64>| {
         let mut values = values;
         values.sort_by(f64::total_cmp);
