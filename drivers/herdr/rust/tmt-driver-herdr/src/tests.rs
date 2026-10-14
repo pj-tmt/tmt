@@ -763,57 +763,74 @@ fn listed(tokens: Value) -> Value {
 }
 
 /// Scripts the reads every `name-agent` call makes before it decides: the
-/// pane with its tokens, its shell, and the agents.
+/// agents, then the pane with its tokens and its shell (the fence, last).
 fn observed<'r>(
     runner: &'r Scripted,
     record: Option<&str>,
     agent_name: Option<&str>,
 ) -> &'r Scripted {
     runner
-        .json(listed(bound(record)))
-        .json(process("w1:p1", 90593, "claude"))
         .json(agents(vec![
             agent("term_other", Some("reviewer")),
             agent("term_a1", agent_name),
         ]))
+        .json(listed(bound(record)))
+        .json(process("w1:p1", 90593, "claude"))
 }
 
 const REPORT: &str = "herdr pane report-metadata w1:p1 --source tmt";
+const READS: [&str; 3] = [
+    "herdr agent list",
+    "herdr pane list",
+    "herdr pane process-info --pane w1:p1",
+];
 
 fn record_of(name: &str) -> String {
     format!("{REPORT} --token tmt_agent_name={BINDING}:{name}")
 }
 
-fn renames(runner: &Scripted) -> Vec<String> {
-    let commands = runner.commands();
-    let renames = commands.iter().filter(|call| call.contains("agent rename"));
-    renames.cloned().collect()
+fn clear_record() -> String {
+    format!("{REPORT} --clear-token tmt_agent_name")
 }
 
-/// The record is written and read back before the name is set, so a name
-/// TMT set always has its record.
+/// The calls after the three reads.
+fn writes(runner: &Scripted) -> Vec<String> {
+    runner.commands()[3..].to_vec()
+}
+
+/// The state of one pane in a sequence: the agent's name and the record
+/// token. A step scripts the reads from it; the real-server test in
+/// `tests/herdr_driver.rs` proves the same sequences on Herdr itself.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct World {
+    name: Option<String>,
+    record: Option<String>,
+}
+
+impl World {
+    fn reads(&self, runner: &Scripted) {
+        observed(runner, self.record.as_deref(), self.name.as_deref());
+    }
+}
+
 #[test]
-fn naming_an_agent_records_the_name_first_and_then_renames() {
+fn naming_an_agent_renames_it_and_then_records_the_confirmed_name() {
     let runner = Scripted::default();
     observed(&runner, None, None)
         .text("")
-        .json(listed(bound(Some("ann"))))
-        .text("");
+        .text("")
+        .json(listed(bound(Some("ann"))));
     assert_eq!(
         serve(&runner, "name-agent", name_agent(Some("ann"))),
         json!({})
     );
-    assert_eq!(
-        runner.commands(),
-        [
-            "herdr pane list".to_owned(),
-            "herdr pane process-info --pane w1:p1".to_owned(),
-            "herdr agent list".to_owned(),
-            record_of("ann"),
-            "herdr pane list".to_owned(),
-            "herdr agent rename w1:p1 ann".to_owned(),
-        ]
-    );
+    let mut expected: Vec<String> = READS.map(String::from).into();
+    expected.extend([
+        "herdr agent rename w1:p1 ann".to_owned(),
+        record_of("ann"),
+        "herdr pane list".to_owned(),
+    ]);
+    assert_eq!(runner.commands(), expected);
     // The pane label is another thing in Herdr, and is never touched.
     assert!(
         !runner
@@ -824,66 +841,111 @@ fn naming_an_agent_records_the_name_first_and_then_renames() {
     runner.done();
 }
 
-/// A failed step leaves at most a record without a name, never a name
-/// without a record, and the same request again finishes the work.
+/// A refused name leaves no record, so it can never later authorize taking
+/// away a name a user gave: refused set, then the user names the agent the
+/// same, then `name: null` leaves the user's name.
 #[test]
-fn a_partial_failure_leaves_no_unowned_name_and_the_repeat_converges() {
-    // Herdr dropped the record, or could not take it: no rename.
-    for dropped in [
-        |runner: &Scripted| {
-            runner.text("").json(listed(bound(None)));
-        },
-        |runner: &Scripted| {
-            runner.refuse("permission_denied");
-        },
-        |runner: &Scripted| {
-            runner.text("").json(list(vec![]));
-        },
-    ] {
-        let runner = Scripted::default();
-        observed(&runner, None, None);
-        dropped(&runner);
-        assert_eq!(
-            error_code(&serve(&runner, "name-agent", name_agent(Some("ann")))),
-            "failed"
-        );
-        assert_eq!(renames(&runner), [] as [String; 0]);
-        runner.done();
-    }
-
-    // The record was kept and Herdr refused the name: the record stays.
+fn a_refused_name_leaves_no_record_and_a_later_users_name_stays_theirs() {
+    let mut world = World {
+        name: None,
+        record: None,
+    };
     let runner = Scripted::default();
-    observed(&runner, None, None)
-        .text("")
-        .json(listed(bound(Some("ann"))))
-        .refuse("agent_name_taken");
+    world.reads(&runner);
+    runner.refuse("agent_name_taken");
     assert_eq!(
         error_code(&serve(&runner, "name-agent", name_agent(Some("ann")))),
         "name_taken"
     );
-    assert_eq!(runner.commands().len(), 6, "no write after the refusal");
+    assert_eq!(writes(&runner), ["herdr agent rename w1:p1 ann"]);
     runner.done();
-    // The repeat finds the record and only renames.
+    assert_eq!(world.record, None, "nothing recorded");
+
+    // The conflict is gone and a user names this agent `ann` in Herdr.
+    world.name = Some("ann".into());
+    for request in [None, Some("bea")] {
+        let runner = Scripted::default();
+        world.reads(&runner);
+        assert_eq!(
+            error_code(&serve(&runner, "name-agent", name_agent(request))),
+            "foreign_name"
+        );
+        assert_eq!(writes(&runner), [] as [String; 0]);
+        runner.done();
+    }
+    // TMT asking for that very name finds it set, and adopts nothing.
     let runner = Scripted::default();
-    observed(&runner, Some("ann"), None).text("");
+    world.reads(&runner);
     assert_eq!(
         serve(&runner, "name-agent", name_agent(Some("ann"))),
         json!({})
     );
-    assert_eq!(runner.commands()[3..], ["herdr agent rename w1:p1 ann"]);
+    assert_eq!(writes(&runner), [] as [String; 0]);
     runner.done();
-    // A record without a name is removed by `name: null` with no rename.
-    let runner = Scripted::default();
-    observed(&runner, Some("ann"), None)
-        .text("")
-        .json(listed(bound(None)));
-    assert_eq!(serve(&runner, "name-agent", name_agent(None)), json!({}));
-    assert_eq!(renames(&runner), [] as [String; 0]);
-    runner.done();
+    assert_eq!(
+        world,
+        World {
+            name: Some("ann".into()),
+            record: None
+        }
+    );
 }
 
+/// `tmt mv`: Herdr renames TMT's old name to the new one in one step. A
+/// refusal leaves the working old name and its record.
 #[test]
-fn naming_again_changes_nothing_and_a_new_name_replaces_only_tmts_own() {
+fn a_new_name_replaces_tmts_own_directly_and_a_refusal_keeps_the_old_one() {
+    let runner = Scripted::default();
+    observed(&runner, Some("ann"), Some("ann"))
+        .text("")
+        .text("")
+        .json(listed(bound(Some("bea"))));
+    assert_eq!(
+        serve(&runner, "name-agent", name_agent(Some("bea"))),
+        json!({})
+    );
+    assert_eq!(
+        writes(&runner),
+        [
+            "herdr agent rename w1:p1 bea".to_owned(),
+            record_of("bea"),
+            "herdr pane list".to_owned(),
+        ]
+    );
+    runner.done();
+
+    for (herdr, code) in [
+        ("agent_name_taken", "name_taken"),
+        ("agent_launch_pending", "not_ready"),
+        ("permission_denied", "failed"),
+    ] {
+        let world = World {
+            name: Some("ann".into()),
+            record: Some("ann".into()),
+        };
+        let runner = Scripted::default();
+        world.reads(&runner);
+        runner.refuse(herdr);
+        assert_eq!(
+            error_code(&serve(&runner, "name-agent", name_agent(Some("bea")))),
+            code,
+            "{herdr}"
+        );
+        // One rename attempt, straight to the new name: no `--clear` and
+        // no record change, so the old name and its record stand.
+        assert_eq!(writes(&runner), ["herdr agent rename w1:p1 bea"], "{herdr}");
+        runner.done();
+        // The next call still owns the old name.
+        let runner = Scripted::default();
+        world.reads(&runner);
+        assert_eq!(
+            serve(&runner, "name-agent", name_agent(Some("ann"))),
+            json!({})
+        );
+        assert_eq!(writes(&runner), [] as [String; 0]);
+        runner.done();
+    }
+
     // The same name, already recorded: no write at all.
     let runner = Scripted::default();
     observed(&runner, Some("ann"), Some("ann"));
@@ -891,39 +953,79 @@ fn naming_again_changes_nothing_and_a_new_name_replaces_only_tmts_own() {
         serve(&runner, "name-agent", name_agent(Some("ann"))),
         json!({})
     );
-    assert_eq!(runner.commands().len(), 3);
+    assert_eq!(writes(&runner), [] as [String; 0]);
     runner.done();
 
-    // After `tmt mv`: TMT's old name goes, then the record, then the name.
+    // Herdr took the name away when the agent restarted: set it again.
     let runner = Scripted::default();
-    observed(&runner, Some("ann"), Some("ann"))
-        .text("")
-        .text("")
-        .json(listed(bound(Some("bea"))))
-        .text("");
+    observed(&runner, Some("ann"), None).text("");
     assert_eq!(
-        serve(&runner, "name-agent", name_agent(Some("bea"))),
+        serve(&runner, "name-agent", name_agent(Some("ann"))),
         json!({})
     );
-    assert_eq!(
-        runner.commands()[3..],
-        [
-            "herdr agent rename w1:p1 --clear".to_owned(),
-            record_of("bea"),
-            "herdr pane list".to_owned(),
-            "herdr agent rename w1:p1 bea".to_owned(),
-        ]
-    );
+    assert_eq!(writes(&runner), ["herdr agent rename w1:p1 ann"]);
     runner.done();
+}
 
-    // Herdr refused to take TMT's old name away: nothing else is written.
+/// After Herdr confirmed a name, a record that cannot be written or read
+/// back is a failure, and the name is conservatively not TMT's: TMT does not
+/// change or take it away later.
+#[test]
+fn a_record_that_is_not_kept_after_the_rename_leaves_the_name_unowned() {
+    for (case, after) in [
+        (
+            "report refused",
+            (|runner: &Scripted| {
+                runner.refuse("permission_denied");
+            }) as fn(&Scripted),
+        ),
+        ("dropped silently", |runner| {
+            runner.text("").json(listed(bound(None)));
+        }),
+        ("pane closed", |runner| {
+            runner.text("").json(list(vec![]));
+        }),
+    ] {
+        let runner = Scripted::default();
+        observed(&runner, None, None).text("");
+        after(&runner);
+        let answer = serve(&runner, "name-agent", name_agent(Some("ann")));
+        assert_eq!(error_code(&answer), "failed", "{case}");
+        assert!(
+            answer["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("will not change that name again"),
+            "{case}: {answer}"
+        );
+        runner.done();
+        // Herdr now has `ann` with no record: it is not taken away.
+        let runner = Scripted::default();
+        observed(&runner, None, Some("ann"));
+        assert_eq!(
+            error_code(&serve(&runner, "name-agent", name_agent(None))),
+            "foreign_name",
+            "{case}"
+        );
+        runner.done();
+    }
+}
+
+/// The pane is bound again while the record is written: the read-back sees
+/// another binding's marker and the request fails.
+#[test]
+fn a_rebind_during_the_record_write_is_seen_at_the_read_back() {
+    let mut other = bound(Some("ann"));
+    other["tmt_binding"] = json!("123e4567-e89b-42d3-a456-426614174099");
     let runner = Scripted::default();
-    observed(&runner, Some("ann"), Some("ann")).refuse("agent_launch_pending");
+    observed(&runner, None, None)
+        .text("")
+        .text("")
+        .json(listed(other));
     assert_eq!(
-        error_code(&serve(&runner, "name-agent", name_agent(Some("bea")))),
-        "not_ready"
+        error_code(&serve(&runner, "name-agent", name_agent(Some("ann")))),
+        "not_found"
     );
-    assert_eq!(runner.commands().len(), 4);
     runner.done();
 }
 
@@ -942,7 +1044,7 @@ fn an_agent_name_tmt_did_not_set_is_not_replaced_removed_or_adopted() {
             "foreign_name",
             "{record:?} {request:?}"
         );
-        assert_eq!(runner.commands().len(), 3, "reads only");
+        assert_eq!(writes(&runner), [] as [String; 0], "reads only");
         runner.done();
     }
 
@@ -954,7 +1056,7 @@ fn an_agent_name_tmt_did_not_set_is_not_replaced_removed_or_adopted() {
         serve(&runner, "name-agent", name_agent(Some("ann"))),
         json!({})
     );
-    assert_eq!(runner.commands().len(), 3);
+    assert_eq!(writes(&runner), [] as [String; 0]);
     runner.done();
     let runner = Scripted::default();
     observed(&runner, None, Some("ann"));
@@ -970,37 +1072,35 @@ fn an_agent_name_tmt_did_not_set_is_not_replaced_removed_or_adopted() {
 /// the name it names is someone else's here.
 #[test]
 fn a_record_of_another_binding_owns_nothing() {
-    let stale = || {
+    let observe = |runner: &Scripted, value: &str, agent_name: Option<&str>| {
         let mut tokens = fixture_tokens();
-        tokens["tmt_agent_name"] = json!("123e4567-e89b-42d3-a456-426614174099:ann");
-        tokens
-    };
-    let observe = |runner: &Scripted, agent_name: Option<&str>| {
+        tokens["tmt_agent_name"] = json!(value);
         runner
-            .json(listed(stale()))
-            .json(process("w1:p1", 90593, "claude"))
-            .json(agents(vec![agent("term_a1", agent_name)]));
+            .json(agents(vec![agent("term_a1", agent_name)]))
+            .json(listed(tokens))
+            .json(process("w1:p1", 90593, "claude"));
     };
+    let stale = "123e4567-e89b-42d3-a456-426614174099:ann";
     for request in [Some("bea"), None] {
         let runner = Scripted::default();
-        observe(&runner, Some("ann"));
+        observe(&runner, stale, Some("ann"));
         assert_eq!(
             error_code(&serve(&runner, "name-agent", name_agent(request))),
             "foreign_name",
             "{request:?}"
         );
-        assert_eq!(runner.commands().len(), 3, "reads only");
+        assert_eq!(writes(&runner), [] as [String; 0]);
         runner.done();
     }
-    // The agent has no name: this binding writes its own record over it.
+    // The agent has no name: this binding names it and writes its record.
     let runner = Scripted::default();
-    observe(&runner, None);
-    runner.text("").json(listed(bound(Some("bea")))).text("");
+    observe(&runner, stale, None);
+    runner.text("").text("").json(listed(bound(Some("bea"))));
     assert_eq!(
         serve(&runner, "name-agent", name_agent(Some("bea"))),
         json!({})
     );
-    assert_eq!(runner.commands()[3], record_of("bea"));
+    assert_eq!(writes(&runner)[1], record_of("bea"));
     runner.done();
     // Malformed records are no record either.
     for value in [
@@ -1009,13 +1109,8 @@ fn a_record_of_another_binding_owns_nothing() {
         "123e4567-e89b-42d3-a456-426614174002:Not Valid",
         "",
     ] {
-        let mut tokens = fixture_tokens();
-        tokens["tmt_agent_name"] = json!(value);
         let runner = Scripted::default();
-        runner
-            .json(listed(tokens))
-            .json(process("w1:p1", 90593, "claude"))
-            .json(agents(vec![agent("term_a1", Some("ann"))]));
+        observe(&runner, value, Some("ann"));
         assert_eq!(
             error_code(&serve(&runner, "name-agent", name_agent(Some("bea")))),
             "foreign_name",
@@ -1048,30 +1143,27 @@ fn naming_refuses_an_agent_list_it_cannot_read_exactly() {
             vec![agent("term_a1", None), json!({"name": "ann"})],
         ),
     ] {
-        for (record, request) in [(None, Some("ann")), (Some("ann"), None)] {
+        for request in [Some("ann"), None] {
             let runner = Scripted::default();
-            runner
-                .json(listed(bound(record)))
-                .json(process("w1:p1", 90593, "claude"))
-                .json(agents(rows.clone()));
+            runner.json(agents(rows.clone()));
             assert_eq!(
                 error_code(&serve(&runner, "name-agent", name_agent(request))),
                 "failed",
                 "{case} {request:?}"
             );
-            assert_eq!(runner.commands().len(), 3, "{case}: reads only");
+            assert_eq!(runner.commands(), ["herdr agent list"], "{case}");
             runner.done();
         }
     }
     // An explicit null is no name, as an absent member is.
     let runner = Scripted::default();
     runner
+        .json(agents(unreadable(json!(null))))
         .json(listed(bound(None)))
         .json(process("w1:p1", 90593, "claude"))
-        .json(agents(unreadable(json!(null))))
         .text("")
-        .json(listed(bound(Some("ann"))))
-        .text("");
+        .text("")
+        .json(listed(bound(Some("ann"))));
     assert_eq!(
         serve(&runner, "name-agent", name_agent(Some("ann"))),
         json!({})
@@ -1088,30 +1180,36 @@ fn taking_the_name_away_removes_only_the_name_tmt_set_and_then_its_record() {
         .json(listed(bound(None)));
     assert_eq!(serve(&runner, "name-agent", name_agent(None)), json!({}));
     assert_eq!(
-        runner.commands()[3..],
+        writes(&runner),
         [
             "herdr agent rename w1:p1 --clear".to_owned(),
-            format!("{REPORT} --clear-token tmt_agent_name"),
+            clear_record(),
             "herdr pane list".to_owned(),
         ]
     );
+    runner.done();
+
+    // Herdr refused: the name and its record stay, for the next attempt.
+    let runner = Scripted::default();
+    observed(&runner, Some("ann"), Some("ann")).refuse("agent_launch_pending");
+    assert_eq!(
+        error_code(&serve(&runner, "name-agent", name_agent(None))),
+        "not_ready"
+    );
+    assert_eq!(writes(&runner), ["herdr agent rename w1:p1 --clear"]);
     runner.done();
 
     // The agent left and Herdr took its name: only the record remains.
     for agents_now in [vec![], vec![agent("term_a1", None)]] {
         let runner = Scripted::default();
         runner
+            .json(agents(agents_now))
             .json(listed(bound(Some("ann"))))
             .json(process("w1:p1", 90593, "zsh"))
-            .json(agents(agents_now))
             .text("")
             .json(listed(bound(None)));
         assert_eq!(serve(&runner, "name-agent", name_agent(None)), json!({}));
-        assert_eq!(renames(&runner), [] as [String; 0]);
-        assert_eq!(
-            runner.commands()[3],
-            format!("{REPORT} --clear-token tmt_agent_name")
-        );
+        assert_eq!(writes(&runner), [clear_record(), "herdr pane list".into()]);
         runner.done();
     }
 
@@ -1119,7 +1217,7 @@ fn taking_the_name_away_removes_only_the_name_tmt_set_and_then_its_record() {
     let runner = Scripted::default();
     observed(&runner, None, None);
     assert_eq!(serve(&runner, "name-agent", name_agent(None)), json!({}));
-    assert_eq!(runner.commands().len(), 3);
+    assert_eq!(writes(&runner), [] as [String; 0]);
     runner.done();
 }
 
@@ -1151,8 +1249,8 @@ fn a_name_herdr_would_not_take_is_refused_before_any_call() {
     assert!(format!("{BINDING}:{longest}").len() <= 80);
     observed(&runner, None, None)
         .text("")
-        .json(listed(bound(Some(&longest))))
-        .text("");
+        .text("")
+        .json(listed(bound(Some(&longest))));
     assert_eq!(
         serve(&runner, "name-agent", name_agent(Some(&longest))),
         json!({})
@@ -1171,65 +1269,80 @@ fn herdrs_rename_refusals_map_to_the_agent_and_name_codes() {
         ("permission_denied", "failed"),
     ] {
         let runner = Scripted::default();
-        observed(&runner, None, None)
-            .text("")
-            .json(listed(bound(Some("ann"))))
-            .refuse(herdr);
+        observed(&runner, None, None).refuse(herdr);
         assert_eq!(
             error_code(&serve(&runner, "name-agent", name_agent(Some("ann")))),
             code,
             "{herdr}"
         );
+        assert_eq!(writes(&runner), ["herdr agent rename w1:p1 ann"], "{herdr}");
         runner.done();
     }
     // A pane Herdr sees no agent in has nothing to name, and gets no record.
     let runner = Scripted::default();
     runner
+        .json(agents(vec![agent("term_other", Some("reviewer"))]))
         .json(listed(bound(None)))
-        .json(process("w1:p1", 90593, "zsh"))
-        .json(agents(vec![agent("term_other", Some("reviewer"))]));
+        .json(process("w1:p1", 90593, "zsh"));
     assert_eq!(
         error_code(&serve(&runner, "name-agent", name_agent(Some("ann")))),
         "no_agent"
     );
-    assert_eq!(runner.commands().len(), 3);
+    assert_eq!(writes(&runner), [] as [String; 0]);
     runner.done();
 }
 
+/// The fence is the last read before the rename: a pane that is gone,
+/// unmarked, bound again or running another shell is never renamed.
 #[test]
 fn naming_refuses_a_pane_that_is_gone_rebound_or_runs_another_shell() {
-    let mut other = fixture_tokens();
-    other["tmt_binding"] = json!("123e4567-e89b-42d3-a456-426614174099");
-    let runner = Scripted::default();
-    runner
-        .json(list(vec![]))
-        .json(list(vec![pane("w1:p1", "term_a1", None)]))
-        .json(listed(other))
-        .json(listed(bound(None)))
-        .json(process("w1:p1", 777, "zsh"))
-        .json(listed(bound(None)))
-        .refuse("pane_not_found");
-    for case in ["gone", "unmarked", "rebound", "another shell", "closed"] {
+    let no_agents = || agents(vec![agent("term_a1", None)]);
+    for (case, request, script) in [
+        (
+            "gone",
+            Some("ann"),
+            (|runner: &Scripted| {
+                runner.json(list(vec![]));
+            }) as fn(&Scripted),
+        ),
+        ("unmarked", Some("ann"), |runner| {
+            runner.json(list(vec![pane("w1:p1", "term_a1", None)]));
+        }),
+        ("rebound", Some("ann"), |runner| {
+            let mut other = fixture_tokens();
+            other["tmt_binding"] = json!("123e4567-e89b-42d3-a456-426614174099");
+            runner.json(listed(other));
+        }),
+        ("another shell", Some("ann"), |runner| {
+            runner
+                .json(listed(bound(None)))
+                .json(process("w1:p1", 777, "zsh"));
+        }),
+        ("closed", Some("ann"), |runner| {
+            runner.json(listed(bound(None))).refuse("pane_not_found");
+        }),
+        ("gone, taking away", None, |runner| {
+            runner.json(list(vec![]));
+        }),
+    ] {
+        let runner = Scripted::default();
+        runner.json(no_agents());
+        script(&runner);
         assert_eq!(
-            error_code(&serve(&runner, "name-agent", name_agent(Some("ann")))),
+            error_code(&serve(&runner, "name-agent", name_agent(request))),
             "not_found",
             "{case}"
         );
+        assert!(
+            !runner
+                .commands()
+                .iter()
+                .any(|call| call.contains("agent rename") || call.contains("report-metadata")),
+            "{case}"
+        );
+        runner.done();
     }
-    runner.done();
-    // Taking the name away is fenced the same way.
-    runner.json(list(vec![]));
-    assert_eq!(
-        error_code(&serve(&runner, "name-agent", name_agent(None))),
-        "not_found"
-    );
-    runner.done();
-    assert!(
-        !runner
-            .commands()
-            .iter()
-            .any(|call| call.contains("agent ") || call.contains("report-metadata"))
-    );
+    let runner = Scripted::default();
     assert_eq!(
         error_code(&serve(&runner, "name-agent", {
             let mut request = name_agent(Some("ann"));

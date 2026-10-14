@@ -617,7 +617,8 @@ fn the_driver_reads_and_marks_a_real_herdr_server() {
         name_agent(&terminal, shell, json!("ann"))["error"]["code"],
         "no_agent"
     );
-    // A name another live agent has is taken.
+    // A name another live agent has is taken. A refused set records
+    // nothing, and a refused replace keeps TMT's old name and its record.
     server.run(&["pane", "run", &target, "claude"]);
     server.until("Herdr to see the second agent", |server| {
         server.json(&["pane", "get", &target])["result"]["pane"]["agent"] == "claude"
@@ -627,14 +628,33 @@ fn the_driver_reads_and_marks_a_real_herdr_server() {
         name_agent(&agent_pane, agent_shell, json!("ann"))["error"]["code"],
         "name_taken"
     );
-    // The record is written first and stays: a record without a name is
-    // harmless, and `name: null` removes it.
-    assert_eq!((herdr_name(), record()), (json!(null), recorded("ann")));
+    assert_eq!((herdr_name(), record()), (json!(null), json!(null)));
+    assert_eq!(
+        name_agent(&agent_pane, agent_shell, json!("bea")),
+        json!({"ok": {}})
+    );
+    assert_eq!(
+        name_agent(&agent_pane, agent_shell, json!("ann"))["error"]["code"],
+        "name_taken"
+    );
+    assert_eq!((herdr_name(), record()), (json!("bea"), recorded("bea")));
+    // The refused set left no trace: once `ann` is free and a user gives
+    // it to this agent, TMT neither takes it away nor adopts it.
     assert_eq!(
         name_agent(&agent_pane, agent_shell, json!(null)),
         json!({"ok": {}})
     );
-    assert_eq!(record(), json!(null));
+    server.run(&["agent", "rename", &target, "--clear"]);
+    server.run(&["agent", "rename", "w2:p1", "ann"]);
+    assert_eq!(
+        name_agent(&agent_pane, agent_shell, json!(null))["error"]["code"],
+        "foreign_name"
+    );
+    assert_eq!(
+        name_agent(&agent_pane, agent_shell, json!("ann")),
+        json!({"ok": {}})
+    );
+    assert_eq!((herdr_name(), record()), (json!("ann"), json!(null)));
 
     let findings = conformance::check(
         &mut |args, request| invoke(&env, args, request),

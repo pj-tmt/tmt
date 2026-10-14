@@ -10,10 +10,11 @@ use crate::{
 use serde_json::{Map, Value};
 use std::time::Instant;
 
-/// The token that records the agent name this driver set on a pane, under
-/// the marker's source, as `<bindingId>:<name>`. It is no part of the
-/// marker: `publish` leaves it, and `clear` removes it with the marker. A
-/// record of another binding is not this binding's record.
+/// The token that records the agent name Herdr confirmed for a binding,
+/// under the marker's source, as `<bindingId>:<name>`. It is written only
+/// after a successful rename, so it never holds a mere intent. It is no part
+/// of the marker: `publish` leaves it, and `clear` removes it with the
+/// marker. A record of another binding is not this binding's record.
 pub const RECORD: &str = "tmt_agent_name";
 
 /// The most characters Herdr allows in an agent name.

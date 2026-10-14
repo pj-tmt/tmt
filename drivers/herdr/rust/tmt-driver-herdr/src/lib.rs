@@ -497,12 +497,12 @@ impl<R: Runner> Handler for HerdrDriver<R> {
     }
 
     /// Herdr's `agent rename`, on a name this driver owns. The record token
-    /// says which agent name this driver set for this binding: an agent
-    /// name that differs from it is someone else's and stays. The record is
-    /// written before the name and removed after it, so a name TMT set
-    /// always has its record and a failure between the two leaves only a
-    /// record, which the next call uses. Herdr has no compare-and-set, so a
-    /// rename by someone else between the read and the write is not seen.
+    /// holds the agent name Herdr confirmed for this binding, written only
+    /// after a rename succeeded: an agent name that differs from it is
+    /// someone else's and stays, and an intent that Herdr refused leaves no
+    /// trace. The pane fence is the last read before the rename. Herdr has no
+    /// compare-and-set, so a rename by someone else after the agent list was
+    /// read is not seen.
     fn name_agent(&mut self, request: Request<NameAgentRequest>) -> Result<(), DriverError> {
         let deadline = deadline(request.deadline_ms);
         let NameAgentRequest {
@@ -525,30 +525,15 @@ impl<R: Runner> Handler for HerdrDriver<R> {
                  letters, digits, '-' or '_' (1-32 characters)",
             ));
         }
-        let gone =
-            || DriverError::new(ErrorCode::NotFound, "the pane no longer holds that binding");
-        let pane = self
-            .find(socket, pane_id, deadline)
-            .map_err(HerdrError::into_driver)?
-            .ok_or_else(gone)?;
-        if marker::binding_id(pane.tokens.as_ref()) != Some(binding_id.as_str()) {
-            return Err(gone());
-        }
-        let process = self
-            .herdr
-            .process(socket, &pane.target, deadline)
-            .map_err(HerdrError::into_driver)?;
-        if process.map(|process| process.shell_pid) != Some(*pane_pid) {
-            return Err(gone());
-        }
-        let recorded = agents::recorded(pane.tokens.as_ref(), binding_id);
         // A change needs exact evidence: a list that does not say what this
         // terminal hosts changes nothing.
         let agent = self
             .herdr
             .agent_rows(socket, deadline)
-            .and_then(|rows| agents::agent_of(&rows, &pane.id))
+            .and_then(|rows| agents::agent_of(&rows, pane_id))
             .map_err(HerdrError::into_driver)?;
+        let pane = self.fenced(socket, pane_id, *pane_pid, binding_id, deadline)?;
+        let recorded = agents::recorded(pane.tokens.as_ref(), binding_id);
         let Some(current) = agent else {
             return match name {
                 Some(_) => Err(DriverError::new(
@@ -574,19 +559,53 @@ impl<R: Runner> Handler for HerdrDriver<R> {
                 "the agent has a Herdr agent name TMT did not set",
             ));
         }
-        // The agent now has no name or TMT's own.
-        if current.is_some() {
-            self.rename(socket, &pane.target, None, deadline)?;
-        }
-        if let Some(name) = name {
-            self.record(socket, &pane, binding_id, Some(name), deadline)?;
-            return self.rename(socket, &pane.target, Some(name), deadline);
-        }
-        self.record(socket, &pane, binding_id, None, deadline)
+        // The agent has no name or TMT's own. Herdr renames in one step, so
+        // a refused new name leaves the old one and its record as they were.
+        self.rename(socket, &pane.target, name, deadline)?;
+        self.record(socket, &pane, binding_id, name, deadline)
+            .map_err(|mut error| {
+                if name.is_some() {
+                    error.message = format!(
+                        "Herdr set the agent name, but TMT could not record it, so TMT will not \
+                         change that name again: {}",
+                        error.message
+                    );
+                }
+                error
+            })
     }
 }
 
 impl<R: Runner> HerdrDriver<R> {
+    /// The pane, only while it carries this binding's marker and runs that
+    /// shell; `not_found` otherwise.
+    fn fenced(
+        &self,
+        socket: &str,
+        pane_id: &str,
+        pane_pid: u64,
+        binding_id: &str,
+        deadline: std::time::Instant,
+    ) -> Result<Listed, DriverError> {
+        let gone =
+            || DriverError::new(ErrorCode::NotFound, "the pane no longer holds that binding");
+        let pane = self
+            .find(socket, pane_id, deadline)
+            .map_err(HerdrError::into_driver)?
+            .ok_or_else(gone)?;
+        if marker::binding_id(pane.tokens.as_ref()) != Some(binding_id) {
+            return Err(gone());
+        }
+        let process = self
+            .herdr
+            .process(socket, &pane.target, deadline)
+            .map_err(HerdrError::into_driver)?;
+        if process.map(|process| process.shell_pid) != Some(pane_pid) {
+            return Err(gone());
+        }
+        Ok(pane)
+    }
+
     /// `herdr agent rename <target> <name>`, or `--clear` for no name.
     fn rename(
         &self,
@@ -621,7 +640,8 @@ impl<R: Runner> HerdrDriver<R> {
 
     /// Writes this binding's agent name record, or removes whatever record
     /// the pane holds, and reads the pane back, because Herdr drops a report
-    /// it considers stale without an error.
+    /// it considers stale without an error. Called only after the rename it
+    /// confirms.
     fn record(
         &self,
         socket: &str,
@@ -657,6 +677,17 @@ impl<R: Runner> HerdrDriver<R> {
         let kept = self
             .find(socket, &pane.id, deadline)
             .map_err(HerdrError::into_driver)?;
+        // The pane may have been bound again meanwhile: a record is this
+        // binding's only while the marker still is.
+        if kept
+            .as_ref()
+            .is_some_and(|kept| marker::binding_id(kept.tokens.as_ref()) != Some(binding_id))
+        {
+            return Err(DriverError::new(
+                ErrorCode::NotFound,
+                "the pane no longer holds that binding",
+            ));
+        }
         let kept = kept.as_ref().map(|pane| pane.tokens.as_ref());
         let written = match (name, kept) {
             (Some(name), Some(tokens)) => agents::recorded(tokens, binding_id) == Some(name),

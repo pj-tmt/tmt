@@ -239,7 +239,8 @@ pub struct FocusRequest {
 /// takes TMT's agent name away when `name` is `None`. Best effort: the
 /// driver does not change a name it observes as not TMT's, but a host
 /// without compare-and-set does not show it a rename between its read and
-/// its write. A second identical call changes nothing and succeeds.
+/// its write. After a successful call, the same call with unchanged evidence
+/// changes nothing and succeeds.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NameAgentRequest {

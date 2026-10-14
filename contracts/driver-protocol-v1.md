@@ -70,8 +70,8 @@ Error codes:
 | `no_agent` | `prompt` and `name-agent` only: the host recognizes no agent in the pane. No text was written and no agent name was set. |
 | `blocked` | `prompt` only: the agent waits on its user, for an approval or an answer. Nothing was written. |
 | `not_ready` | `prompt` and `name-agent` only: the agent can't take a prompt or a name now, for example because it isn't in the foreground or is still starting. No text was written and no agent name was set. |
-| `invalid_name` | `name-agent` only: the host does not accept this agent name. The name was not set. |
-| `name_taken` | `name-agent` only: another agent on the server has this agent name. The name was not set. |
+| `invalid_name` | `name-agent` only: the host does not accept this agent name. Nothing was changed. |
+| `name_taken` | `name-agent` only: another agent on the server has this agent name. Nothing was changed. |
 | `foreign_name` | `name-agent` only: the driver observed an agent name that TMT did not set. Nothing was changed. |
 
 `no_agent` and `not_ready` are answers of `prompt` and `name-agent` alone,
@@ -353,41 +353,48 @@ A host without agent names does not list it.
 - **Fence:** the driver refuses with `not_found` unless the pane still exists,
   runs `panePid` and carries a marker with `bindingId`. Core publishes the
   marker first and takes the name away before it clears the marker.
-- **Ownership:** the driver keeps a record on the pane of the agent name it
-  set for this `bindingId`, and treats only that name as TMT's. A record of
-  another binding is no record. When the driver observes an agent name that
-  differs from the record, someone else set it: the driver answers
+- **Ownership:** the driver keeps a record on the pane of the agent name the
+  host confirmed for this `bindingId`, and treats only that name as TMT's. A
+  record of another binding is no record. When the driver observes an agent
+  name that differs from the record, someone else set it: the driver answers
   `foreign_name` and does not change it. This holds for `name: null` too;
   core then leaves that name and goes on with its own work, such as `clear`.
   When the agent already has the requested name, the answer is `{}` and
   nothing is written; without a record that name stays someone else's, so a
   later `name: null` answers `foreign_name`. `clear` removes the record with
   the marker and leaves the agent name.
-- **Order:** the driver writes the record before it sets the name, and
-  removes the record after it took the name away. A name TMT set therefore
-  has its record. A failure between the two steps leaves at most a record
-  without a name, which changes nothing a user sees and which the next
-  request uses or removes. To replace TMT's own name, the driver takes the
-  old name away first; if the new name is then refused, the agent has no
-  name.
+- **Order:** the driver reads the agents first and the fence last, then
+  renames, and writes the record only after the host confirmed the rename.
+  A refused name therefore leaves no record, and a request's intent never
+  becomes ownership. To replace TMT's own name, the driver renames the old
+  name to the new one in one step, so a refusal leaves the old name and its
+  record. To take the name away, it removes the name first and the record
+  after it. When the record cannot be written or read back after a
+  confirmed rename, the answer is `failed`: the name is set but not TMT's,
+  and TMT does not change it again.
 - **Evidence:** the driver changes a name only when the host's list says
   exactly what the pane hosts. A list that it cannot read, that has more than
   one agent for the pane, or whose name for the pane is not a valid agent
-  name answers `failed`, and nothing is written.
-- **Repeat:** a second identical request changes nothing and answers `{}`.
-  Core may repeat a request after any answer.
+  name answers `failed`, and nothing is written. At the record's read-back
+  the driver checks again that the marker carries `bindingId`; a pane bound
+  again meanwhile answers `not_found`.
+- **Repeat:** after a successful request, the same request with unchanged
+  evidence changes nothing and answers `{}`. Core may repeat a request after
+  any answer; a request that was refused may be refused again.
 - **`name: null`:** `{}` means the agent has no TMT agent name now: it was
   removed, the agent had none, or the host recognizes no agent in the pane.
 - **Limits (best effort):** these guards use what the driver observes, and a
   host may give it less than a guarantee needs.
-  - A host may have no compare-and-set for agent names. A rename by someone
-    else between the driver's read and its write is then not seen, and the
-    driver's write replaces it. The driver keeps that window to one host call
-    and never widens it with a retry.
+  - A host may have no compare-and-set for agent names. The driver reads the
+    agents, then the pane and its shell, then renames: a rename by someone
+    else after the agent list was read (two host calls before the rename) is
+    not seen, and the driver's rename replaces it. The driver never widens
+    that window with a retry.
   - A host may give no stable identity for one agent's lifetime. When an
     agent exits and another starts in the same pane under the same binding,
     and someone gives that agent the name in the record, the driver takes
-    the name as TMT's.
+    the name as TMT's. The same holds when a name was taken away but its
+    record could not be removed.
 
 Answers with a `name`:
 
@@ -400,7 +407,7 @@ Answers with a `name`:
 | `not_ready` | The agent is still starting. |
 | `foreign_name` | The agent has another agent name that TMT did not set. |
 | `not_found` | The fence failed. |
-| `failed` | The driver could not read exact evidence, or the host did not keep the record. |
+| `failed` | The driver could not read exact evidence, or the host set the name but did not keep the record. |
 
 With `name: null` the answers are `{}`, `foreign_name`, `not_ready`,
 `not_found` and `failed`.
@@ -412,6 +419,8 @@ removes an agent name itself when the agent exits or is replaced. The record
 is the pane token `tmt_agent_name` under the marker's source, with the value
 `<bindingId>:<name>`. Herdr 0.9.3 has no compare-and-set for agent names and
 lists no stable identity for an agent's lifetime, so both limits above apply.
+The calls are: `agent list`, `pane list`, `pane process-info`, then
+`agent rename`, then `pane report-metadata` and a `pane list` read-back.
 
 ## Runtime drivers
 
