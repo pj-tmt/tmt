@@ -442,6 +442,33 @@ fn binding_review_fits_the_target_without_changing_inventory_height() {
     );
 }
 #[test]
+fn discovery_confirmation_keeps_escape_hint_whole_at_low_height() {
+    for width in [60, 100, 160] {
+        for height in [8, 24, 36] {
+            let mut c = controller();
+            assert!(c.review(AgentSelector::NewName("worker".into()), false));
+            let mut app = crate::board::app::workspace::tests::board();
+            app.discovery = Some(c);
+            let mut terminal =
+                ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, height)).unwrap();
+            terminal
+                .draw(|frame| crate::board::view::render(frame, &app))
+                .unwrap();
+            let c = app.discovery.as_ref().unwrap();
+            let footer = c.ui.borrow().frame.as_ref().unwrap().areas.footer;
+            assert_eq!(
+                footer.height, 1,
+                "one whole fitted hint row at {width}x{height}"
+            );
+            let text: String = (footer.x..footer.right())
+                .map(|x| terminal.backend().buffer()[(x, footer.y)].symbol())
+                .collect();
+            assert!(text.starts_with("Esc cancel"), "{width}x{height}: {text:?}");
+            assert!(text.contains("Enter select"));
+        }
+    }
+}
+#[test]
 fn actual_mouse_scan_select_review_and_cancel_emit_no_binding() {
     let mut c = Controller::new(1, scope());
     paint(&c, 160, 36);
