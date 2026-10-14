@@ -22,6 +22,8 @@ struct Build {
     sdk: PathBuf,
     /// Remote's client directory: its pin manifest and the `dist` it vouches for.
     client: PathBuf,
+    /// The static declaration the manifest is spliced into.
+    declaration: PathBuf,
     output: PathBuf,
 }
 impl Build {
@@ -36,6 +38,7 @@ impl Build {
         let sdk = root.join("remote-v1.js");
         let client = root.join("remote-client");
         let output = root.join("cargo");
+        let declaration = root.join("declaration.json");
         fs::create_dir_all(app.join("assets")).unwrap();
         fs::create_dir_all(client.join("dist")).unwrap();
         fs::create_dir(&output).unwrap();
@@ -77,16 +80,24 @@ impl Build {
         )
         .unwrap();
         fs::write(&sdk, b"export const fixture = 'Remote SDK output';").unwrap();
+        fs::write(&declaration, b"{\n}\n").unwrap();
         Self {
             root,
             app,
             sdk,
             client,
+            declaration,
             output,
         }
     }
     fn generate(&self) -> std::io::Result<Vec<PathBuf>> {
-        hosting::generate(Some(&self.app), &self.sdk, &self.client, &self.output)
+        hosting::generate(
+            Some(&self.app),
+            &self.sdk,
+            &self.client,
+            &self.declaration,
+            &self.output,
+        )
     }
     /// Rewrite the pin manifest after `change` edits its parsed form.
     fn repin(&self, change: impl FnOnce(&mut Value)) {
@@ -233,6 +244,7 @@ fn absent_inventory_embeds_no_native_or_checkout_fallback() {
             None,
             &build.root.join("missing-sdk"),
             &build.root.join("missing-client"),
+            &build.root.join("missing-declaration"),
             &build.output
         )
         .unwrap()
@@ -375,4 +387,25 @@ fn incomplete_unsafe_or_oversized_hosted_builds_are_refused() {
             "emitted inventory for {case}"
         );
     }
+}
+
+#[test]
+fn the_declaration_with_its_manifest_may_reach_the_size_cap_and_not_pass_it() {
+    // The generator's mirror of the cap is the cap `deploy-declaration` refuses above.
+    assert_eq!(
+        hosting::DECLARATION_TEXT_BYTES,
+        tmt_colab::limits::DECLARATION_TEXT_BYTES
+    );
+    let build = Build::new();
+    build.generate().unwrap();
+    let manifest = fs::metadata(build.output.join("colab-hosting-manifest.json"))
+        .unwrap()
+        .len() as usize;
+    // The static text grows until text plus splice plus manifest is exactly the cap.
+    let room = hosting::DECLARATION_TEXT_BYTES - hosting::SPLICE.len() - manifest;
+    fs::write(&build.declaration, vec![b' '; room]).unwrap();
+    build.generate().unwrap();
+    fs::write(&build.declaration, vec![b' '; room + 1]).unwrap();
+    let error = build.generate().unwrap_err();
+    assert!(error.to_string().contains("declaration exceed"), "{error}");
 }

@@ -53,7 +53,8 @@ SHA-256 and length in `remote-client/firebase-build-pin.json`, which must name e
 files; a missing build, a reshaped pin or a mismatch fails the build. The input tree cannot override
 any of the three routes. Files and directories must be real, with supported bare content types.
 The build rejects inventory reaching 128 files, 2 MiB per file, or 8 MiB total (50% of Remote's v1
-caps); three of the file slots are reserved for the SDK copy.
+caps); three of the file slots are reserved for the SDK copy. It also rejects an inventory whose
+manifest would take the declaration past `deploy-declaration`'s 64 KiB.
 Every manifest file carries the existing native CSP; a renderer entry retains its existing
 renderer CSP. Runtime bytes and the canonical manifest are immutable Cargo snapshots.
 

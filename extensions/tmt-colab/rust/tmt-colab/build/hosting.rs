@@ -20,6 +20,12 @@ const NOTICES_ROUTE: &str = "/sdk/THIRD-PARTY-NOTICES-remote.txt";
 /// The routes Remote's SDK owns; the hosted tree cannot supply them.
 const SDK_ROUTES: [&str; 3] = [SDK_ROUTE, FIREBASE_ROUTE, NOTICES_ROUTE];
 const PIN: &str = "firebase-build-pin.json";
+/// The most a declaration may be: mirrors `limits::DECLARATION_TEXT_BYTES`, which
+/// `deploy-declaration` refuses above. A test equates the two.
+pub const DECLARATION_TEXT_BYTES: usize = 64 * 1024;
+/// What `deploy_declaration::declaration_of` inserts before the manifest, in place of the
+/// closing brace's line break it removes and puts back after it.
+pub const SPLICE: &str = ",\n  \"hosting\": ";
 /// Each pinned Remote output: its hosted route, its path in Remote's pin manifest and the name of
 /// the copy the build keeps.
 const PINNED: [(&str, &str, &str); 2] = [
@@ -189,10 +195,12 @@ fn collect(
 
 /// `sdk` is Remote's committed `remote-v1.js`; `client` is Remote's client directory, whose pin
 /// manifest vouches for the Firebase build in its `dist`. Remote's build must have run first.
+/// `declaration` is the static declaration the manifest is spliced into.
 pub fn generate(
     directory: Option<&Path>,
     sdk: &Path,
     client: &Path,
+    declaration: &Path,
     output: &Path,
 ) -> io::Result<Vec<PathBuf>> {
     let Some(directory) = directory else {
@@ -202,7 +210,11 @@ pub fn generate(
         )?;
         return Ok(Vec::new());
     };
-    if !directory.is_absolute() || !sdk.is_absolute() || !client.is_absolute() {
+    if !directory.is_absolute()
+        || !sdk.is_absolute()
+        || !client.is_absolute()
+        || !declaration.is_absolute()
+    {
         return Err(invalid("Hosted build paths must be absolute"));
     }
     let mut inputs = Vec::new();
@@ -277,6 +289,15 @@ pub fn generate(
         });
     }
     let manifest_bytes = serde_json::to_vec(&manifest)?;
+    // Every entry carries its full CSP, so the file caps alone do not keep the declaration that
+    // embeds this manifest within what `deploy-declaration` will print.
+    let base = fs::metadata(declaration)?.len() as usize;
+    if base + SPLICE.len() + manifest_bytes.len() > DECLARATION_TEXT_BYTES {
+        return Err(invalid(
+            "Hosted manifest would make the declaration exceed its size cap",
+        ));
+    }
+    inputs.push(declaration.to_owned());
     bundle.manifest_digest = digest(&manifest_bytes);
     fs::write(output.join("colab-hosting-manifest.json"), manifest_bytes)?;
     fs::write(

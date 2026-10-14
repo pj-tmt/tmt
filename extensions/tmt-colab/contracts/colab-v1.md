@@ -3275,7 +3275,9 @@ text, holding the canonical manifest bytes above verbatim (inserted before the c
 so the declaration digest covers them. Remote compares the `hosting-bundle` reply with that
 section, paths, lengths and digests, before any provider call. An executable with no hosted
 inventory declares no `hosting` key, and its declaration is the static text unchanged. The
-envelope and the 64 KiB caps do not change. The golden vector `deploy-declaration-v1.hosting.json`
+envelope and the 64 KiB caps do not change, and the build fails an inventory whose manifest would
+take the spliced declaration past 64 KiB (each entry carries its CSP), so a bundle that passes the
+file caps cannot make `deploy-declaration` refuse itself. The golden vector `deploy-declaration-v1.hosting.json`
 (with its manifest `deploy-declaration-v1.hosting.manifest.json`) is the reply such an
 executable prints for a fixed five-file fixture; the independent oracle rebuilds it.
 
