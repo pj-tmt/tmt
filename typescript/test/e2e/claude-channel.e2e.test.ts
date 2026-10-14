@@ -11,6 +11,7 @@ import { withE2EFixture as withFixture, type CliResult, type E2EFixture } from '
 import { requestAttempts } from './request-state-oracle.js';
 import { installTmuxTrace, type TmuxTrace } from './tmux-trace.js';
 import { waitForFileContent } from './wait-for-file.js';
+import { readCompleteJsonLines } from './harness/readiness.js';
 
 // Existing channel-positive scenarios explicitly opt in within private fixture state.
 const withE2EFixture: typeof withFixture = (callback, options) =>
@@ -102,12 +103,7 @@ function start(
 }
 
 function events(session: Session): MockEvent[] {
-  if (!fs.existsSync(session.log)) return [];
-  return fs
-    .readFileSync(session.log, 'utf8')
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => JSON.parse(line) as MockEvent);
+  return readCompleteJsonLines<MockEvent>(session.log);
 }
 
 const named = (session: Session, event: string) =>
