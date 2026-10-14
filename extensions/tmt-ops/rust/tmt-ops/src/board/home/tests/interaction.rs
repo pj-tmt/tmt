@@ -46,94 +46,86 @@ pub(super) fn board_resuming(
 }
 
 #[test]
-fn home_tiles_paint_uncovered_known_history_as_partial_at_each_width_and_theme() {
+fn workspace_header_paints_uncovered_known_history_as_partial_at_each_width_and_theme() {
     use crate::board::{
-        app::RateView,
-        rate::tests::{fixture_seeds, historical_input, history_fixture},
+        app::workspace::tests::MEMBER,
+        rate::tests::{fixture_seeds, history_fixture},
     };
-    use crate::config::TokenRate;
-    let fixture = history_fixture();
-    let input = historical_input(&fixture, false);
-    let mut seeds = fixture_seeds(&fixture);
-    let offset = crate::status::now_ms() / 5_000 * 5_000 - 25_000;
-    let seed = seeds.get_mut("a").unwrap().as_mut().unwrap();
-    seed.from += offset;
-    seed.through += offset;
-    seed.available = seed.available.map(|at| at + offset);
-    seed.sampled = seed.sampled.map(|at| at + offset);
-    for bucket in &mut seed.buckets {
-        bucket.from_ms += offset;
-        bucket.to_ms += offset;
-        bucket.covered_ms = 0;
-        bucket.complete = false;
-        bucket.gap = true;
-    }
-    for width in [160, 100, 80] {
-        for (base, depth) in [
-            ("tmt", tmt_cli_style::Depth::TrueColor),
-            ("tmt-light", tmt_cli_style::Depth::TrueColor),
-            ("tmt", tmt_cli_style::Depth::None),
-        ] {
-            let mut app = board(&[(
-                "a",
-                document("a", row("a", "product-lead", "working"), vec![]),
-            )]);
-            let settings = TokenRate {
-                enabled: true,
-                ..Default::default()
-            };
-            let view = app.view.as_mut().unwrap();
-            view.look = crate::look::Look {
-                theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::parse(base).unwrap()),
-                depth,
-            };
-            view.home_rate.insert(
-                "a".into(),
-                RateView {
-                    input: input.clone(),
-                    settings,
-                    history: Some(seeds.clone()),
-                },
-            );
-            let mut snapshot = crate::board::app::tests::snapshot(ALL, json!([]));
-            snapshot.tabs = app.tabs.clone();
-            snapshot.view = Ok(app.view.take().unwrap());
-            app.apply(snapshot);
-            let now = std::time::Instant::now();
-            let usage = app.home_usage("a", now).unwrap();
-            assert_eq!(usage.lead[2].unwrap().tokens, 21);
-            assert!(usage.share.unwrap().partial);
-            let mut terminal = Terminal::new(TestBackend::new(width, 24)).unwrap();
-            terminal
-                .draw(|frame| crate::board::view::render(frame, &app))
-                .unwrap();
-            let screen = terminal
-                .backend()
-                .buffer()
-                .content
-                .iter()
-                .map(|cell| cell.symbol())
-                .collect::<String>();
-            assert!(screen.contains("product-lead"), "{base}/{width}: {screen}");
-            let header = terminal
-                .backend()
-                .buffer()
-                .content
-                .chunks(width as usize)
-                .map(|cells| cells.iter().map(|cell| cell.symbol()).collect::<String>())
-                .find(|line| line.contains("1h ~21 tok"))
-                .expect("longest-window usage line");
-            assert!(!header.contains("models "));
-            assert!(header.contains("top "), "{base}/{width}: {header}");
-            assert!(
-                screen.matches("~21").count() >= 2,
-                "{base}/{width}: {screen}"
-            );
-            if width >= 100 {
-                assert!(screen.contains("~100%"), "{base}/{width}: {screen}");
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        let mut seeds = fixture_seeds(&history_fixture());
+        let mut seed = seeds.remove("a").unwrap().unwrap();
+        let offset = crate::status::now_ms() / 5_000 * 5_000 - 25_000;
+        seed.from += offset;
+        seed.through += offset;
+        seed.available = seed.available.map(|at| at + offset);
+        seed.sampled = seed.sampled.map(|at| at + offset);
+        for bucket in &mut seed.buckets {
+            bucket.from_ms += offset;
+            bucket.to_ms += offset;
+            bucket.covered_ms = 0;
+            bucket.complete = false;
+            bucket.gap = true;
+        }
+        seeds.insert(MEMBER.into(), Some(seed));
+        for width in [160, 100, 80] {
+            for (base, depth) in [
+                ("tmt", tmt_cli_style::Depth::TrueColor),
+                ("tmt-light", tmt_cli_style::Depth::TrueColor),
+                ("tmt", tmt_cli_style::Depth::None),
+            ] {
+                let mut acquired = super::oracle::metered(crate::look::Look {
+                    theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::parse(base).unwrap()),
+                    depth,
+                });
+                acquired
+                    .view
+                    .as_mut()
+                    .unwrap()
+                    .home_rate
+                    .get_mut("product")
+                    .unwrap()
+                    .history = Some(seeds.clone());
+                let mut snapshot = crate::board::app::tests::snapshot(ALL, json!([]));
+                snapshot.tabs = acquired.tabs.clone();
+                snapshot.view = Ok(acquired.view.take().unwrap());
+                // A fresh controller admits these observations through the real
+                // snapshot/seed path, without reusing a pre-existing meter ring.
+                let mut app = App::new(Some(ALL.into()));
+                app.apply(snapshot);
+                let now = std::time::Instant::now();
+                let usage = app.home_usage("product", now).unwrap();
+                assert_eq!(usage.lead[2].unwrap().tokens, 21);
+                assert!(usage.lead[2].unwrap().partial && usage.share.unwrap().partial);
+                let aggregate = app.home_header_usage(now).unwrap();
+                assert_eq!(aggregate.totals[2].unwrap().tokens, 21);
+                assert!(aggregate.totals[2].unwrap().partial);
+                assert!(aggregate.top.unwrap().share.partial);
+                let mut terminal = Terminal::new(TestBackend::new(width, 24)).unwrap();
+                terminal
+                    .draw(|frame| crate::board::view::render(frame, &app))
+                    .unwrap();
+                let lines: Vec<String> = terminal
+                    .backend()
+                    .buffer()
+                    .content
+                    .chunks(width as usize)
+                    .map(|cells| cells.iter().map(|cell| cell.symbol()).collect())
+                    .collect();
+                let header = lines
+                    .iter()
+                    .find(|line| line.contains("1h ~21 tok"))
+                    .expect("actual Overview usage preserves the partial longest-window total");
+                assert!(!header.contains("models "));
+                if width >= 100 {
+                    assert!(
+                        header.contains("top worker") && header.contains("~100%"),
+                        "{base}/{width}: {header}"
+                    );
+                }
+                assert!(app.workspace_snapshot().is_some());
             }
         }
-    }
+    });
 }
 
 pub(super) fn header_usage() -> crate::board::app::HomeHeaderUsage<'static> {
