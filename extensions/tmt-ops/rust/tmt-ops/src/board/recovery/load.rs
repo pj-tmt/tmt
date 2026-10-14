@@ -87,20 +87,20 @@ pub(crate) fn complete(core: &Core, task: Task) -> Completed {
 fn execute(core: &Core, job: &Job) -> Result<Outcome, SquadError> {
     let argv = job.argv();
     let args: Vec<_> = argv.iter().map(String::as_str).collect();
-    // Core's layout phase has its own 30s budget; permit the result/cleanup too.
-    let finished = core.json_finished(&args, Duration::from_secs(60))?;
-    if finished.stdout.len() > 2 * 1024 * 1024 {
-        return Err(invalid());
-    }
-    let value: Value = serde_json::from_slice(&finished.stdout).map_err(|_| invalid())?;
+    let (value, success) = if matches!(job, Job::Restore(_)) {
+        // Core's layout phase has its own 30s budget; permit the result/cleanup.
+        // The existing process owner retains its output bound and cancellation.
+        let finished = core.json_finished(&args, Duration::from_secs(60))?;
+        let value = serde_json::from_slice(&finished.stdout).map_err(|_| invalid())?;
+        (value, finished.success)
+    } else {
+        (core.json(&args)?, true)
+    };
     if let Some(error) = value.get("error") {
         return match (error["code"].as_str(), error["message"].as_str()) {
             (Some(code), Some(message)) => Err(SquadError::new(code, message)),
             _ => Err(invalid()),
         };
-    }
-    if !finished.success && !matches!(job, Job::Restore(_)) {
-        return Err(invalid());
     }
     match job {
         Job::List(socket) => {
@@ -144,7 +144,7 @@ fn execute(core: &Core, job: &Job) -> Result<Outcome, SquadError> {
                 || restore.digest != s.digest
                 || restore.layout_only != s.layout_only
                 || !matches!(restore.status.as_str(), "completed" | "partial")
-                || finished.success != (restore.status == "completed")
+                || success != (restore.status == "completed")
                 || restore.status == "completed" && !restore.failures.is_empty()
                 || !unique_ids(restore.sessions.iter().map(|s| s.recorded.as_str()))
                 || !unique_ids(restore.windows.iter().map(|w| w.recorded.as_str()))

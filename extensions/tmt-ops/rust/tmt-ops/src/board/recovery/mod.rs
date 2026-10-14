@@ -183,6 +183,7 @@ impl Controller {
             return Some(self.issue(job));
         }
         self.confirmation = None;
+        self.failure = None;
         self.invalidate();
         match completed.result {
             Ok(Outcome::List(inventory)) => {
@@ -247,38 +248,56 @@ impl Controller {
                 self.notice = "Created resources remain. Startup requested is not conversation confirmed; nothing is rolled back or retried.".into();
             }
             Err(error) => {
-                let guarded = matches!(
-                    error.code.as_str(),
-                    "WORKSPACE_SNAPSHOT_CHANGED" | "WORKSPACE_SNAPSHOT_NOT_FOUND"
-                );
-                if matches!(completed.task.job, Job::Restore(_)) && !guarded {
-                    self.screen = Screen::Results;
-                    self.restored = None;
-                    self.details.clear();
-                    self.detail_page = 0;
-                    self.form_focus = true;
-                    self.unknown = Some(format!(
-                        "{}: {}. Inspect the original socket and live resources before deciding any further action; no automatic retry.",
-                        error.code, error.message
-                    ));
-                } else if guarded {
-                    self.notice = format!(
-                        "Not applied: {}. Review a fresh preview before restoring.",
-                        error.message
+                if let Job::Restore(selection) = &completed.task.job {
+                    let guarded = matches!(
+                        error.code.as_str(),
+                        "WORKSPACE_SNAPSHOT_CHANGED" | "WORKSPACE_SNAPSHOT_NOT_FOUND"
                     );
                     self.preview = None;
-                    self.screen = Screen::List;
-                    let next = self.selected.clone().and_then(|id| self.select(&id));
+                    self.details.clear();
+                    self.detail_page = 0;
+                    if guarded {
+                        self.notice = format!(
+                            "{} Not applied: {}. Review a fresh preview before restoring.",
+                            tmt_cli_style::mark::Mark::Offline.symbol(),
+                            error.message
+                        );
+                        self.screen = Screen::List;
+                    } else {
+                        self.screen = Screen::Results;
+                        self.restored = None;
+                        self.form_focus = true;
+                        self.unknown = Some(format!(
+                            "{}: {}. Inspect the original socket and live resources before deciding any further action; no automatic retry.",
+                            error.code, error.message
+                        ));
+                    }
+                    // One fresh read after a restore failure. A missing Latest
+                    // shares a Core error code with other failures, so retain
+                    // Unknown rather than infer whether effects were possible.
+                    let next = self.active.then(|| {
+                        self.issue(Job::Show {
+                            socket: selection.socket.clone(),
+                            name: selection.name.clone(),
+                        })
+                    });
                     self.failure = Some(error);
                     return next;
                 }
+                if matches!(completed.task.job, Job::Show { .. }) {
+                    self.preview = None;
+                    if self.screen != Screen::Results {
+                        self.screen = Screen::List;
+                    }
+                }
+                // A failed fresh Show never schedules another Show.
                 self.failure = Some(error);
             }
         }
         None
     }
     fn choose(&mut self, id: &str) -> Option<Task> {
-        if self.pending.as_ref().is_some_and(|t| t.job.writes()) {
+        if id != "close" && self.pending.as_ref().is_some_and(|t| t.job.writes()) {
             return None;
         }
         match id {

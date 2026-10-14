@@ -154,6 +154,13 @@ impl Controller {
             );
         }
         if busy {
+            if !rows.iter().any(|r| r.id == "close") {
+                rows.push(Row::choice(
+                    "close",
+                    "Close (submitted work continues)",
+                    false,
+                ));
+            }
             rows.iter_mut().for_each(|r| r.disabled = r.id != "close");
         }
         rows
@@ -236,6 +243,9 @@ impl Controller {
                 }
             }
             Screen::Results => {
+                if let Some(p) = &self.preview {
+                    notes.push(format!("Current read-only inspection: {} · digest {}. Original restore uncertainty is unchanged.",p.counts(),p.digest));
+                }
                 if let Some(r) = &self.restored {
                     notes.push(format!(
                         "Restore {} · {} · digest {}",

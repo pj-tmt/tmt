@@ -483,3 +483,101 @@ fn closed_report_reopens_without_reading_or_replaying_and_unknown_blocks_reload(
     c.close();
     assert!(c.blocks_reload());
 }
+
+#[test]
+fn missing_named_snapshot_refreshes_once_without_a_read_retry_loop() {
+    let mut c = controller();
+    review(&mut c);
+    let restore = c.choose("confirm").unwrap();
+    let fresh = finish(
+        &mut c,
+        restore,
+        Err(SquadError::new(
+            "WORKSPACE_SNAPSHOT_NOT_FOUND",
+            "Named save missing",
+        )),
+    )
+    .unwrap();
+    assert!(matches!(fresh.job, Job::Show { .. }));
+    assert!(
+        finish(
+            &mut c,
+            fresh,
+            Err(SquadError::new(
+                "WORKSPACE_SNAPSHOT_NOT_FOUND",
+                "Named save still missing"
+            ))
+        )
+        .is_none()
+    );
+    assert!(c.pending.is_none());
+    assert!(c.confirmation.is_none());
+    assert!(c.notice.contains("Not applied"));
+}
+#[test]
+fn missing_latest_or_ambiguous_restore_failure_inspects_once_and_retains_unknown() {
+    let mut c = controller();
+    c.selected = Some("snapshot:latest".into());
+    c.preview = Some(Preview::decode(&preview_value(None)).unwrap());
+    review(&mut c);
+    let restore = c.choose("confirm").unwrap();
+    let fresh = finish(
+        &mut c,
+        restore,
+        Err(SquadError::new(
+            "WORKSPACE_RESTORE_UNAVAILABLE",
+            "Could not acquire latest",
+        )),
+    )
+    .unwrap();
+    assert_eq!(
+        fresh.job,
+        Job::Show {
+            socket: SOCKET.into(),
+            name: None
+        }
+    );
+    assert!(
+        finish(
+            &mut c,
+            fresh,
+            Err(SquadError::new(
+                "WORKSPACE_PLAN_UNAVAILABLE",
+                "Latest missing"
+            ))
+        )
+        .is_none()
+    );
+    assert!(c.unknown.is_some());
+    assert!(c.pending.is_none());
+    assert!(c.confirmation.is_none());
+}
+#[test]
+fn mouse_choice_close_retains_the_submitted_write_on_every_pending_screen() {
+    for job in [
+        Job::Save {
+            socket: SOCKET.into(),
+            name: "new".into(),
+        },
+        Job::Remove {
+            socket: SOCKET.into(),
+            name: "saved".into(),
+        },
+        Job::Restore(Selection {
+            socket: SOCKET.into(),
+            name: Some("saved".into()),
+            digest: DIGEST.into(),
+            layout_only: true,
+        }),
+    ] {
+        let mut c = controller();
+        c.screen = Screen::Save;
+        let task = c.issue(job);
+        assert!(!c.rows().iter().find(|r| r.id == "close").unwrap().disabled);
+        assert!(c.choose("close").is_none());
+        assert!(!c.active);
+        assert_eq!(c.pending.as_ref(), Some(&task));
+        assert!(c.open().is_none());
+        assert_eq!(c.pending.as_ref(), Some(&task));
+    }
+}
