@@ -950,160 +950,105 @@ fn help_lines(app: &App) -> Vec<String> {
         .collect()
 }
 
-fn digest_app(members: bool, _home: bool, held: u64, until: u64, look: crate::look::Look) -> App {
-    let focused = row(
-        "worker",
-        "working",
-        "implementation",
-        json!({"id":"worker", "state":"working", "digest":{"active":true,"digestUntilMs":until,"remainingMs":until-1000,"heldCount":held}}),
-    );
-    let mut app = board(json!([{"title":null,"rows":[focused]}]));
-    app.view.as_mut().unwrap().board.members = members;
-    app.view.as_mut().unwrap().look = look;
-    app
-}
-
-/// Where `needle` starts on the screen, by cell.
-
-/// The choice chip is the only place a click opens the digest dropdown, on every
-/// surface that paints member rows; the rest of the row keeps its click.
-
 #[test]
-fn digest_heading_keeps_row_height_hits_and_selected_background() {
+fn policy_chips_keep_actual_workspace_row_height_hits_and_selection_at_each_width() {
+    use crate::board::{app::RowTarget, shell::OpsTab};
     crate::status::with_now_ms(1_000, || {
-        for (members, home) in [(false, false), (true, false)] {
-            for width in [20, 80, 160] {
-                let focused = digest_app(members, home, 2, 4_801_000, Default::default());
-                let plain = digest_app(members, home, 2, 1_000, Default::default());
-                board_buffer(&plain, width, 30);
-                let hits = |app: &App| {
-                    app.hits
-                        .borrow()
+        for tab in [OpsTab::Overview, OpsTab::Agents, OpsTab::Digest] {
+            for width in [40, 80, 160] {
+                for (base, depth) in [
+                    (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::TrueColor),
+                    (
+                        tmt_cli_style::Base::TmtLight,
+                        tmt_cli_style::Depth::TrueColor,
+                    ),
+                    (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::Ansi16),
+                    (tmt_cli_style::Base::Mono, tmt_cli_style::Depth::None),
+                ] {
+                    let look = crate::look::Look {
+                        theme: tmt_cli_style::Theme::new(base),
+                        depth,
+                    };
+                    let mut plain = workspace_board();
+                    plain.shell.tab = tab;
+                    plain.view.as_mut().unwrap().look = look;
+                    plain
+                        .view
+                        .as_mut()
+                        .unwrap()
+                        .home
+                        .as_mut()
+                        .unwrap()
+                        .workspace
+                        .squad_looks
+                        .insert(crate::board::app::workspace::tests::ROOM.into(), look);
+                    assert_eq!(plain.look(), look);
+                    let target = RowTarget::Workspace(plain.workspace.selected.clone().unwrap());
+                    let row_hits = |app: &App| {
+                        app.hits
+                            .borrow()
+                            .iter()
+                            .filter_map(|hit| {
+                                hit.row()
+                                    .map(|index| (app.row_target(index), hit.x, hit.y, hit.width))
+                            })
+                            .collect::<Vec<_>>()
+                    };
+                    board_buffer(&plain, width, 30);
+                    let before = row_hits(&plain);
+                    assert!(
+                        before.iter().any(|(row, ..)| row.as_ref() == Some(&target)),
+                        "the selected actual member must be painted: {tab:?}/{width}/{depth:?}"
+                    );
+                    let starts = plain.row_starts.borrow().clone();
+                    let mut focused = workspace_board();
+                    focused.shell.tab = tab;
+                    focused.view.as_mut().unwrap().look = look;
+                    focused
+                        .view
+                        .as_mut()
+                        .unwrap()
+                        .home
+                        .as_mut()
+                        .unwrap()
+                        .workspace
+                        .squad_looks
+                        .insert(crate::board::app::workspace::tests::ROOM.into(), look);
+                    assert_eq!(focused.look(), look);
+                    workspace_row(&mut focused)["digest"] = json!({"active":true,
+                        "digestUntilMs":4_801_000,"remainingMs":4_800_000,"heldCount":2});
+                    let buffer = board_buffer(&focused, width, 30);
+                    assert_eq!(
+                        row_hits(&focused),
+                        before,
+                        "chips add no row or hit geometry"
+                    );
+                    assert_eq!(*focused.row_starts.borrow(), starts);
+                    let (_, x, y, cells) = before
                         .iter()
-                        .filter_map(|hit| hit.row().map(|row| (row, hit.x, hit.y, hit.width)))
-                        .collect::<Vec<_>>()
-                };
-                let before = hits(&plain);
-                let buffer = board_buffer(&focused, width, 30);
-                assert_eq!(
-                    hits(&focused),
-                    before,
-                    "digest adds no row lines or hit regions"
-                );
-                // Below this width the state keeps the whole heading.
-                if let Some(hit) = focused
-                    .hits
-                    .borrow()
-                    .iter()
-                    .find(|hit| hit.row() == Some(0))
-                    .filter(|_| width >= 80)
-                {
-                    let line = (0..width)
-                        .map(|x| buffer[(x, hit.y)].symbol())
-                        .collect::<String>();
-                    assert!(line.contains("digest"), "{line}");
-                    let from = (0..width.saturating_sub("digest".len() as u16 - 1))
-                        .find(|x| {
-                            (*x..*x + "digest".len() as u16)
-                                .map(|at| buffer[(at, hit.y)].symbol())
-                                .collect::<String>()
-                                == "digest"
-                        })
+                        .find(|(row, ..)| row.as_ref() == Some(&target))
                         .unwrap();
-                    for x in from..from + "digest".len() as u16 {
+                    for column in *x..*x + *cells {
                         assert_eq!(
-                            buffer[(x, hit.y)].bg,
-                            focused.look().selection().bg.unwrap()
+                            buffer[(column, *y)].bg,
+                            look.selection().bg.unwrap_or_default(),
+                            "selected row {tab:?}/{width}/{depth:?} at ({column},{y})"
                         );
-                    }
-                }
-            }
-        }
-        // Wrapped first-line cells retain their original continuation geometry.
-        let mut focused = digest_app(false, false, 2, 4_801_000, Default::default());
-        let mut plain = digest_app(false, false, 2, 1_000, Default::default());
-        for app in [&mut focused, &mut plain] {
-            let view = app.view.as_mut().unwrap();
-            view.rows = rows_from(
-                r#"[p.rows]
-columns = [{name = "member", width = "30%"}, {name = "task", width = "70%", overflow = "wrap", max_lines = 4}]
-"#,
-            );
-            view.document["sections"][0]["rows"][0]["fields"]["task"] =
-                json!("alpha beta gamma delta epsilon zeta eta theta");
-        }
-        board_buffer(&plain, 40, 30);
-        let starts = plain.row_starts.borrow().clone();
-        board_buffer(&focused, 40, 30);
-        assert_eq!(*focused.row_starts.borrow(), starts);
-        assert_eq!(
-            focused
-                .hits
-                .borrow()
-                .iter()
-                .map(|hit| hit.y)
-                .collect::<Vec<_>>(),
-            plain
-                .hits
-                .borrow()
-                .iter()
-                .map(|hit| hit.y)
-                .collect::<Vec<_>>()
-        );
-    });
-}
-
-#[test]
-#[ignore = "explicit digest-window renderer evidence capture"]
-fn capture_digest_window_rows() {
-    let output = std::env::var("TMT_DIGEST_OUTPUT").expect("task-owned output path");
-    let mut cases = Vec::new();
-    crate::status::with_now_ms(1_000, || {
-        for (members, home) in [(false, false), (true, false)] {
-            for (base, depth) in [
-                ("tmt", tmt_cli_style::Depth::TrueColor),
-                ("tmt-light", tmt_cli_style::Depth::TrueColor),
-                ("NO_COLOR", tmt_cli_style::Depth::None),
-            ] {
-                for width in [20, 80, 160] {
-                    for held in [0, 2] {
-                        for expanded in [false, true] {
-                            for selected in [false, true] {
-                                let mut app = digest_app(
-                                    members,
-                                    home,
-                                    held,
-                                    4_801_000,
-                                    crate::look::Look {
-                                        theme: tmt_cli_style::Theme::new(
-                                            tmt_cli_style::Base::parse(if base == "NO_COLOR" {
-                                                "tmt"
-                                            } else {
-                                                base
-                                            })
-                                            .unwrap(),
-                                        ),
-                                        depth,
-                                    },
-                                );
-                                if !selected {
-                                    app.selected = 1;
-                                }
-                                if expanded {
-                                    let target = app.row_target(0).unwrap();
-                                    app.row_details
-                                        .toggle(crate::board::row_detail::Target::Row(target));
-                                }
-                                let buffer = board_buffer(&app, width, 30);
-                                cases.push(json!({"selected":selected,"members":members,"home":home,"expanded":expanded,"theme":base,"width":width,"held":held,"text":buffer_text(&buffer).join("\n"),"cells":buffer.content.iter().map(|cell|json!({"symbol":cell.symbol(),"fg":format!("{:?}",cell.fg),"bg":format!("{:?}",cell.bg),"modifier":format!("{:?}",cell.modifier)})).collect::<Vec<_>>() }));
-                            }
+                        if look.selection().bg.is_none() {
+                            assert!(buffer[(column, *y)].modifier.contains(Modifier::REVERSED));
                         }
                     }
+                    if width >= 80 {
+                        let line = (*x..*x + *cells)
+                            .map(|column| buffer[(column, *y)].symbol())
+                            .collect::<String>();
+                        assert!(line.contains("digest"), "{tab:?}/{width}/{depth:?}: {line}");
+                    }
+                    assert_eq!(focused.workspace.selected, plain.workspace.selected);
                 }
             }
         }
     });
-    std::fs::write(output, serde_json::to_vec_pretty(&cases).unwrap()).unwrap();
 }
 
 #[test]
@@ -1238,49 +1183,4 @@ fn supplied_digest_zero_held_and_mode_changes_replace_old_labels_and_keep_the_ch
             });
         }
     }
-}
-
-#[test]
-#[ignore = "read-only name-column review packet; requires SQUAD_NAMES_OUT"]
-fn capture_squad_name_column_frames() {
-    let mut frames = Vec::new();
-    for (case, name) in [
-        ("short", "bravo"),
-        ("long", "documentation-with-a-very-long-name"),
-        ("wide", "界界界界界界界"),
-    ] {
-        for width in [100, 60, 36] {
-            for depth in [tmt_cli_style::Depth::TrueColor, tmt_cli_style::Depth::None] {
-                let mut app = board(json!([{"title": null, "rows": [
-                    row("alpha", "working", "", json!({"id":"first", "state":"working"})),
-                    row(name, "working", "", json!({"id":"second", "state":"working"})),
-                ]}]));
-                let view = app.view.as_mut().unwrap();
-                view.board.members = true;
-                view.look.depth = depth;
-                app.labels = crate::labels::Supplied::from_rows(vec![(
-                    "digest".into(),
-                    [("first", "Every 20s"), ("second", "Every 5m")]
-                        .into_iter()
-                        .map(|(id, text)| {
-                            (
-                                id.into(),
-                                vec![crate::labels::Label {
-                                    text: text.into(),
-                                    role: Role::Text,
-                                    action: None,
-                                }],
-                            )
-                        })
-                        .collect(),
-                )]);
-                frames.push(json!({"case":case,"width":width,"noColor":depth == tmt_cli_style::Depth::None,"lines":draw(&app,width,12)}));
-            }
-        }
-    }
-    std::fs::write(
-        std::env::var_os("SQUAD_NAMES_OUT").expect("SQUAD_NAMES_OUT"),
-        serde_json::to_string_pretty(&frames).unwrap() + "\n",
-    )
-    .unwrap();
 }
