@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
+import { checkReleaseParity } from '../../scripts/release-parity.mjs';
 
 const script = fileURLToPath(new URL('../../scripts/release-publish.mjs', import.meta.url));
 const componentMap = fileURLToPath(new URL('../../../.github/components.json', import.meta.url));
@@ -694,6 +695,33 @@ describe('release-publish.mjs index entry', () => {
     expect(
       fixture.calls().filter((args) => args[1] === 'repos/pj-tmt/tmt/git/refs/heads/release-index')
     ).toHaveLength(1);
+  });
+
+  it('records #3036 ref-collision retry policy in the pre-merge tooling suite', () => {
+    const read = (file: string) =>
+      readFileSync(new URL(`../../../${file}`, import.meta.url), 'utf8');
+    const manifest = JSON.parse(read('.github/release-parity.json'));
+    expect(manifest.incidents['3036']).toEqual({
+      release: {
+        workflow: 'native-release.yml',
+        job: 'release-index',
+        step: 'name:Advance the verified release index',
+      },
+      preMerge: [
+        {
+          workflow: 'ci.yml',
+          job: 'unit-tests',
+          selection: { kind: 'ci-scope', output: 'native_scope', value: 'full' },
+          coverage: 'policy',
+          tests: ['typescript/test/tooling/release-publish-script.test.ts'],
+        },
+      ],
+    });
+    expect(() => checkReleaseParity(manifest, { read })).not.toThrow();
+    delete manifest.incidents['3036'];
+    expect(() => checkReleaseParity(manifest, { read })).toThrow(
+      'release incidents: unmapped 3036'
+    );
   });
 
   it('prints actual newest historical identity for operator review without writes', () => {

@@ -936,6 +936,26 @@
           "tests": ["typescript/test/tooling/verify-public-install.test.ts"]
         }
       ]
+    },
+    "3036": {
+      "release": {
+        "workflow": "native-release.yml",
+        "job": "release-index",
+        "step": "name:Advance the verified release index"
+      },
+      "preMerge": [
+        {
+          "workflow": "ci.yml",
+          "job": "unit-tests",
+          "selection": {
+            "kind": "ci-scope",
+            "output": "native_scope",
+            "value": "full"
+          },
+          "coverage": "policy",
+          "tests": ["typescript/test/tooling/release-publish-script.test.ts"]
+        }
+      ]
     }
   }
 }
