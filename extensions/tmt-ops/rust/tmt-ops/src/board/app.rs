@@ -3152,9 +3152,7 @@ impl App {
                 | super::shell::OpsInputOwner::Completion
         );
         if !typing
-            && (self.modal_open()
-                || self.focused_pane() == Some(Pane::Replies)
-                || self.usage_chart.borrow().focused())
+            && (self.modal_open() || self.usage_chart.borrow().focused())
             && let Some(action) = event_name(key).and_then(|name| self.bindings().remove(&name))
             && matches!(
                 action.verb,

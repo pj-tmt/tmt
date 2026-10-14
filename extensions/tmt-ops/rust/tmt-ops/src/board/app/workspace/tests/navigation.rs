@@ -149,6 +149,11 @@ fn configured_destination_and_reader_entry_share_the_effective_table() {
             program: None,
         })
     );
+    assert_eq!(key(&mut app, KeyCode::F(2)), Effect::None);
+    assert_eq!(app.shell.tab, OpsTab::Digest);
+    assert_eq!(app.focused_pane(), Some(Pane::Rows));
+    key(&mut app, KeyCode::Char('2'));
+    key(&mut app, KeyCode::Enter);
     key(&mut app, KeyCode::Char('?'));
     assert_eq!(key(&mut app, KeyCode::F(2)), Effect::None);
     assert!(!app.help);
