@@ -43,14 +43,29 @@ fn only_visible_agents_list_member_has_default_rename_and_hidden_target_cannot_b
 #[test]
 fn rename_freezes_uuid_literal_expected_name_and_requires_visible_review_once() {
     let mut app = board();
+    let selected = app.workspace.selected.clone().unwrap();
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .rows
+        .get_mut(&selected)
+        .unwrap()["name"] = json!(" Worker ");
     key(&mut app, KeyCode::Char('r'));
-    app.workspace_form
-        .as_mut()
-        .unwrap()
-        .member
-        .as_mut()
-        .unwrap()
-        .name = " Worker ".into();
+    assert_eq!(
+        app.workspace_form
+            .as_ref()
+            .unwrap()
+            .member
+            .as_ref()
+            .unwrap()
+            .name,
+        " Worker ",
+        "the visible row supplies the CAS precondition even if the earlier global read still says worker"
+    );
     app.workspace_submit_field(" --literal-name ".into());
     assert_eq!(
         app.workspace_confirm(),

@@ -501,7 +501,7 @@ impl App {
         let Some(snapshot) = self.workspace_snapshot() else {
             return self.say("The workspace has not loaded.");
         };
-        let (selected_room, member) = match self.workspace.selected.as_ref() {
+        let (selected_room, mut member) = match self.workspace.selected.as_ref() {
             Some(OpsTarget::Squad(id)) => (room(self, id), None),
             Some(OpsTarget::Member {
                 room_id,
@@ -524,6 +524,19 @@ impl App {
         }
         if matches!(kind, Kind::Remove | Kind::Assign | Kind::RenameMember) && member.is_none() {
             return self.say("Select a named member first.");
+        }
+        if kind == Kind::RenameMember {
+            let member = member.as_mut().expect("selected member checked above");
+            // Global presence and squad rows can come from different reads.
+            // Freeze the literal name displayed on this exact selected UUID.
+            let Some(name) = self
+                .selected_row()
+                .filter(|row| row["id"].as_str() == Some(member.id.as_str()))
+                .and_then(|row| row["name"].as_str())
+            else {
+                return self.say("The selected agent name is unavailable; refresh before Rename.");
+            };
+            member.name = name.to_owned();
         }
         let rooms = snapshot
             .roster
