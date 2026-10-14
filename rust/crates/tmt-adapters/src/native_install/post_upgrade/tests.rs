@@ -319,9 +319,15 @@ fn additive_members_do_not_change_the_observed_door_state() {
         let running = format!(
             r#"{{"running":true,"origin":"http://127.0.0.1:49152","path":"/r/prefix","futureProjection":{extra}}}"#
         );
-        assert_eq!(remote_status(running.as_bytes()), PostUpgradeObservation::Running);
+        assert_eq!(
+            remote_status(running.as_bytes()),
+            PostUpgradeObservation::Running
+        );
         let stopped = format!(r#"{{"running":false,"lastPort":49152,"futureProjection":{extra}}}"#);
-        assert_eq!(remote_status(stopped.as_bytes()), PostUpgradeObservation::Stopped);
+        assert_eq!(
+            remote_status(stopped.as_bytes()),
+            PostUpgradeObservation::Stopped
+        );
     }
 }
 
@@ -340,7 +346,10 @@ fn additive_members_cannot_supply_missing_or_mistyped_required_members() {
         r#"{"running":false,"lastPort":[],"futureProjection":true}"#,
         r#"{"running":false,"lastPort":null,"futureProjection":true"#,
     ] {
-        assert_eq!(remote_status(value.as_bytes()), PostUpgradeObservation::Unknown, "{value}");
+        assert_eq!(
+            remote_status(value.as_bytes()),
+            PostUpgradeObservation::Unknown,
+            "{value}"
+        );
     }
 }
-
