@@ -413,6 +413,13 @@ own module/drawing boundaries and verification.
   only explicit Resume clears pause. Rename CAS keeps the room UUID, then moves
   Ops metadata/config and cron namespaces under owned locks; partial results
   offer repair without room rollback. [Surface ownership](.agents/skills/tmt-ops-dev/references/board-home.md).
+- **Discovery.** The board consumes [Core discovery
+  v1](contracts/discovery-v1.md) through finite public `discover` and guarded
+  `add` commands on its existing ordered lane. Its private controller owns
+  explicit review, bounded scan generations and retained per-item outcomes;
+  paint/input perform no discovery I/O. Core retains native/digest/identity
+  authority, acquisition limits and binding effects. Successful public refresh
+  selects the returned UUID through the workspace projection.
 - **Checklist.** `checklist_command` uses the existing caller/room admission and
   versioned room-UUID JSON in `<dataRoot>/ops/checklist`. Reads create no files;
   failed prepublication preserves bytes; uncertainty remains Unknown after

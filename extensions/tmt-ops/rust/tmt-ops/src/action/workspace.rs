@@ -22,6 +22,7 @@ pub enum OpsUiAction {
     ReverseSort,
     Timers,
     WorkspaceSnapshots,
+    DiscoverAgents,
     Pin,
     Manage,
     CreateSquad,
@@ -164,6 +165,13 @@ const SPECS: &[OpsUiSpec] = &[
         "snapshots",
         "preview saved workspace snapshots and review a guarded restore",
         12
+    ),
+    spec!(
+        DiscoverAgents,
+        "discover-agents",
+        "add agent",
+        "find an agent already running and review its binding",
+        13
     ),
     spec!(Manage, "manage", "manage", "manage the selected squad", 6),
     spec!(

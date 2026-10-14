@@ -427,27 +427,39 @@ fn squad_detail(frame: &mut Frame, app: &App, area: Rect) {
     };
     outline.paint_flat(area, frame.buffer_mut());
     let mut inside = outline.inner(area);
-    if let Some(target @ OpsTarget::Squad(_)) = app
-        .workspace
-        .selected
-        .as_ref()
-        .filter(|_| app.workspace_selection_visible())
-    {
+    if let Some(target) = app.workspace.selected.as_ref().filter(|target| {
+        app.workspace_selection_visible()
+            && (matches!(target, OpsTarget::Squad(_))
+                || matches!(target, OpsTarget::Pool) && snapshot.roster.members.is_empty())
+    }) {
         use super::manage::Kind;
         use crate::action::{Action, OpsUiAction};
-        let actions = [
-            ("Add member", Choice::WorkspaceBegin(Kind::Add)),
-            ("Set/clear lead", Choice::WorkspaceBegin(Kind::Lead)),
-            ("Rename", Choice::WorkspaceBegin(Kind::RenameSquad)),
-            (
-                "Pin",
-                Choice::Action(Action::parse(OpsUiAction::Pin.spec().name).unwrap()),
-            ),
-            (
-                "Timers",
-                Choice::Action(Action::parse(OpsUiAction::Timers.spec().name).unwrap()),
-            ),
-        ];
+        let mut actions = if matches!(target, OpsTarget::Squad(_)) {
+            vec![
+                ("Add member", Choice::WorkspaceBegin(Kind::Add)),
+                ("Set/clear lead", Choice::WorkspaceBegin(Kind::Lead)),
+                ("Rename", Choice::WorkspaceBegin(Kind::RenameSquad)),
+                (
+                    "Pin",
+                    Choice::Action(Action::parse(OpsUiAction::Pin.spec().name).unwrap()),
+                ),
+                (
+                    "Timers",
+                    Choice::Action(Action::parse(OpsUiAction::Timers.spec().name).unwrap()),
+                ),
+            ]
+        } else {
+            vec![]
+        };
+        if matches!(target, OpsTarget::Pool)
+            && let Some(action) = app
+                .workspace_bindings()
+                .values()
+                .find(|a| matches!(a.verb, crate::action::Verb::Ui(OpsUiAction::DiscoverAgents)))
+                .cloned()
+        {
+            actions.push(("Add an agent already running", Choice::Action(action)));
+        }
         let mut x = inside.x;
         let mut y = inside.y;
         for (label, choice) in actions {
@@ -498,7 +510,15 @@ fn squad_detail(frame: &mut Frame, app: &App, area: Rect) {
                 text.push(format!("Timers: {}",jobs.map_or("not reported".into(),|count|count.to_string())));
 
             },
-            Some(OpsTarget::Pool)=>{text.push("Agents without a squad".into());text.push("Expand the pool to select an agent; add it to an existing squad or create one.".into());},
+            Some(OpsTarget::Pool)=>{
+                if snapshot.roster.members.is_empty() {
+                    text.push("No agents are listed yet.".into());
+                    text.push("Start an agent in a tmux pane, then choose Add an agent already running from the Agents list. Scan, review the pane and confirm its name or existing identity.".into());
+                } else {
+                    text.push("Agents without a squad".into());
+                    text.push("Expand the pool to select an agent; add it to an existing squad or create one.".into());
+                }
+            },
             _=>{},
         },
     }

@@ -9,6 +9,11 @@ pub(super) fn render(frame: &mut Frame, app: &App, body: Rect, look: crate::look
     {
         recovery.render(frame, look, body);
     }
+    if let Some(discovery) = &app.discovery
+        && discovery.active
+    {
+        discovery.render(frame, look, body);
+    }
     if let Some(checklist) = &app.checklist
         && checklist.active
     {

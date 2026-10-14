@@ -23,6 +23,7 @@ pub(crate) enum Opening {
 pub(super) enum Job {
     Act(Request),
     Recovery(super::recovery::load::Task),
+    Discovery(super::discovery::load::Task),
     Open(Opening),
     /// Save the header's token-rate window with no settings overlay open.
     TokenWindow(String),
@@ -34,6 +35,7 @@ impl Job {
         match self {
             Self::Act(request) => request.progress(),
             Self::Recovery(_) => "Reading or applying the selected workspace snapshot…",
+            Self::Discovery(_) => "Scanning or binding the selected agent…",
             Self::Open(Opening::Settings) => "Loading settings…",
             Self::Open(Opening::ThemePicker(_)) => "Loading themes…",
             Self::TokenWindow(_) => "Saving the token window…",
@@ -45,6 +47,7 @@ impl Job {
 pub(super) fn run(core: &Core, labels: Option<&Refresh>, job: Job) -> BoardEvent {
     match job {
         Job::Recovery(task) => BoardEvent::Recovery(super::recovery::load::complete(core, task)),
+        Job::Discovery(task) => BoardEvent::Discovery(super::discovery::load::complete(core, task)),
         Job::Act(request) => {
             let jump = matches!(request, Request::Jump(_));
             let sends = request.sends();

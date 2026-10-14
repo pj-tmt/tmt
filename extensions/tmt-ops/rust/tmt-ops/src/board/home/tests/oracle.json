@@ -611,7 +611,7 @@
         "",
         "",
         "────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
       ],
       "styles": [
         "0:22=s0 22:10=s1 32:10=s0 42:118=s2",
@@ -649,7 +649,7 @@
         "0:1=s3 1:62=s2 63:1=s3 64:96=s2",
         "0:1=s3 1:62=s2 63:1=s3 64:96=s2",
         "0:64=s3 64:96=s2",
-        "0:1=s9 1:10=s0 11:1=s9 12:7=s0 19:1=s9 20:9=s0 29:1=s9 30:7=s0 37:1=s9 38:9=s0 47:1=s9 48:9=s0 57:1=s9 58:9=s0 67:1=s9 68:9=s0 77:1=s9 78:12=s0 90:1=s9 91:11=s0 102:1=s9 103:9=s0 112:6=s9 118:10=s0 128:3=s9 131:7=s0 138:1=s9 139:7=s0 146:1=s9 147:5=s0 152:8=s2"
+        "0:1=s9 1:10=s0 11:1=s9 12:7=s0 19:1=s9 20:9=s0 29:1=s9 30:7=s0 37:1=s9 38:9=s0 47:1=s9 48:9=s0 57:1=s9 58:9=s0 67:1=s9 68:9=s0 77:1=s9 78:12=s0 90:1=s9 91:12=s0 103:1=s9 104:11=s0 115:1=s9 116:9=s0 125:6=s9 131:10=s0 141:1=s9 142:7=s0 149:1=s9 150:5=s0 155:5=s2"
       ],
       "state": "agents",
       "look": "tmt",
@@ -677,7 +677,7 @@
         " ›   worker · working · active",
         "                                                                                                                                                            ↑ 2",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
       ],
       "styles": [
         "0:22=s0 22:10=s1 32:10=s0 42:118=s2",
@@ -687,7 +687,7 @@
         "0:1=s3 1:158=s8 159:1=s3",
         "0:1=s3 1:155=s2 156:4=s3",
         "0:160=s3",
-        "0:1=s9 1:10=s0 11:1=s9 12:7=s0 19:1=s9 20:9=s0 29:1=s9 30:7=s0 37:1=s9 38:9=s0 47:1=s9 48:9=s0 57:1=s9 58:9=s0 67:1=s9 68:9=s0 77:1=s9 78:12=s0 90:1=s9 91:11=s0 102:1=s9 103:9=s0 112:6=s9 118:10=s0 128:3=s9 131:7=s0 138:1=s9 139:7=s0 146:1=s9 147:5=s0 152:8=s2"
+        "0:1=s9 1:10=s0 11:1=s9 12:7=s0 19:1=s9 20:9=s0 29:1=s9 30:7=s0 37:1=s9 38:9=s0 47:1=s9 48:9=s0 57:1=s9 58:9=s0 67:1=s9 68:9=s0 77:1=s9 78:12=s0 90:1=s9 91:12=s0 103:1=s9 104:11=s0 115:1=s9 116:9=s0 125:6=s9 131:10=s0 141:1=s9 142:7=s0 149:1=s9 150:5=s0 155:5=s2"
       ],
       "state": "agents",
       "look": "tmt",
@@ -1620,10 +1620,10 @@
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         "2 Agents · Common pool",
         "─ Agents ─────────────────────────────────────────────────────── ─Common pool───────────────────────────────────────────────────────────────────────────────────",
-        " › ▸ Common pool · 0                                              Agents without a squad",
-        "                                                                  Expand the pool to select an agent; add it to an existing squad or create one.",
-        "",
-        "",
+        " › ▸ Common pool · 0                                               Add an agent already running",
+        "                                                                  No agents are listed yet.",
+        "                                                                  Start an agent in a tmux pane, then choose Add an agent already running from the Agents list.",
+        "                                                                  Scan, review the pane and confirm its name or existing identity.",
         "",
         "",
         "",
@@ -1651,17 +1651,17 @@
         "",
         "",
         "──────────────────────────────────────────────────────────────── ───────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  left collapse  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  ? help  q quit"
       ],
       "styles": [
         "0:22=s0 22:10=s1 32:10=s0 42:118=s2",
         "0:160=s3",
         "0:22=s4 22:138=s2",
         "0:1=s3 1:8=s0 9:55=s3 64:1=s2 65:1=s3 66:11=s0 77:83=s3",
-        "0:1=s3 1:62=s8 63:1=s3 64:1=s2 65:1=s3 66:22=s4 88:71=s2 159:1=s3",
-        "0:1=s3 1:62=s2 63:1=s3 64:1=s2 65:1=s3 66:78=s4 144:15=s2 159:1=s3",
-        "0:1=s3 1:62=s2 63:1=s3 64:1=s2 65:1=s3 66:93=s2 159:1=s3",
-        "0:1=s3 1:62=s2 63:1=s3 64:1=s2 65:1=s3 66:93=s2 159:1=s3",
+        "0:1=s3 1:62=s8 63:1=s3 64:1=s2 65:1=s3 66:30=s4 96:63=s2 159:1=s3",
+        "0:1=s3 1:62=s2 63:1=s3 64:1=s2 65:1=s3 66:25=s4 91:68=s2 159:1=s3",
+        "0:1=s3 1:62=s2 63:1=s3 64:1=s2 65:1=s3 66:93=s4 159:1=s3",
+        "0:1=s3 1:62=s2 63:1=s3 64:1=s2 65:1=s3 66:64=s4 130:29=s2 159:1=s3",
         "0:1=s3 1:62=s2 63:1=s3 64:1=s2 65:1=s3 66:93=s2 159:1=s3",
         "0:1=s3 1:62=s2 63:1=s3 64:1=s2 65:1=s3 66:93=s2 159:1=s3",
         "0:1=s3 1:62=s2 63:1=s3 64:1=s2 65:1=s3 66:93=s2 159:1=s3",
@@ -1689,14 +1689,14 @@
         "0:1=s3 1:62=s2 63:1=s3 64:1=s2 65:1=s3 66:93=s2 159:1=s3",
         "0:1=s3 1:62=s2 63:1=s3 64:1=s2 65:1=s3 66:93=s2 159:1=s3",
         "0:64=s3 64:1=s2 65:95=s3",
-        "0:1=s9 1:10=s0 11:1=s9 12:9=s0 21:1=s9 22:9=s0 31:1=s9 32:9=s0 41:1=s9 42:12=s0 54:1=s9 55:11=s0 66:1=s9 67:9=s0 76:6=s9 82:10=s0 92:3=s9 95:7=s0 102:4=s9 106:7=s0 113:2=s9 115:11=s0 126:4=s9 130:11=s0 141:1=s9 142:7=s0 149:1=s9 150:5=s0 155:5=s2"
+        "0:1=s9 1:10=s0 11:1=s9 12:9=s0 21:1=s9 22:9=s0 31:1=s9 32:9=s0 41:1=s9 42:12=s0 54:1=s9 55:12=s0 67:1=s9 68:11=s0 79:1=s9 80:9=s0 89:6=s9 95:10=s0 105:3=s9 108:7=s0 115:4=s9 119:7=s0 126:2=s9 128:11=s0 139:1=s9 140:7=s0 147:1=s9 148:5=s0 153:7=s2"
       ],
       "state": "empty",
       "look": "tmt",
       "width": 160,
       "height": 36,
       "hits": "[Hit { y: 4, x: 1, width: 62, row: 0 }]",
-      "actions": "[]",
+      "actions": "[(Rect { x: 66, y: 4, width: 30, height: 1 }, Pool, Action(Action { verb: Ui(DiscoverAgents), args: [], text: \"discover-agents\" }))]",
       "tabs": "[TabHit { y: 0, x: 10, width: 12, tab: 0 }, TabHit { y: 0, x: 22, width: 10, tab: 1 }, TabHit { y: 0, x: 32, width: 10, tab: 2 }]",
       "starts": [
         0
@@ -1715,7 +1715,7 @@
         " › ▸ Common pool · 0",
         "",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  left collapse  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  ? help  q quit"
       ],
       "styles": [
         "0:22=s0 22:10=s1 32:10=s0 42:118=s2",
@@ -1725,7 +1725,7 @@
         "0:1=s3 1:158=s8 159:1=s3",
         "0:1=s3 1:158=s2 159:1=s3",
         "0:160=s3",
-        "0:1=s9 1:10=s0 11:1=s9 12:9=s0 21:1=s9 22:9=s0 31:1=s9 32:9=s0 41:1=s9 42:12=s0 54:1=s9 55:11=s0 66:1=s9 67:9=s0 76:6=s9 82:10=s0 92:3=s9 95:7=s0 102:4=s9 106:7=s0 113:2=s9 115:11=s0 126:4=s9 130:11=s0 141:1=s9 142:7=s0 149:1=s9 150:5=s0 155:5=s2"
+        "0:1=s9 1:10=s0 11:1=s9 12:9=s0 21:1=s9 22:9=s0 31:1=s9 32:9=s0 41:1=s9 42:12=s0 54:1=s9 55:12=s0 67:1=s9 68:11=s0 79:1=s9 80:9=s0 89:6=s9 95:10=s0 105:3=s9 108:7=s0 115:4=s9 119:7=s0 126:2=s9 128:11=s0 139:1=s9 140:7=s0 147:1=s9 148:5=s0 153:7=s2"
       ],
       "state": "empty",
       "look": "tmt",
@@ -1761,10 +1761,10 @@
         "────────────────────────────────────────────────────────────────────────────────────────────────────",
         "",
         "─Common pool────────────────────────────────────────────────────────────────────────────────────────",
-        " Agents without a squad",
-        " Expand the pool to select an agent; add it to an existing squad or create one.",
-        "",
-        "",
+        "  Add an agent already running",
+        " No agents are listed yet.",
+        " Start an agent in a tmux pane, then choose Add an agent already running from the Agents list.",
+        " Scan, review the pane and confirm its name or existing identity.",
         "",
         "",
         "",
@@ -1779,7 +1779,7 @@
         "",
         "",
         "────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  ? help  q quit"
       ],
       "styles": [
         "0:22=s0 22:10=s1 32:10=s0 42:58=s2",
@@ -1799,10 +1799,10 @@
         "0:100=s3",
         "0:100=s2",
         "0:1=s3 1:11=s0 12:88=s3",
-        "0:1=s3 1:22=s4 23:76=s2 99:1=s3",
-        "0:1=s3 1:78=s4 79:20=s2 99:1=s3",
-        "0:1=s3 1:98=s2 99:1=s3",
-        "0:1=s3 1:98=s2 99:1=s3",
+        "0:1=s3 1:30=s4 31:68=s2 99:1=s3",
+        "0:1=s3 1:25=s4 26:73=s2 99:1=s3",
+        "0:1=s3 1:93=s4 94:5=s2 99:1=s3",
+        "0:1=s3 1:64=s4 65:34=s2 99:1=s3",
         "0:1=s3 1:98=s2 99:1=s3",
         "0:1=s3 1:98=s2 99:1=s3",
         "0:1=s3 1:98=s2 99:1=s3",
@@ -1817,14 +1817,14 @@
         "0:1=s3 1:98=s2 99:1=s3",
         "0:1=s3 1:98=s2 99:1=s3",
         "0:100=s3",
-        "0:1=s9 1:10=s0 11:1=s9 12:9=s0 21:1=s9 22:9=s0 31:1=s9 32:9=s0 41:1=s9 42:12=s0 54:1=s9 55:11=s0 66:1=s9 67:9=s0 76:1=s9 77:7=s0 84:1=s9 85:5=s0 90:10=s2"
+        "0:1=s9 1:10=s0 11:1=s9 12:9=s0 21:1=s9 22:9=s0 31:1=s9 32:9=s0 41:1=s9 42:12=s0 54:1=s9 55:12=s0 67:1=s9 68:11=s0 79:1=s9 80:7=s0 87:1=s9 88:5=s0 93:7=s2"
       ],
       "state": "empty",
       "look": "tmt",
       "width": 100,
       "height": 36,
       "hits": "[Hit { y: 4, x: 1, width: 98, row: 0 }]",
-      "actions": "[]",
+      "actions": "[(Rect { x: 1, y: 17, width: 30, height: 1 }, Pool, Action(Action { verb: Ui(DiscoverAgents), args: [], text: \"discover-agents\" }))]",
       "tabs": "[TabHit { y: 0, x: 10, width: 12, tab: 0 }, TabHit { y: 0, x: 22, width: 10, tab: 1 }, TabHit { y: 0, x: 32, width: 10, tab: 2 }]",
       "starts": [
         0
@@ -1843,7 +1843,7 @@
         " › ▸ Common pool · 0",
         "",
         "────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  ? help  q quit"
       ],
       "styles": [
         "0:22=s0 22:10=s1 32:10=s0 42:58=s2",
@@ -1853,7 +1853,7 @@
         "0:1=s3 1:98=s8 99:1=s3",
         "0:1=s3 1:98=s2 99:1=s3",
         "0:100=s3",
-        "0:1=s9 1:10=s0 11:1=s9 12:9=s0 21:1=s9 22:9=s0 31:1=s9 32:9=s0 41:1=s9 42:12=s0 54:1=s9 55:11=s0 66:1=s9 67:9=s0 76:1=s9 77:7=s0 84:1=s9 85:5=s0 90:10=s2"
+        "0:1=s9 1:10=s0 11:1=s9 12:9=s0 21:1=s9 22:9=s0 31:1=s9 32:9=s0 41:1=s9 42:12=s0 54:1=s9 55:12=s0 67:1=s9 68:11=s0 79:1=s9 80:7=s0 87:1=s9 88:5=s0 93:7=s2"
       ],
       "state": "empty",
       "look": "tmt",
@@ -1889,11 +1889,11 @@
         "────────────────────────────────────────────────────────────────────────────────",
         "",
         "─Common pool────────────────────────────────────────────────────────────────────",
-        " Agents without a squad",
-        " Expand the pool to select an agent; add it to an existing squad or create one.",
-        "",
-        "",
-        "",
+        "  Add an agent already running",
+        " No agents are listed yet.",
+        " Start an agent in a tmux pane, then choose Add an agent already running from",
+        " the Agents list. Scan, review the pane and confirm its name or existing",
+        " identity.",
         "",
         "",
         "",
@@ -1907,7 +1907,7 @@
         "",
         "",
         "────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  ? help  q quit"
       ],
       "styles": [
         "0:22=s0 22:10=s1 32:10=s0 42:38=s2",
@@ -1927,11 +1927,11 @@
         "0:80=s3",
         "0:80=s2",
         "0:1=s3 1:11=s0 12:68=s3",
-        "0:1=s3 1:22=s4 23:56=s2 79:1=s3",
-        "0:1=s3 1:78=s4 79:1=s3",
-        "0:1=s3 1:78=s2 79:1=s3",
-        "0:1=s3 1:78=s2 79:1=s3",
-        "0:1=s3 1:78=s2 79:1=s3",
+        "0:1=s3 1:30=s4 31:48=s2 79:1=s3",
+        "0:1=s3 1:25=s4 26:53=s2 79:1=s3",
+        "0:1=s3 1:76=s4 77:2=s2 79:1=s3",
+        "0:1=s3 1:71=s4 72:7=s2 79:1=s3",
+        "0:1=s3 1:9=s4 10:69=s2 79:1=s3",
         "0:1=s3 1:78=s2 79:1=s3",
         "0:1=s3 1:78=s2 79:1=s3",
         "0:1=s3 1:78=s2 79:1=s3",
@@ -1945,14 +1945,14 @@
         "0:1=s3 1:78=s2 79:1=s3",
         "0:1=s3 1:78=s2 79:1=s3",
         "0:80=s3",
-        "0:1=s9 1:10=s0 11:1=s9 12:9=s0 21:1=s9 22:9=s0 31:1=s9 32:9=s0 41:1=s9 42:12=s0 54:1=s9 55:11=s0 66:1=s9 67:7=s0 74:1=s9 75:5=s0"
+        "0:1=s9 1:10=s0 11:1=s9 12:9=s0 21:1=s9 22:9=s0 31:1=s9 32:9=s0 41:1=s9 42:12=s0 54:1=s9 55:7=s0 62:1=s9 63:5=s0 68:12=s2"
       ],
       "state": "empty",
       "look": "tmt",
       "width": 80,
       "height": 36,
       "hits": "[Hit { y: 4, x: 1, width: 78, row: 0 }]",
-      "actions": "[]",
+      "actions": "[(Rect { x: 1, y: 17, width: 30, height: 1 }, Pool, Action(Action { verb: Ui(DiscoverAgents), args: [], text: \"discover-agents\" }))]",
       "tabs": "[TabHit { y: 0, x: 10, width: 12, tab: 0 }, TabHit { y: 0, x: 22, width: 10, tab: 1 }, TabHit { y: 0, x: 32, width: 10, tab: 2 }]",
       "starts": [
         0
@@ -1971,7 +1971,7 @@
         " › ▸ Common pool · 0",
         "",
         "────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  ? help  q quit"
       ],
       "styles": [
         "0:22=s0 22:10=s1 32:10=s0 42:38=s2",
@@ -1981,7 +1981,7 @@
         "0:1=s3 1:78=s8 79:1=s3",
         "0:1=s3 1:78=s2 79:1=s3",
         "0:80=s3",
-        "0:1=s9 1:10=s0 11:1=s9 12:9=s0 21:1=s9 22:9=s0 31:1=s9 32:9=s0 41:1=s9 42:12=s0 54:1=s9 55:11=s0 66:1=s9 67:7=s0 74:1=s9 75:5=s0"
+        "0:1=s9 1:10=s0 11:1=s9 12:9=s0 21:1=s9 22:9=s0 31:1=s9 32:9=s0 41:1=s9 42:12=s0 54:1=s9 55:7=s0 62:1=s9 63:5=s0 68:12=s2"
       ],
       "state": "empty",
       "look": "tmt",
@@ -2163,7 +2163,7 @@
         "",
         "",
         "────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
       ],
       "styles": [
         "0:22=s0 22:10=s1 32:10=s0 42:118=s2",
@@ -2201,7 +2201,7 @@
         "0:1=s3 1:62=s2 63:1=s3 64:96=s2",
         "0:1=s3 1:62=s2 63:1=s3 64:96=s2",
         "0:64=s3 64:96=s2",
-        "0:1=s9 1:10=s0 11:1=s9 12:7=s0 19:1=s9 20:9=s0 29:1=s9 30:7=s0 37:1=s9 38:9=s0 47:1=s9 48:9=s0 57:1=s9 58:9=s0 67:1=s9 68:9=s0 77:1=s9 78:12=s0 90:1=s9 91:11=s0 102:1=s9 103:9=s0 112:6=s9 118:10=s0 128:3=s9 131:7=s0 138:1=s9 139:7=s0 146:1=s9 147:5=s0 152:8=s2"
+        "0:1=s9 1:10=s0 11:1=s9 12:7=s0 19:1=s9 20:9=s0 29:1=s9 30:7=s0 37:1=s9 38:9=s0 47:1=s9 48:9=s0 57:1=s9 58:9=s0 67:1=s9 68:9=s0 77:1=s9 78:12=s0 90:1=s9 91:12=s0 103:1=s9 104:11=s0 115:1=s9 116:9=s0 125:6=s9 131:10=s0 141:1=s9 142:7=s0 149:1=s9 150:5=s0 155:5=s2"
       ],
       "state": "pool",
       "look": "tmt",
@@ -2229,7 +2229,7 @@
         " ›   worker · working · active",
         "                                                                                                                                                  ↑ 1  1 more ↓",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
       ],
       "styles": [
         "0:22=s0 22:10=s1 32:10=s0 42:118=s2",
@@ -2239,7 +2239,7 @@
         "0:1=s3 1:158=s8 159:1=s3",
         "0:1=s3 1:145=s2 146:14=s3",
         "0:160=s3",
-        "0:1=s9 1:10=s0 11:1=s9 12:7=s0 19:1=s9 20:9=s0 29:1=s9 30:7=s0 37:1=s9 38:9=s0 47:1=s9 48:9=s0 57:1=s9 58:9=s0 67:1=s9 68:9=s0 77:1=s9 78:12=s0 90:1=s9 91:11=s0 102:1=s9 103:9=s0 112:6=s9 118:10=s0 128:3=s9 131:7=s0 138:1=s9 139:7=s0 146:1=s9 147:5=s0 152:8=s2"
+        "0:1=s9 1:10=s0 11:1=s9 12:7=s0 19:1=s9 20:9=s0 29:1=s9 30:7=s0 37:1=s9 38:9=s0 47:1=s9 48:9=s0 57:1=s9 58:9=s0 67:1=s9 68:9=s0 77:1=s9 78:12=s0 90:1=s9 91:12=s0 103:1=s9 104:11=s0 115:1=s9 116:9=s0 125:6=s9 131:10=s0 141:1=s9 142:7=s0 149:1=s9 150:5=s0 155:5=s2"
       ],
       "state": "pool",
       "look": "tmt",
@@ -2691,7 +2691,7 @@
         " ›   worker-150 · idle · active",
         "                                                          ↑ 124",
         "────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
       ],
       "styles": [
         "0:22=s0 22:10=s1 32:10=s0 42:118=s2",
@@ -2729,7 +2729,7 @@
         "0:1=s3 1:62=s8 63:1=s3 64:96=s2",
         "0:1=s3 1:57=s2 58:6=s3 64:96=s2",
         "0:64=s3 64:96=s2",
-        "0:1=s9 1:10=s0 11:1=s9 12:7=s0 19:1=s9 20:9=s0 29:1=s9 30:7=s0 37:1=s9 38:9=s0 47:1=s9 48:9=s0 57:1=s9 58:9=s0 67:1=s9 68:9=s0 77:1=s9 78:12=s0 90:1=s9 91:11=s0 102:1=s9 103:9=s0 112:6=s9 118:10=s0 128:3=s9 131:7=s0 138:1=s9 139:7=s0 146:1=s9 147:5=s0 152:8=s2"
+        "0:1=s9 1:10=s0 11:1=s9 12:7=s0 19:1=s9 20:9=s0 29:1=s9 30:7=s0 37:1=s9 38:9=s0 47:1=s9 48:9=s0 57:1=s9 58:9=s0 67:1=s9 68:9=s0 77:1=s9 78:12=s0 90:1=s9 91:12=s0 103:1=s9 104:11=s0 115:1=s9 116:9=s0 125:6=s9 131:10=s0 141:1=s9 142:7=s0 149:1=s9 150:5=s0 155:5=s2"
       ],
       "state": "dense",
       "look": "tmt",
@@ -2907,7 +2907,7 @@
         " ›   worker-150 · idle · active",
         "                                                                                                                                                          ↑ 152",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
       ],
       "styles": [
         "0:22=s0 22:10=s1 32:10=s0 42:118=s2",
@@ -2917,7 +2917,7 @@
         "0:1=s3 1:158=s8 159:1=s3",
         "0:1=s3 1:153=s2 154:6=s3",
         "0:160=s3",
-        "0:1=s9 1:10=s0 11:1=s9 12:7=s0 19:1=s9 20:9=s0 29:1=s9 30:7=s0 37:1=s9 38:9=s0 47:1=s9 48:9=s0 57:1=s9 58:9=s0 67:1=s9 68:9=s0 77:1=s9 78:12=s0 90:1=s9 91:11=s0 102:1=s9 103:9=s0 112:6=s9 118:10=s0 128:3=s9 131:7=s0 138:1=s9 139:7=s0 146:1=s9 147:5=s0 152:8=s2"
+        "0:1=s9 1:10=s0 11:1=s9 12:7=s0 19:1=s9 20:9=s0 29:1=s9 30:7=s0 37:1=s9 38:9=s0 47:1=s9 48:9=s0 57:1=s9 58:9=s0 67:1=s9 68:9=s0 77:1=s9 78:12=s0 90:1=s9 91:12=s0 103:1=s9 104:11=s0 115:1=s9 116:9=s0 125:6=s9 131:10=s0 141:1=s9 142:7=s0 149:1=s9 150:5=s0 155:5=s2"
       ],
       "state": "dense",
       "look": "tmt",
@@ -4419,7 +4419,7 @@
         "     agent-00049 · working · active",
         "                                                     130 more ↓",
         "──────────────────────────────────────────────────────────────── ───────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  left collapse  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  ? help  q quit"
       ],
       "styles": [
         "0:22=s0 22:10=s1 32:10=s0 42:118=s2",
@@ -4457,7 +4457,7 @@
         "0:1=s3 1:34=s5 35:28=s2 63:1=s3 64:1=s2 65:1=s3 66:93=s2 159:1=s3",
         "0:1=s3 1:52=s2 53:11=s3 64:1=s2 65:1=s3 66:93=s2 159:1=s3",
         "0:64=s3 64:1=s2 65:95=s3",
-        "0:1=s9 1:10=s0 11:1=s9 12:9=s0 21:1=s9 22:9=s0 31:1=s9 32:9=s0 41:1=s9 42:12=s0 54:1=s9 55:11=s0 66:1=s9 67:9=s0 76:6=s9 82:10=s0 92:3=s9 95:7=s0 102:4=s9 106:7=s0 113:2=s9 115:11=s0 126:4=s9 130:11=s0 141:1=s9 142:7=s0 149:1=s9 150:5=s0 155:5=s2"
+        "0:1=s9 1:10=s0 11:1=s9 12:9=s0 21:1=s9 22:9=s0 31:1=s9 32:9=s0 41:1=s9 42:12=s0 54:1=s9 55:12=s0 67:1=s9 68:11=s0 79:1=s9 80:9=s0 89:6=s9 95:10=s0 105:3=s9 108:7=s0 115:4=s9 119:7=s0 126:2=s9 128:11=s0 139:1=s9 140:7=s0 147:1=s9 148:5=s0 153:7=s2"
       ],
       "state": "squads-eight",
       "look": "tmt",
@@ -4641,7 +4641,7 @@
         " › ▾ Common pool · 0",
         "                                                                                                                                                     158 more ↓",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  left collapse  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  ? help  q quit"
       ],
       "styles": [
         "0:22=s0 22:10=s1 32:10=s0 42:118=s2",
@@ -4651,7 +4651,7 @@
         "0:1=s3 1:158=s8 159:1=s3",
         "0:1=s3 1:148=s2 149:11=s3",
         "0:160=s3",
-        "0:1=s9 1:10=s0 11:1=s9 12:9=s0 21:1=s9 22:9=s0 31:1=s9 32:9=s0 41:1=s9 42:12=s0 54:1=s9 55:11=s0 66:1=s9 67:9=s0 76:6=s9 82:10=s0 92:3=s9 95:7=s0 102:4=s9 106:7=s0 113:2=s9 115:11=s0 126:4=s9 130:11=s0 141:1=s9 142:7=s0 149:1=s9 150:5=s0 155:5=s2"
+        "0:1=s9 1:10=s0 11:1=s9 12:9=s0 21:1=s9 22:9=s0 31:1=s9 32:9=s0 41:1=s9 42:12=s0 54:1=s9 55:12=s0 67:1=s9 68:11=s0 79:1=s9 80:9=s0 89:6=s9 95:10=s0 105:3=s9 108:7=s0 115:4=s9 119:7=s0 126:2=s9 128:11=s0 139:1=s9 140:7=s0 147:1=s9 148:5=s0 153:7=s2"
       ],
       "state": "squads-eight",
       "look": "tmt",
@@ -4863,7 +4863,7 @@
         "",
         "",
         "────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  ? help  q quit"
       ],
       "styles": [
         "0:22=s0 22:10=s1 32:10=s0 42:58=s2",
@@ -4901,7 +4901,7 @@
         "0:1=s3 1:98=s2 99:1=s3",
         "0:1=s3 1:98=s2 99:1=s3",
         "0:100=s3",
-        "0:1=s9 1:10=s0 11:1=s9 12:9=s0 21:1=s9 22:9=s0 31:1=s9 32:9=s0 41:1=s9 42:12=s0 54:1=s9 55:11=s0 66:1=s9 67:9=s0 76:1=s9 77:7=s0 84:1=s9 85:5=s0 90:10=s2"
+        "0:1=s9 1:10=s0 11:1=s9 12:9=s0 21:1=s9 22:9=s0 31:1=s9 32:9=s0 41:1=s9 42:12=s0 54:1=s9 55:12=s0 67:1=s9 68:11=s0 79:1=s9 80:7=s0 87:1=s9 88:5=s0 93:7=s2"
       ],
       "state": "squads-eight",
       "look": "tmt",
@@ -5085,7 +5085,7 @@
         " › ▾ Common pool · 0",
         "                                                                                         158 more ↓",
         "────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  ? help  q quit"
       ],
       "styles": [
         "0:22=s0 22:10=s1 32:10=s0 42:58=s2",
@@ -5095,7 +5095,7 @@
         "0:1=s3 1:98=s8 99:1=s3",
         "0:1=s3 1:88=s2 89:11=s3",
         "0:100=s3",
-        "0:1=s9 1:10=s0 11:1=s9 12:9=s0 21:1=s9 22:9=s0 31:1=s9 32:9=s0 41:1=s9 42:12=s0 54:1=s9 55:11=s0 66:1=s9 67:9=s0 76:1=s9 77:7=s0 84:1=s9 85:5=s0 90:10=s2"
+        "0:1=s9 1:10=s0 11:1=s9 12:9=s0 21:1=s9 22:9=s0 31:1=s9 32:9=s0 41:1=s9 42:12=s0 54:1=s9 55:12=s0 67:1=s9 68:11=s0 79:1=s9 80:7=s0 87:1=s9 88:5=s0 93:7=s2"
       ],
       "state": "squads-eight",
       "look": "tmt",
@@ -5307,7 +5307,7 @@
         "",
         "",
         "────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  ? help  q quit"
       ],
       "styles": [
         "0:22=s0 22:10=s1 32:10=s0 42:38=s2",
@@ -5345,7 +5345,7 @@
         "0:1=s3 1:78=s2 79:1=s3",
         "0:1=s3 1:78=s2 79:1=s3",
         "0:80=s3",
-        "0:1=s9 1:10=s0 11:1=s9 12:9=s0 21:1=s9 22:9=s0 31:1=s9 32:9=s0 41:1=s9 42:12=s0 54:1=s9 55:11=s0 66:1=s9 67:7=s0 74:1=s9 75:5=s0"
+        "0:1=s9 1:10=s0 11:1=s9 12:9=s0 21:1=s9 22:9=s0 31:1=s9 32:9=s0 41:1=s9 42:12=s0 54:1=s9 55:7=s0 62:1=s9 63:5=s0 68:12=s2"
       ],
       "state": "squads-eight",
       "look": "tmt",
@@ -5529,7 +5529,7 @@
         " › ▾ Common pool · 0",
         "                                                                     158 more ↓",
         "────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  ? help  q quit"
       ],
       "styles": [
         "0:22=s0 22:10=s1 32:10=s0 42:38=s2",
@@ -5539,7 +5539,7 @@
         "0:1=s3 1:78=s8 79:1=s3",
         "0:1=s3 1:68=s2 69:11=s3",
         "0:80=s3",
-        "0:1=s9 1:10=s0 11:1=s9 12:9=s0 21:1=s9 22:9=s0 31:1=s9 32:9=s0 41:1=s9 42:12=s0 54:1=s9 55:11=s0 66:1=s9 67:7=s0 74:1=s9 75:5=s0"
+        "0:1=s9 1:10=s0 11:1=s9 12:9=s0 21:1=s9 22:9=s0 31:1=s9 32:9=s0 41:1=s9 42:12=s0 54:1=s9 55:7=s0 62:1=s9 63:5=s0 68:12=s2"
       ],
       "state": "squads-eight",
       "look": "tmt",
@@ -6195,7 +6195,7 @@
         "     agent-00076 · working · active",
         "                                                     158 more ↓",
         "──────────────────────────────────────────────────────────────── ───────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  left collapse  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  ? help  q quit"
       ],
       "styles": [
         "0:22=s0 22:10=s1 32:10=s0 42:118=s2",
@@ -6233,7 +6233,7 @@
         "0:1=s3 1:34=s5 35:28=s2 63:1=s3 64:1=s2 65:1=s3 66:93=s2 159:1=s3",
         "0:1=s3 1:52=s2 53:11=s3 64:1=s2 65:1=s3 66:93=s2 159:1=s3",
         "0:64=s3 64:1=s2 65:95=s3",
-        "0:1=s9 1:10=s0 11:1=s9 12:9=s0 21:1=s9 22:9=s0 31:1=s9 32:9=s0 41:1=s9 42:12=s0 54:1=s9 55:11=s0 66:1=s9 67:9=s0 76:6=s9 82:10=s0 92:3=s9 95:7=s0 102:4=s9 106:7=s0 113:2=s9 115:11=s0 126:4=s9 130:11=s0 141:1=s9 142:7=s0 149:1=s9 150:5=s0 155:5=s2"
+        "0:1=s9 1:10=s0 11:1=s9 12:9=s0 21:1=s9 22:9=s0 31:1=s9 32:9=s0 41:1=s9 42:12=s0 54:1=s9 55:12=s0 67:1=s9 68:11=s0 79:1=s9 80:9=s0 89:6=s9 95:10=s0 105:3=s9 108:7=s0 115:4=s9 119:7=s0 126:2=s9 128:11=s0 139:1=s9 140:7=s0 147:1=s9 148:5=s0 153:7=s2"
       ],
       "state": "squads-thirty-six",
       "look": "tmt",
@@ -6445,7 +6445,7 @@
         " › ▾ Common pool · 0",
         "                                                                                                                                                     186 more ↓",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  left collapse  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  ? help  q quit"
       ],
       "styles": [
         "0:22=s0 22:10=s1 32:10=s0 42:118=s2",
@@ -6455,7 +6455,7 @@
         "0:1=s3 1:158=s8 159:1=s3",
         "0:1=s3 1:148=s2 149:11=s3",
         "0:160=s3",
-        "0:1=s9 1:10=s0 11:1=s9 12:9=s0 21:1=s9 22:9=s0 31:1=s9 32:9=s0 41:1=s9 42:12=s0 54:1=s9 55:11=s0 66:1=s9 67:9=s0 76:6=s9 82:10=s0 92:3=s9 95:7=s0 102:4=s9 106:7=s0 113:2=s9 115:11=s0 126:4=s9 130:11=s0 141:1=s9 142:7=s0 149:1=s9 150:5=s0 155:5=s2"
+        "0:1=s9 1:10=s0 11:1=s9 12:9=s0 21:1=s9 22:9=s0 31:1=s9 32:9=s0 41:1=s9 42:12=s0 54:1=s9 55:12=s0 67:1=s9 68:11=s0 79:1=s9 80:9=s0 89:6=s9 95:10=s0 105:3=s9 108:7=s0 115:4=s9 119:7=s0 126:2=s9 128:11=s0 139:1=s9 140:7=s0 147:1=s9 148:5=s0 153:7=s2"
       ],
       "state": "squads-thirty-six",
       "look": "tmt",
@@ -6695,7 +6695,7 @@
         "",
         "",
         "────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  ? help  q quit"
       ],
       "styles": [
         "0:22=s0 22:10=s1 32:10=s0 42:58=s2",
@@ -6733,7 +6733,7 @@
         "0:1=s3 1:98=s2 99:1=s3",
         "0:1=s3 1:98=s2 99:1=s3",
         "0:100=s3",
-        "0:1=s9 1:10=s0 11:1=s9 12:9=s0 21:1=s9 22:9=s0 31:1=s9 32:9=s0 41:1=s9 42:12=s0 54:1=s9 55:11=s0 66:1=s9 67:9=s0 76:1=s9 77:7=s0 84:1=s9 85:5=s0 90:10=s2"
+        "0:1=s9 1:10=s0 11:1=s9 12:9=s0 21:1=s9 22:9=s0 31:1=s9 32:9=s0 41:1=s9 42:12=s0 54:1=s9 55:12=s0 67:1=s9 68:11=s0 79:1=s9 80:7=s0 87:1=s9 88:5=s0 93:7=s2"
       ],
       "state": "squads-thirty-six",
       "look": "tmt",
@@ -6945,7 +6945,7 @@
         " › ▾ Common pool · 0",
         "                                                                                         186 more ↓",
         "────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  ? help  q quit"
       ],
       "styles": [
         "0:22=s0 22:10=s1 32:10=s0 42:58=s2",
@@ -6955,7 +6955,7 @@
         "0:1=s3 1:98=s8 99:1=s3",
         "0:1=s3 1:88=s2 89:11=s3",
         "0:100=s3",
-        "0:1=s9 1:10=s0 11:1=s9 12:9=s0 21:1=s9 22:9=s0 31:1=s9 32:9=s0 41:1=s9 42:12=s0 54:1=s9 55:11=s0 66:1=s9 67:9=s0 76:1=s9 77:7=s0 84:1=s9 85:5=s0 90:10=s2"
+        "0:1=s9 1:10=s0 11:1=s9 12:9=s0 21:1=s9 22:9=s0 31:1=s9 32:9=s0 41:1=s9 42:12=s0 54:1=s9 55:12=s0 67:1=s9 68:11=s0 79:1=s9 80:7=s0 87:1=s9 88:5=s0 93:7=s2"
       ],
       "state": "squads-thirty-six",
       "look": "tmt",
@@ -7195,7 +7195,7 @@
         "",
         "",
         "────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  ? help  q quit"
       ],
       "styles": [
         "0:22=s0 22:10=s1 32:10=s0 42:38=s2",
@@ -7233,7 +7233,7 @@
         "0:1=s3 1:78=s2 79:1=s3",
         "0:1=s3 1:78=s2 79:1=s3",
         "0:80=s3",
-        "0:1=s9 1:10=s0 11:1=s9 12:9=s0 21:1=s9 22:9=s0 31:1=s9 32:9=s0 41:1=s9 42:12=s0 54:1=s9 55:11=s0 66:1=s9 67:7=s0 74:1=s9 75:5=s0"
+        "0:1=s9 1:10=s0 11:1=s9 12:9=s0 21:1=s9 22:9=s0 31:1=s9 32:9=s0 41:1=s9 42:12=s0 54:1=s9 55:7=s0 62:1=s9 63:5=s0 68:12=s2"
       ],
       "state": "squads-thirty-six",
       "look": "tmt",
@@ -7445,7 +7445,7 @@
         " › ▾ Common pool · 0",
         "                                                                     186 more ↓",
         "────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  ? help  q quit"
       ],
       "styles": [
         "0:22=s0 22:10=s1 32:10=s0 42:38=s2",
@@ -7455,7 +7455,7 @@
         "0:1=s3 1:78=s8 79:1=s3",
         "0:1=s3 1:68=s2 69:11=s3",
         "0:80=s3",
-        "0:1=s9 1:10=s0 11:1=s9 12:9=s0 21:1=s9 22:9=s0 31:1=s9 32:9=s0 41:1=s9 42:12=s0 54:1=s9 55:11=s0 66:1=s9 67:7=s0 74:1=s9 75:5=s0"
+        "0:1=s9 1:10=s0 11:1=s9 12:9=s0 21:1=s9 22:9=s0 31:1=s9 32:9=s0 41:1=s9 42:12=s0 54:1=s9 55:7=s0 62:1=s9 63:5=s0 68:12=s2"
       ],
       "state": "squads-thirty-six",
       "look": "tmt",
@@ -9228,6 +9228,7 @@
         "│ 3                     show the Digest tab                                                                                                                    │",
         "│ ?                     show effective scoped bindings                                                                                                         │",
         "│ D                     change the member's digest                                                                                                             │",
+        "│ a                     find an agent already running and review its binding                                                                                   │",
         "│ c                     show the selected scope's timers                                                                                                       │",
         "│ ctrl-r                refresh the board now                                                                                                                  │",
         "│ double-click          inspect the selected target                                                                                                            │",
@@ -9247,8 +9248,7 @@
         "│ t                     send the member a message                                                                                                              │",
         "│ tab                   move to the next pane                                                                                                                  │",
         "│ up                    select the previous visible target                                                                                                     │",
-        "│ w                     preview saved workspace snapshots and review a guarded restore                                                                         │",
-        "│ 1–28 of 53 · 25 more ↓                                                                                                                                       │",
+        "│ 1–28 of 54 · 26 more ↓                                                                                                                                       │",
         "│ ↑↓ scroll · PgUp/PgDn page · Esc close                                                                                                                       │",
         "└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘",
         ""
@@ -9360,6 +9360,7 @@
         "│ 3                     show the Digest tab                                                        │",
         "│ ?                     show effective scoped bindings                                             │",
         "│ D                     change the member's digest                                                 │",
+        "│ a                     find an agent already running and review its binding                       │",
         "│ c                     show the selected scope's timers                                           │",
         "│ ctrl-r                refresh the board now                                                      │",
         "│ double-click          inspect the selected target                                                │",
@@ -9379,8 +9380,7 @@
         "│ t                     send the member a message                                                  │",
         "│ tab                   move to the next pane                                                      │",
         "│ up                    select the previous visible target                                         │",
-        "│ w                     preview saved workspace snapshots and review a guarded restore             │",
-        "│ 1–28 of 64 · 36 more ↓                                                                           │",
+        "│ 1–28 of 65 · 37 more ↓                                                                           │",
         "│ ↑↓ scroll · PgUp/PgDn page · Esc close                                                           │",
         "└──────────────────────────────────────────────────────────────────────────────────────────────────┘",
         ""
@@ -9492,6 +9492,7 @@
         "│ 3                     show the Digest tab                                    │",
         "│ ?                     show effective scoped bindings                         │",
         "│ D                     change the member's digest                             │",
+        "│ a                     find an agent already running and review its binding   │",
         "│ c                     show the selected scope's timers                       │",
         "│ ctrl-r                refresh the board now                                  │",
         "│ double-click          inspect the selected target                            │",
@@ -9511,8 +9512,7 @@
         "│ t                     send the member a message                              │",
         "│ tab                   move to the next pane                                  │",
         "│ up                    select the previous visible target                     │",
-        "│ w                     preview saved workspace snapshots and review a         │",
-        "│ 1–28 of 75 · 47 more ↓                                                       │",
+        "│ 1–28 of 76 · 48 more ↓                                                       │",
         "│ ↑↓ scroll · PgUp/PgDn page · Esc close                                       │",
         "└──────────────────────────────────────────────────────────────────────────────┘",
         ""
@@ -9625,6 +9625,8 @@
         "│ 3                     show the Digest tab                │",
         "│ ?                     show effective scoped bindings     │",
         "│ D                     change the member's digest         │",
+        "│ a                     find an agent already running and  │",
+        "│                       review its binding                 │",
         "│ c                     show the selected scope's timers   │",
         "│ ctrl-r                refresh the board now              │",
         "│ double-click          inspect the selected target        │",
@@ -9642,9 +9644,7 @@
         "│ pagedown              move one page down                 │",
         "│ pageup                move one page up                   │",
         "│ q                     close the board                    │",
-        "│ right                 expand the selected squad          │",
-        "│ t                     send the member a message          │",
-        "│ 1–28 of 94 · 66 more ↓                                   │",
+        "│ 1–28 of 96 · 68 more ↓                                   │",
         "│ ↑↓ scroll · PgUp/PgDn page · Esc close                   │",
         "└──────────────────────────────────────────────────────────┘",
         ""
@@ -12399,7 +12399,7 @@
         "",
         "",
         "────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
       ],
       "styles": [
         "0:22=s15 22:10=s16 32:10=s15 42:118=s2",
@@ -12437,7 +12437,7 @@
         "0:1=s17 1:62=s2 63:1=s17 64:96=s2",
         "0:1=s17 1:62=s2 63:1=s17 64:96=s2",
         "0:64=s17 64:96=s2",
-        "0:1=s23 1:10=s15 11:1=s23 12:7=s15 19:1=s23 20:9=s15 29:1=s23 30:7=s15 37:1=s23 38:9=s15 47:1=s23 48:9=s15 57:1=s23 58:9=s15 67:1=s23 68:9=s15 77:1=s23 78:12=s15 90:1=s23 91:11=s15 102:1=s23 103:9=s15 112:6=s23 118:10=s15 128:3=s23 131:7=s15 138:1=s23 139:7=s15 146:1=s23 147:5=s15 152:8=s2"
+        "0:1=s23 1:10=s15 11:1=s23 12:7=s15 19:1=s23 20:9=s15 29:1=s23 30:7=s15 37:1=s23 38:9=s15 47:1=s23 48:9=s15 57:1=s23 58:9=s15 67:1=s23 68:9=s15 77:1=s23 78:12=s15 90:1=s23 91:12=s15 103:1=s23 104:11=s15 115:1=s23 116:9=s15 125:6=s23 131:10=s15 141:1=s23 142:7=s15 149:1=s23 150:5=s15 155:5=s2"
       ],
       "state": "agents",
       "look": "tmt-light",
@@ -12465,7 +12465,7 @@
         " ›   worker · working · active",
         "                                                                                                                                                            ↑ 2",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
       ],
       "styles": [
         "0:22=s15 22:10=s16 32:10=s15 42:118=s2",
@@ -12475,7 +12475,7 @@
         "0:1=s17 1:158=s22 159:1=s17",
         "0:1=s17 1:155=s2 156:4=s17",
         "0:160=s17",
-        "0:1=s23 1:10=s15 11:1=s23 12:7=s15 19:1=s23 20:9=s15 29:1=s23 30:7=s15 37:1=s23 38:9=s15 47:1=s23 48:9=s15 57:1=s23 58:9=s15 67:1=s23 68:9=s15 77:1=s23 78:12=s15 90:1=s23 91:11=s15 102:1=s23 103:9=s15 112:6=s23 118:10=s15 128:3=s23 131:7=s15 138:1=s23 139:7=s15 146:1=s23 147:5=s15 152:8=s2"
+        "0:1=s23 1:10=s15 11:1=s23 12:7=s15 19:1=s23 20:9=s15 29:1=s23 30:7=s15 37:1=s23 38:9=s15 47:1=s23 48:9=s15 57:1=s23 58:9=s15 67:1=s23 68:9=s15 77:1=s23 78:12=s15 90:1=s23 91:12=s15 103:1=s23 104:11=s15 115:1=s23 116:9=s15 125:6=s23 131:10=s15 141:1=s23 142:7=s15 149:1=s23 150:5=s15 155:5=s2"
       ],
       "state": "agents",
       "look": "tmt-light",
@@ -13408,10 +13408,10 @@
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         "2 Agents · Common pool",
         "─ Agents ─────────────────────────────────────────────────────── ─Common pool───────────────────────────────────────────────────────────────────────────────────",
-        " › ▸ Common pool · 0                                              Agents without a squad",
-        "                                                                  Expand the pool to select an agent; add it to an existing squad or create one.",
-        "",
-        "",
+        " › ▸ Common pool · 0                                               Add an agent already running",
+        "                                                                  No agents are listed yet.",
+        "                                                                  Start an agent in a tmux pane, then choose Add an agent already running from the Agents list.",
+        "                                                                  Scan, review the pane and confirm its name or existing identity.",
         "",
         "",
         "",
@@ -13439,17 +13439,17 @@
         "",
         "",
         "──────────────────────────────────────────────────────────────── ───────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  left collapse  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  ? help  q quit"
       ],
       "styles": [
         "0:22=s15 22:10=s16 32:10=s15 42:118=s2",
         "0:160=s17",
         "0:22=s18 22:138=s2",
         "0:1=s17 1:8=s15 9:55=s17 64:1=s2 65:1=s17 66:11=s15 77:83=s17",
-        "0:1=s17 1:62=s22 63:1=s17 64:1=s2 65:1=s17 66:22=s18 88:71=s2 159:1=s17",
-        "0:1=s17 1:62=s2 63:1=s17 64:1=s2 65:1=s17 66:78=s18 144:15=s2 159:1=s17",
-        "0:1=s17 1:62=s2 63:1=s17 64:1=s2 65:1=s17 66:93=s2 159:1=s17",
-        "0:1=s17 1:62=s2 63:1=s17 64:1=s2 65:1=s17 66:93=s2 159:1=s17",
+        "0:1=s17 1:62=s22 63:1=s17 64:1=s2 65:1=s17 66:30=s18 96:63=s2 159:1=s17",
+        "0:1=s17 1:62=s2 63:1=s17 64:1=s2 65:1=s17 66:25=s18 91:68=s2 159:1=s17",
+        "0:1=s17 1:62=s2 63:1=s17 64:1=s2 65:1=s17 66:93=s18 159:1=s17",
+        "0:1=s17 1:62=s2 63:1=s17 64:1=s2 65:1=s17 66:64=s18 130:29=s2 159:1=s17",
         "0:1=s17 1:62=s2 63:1=s17 64:1=s2 65:1=s17 66:93=s2 159:1=s17",
         "0:1=s17 1:62=s2 63:1=s17 64:1=s2 65:1=s17 66:93=s2 159:1=s17",
         "0:1=s17 1:62=s2 63:1=s17 64:1=s2 65:1=s17 66:93=s2 159:1=s17",
@@ -13477,14 +13477,14 @@
         "0:1=s17 1:62=s2 63:1=s17 64:1=s2 65:1=s17 66:93=s2 159:1=s17",
         "0:1=s17 1:62=s2 63:1=s17 64:1=s2 65:1=s17 66:93=s2 159:1=s17",
         "0:64=s17 64:1=s2 65:95=s17",
-        "0:1=s23 1:10=s15 11:1=s23 12:9=s15 21:1=s23 22:9=s15 31:1=s23 32:9=s15 41:1=s23 42:12=s15 54:1=s23 55:11=s15 66:1=s23 67:9=s15 76:6=s23 82:10=s15 92:3=s23 95:7=s15 102:4=s23 106:7=s15 113:2=s23 115:11=s15 126:4=s23 130:11=s15 141:1=s23 142:7=s15 149:1=s23 150:5=s15 155:5=s2"
+        "0:1=s23 1:10=s15 11:1=s23 12:9=s15 21:1=s23 22:9=s15 31:1=s23 32:9=s15 41:1=s23 42:12=s15 54:1=s23 55:12=s15 67:1=s23 68:11=s15 79:1=s23 80:9=s15 89:6=s23 95:10=s15 105:3=s23 108:7=s15 115:4=s23 119:7=s15 126:2=s23 128:11=s15 139:1=s23 140:7=s15 147:1=s23 148:5=s15 153:7=s2"
       ],
       "state": "empty",
       "look": "tmt-light",
       "width": 160,
       "height": 36,
       "hits": "[Hit { y: 4, x: 1, width: 62, row: 0 }]",
-      "actions": "[]",
+      "actions": "[(Rect { x: 66, y: 4, width: 30, height: 1 }, Pool, Action(Action { verb: Ui(DiscoverAgents), args: [], text: \"discover-agents\" }))]",
       "tabs": "[TabHit { y: 0, x: 10, width: 12, tab: 0 }, TabHit { y: 0, x: 22, width: 10, tab: 1 }, TabHit { y: 0, x: 32, width: 10, tab: 2 }]",
       "starts": [
         0
@@ -13503,7 +13503,7 @@
         " › ▸ Common pool · 0",
         "",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  left collapse  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  ? help  q quit"
       ],
       "styles": [
         "0:22=s15 22:10=s16 32:10=s15 42:118=s2",
@@ -13513,7 +13513,7 @@
         "0:1=s17 1:158=s22 159:1=s17",
         "0:1=s17 1:158=s2 159:1=s17",
         "0:160=s17",
-        "0:1=s23 1:10=s15 11:1=s23 12:9=s15 21:1=s23 22:9=s15 31:1=s23 32:9=s15 41:1=s23 42:12=s15 54:1=s23 55:11=s15 66:1=s23 67:9=s15 76:6=s23 82:10=s15 92:3=s23 95:7=s15 102:4=s23 106:7=s15 113:2=s23 115:11=s15 126:4=s23 130:11=s15 141:1=s23 142:7=s15 149:1=s23 150:5=s15 155:5=s2"
+        "0:1=s23 1:10=s15 11:1=s23 12:9=s15 21:1=s23 22:9=s15 31:1=s23 32:9=s15 41:1=s23 42:12=s15 54:1=s23 55:12=s15 67:1=s23 68:11=s15 79:1=s23 80:9=s15 89:6=s23 95:10=s15 105:3=s23 108:7=s15 115:4=s23 119:7=s15 126:2=s23 128:11=s15 139:1=s23 140:7=s15 147:1=s23 148:5=s15 153:7=s2"
       ],
       "state": "empty",
       "look": "tmt-light",
@@ -13549,10 +13549,10 @@
         "────────────────────────────────────────────────────────────────────────────────────────────────────",
         "",
         "─Common pool────────────────────────────────────────────────────────────────────────────────────────",
-        " Agents without a squad",
-        " Expand the pool to select an agent; add it to an existing squad or create one.",
-        "",
-        "",
+        "  Add an agent already running",
+        " No agents are listed yet.",
+        " Start an agent in a tmux pane, then choose Add an agent already running from the Agents list.",
+        " Scan, review the pane and confirm its name or existing identity.",
         "",
         "",
         "",
@@ -13567,7 +13567,7 @@
         "",
         "",
         "────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  ? help  q quit"
       ],
       "styles": [
         "0:22=s15 22:10=s16 32:10=s15 42:58=s2",
@@ -13587,10 +13587,10 @@
         "0:100=s17",
         "0:100=s2",
         "0:1=s17 1:11=s15 12:88=s17",
-        "0:1=s17 1:22=s18 23:76=s2 99:1=s17",
-        "0:1=s17 1:78=s18 79:20=s2 99:1=s17",
-        "0:1=s17 1:98=s2 99:1=s17",
-        "0:1=s17 1:98=s2 99:1=s17",
+        "0:1=s17 1:30=s18 31:68=s2 99:1=s17",
+        "0:1=s17 1:25=s18 26:73=s2 99:1=s17",
+        "0:1=s17 1:93=s18 94:5=s2 99:1=s17",
+        "0:1=s17 1:64=s18 65:34=s2 99:1=s17",
         "0:1=s17 1:98=s2 99:1=s17",
         "0:1=s17 1:98=s2 99:1=s17",
         "0:1=s17 1:98=s2 99:1=s17",
@@ -13605,14 +13605,14 @@
         "0:1=s17 1:98=s2 99:1=s17",
         "0:1=s17 1:98=s2 99:1=s17",
         "0:100=s17",
-        "0:1=s23 1:10=s15 11:1=s23 12:9=s15 21:1=s23 22:9=s15 31:1=s23 32:9=s15 41:1=s23 42:12=s15 54:1=s23 55:11=s15 66:1=s23 67:9=s15 76:1=s23 77:7=s15 84:1=s23 85:5=s15 90:10=s2"
+        "0:1=s23 1:10=s15 11:1=s23 12:9=s15 21:1=s23 22:9=s15 31:1=s23 32:9=s15 41:1=s23 42:12=s15 54:1=s23 55:12=s15 67:1=s23 68:11=s15 79:1=s23 80:7=s15 87:1=s23 88:5=s15 93:7=s2"
       ],
       "state": "empty",
       "look": "tmt-light",
       "width": 100,
       "height": 36,
       "hits": "[Hit { y: 4, x: 1, width: 98, row: 0 }]",
-      "actions": "[]",
+      "actions": "[(Rect { x: 1, y: 17, width: 30, height: 1 }, Pool, Action(Action { verb: Ui(DiscoverAgents), args: [], text: \"discover-agents\" }))]",
       "tabs": "[TabHit { y: 0, x: 10, width: 12, tab: 0 }, TabHit { y: 0, x: 22, width: 10, tab: 1 }, TabHit { y: 0, x: 32, width: 10, tab: 2 }]",
       "starts": [
         0
@@ -13631,7 +13631,7 @@
         " › ▸ Common pool · 0",
         "",
         "────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  ? help  q quit"
       ],
       "styles": [
         "0:22=s15 22:10=s16 32:10=s15 42:58=s2",
@@ -13641,7 +13641,7 @@
         "0:1=s17 1:98=s22 99:1=s17",
         "0:1=s17 1:98=s2 99:1=s17",
         "0:100=s17",
-        "0:1=s23 1:10=s15 11:1=s23 12:9=s15 21:1=s23 22:9=s15 31:1=s23 32:9=s15 41:1=s23 42:12=s15 54:1=s23 55:11=s15 66:1=s23 67:9=s15 76:1=s23 77:7=s15 84:1=s23 85:5=s15 90:10=s2"
+        "0:1=s23 1:10=s15 11:1=s23 12:9=s15 21:1=s23 22:9=s15 31:1=s23 32:9=s15 41:1=s23 42:12=s15 54:1=s23 55:12=s15 67:1=s23 68:11=s15 79:1=s23 80:7=s15 87:1=s23 88:5=s15 93:7=s2"
       ],
       "state": "empty",
       "look": "tmt-light",
@@ -13677,11 +13677,11 @@
         "────────────────────────────────────────────────────────────────────────────────",
         "",
         "─Common pool────────────────────────────────────────────────────────────────────",
-        " Agents without a squad",
-        " Expand the pool to select an agent; add it to an existing squad or create one.",
-        "",
-        "",
-        "",
+        "  Add an agent already running",
+        " No agents are listed yet.",
+        " Start an agent in a tmux pane, then choose Add an agent already running from",
+        " the Agents list. Scan, review the pane and confirm its name or existing",
+        " identity.",
         "",
         "",
         "",
@@ -13695,7 +13695,7 @@
         "",
         "",
         "────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  ? help  q quit"
       ],
       "styles": [
         "0:22=s15 22:10=s16 32:10=s15 42:38=s2",
@@ -13715,11 +13715,11 @@
         "0:80=s17",
         "0:80=s2",
         "0:1=s17 1:11=s15 12:68=s17",
-        "0:1=s17 1:22=s18 23:56=s2 79:1=s17",
-        "0:1=s17 1:78=s18 79:1=s17",
-        "0:1=s17 1:78=s2 79:1=s17",
-        "0:1=s17 1:78=s2 79:1=s17",
-        "0:1=s17 1:78=s2 79:1=s17",
+        "0:1=s17 1:30=s18 31:48=s2 79:1=s17",
+        "0:1=s17 1:25=s18 26:53=s2 79:1=s17",
+        "0:1=s17 1:76=s18 77:2=s2 79:1=s17",
+        "0:1=s17 1:71=s18 72:7=s2 79:1=s17",
+        "0:1=s17 1:9=s18 10:69=s2 79:1=s17",
         "0:1=s17 1:78=s2 79:1=s17",
         "0:1=s17 1:78=s2 79:1=s17",
         "0:1=s17 1:78=s2 79:1=s17",
@@ -13733,14 +13733,14 @@
         "0:1=s17 1:78=s2 79:1=s17",
         "0:1=s17 1:78=s2 79:1=s17",
         "0:80=s17",
-        "0:1=s23 1:10=s15 11:1=s23 12:9=s15 21:1=s23 22:9=s15 31:1=s23 32:9=s15 41:1=s23 42:12=s15 54:1=s23 55:11=s15 66:1=s23 67:7=s15 74:1=s23 75:5=s15"
+        "0:1=s23 1:10=s15 11:1=s23 12:9=s15 21:1=s23 22:9=s15 31:1=s23 32:9=s15 41:1=s23 42:12=s15 54:1=s23 55:7=s15 62:1=s23 63:5=s15 68:12=s2"
       ],
       "state": "empty",
       "look": "tmt-light",
       "width": 80,
       "height": 36,
       "hits": "[Hit { y: 4, x: 1, width: 78, row: 0 }]",
-      "actions": "[]",
+      "actions": "[(Rect { x: 1, y: 17, width: 30, height: 1 }, Pool, Action(Action { verb: Ui(DiscoverAgents), args: [], text: \"discover-agents\" }))]",
       "tabs": "[TabHit { y: 0, x: 10, width: 12, tab: 0 }, TabHit { y: 0, x: 22, width: 10, tab: 1 }, TabHit { y: 0, x: 32, width: 10, tab: 2 }]",
       "starts": [
         0
@@ -13759,7 +13759,7 @@
         " › ▸ Common pool · 0",
         "",
         "────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  ? help  q quit"
       ],
       "styles": [
         "0:22=s15 22:10=s16 32:10=s15 42:38=s2",
@@ -13769,7 +13769,7 @@
         "0:1=s17 1:78=s22 79:1=s17",
         "0:1=s17 1:78=s2 79:1=s17",
         "0:80=s17",
-        "0:1=s23 1:10=s15 11:1=s23 12:9=s15 21:1=s23 22:9=s15 31:1=s23 32:9=s15 41:1=s23 42:12=s15 54:1=s23 55:11=s15 66:1=s23 67:7=s15 74:1=s23 75:5=s15"
+        "0:1=s23 1:10=s15 11:1=s23 12:9=s15 21:1=s23 22:9=s15 31:1=s23 32:9=s15 41:1=s23 42:12=s15 54:1=s23 55:7=s15 62:1=s23 63:5=s15 68:12=s2"
       ],
       "state": "empty",
       "look": "tmt-light",
@@ -13951,7 +13951,7 @@
         "",
         "",
         "────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
       ],
       "styles": [
         "0:22=s15 22:10=s16 32:10=s15 42:118=s2",
@@ -13989,7 +13989,7 @@
         "0:1=s17 1:62=s2 63:1=s17 64:96=s2",
         "0:1=s17 1:62=s2 63:1=s17 64:96=s2",
         "0:64=s17 64:96=s2",
-        "0:1=s23 1:10=s15 11:1=s23 12:7=s15 19:1=s23 20:9=s15 29:1=s23 30:7=s15 37:1=s23 38:9=s15 47:1=s23 48:9=s15 57:1=s23 58:9=s15 67:1=s23 68:9=s15 77:1=s23 78:12=s15 90:1=s23 91:11=s15 102:1=s23 103:9=s15 112:6=s23 118:10=s15 128:3=s23 131:7=s15 138:1=s23 139:7=s15 146:1=s23 147:5=s15 152:8=s2"
+        "0:1=s23 1:10=s15 11:1=s23 12:7=s15 19:1=s23 20:9=s15 29:1=s23 30:7=s15 37:1=s23 38:9=s15 47:1=s23 48:9=s15 57:1=s23 58:9=s15 67:1=s23 68:9=s15 77:1=s23 78:12=s15 90:1=s23 91:12=s15 103:1=s23 104:11=s15 115:1=s23 116:9=s15 125:6=s23 131:10=s15 141:1=s23 142:7=s15 149:1=s23 150:5=s15 155:5=s2"
       ],
       "state": "pool",
       "look": "tmt-light",
@@ -14017,7 +14017,7 @@
         " ›   worker · working · active",
         "                                                                                                                                                  ↑ 1  1 more ↓",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
       ],
       "styles": [
         "0:22=s15 22:10=s16 32:10=s15 42:118=s2",
@@ -14027,7 +14027,7 @@
         "0:1=s17 1:158=s22 159:1=s17",
         "0:1=s17 1:145=s2 146:14=s17",
         "0:160=s17",
-        "0:1=s23 1:10=s15 11:1=s23 12:7=s15 19:1=s23 20:9=s15 29:1=s23 30:7=s15 37:1=s23 38:9=s15 47:1=s23 48:9=s15 57:1=s23 58:9=s15 67:1=s23 68:9=s15 77:1=s23 78:12=s15 90:1=s23 91:11=s15 102:1=s23 103:9=s15 112:6=s23 118:10=s15 128:3=s23 131:7=s15 138:1=s23 139:7=s15 146:1=s23 147:5=s15 152:8=s2"
+        "0:1=s23 1:10=s15 11:1=s23 12:7=s15 19:1=s23 20:9=s15 29:1=s23 30:7=s15 37:1=s23 38:9=s15 47:1=s23 48:9=s15 57:1=s23 58:9=s15 67:1=s23 68:9=s15 77:1=s23 78:12=s15 90:1=s23 91:12=s15 103:1=s23 104:11=s15 115:1=s23 116:9=s15 125:6=s23 131:10=s15 141:1=s23 142:7=s15 149:1=s23 150:5=s15 155:5=s2"
       ],
       "state": "pool",
       "look": "tmt-light",
@@ -14479,7 +14479,7 @@
         " ›   worker-150 · idle · active",
         "                                                          ↑ 124",
         "────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
       ],
       "styles": [
         "0:22=s15 22:10=s16 32:10=s15 42:118=s2",
@@ -14517,7 +14517,7 @@
         "0:1=s17 1:62=s22 63:1=s17 64:96=s2",
         "0:1=s17 1:57=s2 58:6=s17 64:96=s2",
         "0:64=s17 64:96=s2",
-        "0:1=s23 1:10=s15 11:1=s23 12:7=s15 19:1=s23 20:9=s15 29:1=s23 30:7=s15 37:1=s23 38:9=s15 47:1=s23 48:9=s15 57:1=s23 58:9=s15 67:1=s23 68:9=s15 77:1=s23 78:12=s15 90:1=s23 91:11=s15 102:1=s23 103:9=s15 112:6=s23 118:10=s15 128:3=s23 131:7=s15 138:1=s23 139:7=s15 146:1=s23 147:5=s15 152:8=s2"
+        "0:1=s23 1:10=s15 11:1=s23 12:7=s15 19:1=s23 20:9=s15 29:1=s23 30:7=s15 37:1=s23 38:9=s15 47:1=s23 48:9=s15 57:1=s23 58:9=s15 67:1=s23 68:9=s15 77:1=s23 78:12=s15 90:1=s23 91:12=s15 103:1=s23 104:11=s15 115:1=s23 116:9=s15 125:6=s23 131:10=s15 141:1=s23 142:7=s15 149:1=s23 150:5=s15 155:5=s2"
       ],
       "state": "dense",
       "look": "tmt-light",
@@ -14695,7 +14695,7 @@
         " ›   worker-150 · idle · active",
         "                                                                                                                                                          ↑ 152",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
       ],
       "styles": [
         "0:22=s15 22:10=s16 32:10=s15 42:118=s2",
@@ -14705,7 +14705,7 @@
         "0:1=s17 1:158=s22 159:1=s17",
         "0:1=s17 1:153=s2 154:6=s17",
         "0:160=s17",
-        "0:1=s23 1:10=s15 11:1=s23 12:7=s15 19:1=s23 20:9=s15 29:1=s23 30:7=s15 37:1=s23 38:9=s15 47:1=s23 48:9=s15 57:1=s23 58:9=s15 67:1=s23 68:9=s15 77:1=s23 78:12=s15 90:1=s23 91:11=s15 102:1=s23 103:9=s15 112:6=s23 118:10=s15 128:3=s23 131:7=s15 138:1=s23 139:7=s15 146:1=s23 147:5=s15 152:8=s2"
+        "0:1=s23 1:10=s15 11:1=s23 12:7=s15 19:1=s23 20:9=s15 29:1=s23 30:7=s15 37:1=s23 38:9=s15 47:1=s23 48:9=s15 57:1=s23 58:9=s15 67:1=s23 68:9=s15 77:1=s23 78:12=s15 90:1=s23 91:12=s15 103:1=s23 104:11=s15 115:1=s23 116:9=s15 125:6=s23 131:10=s15 141:1=s23 142:7=s15 149:1=s23 150:5=s15 155:5=s2"
       ],
       "state": "dense",
       "look": "tmt-light",
@@ -16207,7 +16207,7 @@
         "     agent-00049 · working · active",
         "                                                     130 more ↓",
         "──────────────────────────────────────────────────────────────── ───────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  left collapse  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  ? help  q quit"
       ],
       "styles": [
         "0:22=s15 22:10=s16 32:10=s15 42:118=s2",
@@ -16245,7 +16245,7 @@
         "0:1=s17 1:34=s19 35:28=s2 63:1=s17 64:1=s2 65:1=s17 66:93=s2 159:1=s17",
         "0:1=s17 1:52=s2 53:11=s17 64:1=s2 65:1=s17 66:93=s2 159:1=s17",
         "0:64=s17 64:1=s2 65:95=s17",
-        "0:1=s23 1:10=s15 11:1=s23 12:9=s15 21:1=s23 22:9=s15 31:1=s23 32:9=s15 41:1=s23 42:12=s15 54:1=s23 55:11=s15 66:1=s23 67:9=s15 76:6=s23 82:10=s15 92:3=s23 95:7=s15 102:4=s23 106:7=s15 113:2=s23 115:11=s15 126:4=s23 130:11=s15 141:1=s23 142:7=s15 149:1=s23 150:5=s15 155:5=s2"
+        "0:1=s23 1:10=s15 11:1=s23 12:9=s15 21:1=s23 22:9=s15 31:1=s23 32:9=s15 41:1=s23 42:12=s15 54:1=s23 55:12=s15 67:1=s23 68:11=s15 79:1=s23 80:9=s15 89:6=s23 95:10=s15 105:3=s23 108:7=s15 115:4=s23 119:7=s15 126:2=s23 128:11=s15 139:1=s23 140:7=s15 147:1=s23 148:5=s15 153:7=s2"
       ],
       "state": "squads-eight",
       "look": "tmt-light",
@@ -16429,7 +16429,7 @@
         " › ▾ Common pool · 0",
         "                                                                                                                                                     158 more ↓",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  left collapse  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  ? help  q quit"
       ],
       "styles": [
         "0:22=s15 22:10=s16 32:10=s15 42:118=s2",
@@ -16439,7 +16439,7 @@
         "0:1=s17 1:158=s22 159:1=s17",
         "0:1=s17 1:148=s2 149:11=s17",
         "0:160=s17",
-        "0:1=s23 1:10=s15 11:1=s23 12:9=s15 21:1=s23 22:9=s15 31:1=s23 32:9=s15 41:1=s23 42:12=s15 54:1=s23 55:11=s15 66:1=s23 67:9=s15 76:6=s23 82:10=s15 92:3=s23 95:7=s15 102:4=s23 106:7=s15 113:2=s23 115:11=s15 126:4=s23 130:11=s15 141:1=s23 142:7=s15 149:1=s23 150:5=s15 155:5=s2"
+        "0:1=s23 1:10=s15 11:1=s23 12:9=s15 21:1=s23 22:9=s15 31:1=s23 32:9=s15 41:1=s23 42:12=s15 54:1=s23 55:12=s15 67:1=s23 68:11=s15 79:1=s23 80:9=s15 89:6=s23 95:10=s15 105:3=s23 108:7=s15 115:4=s23 119:7=s15 126:2=s23 128:11=s15 139:1=s23 140:7=s15 147:1=s23 148:5=s15 153:7=s2"
       ],
       "state": "squads-eight",
       "look": "tmt-light",
@@ -16651,7 +16651,7 @@
         "",
         "",
         "────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  ? help  q quit"
       ],
       "styles": [
         "0:22=s15 22:10=s16 32:10=s15 42:58=s2",
@@ -16689,7 +16689,7 @@
         "0:1=s17 1:98=s2 99:1=s17",
         "0:1=s17 1:98=s2 99:1=s17",
         "0:100=s17",
-        "0:1=s23 1:10=s15 11:1=s23 12:9=s15 21:1=s23 22:9=s15 31:1=s23 32:9=s15 41:1=s23 42:12=s15 54:1=s23 55:11=s15 66:1=s23 67:9=s15 76:1=s23 77:7=s15 84:1=s23 85:5=s15 90:10=s2"
+        "0:1=s23 1:10=s15 11:1=s23 12:9=s15 21:1=s23 22:9=s15 31:1=s23 32:9=s15 41:1=s23 42:12=s15 54:1=s23 55:12=s15 67:1=s23 68:11=s15 79:1=s23 80:7=s15 87:1=s23 88:5=s15 93:7=s2"
       ],
       "state": "squads-eight",
       "look": "tmt-light",
@@ -16873,7 +16873,7 @@
         " › ▾ Common pool · 0",
         "                                                                                         158 more ↓",
         "────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  ? help  q quit"
       ],
       "styles": [
         "0:22=s15 22:10=s16 32:10=s15 42:58=s2",
@@ -16883,7 +16883,7 @@
         "0:1=s17 1:98=s22 99:1=s17",
         "0:1=s17 1:88=s2 89:11=s17",
         "0:100=s17",
-        "0:1=s23 1:10=s15 11:1=s23 12:9=s15 21:1=s23 22:9=s15 31:1=s23 32:9=s15 41:1=s23 42:12=s15 54:1=s23 55:11=s15 66:1=s23 67:9=s15 76:1=s23 77:7=s15 84:1=s23 85:5=s15 90:10=s2"
+        "0:1=s23 1:10=s15 11:1=s23 12:9=s15 21:1=s23 22:9=s15 31:1=s23 32:9=s15 41:1=s23 42:12=s15 54:1=s23 55:12=s15 67:1=s23 68:11=s15 79:1=s23 80:7=s15 87:1=s23 88:5=s15 93:7=s2"
       ],
       "state": "squads-eight",
       "look": "tmt-light",
@@ -17095,7 +17095,7 @@
         "",
         "",
         "────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  ? help  q quit"
       ],
       "styles": [
         "0:22=s15 22:10=s16 32:10=s15 42:38=s2",
@@ -17133,7 +17133,7 @@
         "0:1=s17 1:78=s2 79:1=s17",
         "0:1=s17 1:78=s2 79:1=s17",
         "0:80=s17",
-        "0:1=s23 1:10=s15 11:1=s23 12:9=s15 21:1=s23 22:9=s15 31:1=s23 32:9=s15 41:1=s23 42:12=s15 54:1=s23 55:11=s15 66:1=s23 67:7=s15 74:1=s23 75:5=s15"
+        "0:1=s23 1:10=s15 11:1=s23 12:9=s15 21:1=s23 22:9=s15 31:1=s23 32:9=s15 41:1=s23 42:12=s15 54:1=s23 55:7=s15 62:1=s23 63:5=s15 68:12=s2"
       ],
       "state": "squads-eight",
       "look": "tmt-light",
@@ -17317,7 +17317,7 @@
         " › ▾ Common pool · 0",
         "                                                                     158 more ↓",
         "────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  ? help  q quit"
       ],
       "styles": [
         "0:22=s15 22:10=s16 32:10=s15 42:38=s2",
@@ -17327,7 +17327,7 @@
         "0:1=s17 1:78=s22 79:1=s17",
         "0:1=s17 1:68=s2 69:11=s17",
         "0:80=s17",
-        "0:1=s23 1:10=s15 11:1=s23 12:9=s15 21:1=s23 22:9=s15 31:1=s23 32:9=s15 41:1=s23 42:12=s15 54:1=s23 55:11=s15 66:1=s23 67:7=s15 74:1=s23 75:5=s15"
+        "0:1=s23 1:10=s15 11:1=s23 12:9=s15 21:1=s23 22:9=s15 31:1=s23 32:9=s15 41:1=s23 42:12=s15 54:1=s23 55:7=s15 62:1=s23 63:5=s15 68:12=s2"
       ],
       "state": "squads-eight",
       "look": "tmt-light",
@@ -17983,7 +17983,7 @@
         "     agent-00076 · working · active",
         "                                                     158 more ↓",
         "──────────────────────────────────────────────────────────────── ───────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  left collapse  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  ? help  q quit"
       ],
       "styles": [
         "0:22=s15 22:10=s16 32:10=s15 42:118=s2",
@@ -18021,7 +18021,7 @@
         "0:1=s17 1:34=s19 35:28=s2 63:1=s17 64:1=s2 65:1=s17 66:93=s2 159:1=s17",
         "0:1=s17 1:52=s2 53:11=s17 64:1=s2 65:1=s17 66:93=s2 159:1=s17",
         "0:64=s17 64:1=s2 65:95=s17",
-        "0:1=s23 1:10=s15 11:1=s23 12:9=s15 21:1=s23 22:9=s15 31:1=s23 32:9=s15 41:1=s23 42:12=s15 54:1=s23 55:11=s15 66:1=s23 67:9=s15 76:6=s23 82:10=s15 92:3=s23 95:7=s15 102:4=s23 106:7=s15 113:2=s23 115:11=s15 126:4=s23 130:11=s15 141:1=s23 142:7=s15 149:1=s23 150:5=s15 155:5=s2"
+        "0:1=s23 1:10=s15 11:1=s23 12:9=s15 21:1=s23 22:9=s15 31:1=s23 32:9=s15 41:1=s23 42:12=s15 54:1=s23 55:12=s15 67:1=s23 68:11=s15 79:1=s23 80:9=s15 89:6=s23 95:10=s15 105:3=s23 108:7=s15 115:4=s23 119:7=s15 126:2=s23 128:11=s15 139:1=s23 140:7=s15 147:1=s23 148:5=s15 153:7=s2"
       ],
       "state": "squads-thirty-six",
       "look": "tmt-light",
@@ -18233,7 +18233,7 @@
         " › ▾ Common pool · 0",
         "                                                                                                                                                     186 more ↓",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  left collapse  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  ? help  q quit"
       ],
       "styles": [
         "0:22=s15 22:10=s16 32:10=s15 42:118=s2",
@@ -18243,7 +18243,7 @@
         "0:1=s17 1:158=s22 159:1=s17",
         "0:1=s17 1:148=s2 149:11=s17",
         "0:160=s17",
-        "0:1=s23 1:10=s15 11:1=s23 12:9=s15 21:1=s23 22:9=s15 31:1=s23 32:9=s15 41:1=s23 42:12=s15 54:1=s23 55:11=s15 66:1=s23 67:9=s15 76:6=s23 82:10=s15 92:3=s23 95:7=s15 102:4=s23 106:7=s15 113:2=s23 115:11=s15 126:4=s23 130:11=s15 141:1=s23 142:7=s15 149:1=s23 150:5=s15 155:5=s2"
+        "0:1=s23 1:10=s15 11:1=s23 12:9=s15 21:1=s23 22:9=s15 31:1=s23 32:9=s15 41:1=s23 42:12=s15 54:1=s23 55:12=s15 67:1=s23 68:11=s15 79:1=s23 80:9=s15 89:6=s23 95:10=s15 105:3=s23 108:7=s15 115:4=s23 119:7=s15 126:2=s23 128:11=s15 139:1=s23 140:7=s15 147:1=s23 148:5=s15 153:7=s2"
       ],
       "state": "squads-thirty-six",
       "look": "tmt-light",
@@ -18483,7 +18483,7 @@
         "",
         "",
         "────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  ? help  q quit"
       ],
       "styles": [
         "0:22=s15 22:10=s16 32:10=s15 42:58=s2",
@@ -18521,7 +18521,7 @@
         "0:1=s17 1:98=s2 99:1=s17",
         "0:1=s17 1:98=s2 99:1=s17",
         "0:100=s17",
-        "0:1=s23 1:10=s15 11:1=s23 12:9=s15 21:1=s23 22:9=s15 31:1=s23 32:9=s15 41:1=s23 42:12=s15 54:1=s23 55:11=s15 66:1=s23 67:9=s15 76:1=s23 77:7=s15 84:1=s23 85:5=s15 90:10=s2"
+        "0:1=s23 1:10=s15 11:1=s23 12:9=s15 21:1=s23 22:9=s15 31:1=s23 32:9=s15 41:1=s23 42:12=s15 54:1=s23 55:12=s15 67:1=s23 68:11=s15 79:1=s23 80:7=s15 87:1=s23 88:5=s15 93:7=s2"
       ],
       "state": "squads-thirty-six",
       "look": "tmt-light",
@@ -18733,7 +18733,7 @@
         " › ▾ Common pool · 0",
         "                                                                                         186 more ↓",
         "────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  ? help  q quit"
       ],
       "styles": [
         "0:22=s15 22:10=s16 32:10=s15 42:58=s2",
@@ -18743,7 +18743,7 @@
         "0:1=s17 1:98=s22 99:1=s17",
         "0:1=s17 1:88=s2 89:11=s17",
         "0:100=s17",
-        "0:1=s23 1:10=s15 11:1=s23 12:9=s15 21:1=s23 22:9=s15 31:1=s23 32:9=s15 41:1=s23 42:12=s15 54:1=s23 55:11=s15 66:1=s23 67:9=s15 76:1=s23 77:7=s15 84:1=s23 85:5=s15 90:10=s2"
+        "0:1=s23 1:10=s15 11:1=s23 12:9=s15 21:1=s23 22:9=s15 31:1=s23 32:9=s15 41:1=s23 42:12=s15 54:1=s23 55:12=s15 67:1=s23 68:11=s15 79:1=s23 80:7=s15 87:1=s23 88:5=s15 93:7=s2"
       ],
       "state": "squads-thirty-six",
       "look": "tmt-light",
@@ -18983,7 +18983,7 @@
         "",
         "",
         "────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  ? help  q quit"
       ],
       "styles": [
         "0:22=s15 22:10=s16 32:10=s15 42:38=s2",
@@ -19021,7 +19021,7 @@
         "0:1=s17 1:78=s2 79:1=s17",
         "0:1=s17 1:78=s2 79:1=s17",
         "0:80=s17",
-        "0:1=s23 1:10=s15 11:1=s23 12:9=s15 21:1=s23 22:9=s15 31:1=s23 32:9=s15 41:1=s23 42:12=s15 54:1=s23 55:11=s15 66:1=s23 67:7=s15 74:1=s23 75:5=s15"
+        "0:1=s23 1:10=s15 11:1=s23 12:9=s15 21:1=s23 22:9=s15 31:1=s23 32:9=s15 41:1=s23 42:12=s15 54:1=s23 55:7=s15 62:1=s23 63:5=s15 68:12=s2"
       ],
       "state": "squads-thirty-six",
       "look": "tmt-light",
@@ -19233,7 +19233,7 @@
         " › ▾ Common pool · 0",
         "                                                                     186 more ↓",
         "────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  ? help  q quit"
       ],
       "styles": [
         "0:22=s15 22:10=s16 32:10=s15 42:38=s2",
@@ -19243,7 +19243,7 @@
         "0:1=s17 1:78=s22 79:1=s17",
         "0:1=s17 1:68=s2 69:11=s17",
         "0:80=s17",
-        "0:1=s23 1:10=s15 11:1=s23 12:9=s15 21:1=s23 22:9=s15 31:1=s23 32:9=s15 41:1=s23 42:12=s15 54:1=s23 55:11=s15 66:1=s23 67:7=s15 74:1=s23 75:5=s15"
+        "0:1=s23 1:10=s15 11:1=s23 12:9=s15 21:1=s23 22:9=s15 31:1=s23 32:9=s15 41:1=s23 42:12=s15 54:1=s23 55:7=s15 62:1=s23 63:5=s15 68:12=s2"
       ],
       "state": "squads-thirty-six",
       "look": "tmt-light",
@@ -21016,6 +21016,7 @@
         "│ 3                     show the Digest tab                                                                                                                    │",
         "│ ?                     show effective scoped bindings                                                                                                         │",
         "│ D                     change the member's digest                                                                                                             │",
+        "│ a                     find an agent already running and review its binding                                                                                   │",
         "│ c                     show the selected scope's timers                                                                                                       │",
         "│ ctrl-r                refresh the board now                                                                                                                  │",
         "│ double-click          inspect the selected target                                                                                                            │",
@@ -21035,8 +21036,7 @@
         "│ t                     send the member a message                                                                                                              │",
         "│ tab                   move to the next pane                                                                                                                  │",
         "│ up                    select the previous visible target                                                                                                     │",
-        "│ w                     preview saved workspace snapshots and review a guarded restore                                                                         │",
-        "│ 1–28 of 53 · 25 more ↓                                                                                                                                       │",
+        "│ 1–28 of 54 · 26 more ↓                                                                                                                                       │",
         "│ ↑↓ scroll · PgUp/PgDn page · Esc close                                                                                                                       │",
         "└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘",
         ""
@@ -21148,6 +21148,7 @@
         "│ 3                     show the Digest tab                                                        │",
         "│ ?                     show effective scoped bindings                                             │",
         "│ D                     change the member's digest                                                 │",
+        "│ a                     find an agent already running and review its binding                       │",
         "│ c                     show the selected scope's timers                                           │",
         "│ ctrl-r                refresh the board now                                                      │",
         "│ double-click          inspect the selected target                                                │",
@@ -21167,8 +21168,7 @@
         "│ t                     send the member a message                                                  │",
         "│ tab                   move to the next pane                                                      │",
         "│ up                    select the previous visible target                                         │",
-        "│ w                     preview saved workspace snapshots and review a guarded restore             │",
-        "│ 1–28 of 64 · 36 more ↓                                                                           │",
+        "│ 1–28 of 65 · 37 more ↓                                                                           │",
         "│ ↑↓ scroll · PgUp/PgDn page · Esc close                                                           │",
         "└──────────────────────────────────────────────────────────────────────────────────────────────────┘",
         ""
@@ -21280,6 +21280,7 @@
         "│ 3                     show the Digest tab                                    │",
         "│ ?                     show effective scoped bindings                         │",
         "│ D                     change the member's digest                             │",
+        "│ a                     find an agent already running and review its binding   │",
         "│ c                     show the selected scope's timers                       │",
         "│ ctrl-r                refresh the board now                                  │",
         "│ double-click          inspect the selected target                            │",
@@ -21299,8 +21300,7 @@
         "│ t                     send the member a message                              │",
         "│ tab                   move to the next pane                                  │",
         "│ up                    select the previous visible target                     │",
-        "│ w                     preview saved workspace snapshots and review a         │",
-        "│ 1–28 of 75 · 47 more ↓                                                       │",
+        "│ 1–28 of 76 · 48 more ↓                                                       │",
         "│ ↑↓ scroll · PgUp/PgDn page · Esc close                                       │",
         "└──────────────────────────────────────────────────────────────────────────────┘",
         ""
@@ -21413,6 +21413,8 @@
         "│ 3                     show the Digest tab                │",
         "│ ?                     show effective scoped bindings     │",
         "│ D                     change the member's digest         │",
+        "│ a                     find an agent already running and  │",
+        "│                       review its binding                 │",
         "│ c                     show the selected scope's timers   │",
         "│ ctrl-r                refresh the board now              │",
         "│ double-click          inspect the selected target        │",
@@ -21430,9 +21432,7 @@
         "│ pagedown              move one page down                 │",
         "│ pageup                move one page up                   │",
         "│ q                     close the board                    │",
-        "│ right                 expand the selected squad          │",
-        "│ t                     send the member a message          │",
-        "│ 1–28 of 94 · 66 more ↓                                   │",
+        "│ 1–28 of 96 · 68 more ↓                                   │",
         "│ ↑↓ scroll · PgUp/PgDn page · Esc close                   │",
         "└──────────────────────────────────────────────────────────┘",
         ""
@@ -24187,7 +24187,7 @@
         "",
         "",
         "────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
       ],
       "styles": [
         "0:22=s29 22:10=s30 32:10=s29 42:118=s2",
@@ -24225,7 +24225,7 @@
         "0:1=s31 1:62=s2 63:1=s31 64:96=s2",
         "0:1=s31 1:62=s2 63:1=s31 64:96=s2",
         "0:64=s31 64:96=s2",
-        "0:1=s38 1:10=s29 11:1=s38 12:7=s29 19:1=s38 20:9=s29 29:1=s38 30:7=s29 37:1=s38 38:9=s29 47:1=s38 48:9=s29 57:1=s38 58:9=s29 67:1=s38 68:9=s29 77:1=s38 78:12=s29 90:1=s38 91:11=s29 102:1=s38 103:9=s29 112:6=s38 118:10=s29 128:3=s38 131:7=s29 138:1=s38 139:7=s29 146:1=s38 147:5=s29 152:8=s2"
+        "0:1=s38 1:10=s29 11:1=s38 12:7=s29 19:1=s38 20:9=s29 29:1=s38 30:7=s29 37:1=s38 38:9=s29 47:1=s38 48:9=s29 57:1=s38 58:9=s29 67:1=s38 68:9=s29 77:1=s38 78:12=s29 90:1=s38 91:12=s29 103:1=s38 104:11=s29 115:1=s38 116:9=s29 125:6=s38 131:10=s29 141:1=s38 142:7=s29 149:1=s38 150:5=s29 155:5=s2"
       ],
       "state": "agents",
       "look": "terminal",
@@ -24253,7 +24253,7 @@
         " ›   worker · working · active",
         "                                                                                                                                                            ↑ 2",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
       ],
       "styles": [
         "0:22=s29 22:10=s30 32:10=s29 42:118=s2",
@@ -24263,7 +24263,7 @@
         "0:1=s31 1:29=s36 30:129=s37 159:1=s31",
         "0:1=s31 1:155=s2 156:4=s31",
         "0:160=s31",
-        "0:1=s38 1:10=s29 11:1=s38 12:7=s29 19:1=s38 20:9=s29 29:1=s38 30:7=s29 37:1=s38 38:9=s29 47:1=s38 48:9=s29 57:1=s38 58:9=s29 67:1=s38 68:9=s29 77:1=s38 78:12=s29 90:1=s38 91:11=s29 102:1=s38 103:9=s29 112:6=s38 118:10=s29 128:3=s38 131:7=s29 138:1=s38 139:7=s29 146:1=s38 147:5=s29 152:8=s2"
+        "0:1=s38 1:10=s29 11:1=s38 12:7=s29 19:1=s38 20:9=s29 29:1=s38 30:7=s29 37:1=s38 38:9=s29 47:1=s38 48:9=s29 57:1=s38 58:9=s29 67:1=s38 68:9=s29 77:1=s38 78:12=s29 90:1=s38 91:12=s29 103:1=s38 104:11=s29 115:1=s38 116:9=s29 125:6=s38 131:10=s29 141:1=s38 142:7=s29 149:1=s38 150:5=s29 155:5=s2"
       ],
       "state": "agents",
       "look": "terminal",
@@ -25196,10 +25196,10 @@
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         "2 Agents · Common pool",
         "─ Agents ─────────────────────────────────────────────────────── ─Common pool───────────────────────────────────────────────────────────────────────────────────",
-        " › ▸ Common pool · 0                                              Agents without a squad",
-        "                                                                  Expand the pool to select an agent; add it to an existing squad or create one.",
-        "",
-        "",
+        " › ▸ Common pool · 0                                               Add an agent already running",
+        "                                                                  No agents are listed yet.",
+        "                                                                  Start an agent in a tmux pane, then choose Add an agent already running from the Agents list.",
+        "                                                                  Scan, review the pane and confirm its name or existing identity.",
         "",
         "",
         "",
@@ -25227,7 +25227,7 @@
         "",
         "",
         "──────────────────────────────────────────────────────────────── ───────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  left collapse  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  ? help  q quit"
       ],
       "styles": [
         "0:22=s29 22:10=s30 32:10=s29 42:118=s2",
@@ -25265,14 +25265,14 @@
         "0:1=s31 1:62=s2 63:1=s31 64:1=s2 65:1=s31 66:93=s2 159:1=s31",
         "0:1=s31 1:62=s2 63:1=s31 64:1=s2 65:1=s31 66:93=s2 159:1=s31",
         "0:64=s31 64:1=s2 65:95=s31",
-        "0:1=s38 1:10=s29 11:1=s38 12:9=s29 21:1=s38 22:9=s29 31:1=s38 32:9=s29 41:1=s38 42:12=s29 54:1=s38 55:11=s29 66:1=s38 67:9=s29 76:6=s38 82:10=s29 92:3=s38 95:7=s29 102:4=s38 106:7=s29 113:2=s38 115:11=s29 126:4=s38 130:11=s29 141:1=s38 142:7=s29 149:1=s38 150:5=s29 155:5=s2"
+        "0:1=s38 1:10=s29 11:1=s38 12:9=s29 21:1=s38 22:9=s29 31:1=s38 32:9=s29 41:1=s38 42:12=s29 54:1=s38 55:12=s29 67:1=s38 68:11=s29 79:1=s38 80:9=s29 89:6=s38 95:10=s29 105:3=s38 108:7=s29 115:4=s38 119:7=s29 126:2=s38 128:11=s29 139:1=s38 140:7=s29 147:1=s38 148:5=s29 153:7=s2"
       ],
       "state": "empty",
       "look": "terminal",
       "width": 160,
       "height": 36,
       "hits": "[Hit { y: 4, x: 1, width: 62, row: 0 }]",
-      "actions": "[]",
+      "actions": "[(Rect { x: 66, y: 4, width: 30, height: 1 }, Pool, Action(Action { verb: Ui(DiscoverAgents), args: [], text: \"discover-agents\" }))]",
       "tabs": "[TabHit { y: 0, x: 10, width: 12, tab: 0 }, TabHit { y: 0, x: 22, width: 10, tab: 1 }, TabHit { y: 0, x: 32, width: 10, tab: 2 }]",
       "starts": [
         0
@@ -25291,7 +25291,7 @@
         " › ▸ Common pool · 0",
         "",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  left collapse  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  ? help  q quit"
       ],
       "styles": [
         "0:22=s29 22:10=s30 32:10=s29 42:118=s2",
@@ -25301,7 +25301,7 @@
         "0:1=s31 1:19=s36 20:139=s37 159:1=s31",
         "0:1=s31 1:158=s2 159:1=s31",
         "0:160=s31",
-        "0:1=s38 1:10=s29 11:1=s38 12:9=s29 21:1=s38 22:9=s29 31:1=s38 32:9=s29 41:1=s38 42:12=s29 54:1=s38 55:11=s29 66:1=s38 67:9=s29 76:6=s38 82:10=s29 92:3=s38 95:7=s29 102:4=s38 106:7=s29 113:2=s38 115:11=s29 126:4=s38 130:11=s29 141:1=s38 142:7=s29 149:1=s38 150:5=s29 155:5=s2"
+        "0:1=s38 1:10=s29 11:1=s38 12:9=s29 21:1=s38 22:9=s29 31:1=s38 32:9=s29 41:1=s38 42:12=s29 54:1=s38 55:12=s29 67:1=s38 68:11=s29 79:1=s38 80:9=s29 89:6=s38 95:10=s29 105:3=s38 108:7=s29 115:4=s38 119:7=s29 126:2=s38 128:11=s29 139:1=s38 140:7=s29 147:1=s38 148:5=s29 153:7=s2"
       ],
       "state": "empty",
       "look": "terminal",
@@ -25337,10 +25337,10 @@
         "────────────────────────────────────────────────────────────────────────────────────────────────────",
         "",
         "─Common pool────────────────────────────────────────────────────────────────────────────────────────",
-        " Agents without a squad",
-        " Expand the pool to select an agent; add it to an existing squad or create one.",
-        "",
-        "",
+        "  Add an agent already running",
+        " No agents are listed yet.",
+        " Start an agent in a tmux pane, then choose Add an agent already running from the Agents list.",
+        " Scan, review the pane and confirm its name or existing identity.",
         "",
         "",
         "",
@@ -25355,7 +25355,7 @@
         "",
         "",
         "────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  ? help  q quit"
       ],
       "styles": [
         "0:22=s29 22:10=s30 32:10=s29 42:58=s2",
@@ -25393,14 +25393,14 @@
         "0:1=s31 1:98=s2 99:1=s31",
         "0:1=s31 1:98=s2 99:1=s31",
         "0:100=s31",
-        "0:1=s38 1:10=s29 11:1=s38 12:9=s29 21:1=s38 22:9=s29 31:1=s38 32:9=s29 41:1=s38 42:12=s29 54:1=s38 55:11=s29 66:1=s38 67:9=s29 76:1=s38 77:7=s29 84:1=s38 85:5=s29 90:10=s2"
+        "0:1=s38 1:10=s29 11:1=s38 12:9=s29 21:1=s38 22:9=s29 31:1=s38 32:9=s29 41:1=s38 42:12=s29 54:1=s38 55:12=s29 67:1=s38 68:11=s29 79:1=s38 80:7=s29 87:1=s38 88:5=s29 93:7=s2"
       ],
       "state": "empty",
       "look": "terminal",
       "width": 100,
       "height": 36,
       "hits": "[Hit { y: 4, x: 1, width: 98, row: 0 }]",
-      "actions": "[]",
+      "actions": "[(Rect { x: 1, y: 17, width: 30, height: 1 }, Pool, Action(Action { verb: Ui(DiscoverAgents), args: [], text: \"discover-agents\" }))]",
       "tabs": "[TabHit { y: 0, x: 10, width: 12, tab: 0 }, TabHit { y: 0, x: 22, width: 10, tab: 1 }, TabHit { y: 0, x: 32, width: 10, tab: 2 }]",
       "starts": [
         0
@@ -25419,7 +25419,7 @@
         " › ▸ Common pool · 0",
         "",
         "────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  ? help  q quit"
       ],
       "styles": [
         "0:22=s29 22:10=s30 32:10=s29 42:58=s2",
@@ -25429,7 +25429,7 @@
         "0:1=s31 1:19=s36 20:79=s37 99:1=s31",
         "0:1=s31 1:98=s2 99:1=s31",
         "0:100=s31",
-        "0:1=s38 1:10=s29 11:1=s38 12:9=s29 21:1=s38 22:9=s29 31:1=s38 32:9=s29 41:1=s38 42:12=s29 54:1=s38 55:11=s29 66:1=s38 67:9=s29 76:1=s38 77:7=s29 84:1=s38 85:5=s29 90:10=s2"
+        "0:1=s38 1:10=s29 11:1=s38 12:9=s29 21:1=s38 22:9=s29 31:1=s38 32:9=s29 41:1=s38 42:12=s29 54:1=s38 55:12=s29 67:1=s38 68:11=s29 79:1=s38 80:7=s29 87:1=s38 88:5=s29 93:7=s2"
       ],
       "state": "empty",
       "look": "terminal",
@@ -25465,11 +25465,11 @@
         "────────────────────────────────────────────────────────────────────────────────",
         "",
         "─Common pool────────────────────────────────────────────────────────────────────",
-        " Agents without a squad",
-        " Expand the pool to select an agent; add it to an existing squad or create one.",
-        "",
-        "",
-        "",
+        "  Add an agent already running",
+        " No agents are listed yet.",
+        " Start an agent in a tmux pane, then choose Add an agent already running from",
+        " the Agents list. Scan, review the pane and confirm its name or existing",
+        " identity.",
         "",
         "",
         "",
@@ -25483,7 +25483,7 @@
         "",
         "",
         "────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  ? help  q quit"
       ],
       "styles": [
         "0:22=s29 22:10=s30 32:10=s29 42:38=s2",
@@ -25521,14 +25521,14 @@
         "0:1=s31 1:78=s2 79:1=s31",
         "0:1=s31 1:78=s2 79:1=s31",
         "0:80=s31",
-        "0:1=s38 1:10=s29 11:1=s38 12:9=s29 21:1=s38 22:9=s29 31:1=s38 32:9=s29 41:1=s38 42:12=s29 54:1=s38 55:11=s29 66:1=s38 67:7=s29 74:1=s38 75:5=s29"
+        "0:1=s38 1:10=s29 11:1=s38 12:9=s29 21:1=s38 22:9=s29 31:1=s38 32:9=s29 41:1=s38 42:12=s29 54:1=s38 55:7=s29 62:1=s38 63:5=s29 68:12=s2"
       ],
       "state": "empty",
       "look": "terminal",
       "width": 80,
       "height": 36,
       "hits": "[Hit { y: 4, x: 1, width: 78, row: 0 }]",
-      "actions": "[]",
+      "actions": "[(Rect { x: 1, y: 17, width: 30, height: 1 }, Pool, Action(Action { verb: Ui(DiscoverAgents), args: [], text: \"discover-agents\" }))]",
       "tabs": "[TabHit { y: 0, x: 10, width: 12, tab: 0 }, TabHit { y: 0, x: 22, width: 10, tab: 1 }, TabHit { y: 0, x: 32, width: 10, tab: 2 }]",
       "starts": [
         0
@@ -25547,7 +25547,7 @@
         " › ▸ Common pool · 0",
         "",
         "────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  ? help  q quit"
       ],
       "styles": [
         "0:22=s29 22:10=s30 32:10=s29 42:38=s2",
@@ -25557,7 +25557,7 @@
         "0:1=s31 1:19=s36 20:59=s37 79:1=s31",
         "0:1=s31 1:78=s2 79:1=s31",
         "0:80=s31",
-        "0:1=s38 1:10=s29 11:1=s38 12:9=s29 21:1=s38 22:9=s29 31:1=s38 32:9=s29 41:1=s38 42:12=s29 54:1=s38 55:11=s29 66:1=s38 67:7=s29 74:1=s38 75:5=s29"
+        "0:1=s38 1:10=s29 11:1=s38 12:9=s29 21:1=s38 22:9=s29 31:1=s38 32:9=s29 41:1=s38 42:12=s29 54:1=s38 55:7=s29 62:1=s38 63:5=s29 68:12=s2"
       ],
       "state": "empty",
       "look": "terminal",
@@ -25739,7 +25739,7 @@
         "",
         "",
         "────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
       ],
       "styles": [
         "0:22=s29 22:10=s30 32:10=s29 42:118=s2",
@@ -25777,7 +25777,7 @@
         "0:1=s31 1:62=s2 63:1=s31 64:96=s2",
         "0:1=s31 1:62=s2 63:1=s31 64:96=s2",
         "0:64=s31 64:96=s2",
-        "0:1=s38 1:10=s29 11:1=s38 12:7=s29 19:1=s38 20:9=s29 29:1=s38 30:7=s29 37:1=s38 38:9=s29 47:1=s38 48:9=s29 57:1=s38 58:9=s29 67:1=s38 68:9=s29 77:1=s38 78:12=s29 90:1=s38 91:11=s29 102:1=s38 103:9=s29 112:6=s38 118:10=s29 128:3=s38 131:7=s29 138:1=s38 139:7=s29 146:1=s38 147:5=s29 152:8=s2"
+        "0:1=s38 1:10=s29 11:1=s38 12:7=s29 19:1=s38 20:9=s29 29:1=s38 30:7=s29 37:1=s38 38:9=s29 47:1=s38 48:9=s29 57:1=s38 58:9=s29 67:1=s38 68:9=s29 77:1=s38 78:12=s29 90:1=s38 91:12=s29 103:1=s38 104:11=s29 115:1=s38 116:9=s29 125:6=s38 131:10=s29 141:1=s38 142:7=s29 149:1=s38 150:5=s29 155:5=s2"
       ],
       "state": "pool",
       "look": "terminal",
@@ -25805,7 +25805,7 @@
         " ›   worker · working · active",
         "                                                                                                                                                  ↑ 1  1 more ↓",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
       ],
       "styles": [
         "0:22=s29 22:10=s30 32:10=s29 42:118=s2",
@@ -25815,7 +25815,7 @@
         "0:1=s31 1:29=s36 30:129=s37 159:1=s31",
         "0:1=s31 1:145=s2 146:14=s31",
         "0:160=s31",
-        "0:1=s38 1:10=s29 11:1=s38 12:7=s29 19:1=s38 20:9=s29 29:1=s38 30:7=s29 37:1=s38 38:9=s29 47:1=s38 48:9=s29 57:1=s38 58:9=s29 67:1=s38 68:9=s29 77:1=s38 78:12=s29 90:1=s38 91:11=s29 102:1=s38 103:9=s29 112:6=s38 118:10=s29 128:3=s38 131:7=s29 138:1=s38 139:7=s29 146:1=s38 147:5=s29 152:8=s2"
+        "0:1=s38 1:10=s29 11:1=s38 12:7=s29 19:1=s38 20:9=s29 29:1=s38 30:7=s29 37:1=s38 38:9=s29 47:1=s38 48:9=s29 57:1=s38 58:9=s29 67:1=s38 68:9=s29 77:1=s38 78:12=s29 90:1=s38 91:12=s29 103:1=s38 104:11=s29 115:1=s38 116:9=s29 125:6=s38 131:10=s29 141:1=s38 142:7=s29 149:1=s38 150:5=s29 155:5=s2"
       ],
       "state": "pool",
       "look": "terminal",
@@ -26267,7 +26267,7 @@
         " ›   worker-150 · idle · active",
         "                                                          ↑ 124",
         "────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
       ],
       "styles": [
         "0:22=s29 22:10=s30 32:10=s29 42:118=s2",
@@ -26305,7 +26305,7 @@
         "0:1=s31 1:30=s36 31:32=s37 63:1=s31 64:96=s2",
         "0:1=s31 1:57=s2 58:6=s31 64:96=s2",
         "0:64=s31 64:96=s2",
-        "0:1=s38 1:10=s29 11:1=s38 12:7=s29 19:1=s38 20:9=s29 29:1=s38 30:7=s29 37:1=s38 38:9=s29 47:1=s38 48:9=s29 57:1=s38 58:9=s29 67:1=s38 68:9=s29 77:1=s38 78:12=s29 90:1=s38 91:11=s29 102:1=s38 103:9=s29 112:6=s38 118:10=s29 128:3=s38 131:7=s29 138:1=s38 139:7=s29 146:1=s38 147:5=s29 152:8=s2"
+        "0:1=s38 1:10=s29 11:1=s38 12:7=s29 19:1=s38 20:9=s29 29:1=s38 30:7=s29 37:1=s38 38:9=s29 47:1=s38 48:9=s29 57:1=s38 58:9=s29 67:1=s38 68:9=s29 77:1=s38 78:12=s29 90:1=s38 91:12=s29 103:1=s38 104:11=s29 115:1=s38 116:9=s29 125:6=s38 131:10=s29 141:1=s38 142:7=s29 149:1=s38 150:5=s29 155:5=s2"
       ],
       "state": "dense",
       "look": "terminal",
@@ -26483,7 +26483,7 @@
         " ›   worker-150 · idle · active",
         "                                                                                                                                                          ↑ 152",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
       ],
       "styles": [
         "0:22=s29 22:10=s30 32:10=s29 42:118=s2",
@@ -26493,7 +26493,7 @@
         "0:1=s31 1:30=s36 31:128=s37 159:1=s31",
         "0:1=s31 1:153=s2 154:6=s31",
         "0:160=s31",
-        "0:1=s38 1:10=s29 11:1=s38 12:7=s29 19:1=s38 20:9=s29 29:1=s38 30:7=s29 37:1=s38 38:9=s29 47:1=s38 48:9=s29 57:1=s38 58:9=s29 67:1=s38 68:9=s29 77:1=s38 78:12=s29 90:1=s38 91:11=s29 102:1=s38 103:9=s29 112:6=s38 118:10=s29 128:3=s38 131:7=s29 138:1=s38 139:7=s29 146:1=s38 147:5=s29 152:8=s2"
+        "0:1=s38 1:10=s29 11:1=s38 12:7=s29 19:1=s38 20:9=s29 29:1=s38 30:7=s29 37:1=s38 38:9=s29 47:1=s38 48:9=s29 57:1=s38 58:9=s29 67:1=s38 68:9=s29 77:1=s38 78:12=s29 90:1=s38 91:12=s29 103:1=s38 104:11=s29 115:1=s38 116:9=s29 125:6=s38 131:10=s29 141:1=s38 142:7=s29 149:1=s38 150:5=s29 155:5=s2"
       ],
       "state": "dense",
       "look": "terminal",
@@ -27995,7 +27995,7 @@
         "     agent-00049 · working · active",
         "                                                     130 more ↓",
         "──────────────────────────────────────────────────────────────── ───────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  left collapse  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  ? help  q quit"
       ],
       "styles": [
         "0:22=s29 22:10=s30 32:10=s29 42:118=s2",
@@ -28033,7 +28033,7 @@
         "0:1=s31 1:34=s32 35:28=s2 63:1=s31 64:1=s2 65:1=s31 66:93=s2 159:1=s31",
         "0:1=s31 1:52=s2 53:11=s31 64:1=s2 65:1=s31 66:93=s2 159:1=s31",
         "0:64=s31 64:1=s2 65:95=s31",
-        "0:1=s38 1:10=s29 11:1=s38 12:9=s29 21:1=s38 22:9=s29 31:1=s38 32:9=s29 41:1=s38 42:12=s29 54:1=s38 55:11=s29 66:1=s38 67:9=s29 76:6=s38 82:10=s29 92:3=s38 95:7=s29 102:4=s38 106:7=s29 113:2=s38 115:11=s29 126:4=s38 130:11=s29 141:1=s38 142:7=s29 149:1=s38 150:5=s29 155:5=s2"
+        "0:1=s38 1:10=s29 11:1=s38 12:9=s29 21:1=s38 22:9=s29 31:1=s38 32:9=s29 41:1=s38 42:12=s29 54:1=s38 55:12=s29 67:1=s38 68:11=s29 79:1=s38 80:9=s29 89:6=s38 95:10=s29 105:3=s38 108:7=s29 115:4=s38 119:7=s29 126:2=s38 128:11=s29 139:1=s38 140:7=s29 147:1=s38 148:5=s29 153:7=s2"
       ],
       "state": "squads-eight",
       "look": "terminal",
@@ -28217,7 +28217,7 @@
         " › ▾ Common pool · 0",
         "                                                                                                                                                     158 more ↓",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  left collapse  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  ? help  q quit"
       ],
       "styles": [
         "0:22=s29 22:10=s30 32:10=s29 42:118=s2",
@@ -28227,7 +28227,7 @@
         "0:1=s31 1:19=s36 20:139=s37 159:1=s31",
         "0:1=s31 1:148=s2 149:11=s31",
         "0:160=s31",
-        "0:1=s38 1:10=s29 11:1=s38 12:9=s29 21:1=s38 22:9=s29 31:1=s38 32:9=s29 41:1=s38 42:12=s29 54:1=s38 55:11=s29 66:1=s38 67:9=s29 76:6=s38 82:10=s29 92:3=s38 95:7=s29 102:4=s38 106:7=s29 113:2=s38 115:11=s29 126:4=s38 130:11=s29 141:1=s38 142:7=s29 149:1=s38 150:5=s29 155:5=s2"
+        "0:1=s38 1:10=s29 11:1=s38 12:9=s29 21:1=s38 22:9=s29 31:1=s38 32:9=s29 41:1=s38 42:12=s29 54:1=s38 55:12=s29 67:1=s38 68:11=s29 79:1=s38 80:9=s29 89:6=s38 95:10=s29 105:3=s38 108:7=s29 115:4=s38 119:7=s29 126:2=s38 128:11=s29 139:1=s38 140:7=s29 147:1=s38 148:5=s29 153:7=s2"
       ],
       "state": "squads-eight",
       "look": "terminal",
@@ -28439,7 +28439,7 @@
         "",
         "",
         "────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  ? help  q quit"
       ],
       "styles": [
         "0:22=s29 22:10=s30 32:10=s29 42:58=s2",
@@ -28477,7 +28477,7 @@
         "0:1=s31 1:98=s2 99:1=s31",
         "0:1=s31 1:98=s2 99:1=s31",
         "0:100=s31",
-        "0:1=s38 1:10=s29 11:1=s38 12:9=s29 21:1=s38 22:9=s29 31:1=s38 32:9=s29 41:1=s38 42:12=s29 54:1=s38 55:11=s29 66:1=s38 67:9=s29 76:1=s38 77:7=s29 84:1=s38 85:5=s29 90:10=s2"
+        "0:1=s38 1:10=s29 11:1=s38 12:9=s29 21:1=s38 22:9=s29 31:1=s38 32:9=s29 41:1=s38 42:12=s29 54:1=s38 55:12=s29 67:1=s38 68:11=s29 79:1=s38 80:7=s29 87:1=s38 88:5=s29 93:7=s2"
       ],
       "state": "squads-eight",
       "look": "terminal",
@@ -28661,7 +28661,7 @@
         " › ▾ Common pool · 0",
         "                                                                                         158 more ↓",
         "────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  ? help  q quit"
       ],
       "styles": [
         "0:22=s29 22:10=s30 32:10=s29 42:58=s2",
@@ -28671,7 +28671,7 @@
         "0:1=s31 1:19=s36 20:79=s37 99:1=s31",
         "0:1=s31 1:88=s2 89:11=s31",
         "0:100=s31",
-        "0:1=s38 1:10=s29 11:1=s38 12:9=s29 21:1=s38 22:9=s29 31:1=s38 32:9=s29 41:1=s38 42:12=s29 54:1=s38 55:11=s29 66:1=s38 67:9=s29 76:1=s38 77:7=s29 84:1=s38 85:5=s29 90:10=s2"
+        "0:1=s38 1:10=s29 11:1=s38 12:9=s29 21:1=s38 22:9=s29 31:1=s38 32:9=s29 41:1=s38 42:12=s29 54:1=s38 55:12=s29 67:1=s38 68:11=s29 79:1=s38 80:7=s29 87:1=s38 88:5=s29 93:7=s2"
       ],
       "state": "squads-eight",
       "look": "terminal",
@@ -28883,7 +28883,7 @@
         "",
         "",
         "────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  ? help  q quit"
       ],
       "styles": [
         "0:22=s29 22:10=s30 32:10=s29 42:38=s2",
@@ -28921,7 +28921,7 @@
         "0:1=s31 1:78=s2 79:1=s31",
         "0:1=s31 1:78=s2 79:1=s31",
         "0:80=s31",
-        "0:1=s38 1:10=s29 11:1=s38 12:9=s29 21:1=s38 22:9=s29 31:1=s38 32:9=s29 41:1=s38 42:12=s29 54:1=s38 55:11=s29 66:1=s38 67:7=s29 74:1=s38 75:5=s29"
+        "0:1=s38 1:10=s29 11:1=s38 12:9=s29 21:1=s38 22:9=s29 31:1=s38 32:9=s29 41:1=s38 42:12=s29 54:1=s38 55:7=s29 62:1=s38 63:5=s29 68:12=s2"
       ],
       "state": "squads-eight",
       "look": "terminal",
@@ -29105,7 +29105,7 @@
         " › ▾ Common pool · 0",
         "                                                                     158 more ↓",
         "────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  ? help  q quit"
       ],
       "styles": [
         "0:22=s29 22:10=s30 32:10=s29 42:38=s2",
@@ -29115,7 +29115,7 @@
         "0:1=s31 1:19=s36 20:59=s37 79:1=s31",
         "0:1=s31 1:68=s2 69:11=s31",
         "0:80=s31",
-        "0:1=s38 1:10=s29 11:1=s38 12:9=s29 21:1=s38 22:9=s29 31:1=s38 32:9=s29 41:1=s38 42:12=s29 54:1=s38 55:11=s29 66:1=s38 67:7=s29 74:1=s38 75:5=s29"
+        "0:1=s38 1:10=s29 11:1=s38 12:9=s29 21:1=s38 22:9=s29 31:1=s38 32:9=s29 41:1=s38 42:12=s29 54:1=s38 55:7=s29 62:1=s38 63:5=s29 68:12=s2"
       ],
       "state": "squads-eight",
       "look": "terminal",
@@ -29771,7 +29771,7 @@
         "     agent-00076 · working · active",
         "                                                     158 more ↓",
         "──────────────────────────────────────────────────────────────── ───────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  left collapse  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  ? help  q quit"
       ],
       "styles": [
         "0:22=s29 22:10=s30 32:10=s29 42:118=s2",
@@ -29809,7 +29809,7 @@
         "0:1=s31 1:34=s32 35:28=s2 63:1=s31 64:1=s2 65:1=s31 66:93=s2 159:1=s31",
         "0:1=s31 1:52=s2 53:11=s31 64:1=s2 65:1=s31 66:93=s2 159:1=s31",
         "0:64=s31 64:1=s2 65:95=s31",
-        "0:1=s38 1:10=s29 11:1=s38 12:9=s29 21:1=s38 22:9=s29 31:1=s38 32:9=s29 41:1=s38 42:12=s29 54:1=s38 55:11=s29 66:1=s38 67:9=s29 76:6=s38 82:10=s29 92:3=s38 95:7=s29 102:4=s38 106:7=s29 113:2=s38 115:11=s29 126:4=s38 130:11=s29 141:1=s38 142:7=s29 149:1=s38 150:5=s29 155:5=s2"
+        "0:1=s38 1:10=s29 11:1=s38 12:9=s29 21:1=s38 22:9=s29 31:1=s38 32:9=s29 41:1=s38 42:12=s29 54:1=s38 55:12=s29 67:1=s38 68:11=s29 79:1=s38 80:9=s29 89:6=s38 95:10=s29 105:3=s38 108:7=s29 115:4=s38 119:7=s29 126:2=s38 128:11=s29 139:1=s38 140:7=s29 147:1=s38 148:5=s29 153:7=s2"
       ],
       "state": "squads-thirty-six",
       "look": "terminal",
@@ -30021,7 +30021,7 @@
         " › ▾ Common pool · 0",
         "                                                                                                                                                     186 more ↓",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  left collapse  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  ? help  q quit"
       ],
       "styles": [
         "0:22=s29 22:10=s30 32:10=s29 42:118=s2",
@@ -30031,7 +30031,7 @@
         "0:1=s31 1:19=s36 20:139=s37 159:1=s31",
         "0:1=s31 1:148=s2 149:11=s31",
         "0:160=s31",
-        "0:1=s38 1:10=s29 11:1=s38 12:9=s29 21:1=s38 22:9=s29 31:1=s38 32:9=s29 41:1=s38 42:12=s29 54:1=s38 55:11=s29 66:1=s38 67:9=s29 76:6=s38 82:10=s29 92:3=s38 95:7=s29 102:4=s38 106:7=s29 113:2=s38 115:11=s29 126:4=s38 130:11=s29 141:1=s38 142:7=s29 149:1=s38 150:5=s29 155:5=s2"
+        "0:1=s38 1:10=s29 11:1=s38 12:9=s29 21:1=s38 22:9=s29 31:1=s38 32:9=s29 41:1=s38 42:12=s29 54:1=s38 55:12=s29 67:1=s38 68:11=s29 79:1=s38 80:9=s29 89:6=s38 95:10=s29 105:3=s38 108:7=s29 115:4=s38 119:7=s29 126:2=s38 128:11=s29 139:1=s38 140:7=s29 147:1=s38 148:5=s29 153:7=s2"
       ],
       "state": "squads-thirty-six",
       "look": "terminal",
@@ -30271,7 +30271,7 @@
         "",
         "",
         "────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  ? help  q quit"
       ],
       "styles": [
         "0:22=s29 22:10=s30 32:10=s29 42:58=s2",
@@ -30309,7 +30309,7 @@
         "0:1=s31 1:98=s2 99:1=s31",
         "0:1=s31 1:98=s2 99:1=s31",
         "0:100=s31",
-        "0:1=s38 1:10=s29 11:1=s38 12:9=s29 21:1=s38 22:9=s29 31:1=s38 32:9=s29 41:1=s38 42:12=s29 54:1=s38 55:11=s29 66:1=s38 67:9=s29 76:1=s38 77:7=s29 84:1=s38 85:5=s29 90:10=s2"
+        "0:1=s38 1:10=s29 11:1=s38 12:9=s29 21:1=s38 22:9=s29 31:1=s38 32:9=s29 41:1=s38 42:12=s29 54:1=s38 55:12=s29 67:1=s38 68:11=s29 79:1=s38 80:7=s29 87:1=s38 88:5=s29 93:7=s2"
       ],
       "state": "squads-thirty-six",
       "look": "terminal",
@@ -30521,7 +30521,7 @@
         " › ▾ Common pool · 0",
         "                                                                                         186 more ↓",
         "────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  ? help  q quit"
       ],
       "styles": [
         "0:22=s29 22:10=s30 32:10=s29 42:58=s2",
@@ -30531,7 +30531,7 @@
         "0:1=s31 1:19=s36 20:79=s37 99:1=s31",
         "0:1=s31 1:88=s2 89:11=s31",
         "0:100=s31",
-        "0:1=s38 1:10=s29 11:1=s38 12:9=s29 21:1=s38 22:9=s29 31:1=s38 32:9=s29 41:1=s38 42:12=s29 54:1=s38 55:11=s29 66:1=s38 67:9=s29 76:1=s38 77:7=s29 84:1=s38 85:5=s29 90:10=s2"
+        "0:1=s38 1:10=s29 11:1=s38 12:9=s29 21:1=s38 22:9=s29 31:1=s38 32:9=s29 41:1=s38 42:12=s29 54:1=s38 55:12=s29 67:1=s38 68:11=s29 79:1=s38 80:7=s29 87:1=s38 88:5=s29 93:7=s2"
       ],
       "state": "squads-thirty-six",
       "look": "terminal",
@@ -30771,7 +30771,7 @@
         "",
         "",
         "────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  ? help  q quit"
       ],
       "styles": [
         "0:22=s29 22:10=s30 32:10=s29 42:38=s2",
@@ -30809,7 +30809,7 @@
         "0:1=s31 1:78=s2 79:1=s31",
         "0:1=s31 1:78=s2 79:1=s31",
         "0:80=s31",
-        "0:1=s38 1:10=s29 11:1=s38 12:9=s29 21:1=s38 22:9=s29 31:1=s38 32:9=s29 41:1=s38 42:12=s29 54:1=s38 55:11=s29 66:1=s38 67:7=s29 74:1=s38 75:5=s29"
+        "0:1=s38 1:10=s29 11:1=s38 12:9=s29 21:1=s38 22:9=s29 31:1=s38 32:9=s29 41:1=s38 42:12=s29 54:1=s38 55:7=s29 62:1=s38 63:5=s29 68:12=s2"
       ],
       "state": "squads-thirty-six",
       "look": "terminal",
@@ -31021,7 +31021,7 @@
         " › ▾ Common pool · 0",
         "                                                                     186 more ↓",
         "────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  ? help  q quit"
       ],
       "styles": [
         "0:22=s29 22:10=s30 32:10=s29 42:38=s2",
@@ -31031,7 +31031,7 @@
         "0:1=s31 1:19=s36 20:59=s37 79:1=s31",
         "0:1=s31 1:68=s2 69:11=s31",
         "0:80=s31",
-        "0:1=s38 1:10=s29 11:1=s38 12:9=s29 21:1=s38 22:9=s29 31:1=s38 32:9=s29 41:1=s38 42:12=s29 54:1=s38 55:11=s29 66:1=s38 67:7=s29 74:1=s38 75:5=s29"
+        "0:1=s38 1:10=s29 11:1=s38 12:9=s29 21:1=s38 22:9=s29 31:1=s38 32:9=s29 41:1=s38 42:12=s29 54:1=s38 55:7=s29 62:1=s38 63:5=s29 68:12=s2"
       ],
       "state": "squads-thirty-six",
       "look": "terminal",
@@ -32804,6 +32804,7 @@
         "│ 3                     show the Digest tab                                                                                                                    │",
         "│ ?                     show effective scoped bindings                                                                                                         │",
         "│ D                     change the member's digest                                                                                                             │",
+        "│ a                     find an agent already running and review its binding                                                                                   │",
         "│ c                     show the selected scope's timers                                                                                                       │",
         "│ ctrl-r                refresh the board now                                                                                                                  │",
         "│ double-click          inspect the selected target                                                                                                            │",
@@ -32823,8 +32824,7 @@
         "│ t                     send the member a message                                                                                                              │",
         "│ tab                   move to the next pane                                                                                                                  │",
         "│ up                    select the previous visible target                                                                                                     │",
-        "│ w                     preview saved workspace snapshots and review a guarded restore                                                                         │",
-        "│ 1–28 of 53 · 25 more ↓                                                                                                                                       │",
+        "│ 1–28 of 54 · 26 more ↓                                                                                                                                       │",
         "│ ↑↓ scroll · PgUp/PgDn page · Esc close                                                                                                                       │",
         "└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘",
         ""
@@ -32936,6 +32936,7 @@
         "│ 3                     show the Digest tab                                                        │",
         "│ ?                     show effective scoped bindings                                             │",
         "│ D                     change the member's digest                                                 │",
+        "│ a                     find an agent already running and review its binding                       │",
         "│ c                     show the selected scope's timers                                           │",
         "│ ctrl-r                refresh the board now                                                      │",
         "│ double-click          inspect the selected target                                                │",
@@ -32955,8 +32956,7 @@
         "│ t                     send the member a message                                                  │",
         "│ tab                   move to the next pane                                                      │",
         "│ up                    select the previous visible target                                         │",
-        "│ w                     preview saved workspace snapshots and review a guarded restore             │",
-        "│ 1–28 of 64 · 36 more ↓                                                                           │",
+        "│ 1–28 of 65 · 37 more ↓                                                                           │",
         "│ ↑↓ scroll · PgUp/PgDn page · Esc close                                                           │",
         "└──────────────────────────────────────────────────────────────────────────────────────────────────┘",
         ""
@@ -33068,6 +33068,7 @@
         "│ 3                     show the Digest tab                                    │",
         "│ ?                     show effective scoped bindings                         │",
         "│ D                     change the member's digest                             │",
+        "│ a                     find an agent already running and review its binding   │",
         "│ c                     show the selected scope's timers                       │",
         "│ ctrl-r                refresh the board now                                  │",
         "│ double-click          inspect the selected target                            │",
@@ -33087,8 +33088,7 @@
         "│ t                     send the member a message                              │",
         "│ tab                   move to the next pane                                  │",
         "│ up                    select the previous visible target                     │",
-        "│ w                     preview saved workspace snapshots and review a         │",
-        "│ 1–28 of 75 · 47 more ↓                                                       │",
+        "│ 1–28 of 76 · 48 more ↓                                                       │",
         "│ ↑↓ scroll · PgUp/PgDn page · Esc close                                       │",
         "└──────────────────────────────────────────────────────────────────────────────┘",
         ""
@@ -33201,6 +33201,8 @@
         "│ 3                     show the Digest tab                │",
         "│ ?                     show effective scoped bindings     │",
         "│ D                     change the member's digest         │",
+        "│ a                     find an agent already running and  │",
+        "│                       review its binding                 │",
         "│ c                     show the selected scope's timers   │",
         "│ ctrl-r                refresh the board now              │",
         "│ double-click          inspect the selected target        │",
@@ -33218,9 +33220,7 @@
         "│ pagedown              move one page down                 │",
         "│ pageup                move one page up                   │",
         "│ q                     close the board                    │",
-        "│ right                 expand the selected squad          │",
-        "│ t                     send the member a message          │",
-        "│ 1–28 of 94 · 66 more ↓                                   │",
+        "│ 1–28 of 96 · 68 more ↓                                   │",
         "│ ↑↓ scroll · PgUp/PgDn page · Esc close                   │",
         "└──────────────────────────────────────────────────────────┘",
         ""
@@ -35975,7 +35975,7 @@
         "",
         "",
         "────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
       ],
       "styles": [
         "0:22=s2 22:10=s36 32:128=s2",
@@ -36013,7 +36013,7 @@
         "0:160=s2",
         "0:160=s2",
         "0:160=s2",
-        "0:1=s39 1:10=s2 11:1=s39 12:7=s2 19:1=s39 20:9=s2 29:1=s39 30:7=s2 37:1=s39 38:9=s2 47:1=s39 48:9=s2 57:1=s39 58:9=s2 67:1=s39 68:9=s2 77:1=s39 78:12=s2 90:1=s39 91:11=s2 102:1=s39 103:9=s2 112:6=s39 118:10=s2 128:3=s39 131:7=s2 138:1=s39 139:7=s2 146:1=s39 147:13=s2"
+        "0:1=s39 1:10=s2 11:1=s39 12:7=s2 19:1=s39 20:9=s2 29:1=s39 30:7=s2 37:1=s39 38:9=s2 47:1=s39 48:9=s2 57:1=s39 58:9=s2 67:1=s39 68:9=s2 77:1=s39 78:12=s2 90:1=s39 91:12=s2 103:1=s39 104:11=s2 115:1=s39 116:9=s2 125:6=s39 131:10=s2 141:1=s39 142:7=s2 149:1=s39 150:10=s2"
       ],
       "state": "agents",
       "look": "NO_COLOR",
@@ -36041,7 +36041,7 @@
         " ›   worker · working · active",
         "                                                                                                                                                            ↑ 2",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
       ],
       "styles": [
         "0:22=s2 22:10=s36 32:128=s2",
@@ -36051,7 +36051,7 @@
         "0:1=s2 1:29=s36 30:129=s37 159:1=s2",
         "0:160=s2",
         "0:160=s2",
-        "0:1=s39 1:10=s2 11:1=s39 12:7=s2 19:1=s39 20:9=s2 29:1=s39 30:7=s2 37:1=s39 38:9=s2 47:1=s39 48:9=s2 57:1=s39 58:9=s2 67:1=s39 68:9=s2 77:1=s39 78:12=s2 90:1=s39 91:11=s2 102:1=s39 103:9=s2 112:6=s39 118:10=s2 128:3=s39 131:7=s2 138:1=s39 139:7=s2 146:1=s39 147:13=s2"
+        "0:1=s39 1:10=s2 11:1=s39 12:7=s2 19:1=s39 20:9=s2 29:1=s39 30:7=s2 37:1=s39 38:9=s2 47:1=s39 48:9=s2 57:1=s39 58:9=s2 67:1=s39 68:9=s2 77:1=s39 78:12=s2 90:1=s39 91:12=s2 103:1=s39 104:11=s2 115:1=s39 116:9=s2 125:6=s39 131:10=s2 141:1=s39 142:7=s2 149:1=s39 150:10=s2"
       ],
       "state": "agents",
       "look": "NO_COLOR",
@@ -36984,10 +36984,10 @@
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
         "2 Agents · Common pool",
         "─ Agents ─────────────────────────────────────────────────────── ─Common pool───────────────────────────────────────────────────────────────────────────────────",
-        " › ▸ Common pool · 0                                              Agents without a squad",
-        "                                                                  Expand the pool to select an agent; add it to an existing squad or create one.",
-        "",
-        "",
+        " › ▸ Common pool · 0                                               Add an agent already running",
+        "                                                                  No agents are listed yet.",
+        "                                                                  Start an agent in a tmux pane, then choose Add an agent already running from the Agents list.",
+        "                                                                  Scan, review the pane and confirm its name or existing identity.",
         "",
         "",
         "",
@@ -37015,7 +37015,7 @@
         "",
         "",
         "──────────────────────────────────────────────────────────────── ───────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  left collapse  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  ? help  q quit"
       ],
       "styles": [
         "0:22=s2 22:10=s36 32:128=s2",
@@ -37053,14 +37053,14 @@
         "0:160=s2",
         "0:160=s2",
         "0:160=s2",
-        "0:1=s39 1:10=s2 11:1=s39 12:9=s2 21:1=s39 22:9=s2 31:1=s39 32:9=s2 41:1=s39 42:12=s2 54:1=s39 55:11=s2 66:1=s39 67:9=s2 76:6=s39 82:10=s2 92:3=s39 95:7=s2 102:4=s39 106:7=s2 113:2=s39 115:11=s2 126:4=s39 130:11=s2 141:1=s39 142:7=s2 149:1=s39 150:10=s2"
+        "0:1=s39 1:10=s2 11:1=s39 12:9=s2 21:1=s39 22:9=s2 31:1=s39 32:9=s2 41:1=s39 42:12=s2 54:1=s39 55:12=s2 67:1=s39 68:11=s2 79:1=s39 80:9=s2 89:6=s39 95:10=s2 105:3=s39 108:7=s2 115:4=s39 119:7=s2 126:2=s39 128:11=s2 139:1=s39 140:7=s2 147:1=s39 148:12=s2"
       ],
       "state": "empty",
       "look": "NO_COLOR",
       "width": 160,
       "height": 36,
       "hits": "[Hit { y: 4, x: 1, width: 62, row: 0 }]",
-      "actions": "[]",
+      "actions": "[(Rect { x: 66, y: 4, width: 30, height: 1 }, Pool, Action(Action { verb: Ui(DiscoverAgents), args: [], text: \"discover-agents\" }))]",
       "tabs": "[TabHit { y: 0, x: 10, width: 12, tab: 0 }, TabHit { y: 0, x: 22, width: 10, tab: 1 }, TabHit { y: 0, x: 32, width: 10, tab: 2 }]",
       "starts": [
         0
@@ -37079,7 +37079,7 @@
         " › ▸ Common pool · 0",
         "",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  left collapse  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  ? help  q quit"
       ],
       "styles": [
         "0:22=s2 22:10=s36 32:128=s2",
@@ -37089,7 +37089,7 @@
         "0:1=s2 1:19=s36 20:139=s37 159:1=s2",
         "0:160=s2",
         "0:160=s2",
-        "0:1=s39 1:10=s2 11:1=s39 12:9=s2 21:1=s39 22:9=s2 31:1=s39 32:9=s2 41:1=s39 42:12=s2 54:1=s39 55:11=s2 66:1=s39 67:9=s2 76:6=s39 82:10=s2 92:3=s39 95:7=s2 102:4=s39 106:7=s2 113:2=s39 115:11=s2 126:4=s39 130:11=s2 141:1=s39 142:7=s2 149:1=s39 150:10=s2"
+        "0:1=s39 1:10=s2 11:1=s39 12:9=s2 21:1=s39 22:9=s2 31:1=s39 32:9=s2 41:1=s39 42:12=s2 54:1=s39 55:12=s2 67:1=s39 68:11=s2 79:1=s39 80:9=s2 89:6=s39 95:10=s2 105:3=s39 108:7=s2 115:4=s39 119:7=s2 126:2=s39 128:11=s2 139:1=s39 140:7=s2 147:1=s39 148:12=s2"
       ],
       "state": "empty",
       "look": "NO_COLOR",
@@ -37125,10 +37125,10 @@
         "────────────────────────────────────────────────────────────────────────────────────────────────────",
         "",
         "─Common pool────────────────────────────────────────────────────────────────────────────────────────",
-        " Agents without a squad",
-        " Expand the pool to select an agent; add it to an existing squad or create one.",
-        "",
-        "",
+        "  Add an agent already running",
+        " No agents are listed yet.",
+        " Start an agent in a tmux pane, then choose Add an agent already running from the Agents list.",
+        " Scan, review the pane and confirm its name or existing identity.",
         "",
         "",
         "",
@@ -37143,7 +37143,7 @@
         "",
         "",
         "────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  ? help  q quit"
       ],
       "styles": [
         "0:22=s2 22:10=s36 32:68=s2",
@@ -37181,14 +37181,14 @@
         "0:100=s2",
         "0:100=s2",
         "0:100=s2",
-        "0:1=s39 1:10=s2 11:1=s39 12:9=s2 21:1=s39 22:9=s2 31:1=s39 32:9=s2 41:1=s39 42:12=s2 54:1=s39 55:11=s2 66:1=s39 67:9=s2 76:1=s39 77:7=s2 84:1=s39 85:15=s2"
+        "0:1=s39 1:10=s2 11:1=s39 12:9=s2 21:1=s39 22:9=s2 31:1=s39 32:9=s2 41:1=s39 42:12=s2 54:1=s39 55:12=s2 67:1=s39 68:11=s2 79:1=s39 80:7=s2 87:1=s39 88:12=s2"
       ],
       "state": "empty",
       "look": "NO_COLOR",
       "width": 100,
       "height": 36,
       "hits": "[Hit { y: 4, x: 1, width: 98, row: 0 }]",
-      "actions": "[]",
+      "actions": "[(Rect { x: 1, y: 17, width: 30, height: 1 }, Pool, Action(Action { verb: Ui(DiscoverAgents), args: [], text: \"discover-agents\" }))]",
       "tabs": "[TabHit { y: 0, x: 10, width: 12, tab: 0 }, TabHit { y: 0, x: 22, width: 10, tab: 1 }, TabHit { y: 0, x: 32, width: 10, tab: 2 }]",
       "starts": [
         0
@@ -37207,7 +37207,7 @@
         " › ▸ Common pool · 0",
         "",
         "────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  ? help  q quit"
       ],
       "styles": [
         "0:22=s2 22:10=s36 32:68=s2",
@@ -37217,7 +37217,7 @@
         "0:1=s2 1:19=s36 20:79=s37 99:1=s2",
         "0:100=s2",
         "0:100=s2",
-        "0:1=s39 1:10=s2 11:1=s39 12:9=s2 21:1=s39 22:9=s2 31:1=s39 32:9=s2 41:1=s39 42:12=s2 54:1=s39 55:11=s2 66:1=s39 67:9=s2 76:1=s39 77:7=s2 84:1=s39 85:15=s2"
+        "0:1=s39 1:10=s2 11:1=s39 12:9=s2 21:1=s39 22:9=s2 31:1=s39 32:9=s2 41:1=s39 42:12=s2 54:1=s39 55:12=s2 67:1=s39 68:11=s2 79:1=s39 80:7=s2 87:1=s39 88:12=s2"
       ],
       "state": "empty",
       "look": "NO_COLOR",
@@ -37253,11 +37253,11 @@
         "────────────────────────────────────────────────────────────────────────────────",
         "",
         "─Common pool────────────────────────────────────────────────────────────────────",
-        " Agents without a squad",
-        " Expand the pool to select an agent; add it to an existing squad or create one.",
-        "",
-        "",
-        "",
+        "  Add an agent already running",
+        " No agents are listed yet.",
+        " Start an agent in a tmux pane, then choose Add an agent already running from",
+        " the Agents list. Scan, review the pane and confirm its name or existing",
+        " identity.",
         "",
         "",
         "",
@@ -37271,7 +37271,7 @@
         "",
         "",
         "────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  ? help  q quit"
       ],
       "styles": [
         "0:22=s2 22:10=s36 32:48=s2",
@@ -37309,14 +37309,14 @@
         "0:80=s2",
         "0:80=s2",
         "0:80=s2",
-        "0:1=s39 1:10=s2 11:1=s39 12:9=s2 21:1=s39 22:9=s2 31:1=s39 32:9=s2 41:1=s39 42:12=s2 54:1=s39 55:11=s2 66:1=s39 67:7=s2 74:1=s39 75:5=s2"
+        "0:1=s39 1:10=s2 11:1=s39 12:9=s2 21:1=s39 22:9=s2 31:1=s39 32:9=s2 41:1=s39 42:12=s2 54:1=s39 55:7=s2 62:1=s39 63:17=s2"
       ],
       "state": "empty",
       "look": "NO_COLOR",
       "width": 80,
       "height": 36,
       "hits": "[Hit { y: 4, x: 1, width: 78, row: 0 }]",
-      "actions": "[]",
+      "actions": "[(Rect { x: 1, y: 17, width: 30, height: 1 }, Pool, Action(Action { verb: Ui(DiscoverAgents), args: [], text: \"discover-agents\" }))]",
       "tabs": "[TabHit { y: 0, x: 10, width: 12, tab: 0 }, TabHit { y: 0, x: 22, width: 10, tab: 1 }, TabHit { y: 0, x: 32, width: 10, tab: 2 }]",
       "starts": [
         0
@@ -37335,7 +37335,7 @@
         " › ▸ Common pool · 0",
         "",
         "────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  ? help  q quit"
       ],
       "styles": [
         "0:22=s2 22:10=s36 32:48=s2",
@@ -37345,7 +37345,7 @@
         "0:1=s2 1:19=s36 20:59=s37 79:1=s2",
         "0:80=s2",
         "0:80=s2",
-        "0:1=s39 1:10=s2 11:1=s39 12:9=s2 21:1=s39 22:9=s2 31:1=s39 32:9=s2 41:1=s39 42:12=s2 54:1=s39 55:11=s2 66:1=s39 67:7=s2 74:1=s39 75:5=s2"
+        "0:1=s39 1:10=s2 11:1=s39 12:9=s2 21:1=s39 22:9=s2 31:1=s39 32:9=s2 41:1=s39 42:12=s2 54:1=s39 55:7=s2 62:1=s39 63:17=s2"
       ],
       "state": "empty",
       "look": "NO_COLOR",
@@ -37527,7 +37527,7 @@
         "",
         "",
         "────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
       ],
       "styles": [
         "0:22=s2 22:10=s36 32:128=s2",
@@ -37565,7 +37565,7 @@
         "0:160=s2",
         "0:160=s2",
         "0:160=s2",
-        "0:1=s39 1:10=s2 11:1=s39 12:7=s2 19:1=s39 20:9=s2 29:1=s39 30:7=s2 37:1=s39 38:9=s2 47:1=s39 48:9=s2 57:1=s39 58:9=s2 67:1=s39 68:9=s2 77:1=s39 78:12=s2 90:1=s39 91:11=s2 102:1=s39 103:9=s2 112:6=s39 118:10=s2 128:3=s39 131:7=s2 138:1=s39 139:7=s2 146:1=s39 147:13=s2"
+        "0:1=s39 1:10=s2 11:1=s39 12:7=s2 19:1=s39 20:9=s2 29:1=s39 30:7=s2 37:1=s39 38:9=s2 47:1=s39 48:9=s2 57:1=s39 58:9=s2 67:1=s39 68:9=s2 77:1=s39 78:12=s2 90:1=s39 91:12=s2 103:1=s39 104:11=s2 115:1=s39 116:9=s2 125:6=s39 131:10=s2 141:1=s39 142:7=s2 149:1=s39 150:10=s2"
       ],
       "state": "pool",
       "look": "NO_COLOR",
@@ -37593,7 +37593,7 @@
         " ›   worker · working · active",
         "                                                                                                                                                  ↑ 1  1 more ↓",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
       ],
       "styles": [
         "0:22=s2 22:10=s36 32:128=s2",
@@ -37603,7 +37603,7 @@
         "0:1=s2 1:29=s36 30:129=s37 159:1=s2",
         "0:160=s2",
         "0:160=s2",
-        "0:1=s39 1:10=s2 11:1=s39 12:7=s2 19:1=s39 20:9=s2 29:1=s39 30:7=s2 37:1=s39 38:9=s2 47:1=s39 48:9=s2 57:1=s39 58:9=s2 67:1=s39 68:9=s2 77:1=s39 78:12=s2 90:1=s39 91:11=s2 102:1=s39 103:9=s2 112:6=s39 118:10=s2 128:3=s39 131:7=s2 138:1=s39 139:7=s2 146:1=s39 147:13=s2"
+        "0:1=s39 1:10=s2 11:1=s39 12:7=s2 19:1=s39 20:9=s2 29:1=s39 30:7=s2 37:1=s39 38:9=s2 47:1=s39 48:9=s2 57:1=s39 58:9=s2 67:1=s39 68:9=s2 77:1=s39 78:12=s2 90:1=s39 91:12=s2 103:1=s39 104:11=s2 115:1=s39 116:9=s2 125:6=s39 131:10=s2 141:1=s39 142:7=s2 149:1=s39 150:10=s2"
       ],
       "state": "pool",
       "look": "NO_COLOR",
@@ -38055,7 +38055,7 @@
         " ›   worker-150 · idle · active",
         "                                                          ↑ 124",
         "────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
       ],
       "styles": [
         "0:22=s2 22:10=s36 32:128=s2",
@@ -38093,7 +38093,7 @@
         "0:1=s2 1:30=s36 31:32=s37 63:97=s2",
         "0:160=s2",
         "0:160=s2",
-        "0:1=s39 1:10=s2 11:1=s39 12:7=s2 19:1=s39 20:9=s2 29:1=s39 30:7=s2 37:1=s39 38:9=s2 47:1=s39 48:9=s2 57:1=s39 58:9=s2 67:1=s39 68:9=s2 77:1=s39 78:12=s2 90:1=s39 91:11=s2 102:1=s39 103:9=s2 112:6=s39 118:10=s2 128:3=s39 131:7=s2 138:1=s39 139:7=s2 146:1=s39 147:13=s2"
+        "0:1=s39 1:10=s2 11:1=s39 12:7=s2 19:1=s39 20:9=s2 29:1=s39 30:7=s2 37:1=s39 38:9=s2 47:1=s39 48:9=s2 57:1=s39 58:9=s2 67:1=s39 68:9=s2 77:1=s39 78:12=s2 90:1=s39 91:12=s2 103:1=s39 104:11=s2 115:1=s39 116:9=s2 125:6=s39 131:10=s2 141:1=s39 142:7=s2 149:1=s39 150:10=s2"
       ],
       "state": "dense",
       "look": "NO_COLOR",
@@ -38271,7 +38271,7 @@
         " ›   worker-150 · idle · active",
         "                                                                                                                                                          ↑ 152",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  ? help  q quit"
+        "⏎ inspect  t talk  D digest  j host  n create  x remove  m assign  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  ? help  q quit"
       ],
       "styles": [
         "0:22=s2 22:10=s36 32:128=s2",
@@ -38281,7 +38281,7 @@
         "0:1=s2 1:30=s36 31:128=s37 159:1=s2",
         "0:160=s2",
         "0:160=s2",
-        "0:1=s39 1:10=s2 11:1=s39 12:7=s2 19:1=s39 20:9=s2 29:1=s39 30:7=s2 37:1=s39 38:9=s2 47:1=s39 48:9=s2 57:1=s39 58:9=s2 67:1=s39 68:9=s2 77:1=s39 78:12=s2 90:1=s39 91:11=s2 102:1=s39 103:9=s2 112:6=s39 118:10=s2 128:3=s39 131:7=s2 138:1=s39 139:7=s2 146:1=s39 147:13=s2"
+        "0:1=s39 1:10=s2 11:1=s39 12:7=s2 19:1=s39 20:9=s2 29:1=s39 30:7=s2 37:1=s39 38:9=s2 47:1=s39 48:9=s2 57:1=s39 58:9=s2 67:1=s39 68:9=s2 77:1=s39 78:12=s2 90:1=s39 91:12=s2 103:1=s39 104:11=s2 115:1=s39 116:9=s2 125:6=s39 131:10=s2 141:1=s39 142:7=s2 149:1=s39 150:10=s2"
       ],
       "state": "dense",
       "look": "NO_COLOR",
@@ -39783,7 +39783,7 @@
         "     agent-00049 · working · active",
         "                                                     130 more ↓",
         "──────────────────────────────────────────────────────────────── ───────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  left collapse  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  ? help  q quit"
       ],
       "styles": [
         "0:22=s2 22:10=s36 32:128=s2",
@@ -39821,7 +39821,7 @@
         "0:160=s2",
         "0:160=s2",
         "0:160=s2",
-        "0:1=s39 1:10=s2 11:1=s39 12:9=s2 21:1=s39 22:9=s2 31:1=s39 32:9=s2 41:1=s39 42:12=s2 54:1=s39 55:11=s2 66:1=s39 67:9=s2 76:6=s39 82:10=s2 92:3=s39 95:7=s2 102:4=s39 106:7=s2 113:2=s39 115:11=s2 126:4=s39 130:11=s2 141:1=s39 142:7=s2 149:1=s39 150:10=s2"
+        "0:1=s39 1:10=s2 11:1=s39 12:9=s2 21:1=s39 22:9=s2 31:1=s39 32:9=s2 41:1=s39 42:12=s2 54:1=s39 55:12=s2 67:1=s39 68:11=s2 79:1=s39 80:9=s2 89:6=s39 95:10=s2 105:3=s39 108:7=s2 115:4=s39 119:7=s2 126:2=s39 128:11=s2 139:1=s39 140:7=s2 147:1=s39 148:12=s2"
       ],
       "state": "squads-eight",
       "look": "NO_COLOR",
@@ -40005,7 +40005,7 @@
         " › ▾ Common pool · 0",
         "                                                                                                                                                     158 more ↓",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  left collapse  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  ? help  q quit"
       ],
       "styles": [
         "0:22=s2 22:10=s36 32:128=s2",
@@ -40015,7 +40015,7 @@
         "0:1=s2 1:19=s36 20:139=s37 159:1=s2",
         "0:160=s2",
         "0:160=s2",
-        "0:1=s39 1:10=s2 11:1=s39 12:9=s2 21:1=s39 22:9=s2 31:1=s39 32:9=s2 41:1=s39 42:12=s2 54:1=s39 55:11=s2 66:1=s39 67:9=s2 76:6=s39 82:10=s2 92:3=s39 95:7=s2 102:4=s39 106:7=s2 113:2=s39 115:11=s2 126:4=s39 130:11=s2 141:1=s39 142:7=s2 149:1=s39 150:10=s2"
+        "0:1=s39 1:10=s2 11:1=s39 12:9=s2 21:1=s39 22:9=s2 31:1=s39 32:9=s2 41:1=s39 42:12=s2 54:1=s39 55:12=s2 67:1=s39 68:11=s2 79:1=s39 80:9=s2 89:6=s39 95:10=s2 105:3=s39 108:7=s2 115:4=s39 119:7=s2 126:2=s39 128:11=s2 139:1=s39 140:7=s2 147:1=s39 148:12=s2"
       ],
       "state": "squads-eight",
       "look": "NO_COLOR",
@@ -40227,7 +40227,7 @@
         "",
         "",
         "────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  ? help  q quit"
       ],
       "styles": [
         "0:22=s2 22:10=s36 32:68=s2",
@@ -40265,7 +40265,7 @@
         "0:100=s2",
         "0:100=s2",
         "0:100=s2",
-        "0:1=s39 1:10=s2 11:1=s39 12:9=s2 21:1=s39 22:9=s2 31:1=s39 32:9=s2 41:1=s39 42:12=s2 54:1=s39 55:11=s2 66:1=s39 67:9=s2 76:1=s39 77:7=s2 84:1=s39 85:15=s2"
+        "0:1=s39 1:10=s2 11:1=s39 12:9=s2 21:1=s39 22:9=s2 31:1=s39 32:9=s2 41:1=s39 42:12=s2 54:1=s39 55:12=s2 67:1=s39 68:11=s2 79:1=s39 80:7=s2 87:1=s39 88:12=s2"
       ],
       "state": "squads-eight",
       "look": "NO_COLOR",
@@ -40449,7 +40449,7 @@
         " › ▾ Common pool · 0",
         "                                                                                         158 more ↓",
         "────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  ? help  q quit"
       ],
       "styles": [
         "0:22=s2 22:10=s36 32:68=s2",
@@ -40459,7 +40459,7 @@
         "0:1=s2 1:19=s36 20:79=s37 99:1=s2",
         "0:100=s2",
         "0:100=s2",
-        "0:1=s39 1:10=s2 11:1=s39 12:9=s2 21:1=s39 22:9=s2 31:1=s39 32:9=s2 41:1=s39 42:12=s2 54:1=s39 55:11=s2 66:1=s39 67:9=s2 76:1=s39 77:7=s2 84:1=s39 85:15=s2"
+        "0:1=s39 1:10=s2 11:1=s39 12:9=s2 21:1=s39 22:9=s2 31:1=s39 32:9=s2 41:1=s39 42:12=s2 54:1=s39 55:12=s2 67:1=s39 68:11=s2 79:1=s39 80:7=s2 87:1=s39 88:12=s2"
       ],
       "state": "squads-eight",
       "look": "NO_COLOR",
@@ -40671,7 +40671,7 @@
         "",
         "",
         "────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  ? help  q quit"
       ],
       "styles": [
         "0:22=s2 22:10=s36 32:48=s2",
@@ -40709,7 +40709,7 @@
         "0:80=s2",
         "0:80=s2",
         "0:80=s2",
-        "0:1=s39 1:10=s2 11:1=s39 12:9=s2 21:1=s39 22:9=s2 31:1=s39 32:9=s2 41:1=s39 42:12=s2 54:1=s39 55:11=s2 66:1=s39 67:7=s2 74:1=s39 75:5=s2"
+        "0:1=s39 1:10=s2 11:1=s39 12:9=s2 21:1=s39 22:9=s2 31:1=s39 32:9=s2 41:1=s39 42:12=s2 54:1=s39 55:7=s2 62:1=s39 63:17=s2"
       ],
       "state": "squads-eight",
       "look": "NO_COLOR",
@@ -40893,7 +40893,7 @@
         " › ▾ Common pool · 0",
         "                                                                     158 more ↓",
         "────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  ? help  q quit"
       ],
       "styles": [
         "0:22=s2 22:10=s36 32:48=s2",
@@ -40903,7 +40903,7 @@
         "0:1=s2 1:19=s36 20:59=s37 79:1=s2",
         "0:80=s2",
         "0:80=s2",
-        "0:1=s39 1:10=s2 11:1=s39 12:9=s2 21:1=s39 22:9=s2 31:1=s39 32:9=s2 41:1=s39 42:12=s2 54:1=s39 55:11=s2 66:1=s39 67:7=s2 74:1=s39 75:5=s2"
+        "0:1=s39 1:10=s2 11:1=s39 12:9=s2 21:1=s39 22:9=s2 31:1=s39 32:9=s2 41:1=s39 42:12=s2 54:1=s39 55:7=s2 62:1=s39 63:17=s2"
       ],
       "state": "squads-eight",
       "look": "NO_COLOR",
@@ -41559,7 +41559,7 @@
         "     agent-00076 · working · active",
         "                                                     158 more ↓",
         "──────────────────────────────────────────────────────────────── ───────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  left collapse  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  ? help  q quit"
       ],
       "styles": [
         "0:22=s2 22:10=s36 32:128=s2",
@@ -41597,7 +41597,7 @@
         "0:160=s2",
         "0:160=s2",
         "0:160=s2",
-        "0:1=s39 1:10=s2 11:1=s39 12:9=s2 21:1=s39 22:9=s2 31:1=s39 32:9=s2 41:1=s39 42:12=s2 54:1=s39 55:11=s2 66:1=s39 67:9=s2 76:6=s39 82:10=s2 92:3=s39 95:7=s2 102:4=s39 106:7=s2 113:2=s39 115:11=s2 126:4=s39 130:11=s2 141:1=s39 142:7=s2 149:1=s39 150:10=s2"
+        "0:1=s39 1:10=s2 11:1=s39 12:9=s2 21:1=s39 22:9=s2 31:1=s39 32:9=s2 41:1=s39 42:12=s2 54:1=s39 55:12=s2 67:1=s39 68:11=s2 79:1=s39 80:9=s2 89:6=s39 95:10=s2 105:3=s39 108:7=s2 115:4=s39 119:7=s2 126:2=s39 128:11=s2 139:1=s39 140:7=s2 147:1=s39 148:12=s2"
       ],
       "state": "squads-thirty-six",
       "look": "NO_COLOR",
@@ -41809,7 +41809,7 @@
         " › ▾ Common pool · 0",
         "                                                                                                                                                     186 more ↓",
         "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  left collapse  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  / search  ctrl-r refresh  tab pane  down next  up previous  ? help  q quit"
       ],
       "styles": [
         "0:22=s2 22:10=s36 32:128=s2",
@@ -41819,7 +41819,7 @@
         "0:1=s2 1:19=s36 20:139=s37 159:1=s2",
         "0:160=s2",
         "0:160=s2",
-        "0:1=s39 1:10=s2 11:1=s39 12:9=s2 21:1=s39 22:9=s2 31:1=s39 32:9=s2 41:1=s39 42:12=s2 54:1=s39 55:11=s2 66:1=s39 67:9=s2 76:6=s39 82:10=s2 92:3=s39 95:7=s2 102:4=s39 106:7=s2 113:2=s39 115:11=s2 126:4=s39 130:11=s2 141:1=s39 142:7=s2 149:1=s39 150:10=s2"
+        "0:1=s39 1:10=s2 11:1=s39 12:9=s2 21:1=s39 22:9=s2 31:1=s39 32:9=s2 41:1=s39 42:12=s2 54:1=s39 55:12=s2 67:1=s39 68:11=s2 79:1=s39 80:9=s2 89:6=s39 95:10=s2 105:3=s39 108:7=s2 115:4=s39 119:7=s2 126:2=s39 128:11=s2 139:1=s39 140:7=s2 147:1=s39 148:12=s2"
       ],
       "state": "squads-thirty-six",
       "look": "NO_COLOR",
@@ -42059,7 +42059,7 @@
         "",
         "",
         "────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  ? help  q quit"
       ],
       "styles": [
         "0:22=s2 22:10=s36 32:68=s2",
@@ -42097,7 +42097,7 @@
         "0:100=s2",
         "0:100=s2",
         "0:100=s2",
-        "0:1=s39 1:10=s2 11:1=s39 12:9=s2 21:1=s39 22:9=s2 31:1=s39 32:9=s2 41:1=s39 42:12=s2 54:1=s39 55:11=s2 66:1=s39 67:9=s2 76:1=s39 77:7=s2 84:1=s39 85:15=s2"
+        "0:1=s39 1:10=s2 11:1=s39 12:9=s2 21:1=s39 22:9=s2 31:1=s39 32:9=s2 41:1=s39 42:12=s2 54:1=s39 55:12=s2 67:1=s39 68:11=s2 79:1=s39 80:7=s2 87:1=s39 88:12=s2"
       ],
       "state": "squads-thirty-six",
       "look": "NO_COLOR",
@@ -42309,7 +42309,7 @@
         " › ▾ Common pool · 0",
         "                                                                                         186 more ↓",
         "────────────────────────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  / search  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  a add agent  , settings  ? help  q quit"
       ],
       "styles": [
         "0:22=s2 22:10=s36 32:68=s2",
@@ -42319,7 +42319,7 @@
         "0:1=s2 1:19=s36 20:79=s37 99:1=s2",
         "0:100=s2",
         "0:100=s2",
-        "0:1=s39 1:10=s2 11:1=s39 12:9=s2 21:1=s39 22:9=s2 31:1=s39 32:9=s2 41:1=s39 42:12=s2 54:1=s39 55:11=s2 66:1=s39 67:9=s2 76:1=s39 77:7=s2 84:1=s39 85:15=s2"
+        "0:1=s39 1:10=s2 11:1=s39 12:9=s2 21:1=s39 22:9=s2 31:1=s39 32:9=s2 41:1=s39 42:12=s2 54:1=s39 55:12=s2 67:1=s39 68:11=s2 79:1=s39 80:7=s2 87:1=s39 88:12=s2"
       ],
       "state": "squads-thirty-six",
       "look": "NO_COLOR",
@@ -42559,7 +42559,7 @@
         "",
         "",
         "────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  ? help  q quit"
       ],
       "styles": [
         "0:22=s2 22:10=s36 32:48=s2",
@@ -42597,7 +42597,7 @@
         "0:80=s2",
         "0:80=s2",
         "0:80=s2",
-        "0:1=s39 1:10=s2 11:1=s39 12:9=s2 21:1=s39 22:9=s2 31:1=s39 32:9=s2 41:1=s39 42:12=s2 54:1=s39 55:11=s2 66:1=s39 67:7=s2 74:1=s39 75:5=s2"
+        "0:1=s39 1:10=s2 11:1=s39 12:9=s2 21:1=s39 22:9=s2 31:1=s39 32:9=s2 41:1=s39 42:12=s2 54:1=s39 55:7=s2 62:1=s39 63:17=s2"
       ],
       "state": "squads-thirty-six",
       "look": "NO_COLOR",
@@ -42809,7 +42809,7 @@
         " › ▾ Common pool · 0",
         "                                                                     186 more ↓",
         "────────────────────────────────────────────────────────────────────────────────",
-        "⏎ inspect  m manage  n create  c timers  w snapshots  , settings  ? help  q quit"
+        "⏎ inspect  m manage  n create  c timers  w snapshots  ? help  q quit"
       ],
       "styles": [
         "0:22=s2 22:10=s36 32:48=s2",
@@ -42819,7 +42819,7 @@
         "0:1=s2 1:19=s36 20:59=s37 79:1=s2",
         "0:80=s2",
         "0:80=s2",
-        "0:1=s39 1:10=s2 11:1=s39 12:9=s2 21:1=s39 22:9=s2 31:1=s39 32:9=s2 41:1=s39 42:12=s2 54:1=s39 55:11=s2 66:1=s39 67:7=s2 74:1=s39 75:5=s2"
+        "0:1=s39 1:10=s2 11:1=s39 12:9=s2 21:1=s39 22:9=s2 31:1=s39 32:9=s2 41:1=s39 42:12=s2 54:1=s39 55:7=s2 62:1=s39 63:17=s2"
       ],
       "state": "squads-thirty-six",
       "look": "NO_COLOR",
@@ -44592,6 +44592,7 @@
         "│ 3                     show the Digest tab                                                                                                                    │",
         "│ ?                     show effective scoped bindings                                                                                                         │",
         "│ D                     change the member's digest                                                                                                             │",
+        "│ a                     find an agent already running and review its binding                                                                                   │",
         "│ c                     show the selected scope's timers                                                                                                       │",
         "│ ctrl-r                refresh the board now                                                                                                                  │",
         "│ double-click          inspect the selected target                                                                                                            │",
@@ -44611,8 +44612,7 @@
         "│ t                     send the member a message                                                                                                              │",
         "│ tab                   move to the next pane                                                                                                                  │",
         "│ up                    select the previous visible target                                                                                                     │",
-        "│ w                     preview saved workspace snapshots and review a guarded restore                                                                         │",
-        "│ 1–28 of 53 · 25 more ↓                                                                                                                                       │",
+        "│ 1–28 of 54 · 26 more ↓                                                                                                                                       │",
         "│ ↑↓ scroll · PgUp/PgDn page · Esc close                                                                                                                       │",
         "└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘",
         ""
@@ -44724,6 +44724,7 @@
         "│ 3                     show the Digest tab                                                        │",
         "│ ?                     show effective scoped bindings                                             │",
         "│ D                     change the member's digest                                                 │",
+        "│ a                     find an agent already running and review its binding                       │",
         "│ c                     show the selected scope's timers                                           │",
         "│ ctrl-r                refresh the board now                                                      │",
         "│ double-click          inspect the selected target                                                │",
@@ -44743,8 +44744,7 @@
         "│ t                     send the member a message                                                  │",
         "│ tab                   move to the next pane                                                      │",
         "│ up                    select the previous visible target                                         │",
-        "│ w                     preview saved workspace snapshots and review a guarded restore             │",
-        "│ 1–28 of 64 · 36 more ↓                                                                           │",
+        "│ 1–28 of 65 · 37 more ↓                                                                           │",
         "│ ↑↓ scroll · PgUp/PgDn page · Esc close                                                           │",
         "└──────────────────────────────────────────────────────────────────────────────────────────────────┘",
         ""
@@ -44856,6 +44856,7 @@
         "│ 3                     show the Digest tab                                    │",
         "│ ?                     show effective scoped bindings                         │",
         "│ D                     change the member's digest                             │",
+        "│ a                     find an agent already running and review its binding   │",
         "│ c                     show the selected scope's timers                       │",
         "│ ctrl-r                refresh the board now                                  │",
         "│ double-click          inspect the selected target                            │",
@@ -44875,8 +44876,7 @@
         "│ t                     send the member a message                              │",
         "│ tab                   move to the next pane                                  │",
         "│ up                    select the previous visible target                     │",
-        "│ w                     preview saved workspace snapshots and review a         │",
-        "│ 1–28 of 75 · 47 more ↓                                                       │",
+        "│ 1–28 of 76 · 48 more ↓                                                       │",
         "│ ↑↓ scroll · PgUp/PgDn page · Esc close                                       │",
         "└──────────────────────────────────────────────────────────────────────────────┘",
         ""
@@ -44989,6 +44989,8 @@
         "│ 3                     show the Digest tab                │",
         "│ ?                     show effective scoped bindings     │",
         "│ D                     change the member's digest         │",
+        "│ a                     find an agent already running and  │",
+        "│                       review its binding                 │",
         "│ c                     show the selected scope's timers   │",
         "│ ctrl-r                refresh the board now              │",
         "│ double-click          inspect the selected target        │",
@@ -45006,9 +45008,7 @@
         "│ pagedown              move one page down                 │",
         "│ pageup                move one page up                   │",
         "│ q                     close the board                    │",
-        "│ right                 expand the selected squad          │",
-        "│ t                     send the member a message          │",
-        "│ 1–28 of 94 · 66 more ↓                                   │",
+        "│ 1–28 of 96 · 68 more ↓                                   │",
         "│ ↑↓ scroll · PgUp/PgDn page · Esc close                   │",
         "└──────────────────────────────────────────────────────────┘",
         ""

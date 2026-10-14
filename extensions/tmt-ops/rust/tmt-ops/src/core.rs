@@ -195,10 +195,7 @@ impl Core {
         args: &[&str],
         operands: &[&str],
     ) -> Result<Value, SquadError> {
-        let mut argv: Vec<OsString> = args.iter().map(OsString::from).collect();
-        argv.extend(["--json".into(), "--".into()]);
-        argv.extend(operands.iter().map(OsString::from));
-        self.call(&argv, b"")
+        document(self.json_finished_with_operands(args, operands, TIMEOUT)?)
     }
 
     /// One versioned `tmt api` request.
@@ -221,6 +218,19 @@ impl Core {
     ) -> Result<runner::Finished, SquadError> {
         let mut argv: Vec<OsString> = args.iter().map(OsString::from).collect();
         argv.push("--json".into());
+        self.finish(&argv, b"", timeout, tmt_invoke::EnvironmentPolicy::Inherit)
+    }
+
+    /// The same completed-output seam, with literal operands after `--`.
+    pub(crate) fn json_finished_with_operands(
+        &self,
+        args: &[&str],
+        operands: &[&str],
+        timeout: Duration,
+    ) -> Result<runner::Finished, SquadError> {
+        let mut argv: Vec<OsString> = args.iter().map(OsString::from).collect();
+        argv.extend(["--json".into(), "--".into()]);
+        argv.extend(operands.iter().map(OsString::from));
         self.finish(&argv, b"", timeout, tmt_invoke::EnvironmentPolicy::Inherit)
     }
 

@@ -145,7 +145,12 @@ impl App {
     pub(in crate::board) fn workspace_bindings(&self) -> Bindings {
         let mut keys = self.workspace_effective_bindings();
         if self.shell.tab != OpsTab::Agents || self.workspace_scope() == OpsKeyScope::Reader {
-            keys.retain(|_, action| action.verb != Verb::Ui(OpsUiAction::WorkspaceSnapshots));
+            keys.retain(|_, action| {
+                !matches!(
+                    action.verb,
+                    Verb::Ui(OpsUiAction::WorkspaceSnapshots | OpsUiAction::DiscoverAgents)
+                )
+            });
         }
         keys
     }
@@ -172,7 +177,7 @@ impl App {
             .cloned()
             .unwrap_or_default()
     }
-    pub(super) fn workspace_reconcile(&mut self) {
+    pub(in crate::board) fn workspace_reconcile(&mut self) {
         self.workspace.query = self.search.clone();
         if let Some(name) = self.workspace_startup.take() {
             if let Some(squad) = self.workspace_snapshot().and_then(|snapshot| {
@@ -277,6 +282,7 @@ impl App {
         }
         match action {
             WorkspaceSnapshots => return self.open_recovery(),
+            DiscoverAgents => return self.open_discovery(),
             Previous => self.workspace_select(self.selected.saturating_sub(1)),
             Next => self.workspace_select(self.selected.saturating_add(1)),
             First => self.workspace_select(0),
@@ -468,6 +474,23 @@ impl App {
                     label: "Create squad".into(),
                     choice: Choice::WorkspaceBegin(Kind::Create),
                 });
+                if let Some(action) = self
+                    .workspace_bindings()
+                    .values()
+                    .find(|action| {
+                        matches!(
+                            action.verb,
+                            crate::action::Verb::Ui(OpsUiAction::DiscoverAgents)
+                        )
+                    })
+                    .cloned()
+                {
+                    entries.push(MenuEntry {
+                        key: String::new(),
+                        label: "Add an agent already running".into(),
+                        choice: Choice::Action(action),
+                    });
+                }
                 self.menu = Some(Menu {
                     row_send: None,
                     link: None,
