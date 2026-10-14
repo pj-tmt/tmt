@@ -2,48 +2,8 @@
 use super::columns::Column;
 use std::cmp::Ordering;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Direction {
-    Ascending,
-    Descending,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Sort {
-    pub column: Column,
-    pub direction: Direction,
-}
-
-impl Sort {
-    pub fn initial(column: Column) -> Self {
-        Self {
-            column,
-            direction: if matches!(column, Column::TokensPerHour | Column::Cron) {
-                Direction::Descending
-            } else {
-                Direction::Ascending
-            },
-        }
-    }
-
-    pub fn reverse(self) -> Self {
-        Self {
-            direction: match self.direction {
-                Direction::Ascending => Direction::Descending,
-                Direction::Descending => Direction::Ascending,
-            },
-            ..self
-        }
-    }
-
-    pub fn next(self) -> Self {
-        let position = Column::ALL
-            .iter()
-            .position(|column| *column == self.column)
-            .unwrap();
-        Self::initial(Column::ALL[(position + 1) % Column::ALL.len()])
-    }
-}
+use crate::config::OverviewDirection as Direction;
+pub use crate::config::OverviewSort as Sort;
 
 /// Numeric values stay numeric. Text is supplied by the existing projection;
 /// runtime is the observed driver, not a provider inferred from the model/name.

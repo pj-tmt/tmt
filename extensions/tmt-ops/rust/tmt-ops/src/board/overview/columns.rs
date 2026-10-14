@@ -1,29 +1,8 @@
 //! Overview column policy. The TUI solver owns cell geometry and truncation.
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Column {
-    Agent,
-    Squad,
-    State,
-    TokensPerHour,
-    Digest,
-    Cron,
-    Runtime,
-    Model,
-}
+pub use crate::config::OverviewColumn as Column;
 
 impl Column {
-    pub const ALL: [Self; 8] = [
-        Self::Agent,
-        Self::Squad,
-        Self::State,
-        Self::TokensPerHour,
-        Self::Digest,
-        Self::Cron,
-        Self::Runtime,
-        Self::Model,
-    ];
-
     pub fn title(self) -> &'static str {
         match self {
             Self::Agent => "Agent",
