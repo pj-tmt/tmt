@@ -133,7 +133,7 @@ function SelectItem({
       data-slot="select-item"
       className={cn(
         'tmt:appearance-none tmt:[border-radius:var(--tmt-foundation-radius)] tmt:font-body tmt:m-0 tmt:box-border',
-        "tmt:relative tmt:flex tmt:w-full tmt:cursor-default tmt:items-center tmt:gap-2 tmt:py-1.5 tmt:pr-8 tmt:pl-2 tmt:text-(length:--tmt-foundation-command-size) tmt:select-none tmt:focus:bg-accent tmt:focus:text-accent-foreground tmt:data-[disabled]:pointer-events-none tmt:data-[disabled]:opacity-50 tmt:[&_svg]:pointer-events-none tmt:[&_svg]:shrink-0 tmt:[&_svg:not([class*='size-'])]:size-4 tmt:[&_svg:not([class*='text-'])]:text-muted-foreground tmt:*:[span]:last:flex tmt:*:[span]:last:items-center tmt:*:[span]:last:gap-2",
+        "tmt:relative tmt:flex tmt:w-full tmt:cursor-default tmt:items-center tmt:gap-2 tmt:py-1.5 tmt:pr-8 tmt:pl-2 tmt:text-(length:--tmt-foundation-command-size) tmt:select-none tmt:focus:bg-accent tmt:focus:text-accent-foreground tmt:focus-visible:outline-solid tmt:focus-visible:outline-ring tmt:focus-visible:outline-(length:--tmt-foundation-focus-width) tmt:data-[disabled]:pointer-events-none tmt:data-[disabled]:opacity-50 tmt:[&_svg]:pointer-events-none tmt:[&_svg]:shrink-0 tmt:[&_svg:not([class*='size-'])]:size-4 tmt:[&_svg:not([class*='text-'])]:text-muted-foreground tmt:*:[span]:last:flex tmt:*:[span]:last:items-center tmt:*:[span]:last:gap-2",
         className,
       )}
       {...props}

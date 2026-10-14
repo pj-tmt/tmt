@@ -16,7 +16,7 @@ async function gallery(page: Page, theme: 'light' | 'dark' = 'light') {
 }
 const programmatic = async (page: Page, name: string) =>
   page
-    .getByRole('button', { name, exact: true })
+    .getByRole('button', { name, exact: true, includeHidden: true })
     .evaluate((node: HTMLButtonElement) => node.click());
 
 test('native controls and blocked states retain their actual DOM identity and controlled values', async ({
@@ -51,7 +51,7 @@ test('native controls and blocked states retain their actual DOM identity and co
   await expect(page.getByLabel('Action count')).toHaveText('2');
   await page.getByRole('button', { name: 'Disabled action', exact: true }).click({ force: true });
   await page.getByRole('button', { name: 'Working action', exact: true }).click({ force: true });
-  await page.getByRole('link', { name: 'Disabled child action' }).click();
+  await page.getByRole('link', { name: 'Disabled child action' }).click({ force: true });
   await expect(page.getByLabel('Action count')).toHaveText('2');
   expect(new URL(page.url()).hash).toBe('');
   const check = page.getByRole('checkbox', { name: 'Controlled checkbox' });
@@ -109,7 +109,11 @@ test('stock Select retains modal-choice keyboard behavior and actual close/focus
   page,
 }) => {
   await gallery(page);
-  const trigger = page.getByRole('combobox', { name: 'Controlled choice', exact: true });
+  const trigger = page.getByRole('combobox', {
+    name: 'Controlled choice',
+    exact: true,
+    includeHidden: true,
+  });
   await trigger.click();
   const list = page.getByRole('listbox');
   await expect(list).toBeVisible();
@@ -129,10 +133,15 @@ test('stock Select retains modal-choice keyboard behavior and actual close/focus
   await trigger.click();
   await page.keyboard.press('a');
   await expect(page.getByRole('option', { name: 'Alpha', exact: true })).toBeFocused();
-  await page.keyboard.press('Space');
+  // Stock typeahead treats Space as a search character until its search clears.
+  await page.keyboard.press('Enter');
   await expect(list).toBeHidden();
   await expect(trigger).toBeFocused();
   await expect(page.getByLabel('Choice and change count')).toHaveText('alpha:2');
+  await trigger.click();
+  await page.keyboard.press('Space');
+  await expect(list).toBeHidden();
+  await expect(trigger).toBeFocused();
   await trigger.click();
   await page.keyboard.press('End');
   await expect(
@@ -168,7 +177,11 @@ test('host-owned busy close veto and read-only value admission remain independen
   page,
 }) => {
   await gallery(page);
-  const trigger = page.getByRole('combobox', { name: 'Controlled choice', exact: true });
+  const trigger = page.getByRole('combobox', {
+    name: 'Controlled choice',
+    exact: true,
+    includeHidden: true,
+  });
   const list = page.getByRole('listbox');
   await trigger.click();
   await programmatic(page, 'Start select work');
@@ -217,7 +230,9 @@ for (const width of [320, 390, 1440])
       await expect(button).toHaveCSS('font-size', tokens.browser.metric['command-size']);
       await expect(button).toHaveCSS('border-radius', '0px');
       await expect(button).toHaveCSS('box-shadow', 'none');
+      await page.keyboard.press('Tab');
       await button.focus();
+      expect(await button.evaluate((node) => node.matches(':focus-visible'))).toBe(true);
       await expect(button).toHaveCSS('outline-width', tokens.browser.metric['focus-width']);
       await expect(button).toHaveCSS('outline-color', rgb(tokens.browser.color.focus[theme]));
       for (const name of ['Controlled input', 'Controlled textarea']) {
@@ -226,7 +241,11 @@ for (const width of [320, 390, 1440])
         await expect(field).toHaveCSS('border-width', tokens.browser.metric['rule-width']);
       }
       await scope.screenshot({ path: info.outputPath(`primitives-${width}-${theme}-states.png`) });
-      const trigger = page.getByRole('combobox', { name: 'Controlled choice', exact: true });
+      const trigger = page.getByRole('combobox', {
+        name: 'Controlled choice',
+        exact: true,
+        includeHidden: true,
+      });
       await trigger.scrollIntoViewIfNeeded();
       await trigger.click();
       const list = page.getByRole('listbox');

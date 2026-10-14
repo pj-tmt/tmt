@@ -519,7 +519,7 @@
   .tmt\:file\:text-\(length\:--tmt-foundation-command-size\)::file-selector-button {
     font-size: var(--tmt-foundation-command-size);
   }
-  .tmt\:file\:font-\(--tmt-foundation-eyebrow-weight\)::file-selector-button {
+  .tmt\:file\:font-\(weight\:--tmt-foundation-eyebrow-weight\)::file-selector-button {
     --tmt-foundation-tw-font-weight: var(--tmt-foundation-eyebrow-weight);
     font-weight: var(--tmt-foundation-eyebrow-weight);
   }
@@ -620,10 +620,6 @@
   .tmt\:focus-visible\:outline-\(length\:--tmt-foundation-focus-width\):focus-visible {
     outline-style: var(--tmt-foundation-tw-outline-style);
     outline-width: var(--tmt-foundation-focus-width);
-  }
-  .tmt\:focus-visible\:outline-1:focus-visible {
-    outline-style: var(--tmt-foundation-tw-outline-style);
-    outline-width: 1px;
   }
   .tmt\:focus-visible\:outline-ring:focus-visible {
     outline-color: var(--tmt-foundation-ring);

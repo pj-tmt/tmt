@@ -123,15 +123,6 @@
         "directory": "packages/tailwindcss"
       }
     },
-    "@tailwindcss/cli": {
-      "version": "4.3.3",
-      "license": "MIT",
-      "source": {
-        "type": "git",
-        "url": "https://github.com/tailwindlabs/tailwindcss.git",
-        "directory": "packages/@tailwindcss-cli"
-      }
-    },
     "react": {
       "version": "19.2.8",
       "license": "MIT",
@@ -149,14 +140,14 @@
         "url": "https://github.com/react/react.git",
         "directory": "packages/react-dom"
       }
-    }
-  },
-  "deferredDependencies": {
+    },
     "class-variance-authority": {
       "version": "0.7.1",
       "license": "Apache-2.0",
       "source": "https://github.com/joe-bell/cva.git",
-      "status": "Apache-2.0 accepted for Slice2 variants; exact manifest/lock admission awaits the exclusive pnpm ownership handoff. No variant substitute."
+      "packageSha256": "f487885eb010b36aec829ab8fb5fc845918006c4633e3c88c750e73bd35c6381",
+      "licenseFile": "src/ui/LICENSE.cva",
+      "licenseSha256": "0ccbf956cffc8dcf515809433cb5242ee67c94513d46e48c261d68d0880de406"
     }
   },
   "resolvedPrimitiveDependencies": {

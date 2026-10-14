@@ -403,7 +403,7 @@ our `tmt` prefix. The upstream MIT notice is retained in
 separate `cn` dependency; adding that package is outside the accepted dependency
 set. `class-variance-authority@0.7.1` is Apache-2.0, explicitly accepted for the
 first slice needing variants. Button, Badge, Alert and TabsList use genuine CVA;
-its exact pin, retained license and dependency guard admission are reviewed with
+its exact pin, [retained Apache license](src/ui/LICENSE.cva) and dependency guard admission are reviewed with
 the manifest and lockfile. npm tarball integrity and all transitive versions live in the sole workspace
 `typescript/pnpm-lock.yaml`; checked provenance must agree with the manifest.
 
@@ -412,8 +412,9 @@ Command imports Dialog; Layers imports Button. The current upstream Base UI
 combobox registry is deliberately not selected; no `@base-ui/react` dependency is
 admitted. Later slices must prove focus, Tab commit and IME with those real
 implementations. This foundation does not make those claims. React and
-lucide-react remain optional peers for the existing leaf entries; Tailwind and its
-CLI are development dependencies confined to this leaf. No Cargo build or native
+lucide-react remain optional peers for the existing leaf entries. The Tailwind
+compile API is a development dependency confined to this leaf; no CLI package is
+required. No Cargo build or native
 installation requires Node or generates UI CSS.
 
 ### Local theme, CSS and portal contract

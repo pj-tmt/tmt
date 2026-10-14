@@ -46,7 +46,7 @@ export function PrimitiveFixtures() {
   return (
     <section
       aria-label="Real shadcn primitives"
-      className="tmt:grid tmt:gap-4 tmt:p-4 tmt:bg-background tmt:text-foreground"
+      className="tmt:font-body tmt:text-(length:--tmt-foundation-command-size) tmt:grid tmt:gap-4 tmt:p-4 tmt:bg-background tmt:text-foreground"
     >
       <h3>Slice2 primitive qualification</h3>
       <div className="tmt:flex tmt:flex-wrap tmt:gap-2">

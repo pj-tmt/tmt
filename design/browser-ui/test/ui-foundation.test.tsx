@@ -91,6 +91,14 @@ it('keeps original source export targets and direct dependency pins explicit', (
         manifest.devDependencies?.[name] ??
         manifest.peerDependencies?.[name],
     ).toBe(value.version);
+  const cva = provenance.dependencies['class-variance-authority'];
+  expect(cva.version).toBe('0.7.1');
+  expect(cva.license).toBe('Apache-2.0');
+  expect(
+    createHash('sha256')
+      .update(readFileSync(new URL('../src/ui/LICENSE.cva', import.meta.url)))
+      .digest('hex'),
+  ).toBe(cva.licenseSha256);
   const license = readFileSync(new URL('../src/ui/LICENSE.shadcn', import.meta.url));
   expect(createHash('sha256').update(license).digest('hex')).toBe(
     provenance.files.find((file: { path: string }) => file.path === 'LICENSE.md').sha256,
