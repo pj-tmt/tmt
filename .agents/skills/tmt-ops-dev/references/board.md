@@ -16,6 +16,9 @@ configuration and effects belong to [config-and-effects.md](config-and-effects.m
 `board::terminal` owns raw mode, mouse capture and the alternate screen through
 `Screen` and `Guard`. Partial entry is undone; restoration runs on return, error,
 panic and TERM/HUP. Worker shutdown follows terminal restoration.
+The admitted board selects structured migration notices before entry: the shared
+migration decision feeds the App footer rather than writing untracked stderr
+cells. CLI invocations retain their once-per-invocation warning stream.
 
 `board::view::render_frame` resets frame-local hits, input placement and scroll
 regions once. `view::panes` dispatches workspace snapshots to `workspace::render`

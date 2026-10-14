@@ -425,8 +425,8 @@ own module/drawing boundaries and verification.
   (`storage.root`) and disposable `$XDG_CACHE_HOME/tmt-ops` caches. The workspace
   neither reads nor writes the retired internal `cache/board` display format;
   existing files are left untouched. `ops.toml` is user-owned: agents never write it;
-  Ops uses CAS. `migration` owns locked byte-preserving legacy cutover and
-  `board_switch` the consented former-board switch: only its replacement launch drops retired `--tabs`, preserving the journal argv; startup runs neither. No Ops
+  Ops uses CAS. `migration` owns locked byte-preserving legacy cutover. Its shared invocation notice decision warns once on CLI stderr; admitted UI projects the same notice through App without out-of-band terminal writes.
+  `board_switch` owns the consented former-board switch: only its replacement launch drops retired `--tabs`, preserving the journal argv; startup runs neither. No Ops
   data enters `config.json` or Core's database.
 - **Workspace.** Overview/Agents/Digest share one acquired roster and a frame-scoped tree projection.
   UUID squad anchors and virtual Common pool define selection; paint/input do no Core reads. WP1 owns conversation/editor/drafts.

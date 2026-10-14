@@ -300,7 +300,11 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
         await fixture.waitFor(() => fs.existsSync(nextLease), 5_000, 'Ops UI clock publication');
         expect(JSON.parse(fs.readFileSync(nextLease, 'utf8')).pid).not.toBe(123);
         await fixture.waitForCapture(
-          (screen) => screen.includes('worker') && !screen.includes('Ops migration pending'),
+          (screen) =>
+            screen.includes('worker') &&
+            !screen.includes('Ops migration pending') &&
+            !screen.includes('old clock PID 123') &&
+            !screen.includes('legacy config/state stay active'),
           shell.pane
         );
         expect(fs.readFileSync(config)).toEqual(beforeConfig);

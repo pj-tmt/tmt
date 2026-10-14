@@ -11,7 +11,10 @@ use std::{
     io::{self, Read, Write},
     os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{
+        Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 use tmt_cli_style::message;
 
@@ -56,11 +59,20 @@ fn notice(text: &str) {
 /// The invocation has one shared layout decision. Only the UI clock retries a
 /// deferred decision; completed layouts and failures remain cached.
 #[derive(Default)]
-pub(crate) struct Decision(Mutex<Option<Result<Paths, SquadError>>>);
+pub(crate) struct Decision {
+    selected: Mutex<Option<Result<Paths, SquadError>>>,
+    board_notices: AtomicBool,
+}
 
 impl Decision {
+    /// The admitted board displays this decision through its existing model;
+    /// stderr writes would leave cells outside the renderer's ownership.
+    pub fn use_board_notices(&self) {
+        self.board_notices.store(true, Ordering::Release);
+    }
+
     pub fn board_notice(&self) -> Option<String> {
-        self.0
+        self.selected
             .lock()
             .unwrap()
             .as_ref()
@@ -72,7 +84,7 @@ impl Decision {
 }
 
 pub(crate) fn paths(core: &Core, shown: Option<&Value>) -> Result<Paths, SquadError> {
-    let mut decision = core.paths.0.lock().unwrap();
+    let mut decision = core.paths.selected.lock().unwrap();
     decision
         .get_or_insert_with(|| {
             let owned;
@@ -97,7 +109,9 @@ pub(crate) fn paths(core: &Core, shown: Option<&Value>) -> Result<Paths, SquadEr
                 )
                 .map_err(failed)?,
             };
-            if let Some(warning) = warning {
+            if let Some(warning) = warning
+                && !core.paths.board_notices.load(Ordering::Acquire)
+            {
                 notice(&warning);
             }
             Ok(paths)
@@ -127,7 +141,7 @@ pub(crate) fn retry(core: &Core) -> Result<Paths, SquadError> {
         Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(previous),
         Err(error) => Err(failed(error)),
     };
-    let mut decision = core.paths.0.lock().unwrap();
+    let mut decision = core.paths.selected.lock().unwrap();
     // Another retry may already have promoted. Never revert a completed layout.
     if decision
         .as_ref()

@@ -794,6 +794,7 @@ pub fn run(
     let startup = trace.as_ref().map(timing::Trace::startup);
     terminal::restore_before_panic_reports();
     let stop = terminal::stop_requested().map_err(failed)?;
+    core.paths.use_board_notices();
     // The screen is ours before any command runs: a placeholder is painted at once,
     // and the config read, the worker's setup reads and the terminal's background
     // query all follow it. A failure below drops the guard, which restores the
