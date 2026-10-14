@@ -15,6 +15,23 @@ const vector = JSON.parse(
     'utf8',
   ),
 ) as { declaration: string; declarationDigest: string; document: string; documentDigest: string };
+// The Rust composer independently pins this Remote-authored artifact in tests/rules.rs.
+const composedIndexes = JSON.parse(
+  readFileSync(
+    new URL(
+      '../../../rust/tmt-remote/tests/fixtures/sealed_sync/index-coverage.json',
+      import.meta.url,
+    ),
+    'utf8',
+  ),
+) as {
+  indexes: {
+    collectionGroup: string;
+    queryScope: string;
+    fields: { fieldPath: string; order: string }[];
+  }[];
+};
+
 const config = {
   projectId: 'demo-remote-1',
   apiKey: 'public-key',
@@ -200,6 +217,120 @@ test('discovery paginates one bounded page and refuses a changed binding before 
     ),
   ).rejects.toMatchObject({ code: 'REMOTE_INPUT_INVALID' });
   expect(f.requests).toHaveLength(count);
+  f.port.close();
+});
+
+test('actual browser stream and discovery builders are covered by the composed indexes', async () => {
+  const f = await fixture();
+  const query = {
+    resource: 'rows',
+    scope: {
+      tenant: { stringValue: 'fixture-space' },
+      streamKey: { stringValue: 'writer-stream' },
+    },
+    stream: 'writer-stream',
+  };
+  f.setResponse([]);
+  await f.port.query({ shape: 'stream', query }, call());
+  await f.port.query(
+    { shape: 'stream', query: { ...query, cursor: { stream: query.stream, seq: 1 } } },
+    call(),
+  );
+  f.setResponse([
+    {
+      document: {
+        name: 'projects/demo-remote-1/databases/(default)/documents/x/notes/rows/id+1',
+        fields: JSON.parse(vector.document),
+      },
+    },
+  ]);
+  const discovery = {
+    resource: 'rows',
+    shape: 'arrivals',
+    scope: { tenant: { stringValue: 'fixture-space' } },
+  };
+  const first = await f.port.query({ shape: 'discovery', query: discovery }, call());
+  if (first.shape !== 'discovery' || !first.page.continuation) throw Error('missing continuation');
+  f.setResponse([]);
+  await f.port.query(
+    {
+      shape: 'discovery',
+      query: { ...discovery, continuation: first.page.continuation },
+    },
+    call(),
+  );
+  expect(f.requests).toHaveLength(4);
+  const built = f.requests.map(({ url, init }) => {
+    expect(url).toBe(
+      'https://firestore.googleapis.com/v1/projects/demo-remote-1/databases/(default)/documents/x/notes:runQuery',
+    );
+    return JSON.parse(String(init.body)).structuredQuery;
+  });
+  for (const [i, q] of built.entries()) {
+    // COLLECTION, never a collection-group query or an unclassified predicate/order.
+    expect(q.from).toEqual([{ collectionId: 'rows' }]);
+    expect(q.where.compositeFilter.op).toBe('AND');
+    const filters = q.where.compositeFilter.filters.map(
+      (filter: { fieldFilter: { field: { fieldPath: string }; op: string; value: unknown } }) =>
+        filter.fieldFilter,
+    );
+    if (i < 2) {
+      expect(q.orderBy).toEqual([{ field: { fieldPath: 'counter' }, direction: 'ASCENDING' }]);
+      const equalities = filters.filter((filter: { op: string }) => filter.op === 'EQUAL');
+      expect(
+        equalities.map((filter: { field: { fieldPath: string } }) => filter.field.fieldPath).sort(),
+      ).toEqual(['streamKey', 'tenant']);
+      expect(filters.filter((filter: { op: string }) => filter.op !== 'EQUAL')).toEqual(
+        i === 0
+          ? []
+          : [
+              {
+                field: { fieldPath: 'counter' },
+                op: 'GREATER_THAN',
+                value: { integerValue: '1' },
+              },
+            ],
+      );
+      expect(q.startAt).toBeUndefined();
+      const indexFields = equalities
+        .map((filter: { field: { fieldPath: string } }) => ({
+          fieldPath: filter.field.fieldPath,
+          order: 'ASCENDING',
+        }))
+        .sort((a: { fieldPath: string }, b: { fieldPath: string }) =>
+          a.fieldPath.localeCompare(b.fieldPath),
+        );
+      expect(composedIndexes.indexes).toContainEqual({
+        collectionGroup: q.from[0].collectionId,
+        queryScope: 'COLLECTION',
+        fields: [
+          ...indexFields,
+          { fieldPath: q.orderBy[0].field.fieldPath, order: q.orderBy[0].direction },
+        ],
+      });
+    } else {
+      // Equality-only discovery plus document-name order uses Firestore index merging.
+      expect(filters).toEqual([
+        { field: { fieldPath: 'tenant' }, op: 'EQUAL', value: { stringValue: 'fixture-space' } },
+        { field: { fieldPath: 'counter' }, op: 'EQUAL', value: { integerValue: '1' } },
+      ]);
+      expect(q.orderBy).toEqual([{ field: { fieldPath: '__name__' }, direction: 'ASCENDING' }]);
+      expect(q.startAt).toEqual(
+        i === 2
+          ? undefined
+          : {
+              values: [
+                {
+                  referenceValue:
+                    'projects/demo-remote-1/databases/(default)/documents/x/notes/rows/id+1',
+                },
+              ],
+              before: false,
+            },
+      );
+    }
+  }
+  expect(composedIndexes.indexes).toHaveLength(1); // No equality-only extra composite.
   f.port.close();
 });
 
