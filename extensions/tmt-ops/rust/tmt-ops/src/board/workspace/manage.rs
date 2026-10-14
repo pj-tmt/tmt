@@ -20,6 +20,19 @@ pub enum Kind {
     Remove,
     Assign,
 }
+impl Kind {
+    pub(in crate::board) fn label(self) -> &'static str {
+        match self {
+            Self::Create => "Create squad",
+            Self::Add => "Add member",
+            Self::Lead => "Set lead",
+            Self::RenameSquad => "Rename squad",
+            Self::RenameMember => "Rename",
+            Self::Remove => "Remove membership",
+            Self::Assign => "Move membership",
+        }
+    }
+}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Stage {
     Fields,
@@ -474,7 +487,6 @@ impl App {
     }
     pub(in crate::board) fn workspace_close(&mut self) {
         if let Some(draft) = &mut self.workspace_form
-            && draft.kind == Kind::RenameMember
             && draft.stage == Stage::Pending
         {
             draft.shown = false;
@@ -485,16 +497,18 @@ impl App {
     }
     pub(in crate::board) fn workspace_begin(&mut self, kind: Kind) -> Effect {
         if let Some(draft) = &mut self.workspace_form
-            && draft.kind == Kind::RenameMember
             && (!draft.shown || draft.stage == Stage::Pending)
         {
-            if kind == Kind::RenameMember {
+            if kind == draft.kind {
                 draft.shown = true;
                 draft.invalidate();
                 return Effect::None;
             }
             if draft.stage == Stage::Pending {
-                return self.say("A rename is still pending. Open Rename to inspect its result.");
+                let operation = draft.kind.label();
+                return self.say(format!(
+                    "{operation} is still pending. Open it from Actions to inspect its result."
+                ));
             }
         }
         if kind == Kind::RenameMember

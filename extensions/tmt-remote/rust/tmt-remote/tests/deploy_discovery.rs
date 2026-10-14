@@ -69,6 +69,10 @@ fn supplied_exact_bytes_compose_once_and_absence_never_uses_fixture_bytes() {
     assert_eq!(source.1, ["colab"]);
     assert_eq!(one.extensions.view().extensions[0].name, "colab");
     assert!(one.artifacts.rules.contains("match /x/colab"));
+    assert!(
+        one.hosting.is_none(),
+        "no Hosting declaration generates no public file"
+    );
     let root = Root::new();
     let layout = root.layout();
     let mut record =
@@ -386,9 +390,18 @@ fn serving_config_boundary_is_checked_before_provider_setup() {
         )
     };
     let (_, _, small) = make_bundle(&files);
-    let base = serde_json::to_vec(hosting::compose(&[small]).unwrap().unwrap().config())
+    let base = serde_json::to_vec(
+        hosting::compose(&[hosting::HostingInput {
+            extension: "colab",
+            declaration: b"{}",
+            bundle: &small,
+        }])
         .unwrap()
-        .len();
+        .unwrap()
+        .config(),
+    )
+    .unwrap()
+    .len();
     let limit = tmt_remote::limits::HOSTING_CONFIG_BYTES;
     let mut remaining = limit - 1 - base;
     for file in files.iter_mut().take(39) {
@@ -398,7 +411,13 @@ fn serving_config_boundary_is_checked_before_provider_setup() {
     }
     assert_eq!(remaining, 0);
     let (manifest, bundle, captured) = make_bundle(&files);
-    let composition = hosting::compose(&[captured]).unwrap().unwrap();
+    let composition = hosting::compose(&[hosting::HostingInput {
+        extension: "colab",
+        declaration: b"{}",
+        bundle: &captured,
+    }])
+    .unwrap()
+    .unwrap();
     assert_eq!(
         serde_json::to_vec(composition.config()).unwrap().len(),
         limit - 1
@@ -421,7 +440,11 @@ fn serving_config_boundary_is_checked_before_provider_setup() {
     last["csp"] = json!(format!("{}xx", last["csp"].as_str().unwrap()));
     let (manifest, bundle, captured) = make_bundle(&files);
     assert!(matches!(
-        hosting::compose(&[captured]),
+        hosting::compose(&[hosting::HostingInput {
+            extension: "colab",
+            declaration: b"{}",
+            bundle: &captured
+        }]),
         Err(HostingRefusal::Bounds)
     ));
     declaration["hosting"] = serde_json::to_value(manifest).unwrap();
@@ -448,4 +471,121 @@ fn serving_config_boundary_is_checked_before_provider_setup() {
             DiscoveryRefusal::Hosting(HostingRefusal::Bounds)
         ))
     ));
+}
+
+#[test]
+fn hosted_declaration_is_exactly_the_native_sealed_and_plan_digest() {
+    use std::io::Read;
+    struct Captured(Value, Value);
+    impl DeclarationSource for Captured {
+        fn declaration(&mut self, _: &str) -> Result<Option<Vec<u8>>, DiscoveryRefusal> {
+            Ok(Some(serde_json::to_vec(&self.0).unwrap()))
+        }
+        fn hosting_bundle(&mut self, _: &str) -> Result<Vec<u8>, DiscoveryRefusal> {
+            Ok(serde_json::to_vec(&self.1).unwrap())
+        }
+    }
+    let hash = |bytes: &[u8]| {
+        Sha256::digest(bytes)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>()
+    };
+    let (mut reply, bundle) = hosting_envelope();
+    let mut identities = Vec::new();
+    for whitespace in ["", "\n"] {
+        let raw = format!("{}{whitespace}", reply["declaration"].as_str().unwrap());
+        reply["declaration"] = json!(raw);
+        reply["declarationDigest"] = json!(hash(raw.as_bytes()));
+        let (sealed, sealed_digest) =
+            deploy_discovery::sealed_declaration("colab", &serde_json::to_vec(&reply).unwrap())
+                .unwrap();
+        let discovered =
+            deploy_discovery::discover(&mut Captured(reply.clone(), bundle.clone()), &["colab"])
+                .unwrap();
+        let extension_plan_digest = discovered.extensions.digest().to_owned();
+        let declaration_digest = &discovered.extensions.view().extensions[0].declaration_digest;
+        let composed = discovered.hosting.unwrap();
+        let path = "/tmt/declarations/colab.json";
+        let gzip = composed
+            .gzip(path)
+            .expect("Hosting must include the exact deployed declaration");
+        let mut generated = Vec::new();
+        flate2::read::GzDecoder::new(gzip)
+            .read_to_end(&mut generated)
+            .unwrap();
+        assert_eq!(generated, sealed);
+        assert_eq!(generated, raw.as_bytes());
+        assert_eq!(hash(&generated), *declaration_digest);
+        assert_eq!(hash(&generated), sealed_digest);
+        assert_eq!(
+            composed
+                .files()
+                .iter()
+                .filter(|file| file.path == path)
+                .count(),
+            1
+        );
+        let header = composed.config()["headers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|rule| rule["glob"] == path)
+            .expect("declaration header rule");
+        assert_eq!(
+            header["headers"],
+            json!({
+                "Content-Type":"application/json; charset=utf-8",
+                "X-Content-Type-Options":"nosniff", "Cache-Control":"no-cache",
+                "Referrer-Policy":"no-referrer"
+            })
+        );
+        let deployment_id = "11111111-1111-4111-8111-111111111111";
+        let view = tmt_remote::hosting::deployment_view(
+            &composed,
+            "demo-remote-1",
+            deployment_id,
+            &tmt_remote::hosting::HostingInventory {
+                site_exists: false,
+                site_app_id: None,
+                site_app_config: None,
+                web_apps: vec![],
+                live: None,
+            },
+        )
+        .unwrap();
+        let authorized = tmt_remote::deploy_run::prepare_with_hosting(
+            &discovered.extensions,
+            &tmt_remote::deploy_run::DeployInput {
+                account: "owner@example.test",
+                project: "demo-remote-1",
+                deployment_id,
+                location: "asia-east1",
+                sign_in: &[tmt_remote::deploy_run::SignInProvider::Anonymous],
+                rules_body: discovered.artifacts.rules.as_bytes(),
+                live_rules: None,
+            },
+            Some(&view),
+        )
+        .unwrap();
+        identities.push((
+            sealed_digest,
+            composed.digest().to_owned(),
+            extension_plan_digest,
+            authorized.digest().to_owned(),
+        ));
+    }
+    assert_ne!(
+        identities[0].0, identities[1].0,
+        "exact-byte declaration identity"
+    );
+    assert_ne!(
+        identities[0].1, identities[1].1,
+        "frozen Hosting composition identity"
+    );
+    assert_ne!(identities[0].2, identities[1].2, "extension plan identity");
+    assert_ne!(
+        identities[0].3, identities[1].3,
+        "authorized whole-plan identity"
+    );
 }

@@ -1,4 +1,4 @@
-//! Remote-authored static inventory fixtures; no Colab release or provider acceptance.
+//! Remote-authored inventory and read-only Colab declaration mirror; no provider acceptance.
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -25,10 +25,23 @@ fn bundle() -> HostingBundle {
     let m = manifest();
     HostingBundle::parse(&m, &serde_json::to_vec(&reply(&m)).unwrap()).unwrap()
 }
+fn compose(
+    bundles: &[HostingBundle],
+) -> Result<Option<hosting::HostingComposition>, HostingRefusal> {
+    let inputs: Vec<_> = bundles
+        .iter()
+        .map(|bundle| hosting::HostingInput {
+            extension: "colab",
+            declaration: b"{}",
+            bundle,
+        })
+        .collect();
+    hosting::compose(&inputs)
+}
 #[test]
 fn gzip_and_serving_config_are_frozen_and_public_shell_routes_are_bounded() {
-    let first = hosting::compose(&[bundle()]).unwrap().unwrap();
-    let second = hosting::compose(&[bundle()]).unwrap().unwrap();
+    let first = compose(&[bundle()]).unwrap().unwrap();
+    let second = compose(&[bundle()]).unwrap().unwrap();
     assert_eq!(first.view(), second.view());
     assert_eq!(first.gzip("/index.html"), second.gzip("/index.html"));
     let gzip = first.gzip("/index.html").unwrap();
@@ -61,7 +74,7 @@ fn gzip_and_serving_config_are_frozen_and_public_shell_routes_are_bounded() {
             .unwrap()
             .contains("/__")
     );
-    assert!(hosting::compose(&[]).unwrap().is_none());
+    assert!(compose(&[]).unwrap().is_none());
 }
 #[test]
 fn manifest_refuses_only_the_perturbed_guard_in_valid_controls() {
@@ -85,7 +98,12 @@ fn manifest_refuses_only_the_perturbed_guard_in_valid_controls() {
             "{path}"
         );
     }
-    for path in ["/__", "/__/firebase/init.json"] {
+    for path in [
+        "/__",
+        "/__/firebase/init.json",
+        "/tmt/declarations",
+        "/tmt/declarations/notes.json",
+    ] {
         let mut value = valid.clone();
         value["files"][0]["path"] = json!(path);
         assert_eq!(
@@ -121,7 +139,7 @@ fn manifest_refuses_only_the_perturbed_guard_in_valid_controls() {
         HostingManifest::parse(&extra).unwrap_err(),
         HostingRefusal::Shape
     );
-    assert!(hosting::compose(&[bundle(), bundle()]).is_err());
+    assert!(compose(&[bundle(), bundle()]).is_err());
 }
 #[test]
 fn bundle_must_be_the_complete_exact_canonical_manifest_inventory() {
@@ -147,7 +165,7 @@ fn bundle_must_be_the_complete_exact_canonical_manifest_inventory() {
 const ID: &str = "11111111-1111-4111-8111-111111111111";
 #[test]
 fn site_creation_web_app_choice_and_foreign_fingerprint_are_named_in_the_plan() {
-    let content = hosting::compose(&[bundle()]).unwrap().unwrap();
+    let content = compose(&[bundle()]).unwrap().unwrap();
     let absent = HostingInventory {
         site_exists: false,
         site_app_id: None,
@@ -251,14 +269,11 @@ fn full_file_and_byte_caps_sorted_paths_and_nonadjacent_nested_collisions_are_ch
     .unwrap();
     let bytes=serde_json::to_vec(&json!({"version":1,"manifestDigest":m.digest(),"files":paths.iter().map(|p|json!({"path":p,"bytesBase64":STANDARD.encode(b"hello")})).collect::<Vec<_>>()})).unwrap();
     let bundle = HostingBundle::parse(&m, &bytes).unwrap();
-    assert!(matches!(
-        hosting::compose(&[bundle]),
-        Err(HostingRefusal::Collision)
-    ));
+    assert!(matches!(compose(&[bundle]), Err(HostingRefusal::Collision)));
 }
 #[test]
 fn matching_labels_do_not_adopt_an_edited_release_and_foreign_order_is_canonical() {
-    let content = hosting::compose(&[bundle()]).unwrap().unwrap();
+    let content = compose(&[bundle()]).unwrap().unwrap();
     let mut files = content.live_files();
     let mut extra = files[0].clone();
     extra.path = "/extra.html".into();
@@ -344,15 +359,13 @@ fn csp_is_optional_printable_ascii_bounded_and_last_in_canonical_manifest_order(
 #[test]
 fn shell_csp_and_fixed_headers_match_short_routes_and_the_independent_config_golden() {
     let policy = "default-src 'none'; script-src 'self'; style-src 'self'";
-    let composed = hosting::compose(&[csp_bundle(Some(policy))])
-        .unwrap()
-        .unwrap();
+    let composed = compose(&[csp_bundle(Some(policy))]).unwrap().unwrap();
     let golden: Value =
         serde_json::from_str(include_str!("fixtures/hosting/serving-config.json")).unwrap();
     assert_eq!(composed.config(), &golden);
     let headers = composed.config()["headers"].as_array().unwrap();
-    assert_eq!(headers.len(), 5);
-    for route in &headers[1..] {
+    assert_eq!(headers.len(), 6);
+    for route in &headers[2..] {
         assert_eq!(route["headers"], headers[0]["headers"]);
     }
     // Pin the exact matching expression for each public request path, independently
@@ -380,14 +393,14 @@ fn shell_csp_and_fixed_headers_match_short_routes_and_the_independent_config_gol
     );
     assert_eq!(headers[0]["headers"]["Content-Security-Policy"], policy);
     assert_eq!(headers[0]["headers"]["Referrer-Policy"], "no-referrer");
-    let absent = hosting::compose(&[csp_bundle(None)]).unwrap().unwrap();
+    let absent = compose(&[csp_bundle(None)]).unwrap().unwrap();
     assert!(
         absent.config()["headers"][0]["headers"]
             .get("Content-Security-Policy")
             .is_none()
     );
     assert_ne!(composed.digest(), absent.digest());
-    let changed = hosting::compose(&[csp_bundle(Some("default-src 'self'"))])
+    let changed = compose(&[csp_bundle(Some("default-src 'self'"))])
         .unwrap()
         .unwrap();
     assert_ne!(changed.digest(), composed.digest());
@@ -421,13 +434,16 @@ fn only_named_text_types_receive_utf8_and_every_file_has_the_fixed_referrer_poli
     let manifest = HostingManifest::parse(&json!({"version":1,"files":listed})).unwrap();
     let reply = json!({"version":1,"manifestDigest":manifest.digest(),"files":manifest.files.iter().map(|f|json!({"path":f.path,"bytesBase64":STANDARD.encode(b"hello")})).collect::<Vec<_>>()});
     let composed =
-        hosting::compose(&[
-            HostingBundle::parse(&manifest, &serde_json::to_vec(&reply).unwrap()).unwrap(),
-        ])
-        .unwrap()
-        .unwrap();
+        compose(&[HostingBundle::parse(&manifest, &serde_json::to_vec(&reply).unwrap()).unwrap()])
+            .unwrap()
+            .unwrap();
     for (i, (ty, text)) in types.iter().enumerate() {
-        let rule = &composed.config()["headers"][i + 1];
+        let rule = composed.config()["headers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|rule| rule["glob"] == format!("/z{i:02}"))
+            .unwrap();
         assert_eq!(rule["glob"], format!("/z{i:02}"));
         assert_eq!(
             rule["headers"]["Content-Type"],
@@ -439,13 +455,21 @@ fn only_named_text_types_receive_utf8_and_every_file_has_the_fixed_referrer_poli
         );
         assert_eq!(rule["headers"]["Referrer-Policy"], "no-referrer");
         assert!(rule["headers"].get("Content-Security-Policy").is_none());
-        assert_eq!(composed.files()[i + 1].content_type, *ty);
+        assert_eq!(
+            composed
+                .files()
+                .iter()
+                .find(|file| file.path == format!("/z{i:02}"))
+                .unwrap()
+                .content_type,
+            *ty
+        );
     }
 }
 
 #[test]
 fn unassociated_foreign_apps_are_not_selected_and_recorded_identity_must_remain_active() {
-    let content = hosting::compose(&[bundle()]).unwrap().unwrap();
+    let content = compose(&[bundle()]).unwrap().unwrap();
     let mut inventory = HostingInventory {
         site_exists: true,
         site_app_id: None,
@@ -495,7 +519,7 @@ fn unassociated_foreign_apps_are_not_selected_and_recorded_identity_must_remain_
 
 #[test]
 fn site_association_selects_only_an_active_same_project_public_config_and_never_repoints() {
-    let content = hosting::compose(&[bundle()]).unwrap().unwrap();
+    let content = compose(&[bundle()]).unwrap().unwrap();
     let config = |id: &str| json!({"apiKey":"public-key","authDomain":"demo-remote-1.firebaseapp.com","projectId":"demo-remote-1","appId":id});
     let mut inventory = HostingInventory {
         site_exists: true,
@@ -571,4 +595,209 @@ fn site_association_selects_only_an_active_same_project_public_config_and_never_
         hosting::deployment_view(&content, "demo-remote-1", ID, &inventory).unwrap_err(),
         HostingRefusal::WebAppSelection
     );
+}
+
+#[test]
+fn colab_hosting_vector_serves_its_exact_sealed_declaration_digest() {
+    let reply = include_bytes!(
+        "../../../../tmt-colab/contracts/vectors/deploy-declaration-v1.hosting.json"
+    );
+    let envelope: Value = serde_json::from_slice(reply).unwrap();
+    let (declaration, sealed_digest) =
+        tmt_remote::deploy_discovery::sealed_declaration("colab", reply).unwrap();
+    let value: Value = serde_json::from_slice(&declaration).unwrap();
+    HostingManifest::parse(&value["hosting"]).unwrap();
+    // This tiny inventory isolates the opaque-byte boundary, not Colab bundle acceptance.
+    let content = hosting::compose(&[hosting::HostingInput {
+        extension: "colab",
+        declaration: &declaration,
+        bundle: &bundle(),
+    }])
+    .unwrap()
+    .unwrap();
+    let path = "/tmt/declarations/colab.json";
+    let generated = content
+        .files()
+        .iter()
+        .find(|file| file.path == path)
+        .unwrap();
+    assert_eq!(generated.raw_digest, envelope["declarationDigest"]);
+    assert_eq!(generated.raw_digest, sealed_digest);
+    let mut served = Vec::new();
+    flate2::read::GzDecoder::new(content.gzip(path).unwrap())
+        .read_to_end(&mut served)
+        .unwrap();
+    assert_eq!(served, envelope["declaration"].as_str().unwrap().as_bytes());
+    assert_eq!(hash(&served), generated.raw_digest);
+}
+
+#[test]
+fn declarations_are_opaque_per_extension_and_do_not_inherit_shell_csp() {
+    let first = csp_bundle(Some("default-src 'none'"));
+    let m = HostingManifest::parse(&json!({"version":1,"files":[
+        {"path":"/other.txt","sha256":hash(b"hello"),"length":5,"contentType":"text/plain"}
+    ]}))
+    .unwrap();
+    let second = HostingBundle::parse(&m, &serde_json::to_vec(&json!({
+        "version":1,"manifestDigest":m.digest(),"files":[{"path":"/other.txt","bytesBase64":STANDARD.encode(b"hello")}]
+    })).unwrap()).unwrap();
+    // The pure composer accepts already-admitted opaque bytes; discovery owns parsing.
+    let inputs = [
+        hosting::HostingInput {
+            extension: "notes",
+            declaration: b"exact first bytes\n",
+            bundle: &first,
+        },
+        hosting::HostingInput {
+            extension: "other",
+            declaration: b"exact second bytes",
+            bundle: &second,
+        },
+    ];
+    let composed = hosting::compose(&inputs).unwrap().unwrap();
+    assert_eq!(composed.files().len(), 4);
+    for input in &inputs {
+        let path = format!("/tmt/declarations/{}.json", input.extension);
+        let mut bytes = Vec::new();
+        flate2::read::GzDecoder::new(composed.gzip(&path).unwrap())
+            .read_to_end(&mut bytes)
+            .unwrap();
+        assert_eq!(bytes, input.declaration);
+        let file = composed
+            .files()
+            .iter()
+            .find(|file| file.path == path)
+            .unwrap();
+        assert_eq!(file.raw_digest, hash(input.declaration));
+        let header = composed.config()["headers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|rule| rule["glob"] == path)
+            .unwrap();
+        assert_eq!(
+            header["headers"],
+            json!({"Cache-Control":"no-cache","Content-Type":"application/json; charset=utf-8",
+            "Referrer-Policy":"no-referrer","X-Content-Type-Options":"nosniff"})
+        );
+    }
+    let changed = hosting::compose(&[
+        hosting::HostingInput {
+            declaration: b"exact first bytes",
+            ..inputs[0]
+        },
+        hosting::HostingInput { ..inputs[1] },
+    ])
+    .unwrap()
+    .unwrap();
+    assert_ne!(composed.digest(), changed.digest());
+    assert_eq!(composed.gzip("/index.html"), changed.gzip("/index.html"));
+}
+
+#[test]
+fn generated_declarations_consume_existing_caps_and_ancestor_fences() {
+    let b = bundle();
+    assert!(matches!(
+        hosting::compose(&[hosting::HostingInput {
+            extension: "colab",
+            declaration: &vec![0; 4 * 1024 * 1024 + 1],
+            bundle: &b,
+        }]),
+        Err(HostingRefusal::Bounds)
+    ));
+    for extension in ["", "a/b", "../escape", "UPPER"] {
+        assert!(matches!(
+            hosting::compose(&[hosting::HostingInput {
+                extension,
+                declaration: b"{}",
+                bundle: &b
+            }]),
+            Err(HostingRefusal::Shape)
+        ));
+    }
+    let make = |count: usize| {
+        let paths: Vec<_> = (0..count - 1)
+            .map(|i| format!("/a{i:03}"))
+            .chain(std::iter::once("/index.html".into()))
+            .collect();
+        let m = HostingManifest::parse(&json!({"version":1,"files":paths.iter().map(|path|json!({
+            "path":path,"sha256":hash(b"hello"),"length":5,"contentType":"text/html"
+        })).collect::<Vec<_>>()}))
+        .unwrap();
+        HostingBundle::parse(
+            &m,
+            &serde_json::to_vec(
+                &json!({"version":1,"manifestDigest":m.digest(),"files":paths.iter().map(|path|
+            json!({"path":path,"bytesBase64":STANDARD.encode(b"hello")})).collect::<Vec<_>>()}),
+            )
+            .unwrap(),
+        )
+        .unwrap()
+    };
+    let under = make(255);
+    assert_eq!(compose(&[under]).unwrap().unwrap().files().len(), 256);
+    assert!(matches!(compose(&[make(256)]), Err(HostingRefusal::Bounds)));
+    // The parent itself is not reserved, but cannot also be a file above generated descendants.
+    let paths = ["/index.html", "/tmt"];
+    let m = HostingManifest::parse(&json!({"version":1,"files":paths.iter().map(|path|
+        json!({"path":path,"sha256":hash(b"hello"),"length":5,"contentType":"text/html"})).collect::<Vec<_>>()})).unwrap();
+    let parent = HostingBundle::parse(
+        &m,
+        &serde_json::to_vec(
+            &json!({"version":1,"manifestDigest":m.digest(),"files":m.files.iter().map(|f|
+        json!({"path":f.path,"bytesBase64":STANDARD.encode(b"hello")})).collect::<Vec<_>>()}),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert!(matches!(compose(&[parent]), Err(HostingRefusal::Collision)));
+    let mut sibling = serde_json::to_value(manifest()).unwrap();
+    sibling["files"][0]["path"] = json!("/tmt/declarations-other");
+    HostingManifest::parse(&sibling).unwrap();
+}
+
+#[test]
+fn generated_declaration_counts_at_the_composed_raw_byte_boundary() {
+    let full = vec![b'a'; tmt_remote::limits::HOSTING_FILE_BYTES];
+    let short = &full[..full.len() - 2];
+    let files = [
+        ("/a", full.as_slice()),
+        ("/b", full.as_slice()),
+        ("/c", full.as_slice()),
+        ("/index.html", short),
+    ];
+    let manifest = HostingManifest::parse(&json!({"version":1,"files":files.iter().map(|(path,bytes)|
+        json!({"path":path,"sha256":hash(bytes),"length":bytes.len(),"contentType":"text/html"})).collect::<Vec<_>>()})).unwrap();
+    let bundle = HostingBundle::parse(
+        &manifest,
+        &serde_json::to_vec(&json!({"version":1,
+        "manifestDigest":manifest.digest(),"files":files.iter().map(|(path,bytes)|
+        json!({"path":path,"bytesBase64":STANDARD.encode(bytes)})).collect::<Vec<_>>()}))
+        .unwrap(),
+    )
+    .unwrap();
+    // Manifest bytes alone are under 16 MiB; the generated bytes use the remaining two bytes.
+    let exact = hosting::compose(&[hosting::HostingInput {
+        extension: "notes",
+        declaration: b"{}",
+        bundle: &bundle,
+    }])
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        exact
+            .files()
+            .iter()
+            .map(|file| file.raw_length)
+            .sum::<u64>(),
+        tmt_remote::limits::HOSTING_TOTAL_BYTES as u64
+    );
+    assert!(matches!(
+        hosting::compose(&[hosting::HostingInput {
+            extension: "notes",
+            declaration: b"{} ",
+            bundle: &bundle
+        }]),
+        Err(HostingRefusal::Bounds)
+    ));
 }

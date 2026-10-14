@@ -17,14 +17,14 @@ use tmt_extension_objects::{
 };
 const HOST: &str = "127.0.0.1:51234";
 const MOUNT: &str = "/r/fixture/x/colab/";
-const GENERATION: &str = "11111111-1111-4111-8111-111111111111";
-fn limit() -> Instant {
+pub(crate) const GENERATION: &str = "11111111-1111-4111-8111-111111111111";
+pub(crate) fn limit() -> Instant {
     Instant::now() + Duration::from_secs(3)
 }
 fn pair() -> (ObjectChannel, Bus) {
     pair_version(false)
 }
-fn pair_version(sync: bool) -> (ObjectChannel, Bus) {
+pub(crate) fn pair_version(sync: bool) -> (ObjectChannel, Bus) {
     let mut accepted = None;
     let mut connect = || {
         let (remote, extension) = UnixStream::pair().unwrap();
@@ -1391,4 +1391,96 @@ fn closing_a_generation_joins_the_reader_and_wakes_an_interest_waiter() {
     assert!(matches!(wait.join().unwrap(), Err(Error::Unavailable)));
     assert!(client.sealed_notice(subscription).is_err());
     assert!(remote.recv_channel_stamped(Some(limit())).is_err());
+}
+
+#[test]
+fn active_cloud_page_joins_every_cancel_before_subscribing_to_its_successor() {
+    use tmt_extension_objects::sync;
+    let (channel, remote) = pair_version(true);
+    let client = channel.client();
+    let binding = sealed_binding(&client, &remote);
+    let worker = thread::spawn(move || {
+        let mut group = super::cloud_sync::PageInterests::new(client, binding);
+        group
+            .select(
+                &"a".repeat(32),
+                "10000000-0000-4000-8000-000000000001",
+                1,
+                limit(),
+            )
+            .unwrap();
+        assert!(!group.changed().unwrap());
+        group
+            .select(
+                &"a".repeat(32),
+                "10000000-0000-4000-8000-000000000002",
+                2,
+                limit(),
+            )
+            .unwrap();
+        group.cancel(limit()).unwrap();
+    });
+    let mut ids = Vec::new();
+    for step in 0..12 {
+        let ChannelFrame::Sync(sync::Frame::Request {
+            request_id, call, ..
+        }) = remote.recv_channel_stamped(Some(limit())).unwrap().frame
+        else {
+            panic!("expected sync request");
+        };
+        let method = call.method();
+        let outcome = if matches!(step,0..=2 | 6..=8) {
+            let sync::Call::Subscribe { interest, .. } = call else {
+                panic!("successor registered before old cancellations joined");
+            };
+            let second = step >= 6;
+            assert_eq!(
+                interest.scope["page"]["stringValue"],
+                if second {
+                    "10000000-0000-4000-8000-000000000002"
+                } else {
+                    "10000000-0000-4000-8000-000000000001"
+                }
+            );
+            assert_eq!(
+                interest.scope["epoch"]["integerValue"],
+                if second { "2" } else { "1" }
+            );
+            assert_eq!(
+                interest.resource,
+                ["log", "checkpoints", "authority"][step % 6]
+            );
+            assert!(!interest.scope.contains_key("stream"));
+            ids.push(request_id.clone());
+            sync::Outcome::Subscribed {
+                id: request_id.clone(),
+            }
+        } else {
+            let sync::Call::Cancel {
+                subscription_id, ..
+            } = call
+            else {
+                panic!("expected cancellation");
+            };
+            assert_eq!(Some(subscription_id.clone()), ids.pop());
+            sync::Outcome::Cancelled {
+                id: subscription_id,
+            }
+        };
+        remote
+            .send_channel(&ChannelFrame::Sync(sync::Frame::Result {
+                version: 1,
+                generation: GENERATION.into(),
+                request_id,
+                method,
+                outcome,
+            }))
+            .unwrap();
+    }
+    worker.join().unwrap();
+    assert!(ids.is_empty());
+    assert!(
+        channel.active(),
+        "normal cancellation keeps attachment channel alive"
+    );
 }

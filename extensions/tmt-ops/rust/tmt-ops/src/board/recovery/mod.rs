@@ -47,6 +47,12 @@ pub(in crate::board) struct Controller {
     form: RefCell<picker_surface::State>,
 }
 impl Controller {
+    pub(in crate::board) fn owns_typing(&self) -> bool {
+        self.active
+            && self.screen == Screen::Save
+            && self.form_focus
+            && !self.pending.as_ref().is_some_and(|task| task.job.writes())
+    }
     pub fn new(owner: u64) -> Self {
         Self {
             active: true,

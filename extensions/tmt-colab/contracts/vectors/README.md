@@ -135,6 +135,13 @@ and the Rules emulator suite read them. Run the oracle without `--write` to veri
 `--write` after a reviewed source edit (then regenerate the goldens, see the colab skill's
 Firestore Rules emulator section).
 
+`deploy-declaration-v1.hosting.json` is the same reply for an executable that embeds a hosted
+inventory: the declaration gains a last top-level `hosting` key holding the canonical manifest
+verbatim, and the declaration digest covers it. `deploy-declaration-v1.hosting.manifest.json` is
+that manifest (path-sorted `{path, sha256, length, contentType, csp}`, compact, five fixture
+files including Remote's three SDK routes). The oracle builds both from a fixed fixture, so no
+digest is typed by hand; the Rust unit test equals the vector and Remote's mirror reads it.
+
 `page-markup-v1.json` holds the shared cases of the page markup check (colab-v1, "Page markup
 check"). A case is a `source` (lines joined with a newline), the `admitted` questions and
 groups the page shows, and the `findings` with reason codes. `scope:"parser"` cases run in the

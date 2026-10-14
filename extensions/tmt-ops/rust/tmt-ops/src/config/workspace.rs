@@ -140,6 +140,9 @@ pub struct WorkspaceKeys {
 pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
     let mut entries = if scope == OpsKeyScope::Reader {
         vec![
+            ("1", "overview"),
+            ("2", "agents"),
+            ("3", "digest-dashboard"),
             ("up", "scroll-up"),
             ("k", "scroll-up"),
             ("down", "scroll-down"),
@@ -157,6 +160,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("o", "open"),
             ("D", "digest"),
             ("c", "timers"),
+            ("v", "view-reply"),
         ]
     } else {
         vec![
@@ -202,6 +206,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             entries.extend([("p", "pin"), ("m", "manage"), ("n", "create-squad")])
         }
         OpsKeyScope::Member => entries.extend([
+            ("v", "view-reply"),
             ("e", "monitor-details"),
             ("t", "talk"),
             ("j", "jump"),
@@ -491,10 +496,6 @@ impl Config {
             configured.extend(section.clone());
         }
         for (key, action) in configured {
-            if scope == OpsKeyScope::Reader && matches!(key.as_str(), "1" | "2" | "3") {
-                notices.push(format!("`bind.{key}` is not active in Reader focus: readers own shell digits. Its authored value and list-scope binding are preserved."));
-                continue;
-            }
             if let Err(error) = admit_action(&action, &format!("bind.{key}")) {
                 notices.push(error.message);
                 continue;
@@ -590,7 +591,7 @@ mod tests {
         ] {
             assert_eq!(plain.bindings[event].text, name);
         }
-        for key in ["1", "2", "3", "left", "right", "enter", "s", "p", "x"] {
+        for key in ["left", "right", "enter", "s", "p", "x"] {
             assert!(!plain.bindings.contains_key(key), "{key}");
         }
         let config = config("[bind]\nj='copy'\n[bind.tmux]\nj='open'\n");
@@ -621,7 +622,7 @@ mod tests {
         );
     }
     #[test]
-    fn reader_digit_guards_are_reported_instead_of_advertised_as_active_bindings() {
+    fn reader_digit_overrides_are_active_and_leave_the_authored_config_unchanged() {
         let config = config("[bind]\n1='copy $name'\n2='agents'\n3='digest-dashboard'\n");
         let original = config.document.to_string();
         let reader = config
@@ -631,17 +632,53 @@ mod tests {
             .workspace_keys(OpsKeyScope::Member, None, None)
             .unwrap();
         for key in ["1", "2", "3"] {
-            assert!(!reader.bindings.contains_key(key));
-            assert!(
-                reader
-                    .notices
-                    .iter()
-                    .any(|notice| notice.contains(&format!("`bind.{key}`"))
-                        && notice.contains("Reader focus"))
-            );
-            assert!(list.bindings.contains_key(key));
+            assert_eq!(reader.bindings[key], list.bindings[key]);
         }
+        assert!(reader.notices.is_empty());
         assert_eq!(config.document.to_string(), original);
+    }
+    #[test]
+    fn source_reader_and_destination_defaults_are_unique_and_yield_to_authored_keys() {
+        for scope in [OpsKeyScope::Member, OpsKeyScope::Reader] {
+            let defaults = defaults(scope);
+            for (event, verb) in [
+                ("1", "overview"),
+                ("2", "agents"),
+                ("3", "digest-dashboard"),
+                ("v", "view-reply"),
+            ] {
+                assert_eq!(defaults[event].text, verb);
+                assert_eq!(
+                    defaults
+                        .values()
+                        .filter(|action| action.text == verb)
+                        .count(),
+                    1
+                );
+            }
+            let config = config("[bind]\nv='copy'\n[bind.tmux]\nv='open'\n");
+            let section = [("v".into(), Action::parse("talk").unwrap())].into();
+            assert_eq!(
+                config.workspace_keys(scope, None, None).unwrap().bindings["v"].verb,
+                Verb::Copy
+            );
+            assert_eq!(
+                config
+                    .workspace_keys(scope, Some("tmux"), None)
+                    .unwrap()
+                    .bindings["v"]
+                    .verb,
+                Verb::Open
+            );
+            assert_eq!(
+                config
+                    .workspace_keys(scope, Some("tmux"), Some(&section))
+                    .unwrap()
+                    .bindings["v"]
+                    .verb,
+                Verb::Talk
+            );
+        }
     }
     #[test]
     fn every_approved_scope_has_its_real_keys_without_legacy_fallbacks() {

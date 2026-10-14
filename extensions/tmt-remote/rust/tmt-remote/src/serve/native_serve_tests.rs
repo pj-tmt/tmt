@@ -410,6 +410,32 @@ impl Peer {
             Err(_) => panic!("configured native channel must activate"),
         }
         let (stream, generation) = self.native.recv_timeout(Duration::from_secs(5)).unwrap();
+        // Observe the real owner-only wire through the existing validated connector.
+        let mut socket = control::connect(&layout.directory).unwrap();
+        socket
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        socket
+            .set_write_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        writeln!(
+            socket,
+            "{}",
+            json!({"op":"sync.activate","extension":"colab","version":3})
+        )
+        .unwrap();
+        let mut line = String::new();
+        std::io::BufRead::read_line(&mut std::io::BufReader::new(socket), &mut line).unwrap();
+        let response: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(
+            response,
+            json!({"activated":true,"version":3,"generation":generation,"project":"demo-remote-1"}),
+            "the live registered factory supplies the project, not a deployment record"
+        );
+        assert!(
+            !layout.directory.join("deployments").exists(),
+            "tenant activation must not need or create deployment records"
+        );
         Channel { stream, generation }
     }
 }

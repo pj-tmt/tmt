@@ -11,6 +11,15 @@
       }
     },
     {
+      "glob": "/tmt/declarations/colab.json",
+      "headers": {
+        "Cache-Control": "no-cache",
+        "Content-Type": "application/json; charset=utf-8",
+        "Referrer-Policy": "no-referrer",
+        "X-Content-Type-Options": "nosniff"
+      }
+    },
+    {
       "regex": "^/$",
       "headers": {
         "Cache-Control": "no-cache",

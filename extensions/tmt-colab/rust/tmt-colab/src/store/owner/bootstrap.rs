@@ -327,3 +327,71 @@ impl OwnerTransaction<'_> {
         )
     }
 }
+
+/// At most this many 32 KiB pieces carry one membership statement in the cloud mapping.
+const MEMBERSHIP_PIECES: usize = 11;
+impl OwnerTransaction<'_> {
+    /// Every signed membership statement up to the head, exactly as stored. Consumers verify
+    /// them in order against the space owner; nothing here is reserialized.
+    pub(crate) fn membership_originals(&self, target: &statement::Head) -> Result<Vec<Vec<u8>>> {
+        if target.revision > 4096 {
+            return Err(OwnerFault::Capacity.into());
+        }
+        let mut out = Vec::new();
+        for revision in 1..=target.revision {
+            let bytes: Vec<u8> = self
+                .tx
+                .query_row(
+                    "SELECT envelope FROM membership_log WHERE revision=?",
+                    [sequence(revision)],
+                    |r| r.get(0),
+                )
+                .optional()?
+                .ok_or(super::super::Fault::ResyncRequired)?;
+            if bytes.is_empty() || bytes.len() > MEMBERSHIP_PIECES * crate::limits::CHUNK_BYTES {
+                return Err(OwnerFault::Capacity.into());
+            }
+            out.push(bytes);
+        }
+        Ok(out)
+    }
+    /// The signed key wraps addressed to the owner member for the page, exactly as stored:
+    /// what the owner's own other machine reads with the owner's keys.
+    pub(crate) fn owner_member_wraps(
+        &self,
+        page: &str,
+        epoch: u64,
+        target: &statement::Head,
+    ) -> Result<Vec<Vec<u8>>> {
+        let mut query = self.tx.prepare(
+            "SELECT envelope FROM wraps WHERE page=?1 AND epoch<=?2 AND revision<=?3
+             AND kind='member' AND recipient=?4 ORDER BY epoch,revision LIMIT 65",
+        )?;
+        let rows = query.query_map(
+            params![
+                page,
+                sequence(epoch),
+                sequence(target.revision),
+                target.owner_member.id
+            ],
+            |r| r.get::<_, Vec<u8>>(0),
+        )?;
+        let mut out = Vec::new();
+        for row in rows {
+            let bytes = row?;
+            if bytes.is_empty() || bytes.len() > 2048 {
+                return Err(OwnerFault::Capacity.into());
+            }
+            out.push(bytes);
+        }
+        if out.len() > 64 {
+            return Err(OwnerFault::Capacity.into());
+        }
+        Ok(out)
+    }
+    /// Whether this machine registered the device, which is what makes its stream ours to
+    /// publish. A device whose records were imported from the cloud has no such row.
+    pub(crate) fn is_local_device(&self, id: &str) -> Result<bool> {
+        Ok(self.registration(id)?.is_some_and(|row| !row.revoked))
+    }
+}

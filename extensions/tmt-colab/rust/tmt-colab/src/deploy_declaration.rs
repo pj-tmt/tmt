@@ -42,6 +42,23 @@ fn digest(text: &str) -> String {
         .collect()
 }
 
+/// The declaration text this binary declares: the static text, plus, when the binary embeds a
+/// hosted inventory, its canonical manifest as a last top-level `hosting` key. The manifest bytes
+/// are inserted verbatim, so the declaration digest covers exactly the section Remote compares
+/// with `hosting-bundle`. A binary with no hosted inventory declares no `hosting` key.
+fn declaration_of(base: &str, manifest: Option<&[u8]>) -> Result<String, Unavailable> {
+    let Some(manifest) = manifest else {
+        return Ok(base.to_owned());
+    };
+    let manifest = std::str::from_utf8(manifest).map_err(|_| Unavailable)?;
+    let body = base.strip_suffix("\n}\n").ok_or(Unavailable)?;
+    let text = format!("{body},\n  \"hosting\": {manifest}\n}}\n");
+    if !text.is_ascii() {
+        return Err(Unavailable);
+    }
+    Ok(text)
+}
+
 /// The compact reply line for these two texts. The declaration must name the artifact's own
 /// digest: a binary built from edited Rules without a regenerated declaration refuses itself.
 fn reply_of(declaration: &str, artifact: &str) -> Result<String, Unavailable> {
@@ -68,8 +85,31 @@ fn reply_of(declaration: &str, artifact: &str) -> Result<String, Unavailable> {
     Ok(line)
 }
 
+/// The reply for a declaration with this hosted inventory, or none.
+fn reply_line_with(manifest: Option<&[u8]>) -> Result<String, Unavailable> {
+    reply_of(&declaration_of(DECLARATION, manifest)?, ARTIFACT)
+}
+/// The one reply this executable makes. `run` prints it and the sync bind takes its digest, so
+/// what a bound client names and what Remote reads cannot differ.
+fn reply_line() -> Result<String, Unavailable> {
+    reply_line_with(crate::hosting::manifest())
+}
+fn digest_of(line: &str) -> Result<String, Unavailable> {
+    let reply: serde_json::Value = serde_json::from_str(line).map_err(|_| Unavailable)?;
+    reply["declarationDigest"]
+        .as_str()
+        .map(str::to_owned)
+        .ok_or(Unavailable)
+}
+
+/// The digest `deploy-declaration --json` reports for this executable: the one declaration a
+/// bound sync client and Remote's deployment must agree on.
+pub fn declaration_digest() -> Result<String, Unavailable> {
+    digest_of(&reply_line()?)
+}
+
 pub fn run() -> crate::Result<()> {
-    let line = reply_of(DECLARATION, ARTIFACT)?;
+    let line = reply_line()?;
     let mut output = tmt_cli_style::stream::stdout(true);
     output.write_all(line.as_bytes()).map_err(|_| Unavailable)?;
     output.flush().map_err(|_| Unavailable)?;
@@ -91,6 +131,82 @@ mod tests {
             serde_json::from_str::<serde_json::Value>(DECLARATION).unwrap()["admission"]["digest"],
             digest(ARTIFACT)
         );
+    }
+
+    // Independent of the compiled-in inventory: the section is the manifest bytes, verbatim, as the
+    // last key, and a binary without one declares exactly the static text.
+    const MANIFEST: &str =
+        include_str!("../../../contracts/vectors/deploy-declaration-v1.hosting.manifest.json");
+    const HOSTING_VECTOR: &str =
+        include_str!("../../../contracts/vectors/deploy-declaration-v1.hosting.json");
+
+    #[test]
+    fn a_binary_without_a_hosted_inventory_declares_no_hosting_key() {
+        assert_eq!(declaration_of(DECLARATION, None).unwrap(), DECLARATION);
+        assert!(
+            serde_json::from_str::<serde_json::Value>(DECLARATION).unwrap()["hosting"].is_null()
+        );
+    }
+
+    #[test]
+    fn the_hosting_key_is_the_manifest_verbatim_and_the_digest_covers_it() {
+        let declaration =
+            declaration_of(DECLARATION, Some(MANIFEST.trim_end().as_bytes())).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&declaration).unwrap();
+        let base: serde_json::Value = serde_json::from_str(DECLARATION).unwrap();
+        let mut without = parsed.clone();
+        without.as_object_mut().unwrap().remove("hosting");
+        assert_eq!(without, base, "every other key is untouched");
+        assert_eq!(
+            parsed["hosting"],
+            serde_json::from_str::<serde_json::Value>(MANIFEST).unwrap()
+        );
+        assert!(declaration.starts_with(DECLARATION.strip_suffix("\n}\n").unwrap()));
+        // The golden line is byte for byte what the command would print for this manifest.
+        let line = reply_of(&declaration, ARTIFACT).unwrap();
+        assert_eq!(line, HOSTING_VECTOR);
+        let reply: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert_ne!(reply["declarationDigest"], digest(DECLARATION));
+        assert_eq!(reply["declarationDigest"], digest(&declaration));
+    }
+
+    #[test]
+    fn a_manifest_that_cannot_be_declared_is_unavailable() {
+        assert!(
+            declaration_of(DECLARATION, Some(&[0xff, 0xfe])).is_err(),
+            "not UTF-8"
+        );
+        assert!(
+            declaration_of(DECLARATION, Some("{\"path\":\"é\"}".as_bytes())).is_err(),
+            "not ASCII"
+        );
+        assert!(
+            declaration_of("{}", Some(b"{}")).is_err(),
+            "a base that is not the static shape"
+        );
+        let oversized = format!("{{\"pad\":\"{}\"}}", "x".repeat(DECLARATION_TEXT_BYTES));
+        let declaration = declaration_of(DECLARATION, Some(oversized.as_bytes())).unwrap();
+        assert!(reply_of(&declaration, ARTIFACT).is_err(), "declaration cap");
+    }
+
+    #[test]
+    fn the_digest_a_sync_client_binds_is_the_one_the_printed_reply_reports() {
+        let reply: serde_json::Value = serde_json::from_str(&reply_line().unwrap()).unwrap();
+        let bound = declaration_digest().unwrap();
+        assert_eq!(reply["declarationDigest"], bound);
+        // And it names the declaration text that reply carries, whatever that text holds.
+        assert_eq!(digest(reply["declaration"].as_str().unwrap()), bound);
+    }
+
+    #[test]
+    fn the_digest_a_sync_client_binds_covers_the_hosted_section_the_reply_carries() {
+        let plain = digest_of(&reply_line_with(None).unwrap()).unwrap();
+        let hosted =
+            digest_of(&reply_line_with(Some(MANIFEST.trim_end().as_bytes())).unwrap()).unwrap();
+        assert_ne!(plain, hosted, "the hosted section is part of what is bound");
+        let declaration =
+            declaration_of(DECLARATION, Some(MANIFEST.trim_end().as_bytes())).unwrap();
+        assert_eq!(hosted, digest(&declaration));
     }
 
     #[test]

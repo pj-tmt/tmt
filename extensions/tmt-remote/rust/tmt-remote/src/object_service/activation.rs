@@ -222,6 +222,23 @@ impl ActivationSink for Reactivation {
         self.disable();
     }
 }
+/// The live native generation and its registered startup project.
+#[derive(Debug)]
+pub struct NativeActivationInfo {
+    pub generation: String,
+    pub project: String,
+}
+fn native_reply(slot: &super::Declared) -> Option<NativeActivationInfo> {
+    let running = slot
+        .active
+        .as_ref()
+        .filter(|running| running.ended().is_none() && running.supports_sync())?;
+    Some(NativeActivationInfo {
+        generation: running.generation().to_string(),
+        project: slot.native.as_ref()?.project()?.to_owned(),
+    })
+}
+
 /// Existing owner-only control transport uses this hook; it carries no data or
 /// credentials and never registers the project-owner factory by itself.
 pub trait NativeActivation: Send + Sync {
@@ -229,7 +246,7 @@ pub trait NativeActivation: Send + Sync {
         &self,
         name: &str,
         deadline: Instant,
-    ) -> Result<String, crate::error::RemoteError>;
+    ) -> Result<NativeActivationInfo, crate::error::RemoteError>;
 }
 fn unavailable() -> crate::error::RemoteError {
     crate::error::RemoteError::new(
@@ -242,7 +259,7 @@ impl NativeActivation for Reactivation {
         &self,
         name: &str,
         deadline: Instant,
-    ) -> Result<String, crate::error::RemoteError> {
+    ) -> Result<NativeActivationInfo, crate::error::RemoteError> {
         if Instant::now() >= deadline || self.stop.load(Ordering::Acquire) {
             return Err(unavailable());
         }
@@ -264,12 +281,8 @@ impl NativeActivation for Reactivation {
             if slot.native.is_none() {
                 return Err(unavailable());
             }
-            if let Some(running) = slot
-                .active
-                .as_ref()
-                .filter(|running| running.ended().is_none() && running.supports_sync())
-            {
-                return Ok(running.generation().to_string());
+            if let Some(reply) = native_reply(slot) {
+                return Ok(reply);
             }
         }
         let mut queue = self.queue.lock().unwrap_or_else(|p| p.into_inner());
@@ -324,14 +337,13 @@ impl NativeActivation for Reactivation {
         let state = self.state.lock().unwrap_or_else(|p| p.into_inner());
         if !state.stopped
             && !self.stop.load(Ordering::Acquire)
-            && let Some(running) = state
+            && let Some(reply) = state
                 .slots
                 .iter()
                 .find(|slot| slot.name == name)
-                .and_then(|slot| slot.active.as_ref())
-                .filter(|running| running.ended().is_none() && running.supports_sync())
+                .and_then(native_reply)
         {
-            return Ok(running.generation().to_string());
+            return Ok(reply);
         }
         Err(unavailable())
     }

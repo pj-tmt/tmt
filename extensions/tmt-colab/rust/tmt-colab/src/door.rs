@@ -10,6 +10,12 @@ const MAX_BYTES: usize = 16 * 1024;
 /// process cleanup belong to `tmt_invoke`. A missing executable, deadline or output cap is no
 /// answer; a command that ran returns whether it succeeded and what it printed.
 fn remote_call(words: &[&str]) -> Option<(bool, String)> {
+    remote_call_until(words, Instant::now() + TIMEOUT)
+}
+pub(crate) fn remote_call_until(words: &[&str], deadline: Instant) -> Option<(bool, String)> {
+    if Instant::now() >= deadline {
+        return None;
+    }
     let executable = tmt_invoke::invoking_tmt().ok()?;
     let args: Vec<_> = std::iter::once("remote")
         .chain(words.iter().copied())
@@ -20,7 +26,7 @@ fn remote_call(words: &[&str]) -> Option<(bool, String)> {
             program: &executable,
             args: &args,
             input: &[],
-            deadline: Instant::now() + TIMEOUT,
+            deadline,
             max_stream_bytes: MAX_BYTES,
             launch: Default::default(),
         },
@@ -121,6 +127,8 @@ fn remote_json(words: &[&str]) -> Option<String> {
 pub struct RemoteFailure {
     pub code: String,
     pub message: String,
+    /// Only a deadline refusal names one (`deadline`): a typed refusal without it is not transient.
+    pub state: Option<String>,
 }
 impl RemoteFailure {
     pub fn parse(json: &str) -> Option<Self> {
@@ -128,6 +136,7 @@ impl RemoteFailure {
         Some(Self {
             code: value["error"]["code"].as_str()?.to_owned(),
             message: value["error"]["message"].as_str()?.to_owned(),
+            state: value["error"]["state"].as_str().map(str::to_owned),
         })
     }
     /// What a person reads: one shared wording for a serve that predates `status` and `stop`,

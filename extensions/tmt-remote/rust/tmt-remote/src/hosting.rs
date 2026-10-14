@@ -1,11 +1,13 @@
 //! Pure release-embedded static bundle validation and deterministic Hosting composition.
 //! No file, process, provider or credential access; public bytes grant no authority.
-use crate::{deploy_plan::sha256_hex, limits, wire};
+use crate::{canonical, deploy_plan::sha256_hex, limits, wire};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use flate2::{Compression, GzBuilder};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, io::Write};
+
+const DECLARATION_PREFIX: &str = "/tmt/declarations";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -62,7 +64,13 @@ impl HostingManifest {
             if !path_ok(&file.path) {
                 return Err(HostingRefusal::Path);
             }
-            if file.path == "/__" || file.path.starts_with("/__/") {
+            if file.path == "/__"
+                || file.path.starts_with("/__/")
+                || file
+                    .path
+                    .strip_prefix(DECLARATION_PREFIX)
+                    .is_some_and(|suffix| suffix.is_empty() || suffix.starts_with('/'))
+            {
                 return Err(HostingRefusal::Reserved);
             }
             if previous.is_some_and(|path| path >= file.path.as_str()) {
@@ -245,21 +253,50 @@ impl HostingComposition {
         json!({"version":1,"files":self.files,"config":self.config,"digest":self.digest})
     }
 }
-pub fn compose(bundles: &[HostingBundle]) -> Result<Option<HostingComposition>, HostingRefusal> {
-    if bundles.is_empty() {
+/// One already-admitted declaration paired with its validated bundle by discovery.
+/// Declaration bytes remain opaque here; no parsing or normalization is performed.
+pub struct HostingInput<'a> {
+    pub extension: &'a str,
+    pub declaration: &'a [u8],
+    pub bundle: &'a HostingBundle,
+}
+/// Freeze already-paired inventories and exact declarations in the same bounded file set.
+pub fn compose(inputs: &[HostingInput<'_>]) -> Result<Option<HostingComposition>, HostingRefusal> {
+    if inputs.is_empty() {
         return Ok(None);
     }
+    let declarations: Vec<_> = inputs
+        .iter()
+        .map(|input| {
+            if !canonical::extension_name(input.extension) {
+                return Err(HostingRefusal::Shape);
+            }
+            if input.declaration.len() > limits::HOSTING_FILE_BYTES {
+                return Err(HostingRefusal::Bounds);
+            }
+            Ok(HostingFile {
+                path: format!("{DECLARATION_PREFIX}/{}.json", input.extension),
+                sha256: sha256_hex(input.declaration),
+                length: input.declaration.len() as u64,
+                content_type: "application/json".into(),
+                csp: None,
+            })
+        })
+        .collect::<Result<_, _>>()?;
     let mut files = BTreeMap::new();
     let mut total = 0u64;
-    for bundle in bundles {
-        for file in &bundle.manifest.files {
+    for (input, declaration) in inputs.iter().zip(&declarations) {
+        let inventory = input
+            .bundle
+            .manifest
+            .files
+            .iter()
+            .map(|file| (file, input.bundle.files[&file.path].as_slice()));
+        for (file, raw) in inventory.chain(std::iter::once((declaration, input.declaration))) {
             total = total
                 .checked_add(file.length)
                 .ok_or(HostingRefusal::Bounds)?;
-            if files
-                .insert(file.path.clone(), (file, &bundle.files[&file.path]))
-                .is_some()
-            {
+            if files.insert(file.path.clone(), (file, raw)).is_some() {
                 return Err(HostingRefusal::Collision);
             }
         }

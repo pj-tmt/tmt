@@ -4,7 +4,7 @@ mod browser_policy;
 #[path = "../build/hosting.rs"]
 mod hosting;
 use base64::{Engine, engine::general_purpose::STANDARD};
-use serde_json::Value;
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
     fs,
@@ -13,10 +13,17 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
+const FIREBASE: &[u8] = b"export const fixture = 'Remote lazy Firebase client';";
+const NOTICES: &[u8] = b"Fixture Firebase notices";
+
 struct Build {
     root: PathBuf,
     app: PathBuf,
     sdk: PathBuf,
+    /// Remote's client directory: its pin manifest and the `dist` it vouches for.
+    client: PathBuf,
+    /// The static declaration the manifest is spliced into.
+    declaration: PathBuf,
     output: PathBuf,
 }
 impl Build {
@@ -29,9 +36,28 @@ impl Build {
         ));
         let app = root.join("hosted");
         let sdk = root.join("remote-v1.js");
+        let client = root.join("remote-client");
         let output = root.join("cargo");
+        let declaration = root.join("declaration.json");
         fs::create_dir_all(app.join("assets")).unwrap();
+        fs::create_dir_all(client.join("dist")).unwrap();
         fs::create_dir(&output).unwrap();
+        fs::write(client.join("dist/remote-firebase-v1.js"), FIREBASE).unwrap();
+        fs::write(client.join("dist/THIRD-PARTY-NOTICES.txt"), NOTICES).unwrap();
+        fs::write(
+            client.join("firebase-build-pin.json"),
+            serde_json::to_vec_pretty(&json!({
+                "version": 1,
+                "files": [
+                    {"path": "dist/remote-firebase-v1.js", "sha256": digest(FIREBASE),
+                     "length": FIREBASE.len(), "firebaseVersion": "13.0.0"},
+                    {"path": "dist/THIRD-PARTY-NOTICES.txt", "sha256": digest(NOTICES),
+                     "length": NOTICES.len(), "firebaseVersion": "13.0.0"},
+                ],
+            }))
+            .unwrap(),
+        )
+        .unwrap();
         fs::write(
             app.join("index.html"),
             b"<link rel=stylesheet href='/assets/app.css'><script type=module src='/sdk/remote-v1.js'></script>",
@@ -54,15 +80,31 @@ impl Build {
         )
         .unwrap();
         fs::write(&sdk, b"export const fixture = 'Remote SDK output';").unwrap();
+        fs::write(&declaration, b"{\n}\n").unwrap();
         Self {
             root,
             app,
             sdk,
+            client,
+            declaration,
             output,
         }
     }
     fn generate(&self) -> std::io::Result<Vec<PathBuf>> {
-        hosting::generate(Some(&self.app), &self.sdk, &self.output)
+        hosting::generate(
+            Some(&self.app),
+            &self.sdk,
+            &self.client,
+            &self.declaration,
+            &self.output,
+        )
+    }
+    /// Rewrite the pin manifest after `change` edits its parsed form.
+    fn repin(&self, change: impl FnOnce(&mut Value)) {
+        let path = self.client.join("firebase-build-pin.json");
+        let mut pin: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        change(&mut pin);
+        fs::write(path, serde_json::to_vec(&pin).unwrap()).unwrap();
     }
 }
 impl Drop for Build {
@@ -103,6 +145,8 @@ fn snapshot_matches_canonical_manifest_and_upstream_sdk_without_runtime_source_p
             "/index.html",
             "/reader.html",
             "/renderer.html",
+            "/sdk/THIRD-PARTY-NOTICES-remote.txt",
+            "/sdk/remote-firebase-v1.js",
             "/sdk/remote-v1.js"
         ]
     );
@@ -127,8 +171,27 @@ fn snapshot_matches_canonical_manifest_and_upstream_sdk_without_runtime_source_p
                 fs::read(build.output.join("colab-remote-v1.js")).unwrap()
             );
         }
+        // Remote's pinned output, byte for byte, under the routes Remote's SDK expects.
+        if metadata["path"] == "/sdk/remote-firebase-v1.js" {
+            assert_eq!(bytes, FIREBASE);
+            assert_eq!(
+                bytes,
+                fs::read(build.client.join("dist/remote-firebase-v1.js")).unwrap()
+            );
+        }
+        if metadata["path"] == "/sdk/THIRD-PARTY-NOTICES-remote.txt" {
+            assert_eq!(bytes, NOTICES);
+        }
     }
+    assert!(inputs.contains(&build.client.join("firebase-build-pin.json")));
+    assert!(inputs.contains(&build.client.join("dist/remote-firebase-v1.js")));
+    assert!(inputs.contains(&build.client.join("dist/THIRD-PARTY-NOTICES.txt")));
     fs::write(&build.sdk, b"Changed upstream output").unwrap();
+    fs::write(
+        build.client.join("dist/remote-firebase-v1.js"),
+        b"Changed build",
+    )
+    .unwrap();
     fs::write(build.app.join("index.html"), b"Changed entry").unwrap();
     assert_eq!(
         fs::read(build.output.join("colab-hosting-manifest.json")).unwrap(),
@@ -137,6 +200,7 @@ fn snapshot_matches_canonical_manifest_and_upstream_sdk_without_runtime_source_p
     let generated = fs::read_to_string(build.output.join("colab_hosting.rs")).unwrap();
     assert!(!generated.contains(build.app.to_str().unwrap()));
     assert!(!generated.contains(build.sdk.to_str().unwrap()));
+    assert!(!generated.contains(build.client.to_str().unwrap()));
 }
 
 #[test]
@@ -176,9 +240,15 @@ fn changed_sdk_copy_is_refused_and_input_names_cannot_select_renderer_policy() {
 fn absent_inventory_embeds_no_native_or_checkout_fallback() {
     let build = Build::new();
     assert!(
-        hosting::generate(None, &build.root.join("missing-sdk"), &build.output)
-            .unwrap()
-            .is_empty()
+        hosting::generate(
+            None,
+            &build.root.join("missing-sdk"),
+            &build.root.join("missing-client"),
+            &build.root.join("missing-declaration"),
+            &build.output
+        )
+        .unwrap()
+        .is_empty()
     );
     assert_eq!(
         fs::read_to_string(build.output.join("colab_hosting.rs")).unwrap(),
@@ -199,6 +269,18 @@ fn incomplete_unsafe_or_oversized_hosted_builds_are_refused() {
         "reserved",
         "sdk-missing",
         "sdk-link",
+        "firebase-override",
+        "notices-override",
+        "pin-missing",
+        "pin-malformed",
+        "pin-digest",
+        "pin-length",
+        "pin-extra",
+        "pin-unlisted",
+        "pin-duplicate",
+        "dist-missing",
+        "dist-link",
+        "dist-changed",
         "file-cap",
         "total-cap",
         "count-cap",
@@ -226,6 +308,43 @@ fn incomplete_unsafe_or_oversized_hosted_builds_are_refused() {
                 fs::remove_file(&build.sdk).unwrap();
                 symlink(build.app.join("index.html"), &build.sdk).unwrap();
             }
+            "firebase-override" => {
+                fs::create_dir(build.app.join("sdk")).unwrap();
+                fs::write(build.app.join("sdk/remote-firebase-v1.js"), b"modified").unwrap();
+            }
+            "notices-override" => {
+                fs::create_dir(build.app.join("sdk")).unwrap();
+                fs::write(build.app.join("sdk/THIRD-PARTY-NOTICES-remote.txt"), b"x").unwrap();
+            }
+            "pin-missing" => fs::remove_file(build.client.join("firebase-build-pin.json")).unwrap(),
+            "pin-malformed" => fs::write(
+                build.client.join("firebase-build-pin.json"),
+                b"{\"version\":1",
+            )
+            .unwrap(),
+            "pin-digest" => build.repin(|pin| pin["files"][0]["sha256"] = json!("0".repeat(64))),
+            "pin-length" => build.repin(|pin| pin["files"][1]["length"] = json!(1)),
+            // A pin that names another file means Remote's output changed shape.
+            "pin-extra" => build.repin(|pin| {
+                let mut extra = pin["files"][0].clone();
+                extra["path"] = json!("dist/extra.js");
+                pin["files"].as_array_mut().unwrap().push(extra);
+            }),
+            "pin-unlisted" => build.repin(|pin| pin["files"][0]["path"] = json!("dist/other.js")),
+            "pin-duplicate" => build.repin(|pin| pin["files"][1] = pin["files"][0].clone()),
+            "dist-missing" => {
+                fs::remove_file(build.client.join("dist/remote-firebase-v1.js")).unwrap()
+            }
+            "dist-link" => {
+                let built = build.client.join("dist/THIRD-PARTY-NOTICES.txt");
+                fs::remove_file(&built).unwrap();
+                symlink(build.app.join("index.html"), built).unwrap();
+            }
+            "dist-changed" => fs::write(
+                build.client.join("dist/THIRD-PARTY-NOTICES.txt"),
+                b"Changed notices",
+            )
+            .unwrap(),
             "file-cap" => fs::File::create(build.app.join("large.js"))
                 .unwrap()
                 .set_len(hosting::FILE_BYTES as u64)
@@ -238,6 +357,8 @@ fn incomplete_unsafe_or_oversized_hosted_builds_are_refused() {
                     build.app.join("THIRD-PARTY-NOTICES.txt"),
                     build.app.join("assets/app.css"),
                     build.sdk.clone(),
+                    build.client.join("dist/remote-firebase-v1.js"),
+                    build.client.join("dist/THIRD-PARTY-NOTICES.txt"),
                 ]
                 .iter()
                 .map(|p| fs::metadata(p).unwrap().len())
@@ -254,7 +375,7 @@ fn incomplete_unsafe_or_oversized_hosted_builds_are_refused() {
                 assert_eq!(remaining, 0);
             }
             "count-cap" => {
-                for n in 0..hosting::FILES - 6 {
+                for n in 0..hosting::FILES - 8 {
                     fs::write(build.app.join(format!("extra-{n}.js")), b"fixture").unwrap();
                 }
             }
@@ -266,4 +387,25 @@ fn incomplete_unsafe_or_oversized_hosted_builds_are_refused() {
             "emitted inventory for {case}"
         );
     }
+}
+
+#[test]
+fn the_declaration_with_its_manifest_may_reach_the_size_cap_and_not_pass_it() {
+    // The generator's mirror of the cap is the cap `deploy-declaration` refuses above.
+    assert_eq!(
+        hosting::DECLARATION_TEXT_BYTES,
+        tmt_colab::limits::DECLARATION_TEXT_BYTES
+    );
+    let build = Build::new();
+    build.generate().unwrap();
+    let manifest = fs::metadata(build.output.join("colab-hosting-manifest.json"))
+        .unwrap()
+        .len() as usize;
+    // The static text grows until text plus splice plus manifest is exactly the cap.
+    let room = hosting::DECLARATION_TEXT_BYTES - hosting::SPLICE.len() - manifest;
+    fs::write(&build.declaration, vec![b' '; room]).unwrap();
+    build.generate().unwrap();
+    fs::write(&build.declaration, vec![b' '; room + 1]).unwrap();
+    let error = build.generate().unwrap_err();
+    assert!(error.to_string().contains("declaration exceed"), "{error}");
 }

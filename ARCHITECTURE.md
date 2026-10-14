@@ -552,11 +552,11 @@ and mounts owner-installed extensions. [Colab](#colab-extension) is mounted at
 the extension object channel (`tmt-extension-objects`), never through Remote state files.
 
 `object_service`: leased object/v3 carrier; `firebase_auth` credentials/HTTP.
-Serve: project Auth/runtime/factory/tick/joins/flush; v3 opt-in.
+Serve: Auth/runtime/factory/tick/joins/flush; v3 opt-in.
 `native_sync` COUNT/read budgets; Colab cursors; no Core state/provider carrier.
-Test emulation never ships.
+Emulation never ships.
 [object-backends](.agents/skills/tmt-remote/references/object-backends.md) owns channels,
-backends/quotas. Declarations, indexes, Rules and Hosting feed deploy; records feed index readiness.
+backends/quotas. Rules/indexes/Hosting feed deploy; Hosting serves declarations; records feed index readiness.
 [Remote internals](.agents/skills/tmt-remote/references/architecture-internals.md) owns module rules;
 [door and discovery](.agents/skills/tmt-remote/references/door-and-discovery.md) owns lifecycle,
 status and management. Shared background start is [extension-serve-v1](contracts/extension-serve-v1.md).
@@ -617,7 +617,7 @@ bytes without core and storage access.
 - **Attachments.** [Grammar](extensions/tmt-colab/contracts/attachment-v1.md) and [staging](extensions/tmt-colab/contracts/colab-v1.md#native-attach-command-2291) use crypto, authenticated cuts, fold metadata and Saves.
   The mount-owned object adapter joins generation-scoped callbacks, original uploads, committed reads and detached history; root-local reads need an established channel.
   Remote owns backend/quota/origin; Colab owns crypto/admission. Remote declares Colab Local; snapshot/retained-reference persistence (#2299) remains planned in the [storage proposal](extensions/tmt-colab/contracts/storage-v1-proposal.md).
-- **Firestore admission.** Hidden `tmt colab deploy-declaration --json`; the [declaration subsection](extensions/tmt-colab/contracts/colab-v1.md#firestore-deployment-declaration) owns admission and dormant codecs.
+- **Firestore admission.** Hidden `tmt colab deploy-declaration --json`; the [declaration subsection](extensions/tmt-colab/contracts/colab-v1.md#firestore-deployment-declaration) owns admission and codecs. The serve's `object_channel::cloud_sync` worker publishes the active page's rows, signed authority and local originals once Remote activates (outbound only; [architecture-state](.agents/skills/tmt-colab/references/architecture-state.md)).
 - **Plaintext.** Whole/ranged source, discussion reads and export are root-local: only the isolated decoder
   child decodes Yjs, no browser route serves plaintext, and the Worker is resource
   containment, not a security sandbox. Private causal preparation returns deltas; pure [publication codecs](extensions/tmt-colab/contracts/colab-v1.md#content-publication-1908-1928-1934) validate sealed intent. An authenticated snapshot supplies a frozen signed packet and chain; native code atomically stores content or a `kind:"own"` status action with its scoped terminal outcome in the Store. Dormant metadata bounds compaction; `tmt colab page write`, `threads resolve|reopen` and proposal record/placement operations publish through it (offline or the local `page-publish` route), browser Save uses the owner sync socket (colab-v1 Browser Save), signed by the root-local writer.

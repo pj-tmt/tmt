@@ -14,6 +14,32 @@ pub const FILES: usize = 128;
 pub const FILE_BYTES: usize = 2 * 1024 * 1024;
 pub const TOTAL_BYTES: usize = 8 * 1024 * 1024;
 const SDK_ROUTE: &str = "/sdk/remote-v1.js";
+/// Remote's lazy Firebase client and its notices: hosted-only build output that Remote pins.
+const FIREBASE_ROUTE: &str = "/sdk/remote-firebase-v1.js";
+const NOTICES_ROUTE: &str = "/sdk/THIRD-PARTY-NOTICES-remote.txt";
+/// The routes Remote's SDK owns; the hosted tree cannot supply them.
+const SDK_ROUTES: [&str; 3] = [SDK_ROUTE, FIREBASE_ROUTE, NOTICES_ROUTE];
+const PIN: &str = "firebase-build-pin.json";
+/// The most a declaration may be: mirrors `limits::DECLARATION_TEXT_BYTES`, which
+/// `deploy-declaration` refuses above. A test equates the two.
+pub const DECLARATION_TEXT_BYTES: usize = 64 * 1024;
+/// What `deploy_declaration::declaration_of` inserts before the manifest, in place of the
+/// closing brace's line break it removes and puts back after it.
+pub const SPLICE: &str = ",\n  \"hosting\": ";
+/// Each pinned Remote output: its hosted route, its path in Remote's pin manifest and the name of
+/// the copy the build keeps.
+const PINNED: [(&str, &str, &str); 2] = [
+    (
+        FIREBASE_ROUTE,
+        "dist/remote-firebase-v1.js",
+        "colab-remote-firebase-v1.js",
+    ),
+    (
+        NOTICES_ROUTE,
+        "dist/THIRD-PARTY-NOTICES.txt",
+        "colab-remote-notices.txt",
+    ),
+];
 
 #[derive(Serialize)]
 struct Manifest {
@@ -57,6 +83,34 @@ pub(crate) fn verify_sdk_copy(expected_digest: &str, copied: &[u8]) -> io::Resul
         return Err(invalid("Remote SDK copy digest mismatch"));
     }
     Ok(())
+}
+/// Remote's pin of its hosted-only build: exactly the two `PINNED` files, each with the lowercase
+/// SHA-256 and length of the bytes Remote built, in `PINNED` order. A pin that names more, fewer
+/// or other files means Remote's output changed shape and this copy must be reviewed.
+fn pins(client: &Path) -> io::Result<Vec<(String, usize)>> {
+    let malformed = || invalid("Remote's Firebase build pin is malformed");
+    let value: serde_json::Value = serde_json::from_slice(&read(&client.join(PIN))?)?;
+    let files = value["files"]
+        .as_array()
+        .filter(|files| value["version"] == 1 && files.len() == PINNED.len())
+        .ok_or_else(malformed)?;
+    PINNED
+        .iter()
+        .map(|(_, path, _)| {
+            let mut named = files.iter().filter(|file| file["path"] == *path);
+            let (Some(entry), None) = (named.next(), named.next()) else {
+                return Err(malformed());
+            };
+            let sha256 = entry["sha256"]
+                .as_str()
+                .filter(|sha| {
+                    sha.len() == 64 && sha.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+                })
+                .ok_or_else(malformed)?;
+            let length = entry["length"].as_u64().ok_or_else(malformed)?;
+            Ok((sha256.to_owned(), length as usize))
+        })
+        .collect()
 }
 fn read(path: &Path) -> io::Result<Vec<u8>> {
     let meta = fs::symlink_metadata(path)?;
@@ -116,7 +170,11 @@ fn collect(
             return Err(invalid("Unsafe hosted filename"));
         }
         let route = format!("{prefix}/{name}");
-        if route.len() > 1024 || route == SDK_ROUTE || route == "/__" || route.starts_with("/__/") {
+        if route.len() > 1024
+            || SDK_ROUTES.contains(&route.as_str())
+            || route == "/__"
+            || route.starts_with("/__/")
+        {
             return Err(invalid("Hosted path is reserved or too long"));
         }
         let path = entry.path();
@@ -126,8 +184,8 @@ fn collect(
             content_type(&route)?;
             files.push((route, read(&path)?));
             inputs.push(path);
-            // Reserve one file for the upstream SDK copy.
-            if files.len() + 1 >= FILES {
+            // Reserve the files of the upstream SDK copy.
+            if files.len() + SDK_ROUTES.len() >= FILES {
                 return Err(invalid("Hosted inventory reached 50% of Remote's file cap"));
             }
         }
@@ -135,7 +193,16 @@ fn collect(
     Ok(())
 }
 
-pub fn generate(directory: Option<&Path>, sdk: &Path, output: &Path) -> io::Result<Vec<PathBuf>> {
+/// `sdk` is Remote's committed `remote-v1.js`; `client` is Remote's client directory, whose pin
+/// manifest vouches for the Firebase build in its `dist`. Remote's build must have run first.
+/// `declaration` is the static declaration the manifest is spliced into.
+pub fn generate(
+    directory: Option<&Path>,
+    sdk: &Path,
+    client: &Path,
+    declaration: &Path,
+    output: &Path,
+) -> io::Result<Vec<PathBuf>> {
     let Some(directory) = directory else {
         fs::write(
             output.join("colab_hosting.rs"),
@@ -143,7 +210,11 @@ pub fn generate(directory: Option<&Path>, sdk: &Path, output: &Path) -> io::Resu
         )?;
         return Ok(Vec::new());
     };
-    if !directory.is_absolute() || !sdk.is_absolute() {
+    if !directory.is_absolute()
+        || !sdk.is_absolute()
+        || !client.is_absolute()
+        || !declaration.is_absolute()
+    {
         return Err(invalid("Hosted build paths must be absolute"));
     }
     let mut inputs = Vec::new();
@@ -163,6 +234,23 @@ pub fn generate(directory: Option<&Path>, sdk: &Path, output: &Path) -> io::Resu
     verify_sdk_copy(&sdk_digest, &copied)?;
     files.push((SDK_ROUTE.into(), copied));
     inputs.push(sdk.to_owned());
+    // Remote's pinned build output is copied byte for byte; nothing else may stand in for it.
+    for ((route, source, copy), (sha256, length)) in PINNED.iter().zip(pins(client)?) {
+        let from = client.join(source);
+        let built = read(&from)?;
+        if built.len() != length || digest(&built) != sha256 {
+            return Err(invalid(
+                "Remote's Firebase build output does not match its pin",
+            ));
+        }
+        let kept = output.join(copy);
+        fs::copy(&from, &kept)?;
+        let copied = read(&kept)?;
+        verify_sdk_copy(&sha256, &copied)?;
+        files.push(((*route).into(), copied));
+        inputs.push(from);
+    }
+    inputs.push(client.join(PIN));
     files.sort_by(|a, b| a.0.cmp(&b.0));
     if files.windows(2).any(|pair| pair[0].0 == pair[1].0) {
         return Err(invalid("Duplicate hosted path"));
@@ -201,6 +289,15 @@ pub fn generate(directory: Option<&Path>, sdk: &Path, output: &Path) -> io::Resu
         });
     }
     let manifest_bytes = serde_json::to_vec(&manifest)?;
+    // Every entry carries its full CSP, so the file caps alone do not keep the declaration that
+    // embeds this manifest within what `deploy-declaration` will print.
+    let base = fs::metadata(declaration)?.len() as usize;
+    if base + SPLICE.len() + manifest_bytes.len() > DECLARATION_TEXT_BYTES {
+        return Err(invalid(
+            "Hosted manifest would make the declaration exceed its size cap",
+        ));
+    }
+    inputs.push(declaration.to_owned());
     bundle.manifest_digest = digest(&manifest_bytes);
     fs::write(output.join("colab-hosting-manifest.json"), manifest_bytes)?;
     fs::write(

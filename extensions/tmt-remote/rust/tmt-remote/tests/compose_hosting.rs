@@ -44,12 +44,13 @@ fn inputs() -> (Value, Value, Value) {
     let bytes = serde_json::to_string(&declaration).unwrap();
     envelope["declarationDigest"] = json!(digest(bytes.as_bytes()));
     envelope["declaration"] = json!(bytes);
-    let composition =
-        hosting::compose(&[
-            HostingBundle::parse(&manifest, &serde_json::to_vec(&bundle).unwrap()).unwrap(),
-        ])
-        .unwrap()
-        .unwrap();
+    let composition = hosting::compose(&[hosting::HostingInput {
+        extension: "colab",
+        declaration: envelope["declaration"].as_str().unwrap().as_bytes(),
+        bundle: &HostingBundle::parse(&manifest, &serde_json::to_vec(&bundle).unwrap()).unwrap(),
+    }])
+    .unwrap()
+    .unwrap();
     let pinned: Value =
         serde_json::from_str(include_str!("fixtures/hosting/serving-config.json")).unwrap();
     assert_eq!(composition.config(), &pinned);
@@ -95,6 +96,18 @@ fn colab_declaration_reproduces_pinned_hosting_view_and_digest() {
     let actual: Value = serde_json::from_slice(&stdout).unwrap();
     assert_eq!(actual, expected);
     assert_eq!(actual["digest"], expected["digest"]);
+    let generated = actual["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|file| file["path"] == "/tmt/declarations/colab.json")
+        .unwrap();
+    assert_eq!(generated["rawDigest"], envelope["declarationDigest"]);
+    assert_eq!(
+        generated["rawLength"],
+        envelope["declaration"].as_str().unwrap().len()
+    );
+    assert_eq!(generated["contentType"], "application/json");
 }
 
 #[test]

@@ -54,7 +54,7 @@ fn hidden_native_activation_refuses_expired_deadline_without_io() {
 fn hidden_activation_is_one_control_exchange_with_typed_refusal_parity() {
     for (reply, code) in [
         (
-            serde_json::json!({"activated":true,"version":3,"generation":GENERATION}),
+            serde_json::json!({"activated":true,"version":3,"generation":GENERATION,"project":"demo-remote-1"}),
             None,
         ),
         (
@@ -74,7 +74,19 @@ fn hidden_activation_is_one_control_exchange_with_typed_refusal_parity() {
             Some("REMOTE_STATE_UNAVAILABLE"),
         ),
         (
-            serde_json::json!({"activated":true,"version":3,"generation":"bad"}),
+            serde_json::json!({"activated":true,"version":3,"generation":"bad","project":"demo-remote-1"}),
+            Some("REMOTE_IO"),
+        ),
+        (
+            serde_json::json!({"activated":true,"version":3,"generation":GENERATION,"project":"INVALID PROJECT"}),
+            Some("REMOTE_IO"),
+        ),
+        (
+            serde_json::json!({"activated":true,"version":3,"generation":GENERATION,"project":null}),
+            Some("REMOTE_IO"),
+        ),
+        (
+            serde_json::json!({"activated":true,"version":3,"generation":GENERATION,"project":"demo-remote-1","extra":true}),
             Some("REMOTE_IO"),
         ),
     ] {
@@ -103,7 +115,10 @@ fn hidden_activation_is_one_control_exchange_with_typed_refusal_parity() {
             assert_eq!(value["error"]["code"], code);
         } else {
             assert!(output.status.success());
-            assert_eq!(value, serde_json::json!({"generation":GENERATION}));
+            assert_eq!(
+                value,
+                serde_json::json!({"generation":GENERATION,"project":"demo-remote-1"})
+            );
         }
         assert!(!pilot.root.join("state/remote/remote.db").exists());
         assert!(!pilot.root.join("state/remote/serve.lock").exists());
@@ -172,5 +187,41 @@ fn activation_protocol_is_absent_from_public_help() {
         !String::from_utf8(help.stdout)
             .unwrap()
             .contains("__activate")
+    );
+}
+
+#[test]
+fn legacy_three_member_native_activation_requires_a_serve_restart() {
+    let pilot = Pilot::new();
+    let socket = listener(&pilot);
+    let peer = std::thread::spawn(move || {
+        let (mut stream, _) = socket.accept().unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
+        let mut line = String::new();
+        BufReader::new(stream.try_clone().unwrap())
+            .read_line(&mut line)
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&line).unwrap(),
+            serde_json::json!({"op":"sync.activate","extension":"colab","version":3})
+        );
+        writeln!(
+            stream,
+            "{}",
+            serde_json::json!({"activated":true,"version":3,"generation":GENERATION})
+        )
+        .unwrap();
+    });
+    let output = activate(&pilot, &deadline());
+    peer.join().unwrap();
+    assert!(
+        !output.status.success(),
+        "an old door must not supply a guessed project"
+    );
+    assert_eq!(
+        serde_json::from_slice::<Value>(&output.stdout).unwrap()["error"]["code"],
+        "REMOTE_SERVE_OUTDATED"
     );
 }

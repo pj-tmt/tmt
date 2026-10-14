@@ -57,6 +57,10 @@ is indicated without replacing the displayed request until End resumes follow.
 `Scrolls` remains the sole viewport owner. Rendering and reading acknowledge
 nothing. Layout uses terminal cells and degrades side/stack preferences to one
 focused pane when dimensions cannot support a split.
+Enter focuses the named conversation; Esc returns to the originating list.
+The focused title and footer name that back path. The effective Member/Reader
+`view-reply` binding (default `v`) opens the full response reader without changing
+its exact-source admission; a missing response is explained in the status line.
 
 The composer opens the selected workspace UUID and room directly; flat row
 indices or equal payloads never choose a different membership. `RowSend`

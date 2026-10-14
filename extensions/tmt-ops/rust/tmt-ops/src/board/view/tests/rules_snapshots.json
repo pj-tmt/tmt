@@ -124,7 +124,7 @@
       "",
       "",
       "────────────────────────────────────────────────────────────────",
-      "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  c timers  e details  w snapshots  a add agent  , settings  / search  ? help  q quit"
+      "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  v reader  c timers  e details  w snapshots  a add agent  , settings  ? help  q quit"
     ]
   },
   {
@@ -316,7 +316,7 @@
       "",
       "",
       "────────────────────────────────────────────────────────────────",
-      "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  c timers  e details  w snapshots  a add agent  , settings  / search  ? help  q quit"
+      "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  v reader  c timers  e details  w snapshots  a add agent  , settings  ? help  q quit"
     ]
   },
   {
@@ -508,7 +508,7 @@
       "",
       "",
       "",
-      "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  c timers  e details  w snapshots  a add agent  , settings  / search  ? help  q quit"
+      "⏎ inspect  t talk  D digest  j host  n create  r rename  x remove  m assign  v reader  c timers  e details  w snapshots  a add agent  , settings  ? help  q quit"
     ]
   },
   {

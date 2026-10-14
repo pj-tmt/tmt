@@ -73,7 +73,27 @@ fn the_command_prints_the_vector_byte_for_byte_and_touches_nothing() {
     let output = run(&["deploy-declaration", "--json"], &scratch);
     assert!(output.status.success());
     assert!(output.stderr.is_empty(), "Remote reads nothing from stderr");
-    assert_eq!(String::from_utf8(output.stdout).unwrap(), vector_text());
+    let printed = String::from_utf8(output.stdout).unwrap();
+    match tmt_colab::hosting::manifest() {
+        None => assert_eq!(printed, vector_text()),
+        // An explicit hosted build declares its manifest as one more key; nothing else changes.
+        Some(manifest) => {
+            let reply: serde_json::Value = serde_json::from_str(&printed).unwrap();
+            let base: serde_json::Value = serde_json::from_str(&vector_text()).unwrap();
+            let declared: serde_json::Value =
+                serde_json::from_str(reply["declaration"].as_str().unwrap()).unwrap();
+            let mut without = declared.clone();
+            let hosting = without.as_object_mut().unwrap().remove("hosting").unwrap();
+            let original: serde_json::Value =
+                serde_json::from_str(base["declaration"].as_str().unwrap()).unwrap();
+            assert_eq!(without, original);
+            assert_eq!(
+                hosting,
+                serde_json::from_slice::<serde_json::Value>(manifest).unwrap()
+            );
+            assert_eq!(reply["artifact"], base["artifact"]);
+        }
+    }
     assert_eq!(
         fs::read_dir(&scratch.0).unwrap().count(),
         0,

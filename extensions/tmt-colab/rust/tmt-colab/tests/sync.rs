@@ -11,6 +11,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tmt_colab::{
+    cloud_sync::{ActivePage, PageRef},
     keyring::Layout,
     store::{Store, StreamScope},
     sync::{Access, Admission, CatchupContext, Code, Connection, Progress, Server, SyncScope},
@@ -1890,4 +1891,39 @@ fn inline_baseline_reserves_first_page_bytes_without_truncating_membership() {
     }
     assert_eq!(received, json!(expected).as_array().unwrap().clone());
     assert_eq!(receive(&mut b)["more"], false);
+}
+
+#[test]
+fn the_page_a_peer_opens_is_the_active_page_for_cloud_sync_and_an_ack_is_not() {
+    let f = Fixture::new();
+    let activity = ActivePage::default();
+    f.server.set_activity(activity.clone()).unwrap();
+    let mut peer = f.peer(ALICE);
+    assert_eq!(activity.wait(0, Duration::ZERO).page, None);
+    send(
+        &mut peer,
+        f.frame(
+            "hello",
+            json!({"membershipRevision":"0","device":ALICE,"cursors":[]}),
+        ),
+    );
+    let opened = activity.wait(0, Duration::ZERO);
+    assert_eq!(
+        opened.page,
+        Some(PageRef {
+            space: f.space.clone(),
+            page: PAGE.into(),
+            epoch: 1
+        })
+    );
+    // Credit-only traffic changes nothing, so a reader paging through history does not make
+    // the worker look again.
+    assert_eq!(peer.1.poll(), Progress::Advanced);
+    let cursor = json!({"streamId":ALICE,"namespace":"content","seq":"0","envelopeHash":values::encode_binary(&[0;32])});
+    send(&mut peer, f.frame("ack", json!({"cursors":[cursor]})));
+    let _ = peer.1.poll();
+    assert_eq!(
+        activity.wait(opened.version, Duration::ZERO).version,
+        opened.version
+    );
 }

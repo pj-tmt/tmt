@@ -11,6 +11,72 @@ use ratatui::{
     crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers},
 };
 use serde_json::json;
+#[test]
+fn app_checklist_text_captures_q_digits_and_its_buttons_allow_destination_keys() {
+    use crate::board::shell::OpsTab;
+    let f = Fixture::new();
+    let mut app = crate::board::app::workspace::tests::board();
+    let mut c = controller(&f);
+    c.screen = Screen::Form;
+    c.draft = Some(forms::Draft::create(
+        c.preview.as_ref().unwrap(),
+        (id(CHECKLIST), id(ITEM)),
+    ));
+    c.panel.borrow_mut().reconcile(
+        c.choice_rows()
+            .into_iter()
+            .map(|row| tmt_tui::components::ListRow {
+                id: row.id,
+                disabled: row.disabled,
+            })
+            .collect(),
+    );
+    c.panel.borrow_mut().picker.list.select("title");
+    app.checklist = Some(c);
+    for ch in "q123".chars() {
+        assert_eq!(
+            app.key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE)),
+            Effect::None
+        );
+    }
+    assert_eq!(app.shell.tab, OpsTab::Agents);
+    assert_eq!(
+        app.checklist
+            .as_ref()
+            .unwrap()
+            .draft
+            .as_ref()
+            .unwrap()
+            .title,
+        "q123"
+    );
+    app.checklist
+        .as_mut()
+        .unwrap()
+        .panel
+        .borrow_mut()
+        .picker
+        .list
+        .select("cancel");
+    assert!(!app.checklist.as_ref().unwrap().owns_typing());
+    assert_eq!(
+        app.key(KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE)),
+        Effect::None
+    );
+    assert_eq!(app.shell.tab, OpsTab::Digest);
+    assert!(!app.checklist_shown());
+    assert_eq!(
+        app.checklist
+            .as_ref()
+            .unwrap()
+            .draft
+            .as_ref()
+            .unwrap()
+            .title,
+        "q123"
+    );
+    assert!(app.checklist.as_ref().unwrap().submit.is_none());
+}
 fn key(code: KeyCode) -> Event {
     Event::Key(KeyEvent::new(code, KeyModifiers::NONE))
 }

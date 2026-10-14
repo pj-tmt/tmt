@@ -1886,6 +1886,13 @@ of compact JSON with keys ordered `version,files` and file keys `path,sha256,len
 canonical padded Base64. All paths, raw lengths and raw digests must match
 before provider setup; missing release-embedded bytes are unavailable, never an empty site or
 fixture substitute. The reply is bounded to 24 MiB and the invocation to 30 s, with waited cleanup.
+Remote adds each Hosting-declaring extension's exact admitted declaration bytes at
+`/tmt/declarations/<extension>.json`, outside the extension manifest to avoid a self-digest cycle.
+The raw file SHA-256 is the same `declarationDigest` the native sealed declaration returns;
+no parsing, normalization or second declaration form is introduced. This public JSON grants no
+access or operations authority. Its standard headers have no inherited CSP, and its bytes count
+against the same composed file/byte bounds and composition/plan digests, upload and read-back.
+The `/tmt/declarations` prefix and descendants are Remote-reserved; manifests refuse them.
 Remote composes disjoint inventories, requires `/index.html` as the HTML shell, and freezes gzip
 bytes (level 6, timestamp zero, OS 255) with separate raw and transport digests. Its ServingConfig
 pins content types, `nosniff`, `no-cache` and fixed `Referrer-Policy: no-referrer` on every file,
@@ -2022,19 +2029,21 @@ adapter or change LocalFs startup: accounting still opens fail-closed.
 **Activation and compatibility.** A capable installed Colab invokes the hidden host protocol
 `tmt remote __activate --extension <name> --deadline-ms <absolute Unix milliseconds> --json`
 through its existing supervisor subprocess owner and its own timeout. It is absent from help,
-completions and the handbook. Success is exactly `{"generation":"<lowercase UUIDv4>"}`;
+completions and the handbook. Success is exactly `{"generation":"<lowercase UUIDv4>","project":"<project id>"}`;
+the validated project is the registered native factory's startup selection, not a deploy-record
+projection or another status read.
 failures exit nonzero with `{"error":{"code":"<code>","message":"<message>","state":"deadline"}}`
 (the state member appears only for deadline). Codes reuse `REMOTE_NOT_RUNNING` for absent/refused
 socket, `REMOTE_STATE_UNSAFE` for an unsafe/foreign-owned path, `REMOTE_STATE_UNAVAILABLE` with
-state `deadline`, and `REMOTE_SERVE_OUTDATED` for unsupported or the exact legacy unknown-op
-refusal. Other typed refusals pass through, including `REMOTE_SCOPE_DENIED` for an undeclared
+state `deadline`, and `REMOTE_SERVE_OUTDATED` for unsupported, the exact legacy unknown-op
+refusal or a valid old three-member activation success: restart the door, never guess a project. Other typed refusals pass through, including `REMOTE_SCOPE_DENIED` for an undeclared
 extension. An already-spent deadline causes no I/O. Root discovery and the single control
 exchange share the caller's bound; no scan, state creation, restart or fallback occurs.
 
 Only Remote discovers/adopts its private control address. Colab neither derives that path
 nor reads Remote records or imports Remote types. The CLI sends exactly
 `{"op":"sync.activate","extension":"colab","version":3}` internally, with success
-`{"activated":true,"version":3,"generation":"<lowercase UUIDv4>"}`. An unsupported version
+`{"activated":true,"version":3,"generation":"<lowercase UUIDv4>","project":"<project id>"}`. An unsupported version
 is `REMOTE_CONTROL_UNSUPPORTED`; malformed/extra input is `REMOTE_INPUT_INVALID`.
 The extension must be in the existing enabled Local declaration list and have a registered
 factory. Activation uses the existing bounded single-flight setup owner; a failed candidate
@@ -2554,7 +2563,7 @@ guard before sending. Layer 1 must run on the provider's no-cost plan, and the p
 reads them and Rules cannot. A client therefore guards its own modeled share, not the provider's counter. For one
 shared page with `members` listeners and `writers` of them appending, one append costs the project `writeLookups +
 (members - 1) * (1 + readLookups)` reads (the writer's Rules lookups, then for every other listener the delivered
-document and its lookups again). The writer count uses the continuing non-owner member path;
+document and its lookups again). The writer lookups use the continuing non-owner member path;
 the owning free-plan guide derives it from Colab's Rules. The lookups are fixed guard constants; the page's daily append
 allowance is the daily reads pool divided by that, capped by the writes pool, and a writer's share is the allowance
 divided by `writers`. Below 70% of the share an append is allowed, from 70% the client is warned, from 90% the append

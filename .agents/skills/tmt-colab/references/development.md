@@ -41,22 +41,40 @@ The build-only `TMT_COLAB_HOSTING_DIR` selects an absolute, separate hosted dist
 Its files are published at the site root; `index.html` and `THIRD-PARTY-NOTICES.txt` are
 required. The shell must use absolute `/assets/` URLs with no `<base>` so rewritten
 short routes resolve the same assets. Build a hosted distribution with Vite's `--base /`
-option; native mounted distributions retain their relative base. The generator copies Remote's existing built output
-`extensions/tmt-remote/rust/tmt-remote/assets/remote-v1.js` to `/sdk/remote-v1.js`,
-checking its copied SHA-256 against that output. The input tree cannot override this path.
-Files and directories must be real, with supported bare content types. The build rejects
-inventory reaching 128 files, 2 MiB per file, or 8 MiB total (50% of Remote's v1 caps).
+option (`vp build --base / --outDir dist-hosted` in `extensions/tmt-colab/typescript/app`);
+native mounted distributions retain their relative base.
+
+The generator copies Remote's output, never editing it, to three reserved routes: the committed
+`extensions/tmt-remote/rust/tmt-remote/assets/remote-v1.js` to `/sdk/remote-v1.js`, and Remote's
+hosted-only Firebase build to `/sdk/remote-firebase-v1.js` and `/sdk/THIRD-PARTY-NOTICES-remote.txt`.
+The latter come from `extensions/tmt-remote/typescript/remote-client/dist`, so run Remote's
+`vp build --config vite.firebase.config.ts` in `remote-client` first. Each file must match the
+SHA-256 and length in `remote-client/firebase-build-pin.json`, which must name exactly those two
+files; a missing build, a reshaped pin or a mismatch fails the build. The input tree cannot override
+any of the three routes. Files and directories must be real, with supported bare content types.
+The build rejects inventory reaching 128 files, 2 MiB per file, or 8 MiB total (50% of Remote's v1
+caps); three of the file slots are reserved for the SDK copy. It also rejects an inventory whose
+manifest would take the declaration past `deploy-declaration`'s 64 KiB.
 Every manifest file carries the existing native CSP; a renderer entry retains its existing
 renderer CSP. Runtime bytes and the canonical manifest are immutable Cargo snapshots.
 
-This pipeline does not supply hosted sign-in/join glue or the deployment declaration's
-hosting field. Those wait for #2397 and Remote's Firebase SDK surface; only their exact
-Firebase connect origins may be added when that entry is implemented. A synthetic build
-fixture proves the wire inventory and command without claiming a working hosted entry.
+`tmt colab deploy-declaration --json` adds the canonical manifest as the declaration's last
+`hosting` key when the executable embeds one (colab-v1, "tmt colab hosting-bundle --json"), and
+declares no `hosting` key otherwise. `contracts/vectors/deploy-declaration-reference.py` rebuilds
+the golden `deploy-declaration-v1.hosting.json` and its manifest from a fixed fixture with the
+standard library alone; run it without `--write` to verify and with `--write` after a reviewed
+change. Remote's mirror reads the vector.
 
-Focused checks: `cargo +1.97.0 test --offline --locked -p tmt-colab --test build_hosting --test hosting`
-from `rust/`. Run `hosting` again with a separate explicit hosted fixture to exercise the
-embedded-success path; the ordinary build exercises `COLAB_UNAVAILABLE`.
+This pipeline does not supply hosted sign-in/join glue or the first `firebaseRemote.connect`
+caller, which belong to the Remote browser consumer (#2452 B4), and native releases still unset
+`TMT_COLAB_HOSTING_DIR` until the release step lands (#2487). A synthetic build fixture proves
+the wire inventory and command without claiming a working hosted entry.
+
+Focused checks: `cargo +1.97.0 test --offline --locked -p tmt-colab --test build_hosting --test hosting --test deploy_declaration`
+from `rust/`. Run `hosting` and `deploy_declaration` again with `TMT_COLAB_HOSTING_DIR` set to a
+hosted distribution (and Remote's Firebase build present) to exercise the embedded-success path,
+where the bundle must equal the declared manifest; the ordinary build exercises
+`COLAB_UNAVAILABLE` and the absent `hosting` key.
 
 ## Package gates
 
@@ -135,6 +153,7 @@ Each is `(cd rust && cargo test --offline --locked -p tmt-colab <selector>)`:
 | Export and attachment read                          | `--test export`, `export::tests`, `export::attachments::tests`, `--test socket root_local_attachment_read`                                                                        |
 | Object channel and admitted attachments             | `--lib object_channel::tests`, `--test attachments`                                                                                                                               |
 | Native attach                                       | `--lib attachments::slots`, `--lib object_channel::attach`, `--lib object_channel::tests::attach`, `--test cli attachment_attach`, `--test socket root_local_attach`              |
+| Cloud-sync worker (outbound publication)            | `--lib object_channel::cloud_sync`, `--test sync the_page_a_peer_opens`, `--test socket the_serve_runs_cloud_sync`                                                                |
 | Firestore declaration command and vector            | `--test deploy_declaration`, `--lib deploy_declaration`, then Remote's `-p tmt-remote --test deploy_vectors` mirror                                                               |
 
 - Object-channel fixtures exercise the real private socket and neutral Bus with scripted
@@ -410,3 +429,9 @@ node typescript/scripts/verify-native-artifact.mjs --product colab \
 The extracted binary is copied to a fresh directory and must serve without
 `--app-dir`, checkout output or pnpm on `PATH`; exact HTML, every asset and both
 Rust and frontend notices must match.
+
+`acceptance/hosted-bundle.spec.ts` runs the embedded bundle through Remote's offline composer
+(`cargo build --locked -p tmt-remote --example compose_hosting`, its own invocation after the three
+executables: an example selected next to `tmt-cli` turns on its dev-dependency features and that
+`tmt` then refuses to run in a world). CI embeds the hosted inventory in the one acceptance build
+(`TMT_COLAB_APP_DIR` and `TMT_COLAB_HOSTING_DIR`; the app's `build:hosted` runs its three Vite modes).
