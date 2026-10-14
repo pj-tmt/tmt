@@ -724,3 +724,7 @@ mod native_factory_tests;
 #[cfg(test)]
 #[path = "serve/native_serve_tests.rs"]
 mod native_serve_tests;
+
+#[cfg(test)]
+#[path = "serve/test_isolation.rs"]
+mod test_isolation;

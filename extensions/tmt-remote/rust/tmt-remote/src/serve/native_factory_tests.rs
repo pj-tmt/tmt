@@ -1,5 +1,5 @@
 //! Project-owner persistence is independent of provider activity and consumer count.
-use super::native_factory::CheckpointOwner;
+use super::{native_factory::CheckpointOwner, test_isolation::isolated_case};
 use std::{
     fs,
     path::PathBuf,
@@ -126,6 +126,11 @@ fn runtime(
 
 #[test]
 fn idle_checkpoint_persists_without_provider_work_and_stop_flushes_the_tail() {
+    if isolated_case(
+        "serve::native_factory_tests::idle_checkpoint_persists_without_provider_work_and_stop_flushes_the_tail",
+    ) {
+        return;
+    }
     let root = Root::new();
     let layout = Layout::open(&root.0).unwrap();
     let (runtime, budget, observed) = runtime(&layout, false);
@@ -320,6 +325,11 @@ fn project_stop_fences_all_consumers_without_provider_work() {
 
 #[test]
 fn project_checkpoint_persists_while_provider_waits_in_backoff_then_stop_joins() {
+    if isolated_case(
+        "serve::native_factory_tests::project_checkpoint_persists_while_provider_waits_in_backoff_then_stop_joins",
+    ) {
+        return;
+    }
     use std::{
         future::Future,
         pin::pin,
