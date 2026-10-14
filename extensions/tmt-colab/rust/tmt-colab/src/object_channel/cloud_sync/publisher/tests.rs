@@ -18,6 +18,24 @@ struct Fake {
     queue: VecDeque<Data>,
     confirmed: Vec<String>,
     preambles: usize,
+    /// A stream that appears after this many reads: its chain row and its first original.
+    arrival: Option<(usize, Row, Data)>,
+    reads: usize,
+}
+impl Fake {
+    /// Every read of local state may be the moment a concurrent append lands.
+    fn read(&mut self) {
+        self.reads += 1;
+        if self
+            .arrival
+            .as_ref()
+            .is_some_and(|(at, ..)| *at == self.reads)
+        {
+            let (_, chain, first) = self.arrival.take().unwrap();
+            self.rows.push(chain);
+            self.queue.push_back(first);
+        }
+    }
 }
 fn data(seq: u64) -> Data {
     Data {
@@ -39,17 +57,19 @@ fn row(resource: &str, id: &str) -> Row {
 impl Local for Fake {
     fn preamble(&mut self, _: &PageRef) -> Result<Vec<Row>, Fault> {
         self.preambles += 1;
-        Ok(self
+        let rows = self
             .rows
             .iter()
             .map(|r| match r {
                 Row::Create(d) => Row::Create(d.clone()),
                 Row::Put(d) => Row::Put(d.clone()),
             })
-            .collect())
+            .collect();
+        self.read();
+        Ok(rows)
     }
     fn next(&mut self, _: &PageRef) -> Result<Option<Data>, Fault> {
-        Ok(self.queue.front().map(|d| Data {
+        let next = self.queue.front().map(|d| Data {
             documents: d.documents.clone(),
             confirm: match &d.confirm {
                 Confirm::Update { stream, seq, hash } => Confirm::Update {
@@ -59,7 +79,9 @@ impl Local for Fake {
                 },
                 Confirm::Checkpoint { .. } => unreachable!(),
             },
-        }))
+        });
+        self.read();
+        Ok(next)
     }
     fn confirm(&mut self, _: &PageRef, confirm: &Confirm) -> Result<(), Fault> {
         let Confirm::Update { seq, .. } = confirm else {
@@ -121,6 +143,27 @@ fn rows_and_authority_come_first_then_each_original_in_order_and_is_confirmed() 
         ]
     );
     assert_eq!(local.confirmed, ["update-1", "update-2", "update-3"]);
+}
+
+#[test]
+fn a_streams_chain_exists_before_its_first_original_even_when_that_arrives_mid_pass() {
+    let mut rig = rig();
+    let mut local = Fake {
+        rows: vec![row("spaces", "s")],
+        // Lands right after the pass's first read of local state, wherever in the pass it is.
+        arrival: Some((1, row("authority", "chain-w"), data(1))),
+        ..Fake::default()
+    };
+    while rig.publisher.pass(&mut local, &page()) == Ok(true) || local.confirmed.is_empty() {}
+    assert_eq!(
+        kinds(&rig),
+        [
+            "create spaces/s",
+            "create authority/chain-w",
+            "create log/log-1"
+        ]
+    );
+    assert_eq!(local.confirmed, ["update-1"]);
 }
 
 #[test]

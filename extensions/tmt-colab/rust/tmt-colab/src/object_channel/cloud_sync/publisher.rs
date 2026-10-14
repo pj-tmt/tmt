@@ -62,7 +62,8 @@ pub(crate) struct Data {
 /// The publisher's view of durable local state. The Store owns every position; this only
 /// reads originals and records confirmations.
 pub(crate) trait Local {
-    /// Rows and signed authority, in the order they must exist.
+    /// Rows and signed authority, in the order they must exist. A stream's chain is part of it
+    /// from that stream's first original on, so it is read after the original it must precede.
     fn preamble(&mut self, page: &PageRef) -> Result<Vec<Row>, Fault>;
     /// The next unconfirmed original of a local stream, or none when the page is current.
     fn next(&mut self, page: &PageRef) -> Result<Option<Data>, Fault>;
@@ -91,14 +92,24 @@ impl Publisher {
     /// Publish what is due for the page. `Ok(true)` means more remains and the next wake
     /// continues; `Ok(false)` means the page is current.
     pub(crate) fn pass(&mut self, local: &mut dyn Local, page: &PageRef) -> Result<bool, Fault> {
-        for row in local.preamble(page)? {
-            match row {
-                Row::Create(document) => self.create_once(document)?,
-                Row::Put(document) => self.put_row(document)?,
+        let (mut sent, mut prepared) = (0, false);
+        loop {
+            // The original is read before the rows: a stream's chain exists from its first
+            // original on, so the rows read after it always include the chain it needs, even
+            // when that original arrived while this pass was running.
+            let next = local.next(page)?;
+            if next.is_some() || !prepared {
+                for row in local.preamble(page)? {
+                    match row {
+                        Row::Create(document) => self.create_once(document)?,
+                        Row::Put(document) => self.put_row(document)?,
+                    }
+                }
+                prepared = true;
             }
-        }
-        let mut sent = 0;
-        while let Some(data) = local.next(page)? {
+            let Some(data) = next else {
+                return Ok(false);
+            };
             for document in data.documents {
                 self.create(&document)?;
                 sent += 1;
@@ -108,7 +119,6 @@ impl Publisher {
                 return Ok(true);
             }
         }
-        Ok(false)
     }
     fn request(&self, call: sync::Call) -> Result<sync::Outcome, Fault> {
         self.client
