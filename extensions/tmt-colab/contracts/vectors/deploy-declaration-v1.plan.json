@@ -1,8 +1,8 @@
 {
   "version": 1,
-  "planDigest": "7111c908c53061a835829e6daec7ec6eed5cc9cb1a546cd6252811ea814c0109",
-  "declarationDigest": "ee995261c5258470041ffa4861074156839c7507aafc58e1e35ea36636cc98b8",
-  "artifactDigest": "9ab5b2f4409f5e1b6f7d62c8dad51a2838d39dcda8ef8a49b2293ae8150e5b87",
+  "planDigest": "ad65724bcb20fb94540941aad34d06e51bdfe94ee24e0cad8b43bc59d5b2b6ec",
+  "declarationDigest": "2beafac126fa261057bb8fd36616139b3a18e6479afc04adbfc615c0f04b035b",
+  "artifactDigest": "ec2a6f45fa1afcf7fe6c452d03337bddb1e98e922d0d3190545c27e0c086acaf",
   "plan": {
     "version": 1,
     "profile": "sharing",
@@ -13,9 +13,9 @@
     "extensions": [
       {
         "name": "colab",
-        "declarationDigest": "ee995261c5258470041ffa4861074156839c7507aafc58e1e35ea36636cc98b8",
+        "declarationDigest": "2beafac126fa261057bb8fd36616139b3a18e6479afc04adbfc615c0f04b035b",
         "admission": {
-          "artifactDigest": "9ab5b2f4409f5e1b6f7d62c8dad51a2838d39dcda8ef8a49b2293ae8150e5b87",
+          "artifactDigest": "ec2a6f45fa1afcf7fe6c452d03337bddb1e98e922d0d3190545c27e0c086acaf",
           "entryPoint": "colabAdmitted"
         },
         "resources": [
@@ -30,43 +30,7 @@
             },
             "ttlField": "expiresAt",
             "ttl": "not-provisioned",
-            "indexes": [],
-            "compositeIndexes": [
-              {
-                "collectionGroup": "authority",
-                "queryScope": "COLLECTION",
-                "fields": [
-                  {
-                    "fieldPath": "epoch",
-                    "order": "ASCENDING"
-                  },
-                  {
-                    "fieldPath": "kind",
-                    "order": "ASCENDING"
-                  },
-                  {
-                    "fieldPath": "page",
-                    "order": "ASCENDING"
-                  },
-                  {
-                    "fieldPath": "recipient",
-                    "order": "ASCENDING"
-                  },
-                  {
-                    "fieldPath": "space",
-                    "order": "ASCENDING"
-                  },
-                  {
-                    "fieldPath": "subject",
-                    "order": "ASCENDING"
-                  },
-                  {
-                    "fieldPath": "seq",
-                    "order": "ASCENDING"
-                  }
-                ]
-              }
-            ]
+            "indexes": []
           },
           {
             "name": "checkpoints",
@@ -79,35 +43,7 @@
             },
             "ttlField": "expiresAt",
             "ttl": "not-provisioned",
-            "indexes": [],
-            "compositeIndexes": [
-              {
-                "collectionGroup": "checkpoints",
-                "queryScope": "COLLECTION",
-                "fields": [
-                  {
-                    "fieldPath": "epoch",
-                    "order": "ASCENDING"
-                  },
-                  {
-                    "fieldPath": "object",
-                    "order": "ASCENDING"
-                  },
-                  {
-                    "fieldPath": "page",
-                    "order": "ASCENDING"
-                  },
-                  {
-                    "fieldPath": "space",
-                    "order": "ASCENDING"
-                  },
-                  {
-                    "fieldPath": "seq",
-                    "order": "ASCENDING"
-                  }
-                ]
-              }
-            ]
+            "indexes": []
           },
           {
             "name": "links",
@@ -133,35 +69,7 @@
             },
             "ttlField": "expiresAt",
             "ttl": "not-provisioned",
-            "indexes": [],
-            "compositeIndexes": [
-              {
-                "collectionGroup": "log",
-                "queryScope": "COLLECTION",
-                "fields": [
-                  {
-                    "fieldPath": "epoch",
-                    "order": "ASCENDING"
-                  },
-                  {
-                    "fieldPath": "page",
-                    "order": "ASCENDING"
-                  },
-                  {
-                    "fieldPath": "space",
-                    "order": "ASCENDING"
-                  },
-                  {
-                    "fieldPath": "stream",
-                    "order": "ASCENDING"
-                  },
-                  {
-                    "fieldPath": "seq",
-                    "order": "ASCENDING"
-                  }
-                ]
-              }
-            ]
+            "indexes": []
           },
           {
             "name": "members",

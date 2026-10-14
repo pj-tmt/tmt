@@ -3142,9 +3142,11 @@ is introduced. All other resource field sets are pinned by the declaration.
 
 The `log` regular shape binds `space,page,epoch,stream`, orders the integer `seq` ascending and
 uses the same stream's logical cursor. Its `writers` discovery binds only `space,page,epoch`,
-with no stream/cursor or first-sequence restriction. It returns real documents in a complete
-bounded run; an opaque within-run continuation is not a stream cursor. Late writers are found
-by repeated runs, even when another writer is far ahead. Checkpoints map `object` as their
+with no stream/cursor or first-sequence restriction. Only the space owner may bootstrap a log
+at an arbitrary original sequence after pre-cloud compaction; members retain predecessor-uid
+continuity, and consumers verify the signed checkpoint cut and contiguous tail. It returns real
+documents in a complete bounded run; an opaque within-run continuation is not a stream cursor.
+Late writers are found by repeated runs, even when another writer is far ahead. Checkpoints map `object` as their
 stream field and **`seq = index + 1`** as the positive chunk sequence; the existing index-based
 ID and first-chunk writer ownership do not change. Their `objects` discovery drops only object.
 Checkpoint and authority limits declare `chunkBytes:32768`; all previous planning bounds remain.

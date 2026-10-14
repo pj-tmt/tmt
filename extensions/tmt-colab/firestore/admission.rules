@@ -15,9 +15,10 @@
 // links/{space_page_link}: owner-written enrollment secret for a share link, unreadable by holders.
 // members/{space_page_uid}: who may read or write. The owner writes rows; a link holder creates
 //   its own row by equality with the link's secret (Rules cannot hash a join proof).
-// log/{space_page_epoch_stream_seq}: immutable encrypted envelope, contiguous per stream. A stream
+// log/{space_page_epoch_stream_seq}: immutable encrypted envelope, contiguous per member stream. A stream
 //   belongs to the uid that wrote its first entry: seq 1 is safe because a stream ID is unknown until
-//   used, and every later entry needs its predecessor's uid to equal the writer's.
+//   used. Members need the predecessor uid; the space owner may bootstrap a pruned prefix.
+//   Consumers still verify the signed checkpoint cut and contiguous tail.
 // checkpoints/{space_page_epoch_object_index}: immutable encrypted chunk, owned by the
 //   uid that wrote index 0 the same way, so no one can fill an object's later chunks with garbage.
 //
@@ -135,6 +136,7 @@ match /log/{id} {
     && request.resource.data.expiresAt <= request.time + duration.value(365, 'd')
     && ext.get(/members/$(request.resource.data.space + '_' + request.resource.data.page + '_' + request.auth.uid)).data.role != 'viewer'
     && (request.resource.data.seq == 1
+      || ext.get(/spaces/$(request.resource.data.space)).data.owner == request.auth.uid
       || ext.getAfter(/log/$(request.resource.data.space + '_' + request.resource.data.page + '_' + string(request.resource.data.epoch) + '_' + request.resource.data.stream + '_' + string(request.resource.data.seq - 1))).data.uid == request.auth.uid);
   allow update: if request.auth != null
     && ext.get(/spaces/$(resource.data.space)).data.owner == request.auth.uid
