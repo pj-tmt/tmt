@@ -1,47 +1,7 @@
-//! Explicitly selected native emulator proof; routing exists only in lib tests.
+//! Explicit native emulator proof over the shared closed emulator route.
 use super::{AuthError, AuthErrorKind};
 
 const PROJECT: &str = "demo-tmt-colab";
-
-// The injected test adapter accepts fixed official routes, never arbitrary URLs.
-fn route(url: &str, auth_port: u16, firestore_port: u16) -> Result<String, AuthError> {
-    if auth_port == 0 || firestore_port == 0 {
-        return Err(AuthError::new(AuthErrorKind::InputInvalid));
-    }
-    for host in [
-        "identitytoolkit.googleapis.com",
-        "securetoken.googleapis.com",
-    ] {
-        if let Some(path) = url.strip_prefix(&format!("https://{host}/")) {
-            let allowed = if host == "securetoken.googleapis.com" {
-                path.starts_with("v1/token?key=")
-            } else {
-                ["signUp", "delete"]
-                    .iter()
-                    .any(|name| path.starts_with(&format!("v1/accounts:{name}?key=")))
-            };
-            if allowed {
-                return Ok(format!("http://127.0.0.1:{auth_port}/{host}/{path}"));
-            }
-        }
-    }
-    let prefix = format!(
-        "https://firestore.googleapis.com/v1/projects/{PROJECT}/databases/(default)/documents"
-    );
-    if let Some(path) = url.strip_prefix(&prefix)
-        && (path.starts_with('/')
-            || matches!(path, ":commit" | ":runQuery" | ":runAggregationQuery"))
-        && !path.contains("..")
-        && !path.contains('%')
-        && !path.contains('?')
-        && !path.contains('#')
-    {
-        return Ok(format!(
-            "http://127.0.0.1:{firestore_port}/v1/projects/{PROJECT}/databases/(default)/documents{path}"
-        ));
-    }
-    Err(AuthError::new(AuthErrorKind::InputInvalid))
-}
 
 #[test]
 fn emulator_routing_admits_only_the_fixed_demo_endpoints() {
@@ -59,7 +19,13 @@ fn emulator_routing_admits_only_the_fixed_demo_endpoints() {
             "http://127.0.0.1:8085/v1/projects/demo-tmt-colab/databases/(default)/documents:commit",
         ),
     ] {
-        assert_eq!(route(url, 9099, 8085).unwrap(), expected);
+        assert_eq!(
+            EmulatorRoute::new(PROJECT, "127.0.0.1:9099", "127.0.0.1:8085")
+                .unwrap()
+                .url(url)
+                .unwrap(),
+            expected
+        );
     }
     for url in [
         "https://identitytoolkit.googleapis.com.evil/v1/accounts:signUp",
@@ -70,7 +36,11 @@ fn emulator_routing_admits_only_the_fixed_demo_endpoints() {
         "https://example.com/redirect",
     ] {
         assert_eq!(
-            route(url, 9099, 8085).unwrap_err().kind,
+            EmulatorRoute::new(PROJECT, "127.0.0.1:9099", "127.0.0.1:8085")
+                .unwrap()
+                .url(url)
+                .unwrap_err()
+                .kind,
             AuthErrorKind::InputInvalid
         );
     }
@@ -79,7 +49,7 @@ fn emulator_routing_admits_only_the_fixed_demo_endpoints() {
 
 use super::{
     AuthOwner, Cancellation, Client, Clock, FileStore, Http, Jitter, Operation, Project, Request,
-    Response, SystemClock, Time, UreqHttp,
+    Response, SystemClock, Time, UreqHttp, emulator_route::EmulatorRoute,
 };
 use crate::{
     firestore_budget::Model,
@@ -139,8 +109,7 @@ impl Jitter for NoJitter {
 }
 struct EmulatorHttp {
     real: UreqHttp,
-    auth: u16,
-    firestore: u16,
+    route: EmulatorRoute,
     signups: AtomicUsize,
     refreshes: AtomicUsize,
 }
@@ -151,7 +120,6 @@ impl Http for EmulatorHttp {
         deadline: u64,
         cancel: &dyn Cancellation,
     ) -> Result<Response, AuthError> {
-        let url = route(request.url(), self.auth, self.firestore)?;
         match request.operation() {
             Operation::SignUp => {
                 self.signups.fetch_add(1, Ordering::SeqCst);
@@ -161,13 +129,7 @@ impl Http for EmulatorHttp {
             }
             _ => {}
         }
-        let reply = self
-            .real
-            .send(&request.with_test_url(url), deadline, cancel)?;
-        if (300..400).contains(&reply.status) {
-            return Err(AuthError::new(AuthErrorKind::InvalidReply));
-        }
-        Ok(reply)
+        self.route.send(&self.real, request, deadline, cancel)
     }
 }
 #[test]
@@ -179,7 +141,7 @@ fn emulator_url_copy_preserves_every_non_address_request_field() {
         "private-test-bearer".into(),
         37,
     );
-    let c = r.with_test_url("http://127.0.0.1:8085/test".into());
+    let c = r.with_emulator_url("http://127.0.0.1:8085/test".into());
     assert_eq!(
         (
             r.operation(),
@@ -298,9 +260,13 @@ fn native_auth_and_sealed_sync_match_the_colab_rules() {
     let config = json!({"apiKey":"emulator-public-key", "appId":"1:12345:web:emulator", "authDomain":format!("{PROJECT}.firebaseapp.com"), "projectId":PROJECT});
     let clock = Arc::new(EmulatorClock::default());
     let http = Arc::new(EmulatorHttp {
-        real: UreqHttp::new(clock.clone()),
-        auth: auth_port,
-        firestore: firestore_port,
+        real: UreqHttp::loopback(clock.clone()),
+        route: EmulatorRoute::new(
+            PROJECT,
+            &format!("127.0.0.1:{auth_port}"),
+            &format!("127.0.0.1:{firestore_port}"),
+        )
+        .unwrap(),
         signups: AtomicUsize::new(0),
         refreshes: AtomicUsize::new(0),
     });

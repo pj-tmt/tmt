@@ -1,6 +1,10 @@
 //! Remote-owned ordinary Firebase Auth credentials. Effects are injected; this
 //! owner adds no Core state, credential setting, background process or carrier.
 mod credential;
+#[cfg(any(test, feature = "test-emulator"))]
+mod emulator_route;
+#[cfg(test)]
+mod emulator_route_tests;
 #[cfg(test)]
 mod emulator_tests;
 mod http;
@@ -9,6 +13,9 @@ mod http_tests;
 mod lifecycle;
 mod port;
 pub mod presentation;
+mod production_http;
+#[cfg(test)]
+mod production_http_tests;
 mod rest;
 mod system;
 
@@ -16,6 +23,7 @@ pub use credential::FileStore;
 pub use http::UreqHttp;
 pub use lifecycle::Client;
 pub use port::AuthOwner;
+pub use production_http::ProductionHttp;
 pub use rest::{Http, Operation, Request, Response};
 use std::{
     fmt,

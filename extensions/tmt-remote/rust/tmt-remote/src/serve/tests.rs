@@ -129,6 +129,22 @@ impl ServeObjectRun {
         reply: Vec<u8>,
         ports: native_factory::NativePorts,
     ) -> Self {
+        Self::start_with_native_ports(fixture, extensions, reply, Some(ports))
+    }
+    #[cfg(feature = "test-emulator")]
+    pub(super) fn start_native_production(
+        fixture: &ServeObjectFixture,
+        extensions: &'static [Extension],
+        reply: Vec<u8>,
+    ) -> Self {
+        Self::start_with_native_ports(fixture, extensions, reply, None)
+    }
+    fn start_with_native_ports(
+        fixture: &ServeObjectFixture,
+        extensions: &'static [Extension],
+        reply: Vec<u8>,
+        ports: Option<native_factory::NativePorts>,
+    ) -> Self {
         struct Source(Vec<u8>);
         impl tmt_remote::deploy_discovery::DeclarationSource for Source {
             fn declaration(

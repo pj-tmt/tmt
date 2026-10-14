@@ -455,7 +455,7 @@ fn foreground_with(
         handoff,
         native_factory::NativeInputs {
             source: &mut declarations,
-            ports: native_factory::NativePorts::production(),
+            ports: None,
         },
     )
 }

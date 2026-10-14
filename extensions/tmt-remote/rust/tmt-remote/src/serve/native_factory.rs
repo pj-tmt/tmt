@@ -8,7 +8,8 @@ use tmt_remote::{
     deploy_discovery::{DeclarationSource, sealed_declaration},
     error::RemoteError,
     firebase_auth::{
-        AuthOwner, Clock, FileStore, Http, Jitter, Project, RandomJitter, SystemClock, UreqHttp,
+        AuthOwner, Clock, FileStore, Http, Jitter, ProductionHttp, Project, RandomJitter,
+        SystemClock,
     },
     firestore_budget::{Decision, Model, NATIVE_DEFAULT_MODEL},
     limits,
@@ -30,16 +31,23 @@ pub(super) struct NativePorts {
 }
 pub(super) struct NativeInputs<'source> {
     pub(super) source: &'source mut dyn DeclarationSource,
-    pub(super) ports: NativePorts,
+    pub(super) ports: Option<NativePorts>,
 }
 impl NativePorts {
-    pub(super) fn production() -> Self {
+    pub(super) fn production(project: &Project) -> Result<Self, RemoteError> {
         let clock = Arc::new(SystemClock::default());
-        Self {
-            http: Arc::new(UreqHttp::new(clock.clone())),
+        let http = ProductionHttp::new(project, clock.clone())
+            .map_err(|error| RemoteError::new(error.code(), &error.to_string()))?;
+        if http.emulator_active() {
+            super::object_warning(
+                "tmt-remote: test-emulator routing active (loopback, demo project)",
+            );
+        }
+        Ok(Self {
+            http: Arc::new(http),
             clock,
             jitter: Arc::new(RandomJitter),
-        }
+        })
     }
 }
 fn unavailable() -> RemoteError {
@@ -85,7 +93,7 @@ impl<'objects, 'lease> ProjectOwner<'objects, 'lease> {
         layout: &Layout,
         extensions: &[Extension],
         source: &mut dyn DeclarationSource,
-        ports: NativePorts,
+        ports: Option<NativePorts>,
     ) -> Result<Option<Self>, RemoteError> {
         let Some(selected) = remote_selector::client_status(layout, None, None)? else {
             return Ok(None);
@@ -111,6 +119,10 @@ impl<'objects, 'lease> ProjectOwner<'objects, 'lease> {
             .map_err(|_| unavailable())?;
         let project =
             Project::from_public_config(&selected.public_config).map_err(|_| unavailable())?;
+        let ports = match ports {
+            Some(ports) => ports,
+            None => NativePorts::production(&project)?,
+        };
         let auth = Arc::new(
             AuthOwner::load(
                 project,

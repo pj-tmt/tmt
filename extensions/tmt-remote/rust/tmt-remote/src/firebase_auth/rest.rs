@@ -24,9 +24,9 @@ pub struct Request {
     response_bytes: usize,
 }
 impl Request {
-    /// Private lib-test injection; absent from release artifacts.
-    #[cfg(test)]
-    pub(super) fn with_test_url(&self, url: String) -> Self {
+    /// Private address-only copy; absent from default product artifacts.
+    #[cfg(any(test, feature = "test-emulator"))]
+    pub(super) fn with_emulator_url(&self, url: String) -> Self {
         Self {
             operation: self.operation,
             url,
