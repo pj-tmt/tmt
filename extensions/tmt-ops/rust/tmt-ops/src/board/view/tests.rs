@@ -556,7 +556,7 @@ L = "jump lead"
     );
     let help = help_lines(&app);
     assert!(help.iter().any(|line| line == "T  pick a theme"));
-    assert!(help.iter().any(|line| line == "j  go to the member's pane"));
+    assert!(help.iter().any(|line| line == "j  focus the member's pane"));
     assert!(!app.bindings().contains_key("L"));
     assert!(!app.bindings().contains_key("l"));
     assert!(

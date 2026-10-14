@@ -13,8 +13,9 @@ use std::{
 
 /// The overlay a config read is for.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Opening {
+pub(super) enum Opening {
     Settings,
+    HostAction(super::settings::host_action::Selection),
     /// The theme picker, for this squad tab (none on the aggregate tabs).
     ThemePicker(Option<String>),
 }
@@ -49,7 +50,7 @@ impl Job {
             Self::ReadMarkers(_) => "Saving read markers…",
             Self::Recovery(_) => "Reading or applying the selected workspace snapshot…",
             Self::Discovery(_) => "Scanning or binding the selected agent…",
-            Self::Open(Opening::Settings) => "Loading settings…",
+            Self::Open(Opening::Settings | Opening::HostAction(_)) => "Loading settings…",
             Self::Open(Opening::ThemePicker(_)) => "Loading themes…",
             Self::TokenWindow(_) => "Saving the token window…",
             Self::ViewState(_) => "Saving the board view…",
@@ -147,10 +148,23 @@ pub(super) fn run(core: &Core, labels: Option<&Refresh>, job: Job) -> BoardEvent
                 outcome,
             }
         }
-        Job::Open(opening) => BoardEvent::Opened {
-            opening,
-            config: Config::load(core).map_err(|error| error.message),
-        },
+        Job::Open(opening) => {
+            let board_pane = matches!(&opening, Opening::HostAction(_))
+                .then(|| {
+                    core.json(&["whoami"]).ok().and_then(|caller| {
+                        caller["pane"]
+                            .as_str()
+                            .filter(|pane| !pane.is_empty())
+                            .map(str::to_owned)
+                    })
+                })
+                .flatten();
+            BoardEvent::Opened {
+                opening,
+                config: Config::load(core).map_err(|error| error.message),
+                board_pane,
+            }
+        }
         Job::TokenWindow(window) => BoardEvent::TokenWindowSaved(
             Config::load(core)
                 .and_then(|mut config| {
@@ -197,3 +211,6 @@ impl Lane {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

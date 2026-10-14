@@ -1226,8 +1226,7 @@ impl App {
                         label: crate::board::view::footer::hint_word(
                             self,
                             &Action::parse(action.spec().name).unwrap(),
-                        )
-                        .into(),
+                        ),
                         choice: Choice::Action(Action::parse(action.spec().name).unwrap()),
                     });
                     for (label, kind) in [
@@ -1347,6 +1346,11 @@ impl App {
                 });
             }
         }
+        entries.push(MenuEntry {
+            key: String::new(),
+            label: "Host action (j)".into(),
+            choice: Choice::HostAction,
+        });
         for (label, action) in [
             ("Theme", "theme"),
             ("Token window", "token-window"),

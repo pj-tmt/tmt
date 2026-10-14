@@ -30,7 +30,7 @@ impl Template {
         self.0
             .iter()
             .map(|part| match part {
-                Part::Text(text) => text.clone(),
+                Part::Text(text) => text.replace('{', "{{").replace('}', "}}"),
                 Part::Field(field) => format!("{{{field}}}"),
             })
             .collect()
@@ -46,27 +46,41 @@ impl Template {
 
     pub fn parse(text: &str) -> Result<Self, String> {
         let mut parts = Vec::new();
-        let mut rest = text;
-        while let Some(start) = rest.find('{') {
-            if rest[..start].contains('}') {
-                return Err("unmatched '}'".into());
+        let mut literal = String::new();
+        let mut chars = text.chars().peekable();
+        while let Some(character) = chars.next() {
+            match character {
+                '{' if chars.peek() == Some(&'{') => {
+                    chars.next();
+                    literal.push('{');
+                }
+                '}' if chars.peek() == Some(&'}') => {
+                    chars.next();
+                    literal.push('}');
+                }
+                '{' => {
+                    if !literal.is_empty() {
+                        parts.push(Part::Text(std::mem::take(&mut literal)));
+                    }
+                    let mut name = String::new();
+                    loop {
+                        match chars.next() {
+                            Some('}') => break,
+                            Some(c) => name.push(c),
+                            None => return Err("unclosed '{'".into()),
+                        }
+                    }
+                    if !field_name(&name) {
+                        return Err(format!("'{{{name}}}' is not a field name"));
+                    }
+                    parts.push(Part::Field(name));
+                }
+                '}' => return Err("unmatched '}'".into()),
+                c => literal.push(c),
             }
-            if start > 0 {
-                parts.push(Part::Text(rest[..start].to_owned()));
-            }
-            let end = rest[start..].find('}').ok_or("unclosed '{'")? + start;
-            let name = &rest[start + 1..end];
-            if !field_name(name) {
-                return Err(format!("'{{{name}}}' is not a field name"));
-            }
-            parts.push(Part::Field(name.to_owned()));
-            rest = &rest[end + 1..];
         }
-        if rest.contains('}') {
-            return Err("unmatched '}'".into());
-        }
-        if !rest.is_empty() {
-            parts.push(Part::Text(rest.to_owned()));
+        if !literal.is_empty() {
+            parts.push(Part::Text(literal));
         }
         Ok(Self(parts))
     }
@@ -75,7 +89,21 @@ impl Template {
     /// with `-` is refused: row fields are written by agents, and such a
     /// value would reach the program as an option. A literal `-q` is fine.
     pub fn fill_argument(&self, row: &Value) -> Result<String, String> {
-        let filled = self.fill(row)?;
+        self.fill_argument_with_board_pane(row, None)
+    }
+
+    pub fn uses_field(&self, name: &str) -> bool {
+        self.0
+            .iter()
+            .any(|part| matches!(part, Part::Field(field) if field == name))
+    }
+
+    pub fn fill_argument_with_board_pane(
+        &self,
+        row: &Value,
+        board_pane: Option<&str>,
+    ) -> Result<String, String> {
+        let filled = self.fill_with_board_pane(row, board_pane)?;
         match self.0.first() {
             Some(Part::Field(field)) if filled.starts_with('-') => Err(format!(
                 "{field} starts with '-' and would be read as an option; refused"
@@ -87,14 +115,26 @@ impl Template {
     /// Fills every field from the row. A missing or empty value refuses the
     /// action rather than producing an empty or shifted argument.
     pub fn fill(&self, row: &Value) -> Result<String, String> {
+        self.fill_with_board_pane(row, None)
+    }
+
+    pub fn fill_with_board_pane(
+        &self,
+        row: &Value,
+        board_pane: Option<&str>,
+    ) -> Result<String, String> {
         let mut out = String::new();
         for part in &self.0 {
             match part {
                 Part::Text(text) => out.push_str(text),
                 Part::Field(field) => {
-                    let value = field_value(row, field)
-                        .filter(|value| !value.is_empty())
-                        .ok_or_else(|| format!("{field} is empty for this row"))?;
+                    let value = (if field == "board_pane" {
+                        board_pane
+                    } else {
+                        field_value(row, field)
+                    })
+                    .filter(|value| !value.is_empty())
+                    .ok_or_else(|| format!("{field} is empty for this row"))?;
                     out.push_str(value);
                 }
             }
@@ -107,6 +147,7 @@ impl Template {
 /// squad field.
 pub fn field_value<'a>(row: &'a Value, field: &str) -> Option<&'a str> {
     match field {
+        "board_pane" => None, // Reserved invocation context is never agent-authored metadata.
         "name" | "id" | "lifetime" | "presence" | "state" | "pending" | "note" => {
             row[field].as_str()
         }
@@ -125,6 +166,48 @@ pub fn field_value<'a>(row: &'a Value, field: &str) -> Option<&'a str> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn literal_braces_round_trip_without_becoming_placeholders() {
+        let row = json!({"pane": {"id": "%5"}});
+        for (source, filled) in [
+            ("{{left-of}}", "{left-of}"),
+            ("{{{pane}}}", "{%5}"),
+            ("x}}y{{z", "x}y{z"),
+        ] {
+            let template = Template::parse(source).unwrap();
+            assert_eq!(template.fill(&row).unwrap(), filled);
+            assert_eq!(Template::parse(&template.source()).unwrap(), template);
+        }
+    }
+
+    #[test]
+    fn board_pane_requires_supplied_context_and_never_reads_agent_metadata() {
+        let row = json!({"board_pane": "%99", "fields": {"board_pane": "%88"}, "name": "a; $(touch /never)"});
+        let template = Template::parse("{board_pane}").unwrap();
+        assert!(template.uses_field("board_pane"));
+        assert_eq!(
+            template.fill(&row).unwrap_err(),
+            "board_pane is empty for this row"
+        );
+        assert_eq!(
+            template.fill_with_board_pane(&row, Some("%7")).unwrap(),
+            "%7"
+        );
+        assert!(template.fill_with_board_pane(&row, Some("")).is_err());
+        assert!(
+            template
+                .fill_argument_with_board_pane(&row, Some("--bad"))
+                .is_err()
+        );
+        assert_eq!(
+            Template::parse("--board={board_pane}")
+                .unwrap()
+                .fill_argument_with_board_pane(&row, Some("%7"))
+                .unwrap(),
+            "--board=%7"
+        );
+    }
 
     #[test]
     fn host_session_and_window_fill_only_from_the_published_location() {

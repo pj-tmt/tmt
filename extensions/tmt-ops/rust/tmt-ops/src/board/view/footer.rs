@@ -12,8 +12,28 @@ use unicode_width::UnicodeWidthStr;
 
 /// The word a hint shows for an action: its verb name, except where the name
 /// is an internal spelling (`next-pane`) or the target matters.
-pub(in crate::board) fn hint_word(app: &App, action: &crate::action::Action) -> &'static str {
+pub(in crate::board) fn hint_word(app: &App, action: &crate::action::Action) -> String {
     use crate::action::Verb;
+    if action.verb == Verb::Swap {
+        return format!(
+            "swap {}",
+            action
+                .args
+                .first()
+                .and_then(|arg| arg.literal())
+                .unwrap_or("?")
+        );
+    }
+    if app.workspace_snapshot().is_some() && action.verb == Verb::Run {
+        return format!(
+            "run {}",
+            action
+                .args
+                .first()
+                .and_then(|arg| arg.literal())
+                .unwrap_or("?")
+        );
+    }
     let lead = action.args.first().and_then(|arg| arg.literal()) == Some("lead");
     match action.verb {
         Verb::NextPane => "pane",
@@ -43,6 +63,7 @@ pub(in crate::board) fn hint_word(app: &App, action: &crate::action::Action) -> 
         Verb::Ui(action) => action.spec().label,
         verb => verb.name(),
     }
+    .to_owned()
 }
 
 /// The key a hint shows for an event.
@@ -81,6 +102,7 @@ pub(in crate::board) fn row_allows(app: &App, action: &crate::action::Action) ->
         && matches!(
             action.verb,
             Verb::Jump
+                | Verb::Swap
                 | Verb::HomeMessage
                 | Verb::Talk
                 | Verb::Annotate
@@ -329,11 +351,11 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
             )
             && action.verb == Verb::Talk
         {
-            "message lead"
+            "message lead".to_owned()
         } else {
             hint_word(app, action)
         };
-        first.push(("⏎".into(), word.into()));
+        first.push(("⏎".into(), word));
         seen.push(action.verb);
     }
     for (verb, preferred, word) in [
@@ -351,16 +373,23 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
         {
             continue;
         }
-        if let Some(key) = find(verb, preferred) {
-            let word = if verb == Verb::Ui(Ui::Pin) {
-                bindings
-                    .get(&key)
-                    .map_or(word, |action| hint_word(app, action))
+        let host_key = (verb == Verb::Jump)
+            .then(|| bindings.get("j"))
+            .flatten()
+            .filter(|action| {
+                matches!(action.verb, Verb::Jump | Verb::Swap | Verb::Run)
+                    && row_allows(app, action)
+            })
+            .map(|_| "j".to_owned());
+        if let Some(key) = host_key.or_else(|| find(verb, preferred)) {
+            let action = &bindings[&key];
+            let word = if matches!(verb, Verb::Jump | Verb::Ui(Ui::Pin)) {
+                hint_word(app, action)
             } else {
-                word
+                word.to_owned()
             };
-            first.push((key_label(&key).into(), word.into()));
-            seen.push(verb);
+            first.push((key_label(&key).into(), word));
+            seen.push(action.verb);
         }
     }
     for (verb, preferred) in [
@@ -372,7 +401,7 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
             && let Some(key) = find(Verb::Ui(verb), preferred)
             && let Some(action) = bindings.get(&key)
         {
-            first.push((key_label(&key).into(), hint_word(app, action).into()));
+            first.push((key_label(&key).into(), hint_word(app, action)));
         }
     }
     let mut second = Vec::new();
@@ -528,7 +557,7 @@ fn workspace_hints(app: &App, width: usize) -> String {
             continue;
         }
         let word = hint_word(app, action);
-        let hint = (key_label(key).to_owned(), word.to_owned());
+        let hint = (key_label(key).to_owned(), word);
         if matches!(action.verb, Verb::Ui(OpsUiAction::Help | OpsUiAction::Quit)) {
             if action.verb == Verb::Ui(OpsUiAction::Help) {
                 help_hint = Some(hint.clone());

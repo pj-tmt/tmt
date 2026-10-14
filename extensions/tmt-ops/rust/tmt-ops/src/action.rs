@@ -13,6 +13,8 @@ use std::collections::BTreeMap;
 pub enum Verb {
     Ui(OpsUiAction),
     Jump,
+    /// Exchange the selected pane with the caller's directional neighbour through Core.
+    Swap,
     Back,
     Open,
     Copy,
@@ -49,6 +51,7 @@ impl Verb {
     fn parse(name: &str) -> Option<Self> {
         Some(match name {
             "jump" => Self::Jump,
+            "swap" => Self::Swap,
             "back" => Self::Back,
             "open" => Self::Open,
             "copy" => Self::Copy,
@@ -85,6 +88,7 @@ impl Verb {
             || matches!(
                 self,
                 Self::Jump
+                    | Self::Swap
                     | Self::Open
                     | Self::Copy
                     | Self::Run
@@ -102,6 +106,7 @@ impl Verb {
         match self {
             Self::Ui(action) => action.spec().name,
             Self::Jump => "jump",
+            Self::Swap => "swap",
             Self::Back => "back",
             Self::Open => "open",
             Self::Copy => "copy",
@@ -198,6 +203,7 @@ impl Action {
             Verb::Annotate | Verb::UpdateStatus => 2,
             Verb::Digest => 3,
             Verb::Jump if !lead => 3,
+            Verb::Swap => 3,
             Verb::Open => 4,
             Verb::Copy => 5,
             Verb::Notes => 6,
@@ -232,6 +238,10 @@ impl Action {
             }
             Verb::Jump if target == Some("lead") => "go to the squad lead's pane".into(),
             Verb::Jump => "go to the member's pane".into(),
+            Verb::Swap => format!(
+                "swap the member into the {} pane beside the board",
+                target.unwrap_or("selected")
+            ),
             Verb::Back => "go back to the previous pane".into(),
             Verb::Open => "open the member's link".into(),
             Verb::Copy => "copy from the selected row".into(),
@@ -269,6 +279,22 @@ impl Action {
             Verb::Annotate => "write a note to the lead about this row".into(),
             Verb::UpdateStatus => "update the member's manual status".into(),
             Verb::Digest => "change the member's digest".into(),
+        }
+    }
+
+    /// Workspace wording is shared by its Help and narrow host-action editor;
+    /// independent CLI/config projections retain their existing description.
+    pub fn workspace_description(&self) -> String {
+        match self.verb {
+            Verb::Jump => "focus the member's pane".into(),
+            Verb::Run => format!(
+                "run {} for this member",
+                self.args
+                    .first()
+                    .and_then(Template::literal)
+                    .unwrap_or("program")
+            ),
+            _ => self.description(),
         }
     }
 
@@ -321,6 +347,10 @@ impl Action {
                 "lead" => vec![Template::parse("lead")?],
                 other => return Err(format!("jump takes nothing or lead, not '{other}'")),
             },
+            Verb::Swap => match rest {
+                "left" | "right" | "up" | "down" => vec![Template::parse(rest)?],
+                _ => return Err("swap takes left, right, up or down".into()),
+            },
             Verb::Annotate => match rest {
                 "" | "lead" => vec![Template::parse("lead")?],
                 "member" => vec![Template::parse("member")?],
@@ -365,7 +395,25 @@ impl Action {
     /// `run`: the complete argv. Each template becomes exactly one element,
     /// and no row value can become an option.
     pub fn argv(&self, row: &Value) -> Result<Vec<String>, String> {
-        self.args.iter().map(|arg| arg.fill_argument(row)).collect()
+        self.argv_with_board_pane(row, None)
+    }
+
+    pub fn argv_with_board_pane(
+        &self,
+        row: &Value,
+        board_pane: Option<&str>,
+    ) -> Result<Vec<String>, String> {
+        self.args
+            .iter()
+            .map(|arg| match board_pane {
+                Some(pane) => arg.fill_argument_with_board_pane(row, Some(pane)),
+                None => arg.fill_argument(row),
+            })
+            .collect()
+    }
+
+    pub fn needs_board_pane(&self) -> bool {
+        self.args.iter().any(|arg| arg.uses_field("board_pane"))
     }
 }
 
@@ -557,6 +605,27 @@ mod tests {
         ] {
             assert!(!valid_event(event), "{event}");
         }
+    }
+    #[test]
+    fn swap_is_a_literal_direction_member_action_and_custom_run_stays_shared() {
+        for direction in ["left", "right", "up", "down"] {
+            let action = super::Action::parse(&format!("swap {direction}")).unwrap();
+            assert_eq!(action.verb, super::Verb::Swap);
+            assert!(action.verb.acts_on_member());
+            assert_eq!(action.args[0].literal(), Some(direction));
+        }
+        for bad in ["swap", "swap next", "swap {pane}", "swap left right"] {
+            assert!(super::Action::parse(bad).is_err(), "{bad}");
+        }
+        let action = super::Action::parse("run echo {board_pane} {{left-of}} {name}").unwrap();
+        let row =
+            serde_json::json!({"name": "a; $(touch /never)", "fields": {"board_pane": "%99"}});
+        assert!(action.needs_board_pane());
+        assert!(action.argv(&row).is_err());
+        assert_eq!(
+            action.argv_with_board_pane(&row, Some("%1")).unwrap(),
+            vec!["echo", "%1", "{left-of}", "a; $(touch /never)"]
+        );
     }
 
     #[test]
