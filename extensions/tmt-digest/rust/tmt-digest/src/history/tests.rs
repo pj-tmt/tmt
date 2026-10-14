@@ -1,39 +1,13 @@
 //! Observable formula, private persistence and window evidence, independent inputs.
 
+use super::test_support::{Fixture, ID, event};
 use super::*;
 use crate::history::{collect, model};
 use serde_json::{Value, json};
 use std::{
     fs,
     os::unix::fs::{PermissionsExt, symlink},
-    path::PathBuf,
-    sync::atomic::{AtomicU64, Ordering},
 };
-const ID: &str = "10000000-0000-4000-8000-000000000001";
-static NEXT: AtomicU64 = AtomicU64::new(0);
-struct Fixture(PathBuf);
-impl Fixture {
-    fn new() -> Self {
-        let path = std::env::temp_dir().join(format!(
-            "digest-history-{}-{}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::create_dir(&path).unwrap();
-        Self(path)
-    }
-    fn store(&self) -> Store {
-        Store::open(&self.0, true).unwrap().unwrap()
-    }
-}
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        fs::remove_dir_all(&self.0).unwrap();
-    }
-}
-fn event(seq: u64, time: u64, contexts: &[Option<u64>]) -> model::ChecklistSettlement {
-    serde_json::from_value(json!({"checklistId":format!("20000000-0000-4000-8000-{seq:012}"),"settlementSequence":seq,"claimedAtMs":time-1,"settledAtMs":time,"outcome":"delivered","opportunity":"idle","sealedCount":contexts.len(),"retainedCount":contexts.len(),"membershipComplete":true,"nextItemAfter":null,"items":contexts.iter().enumerate().map(|(index,context)|json!({"sequence":index+1,"createdAtMs":time-2,"contextTokensAtArrival":context,"contextObservedAtMs":context.map(|_|time-3)})).collect::<Vec<_>>()})).unwrap()
-}
 fn vectors() -> Value {
     serde_json::from_str(
         &fs::read_to_string(concat!(
@@ -74,7 +48,7 @@ fn restart_deduplication_atomic_rollback_and_read_only_projection() {
         store
             .status(ID, Window::Lifetime, start + 200, Some(12))
             .unwrap(),
-        json!({"method":METHOD,"window":"lifetime","fromMs":start,"throughMs":start+200,"estimatedInputTokensAvoided":2700,"avoidedSeparateDeliveries":2,"complete":true,"gap":null})
+        json!({"method":METHOD,"window":"lifetime","fromMs":start,"throughMs":start+200,"estimatedInputTokensAvoided":2700,"avoidedSeparateDeliveries":2,"complete":true,"gap":null,"cost":null,"percent":null})
     );
     store.0.execute_batch("CREATE TRIGGER fail_event BEFORE INSERT ON events BEGIN SELECT RAISE(ABORT,'fixture write failure'); END;").unwrap();
     assert!(
@@ -232,7 +206,7 @@ fn clock_rollback_and_store_admission_never_create_zero_evidence() {
         store.status(ID, Window::Lifetime, 1001, Some(1)).unwrap()["gap"],
         "clock_discontinuity"
     );
-    store.0.pragma_update(None, "user_version", 2).unwrap();
+    store.0.pragma_update(None, "user_version", 3).unwrap();
     drop(store);
     assert!(Store::open(&fixture.0, true).is_err());
     let before = fs::read(fixture.0.join("digest/history/history.sqlite")).unwrap();

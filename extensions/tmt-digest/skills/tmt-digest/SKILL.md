@@ -43,7 +43,7 @@ Successful ticks print nothing. Invalid settings, unavailable Core and delivery 
 
 ## Read status
 
-`tmt digest status --json` returns one read-only document for all saved identities, with resolved modes, held-message counts and ready-made labels. Use `--window 24h|7d|lifetime` (default 24h) for estimated context-input tokens avoided. Lifetime starts when Digest begins collecting; unavailable or incomplete evidence is never zero. This is a gross estimate, not billed tokens or turns saved. It does not tick, deliver messages or change settings.
+`tmt digest status --json` returns one read-only document for all saved identities, with resolved modes, held-message counts and ready-made labels. Use `--window 24h|7d|lifetime` (default 24h) for estimated context-input tokens avoided. Lifetime starts when Digest begins collecting; unavailable or incomplete evidence is never zero. This is a gross estimate, not billed tokens or turns saved. Additive `cost` quotes the latest evidenced model at standard base uncached input list price; label it as an estimate at list price, never money saved. `percent` matches whole closed-minute input evidence for 24h or 7d; lifetime percent is null. Missing prices, models or coverage remain null. It does not tick, deliver messages or change settings.
 
 ## Inspect help and the skill
 
