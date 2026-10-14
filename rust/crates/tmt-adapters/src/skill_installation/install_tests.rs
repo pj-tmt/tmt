@@ -1,4 +1,4 @@
-use super::{InstallFailure, ProviderEnvironment, bundled_skill, install};
+use super::{InstallFailure, ProviderEnvironment, bundled_skill, bundled_skill_named, install};
 use crate::test_support::TestDirectory;
 use sha2::{Digest, Sha256};
 use std::{
