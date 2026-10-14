@@ -74,6 +74,35 @@ impl State {
     }
 }
 impl App {
+    /// Describe the placement that this frame actually painted, without
+    /// choosing another layout or reserving another editor row.
+    pub(in crate::board) fn composer_layout_reason(&self) -> Option<&'static str> {
+        use crate::{board::shell::OpsTab, config::OpsLayout};
+        if self.shell.tab != OpsTab::Agents {
+            return None;
+        }
+        let preference = self.workspace_snapshot()?.preferences.layout;
+        let state = self.conversation.borrow();
+        if state.area.width == 0 {
+            return None;
+        }
+        let side = state.pane.is_some_and(|pane| pane.x > state.area.x);
+        let stack = state.pane.is_some_and(|pane| pane.y > state.area.y);
+        if !side && !stack {
+            Some(if state.area.width < 80 {
+                "narrow window"
+            } else {
+                "low window"
+            })
+        } else if preference == OpsLayout::Side && stack {
+            Some("side layout does not fit")
+        } else if preference == OpsLayout::Stack && side {
+            Some("stack layout does not fit")
+        } else {
+            None
+        }
+    }
+
     pub(in crate::board) fn quote_caption(
         &self,
         quote: &super::response::Quote,

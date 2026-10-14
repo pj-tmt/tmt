@@ -350,3 +350,77 @@ fn every_correlated_reply_has_one_blank_before_the_next_turn_after_source_repain
         }
     }
 }
+
+#[test]
+fn delivery_and_acquired_agent_freshness_remain_independent_after_failed_reads() {
+    use crate::board::workspace::OpsObservation;
+    for source in ["roster", "squad", "membership", "read-error"] {
+        let mut app = crate::board::app::workspace::tests::board();
+        let fake = Fake::new(json!({"requestId":"req-freshness","status":"sent"}), false);
+        let completed = send(&mut app, &fake, "one explicit message");
+        finish(&mut app, completed);
+        let _no_acquisition = crate::runner::forbid_commands();
+        draw(&app);
+        assert!(
+            !app.conversation
+                .borrow()
+                .sessions
+                .values()
+                .next()
+                .unwrap()
+                .agent_mark
+                .contains("stale")
+        );
+        match source {
+            "roster" => {
+                app.view
+                    .as_mut()
+                    .unwrap()
+                    .home
+                    .as_mut()
+                    .unwrap()
+                    .workspace
+                    .roster
+                    .observation = OpsObservation::Stale
+            }
+            "squad" => {
+                app.view
+                    .as_mut()
+                    .unwrap()
+                    .home
+                    .as_mut()
+                    .unwrap()
+                    .workspace
+                    .roster
+                    .squads[0]
+                    .observation = OpsObservation::Partial
+            }
+            "membership" => {
+                app.view
+                    .as_mut()
+                    .unwrap()
+                    .home
+                    .as_mut()
+                    .unwrap()
+                    .workspace
+                    .roster
+                    .membership_complete = false
+            }
+            "read-error" => app.error = Some("retained after failed read".into()),
+            _ => unreachable!(),
+        }
+        draw(&app);
+        let state = app.conversation.borrow();
+        let session = state.sessions.values().next().unwrap();
+        assert!(
+            session.agent_mark.contains("worker working · stale"),
+            "{source}: {}",
+            session.agent_mark
+        );
+        assert!(
+            session.text.contains("✓ delivered"),
+            "{source}: delivery stays the typed acceptance fact"
+        );
+        assert_eq!(session.outgoing.len(), 1, "a failed read never resends");
+    }
+}

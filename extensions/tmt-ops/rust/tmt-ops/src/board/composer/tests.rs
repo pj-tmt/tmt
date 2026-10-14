@@ -631,3 +631,197 @@ fn quote_remove_is_a_current_whole_control_and_retains_text_and_other_quotes() {
         assert_eq!(projection.text.unwrap().as_str(), "kept message");
     }
 }
+
+#[test]
+fn degraded_layout_explains_the_painted_fallback_without_losing_the_editor_row() {
+    use crate::config::OpsLayout;
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    for preference in [OpsLayout::Auto, OpsLayout::Side, OpsLayout::Stack] {
+        for width in [60, 80, 100, 140, 160] {
+            for height in [8, 18, 24, 36, 44] {
+                for focused in [false, true] {
+                    let mut app = crate::board::app::workspace::tests::board();
+                    app.view
+                        .as_mut()
+                        .unwrap()
+                        .home
+                        .as_mut()
+                        .unwrap()
+                        .workspace
+                        .preferences
+                        .layout = preference;
+                    let selected = app.workspace.selected.clone();
+                    if focused {
+                        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+                        app.paste("kept draft");
+                    }
+                    let buffer = draw(&mut app, width, height);
+                    let painted: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
+                    let band = app.input_band.get().unwrap();
+                    let editor = app.input_viewport.get().unwrap().0;
+                    assert!(
+                        !editor.is_empty() && editor.intersection(band) == editor,
+                        "{preference:?} {width}×{height} {focused}"
+                    );
+                    assert_eq!(app.workspace.selected, selected);
+                    if let Some(reason) = app.composer_layout_reason() {
+                        assert!(
+                            painted.contains(reason),
+                            "{preference:?} {width}×{height} {focused}: {painted}"
+                        );
+                    }
+                    assert!(painted.contains("Message → worker"));
+                    if focused {
+                        assert_eq!(app.input.as_ref().unwrap().text.as_str(), "kept draft");
+                    } else {
+                        assert!(
+                            painted.contains("⏎ write"),
+                            "{preference:?} {width}×{height}: {painted}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn paste_preview_remove_and_refusal_preserve_exact_payload_and_other_uuid_drafts() {
+    use crate::board::app::{Effect, Request};
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    for kib in [1, 10, 100] {
+        let mut app = app();
+        open(&mut app, "auth-fix");
+        app.paste("before ");
+        let payload = format!(
+            "  \r\n{}\n漢字 e\u{301}\n\x1b[31m\n  ",
+            "x".repeat(kib * 1024)
+        );
+        assert_eq!(app.paste(&payload), Effect::None);
+        let exact = format!("before {payload}");
+        assert_eq!(app.input.as_ref().unwrap().text.folds().len(), 1);
+        assert!(app.input.as_ref().unwrap().text.layout(80).lines.len() < 4);
+        app.key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL));
+        assert!(app.input.as_ref().unwrap().text.layout(80).lines.len() > 8);
+        assert_eq!(app.input.as_ref().unwrap().text.as_str(), exact);
+        app.key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL));
+        app.key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+        assert_eq!(app.input.as_ref().unwrap().text.as_str(), "before ");
+        assert!(app.input.as_ref().unwrap().text.folds().is_empty());
+        app.paste(&payload);
+        open(&mut app, "docs");
+        app.paste("other UUID draft");
+        open(&mut app, "auth-fix");
+        for width in [160, 100, 80, 60] {
+            app.set_body_width(width);
+            assert_eq!(app.input.as_ref().unwrap().text.as_str(), exact);
+            assert_eq!(app.input.as_ref().unwrap().text.folds().len(), 1);
+        }
+        app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["id"] = json!("replacement");
+        assert_eq!(
+            app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            Effect::None
+        );
+        assert_eq!(
+            app.input.as_ref().unwrap().text.as_str(),
+            exact,
+            "refusal keeps the exact folded payload"
+        );
+        assert_eq!(app.input.as_ref().unwrap().text.folds().len(), 1);
+        app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["id"] = json!("auth-fix");
+        assert!(
+            matches!(app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)), Effect::Act(Request::Talk { to, text, .. }) if to == "auth-fix" && text == exact)
+        );
+        open(&mut app, "docs");
+        assert_eq!(
+            app.input.as_ref().unwrap().text.as_str(),
+            "other UUID draft"
+        );
+    }
+}
+
+#[test]
+fn removing_last_membership_restores_the_same_uuid_draft_in_pool_and_name_reuse_is_empty() {
+    use crate::board::{app::Effect, workspace::OpsTarget};
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let mut app = crate::board::app::workspace::tests::board();
+    let id = crate::board::app::workspace::tests::MEMBER;
+    let old_target = app.workspace.selected.clone().unwrap();
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    let payload = "draft\n".repeat(200);
+    app.paste(&payload);
+    let key = app.input.as_ref().unwrap().draft_key.clone();
+    let quote = attached_quote(id, "kept source quote");
+    app.input
+        .as_mut()
+        .unwrap()
+        .response_quotes
+        .push(quote.clone());
+    let pool = OpsTarget::Member {
+        room_id: None,
+        identity_id: id.into(),
+    };
+    {
+        let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+        for squad in &mut workspace.roster.squads {
+            squad.members.retain(|member| member != id);
+            squad.member_states.remove(id);
+            if squad.lead.as_deref() == Some(id) {
+                squad.lead = None;
+            }
+        }
+        let row = workspace.rows.remove(&old_target).unwrap();
+        workspace.rows.insert(pool.clone(), row);
+    }
+    app.workspace_reconcile();
+    assert_eq!(
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+        Effect::None,
+        "the removed occurrence refuses before sending"
+    );
+    assert_eq!(app.input.as_ref().unwrap().text.as_str(), payload);
+    app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    app.workspace.pool_expanded = true;
+    app.workspace.selected = Some(pool.clone());
+    app.workspace_reconcile();
+    draw(&mut app, 100, 36);
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    let input = app.input.as_ref().unwrap();
+    assert_eq!(input.draft_key, key);
+    assert_eq!(input.text.as_str(), payload);
+    assert_eq!(input.text.folds().len(), 1);
+    assert_eq!(input.response_quotes, vec![quote]);
+    assert!(
+        input.squad.is_empty(),
+        "the old membership grants no squad scope in Common pool"
+    );
+    app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    let replacement = OpsTarget::Member {
+        room_id: None,
+        identity_id: "88888888-8888-4888-8888-888888888888".into(),
+    };
+    {
+        let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+        let mut member = workspace.roster.members.remove(id).unwrap();
+        member.id = "88888888-8888-4888-8888-888888888888".into();
+        workspace.roster.members.insert(member.id.clone(), member);
+        let mut row = workspace.rows.remove(&pool).unwrap();
+        row["id"] = json!("88888888-8888-4888-8888-888888888888");
+        workspace.rows.insert(replacement.clone(), row);
+    }
+    app.workspace.selected = Some(replacement);
+    app.workspace_reconcile();
+    draw(&mut app, 60, 18);
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(app.input.as_ref().unwrap().text.is_empty());
+    assert!(app.input.as_ref().unwrap().response_quotes.is_empty());
+    assert_eq!(
+        app.composer
+            .drafts
+            .get(key.as_ref().unwrap())
+            .unwrap()
+            .text
+            .as_str(),
+        payload
+    );
+}

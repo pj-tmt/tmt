@@ -378,6 +378,15 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
         row["name"].as_str().unwrap_or("unknown agent"),
         row["state"].as_str().unwrap_or("unknown"),
         app.loading()
+            || app.error.is_some()
+            || app.workspace_snapshot().is_some_and(|snapshot| {
+                use super::workspace::{OpsObservation, OpsTarget};
+                snapshot.roster.observation != OpsObservation::Complete
+                    || !snapshot.roster.membership_complete
+                    || matches!(&target, RowTarget::Workspace(OpsTarget::Member { room_id: Some(room), .. })
+                        if snapshot.roster.squads.iter().find(|squad| &squad.room_id == room)
+                            .is_none_or(|squad| squad.observation != OpsObservation::Complete))
+            })
             || app
                 .view
                 .as_ref()

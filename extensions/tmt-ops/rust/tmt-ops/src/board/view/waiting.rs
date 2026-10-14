@@ -185,8 +185,16 @@ pub(in crate::board) fn inline_prompt(
             Role::Dim
         };
         let content = if band.height >= 3 && band.width >= 3 {
+            let reason = app
+                .composer_layout_reason()
+                .map_or_else(String::new, |reason| format!(" · {reason}"));
+            let name = super::fit(
+                &crate::board::notes::sanitize(projection.recipient),
+                usize::from(band.width)
+                    .saturating_sub(14 + unicode_width::UnicodeWidthStr::width(reason.as_str())),
+            );
             let outline = tmt_tui::components::Outline {
-                title: Line::from(format!(" Message → {} ", projection.recipient)),
+                title: Line::from(format!(" Message → {}{reason} ", name.trim_end())),
                 border: look.role(border_role),
                 title_style: look.role(border_role),
             };
