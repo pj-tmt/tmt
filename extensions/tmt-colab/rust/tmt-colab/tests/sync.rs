@@ -1929,6 +1929,39 @@ fn the_page_a_peer_opens_is_the_active_page_for_cloud_sync_and_an_ack_is_not() {
 }
 
 #[test]
+fn a_page_is_touched_for_cloud_sync_only_once_its_append_is_stored() {
+    let f = Fixture::new();
+    let activity = ActivePage::default();
+    f.server.set_activity(activity.clone()).unwrap();
+    let mut alice = f.peer(ALICE);
+    send(&mut alice, f.frame("subscribe", json!({"cursors":[]})));
+    let seen = activity.wait(0, Duration::ZERO).version;
+    // The worker reads the Store the moment it is woken, and is not asked again if it finds
+    // nothing.
+    let store = Store::open(&Layout::open(&f.root).unwrap()).unwrap();
+    let waiter = std::thread::spawn({
+        let activity = activity.clone();
+        move || {
+            let woken = activity.wait(seen, Duration::from_secs(5));
+            assert!(woken.version > seen);
+            store
+                .payload(
+                    StreamScope {
+                        page: PAGE,
+                        epoch: 1,
+                        stream: ALICE,
+                    },
+                    1,
+                )
+                .unwrap()
+        }
+    });
+    let (frame, _, bytes) = f.append(ALICE, 1, [0; 32], "content", 20);
+    send(&mut alice, frame);
+    assert_eq!(waiter.join().unwrap(), Some(bytes));
+}
+
+#[test]
 fn an_ingested_original_is_stored_and_announced_like_a_browser_append_without_a_receipt() {
     let f = Fixture::new();
     let mut bob = f.peer(BOB);

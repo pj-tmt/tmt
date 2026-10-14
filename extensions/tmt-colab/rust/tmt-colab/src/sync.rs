@@ -957,22 +957,15 @@ impl<A: Admission> State<A> {
             return Err(Code::ResyncRequired);
         }
         self.peers.get_mut(&id).ok_or(Code::Denied)?.scope = Some(scope.clone());
-        if matches!(
-            &frame,
-            Frame::Hello { .. }
-                | Frame::Subscribe { .. }
-                | Frame::Append { .. }
-                | Frame::Chunk { .. }
-                | Frame::Save { .. }
-                | Frame::Compact { .. }
-        ) && let Ok(epoch) = values::decimal(&scope.epoch, false)
-        {
-            self.activity.touch(PageRef {
-                space: scope.space.clone(),
-                page: scope.page.clone(),
-                epoch,
-            });
+        // Opening a page names it the active one. A write names it only once it is stored: a
+        // pass that ran first would find nothing to publish and would not be asked again.
+        if matches!(&frame, Frame::Hello { .. } | Frame::Subscribe { .. }) {
+            self.touch(&scope);
         }
+        let writes = matches!(
+            &frame,
+            Frame::Append { .. } | Frame::Chunk { .. } | Frame::Compact { .. }
+        );
         let subscribing = matches!(&frame, Frame::Subscribe { .. });
         match frame {
             Frame::Object { .. } => return Err(Code::Invalid),
@@ -1264,7 +1257,20 @@ impl<A: Admission> State<A> {
                 self.reply_save(id, &scope, &reply)?;
             }
         }
+        if writes {
+            self.touch(&scope);
+        }
         Ok(None)
+    }
+    /// Ask the cloud-sync worker to look at this page.
+    fn touch(&self, scope: &SyncScope) {
+        if let Ok(epoch) = values::decimal(&scope.epoch, false) {
+            self.activity.touch(PageRef {
+                space: scope.space.clone(),
+                page: scope.page.clone(),
+                epoch,
+            });
+        }
     }
     /// An assembled source, once its bytes match the digest the client bound to it.
     fn save_job(
@@ -1439,6 +1445,7 @@ impl<A: Admission> State<A> {
             if let Some(combined) = &combined {
                 self.announce_combined(&scope, combined);
             }
+            self.touch(&scope);
         }
         Ok(SaveFinish::Replied)
     }
