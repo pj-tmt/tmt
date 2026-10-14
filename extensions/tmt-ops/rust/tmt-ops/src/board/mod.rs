@@ -24,6 +24,8 @@ mod meter;
 pub(crate) mod notes;
 mod picker_surface;
 mod rate;
+#[cfg(test)]
+mod recovery;
 mod refresh;
 mod reload;
 mod response;
