@@ -218,7 +218,7 @@ fn exact_response_selection_attaches_to_a_retained_draft_without_acknowledging()
     assert_eq!(quote.text, source);
     assert_eq!(app.view.as_ref().unwrap().document, before);
     press(&mut app, KeyCode::Esc);
-    press(&mut app, KeyCode::Char('t'));
+    press(&mut app, KeyCode::Enter);
     assert_eq!(app.input.as_ref().unwrap().response_quotes[0].text, source);
     app.key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::ALT));
     assert!(app.input.as_ref().unwrap().response_quotes.is_empty());

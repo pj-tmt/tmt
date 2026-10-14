@@ -162,7 +162,7 @@ fn agents_composer_is_visible_idle_and_escape_keeps_the_uuid_draft_at_every_widt
         assert!(painted.contains("[ Send ] │"));
         assert!(app.input.is_none());
         assert!(app.input_band.get().unwrap().height >= 1);
-        app.key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         let key = app.input.as_ref().unwrap().draft_key.clone().unwrap();
         assert_eq!(key.1, crate::board::app::workspace::tests::MEMBER);
         app.paste("retained exact draft");
@@ -177,7 +177,7 @@ fn agents_composer_is_visible_idle_and_escape_keeps_the_uuid_draft_at_every_widt
         );
         app.key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
         assert!(app.input.is_none(), "idle list keys never edit the draft");
-        app.key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         assert_eq!(app.input.as_ref().unwrap().draft_key.as_ref(), Some(&key));
         assert_eq!(
             app.input.as_ref().unwrap().text.as_str(),
@@ -233,7 +233,7 @@ fn boxed_send_is_clickable_only_on_its_current_whole_uuid_fenced_button() {
         draw(&mut app, width, 18);
         let hit = app.composer.send_hit.borrow().clone().unwrap();
         app.key(ratatui::crossterm::event::KeyEvent::new(
-            ratatui::crossterm::event::KeyCode::Char('t'),
+            ratatui::crossterm::event::KeyCode::Enter,
             KeyModifiers::NONE,
         ));
         app.paste("explicit button text");
@@ -282,4 +282,172 @@ fn low_composer_keeps_a_bordered_editable_row_and_clipped_buttons_have_no_hit() 
             }
         }
     }
+}
+
+#[test]
+fn first_enter_focuses_retained_uuid_draft_and_only_a_new_active_press_submits() {
+    use crate::board::app::{Effect, Request};
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+    for width in [160, 100, 60] {
+        let mut app = crate::board::app::workspace::tests::board();
+        draw(&mut app, width, 18);
+        assert!(!app.bindings().contains_key("t"));
+        assert_eq!(
+            app.key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE)),
+            Effect::None
+        );
+        assert!(app.input.is_none());
+        assert_eq!(
+            app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            Effect::None
+        );
+        let key = app.input.as_ref().unwrap().draft_key.clone().unwrap();
+        assert_eq!(key.1, crate::board::app::workspace::tests::MEMBER);
+        assert_eq!(key.0, app.view.as_ref().unwrap().me_id.as_deref().unwrap());
+        app.paste("retained 漢字 e\u{301}");
+        app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert_eq!(
+            app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            Effect::None
+        );
+        assert_eq!(
+            app.input.as_ref().unwrap().text.as_str(),
+            "retained 漢字 e\u{301}"
+        );
+        for kind in [
+            KeyEventKind::Repeat,
+            KeyEventKind::Repeat,
+            KeyEventKind::Release,
+        ] {
+            assert_eq!(
+                app.key(KeyEvent {
+                    kind,
+                    ..KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)
+                }),
+                Effect::None
+            );
+            assert_eq!(
+                app.input.as_ref().unwrap().text.as_str(),
+                "retained 漢字 e\u{301}"
+            );
+        }
+        assert!(
+            matches!(app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)), Effect::Act(Request::Talk { to, text, .. }) if to == "worker" && text == "retained 漢字 e\u{301}")
+        );
+        app.in_flight = 1;
+        for _ in 0..3 {
+            assert_eq!(
+                app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+                Effect::None
+            );
+        }
+        assert!(app.input.as_ref().unwrap().text.is_empty());
+    }
+}
+
+#[test]
+fn enter_shift_enter_and_paste_keep_open_edit_and_submit_distinct() {
+    use crate::board::app::{Effect, Request};
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let mut app = crate::board::app::workspace::tests::board();
+    draw(&mut app, 100, 36);
+    assert_eq!(
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+        Effect::None
+    );
+    assert_eq!(
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+        Effect::None,
+        "empty active Enter never sends"
+    );
+    app.key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::SHIFT));
+    assert_eq!(app.paste("漢字 e\u{301}\ncommitted IME"), Effect::None);
+    assert_eq!(
+        app.input.as_ref().unwrap().text.as_str(),
+        "t\n漢字 e\u{301}\ncommitted IME"
+    );
+    assert!(
+        matches!(app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)), Effect::Act(Request::Talk { text, .. }) if text == "t\n漢字 e\u{301}\ncommitted IME")
+    );
+}
+
+#[test]
+fn scoped_enter_preserves_group_inspect_and_explicit_keys_in_help_and_hints() {
+    use crate::{board::app::Effect, config::OpsKeyScope};
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    for scope in [
+        OpsKeyScope::Member,
+        OpsKeyScope::Overview,
+        OpsKeyScope::Reader,
+    ] {
+        let keys = crate::config::workspace_defaults(scope);
+        assert_eq!(keys["enter"].verb, crate::action::Verb::Talk);
+        assert!(!keys.contains_key("t"));
+        assert_eq!(
+            keys.get("double-click").map(|action| action.text.as_str()),
+            if scope == OpsKeyScope::Reader {
+                None
+            } else {
+                Some("inspect")
+            }
+        );
+    }
+    for scope in [OpsKeyScope::Pool, OpsKeyScope::Squad] {
+        assert_eq!(
+            crate::config::workspace_defaults(scope)["enter"].text,
+            "inspect"
+        );
+    }
+    let mut app = crate::board::app::workspace::tests::board();
+    app.workspace.selected = Some(crate::board::workspace::OpsTarget::Squad(
+        crate::board::app::workspace::tests::ROOM.into(),
+    ));
+    app.workspace_reconcile();
+    assert_eq!(
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+        Effect::None
+    );
+    assert!(app.input.is_none(), "group Enter never invents a recipient");
+    app.workspace.selected = Some(crate::board::workspace::OpsTarget::Member {
+        room_id: Some(crate::board::app::workspace::tests::ROOM.into()),
+        identity_id: crate::board::app::workspace::tests::MEMBER.into(),
+    });
+    app.workspace
+        .expanded
+        .insert(crate::board::app::workspace::tests::ROOM.into());
+    app.workspace_reconcile();
+    let path = std::env::temp_dir().join(format!(
+        "ops-enter-override-{}.toml",
+        crate::id::new_v4().unwrap()
+    ));
+    std::fs::write(&path, "[bind]\nenter = 'menu'\nt = 'talk'\n").unwrap();
+    let config = crate::config::Config::read(path.clone()).unwrap();
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .configure(&config)
+        .unwrap();
+    std::fs::remove_file(path).unwrap();
+    draw(&mut app, 100, 36);
+    assert_eq!(app.composer_focus_hint(), "t write · click to write");
+    let help = crate::board::help::model(&app).value().to_string();
+    assert!(
+        help.contains("binding-enter") && help.contains("binding-t") && help.contains("t write")
+    );
+    assert_eq!(
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+        Effect::None
+    );
+    assert!(
+        app.menu.is_some() && app.input.is_none(),
+        "authored Enter keeps its menu effect"
+    );
+    app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+    assert!(app.input.is_some(), "authored Talk key remains valid");
 }

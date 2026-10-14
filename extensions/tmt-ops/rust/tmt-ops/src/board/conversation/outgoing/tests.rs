@@ -63,7 +63,7 @@ fn fixture() -> App {
     app
 }
 fn send(app: &mut App, fake: &Fake, text: &str) -> Completed {
-    app.key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert!(matches!(
         app.input.as_ref().unwrap().compose,
         Compose::Talk { .. }

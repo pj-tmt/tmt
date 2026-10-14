@@ -764,7 +764,7 @@ fn resize_keeps_one_editor_and_wheel_scrolls_response_without_changing_recipient
     let mut app = workspace_fixture();
     let selected = app.workspace.selected.clone();
     workspace(&mut app, 160, 36);
-    app.key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert!(app.input.is_some());
     app.paste("draft 界 e\u{301}\nsecond line");
     let key = app.input.as_ref().unwrap().draft_key.clone();
@@ -900,7 +900,7 @@ fn compact_host_label_hides_uuid_and_never_calls_reader_navigation_a_host_shortc
     let mut app = workspace_fixture();
     for focused in [false, true] {
         if focused {
-            app.key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+            app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         }
         workspace(&mut app, 100, 18);
         let mut terminal = Terminal::new(TestBackend::new(100, 18)).unwrap();

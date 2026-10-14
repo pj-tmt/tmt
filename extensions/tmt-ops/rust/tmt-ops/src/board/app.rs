@@ -2647,6 +2647,18 @@ impl App {
     }
 
     pub(in crate::board) fn input_key(&mut self, key: KeyEvent) -> Effect {
+        // Enhanced terminal reporting distinguishes a held Enter from a new
+        // submit press. Opening a retained message never arms a repeat send.
+        if key.code == KeyCode::Enter
+            && key.modifiers.is_empty()
+            && key.kind != ratatui::crossterm::event::KeyEventKind::Press
+            && self
+                .input
+                .as_ref()
+                .is_some_and(|input| input.draft_key.is_some())
+        {
+            return Effect::None;
+        }
         if matches!(key.code, KeyCode::Esc | KeyCode::Enter) {
             self.remember_draft();
         }
@@ -4171,7 +4183,7 @@ pub(crate) mod tests {
                 json!([{"requestId": "q9", "preview": "ok to merge?"}]);
         }
         app.workspace_reconcile();
-        press(&mut app, KeyCode::Char('t'));
+        press(&mut app, KeyCode::Enter);
         assert_eq!(
             app.input.as_ref().unwrap().prompt,
             "→ auth-fix (product) · talk"
@@ -4196,7 +4208,7 @@ pub(crate) mod tests {
         assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
         assert_eq!(app.notice.as_deref(), Some("Nothing sent."));
         press(&mut app, KeyCode::Esc);
-        press(&mut app, KeyCode::Char('t'));
+        press(&mut app, KeyCode::Enter);
         typed(&mut app, "draft");
         assert_eq!(press(&mut app, KeyCode::Esc), Effect::None);
         assert!(app.input.is_none() && app.notice.as_deref() == Some("Nothing sent."));
@@ -4390,11 +4402,11 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn t_opens_talk_on_a_squad_tab_and_user_bindings_still_override_it() {
+    fn enter_focuses_talk_and_an_authored_t_keeps_its_override() {
         let mut app = workspace_composer();
         app.view.as_mut().unwrap().me = Some("Ben".into());
         app.workspace_reconcile();
-        assert_eq!(press(&mut app, KeyCode::Char('t')), Effect::None);
+        assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
         assert_eq!(
             app.input.as_ref().unwrap().header(),
             "→ auth-fix (product) · talk"

@@ -24,6 +24,7 @@ fn hint_word(app: &App, action: &crate::action::Action) -> &'static str {
         Verb::Jump if lead => "jump lead",
         Verb::Jump => "host",
         Verb::Menu => "menu",
+        Verb::Talk => "chat",
         Verb::Annotate if action.args.first().and_then(|arg| arg.literal()) == Some("member") => {
             "note member"
         }

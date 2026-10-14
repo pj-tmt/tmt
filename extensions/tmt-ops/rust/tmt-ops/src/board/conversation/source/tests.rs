@@ -268,7 +268,7 @@ fn inline_quote_tracks_renamed_uuid_and_escape_dismisses_one_owner_per_press() {
     app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
     assert!(app.input.is_none());
     assert_eq!(app.focused(), Pane::Rows);
-    app.key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert_eq!(app.input.as_ref().unwrap().response_quotes.len(), 1);
 
     app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
@@ -410,7 +410,7 @@ fn inline_selection_and_drafts_never_move_between_recipient_uuids() {
         .replies
         .push(json!({"recipientId":OTHER,"requestId":"r2","response":"beta source"}));
     app.workspace_reconcile();
-    app.key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     app.paste("alpha draft");
     app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
     enter(&mut app);
@@ -420,7 +420,7 @@ fn inline_selection_and_drafts_never_move_between_recipient_uuids() {
     app.workspace.selected = Some(target_b);
     app.workspace_reconcile();
     draw(&mut app, 100, 36);
-    app.key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     app.paste("beta draft");
     assert!(app.input.as_ref().unwrap().response_quotes.is_empty());
     app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
@@ -446,7 +446,7 @@ fn inline_selection_and_drafts_never_move_between_recipient_uuids() {
 #[test]
 fn outgoing_text_and_status_have_no_response_selection_authority() {
     let mut app = fixture("baseline exact response");
-    app.key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     app.paste("outgoing is not response source");
     let Effect::Act(request) = app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)) else {
         panic!("explicit send");

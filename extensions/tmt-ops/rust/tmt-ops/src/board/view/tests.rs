@@ -196,7 +196,7 @@ fn footer_keys_are_bold_accent_and_labels_muted_in_every_board_mode() {
             !text.contains("a write") && !text.contains("A ask lead") && !text.contains("Focus:")
         );
         let help = help_lines(&app);
-        assert!(help.iter().any(|line| line.starts_with("t  ")));
+        assert!(help.iter().any(|line| line.starts_with("enter  ")));
         assert!(help.iter().any(|line| line.starts_with("j  ")));
         for list in [text] {
             let line = super::footer::hint_line(&list, app.look());
@@ -255,7 +255,7 @@ fn footer_omits_whole_hints_instead_of_clipping_words() {
     let mut app = workspace_board();
     let full = hints(&app, usize::MAX);
     assert!(
-        full.contains("t talk") && full.ends_with("? help  q quit"),
+        full.contains("⏎ chat") && full.ends_with("? help  q quit"),
         "{full}"
     );
     for width in [0, 1, 5, 6, 13, 14, 20, 40, 80, 100, 160] {
@@ -294,7 +294,7 @@ fn footer_orders_hints_by_priority_and_always_keeps_quit_and_more() {
     let mut app = workspace_board();
     workspace_row(&mut app)["fields"] = json!({"link":"https://example.test/pr"});
     let full = hints(&app, usize::MAX);
-    let order = ["t talk", "j host", "o open", "down next", "up previous"];
+    let order = ["⏎ chat", "j host", "o open", "down next", "up previous"];
     let at = |hint: &str| full.find(hint).unwrap_or_else(|| panic!("{hint}: {full}"));
     assert!(
         order.windows(2).all(|pair| at(pair[0]) < at(pair[1])),
@@ -319,7 +319,7 @@ fn footer_shows_only_the_row_actions_the_selected_row_allows() {
     let mut app = workspace_board();
     workspace_keys(&mut app, "[bind]\nr = \"reply\"\n");
     let plain = hints(&app, usize::MAX);
-    assert!(plain.contains("t talk") && plain.contains("j host"));
+    assert!(plain.contains("⏎ chat") && plain.contains("j host"));
     assert!(!plain.contains("r reply") && !plain.contains("o open"));
     workspace_row(&mut app)["waitingOnYou"] = json!([{"requestId":"request","preview":"decision"}]);
     workspace_row(&mut app)["fields"] = json!({"link":"https://example.test/pr"});
@@ -333,7 +333,7 @@ fn footer_shows_only_the_row_actions_the_selected_row_allows() {
     app.select(0);
     let pool = hints(&app, usize::MAX);
     assert!(
-        !pool.contains("t talk") && !pool.contains("j host") && !pool.contains("o open"),
+        !pool.contains("⏎ chat") && !pool.contains("j host") && !pool.contains("o open"),
         "{pool}"
     );
     assert!(pool.contains("/ search") && pool.ends_with("? help  q quit"));
@@ -366,16 +366,16 @@ fn footer_hints_follow_rebound_keys_and_show_one_hint_per_action() {
         "[bind]\nt = \"copy {name}\"\nz = \"talk\"\nZ = \"talk\"\n",
     );
     let text = hints(&app, usize::MAX);
-    assert!(!text.contains("t talk"));
+    assert!(!text.contains("⏎ chat"));
     assert_eq!(
         text.split("  ")
-            .filter(|hint| hint.ends_with(" talk"))
+            .filter(|hint| hint.ends_with(" chat"))
             .count(),
         1,
         "{text}"
     );
     assert!(
-        text.contains("Z talk"),
+        text.contains("Z chat"),
         "stable first effective key represents duplicate action"
     );
     assert!(text.contains("t copy"));

@@ -1531,7 +1531,7 @@ mod tests {
         );
         let mut app = app::workspace::tests::board();
         let (events, input) = channel();
-        events.send(key(KeyCode::Char('t'))).unwrap();
+        events.send(key(KeyCode::Enter)).unwrap();
         events
             .send(BoardEvent::Input(Event::Paste("hello".into())))
             .unwrap();
@@ -1552,7 +1552,7 @@ mod tests {
                 if app
                     .notice
                     .as_deref()
-                    .is_some_and(|notice| notice.starts_with("Message sent to worker"))
+                    .is_some_and(|notice| notice == "Sent to worker")
                 {
                     events.send(key(KeyCode::Esc)).unwrap();
                     events.send(key(KeyCode::Char('q'))).unwrap();
@@ -1573,9 +1573,9 @@ mod tests {
         );
         let done = notices
             .iter()
-            .find(|(_, notice)| notice.as_deref() == Some("Message sent to worker (req_1)."))
+            .find(|(_, notice)| notice.as_deref() == Some("Sent to worker"))
             .expect("typed completion frame");
-        assert_eq!(done.1.as_deref(), Some("Message sent to worker (req_1)."));
+        assert_eq!(done.1.as_deref(), Some("Sent to worker"));
         assert!(done.0 >= Duration::from_millis(450));
         std::fs::remove_dir_all(directory).unwrap();
     }

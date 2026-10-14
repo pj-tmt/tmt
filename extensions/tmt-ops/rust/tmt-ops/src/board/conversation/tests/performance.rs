@@ -114,7 +114,7 @@ fn conversation_frame_timing() {
                     .collect(),
             );
             app.focus = 0;
-            app.key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+            app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
             assert!(app.input.is_some());
             for kib in [1, 10, 100] {
                 let payload = "x".repeat(kib * 1024);
@@ -296,7 +296,7 @@ fn workspace_ansi_phase_timing() {
                 }
                 if action == "paste-100KiB" {
                     app.focus = 0;
-                    app.key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+                    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
                     assert!(app.input.is_some());
                 }
                 let payload = "x".repeat(100 * 1024);

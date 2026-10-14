@@ -200,8 +200,12 @@ pub(super) fn model(app: &App) -> KeyHelp {
                 .collect(),
         });
     }
+    sections.push(KeyHelpSection {
+        id: "composer-focus".into(), title: "message composer focus".into(),
+        entries: vec![entry("focus-message", "", format!("{}; opening keeps the draft and sends nothing; double-click still inspects content", app.composer_focus_hint()))],
+    });
     sections.push(section("editor", "message editor", &[
-        ("Enter", "send to the displayed recipient; while @ completion is open, Enter/Tab insert the selected reference instead"),
+        ("Enter", "while typing, send to the displayed recipient; while @ completion is open, Enter/Tab insert the selected reference instead"),
         ("Shift-Enter / Ctrl-N", "insert a newline; Ctrl-N also works without extended terminal key reporting"),
         ("Esc", "leave the editor and keep its draft; drafts and folded pastes are session-only and do not survive restart"),
         ("arrows / Home / End", "move by grapheme or wrapped line; Shift selects; Ctrl-A selects all"),

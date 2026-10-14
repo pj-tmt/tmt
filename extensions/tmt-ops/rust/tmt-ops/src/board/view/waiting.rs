@@ -294,9 +294,9 @@ pub(in crate::board) fn inline_prompt(
         }
         if hint_rows > 0 {
             let hint = if projection.focused {
-                "Enter send · Shift+Enter newline · Esc list"
+                "Enter send · Shift+Enter newline · Esc list".to_owned()
             } else {
-                "Enter send · Shift+Enter newline"
+                app.composer_focus_hint()
             };
             // Keep each hint phrase whole; never paint half of a key name.
             let mut fitted = String::new();

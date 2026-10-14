@@ -49,6 +49,24 @@ impl State {
     }
 }
 impl App {
+    pub(in crate::board) fn composer_focus_hint(&self) -> String {
+        let bindings = self.bindings();
+        let key = bindings
+            .get("enter")
+            .filter(|action| action.verb == crate::action::Verb::Talk)
+            .map(|_| "Enter")
+            .or_else(|| {
+                bindings
+                    .iter()
+                    .find(|(_, action)| action.verb == crate::action::Verb::Talk)
+                    .map(|(key, _)| key.as_str())
+            });
+        key.map_or_else(
+            || "click to write".into(),
+            |key| format!("{key} write · click to write"),
+        )
+    }
+
     pub(super) fn draft_identity(&self, input: &Input) -> Option<DraftKey> {
         if let Compose::AskLead { sender, to } = &input.compose {
             let view = self.view.as_ref()?;
