@@ -2,6 +2,7 @@ import { pageAction } from '../test/page-actions.js';
 import { expect, test } from '@playwright/test';
 import { pairBrowser, startDoor } from './harness/browser.js';
 import {
+  askState,
   composeChat,
   createPage,
   freePort,
@@ -29,8 +30,12 @@ test("the owner browser combines its own stream's changes into one checkpoint an
     const created = createPage(world, 'Own compaction', '<p>start</p>', agent.pane);
     const page = await openPage(door, owner, created);
     const questions = ['first', 'second', 'third'];
-    for (const question of questions)
-      await sendChat(page, await composeChat(page, agent, `Question ${question}`));
+    for (const question of questions) {
+      const sent = await sendChat(page, await composeChat(page, agent, `Question ${question}`));
+      // A visible intent precedes the Send result's own-stream update. Finish that write
+      // before combining; the gated recipient cannot add a reply afterward.
+      await expect(askState(page, sent.operationId)).toHaveAttribute('data-state', 'accepted');
+    }
     const entries = page.getByTestId('chat-panel').getByTestId('ask-entry');
     await expect(entries).toHaveCount(questions.length);
 
