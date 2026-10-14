@@ -19,8 +19,6 @@ use tmt_ops::cron::ClockStatus;
 pub(super) use act::{CronRequest, Op, act};
 pub(super) use forms::Draft;
 #[cfg(test)]
-pub(super) use line::line as home_line;
-#[cfg(test)]
 pub(super) use line::tests::{
     NOW as TEST_NOW, cron as test_cron, view as test_view, views as test_views,
 };

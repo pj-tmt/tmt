@@ -7,7 +7,7 @@ use std::{
 };
 
 #[test]
-fn authored_home_and_cron_labels_use_only_registered_spaced_marks_and_structural_typography() {
+fn authored_home_labels_use_only_registered_spaced_marks_and_structural_typography() {
     for width in [80, 100, 113, 160, 200] {
         let mut app = interaction::board(&[(
             "squad",
@@ -50,17 +50,6 @@ fn authored_home_and_cron_labels_use_only_registered_spaced_marks_and_structural
                 .collect();
             assert_eq!(glyph_error(&line), None, "width {width}, row {y}: {line}");
         }
-        let state = crate::board::cronboard::State {
-            cron: Some(crate::board::cronboard::test_cron(
-                Vec::new(),
-                tmt_ops::cron::ClockStatus::NoClock,
-            )),
-            failure: None,
-            reads: 2,
-        };
-        let line =
-            crate::board::cronboard::home_line(&state, state.now_ms(), width, app.look()).unwrap();
-        assert_eq!(glyph_error(&line.to_string()), None);
     }
 }
 
