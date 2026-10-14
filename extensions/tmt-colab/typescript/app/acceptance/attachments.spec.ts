@@ -984,7 +984,8 @@ for (const surface of ['chat', 'thread'] as const)
         await posted
       ).setFiles([{ name: 'posted.png', mimeType: 'image/png', buffer: picture }]);
       await panel.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
-      await expect(panel.locator('.attachment-thumbnail img')).toBeVisible();
+      // The native verified read has a 30-second bound, including object-channel reads.
+      await expect(panel.locator('.attachment-thumbnail img')).toBeVisible({ timeout: 30_000 });
       await input.fill('Pending files remain local until Send.');
       const editor = await input.elementHandle();
       const chooser = page.waitForEvent('filechooser');
