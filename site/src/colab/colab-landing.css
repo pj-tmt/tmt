@@ -323,6 +323,9 @@
     11px ui-monospace,
     monospace;
 }
+.cl-annotation-visual {
+  min-height: 550px;
+}
 .cl-annotation-body {
   min-height: 460px;
 }
