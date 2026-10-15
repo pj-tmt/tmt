@@ -114,3 +114,17 @@ it('keeps reading a title record written before the shared seal helper existed',
   stored.set('title:space:device:page', { nonce: b64(nonce), ciphertext: b64(ciphertext) });
   expect(await new TitleCache('space', 'device').read('page')).toBe('Legacy title');
 });
+
+it('fills a missing hint once without replacing an opened title or its existing record', async () => {
+  const cache = new TitleCache('space', 'device');
+  const signal = new AbortController().signal;
+  expect(await cache.fillMissing('page', 'Background title', signal)).toBe('Background title');
+  await cache.remember('page', 'Opened title');
+  const opened = structuredClone(stored.get('title:space:device:page'));
+  expect(await cache.fillMissing('page', 'Old background title', signal)).toBe('Opened title');
+  expect(stored.get('title:space:device:page')).toEqual(opened);
+  const abort = new AbortController();
+  abort.abort();
+  expect(await cache.fillMissing('other', 'Cancelled', abort.signal)).toBeUndefined();
+  expect(await cache.read('other')).toBeUndefined();
+});

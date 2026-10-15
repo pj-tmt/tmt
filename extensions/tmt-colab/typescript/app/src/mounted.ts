@@ -18,6 +18,8 @@ import { clearRecovery, recoverSession } from './session-recovery.js';
 import { text } from './strings.js';
 import { LocalDraftStore } from './draft-store.js';
 import { TitleCache } from './title-cache.js';
+import { Admission } from './admission.js';
+import { Connection } from './connection.js';
 
 export async function mountedTransport(signal?: AbortSignal): Promise<{
   space: string;
@@ -50,6 +52,9 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
     );
   let current: LiveSession;
   let replacement: Promise<LiveSession> | undefined;
+  let titleGeneration = new AbortController();
+  let titleReads: Promise<void> = Promise.resolve();
+  let titleCleanupConfirmed = true;
   async function attach(registration: LiveSession['registration']): Promise<LiveSession> {
     // Consume this exact verified Session before opening any sync Connection.
     let remote: RemoteClient | null = null;
@@ -161,6 +166,8 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
         requireValue(next.deviceId === previous.deviceId);
         const admitted = await attach(next);
         readmitSignal.throwIfAborted();
+        titleGeneration.abort();
+        titleGeneration = new AbortController();
         current = admitted;
         managementClient = new ManagementClient(mount, next);
         return current;
@@ -192,9 +199,11 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
             pages: await Promise.all(
               boot.pages.map(async (page) => {
                 const policy = project(page, log).page;
+                const cachedTitle = await titles.read(page.pageId);
                 return {
                   id: page.pageId,
-                  title: (await titles.read(page.pageId)) || text.unknownPageTitle,
+                  title: cachedTitle || text.unknownPageTitle,
+                  titleMissing: cachedTitle === undefined,
                   sharing: policy.sharing,
                   archived: policy.archived,
                   retentionDays: policy.retentionDays,
@@ -208,6 +217,80 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
             ),
           };
         });
+      },
+      readTitle(id, budget, signal) {
+        // A new Home generation can start while the old read is joining. One owner serializes
+        // both generations, so cancellation never overlaps page folds or their key cleanup.
+        const request = titleReads.then(() =>
+          owned(async () => {
+            const bound = replacement ? await replacement : current;
+            const readSignal = AbortSignal.any([signal, lifetime.signal, titleGeneration.signal]);
+            readSignal.throwIfAborted();
+            const cached = await titles.read(id);
+            if (cached !== undefined) return cached;
+            requireValue(titleCleanupConfirmed && budget.remainingBytes > 0);
+            const boot = await discover(
+              mount,
+              (space, owner) => verifyRegistration(bound.registration, space, owner),
+              readSignal,
+            );
+            readSignal.throwIfAborted();
+            requireValue(bound === current);
+            const page = boot.pages.find((page) => page.pageId === id);
+            if (!page) throw new Error('Page unavailable');
+            const admission = new Admission(
+              boot.space,
+              page.pageId,
+              page.epoch,
+              boot.owner,
+              bound.registration,
+            );
+            let connection: Connection | undefined;
+            try {
+              await admission.restore();
+              readSignal.throwIfAborted();
+              requireValue(bound === current);
+              connection = new Connection(
+                admission,
+                mount,
+                page.sharing,
+                () => {},
+                () => {},
+                ['colab-sync-v1'],
+                true,
+                budget,
+              );
+              const active = connection;
+              const abort = () => active.close();
+              readSignal.addEventListener('abort', abort, { once: true });
+              if (readSignal.aborted) abort();
+              const result = await active.ready.then(
+                (value) => ({ ok: true as const, title: value.title }),
+                (error: unknown) => ({ ok: false as const, error }),
+              );
+              readSignal.removeEventListener('abort', abort);
+              try {
+                await active.closeAndJoin();
+              } catch (error) {
+                // No successor may start while this socket could still be closing.
+                titleCleanupConfirmed = false;
+                budget.remainingBytes = 0;
+                throw error;
+              }
+              if (!result.ok) throw result.error;
+              readSignal.throwIfAborted();
+              requireValue(bound === current);
+              return await titles.fillMissing(id, result.title, readSignal);
+            } finally {
+              if (!connection) admission.closeKeys();
+            }
+          }),
+        );
+        titleReads = request.then(
+          () => {},
+          () => {},
+        );
+        return request;
       },
       async page(id, signal) {
         const pageSignal = scopedSignal(signal);

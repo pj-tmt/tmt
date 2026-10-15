@@ -69,7 +69,10 @@ test('reader link: opens unpaired, shows live edits read-only, and ends on Reset
       `<h1 id="text">First text</h1><a href="#target">Jump to reader anchor</a>${longBody}<h2 id="target">Reader anchor</h2><div style="height:900px"></div>`,
     );
     colab(world, ['share', 'mode', created.pageId, 'link', '--yes']);
+    const baseline = deviceRows(world);
     const added = colab(world, ['share', 'link', 'add', created.pageId, '--yes']);
+    // Link creation keeps its derived device before any reader opens it.
+    expect(deviceRows(world)).toBe(baseline + 1);
     const readerPath = added.readerPath as string;
     expect(readerPath.startsWith('x/colab/read#v=1&')).toBe(true);
     const printed = new URLSearchParams(readerPath.split('#')[1]);
@@ -83,8 +86,21 @@ test('reader link: opens unpaired, shows live edits read-only, and ends on Reset
     const owner = await fetch(`${door.address}/x/colab/index.html`);
     expect(owner.status).toBe(403);
 
-    const baseline = deviceRows(world);
-    const reader = await openReaderLink(world, door, readerPath, 'reader-one');
+    const subscriptions: string[] = [];
+    const reader = await openReaderLink(world, door, readerPath, 'reader-one', (page) => {
+      page.on('websocket', (socket) => {
+        if (!new URL(socket.url()).pathname.endsWith('/sync')) return;
+        socket.on('framesent', ({ payload }) => {
+          if (typeof payload !== 'string') return;
+          const frame = JSON.parse(payload) as { type?: string; page?: string; cursors?: unknown };
+          if (frame.type === 'subscribe') {
+            expect(frame.cursors).toEqual([]);
+            if (frame.page) subscriptions.push(frame.page);
+          }
+        });
+      });
+    });
+    await expect.poll(() => subscriptions).toEqual([created.pageId]);
     await expect(reader.page).toHaveTitle('Colab');
     const frame = reader.page.frameLocator('iframe');
     await expect(frame.locator('#text')).toHaveText('First text', { timeout: 30_000 });

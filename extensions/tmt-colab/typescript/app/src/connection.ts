@@ -1,3 +1,4 @@
+import type { TitleReadBudget } from './transport.js';
 import {
   attachment,
   binary,
@@ -149,6 +150,7 @@ export class Connection {
     protocols: readonly string[] = ['colab-sync-v1'],
     /** Only the paired page owner enables archive-capable read catch-up. */
     reading = false,
+    readonly readBudget?: TitleReadBudget,
   ) {
     this.objects = new Objects(admission);
     this.#catchup = new Catchup(admission, sharing, this.objects, admission.epoch, reading);
@@ -184,6 +186,11 @@ export class Connection {
       )
         return this.close(new Error('Sync message capacity'));
       const raw = event.data;
+      if (this.readBudget) {
+        this.readBudget.remainingBytes -= text(raw).length;
+        if (this.readBudget.remainingBytes < 0)
+          return this.close(new Error('Title read byte budget exhausted'));
+      }
       void this.run(async () => {
         const frame = this.#frames.receive(raw);
         if (frame) await this.#receive(frame);
@@ -639,6 +646,29 @@ export class Connection {
         this.close(error instanceof Error ? error : new Error('Append unavailable'));
       }
     });
+  }
+  /** Read-only callers join queued admission work before opening the next page. */
+  async closeAndJoin(): Promise<void> {
+    const socket = this.#socket;
+    const closed =
+      socket.readyState === WebSocket.CLOSED
+        ? Promise.resolve()
+        : new Promise<void>((resolve, reject) => {
+            const finish = (error?: Error) => {
+              clearTimeout(timer);
+              socket.removeEventListener('close', onClose);
+              if (error) reject(error);
+              else resolve();
+            };
+            const onClose = () => finish();
+            const timer = setTimeout(
+              () => finish(new Error('Title read cleanup unconfirmed')),
+              2_000,
+            );
+            socket.addEventListener('close', onClose, { once: true });
+          });
+    this.close();
+    await Promise.all([this.#tasks, closed]);
   }
   close(error = new Error('Page closed')) {
     if (this.#stopped) return;

@@ -1,3 +1,4 @@
+import { visibleElement } from './visible-element.js';
 import { BrowserIconAction } from '@tmt/browser-ui/react';
 import { Download } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -9,30 +10,6 @@ import { text } from './strings.js';
 import { AttachmentLabel } from './attachment-tray.js';
 import type { CommentView } from './thread-records.js';
 import './attachment-tray.css';
-
-/** Observer delivery may trail a scroll. Recheck actual clipped geometry at read admission. */
-function visibleTile(node: HTMLElement | null): boolean {
-  if (!node?.isConnected || getComputedStyle(node).visibility !== 'visible') return false;
-  const rect = node.getBoundingClientRect();
-  if (!rect.width || !rect.height) return false;
-  let left = 0,
-    top = 0,
-    right = innerWidth,
-    bottom = innerHeight;
-  for (let parent = node.parentElement; parent; parent = parent.parentElement) {
-    const style = getComputedStyle(parent),
-      box = parent.getBoundingClientRect();
-    if (style.overflowX !== 'visible') {
-      left = Math.max(left, box.left);
-      right = Math.min(right, box.right);
-    }
-    if (style.overflowY !== 'visible') {
-      top = Math.max(top, box.top);
-      bottom = Math.min(bottom, box.bottom);
-    }
-  }
-  return rect.right > left && rect.left < right && rect.bottom > top && rect.top < bottom;
-}
 
 /** Visibility admits only the displayed tile, never a hidden overflow image. The read
  * owner retains the verified display copy when a tile scrolls away and returns. */
@@ -58,7 +35,7 @@ function ImageTile({
   useEffect(() => {
     const observer = new IntersectionObserver((entries) => {
       visible.current = entries.some((entry) => entry.isIntersecting);
-      if (visible.current) read.current(() => visible.current && visibleTile(tile.current));
+      if (visible.current) read.current(() => visible.current && visibleElement(tile.current));
     });
     observer.observe(tile.current!);
     return () => observer.disconnect();

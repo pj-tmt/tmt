@@ -1,5 +1,6 @@
+import { HomeTitleHints, HomeTitleLink } from './home-titles.js';
 import { BrowserAction, BrowserList, BrowserListRow, BrowserMenu } from '@tmt/browser-ui/react';
-import { getRouteApi, Link, useRouter } from '@tanstack/react-router';
+import { getRouteApi, useRouter } from '@tanstack/react-router';
 import { Settings, Tag } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { LabelWriting, ManageLabelsDialog, NewLabelDialog } from './label-dialogs.js';
@@ -181,11 +182,37 @@ export function Home() {
   const search = homeRoute.useSearch();
   const navigate = homeRoute.useNavigate();
   const router = useRouter();
+  const [filled, setFilled] = useState<{ pages: typeof space.pages; titles: Map<string, string> }>(
+    () => ({ pages: space.pages, titles: new Map() }),
+  );
+  const [titleHints, setTitleHints] = useState<HomeTitleHints>();
+  useEffect(() => {
+    const read = transport.readTitle;
+    if (!read) {
+      setTitleHints(undefined);
+      return;
+    }
+    const hints = new HomeTitleHints(read, (id, title) =>
+      setFilled((previous) => ({
+        pages: space.pages,
+        titles: new Map(previous.pages === space.pages ? previous.titles : []).set(id, title),
+      })),
+    );
+    setTitleHints(hints);
+    return () => {
+      void hints.close();
+    };
+  }, [transport, space.pages]);
+  const homePages = space.pages.map((page) =>
+    page.titleMissing && filled.pages === space.pages && filled.titles.has(page.id)
+      ? { ...page, title: filled.titles.get(page.id)!, titleMissing: false }
+      : page,
+  );
   const port = transport.management;
   const archived = !!port && search.archived === true;
   const sort: PageSort = search.sort ?? 'updated';
   const filter = { labels: search.label ?? [], authors: search.by ?? [], text: search.q ?? '' };
-  const shown = space.pages.filter((p) => Boolean(p.archived) === archived);
+  const shown = homePages.filter((p) => Boolean(p.archived) === archived);
   const pages = filterPages(shown, filter, sort);
   const counts = labelCounts(shown);
   const authors = authorCounts(shown);
@@ -349,7 +376,6 @@ export function Home() {
       {pages.length ? (
         <BrowserList label={text.pages} className="pages">
           {pages.map((p) => {
-            const title = pageTitle(p);
             const updated = pageUpdate(p.lastUpdateAtMs, now);
             return (
               <BrowserListRow
@@ -357,9 +383,7 @@ export function Home() {
                 data-page-id={p.id}
                 title={
                   <>
-                    <Link to="/pages/$pageId" params={{ pageId: p.id }} title={title}>
-                      {title}
-                    </Link>
+                    <HomeTitleLink page={p} hints={titleHints} />
                     {p.summary?.waiting ? (
                       <span className="page-waiting" data-waiting>
                         <span aria-hidden="true">◆</span> {t.waitingForYou}

@@ -33,6 +33,7 @@ const connections = vi.hoisted(
       failed(error: Error): void;
       publish(value: PageView): void;
       close: ReturnType<typeof vi.fn>;
+      send: ReturnType<typeof vi.fn>;
       admission: {
         head: { revision: bigint; hash: Uint8Array } | null;
         root: object | null;
@@ -145,6 +146,7 @@ vi.mock('../src/connection.js', () => ({
     get active() {
       return this.close.mock.calls.length === 0;
     }
+    send = vi.fn();
     close = vi.fn();
   },
 }));
@@ -275,6 +277,7 @@ it('exports admitted committed view/head and denies blocked, missing-key and clo
   try {
     await live.snapshot();
     const c = connections.at(-1)!;
+    expect(c.send).toHaveBeenCalledExactlyOnceWith('subscribe', { cursors: [] });
     const bundle = await live.export();
     expect(await bundle.blob('page.html').text()).toBe('verified');
     const manifest = JSON.parse(await bundle.blob('manifest.json').text());

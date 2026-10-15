@@ -188,6 +188,7 @@ export class ReaderSession {
     token.fill(0);
     try {
       await connection.ready;
+      if (!this.#closed) connection.send('subscribe', { cursors: [] });
     } catch (error) {
       connection.close();
       throw error;

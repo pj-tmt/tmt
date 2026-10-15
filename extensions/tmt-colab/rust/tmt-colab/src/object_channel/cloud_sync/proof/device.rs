@@ -191,8 +191,8 @@ impl Peer {
             }
         }
     }
-    /// Hello, then take every catch-up page this device is owed, acknowledging each. Opening a
-    /// page this way is what makes it the serve's active page.
+    /// Catch up and explicitly subscribe as a foreground viewer. Hello alone never selects
+    /// the cloud page; bounded Home title reads stop after catch-up.
     pub(super) fn hello(&mut self, membership_revision: u64) -> Vec<Value> {
         let id = self.id.clone();
         self.send(
@@ -210,6 +210,7 @@ impl Peer {
             pages.push(page);
             self.send("ack", json!({"cursors":[]}));
             if !more {
+                self.subscribe();
                 return pages;
             }
         }
