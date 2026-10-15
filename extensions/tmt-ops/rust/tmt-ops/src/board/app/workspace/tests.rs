@@ -2049,7 +2049,7 @@ fn compact_overview_talk_opens_agents_but_wide_overview_keeps_the_shared_convers
         app.shell.tab = OpsTab::Overview;
         paint(&app, width, 36);
         let selected = app.workspace.selected.clone();
-        key(&mut app, KeyCode::Enter);
+        app.perform(&crate::action::Action::parse("talk").unwrap());
         assert_eq!(app.focused_pane(), Some(Pane::Replies));
         assert_eq!(
             app.shell.tab,
@@ -2061,7 +2061,11 @@ fn compact_overview_talk_opens_agents_but_wide_overview_keeps_the_shared_convers
         );
         let lines = paint(&app, width, 36);
         assert!(app.input_band.get().is_some());
-        assert!(lines.iter().any(|line| line.contains("Message → worker")));
+        assert!(lines.iter().any(|line| line.contains(if width >= 140 {
+            "› worker as you…"
+        } else {
+            "Message → worker"
+        })));
         assert_eq!(app.workspace.selected, selected);
         key(&mut app, KeyCode::Char('2')); // Message input owns digits.
         assert_eq!(app.input.as_ref().unwrap().text.as_str(), "2");

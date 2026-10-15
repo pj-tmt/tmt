@@ -556,14 +556,32 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
     } else if app.searching {
         Line::from(format!("/{}▏", app.search))
     } else if let Some(notice) = app.migration_notice.as_ref().or(app.notice.as_ref()) {
-        Line::from(Span::styled(notice.as_str(), look.role(Role::Waiting)))
+        Line::from(Span::styled(
+            notice.as_str(),
+            look.role(if app.shell.tab == crate::board::shell::OpsTab::Overview {
+                Role::Muted
+            } else {
+                Role::Waiting
+            }),
+        ))
     } else if let Some(error) = &app.error {
-        Line::from(Span::styled(error.as_str(), look.role(Role::Blocked)))
+        Line::from(Span::styled(
+            error.as_str(),
+            look.role(if app.shell.tab == crate::board::shell::OpsTab::Overview {
+                Role::Muted
+            } else {
+                Role::Blocked
+            }),
+        ))
     } else if app.modal_open() || (app.input.is_some() && app.input_band.get().is_some()) {
         // Notices and errors above stay; the base key hints would misname the keys.
         Line::default()
     } else if let Some(hint) = app.member_link_hint() {
-        hint_line(hint, look)
+        if app.shell.tab == crate::board::shell::OpsTab::Overview {
+            crate::board::m12_key_hints::line(hint, look, look.role(Role::Text), "  ")
+        } else {
+            hint_line(hint, look)
+        }
     } else {
         let text = legend.as_ref().map_or_else(
             || {

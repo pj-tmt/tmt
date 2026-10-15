@@ -2,7 +2,7 @@
 use serde_json::Value;
 use tmt_tui::components::strip;
 
-pub(super) fn oldest(row: &Value) -> Option<&Value> {
+pub(in crate::board) fn oldest(row: &Value) -> Option<&Value> {
     row["waitingOnYou"]
         .as_array()?
         .iter()
@@ -22,8 +22,16 @@ pub(in crate::board) fn editor(
     app: &crate::board::app::App,
     area: ratatui::layout::Rect,
 ) {
+    editor_with_style(frame, app, area, app.look().role(tmt_cli_style::Role::Text));
+}
+
+fn editor_with_style(
+    frame: &mut ratatui::Frame,
+    app: &crate::board::app::App,
+    area: ratatui::layout::Rect,
+    base: ratatui::style::Style,
+) {
     use ratatui::style::Modifier;
-    use tmt_cli_style::Role;
     let Some(input) = app.input.as_ref() else {
         return;
     };
@@ -33,14 +41,13 @@ pub(in crate::board) fn editor(
     let text = app.reference_editor().unwrap_or(&input.text);
     let layout = text.layout(area.width);
     let skip = layout.reveal(0, area.height);
-    let look = app.look();
     if let Some(caret) = layout.paint(
         frame.buffer_mut(),
         area,
         skip,
         text.selection(),
-        look.role(Role::Text),
-        look.role(Role::Text).add_modifier(Modifier::REVERSED),
+        base,
+        base.add_modifier(Modifier::REVERSED),
     ) {
         frame.set_cursor_position(caret);
     }
@@ -165,6 +172,14 @@ pub(in crate::board) fn inline_prompt(
     use tmt_cli_style::Role;
     use tmt_tui::components::{Modal, Placement};
     app.composer.invalidate();
+    if app.shell.tab == crate::board::shell::OpsTab::Overview
+        && frame.area().width >= 140
+        && app.composer_projection().is_some()
+    {
+        final_input(frame, app, body);
+        return;
+    }
+
     if let Some(projection) = app.composer_projection()
         && let Some(band) = app.input_band.get().map(|band| band.intersection(body))
     {
@@ -307,8 +322,13 @@ pub(in crate::board) fn inline_prompt(
             if projection.focused {
                 editor(frame, app, editor_area);
             } else if let Some(text) = projection.text.filter(|text| !text.is_empty()) {
-                if super::super::member_links::paint_preview(frame, app, editor_area, text.as_str())
-                {
+                if super::super::member_links::paint_preview(
+                    frame,
+                    app,
+                    editor_area,
+                    text.as_str(),
+                    Role::Link,
+                ) {
                     // Display names have different widths from the exact raw editor.
                     // Clicking the preview focuses editing without fabricating a caret.
                     app.input_viewport.set(None);
@@ -574,4 +594,149 @@ pub(in crate::board) fn inline_prompt(
     app.hits
         .borrow_mut()
         .retain(|hit| !covered(&Rect::new(hit.x, hit.y, hit.width, 1)));
+}
+
+/// Final M11 placement adapts the same editor, quotes and UUID draft admission.
+fn final_input(
+    frame: &mut ratatui::Frame,
+    app: &crate::board::app::App,
+    body: ratatui::layout::Rect,
+) {
+    use crate::{
+        action::Verb,
+        board::{composer::QuoteHit, m11_input_field as field},
+    };
+    use ratatui::{layout::Rect, text::Line};
+    use tmt_cli_style::Role;
+    let Some(projection) = app.composer_projection() else {
+        return;
+    };
+    let Some(band) = app
+        .input_band
+        .get()
+        .map(|area| area.intersection(body))
+        .filter(|area| !area.is_empty())
+    else {
+        return;
+    };
+    if app.modal_open() {
+        return;
+    }
+    let look = app.look();
+    let base = field::style(look, projection.focused);
+    let start = app.composer_start();
+    let key = start
+        .as_ref()
+        .map_or("click", |(key, _)| super::footer::key_label(key));
+    let replying = start
+        .as_ref()
+        .is_none_or(|(_, action)| action.verb == Verb::Reply);
+    let editor_area = field::paint(
+        frame.buffer_mut(),
+        band,
+        projection.recipient,
+        key,
+        projection.focused,
+        replying,
+        look,
+    );
+    if projection.focused {
+        editor_with_style(frame, app, editor_area, base);
+    } else if let Some(text) = projection.text.filter(|text| !text.is_empty()) {
+        if super::super::member_links::paint_preview(
+            frame,
+            app,
+            editor_area,
+            text.as_str(),
+            Role::Text,
+        ) {
+            app.input_viewport.set(None);
+            for y in editor_area.y..editor_area.bottom() {
+                for x in editor_area.x..editor_area.right() {
+                    frame.buffer_mut()[(x, y)].set_style(base);
+                }
+            }
+        } else {
+            let layout = text.layout(editor_area.width);
+            let skip = layout.reveal(0, editor_area.height);
+            layout.paint(frame.buffer_mut(), editor_area, skip, 0..0, base, base);
+            app.input_viewport.set(Some((editor_area, skip)));
+        }
+    } else {
+        app.input_viewport.set(Some((editor_area, 0)));
+    }
+    if projection.focused
+        && editor_area.width > 0
+        && projection.text.is_none_or(|text| text.is_empty())
+    {
+        strip::paint_left(
+            frame.buffer_mut(),
+            editor_area,
+            Line::styled(
+                format!(
+                    "{} {}…",
+                    if replying { "Reply to" } else { "Message" },
+                    crate::board::notes::sanitize(projection.recipient)
+                ),
+                base.patch(look.role(Role::Dim)),
+            ),
+        );
+    }
+    if projection.focused
+        && band.width >= 23
+        && app.in_flight == 0
+        && let Some(key) = projection.key.clone()
+    {
+        let hint_width = unicode_width::UnicodeWidthStr::width("⏎ send · Esc cancel") as u16;
+        *app.composer.send_hit.borrow_mut() = Some(crate::board::composer::SendHit {
+            area: Rect::new(band.right() - hint_width, band.y, 6, 1),
+            key,
+        });
+    }
+    if projection.quotes.is_empty()
+        && band.height >= 3
+        && let Some(question) = app.input.as_ref().and_then(|input| input.quote.as_deref())
+    {
+        strip::paint_left(
+            frame.buffer_mut(),
+            Rect::new(band.x, band.bottom() - 1, band.width, 1),
+            Line::styled(
+                super::fit(
+                    &format!("Reply: {}", crate::board::notes::single_line(question)),
+                    usize::from(band.width),
+                ),
+                base.patch(look.role(Role::Dim)),
+            ),
+        );
+    }
+    if let Some(quote) = projection
+        .quotes
+        .last()
+        .filter(|_| band.height >= 3 && band.width >= 4)
+    {
+        let row = Rect::new(band.x, band.bottom() - 1, band.width - 2, 1);
+        strip::paint_left(
+            frame.buffer_mut(),
+            row,
+            Line::styled(
+                app.quote_caption(quote, usize::from(row.width)),
+                base.patch(look.role(Role::Muted)),
+            ),
+        );
+        let remove = Rect::new(band.right() - 1, band.bottom() - 1, 1, 1);
+        strip::paint_left(frame.buffer_mut(), remove, Line::styled("✕", base));
+        if let Some(key) = projection.key {
+            *app.composer.quote_hit.borrow_mut() = Some(QuoteHit {
+                area: remove,
+                key,
+                source: quote.key.clone(),
+                range: quote.range.clone(),
+            });
+        }
+    }
+    app.hits.borrow_mut().retain(|hit| {
+        Rect::new(hit.x, hit.y, hit.width, 1)
+            .intersection(band)
+            .is_empty()
+    });
 }

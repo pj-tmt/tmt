@@ -265,7 +265,7 @@ pub(in crate::board) fn savings_caption(
 }
 
 /// Whole percent, half up; a nonzero share below one percent never reads as zero.
-fn percent_text(basis_points: u16) -> String {
+pub(in crate::board) fn percent_text(basis_points: u16) -> String {
     match basis_points {
         0 => "0%".into(),
         1..=49 => "<1%".into(),
@@ -274,7 +274,7 @@ fn percent_text(basis_points: u16) -> String {
 }
 
 /// A list-price estimate to the cent, half up. Never worded as money saved.
-fn usd_text(micros: u64) -> String {
+pub(in crate::board) fn usd_text(micros: u64) -> String {
     let cents = (u128::from(micros) + 5_000) / 10_000;
     if micros == 0 {
         return "$0.00".into();

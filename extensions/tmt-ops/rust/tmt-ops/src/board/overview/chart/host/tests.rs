@@ -425,7 +425,7 @@ fn short_terminals_collapse_to_summary_and_open_the_same_controls_without_close_
 }
 
 #[test]
-fn overview_panels_preserve_the_wide_reader_and_talk_placement() {
+fn overview_panels_preserve_the_wide_reader_and_explicit_talk_placement() {
     crate::status::with_now_ms(fixtures::NOW, || {
         let _no_commands = crate::runner::forbid_commands();
         let mut app = board();
@@ -442,7 +442,8 @@ fn overview_panels_preserve_the_wide_reader_and_talk_placement() {
         assert!(!app.collapsed_panes().contains(&Pane::Replies));
         press(&mut app, KeyCode::Tab);
         assert_eq!(app.focused(), Pane::Replies);
-        press(&mut app, KeyCode::Enter);
+        // Talk remains an explicit action; factory Enter now answers a request.
+        app.perform(&crate::action::Action::parse("talk").unwrap());
         assert!(app.input.is_some());
         assert_eq!(app.shell.tab, OpsTab::Overview);
         assert_eq!(app.workspace.selected, target);

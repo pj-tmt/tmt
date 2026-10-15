@@ -99,7 +99,7 @@ fn rows<P: Panel>(policy: &Panels<P>) -> Vec<(String, String, String)> {
                 } else if P::SIDE_KEY == "conversation" && panel.key() == "subscriptions" {
                     "Quota in Usage (fixed row)".into()
                 } else if P::SIDE_KEY == "conversation" && panel.key() == "digest" {
-                    "Digest (narrow section)".into()
+                    "Digest (fixed section)".into()
                 } else if P::SIDE_KEY == "conversation" && panel.key() == "monitor" {
                     "Squads / Agents (fixed body)".into()
                 } else if panel.key() == "usage" && P::SIDE_KEY == "details" {

@@ -83,17 +83,19 @@ fn narrow_preview_and_default_key_share_explicit_all_room_scope() {
     assert_eq!(app.workspace.selected, selected);
 }
 #[test]
-fn wide_has_no_interim_key_value_band_and_resize_revokes_its_hit() {
+fn wide_reuses_timers_without_key_value_digest_and_short_resize_revokes_its_hit() {
     let mut app = app();
     paint(&mut app, 103, 51);
+    let wide = paint(&mut app, 148, 51);
+    assert!(!wide.contains("Auto · timed · Off"));
+    assert!(wide.contains("% of input"));
     let old = *app
         .hits
         .borrow()
         .iter()
         .find(|hit| hit.target == HitTarget::AllRoomTimers)
         .unwrap();
-    let wide = paint(&mut app, 148, 51);
-    assert!(!wide.contains("Auto · timed · Off"));
+    paint(&mut app, 60, 8);
     assert!(
         app.hits
             .borrow()
@@ -144,25 +146,9 @@ fn no_unacquired_preview_hit_or_command_and_short_rows_remain_bounded() {
 }
 
 fn configured(app: &mut App, text: &str) {
-    let path = std::env::temp_dir().join(format!(
-        "ops-timer-keys-{}.toml",
-        crate::id::new_v4().unwrap()
-    ));
-    std::fs::write(&path, text).unwrap();
-    let config = crate::config::Config::read(path.clone()).unwrap();
-    app.view
-        .as_mut()
-        .unwrap()
-        .home
-        .as_mut()
-        .unwrap()
-        .workspace
-        .configure(&config)
-        .unwrap();
-    std::fs::remove_file(path).unwrap();
-    app.overview_rows.borrow_mut().clear();
-    app.invalidate_frame_geometry();
+    crate::board::app::tests::configure_workspace(app, text);
 }
+
 #[test]
 fn authored_scoped_timer_and_host_keys_are_never_shadowed_by_the_preview() {
     use crate::board::app::{Request, workspace::tests::MEMBER};

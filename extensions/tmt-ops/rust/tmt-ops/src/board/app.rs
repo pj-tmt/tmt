@@ -3836,7 +3836,7 @@ impl App {
                         .say("The painted message recipient changed; repaint before sending.");
                 }
                 if self.input.is_none() {
-                    self.perform(&Action::parse("talk").expect("built-in Talk action"));
+                    self.focus_composer();
                 }
                 if self
                     .input
@@ -3856,7 +3856,7 @@ impl App {
                 .is_some_and(|area| area.contains((event.column, event.row).into()));
             if self.input.is_none() && in_composer && self.composer_projection().is_some() {
                 let viewport = self.input_viewport.get();
-                let effect = self.perform(&Action::parse("talk").expect("built-in Talk action"));
+                let effect = self.focus_composer();
                 if let Some((area, skip)) = viewport
                     && area.contains((event.column, event.row).into())
                     && let Some(input) = self
@@ -4159,6 +4159,38 @@ impl App {
 pub(crate) mod tests {
     use super::*;
     use serde_json::json;
+
+    pub(in crate::board) fn configure_workspace(app: &mut App, text: &str) {
+        let path = std::env::temp_dir().join(format!(
+            "ops-workspace-keys-{}.toml",
+            crate::id::new_v4().unwrap()
+        ));
+        std::fs::write(&path, text).unwrap();
+        let config = crate::config::Config::read(path.clone()).unwrap();
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .configure(&config)
+            .unwrap();
+        std::fs::remove_file(path).unwrap();
+        app.overview_rows.borrow_mut().clear();
+        app.invalidate_frame_geometry();
+    }
+
+    /// Install a coherent held rate observation through its existing Meter owner.
+    pub(in crate::board) fn install_rate_observation(app: &mut App, name: String, rate: RateView) {
+        let now = Instant::now();
+        let mut meter = super::super::meter::Meter::new(rate.settings, &rate.input, now);
+        if let Some(seeds) = &rate.history {
+            meter.seed(&rate.input, seeds, now, false);
+        }
+        app.meters.insert(name.clone(), meter);
+        app.view.as_mut().unwrap().home_rate.insert(name, rate);
+    }
 
     fn press(app: &mut App, code: KeyCode) -> Effect {
         app.key(KeyEvent::new(code, KeyModifiers::NONE))

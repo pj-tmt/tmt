@@ -258,8 +258,20 @@ impl App {
         })
     }
     pub(in crate::board) fn workspace_scope(&self) -> OpsKeyScope {
+        if self.workspace_snapshot().is_none() {
+            // The generic row surface has no Overview request context.
+            return if self.focused() == Pane::Replies {
+                OpsKeyScope::Reader
+            } else {
+                OpsKeyScope::Member
+            };
+        }
         if self.focused_pane() == Some(Pane::Replies) {
-            return OpsKeyScope::Reader;
+            return if self.shell.tab == OpsTab::Overview {
+                OpsKeyScope::OverviewReader
+            } else {
+                OpsKeyScope::Reader
+            };
         }
         if self.shell.tab == OpsTab::Overview {
             return OpsKeyScope::Overview;
@@ -318,7 +330,7 @@ impl App {
     }
     pub(in crate::board) fn workspace_bindings(&self) -> Bindings {
         let mut keys = self.workspace_effective_bindings();
-        if self.shell.tab != OpsTab::Agents || self.workspace_scope() == OpsKeyScope::Reader {
+        if self.shell.tab != OpsTab::Agents || self.workspace_scope().is_reader() {
             keys.retain(|_, action| {
                 !matches!(
                     action.verb,
@@ -855,7 +867,7 @@ impl App {
         &mut self,
         filter: crate::board::workspace::AgentsFilter,
     ) -> Effect {
-        if self.shell.tab != OpsTab::Agents || self.workspace_scope() == OpsKeyScope::Reader {
+        if self.shell.tab != OpsTab::Agents || self.workspace_scope().is_reader() {
             return Effect::None;
         }
         self.workspace.filter = filter;

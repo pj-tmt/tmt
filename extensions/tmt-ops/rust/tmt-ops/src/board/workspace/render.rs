@@ -8,12 +8,7 @@ use crate::{
     },
     config::Pane,
 };
-use ratatui::{
-    Frame,
-    layout::Rect,
-    style::Modifier,
-    text::{Line, Span},
-};
+use ratatui::{Frame, layout::Rect, text::Line};
 use tmt_cli_style::Role;
 use tmt_tui::components::{Modal, Placement, strip};
 
@@ -29,39 +24,24 @@ fn member_noun(count: Option<usize>) -> &'static str {
 }
 
 pub(in crate::board) fn tabs(app: &App, area: Rect) -> Line<'static> {
-    let look = app.look();
-    let mut spans = vec![Span::raw(" ")];
-    let mut x = area.x.saturating_add(1).min(area.right());
-    for (index, tab) in [OpsTab::Overview, OpsTab::Agents, OpsTab::Digest]
-        .into_iter()
-        .enumerate()
-    {
-        let label = format!(" {} ", tab.label());
-        let line = Line::from(label.clone());
-        let width = (line
-            .width()
-            .min(usize::from(area.right().saturating_sub(x)))) as u16;
-        if width > 0 && usize::from(width) == line.width() && area.height > 0 {
-            app.tab_hits.borrow_mut().push(TabHit {
-                x,
-                y: area.y,
-                width,
-                tab: index,
-            });
-        }
-        x = x.saturating_add(width + 1);
-        let style = if app.shell.tab == tab {
-            look.role(Role::Accent)
-                .patch(look.selection())
-                .add_modifier(Modifier::BOLD)
-        } else {
-            look.role(Role::Muted)
-        };
-        spans.push(Span::styled(label, style));
-        spans.push(Span::raw(" "));
-    }
-    Line::from(spans)
+    let tabs = [OpsTab::Overview, OpsTab::Agents, OpsTab::Digest];
+    let selected = tabs
+        .iter()
+        .position(|tab| *tab == app.shell.tab)
+        .unwrap_or(0);
+    let (line, hits) =
+        crate::board::m2_tab_strip::line(&tabs.map(OpsTab::label), selected, area, app.look());
+    app.tab_hits
+        .borrow_mut()
+        .extend(hits.into_iter().map(|(tab, area)| TabHit {
+            x: area.x,
+            y: area.y,
+            width: area.width,
+            tab,
+        }));
+    line
 }
+
 pub(in crate::board) fn summary(app: &App, width: u16) -> Line<'static> {
     let Some(snapshot) = app.workspace_snapshot() else {
         return Line::default();
@@ -191,7 +171,9 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     }
     app.conversation.borrow_mut().pane = placement.conversation;
     if let Some(detail) = placement.conversation {
-        if app.workspace_selected_member().is_some() {
+        if app.shell.tab == OpsTab::Overview && frame.area().width >= 140 {
+            crate::board::overview::composition::wide::render(frame, app, placement.list, detail);
+        } else if app.workspace_selected_member().is_some() {
             crate::board::conversation::render(frame, app, detail);
         } else {
             squad_detail(frame, app, detail);

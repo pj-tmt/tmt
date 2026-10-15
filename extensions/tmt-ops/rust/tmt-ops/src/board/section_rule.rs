@@ -9,6 +9,7 @@ use tmt_cli_style::Role;
 use unicode_width::UnicodeWidthStr;
 
 pub(in crate::board) fn plain(title: &str, width: usize) -> String {
+    let title = crate::board::notes::single_line(title);
     if title.is_empty() {
         return "─".repeat(width);
     }
@@ -24,6 +25,7 @@ pub(in crate::board) fn line(
     focused: bool,
     look: Look,
 ) -> Line<'static> {
+    let title = crate::board::notes::single_line(title);
     let heading = format!("── {title} ");
     let note_width = note.width() + 4;
     if note.width() == 0 || heading.width() + note_width + 1 > width {

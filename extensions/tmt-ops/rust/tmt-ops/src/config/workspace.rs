@@ -143,6 +143,13 @@ pub enum OpsKeyScope {
     Member,
     Pool,
     Reader,
+    OverviewReader,
+}
+
+impl OpsKeyScope {
+    pub(crate) fn is_reader(self) -> bool {
+        matches!(self, Self::Reader | Self::OverviewReader)
+    }
 }
 
 pub struct WorkspaceKeys {
@@ -153,7 +160,7 @@ pub struct WorkspaceKeys {
 }
 
 pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
-    let mut entries = if scope == OpsKeyScope::Reader {
+    let mut entries = if scope.is_reader() {
         vec![
             ("1", "overview"),
             ("2", "agents"),
@@ -209,9 +216,10 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
     };
     match scope {
         OpsKeyScope::Reader => {}
+        OpsKeyScope::OverviewReader => entries.extend([("enter", "reply"), ("c", "all-timers")]),
         OpsKeyScope::Overview => entries.extend([
             ("c", "all-timers"),
-            ("enter", "talk"),
+            ("enter", "reply"),
             ("j", "jump"),
             ("o", "open"),
             ("e", "monitor-details"),
@@ -803,7 +811,7 @@ mod tests {
             OpsKeyScope::Squad,
             OpsKeyScope::Pool,
         ] {
-            if scope == OpsKeyScope::Reader {
+            if scope.is_reader() {
                 assert!(!defaults(scope).contains_key("f"));
             } else {
                 assert_eq!(defaults(scope)["f"].text, "agents-filter");

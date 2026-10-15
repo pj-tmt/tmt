@@ -19,3 +19,5 @@ mod capture;
 
 #[cfg(test)]
 mod performance;
+
+mod matrix;

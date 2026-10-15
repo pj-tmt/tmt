@@ -26,6 +26,11 @@ mod key_hints;
 mod key_value;
 mod lane;
 mod limits;
+mod m11_input_field;
+mod m19_digest_matrix;
+mod m1_top_bar;
+mod m2_tab_strip;
+mod m8_exchange_view;
 mod markdown;
 mod member_links;
 mod mentions;
@@ -235,6 +240,7 @@ pub(super) enum ActionOutcome {
     Message(String),
     WorkspacePreferences(Box<(crate::config::OpsPreferences, String)>),
     Send(Box<conversation::outgoing::Completed>),
+    Answer(Box<conversation::outgoing::Answered>),
     Status(Box<crate::membership::status_update::Outcome>),
     /// Core agreed that the person at the board may change a member's digest.
     Digest(Box<digest::Granted>),
@@ -677,7 +683,12 @@ fn session(
                 app.in_flight = app.in_flight.saturating_sub(1);
                 dirty = true;
                 let jumped = jump && outcome.is_ok();
-                if sends && !matches!(&outcome, Ok(ActionOutcome::Send(_))) {
+                if sends
+                    && !matches!(
+                        &outcome,
+                        Ok(ActionOutcome::Send(_) | ActionOutcome::Answer(_))
+                    )
+                {
                     app.finish_draft(outcome.is_ok());
                 }
                 match outcome {
@@ -696,6 +707,7 @@ fn session(
                         app.finished_workspace_preferences(preferences, message);
                     }
                     Ok(ActionOutcome::Send(completed)) => app.finished_send(*completed),
+                    Ok(ActionOutcome::Answer(completed)) => app.finished_answer(*completed),
                     Ok(ActionOutcome::Digest(granted)) => app.open_digest(*granted),
                     Err(error) => app.finished(Err(error)),
                 }

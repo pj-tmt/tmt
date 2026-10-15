@@ -81,6 +81,7 @@ impl OpsWorkspaceSnapshot {
             OpsKeyScope::Member,
             OpsKeyScope::Pool,
             OpsKeyScope::Reader,
+            OpsKeyScope::OverviewReader,
         ];
         for scope in scopes {
             let keys = config.workspace_keys(scope, None, None)?;
