@@ -318,9 +318,10 @@ fn action(row: &IdentityPresence, remembered: Option<&RememberedSession>) -> Opt
 }
 
 /// Advice on live rows of a host with agent names. TMT sets the agent name
-/// and never reads it back into the identity, so a host's name that differs
-/// is shown with the command that sets TMT's, and a name that is only an
-/// agent kind gets a warning: agents address one another by that name.
+/// and never imports it into the identity. A host's name that differs is one
+/// TMT did not set, and the driver refuses to change it, so the advice clears
+/// it in the host first; it never names the pane label. A name that is only
+/// an agent kind gets a warning: agents address one another by that name.
 fn agent_name_advice(rows: &[ListedRow]) -> Vec<(String, String)> {
     let kinds = tmt_adapters::runtime::RuntimeRegistry::first_party();
     let mut advice = Vec::new();
@@ -338,12 +339,21 @@ fn agent_name_advice(rows: &[ListedRow]) -> Vec<(String, String)> {
         let name = &presence.identity.name;
         let word = crate::output::shell_word(name);
         if let Some(agent_name) = pane.agent_name.as_ref().filter(|agent| *agent != name) {
+            let host = host.as_str();
+            // Only Herdr's command is known; another host names its own way.
+            let clear = match (host, pane.target.as_deref()) {
+                ("herdr", Some(target)) => format!(
+                    " (herdr agent rename {} --clear)",
+                    crate::output::shell_word(target)
+                ),
+                _ => String::new(),
+            };
             advice.push((
                 format!(
-                    "{name}'s agent has the {} agent name {agent_name}, not {name}",
-                    host.as_str()
+                    "{name}'s agent has the {host} agent name {agent_name}, which TMT did not \
+                     set{clear}"
                 ),
-                format!("To set the TMT name, in {word}'s pane run: tmt this {word}"),
+                format!("Clear that agent name in the host, then in its pane run: tmt this {word}"),
             ));
         }
         if kinds.harnesses().any(|kind| kind == name.as_str()) {
@@ -762,7 +772,7 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
         &[],
     ),
     crate::cli_style_tests::HintSpec::core(
-        "To set the TMT name, in {word}'s pane run: tmt this {word}",
+        "Clear that agent name in the host, then in its pane run: tmt this {word}",
         &[""],
         &[],
     ),

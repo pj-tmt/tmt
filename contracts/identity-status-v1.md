@@ -128,9 +128,9 @@ Collection `tmt ls --json` identity rows with a live pane optionally include
 the name the pane's host gives the agent it recognizes there (Herdr's agent
 name). It is absent, never null, when the host has no agent names (tmux), the
 row has no live observation, or the host reports no name. TMT sets that name
-from the identity's name and never reads it back, so `agentName` can differ
-from `name`; human `tmt ls` then shows the difference with the command that sets
-TMT's name, and warns when an identity on such a host is named only by an agent
+from the identity's name and never imports it into the identity, so `agentName`
+can differ from `name`; human `tmt ls` then shows the difference, says to clear
+that agent name in the host before running `tmt this` again, and warns when an identity on such a host is named only by an agent
 kind such as `claude`. The projection reuses the command's existing
 observation; it adds no probe and grants no dispatch authority.
 
@@ -142,9 +142,10 @@ result: `{"status": "set", "name"}` when the host confirmed it,
 definitely did not set it and the agent keeps its earlier name, and
 `{"status": "uncertain", "name", "code"?, "message"}` when the call failed,
 possibly after the host set the name. `code` is the driver's error code when it
-gave one. Every status leaves the binding as it is. A tmux binding, a rename
-to the same name, and a command that changed no binding ask nothing and omit
-the member.
+gave one. Every status leaves the binding as it is. An explicit bind repeated
+on the pane that already holds the binding asks again and reports the member. A
+tmux binding, a rename to the same name, and a command that binds nothing ask
+nothing and omit the member.
 
 ## Verification
 

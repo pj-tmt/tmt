@@ -66,8 +66,14 @@ case "$3" in
     # One answer per call from the queue; an empty queue sets the name.
     a=$(head -n 1 "$d/naming" 2>/dev/null)
     if [ -f "$d/naming" ]; then tail -n +2 "$d/naming" > "$d/naming.next"; mv "$d/naming.next" "$d/naming"; fi
+    # Like a host driver, a host name TMT did not record is not changed.
+    n=$(printf '%s' "$input" | sed -n 's/.*"name":"\([^"]*\)".*/\1/p')
+    h=$(cat "$d/agentname" 2>/dev/null); r=$(cat "$d/recorded" 2>/dev/null)
+    if [ -z "$a" ] && [ -n "$h" ] && [ "$h" != "$n" ] && [ "$h" != "$r" ]; then a=foreign_name; fi
     case "$a" in
-      ''|ok) printf '{"ok":{}}' ;;
+      '') if [ -n "$n" ]; then printf '%s' "$n" > "$d/agentname"; printf '%s' "$n" > "$d/recorded"; else rm -f "$d/agentname" "$d/recorded"; fi
+          printf '{"ok":{}}' ;;
+      ok) printf '{"ok":{}}' ;;
       slow) sleep 3; printf '{"ok":{}}' ;;
       *) printf '{"error":{"code":"%s","message":"host says %s"}}' "$a" "$a" ;;
     esac ;;
@@ -994,7 +1000,7 @@ fn a_rename_sets_the_new_agent_name_and_the_same_name_asks_nothing() {
         &serde_json::json!({"status": "set", "name": "boss"})
     );
     let same = fixture.json(&["mv", "boss", "boss", "--json"]);
-    assert!(agent_name_of(&same).is_null(), "{same:#}");
+    assert!(same.get("agentName").is_none(), "{same:#}");
     let names: Vec<_> = fixture
         .requests("named")
         .iter()
@@ -1041,7 +1047,7 @@ fn unbind_takes_the_agent_name_away_first_and_clears_whatever_it_answers() {
 #[test]
 fn ls_shows_the_agent_name_and_advises_on_a_mismatch_or_a_kind_label() {
     register();
-    let fixture = naming("ls-agent-name", &["ok", "ok"]);
+    let fixture = naming("ls-agent-name", &["ok"]);
     fixture.approve();
     assert!(
         fixture
@@ -1060,15 +1066,41 @@ fn ls_shows_the_agent_name_and_advises_on_a_mismatch_or_a_kind_label() {
     assert!(!text.contains("agent name"), "{text}");
 
     // Someone renamed the agent in the host: the row shows the mismatch and
-    // the command that sets the TMT name.
+    // says to clear that name before setting TMT's.
     fs::write(&agent_name, "ann").unwrap();
     let human = fixture.tmt(&["ls"]);
     let text = String::from_utf8_lossy(&human.stdout);
     assert!(
-        text.contains("worker's agent has the fake agent name ann, not worker"),
+        text.contains("worker's agent has the fake agent name ann, which TMT did not set"),
         "{text}"
     );
-    assert!(text.contains("tmt this worker"), "{text}");
+    assert!(
+        text.contains("Clear that agent name in the host, then in its pane run: tmt this worker"),
+        "{text}"
+    );
+    assert!(!text.contains("label"), "{text}");
+
+    // The advice in its order: without the clear, the host keeps its name.
+    let this = |fixture: &Fixture| {
+        let output = fixture.tmt_in(Some("f1"), &["this", "worker", "--json"]);
+        assert!(output.status.success(), "{output:?}");
+        serde_json::from_slice::<Value>(&output.stdout).unwrap()
+    };
+    let refused = this(&fixture);
+    assert_eq!(agent_name_of(&refused)["status"], "refused", "{refused:#}");
+    assert_eq!(agent_name_of(&refused)["code"], "foreign_name", "{refused:#}");
+    assert_eq!(fs::read_to_string(&agent_name).unwrap(), "ann");
+    // The host clears its name, and the advised command then sets TMT's.
+    fs::remove_file(&agent_name).unwrap();
+    let set = this(&fixture);
+    assert_eq!(
+        agent_name_of(&set),
+        &serde_json::json!({"status": "set", "name": "worker"})
+    );
+    assert_eq!(fs::read_to_string(&agent_name).unwrap(), "worker");
+    let human = fixture.tmt(&["ls"]);
+    let text = String::from_utf8_lossy(&human.stdout);
+    assert!(!text.contains("agent name"), "{text}");
 
     // No agent name: the member is absent, never null.
     fs::remove_file(&agent_name).unwrap();
