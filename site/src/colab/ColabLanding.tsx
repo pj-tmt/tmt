@@ -378,14 +378,14 @@ export function ColabLanding() {
   return (
     <div className="colab-landing">
       <header className="cl-header">
-        <a
-          href={import.meta.env.BASE_URL}
-          className="cl-brand"
-          aria-label="Colab, back to TMT home"
-        >
-          <span className="cl-logo" aria-hidden="true" />
-          <span>Colab</span>
-        </a>
+        <div className="cl-brand" aria-label="TMT Colab">
+          <a href={import.meta.env.BASE_URL} className="cl-brand-parent" aria-label="TMT home">
+            <span className="cl-logo" aria-hidden="true" />
+            <span>TMT</span>
+          </a>
+          <span className="cl-brand-divider" aria-hidden="true" />
+          <span className="cl-brand-product">Colab</span>
+        </div>
         <nav className="cl-nav" aria-label="Colab features">
           {features.map((feature) => (
             <a key={feature.id} href={`#${feature.id}`}>

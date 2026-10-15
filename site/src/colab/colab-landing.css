@@ -65,6 +65,28 @@
   font-weight: 650;
   font-size: 17px;
 }
+.cl-brand-parent {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: inherit;
+  text-decoration: none;
+  font-size: 14px;
+  letter-spacing: -0.02em;
+}
+.cl-brand-parent:hover {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.cl-brand-divider {
+  width: 1px;
+  height: 20px;
+  margin: 0 2px;
+  background: var(--cl-rule);
+}
+.cl-brand-product {
+  font-size: 17px;
+}
 .cl-logo {
   display: inline-block;
   width: 24px;
@@ -1537,6 +1559,12 @@
   }
 }
 @media (max-width: 420px) {
+  .cl-header {
+    gap: 12px;
+  }
+  .cl-header-actions {
+    gap: 8px;
+  }
   .cl-header-cta {
     font-size: 11px;
   }
