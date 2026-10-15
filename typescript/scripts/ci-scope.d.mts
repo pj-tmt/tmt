@@ -150,7 +150,29 @@ export function runCiScope(
     readonly stdout: { write(text: string): unknown };
     readonly stderr: { write(text: string): unknown };
     readonly summaryFile?: string;
+    readonly env?: Readonly<Record<string, string | undefined>>;
+    readonly request?: MainVerificationRequest;
   }
 ): void;
 export function ciGatePasses(selected: string, results: readonly string[]): boolean;
 export const RUST_WORKERS: readonly ['clippy', 'tests', 'process', 'msrv'];
+export interface MainVerificationContext {
+  readonly repository?: string;
+  readonly eventName?: string;
+  readonly ref?: string;
+  readonly sha?: string;
+  readonly runId?: string;
+  readonly runAttempt?: string;
+}
+export type MainVerificationRequest = (
+  route: string,
+  method?: 'GET' | 'POST',
+  body?: string
+) => unknown;
+export const MAIN_FULL_JOBS: readonly string[];
+export function admitMainFull(context: MainVerificationContext, readMain: () => unknown): boolean;
+export function mainFullGatePasses(context: MainVerificationContext, needs: unknown): boolean;
+export function notifyMainFullFailure(
+  context: MainVerificationContext,
+  request: MainVerificationRequest
+): { readonly created: boolean; readonly commentId: number };

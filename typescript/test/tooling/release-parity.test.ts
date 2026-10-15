@@ -260,11 +260,14 @@ describe('release gate parity inventory', () => {
 
     const selected = changed('.github/workflows/ci.yml', (text) =>
       text.replace(
-        "if: ${{ always() && needs.changes.outputs.verify != 'false' }}\n    runs-on: ubuntu-latest\n    timeout-minutes: 10\n    permissions:\n      contents: read\n      pull-requests: read",
-        "if: ${{ always() && needs.changes.outputs.native == 'true' }}\n    runs-on: ubuntu-latest\n    timeout-minutes: 10\n    permissions:\n      contents: read\n      pull-requests: read"
+        /(  code-quality:\n[\s\S]*?    if:)[^\n]*/,
+        (_condition, prefix) =>
+          `${prefix} \${{ always() && needs.changes.outputs.native == 'true' }}`
       )
     );
-    expect(() => checkReleaseParity(manifest(), { read: selected })).toThrow();
+    expect(() => checkReleaseParity(manifest(), { read: selected })).toThrow(
+      'an always-run job must not depend on a path selection'
+    );
   });
 
   it('keeps live-state races release-only with a concrete reason and no rehearsal claim', () => {

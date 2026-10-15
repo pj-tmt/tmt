@@ -4,15 +4,10 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
   merge_group:
-  # Main pushes, weekly schedules and manual dispatch seed Rust caches.
+  # Main pushes verify the complete inventory; weekly/manual events retain cache seeding.
   # PR and merge-group runs only restore; cache writers require the main ref.
   push:
     branches: [main]
-    paths:
-      - rust/Cargo.lock
-      - rust/Cargo.toml
-      - rust/rust-toolchain.toml
-      - .github/workflows/ci.yml
   schedule:
     - cron: '17 3 * * 1'
   workflow_dispatch:
@@ -25,9 +20,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
-  # A newer push replaces an older pull request run. A seed run is never
-  # cancelled, because a cancelled run writes no cache.
+  group: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'ci-main-verification' || format('ci-{0}', github.event.pull_request.number || github.ref) }}
+  # Only PRs cancel older runs. A main verification finishes once admitted;
+  # the one pending main run is replaced by newer pushes and checks its SHA.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -36,19 +31,20 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      verify: ${{ steps.event.outputs.verify }}
-      macos: ${{ steps.event.outputs.macos }}
-      native: ${{ steps.scope.outputs.native || steps.queue.outputs.native || steps.seed.outputs.native }}
-      native_scope: ${{ steps.scope.outputs.native_scope || steps.queue.outputs.native_scope || steps.seed.outputs.native_scope }}
-      native_notices: ${{ steps.scope.outputs.native_notices || steps.queue.outputs.native_notices || steps.seed.outputs.native_notices }}
+      verify: ${{ steps.main.outputs.verify || steps.event.outputs.verify }}
+      macos: ${{ steps.main.outputs.macos || steps.event.outputs.macos }}
+      main_full_admitted: ${{ steps.main.outputs.admitted || 'false' }}
+      native: ${{ steps.mainfull.outputs.native || steps.scope.outputs.native || steps.queue.outputs.native || steps.seed.outputs.native }}
+      native_scope: ${{ steps.mainfull.outputs.native_scope || steps.scope.outputs.native_scope || steps.queue.outputs.native_scope || steps.seed.outputs.native_scope }}
+      native_notices: ${{ steps.mainfull.outputs.native_notices || steps.scope.outputs.native_notices || steps.queue.outputs.native_notices || steps.seed.outputs.native_notices }}
       release_rehearsal: ${{ steps.rehearsal.outputs.release_rehearsal || 'false' }}
       release_rehearsal_products: ${{ steps.rehearsal.outputs.release_rehearsal_products || '[]' }}
-      remote_firestore: ${{ steps.scope.outputs.remote_firestore || steps.queue.outputs.remote_firestore || 'false' }}
-      colab_firestore: ${{ steps.scope.outputs.colab_firestore || steps.queue.outputs.colab_firestore || 'false' }}
-      native_sync_emulator: ${{ steps.scope.outputs.native_sync_emulator || steps.queue.outputs.native_sync_emulator || 'false' }}
-      scoped_native_tests: ${{ steps.scope.outputs.scoped_native_tests || steps.queue.outputs.scoped_native_tests }}
-      e2e_shard_1: ${{ steps.scope.outputs.e2e_shard_1 || steps.queue.outputs.e2e_shard_1 }}
-      e2e_shard_2: ${{ steps.scope.outputs.e2e_shard_2 || steps.queue.outputs.e2e_shard_2 }}
+      remote_firestore: ${{ steps.mainfull.outputs.remote_firestore || steps.scope.outputs.remote_firestore || steps.queue.outputs.remote_firestore || 'false' }}
+      colab_firestore: ${{ steps.mainfull.outputs.colab_firestore || steps.scope.outputs.colab_firestore || steps.queue.outputs.colab_firestore || 'false' }}
+      native_sync_emulator: ${{ steps.mainfull.outputs.native_sync_emulator || steps.scope.outputs.native_sync_emulator || steps.queue.outputs.native_sync_emulator || 'false' }}
+      scoped_native_tests: ${{ steps.mainfull.outputs.scoped_native_tests || steps.scope.outputs.scoped_native_tests || steps.queue.outputs.scoped_native_tests }}
+      e2e_shard_1: ${{ steps.mainfull.outputs.e2e_shard_1 || steps.scope.outputs.e2e_shard_1 || steps.queue.outputs.e2e_shard_1 }}
+      e2e_shard_2: ${{ steps.mainfull.outputs.e2e_shard_2 || steps.scope.outputs.e2e_shard_2 || steps.queue.outputs.e2e_shard_2 }}
     steps:
       - name: Classify verification and seed events
         id: event
@@ -63,8 +59,18 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22.23.2
+      - name: Admit only the pending current main commit
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        id: main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node typescript/scripts/ci-scope.mjs main-admit >> "$GITHUB_OUTPUT"
+      - name: Select complete main verification
+        if: steps.main.outputs.admitted == 'true'
+        id: mainfull
+        run: node typescript/scripts/ci-scope.mjs main-full >> "$GITHUB_OUTPUT"
       - name: Select the cache-seeding jobs
-        if: steps.event.outputs.verify != 'true'
+        if: steps.event.outputs.verify != 'true' && github.event_name != 'push'
         id: seed
         env:
           SEED_SCOPE: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'full' || 'seed' }}
@@ -96,7 +102,7 @@ jobs:
     env:
       RUSTUP_TOOLCHAIN: 1.97.0
     needs: changes
-    if: ${{ always() && needs.changes.outputs.verify != 'false' }}
+    if: ${{ always() && needs.changes.outputs.verify != 'false' && (github.event_name != 'push' || needs.changes.result == 'success') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -134,10 +140,12 @@ jobs:
           pnpm --filter @tmt/browser-ui --fail-if-no-match test
           pnpm exec vp test run --config vitest.config.ts test/tooling/browser-ui-boundary.test.ts
       - name: Check conventional PR titles
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: node typescript/scripts/pr-title-check.mjs
       - name: Check current PR Agent attribution
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: node typescript/scripts/pr-agent-check.mjs
@@ -301,7 +309,7 @@ jobs:
         with:
           workspaces: rust
           shared-key: native-rust
-          save-if: ${{ needs.changes.outputs.verify == 'false' && github.ref == 'refs/heads/main' }}
+          save-if: ${{ github.ref == 'refs/heads/main' && (needs.changes.outputs.verify == 'false' || needs.changes.outputs.main_full_admitted == 'true') }}
       - name: Test and build workspace
         if: needs.changes.outputs.native_scope == 'full'
         working-directory: rust
@@ -355,7 +363,7 @@ jobs:
         with:
           workspaces: rust
           shared-key: native-process-rust
-          save-if: ${{ needs.changes.outputs.verify == 'false' && github.ref == 'refs/heads/main' }}
+          save-if: ${{ github.ref == 'refs/heads/main' && (needs.changes.outputs.verify == 'false' || needs.changes.outputs.main_full_admitted == 'true') }}
       - name: Set up Node.js and pnpm test tooling
         uses: ./.github/actions/setup-tooling
       - name: Install test dependencies
@@ -460,7 +468,7 @@ jobs:
         with:
           workspaces: rust
           shared-key: native-rust-msrv
-          save-if: ${{ needs.changes.outputs.verify == 'false' && github.ref == 'refs/heads/main' }}
+          save-if: ${{ github.ref == 'refs/heads/main' && (needs.changes.outputs.verify == 'false' || needs.changes.outputs.main_full_admitted == 'true') }}
       - name: Check all workspace targets at MSRV
         working-directory: rust
         run: cargo +"$MSRV" check --locked --workspace --all-targets
@@ -708,7 +716,7 @@ jobs:
         with:
           workspaces: rust
           shared-key: runtime-${{ matrix.target }}
-          save-if: ${{ needs.changes.outputs.verify == 'false' && github.ref == 'refs/heads/main' }}
+          save-if: ${{ github.ref == 'refs/heads/main' && (needs.changes.outputs.verify == 'false' || needs.changes.outputs.main_full_admitted == 'true') }}
       - name: Build the reviewed native runtime
         working-directory: rust
         env:
@@ -929,3 +937,60 @@ jobs:
           REHEARSAL_SELECTED: ${{ needs.changes.outputs.release_rehearsal }}
           REHEARSAL_RESULT: ${{ needs.release-rehearsal.result }}
         run: node typescript/scripts/ci-scope.mjs gate "$REHEARSAL_SELECTED" "$REHEARSAL_RESULT"
+
+  complete-main:
+    name: Complete trusted-main verification
+    needs:
+      - changes
+      - code-quality
+      - native-notices
+      - native-clippy
+      - native-workspace-tests
+      - native-process-tests
+      - native-msrv
+      - native-rust
+      - unit-tests
+      - docker-e2e-shard-1
+      - docker-e2e-shard-2
+      - docker-e2e
+      - native-runtime-build
+      - native-runtime-build-macos
+      - packed-native-install
+      - packed-native-install-macos
+      - native-install-gate
+    if: ${{ always() && github.repository == 'pj-tmt/tmt' && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.main_full_admitted == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+      - name: Require the complete trusted-main inventory
+        env:
+          MAIN_FULL_NEEDS: ${{ toJSON(needs) }}
+        run: node typescript/scripts/ci-scope.mjs gate-main
+
+  notify-main-failure:
+    name: Report main verification failure
+    needs: [changes, complete-main]
+    if: ${{ always() && github.repository == 'pj-tmt/tmt' && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.changes.result == 'failure' || needs.complete-main.result == 'failure') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+      - name: Notify Infra of failed complete main verification
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node typescript/scripts/ci-scope.mjs notify-main-failure
