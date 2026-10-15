@@ -418,6 +418,14 @@ export const text = {
     'The edit was not saved. Reopen the page to review the latest source before trying again.',
   saveTooLarge: (size: number, limit: number) =>
     `The source is ${formatBytes(size)}, over the ${formatBytes(limit)} one page can hold. Shorten it, then save again.`,
+  linkEditTooLarge: (size: number, limit: number) =>
+    `The edit is ${formatBytes(size)}, over the ${formatBytes(limit)} a link can send. Shorten it and save again.`,
+  linkEditRaced:
+    'Someone else using this link sent an edit at the same moment, so yours was not sent. Your draft is kept; save again.',
+  linkEditWaiting:
+    "Your edit was sent and is waiting for the owner's Colab to apply it. Your draft is kept.",
+  linkEditChanged:
+    'The page changed before your edit was applied, so part of it may be missing. Your draft is kept: copy it, reload, and add what is missing.',
   saveStale:
     'The page changed while you were editing, so nothing was saved. Copy your changes, reload to get the latest source, then apply them again.',
   saveMerged: 'Saved. Your edit was merged with a change made elsewhere.',

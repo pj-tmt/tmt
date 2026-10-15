@@ -30,21 +30,18 @@ interface Row {
   envelopes: Sealed[];
   expect: string;
 }
-async function admission(log: string, epoch: string = v.epoch): Promise<Admission> {
+async function admission(
+  log: string,
+  epoch: string = v.epoch,
+  registration: Registration = {} as Registration,
+): Promise<Admission> {
   const statements: string[] = v.logs[log];
   const last = c.statement.Envelope.fromJson(c.binary(statements.at(-1)!, 32 * 1024));
-  const a = new Admission(
-    v.spaceId,
-    v.pageId,
-    epoch,
-    c.binary(v.ownerKey, 32, 32),
-    {} as Registration,
-    {
-      linkId: '70000000-0000-4000-8000-000000000001',
-      principal: 'principal',
-      expiresAt: Number.MAX_SAFE_INTEGER,
-    },
-  );
+  const a = new Admission(v.spaceId, v.pageId, epoch, c.binary(v.ownerKey, 32, 32), registration, {
+    linkId: '70000000-0000-4000-8000-000000000001',
+    principal: 'principal',
+    expiresAt: Number.MAX_SAFE_INTEGER,
+  });
   await a.membership(
     {
       revision: String(statements.length),
@@ -137,7 +134,15 @@ const COMMENTER_LINK = '50000000-0000-4000-8000-000000000002';
 const statementHash = async (log: string, revision: number) =>
   c.statement.Envelope.fromJson(c.binary(v.logs[log][revision - 1], 32 * 1024)).hash();
 /** The chain the browser's own link code mints for a device derived from the link's seed. */
-async function mintedChain(linkId: string, byte: number, revision: number) {
+async function mintedChain(
+  linkId: string,
+  byte: number,
+  revision: number,
+  validity: { issuedAt: number; expiresAt: number } = {
+    issuedAt: c.link.DEVICE_ISSUED_AT,
+    expiresAt: c.link.DEVICE_EXPIRES_AT,
+  },
+) {
   const link = await c.link.deriveLink(seedOf(byte), v.spaceId, linkId),
     device = await c.link.deriveDevice(seedOf(byte), v.spaceId, linkId);
   const chain = await c.link.certifyDevice(link, {
@@ -146,8 +151,7 @@ async function mintedChain(linkId: string, byte: number, revision: number) {
     encryptionPublic: new Uint8Array(32).fill(7),
     membershipRevision: String(revision),
     issuerStatement: await statementHash('base', revision),
-    issuedAt: c.link.DEVICE_ISSUED_AT,
-    expiresAt: c.link.DEVICE_EXPIRES_AT,
+    ...validity,
   });
   return { device, value: { deviceId: device.id, chain: c.encodeBinary(chain) } };
 }
@@ -244,4 +248,78 @@ it('shows an edit request that a browser-derived link device sealed into its own
   });
   expect(view.own[editor.device.id].intents[request.key]).toEqual(request.record);
   expect(objects.statusWriter(editor.device.id)).toBe(false);
+});
+
+/** A session registered with the chain of the vector's link, and the revision its head is at. */
+const registered = (name: string) =>
+  ({
+    deviceId: v.chains[name].deviceId,
+    keys: {},
+    chain: c.certificate.Chain.fromJson(c.binary(v.chains[name].chain, 16 * 1024)),
+  }) as unknown as Registration;
+const head = (log: string) => String(v.logs[log].length);
+
+it('names the signing key of a link device that may write its own stream now', async () => {
+  for (const name of ['editor', 'commenter']) {
+    const a = await admission('base', v.epoch, registered(name));
+    const key = await a.linkAuthor(v.chains[name].deviceId, head('base'));
+    expect(key, name).toEqual(
+      c.certificate.Chain.fromJson(c.binary(v.chains[name].chain, 16 * 1024)).certificate()
+        .signingKey,
+    );
+    await expect(a.ownAuthor(head('base')), name).resolves.toEqual(key);
+  }
+});
+
+it('refuses a link device whose link may not write, or has ended, or whose page is no longer open to it', async () => {
+  const refused: [string, string, string?][] = [
+    ['viewer link', 'base', 'viewer'],
+    ['link that does not cover the page', 'base', 'other'],
+    ['forged chain', 'base', 'forged'],
+    ['chain citing another statement', 'base', 'wrongHash'],
+    ['chain below the link.add revision', 'base', 'belowAdd'],
+    ['member chain claiming link issuance', 'base', 'memberClaimingLink'],
+    ['link removed', 'removed', 'editor'],
+    ['page no longer link-shared', 'unshared', 'editor'],
+  ];
+  for (const [label, log, name] of refused) {
+    const a = await admission(log, v.epoch, registered(name!));
+    await expect(a.ownAuthor(head(log)), label).rejects.toThrow();
+  }
+});
+
+it('refuses a link device at a revision the log has not reached, in another epoch, past its expiry, and unknown', async () => {
+  const device = v.chains.editor.deviceId;
+  const a = await admission('base', v.epoch, registered('editor'));
+  await expect(a.linkAuthor(device, String(v.logs.base.length + 1))).rejects.toThrow();
+  await expect(
+    a.linkAuthor('90000000-0000-4000-8000-000000000009', head('base')),
+  ).rejects.toThrow();
+  const later = await admission('base', '2', registered('editor'));
+  await expect(later.ownAuthor(head('base'))).rejects.toThrow();
+  // A chain whose validity has ended no longer writes, though it still names the link's history.
+  const expired = await mintedChain(EDITOR_LINK, 0x51, 3, { issuedAt: 1, expiresAt: 2 });
+  const registration = {
+    deviceId: expired.device.id,
+    keys: {},
+    chain: c.certificate.Chain.fromJson(c.binary(expired.value.chain, 16 * 1024)),
+  } as unknown as Registration;
+  const old = await admission('base', v.epoch, registration);
+  await expect(old.ownAuthor(head('base'))).rejects.toThrow();
+  // The same chain with the window open writes: nothing else differs.
+  const open = await mintedChain(EDITOR_LINK, 0x51, 3);
+  const live = await admission('base', v.epoch, {
+    deviceId: open.device.id,
+    keys: {},
+    chain: c.certificate.Chain.fromJson(c.binary(open.value.chain, 16 * 1024)),
+  } as unknown as Registration);
+  await expect(live.ownAuthor(head('base'))).resolves.toEqual(open.device.signingPublic);
+});
+
+it('keeps the member path closed to a link device, and the link path to everything else', async () => {
+  const a = await admission('base', v.epoch, registered('editor'));
+  const device = v.chains.editor.deviceId;
+  await a.linkAuthor(device, head('base'));
+  // Once the link's chain is known to the admission, the member path still refuses it.
+  expect(() => a.author(device, head('base'))).toThrow();
 });

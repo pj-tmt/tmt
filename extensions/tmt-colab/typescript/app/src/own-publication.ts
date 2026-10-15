@@ -54,6 +54,16 @@ export function publicationDiagnostic(value: unknown): OwnPublicationDiagnostic 
   };
 }
 
+/** The serve refused an append of this device's own stream with `CONFLICT`: another original
+ * already holds that sequence, as when two holders of one link write its shared stream at once.
+ * The refused original was never stored, so its sender may drop it and seal again at the stream's
+ * new head. Only a refusal the serve answered is this: a lost connection is never. */
+export class OwnAppendRefused extends Error {
+  constructor(readonly code: string) {
+    super(code);
+  }
+}
+
 export class OwnPublicationTimeout extends Error {
   readonly diagnostic: OwnPublicationDiagnostic | undefined;
   constructor(

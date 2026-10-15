@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from 'vite-plus/test';
 import type { Connection } from '../src/connection.js';
 import type { OwnRecord } from '../src/fold-protocol.js';
+import { OwnAppendRefused } from '../src/own-publication.js';
 import { Writer } from '../src/writer.js';
 
 class Relay {
@@ -67,6 +68,53 @@ it.each(['7', null, 'invalid'])(
       expect(connection.append).not.toHaveBeenCalled();
       expect(Relay.current.sent).toHaveLength(1);
       expect(update).toEqual(new Uint8Array([0]));
+    } finally {
+      writer.close();
+    }
+  },
+);
+
+/** A leader that answers every submit with a refusal, and the hint that names it only if asked. */
+function refusing(hint: boolean) {
+  return class {
+    onmessage: ((event: { data: unknown }) => void) | null = null;
+    postMessage(value: { type: string; id: string }) {
+      if (value.type !== 'submit') return;
+      queueMicrotask(() => {
+        if (hint) this.onmessage?.({ data: { type: 'append-refused', id: value.id } });
+        this.onmessage?.({ data: { type: 'result', id: value.id, ok: false } });
+      });
+    }
+    close() {}
+  };
+}
+it.each([
+  [true, true],
+  [false, false],
+])(
+  'tells a follower tab its append was refused as taken only when the leader said so (hint %j)',
+  async (hint, typed) => {
+    vi.useFakeTimers();
+    vi.stubGlobal('BroadcastChannel', refusing(hint));
+    vi.stubGlobal('navigator', { locks: { request: () => new Promise(() => {}) } });
+    const connection = {
+      ready: Promise.resolve(),
+      admission: { registration: { deviceId: 'owner' } },
+      run: (fn: () => Promise<unknown>) => fn(),
+      fold: { run: vi.fn(async () => ({ update: new Uint8Array([1]) })) },
+      waitForOwnRecords: vi.fn(),
+      append: vi.fn(),
+    };
+    const writer = new Writer('follower-refused', async () => connection as unknown as Connection);
+    try {
+      const sent = writer
+        .submitOwnRecords([{ root: 'messages', key: 'k', value: { text: 'Hello' } }])
+        .catch((error: Error) => error);
+      await vi.advanceTimersByTimeAsync(0);
+      const failure = await sent;
+      expect(failure instanceof OwnAppendRefused).toBe(typed);
+      expect(failure).toBeInstanceOf(Error);
+      expect(connection.append).not.toHaveBeenCalled();
     } finally {
       writer.close();
     }

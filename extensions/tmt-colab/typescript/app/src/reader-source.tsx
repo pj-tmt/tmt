@@ -1,19 +1,22 @@
 import { BrowserAction, BrowserDrawer } from '@tmt/browser-ui/react';
 import { useEffect, useRef, useState } from 'react';
 import './source-editor.css';
-import { SaveConflict, SaveOutcomeUnknown, SaveRefused, saveMessage } from './save.js';
+import type { EditOutcome } from './link-edit.js';
+import { saveMessage } from './save.js';
 import { SaveNotice, type SaveProblem } from './save-notice.js';
 import { text } from './strings.js';
 
-/** Saves page text for an editor link: the serve prepares and signs it, so the result is the
- * admitted page, whose text comes back. */
+/** Sends page text as an edit request for an editor link. It resolves once the page answers:
+ * `applied` when the page shows the proposed text, `changed` when it shows anything else. A page
+ * that has not changed after a while calls `onWaiting`, and the request is still not answered. */
 export type ReaderEdit = (
   source: string,
   base: string,
-) => Promise<{ merged: boolean; source: string }>;
+  onWaiting: () => void,
+) => Promise<EditOutcome>;
 
-/** The owner's Source drawer, for a link that may edit: the same label, textarea, Save and notices.
- * Compaction is an editor's to offer, so a full page says who can free room. */
+/** The owner's Source drawer, for a link that may edit: the same label, textarea and Save, but a
+ * save is a request the owner's Colab applies, so the notices say what the page showed. */
 export function ReaderSource({
   source,
   edit,
@@ -31,7 +34,6 @@ export function ReaderSource({
   const [draft, setDraft] = useState(source),
     [saving, setSaving] = useState(false),
     [problem, setProblem] = useState<SaveProblem | null>(null),
-    [merged, setMerged] = useState(false),
     [copied, setCopied] = useState<'copied' | 'failed' | null>(null);
   // The page moved elsewhere while nothing is being edited: show it, and edit from it.
   useEffect(() => {
@@ -43,23 +45,21 @@ export function ReaderSource({
     if (saving) return;
     setSaving(true);
     setProblem(null);
-    setMerged(false);
     setCopied(null);
     try {
-      const saved = await edit(draft, base.current);
-      dirty.current = false;
-      base.current = saved.source;
-      setDraft(saved.source);
-      setMerged(saved.merged);
+      const answer = await edit(draft, base.current, () =>
+        setProblem({ message: text.linkEditWaiting, unconfirmed: true }),
+      );
+      if (answer.kind === 'applied') {
+        dirty.current = false;
+        base.current = answer.source;
+        setDraft(answer.source);
+        setProblem(null);
+      } else {
+        setProblem({ message: text.linkEditChanged, unconfirmed: true, conflict: true });
+      }
     } catch (error) {
-      setProblem({
-        message:
-          error instanceof SaveRefused && error.code === 'COLAB_CAPACITY'
-            ? text.pageSize.saveFullReader
-            : saveMessage(error),
-        unconfirmed: error instanceof SaveOutcomeUnknown,
-        ...(error instanceof SaveConflict ? { conflict: true as const } : {}),
-      });
+      setProblem({ message: saveMessage(error), unconfirmed: false });
     } finally {
       setSaving(false);
     }
@@ -77,7 +77,7 @@ export function ReaderSource({
         <span>
           <label htmlFor="source-edit">{text.source}</label>
           <button disabled={saving || draft === base.current} onClick={() => void save()}>
-            {saving ? text.saving : text.save}
+            {saving && !problem ? text.saving : text.save}
           </button>
         </span>
         {problem && (
@@ -108,11 +108,6 @@ export function ReaderSource({
             }
           />
         )}
-        {merged && !problem && (
-          <div className="source-notice">
-            <p role="status">{text.saveMerged}</p>
-          </div>
-        )}
         <textarea
           id="source-edit"
           readOnly={saving}
@@ -120,7 +115,6 @@ export function ReaderSource({
           value={draft}
           onChange={(event) => {
             dirty.current = true;
-            setMerged(false);
             setDraft(event.target.value);
           }}
         />

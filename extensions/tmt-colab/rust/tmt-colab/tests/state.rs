@@ -165,6 +165,61 @@ fn checkpoint_waits_for_pair_then_prunes_both_prefixes_preserving_tail_and_fork_
     assert!(matches!(store.payload(scope(), 3), Err(Fault::StaleEpoch)));
 }
 #[test]
+fn a_shared_stream_refuses_a_second_original_at_a_taken_sequence_and_stays_open() {
+    let fixture = Fixture::new();
+    let layout = fixture.layout();
+    let mut store = Store::open(&layout).unwrap();
+    store.create_page("page").unwrap();
+    assert_eq!(
+        store.append_shared(&envelope(1, Namespace::Own)).unwrap(),
+        Accepted::New
+    );
+    assert_eq!(
+        store.append_shared(&envelope(1, Namespace::Own)).unwrap(),
+        Accepted::Replay
+    );
+    let other = Envelope {
+        hash: [9; 32],
+        bytes: b"another holder",
+        ..envelope(1, Namespace::Own)
+    };
+    assert!(matches!(store.append_shared(&other), Err(Fault::Conflict)));
+    // The lost race wrote nothing and froze nothing: the next sequence is still taken in order.
+    assert_eq!(
+        store.payload(scope(), 1).unwrap(),
+        Some(b"opaque-ciphertext".to_vec())
+    );
+    assert_eq!(
+        store.append_shared(&envelope(2, Namespace::Own)).unwrap(),
+        Accepted::New
+    );
+    // The same second original on a stream its author alone writes is a fork, which freezes it.
+    let owner = StreamScope {
+        stream: "owner-device",
+        ..scope()
+    };
+    let first = Envelope {
+        scope: owner,
+        ..envelope(1, Namespace::Own)
+    };
+    store.append(&first).unwrap();
+    assert!(matches!(
+        store.append(&Envelope {
+            hash: [9; 32],
+            bytes: b"fork",
+            ..first
+        }),
+        Err(Fault::Conflict)
+    ));
+    assert!(matches!(
+        store.append(&Envelope {
+            scope: owner,
+            ..envelope(2, Namespace::Own)
+        }),
+        Err(Fault::Conflict)
+    ));
+}
+#[test]
 fn failed_checkpoint_rolls_back_prune_and_receipt_capacity_never_evicts() {
     let fixture = Fixture::new();
     let layout = fixture.layout();

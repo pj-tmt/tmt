@@ -210,8 +210,14 @@ It reuses `Admission` through its `ReaderSeat` option (link-addressed wraps, own
 verification, nothing persisted) and `Connection` with the ticket subprotocol. `src/reader-main.tsx`
 removes the fragment first; `src/reader-app.tsx` renders read-only with the sandboxed renderer, and for a link
 whose `role` is `editor` also offers the shared Source drawer (`src/reader-source.tsx`, `source-editor.css`), which
-saves through `ReaderSession.edit` (`save.ts` maps the result as the owner editor does). The owner router, writer,
-Ask and export modules are not part of this bundle.
+sends an edit request through `ReaderSession.edit`: `link-edit.ts` builds the `edit-request` record and its size
+refusals (`EditTooLarge`, the one-document bound), `PageAnswer` reads the outcome from the page itself (applied,
+changed, or still waiting), and the session's `Writer` seals the record into the link device's own stream with
+`Admission.linkAuthor` (via `ownAuthor`, never the member `author`), keeping its pending state in memory only. Every
+holder of a link writes that one stream, so a lost race for the next sequence comes back as `OwnAppendRefused`
+(serve `CONFLICT`, link sessions only): the `Writer` drops the never-stored entry and the next write seals at the
+new head; `Store::append_shared` (live link sessions, `sync.rs`) refuses it without freezing, `append` still freezes. The
+owner router and the owner's Ask and export modules are not part of this bundle.
 
 ## Restart recovery
 
@@ -542,10 +548,9 @@ changed scope, a second stale head and unknown outcomes never rebuild (colab-v1 
   epoch-scoped and never owner devices. A link session writes only through `sync::Access::Write` and
   `Append`: `Sessions::writer` reads the live link, so its role admits `content` and `own` (editor),
   `own` (commenter) or nothing (viewer), signed by the link device (`Admission::device`); the fold
-  stays the authority on what a stored original means. An editor link also has `Access::Save`: its text
-  save is prepared and sealed by the serve's root-local writer like any browser save (no link is named
-  as author), and a save changing attachments needs `Publish`. Every other frame stays denied
-  (`readers.rs`, `registration.rs`).
+  stays the authority on what a stored original means. No link has `Access::Save` or `Publish`: an
+  editor link asks for a text change with an `edit-request` record (`Writer::edits` gates the
+  serve applying it, below). Every other frame stays denied (`readers.rs`, `registration.rs`).
 - `sync/edit_requests.rs` settles a link device's `edit-request` records (grammar:
   `edit_request.rs`): `Server::apply_edit_requests` reads the page's `own` projections from a fresh
   read-only view outside every lock, authorizes the writer through

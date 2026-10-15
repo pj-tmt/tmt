@@ -19,6 +19,7 @@ import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { openReaderLink, startDoor } from './harness/browser.js';
+import { text as copy } from '../src/strings.js';
 import { createPage, freePort, run } from './harness/ask.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 import type { AcceptanceWorld } from './harness/world.js';
@@ -495,7 +496,7 @@ async function publicRead(
   return browser;
 }
 
-test('editor link: the reader offers the Source drawer, its save changes the owner page, and a viewer link has none', async () => {
+test('editor link: the reader offers the Source drawer, its edit request changes the owner page, and a viewer or commenter link has none', async () => {
   await withWorld(async (world) => {
     const door = await startDoor(world, await freePort());
     const created = createPage(world, 'Editor link acceptance', '<h1 id="text">First text</h1>');
@@ -521,8 +522,9 @@ test('editor link: the reader offers the Source drawer, its save changes the own
     await expect(area).toHaveValue(/First text/);
     await area.fill((await area.inputValue()).replace('First text', 'Edited through a link'));
     await editor.page.getByRole('button', { name: 'Save source', exact: true }).click();
-    // The serve prepared and committed the save: the owner's page, read by the owner's CLI, has it,
-    // and the reader shows the saved page.
+    // The link sealed an edit request into its own stream and the owner's serve applied it as the
+    // owner's browser edit: the owner's page, read by the owner's CLI, has it, and the reader shows
+    // the applied page, with no notice left.
     await expect
       .poll(() => String(colab(world, ['page', 'read', created.pageId]).source), {
         timeout: 30_000,
@@ -532,6 +534,7 @@ test('editor link: the reader offers the Source drawer, its save changes the own
     await expect(
       editor.page.getByRole('button', { name: 'Save source', exact: true }),
     ).toBeDisabled();
+    await expect(editor.page.locator('.source-notice')).toHaveCount(0);
 
     // A viewer link to the same page reads it, with no Source control, and sees the edit.
     const viewerLink = colab(world, ['share', 'link', 'add', created.pageId, '--yes']);
@@ -542,6 +545,123 @@ test('editor link: the reader offers the Source drawer, its save changes the own
     );
     await expect(viewer.page.locator('.chip')).toHaveText('Read-only');
     await expect(viewer.page.getByTestId('source-toggle')).toHaveCount(0);
+    // A commenter link reads the edit too and has no Source drawer.
+    const commenterLink = colab(world, [
+      'share',
+      'link',
+      'add',
+      created.pageId,
+      '--role',
+      'commenter',
+      '--yes',
+    ]);
+    const commenter = await openReaderLink(
+      world,
+      door,
+      commenterLink.readerPath as string,
+      'commenter-one',
+    );
+    await expect(commenter.page.frameLocator('iframe').locator('#text')).toHaveText(
+      'Edited through a link',
+      { timeout: 30_000 },
+    );
+    await expect(commenter.page.getByTestId('source-toggle')).toHaveCount(0);
+  });
+});
+
+/** Streams the owner store holds frozen: a stream is frozen when its author signed two originals
+ * for one sequence. */
+const frozenStreams = (world: AcceptanceWorld) =>
+  Number(
+    execFileSync(
+      'sqlite3',
+      [
+        path.join(world.dataRoot, 'colab', 'space.db'),
+        'SELECT count(*) FROM streams WHERE frozen=1',
+      ],
+      { encoding: 'utf8' },
+    ).trim(),
+  );
+
+test('two sessions of one editor link race for its stream: the loser is told, sends again, and nothing freezes', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const lines = [
+      '<h1 id="a">Alpha</h1>',
+      ...[2, 3, 4, 5, 6, 7, 8].map((n) => `<p>line ${n}</p>`),
+    ];
+    const source = [...lines, '<h2 id="b">Bravo</h2>'].join('\n');
+    const created = createPage(world, 'Editor link race', source);
+    colab(world, ['share', 'mode', created.pageId, 'link', '--yes']);
+    const added = colab(world, [
+      'share',
+      'link',
+      'add',
+      created.pageId,
+      '--role',
+      'editor',
+      '--yes',
+    ]);
+    const readerPath = added.readerPath as string;
+    // Holder two's sync tunnel holds back the page and stream updates it is sent, so its session
+    // still holds the link's stream as it was while holder one writes to it.
+    const hold = { on: false };
+    const first = await openReaderLink(world, door, readerPath, 'holder-one');
+    const second = await openReaderLink(world, door, readerPath, 'holder-two', async (page) => {
+      await page.routeWebSocket(/\/sync/, (socket) => {
+        const server = socket.connectToServer();
+        socket.onMessage((message) => server.send(message));
+        server.onMessage((message) => {
+          if (hold.on && typeof message === 'string' && JSON.parse(message).type === 'broadcast')
+            return;
+          socket.send(message);
+        });
+        socket.onClose((code, reason) => void server.close({ code, reason }));
+        server.onClose((code, reason) => void socket.close({ code, reason }));
+      });
+    });
+    for (const holder of [first, second]) {
+      await expect(holder.page.frameLocator('iframe').locator('#a')).toHaveText('Alpha', {
+        timeout: 30_000,
+      });
+      await holder.page.getByTestId('source-toggle').click();
+      await expect(holder.page.locator('#source-edit')).toHaveValue(source);
+    }
+    hold.on = true;
+    const save = (holder: typeof first) =>
+      holder.page.getByRole('button', { name: copy.save, exact: true });
+    // Holder one writes the stream's next sequence, and the owner applies it.
+    await first.page.locator('#source-edit').fill(source.replace('Alpha', 'Alpha by one'));
+    await save(first).click();
+    await expect
+      .poll(() => String(colab(world, ['page', 'read', created.pageId]).source), {
+        timeout: 30_000,
+      })
+      .toContain('Alpha by one');
+    // Holder two seals the same sequence, on a stream it has not seen move: it loses the race,
+    // is told so, and keeps its draft.
+    const draft = source.replace('Bravo', 'Bravo by two');
+    await second.page.locator('#source-edit').fill(draft);
+    await save(second).click();
+    await expect(second.page.getByText(copy.linkEditRaced)).toBeVisible({ timeout: 30_000 });
+    await expect(second.page.locator('#source-edit')).toHaveValue(draft);
+    hold.on = false;
+    expect(frozenStreams(world)).toBe(0);
+    // Its session reconnects without a reload, learns the stream, and the same Save now seals at
+    // the new head: the owner's page ends with both edits.
+    await expect(save(second)).toBeEnabled({ timeout: 30_000 });
+    await save(second).click();
+    await expect
+      .poll(() => String(colab(world, ['page', 'read', created.pageId]).source), {
+        timeout: 30_000,
+      })
+      .toMatch(/Alpha by one[\s\S]*Bravo by two/);
+    for (const holder of [first, second]) {
+      const frame = holder.page.frameLocator('iframe');
+      await expect(frame.locator('#a')).toHaveText('Alpha by one', { timeout: 30_000 });
+      await expect(frame.locator('#b')).toHaveText('Bravo by two', { timeout: 30_000 });
+    }
+    expect(frozenStreams(world)).toBe(0);
   });
 });
 
