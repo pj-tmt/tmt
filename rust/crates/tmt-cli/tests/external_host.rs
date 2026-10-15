@@ -71,7 +71,7 @@ case "$3" in
     e=$(printf '%s' "$input" | sed -n 's/.*"expected":"\([^"]*\)".*/\1/p')
     h=$(cat "$d/agentname" 2>/dev/null)
     case "$a" in
-      '') if [ -n "$n" ]; then printf '%s' "$n" > "$d/agentname"; elif [ -n "$e" ] && [ "$h" = "$e" ]; then rm -f "$d/agentname"; fi
+      '') if [ -n "$n" ]; then printf '%s' "$n" > "$d/agentname"; rm -f "$d/unnamed"; elif [ -n "$e" ] && [ "$h" = "$e" ]; then rm -f "$d/agentname"; touch "$d/unnamed"; fi
           printf '{"ok":{}}' ;;
       ok) printf '{"ok":{}}' ;;
       *) printf '{"error":{"code":"%s","message":"host says %s"}}' "$a" "$a" ;;
@@ -86,8 +86,10 @@ case "$3" in
     esac ;;
   snapshot)
     m=$(cat "$d/marker" 2>/dev/null); [ -n "$m" ] || m=null
-    a=$(cat "$d/agentname" 2>/dev/null); if [ -n "$a" ]; then a="\"$a\""; else a=null; fi
-    printf '{"ok":{"panes":[{"id":"fake-1","target":"f1","cwd":"/src","command":"sh","panePid":%s,"suggestedName":null,"marker":%s,"agentName":%s}]}}' "$(cat "$d/pid")" "$m" "$a" ;;
+    # agentName: the name, null for an agent without one, absent if unknown.
+    a=$(cat "$d/agentname" 2>/dev/null)
+    if [ -n "$a" ]; then a=",\"agentName\":\"$a\""; elif [ -f "$d/unnamed" ]; then a=',"agentName":null'; fi
+    printf '{"ok":{"panes":[{"id":"fake-1","target":"f1","cwd":"/src","command":"sh","panePid":%s,"suggestedName":null,"marker":%s%s}]}}' "$(cat "$d/pid")" "$m" "$a" ;;
   *) printf '{"error":{"code":"unsupported","message":"no %s"}}' "$3" ;;
 esac
 "#;
@@ -976,9 +978,9 @@ fn unbind_takes_the_agent_name_away_first_and_clears_whatever_it_answers() {
 }
 
 /// `tmt ls` shows the host's agent name in JSON, and in human output says
-/// when it differs from the TMT name.
+/// when it differs from the TMT name or the agent has none.
 #[test]
-fn ls_shows_the_agent_name_and_advises_on_a_mismatch() {
+fn ls_shows_the_agent_name_and_advises_on_a_mismatch_or_no_name() {
     register();
     let fixture = naming("ls-agent-name", &["ok"]);
     fixture.approve();
@@ -1026,10 +1028,30 @@ fn ls_shows_the_agent_name_and_advises_on_a_mismatch() {
     let text = String::from_utf8_lossy(&human.stdout);
     assert!(!text.contains("agent name"), "{text}");
 
-    // No agent name: the member is absent, never null.
+    // An agent without a name (as after `tmt run`): the member is absent,
+    // never null, and the row advises `tmt this`.
     fs::remove_file(&agent_name).unwrap();
+    fs::write(fixture.root.join("driver/unnamed"), "").unwrap();
     let row = worker(&fixture.json(&["ls", "--json"])).clone();
     assert!(row.get("agentName").is_none(), "{row:#}");
+    let human = fixture.tmt(&["ls"]);
+    let text = String::from_utf8_lossy(&human.stdout);
+    assert!(
+        text.contains("worker's agent has no fake agent name"),
+        "{text}"
+    );
+    assert!(
+        text.contains("In worker's pane run: tmt this worker"),
+        "{text}"
+    );
+
+    // An unknown agent name (the driver did not report one): no advice.
+    fs::remove_file(fixture.root.join("driver/unnamed")).unwrap();
+    let row = worker(&fixture.json(&["ls", "--json"])).clone();
+    assert!(row.get("agentName").is_none(), "{row:#}");
+    let human = fixture.tmt(&["ls"]);
+    let text = String::from_utf8_lossy(&human.stdout);
+    assert!(!text.contains("agent name"), "{text}");
 }
 
 /// A `tmt mv` the host refused leaves the agent with the name TMT set

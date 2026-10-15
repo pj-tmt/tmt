@@ -364,10 +364,10 @@ fn a_snapshot_reports_the_scoped_panes_their_shells_and_markers() {
 }
 
 /// The agent name is Herdr's `agent list` name of the terminal, and nothing
-/// else: a pane with no agent, an agent with no name, a name outside Herdr's
-/// rule and a terminal listed twice all read as none. Agent names are read
-/// last and are no evidence: whatever stops Herdr from listing its agents,
-/// the pane evidence is the answer.
+/// else: an agent with no name is `null`, and a pane with no agent, a name
+/// outside Herdr's rule and a terminal listed twice leave the member out
+/// (unknown). Agent names are read last and are no evidence: whatever stops
+/// Herdr from listing its agents, the pane evidence is the answer.
 #[test]
 fn a_snapshot_reads_each_agent_name_last_and_never_fails_for_it() {
     let panes = || {
@@ -401,8 +401,8 @@ fn a_snapshot_reads_each_agent_name_last_and_never_fails_for_it() {
         assert_eq!(pids, [11, 12, 13, 14, 15], "the pane evidence is intact");
         panes
             .into_iter()
-            .map(|pane| pane["agentName"].clone())
-            .collect::<Vec<Value>>()
+            .map(|pane| pane.get("agentName").cloned())
+            .collect::<Vec<Option<Value>>>()
     };
 
     let runner = Scripted::default();
@@ -416,13 +416,7 @@ fn a_snapshot_reads_each_agent_name_last_and_never_fails_for_it() {
     ]));
     assert_eq!(
         snapshot(&runner),
-        [
-            json!("reviewer"),
-            json!(null),
-            json!(null),
-            json!(null),
-            json!(null)
-        ]
+        [Some(json!("reviewer")), Some(json!(null)), None, None, None]
     );
     assert_eq!(runner.commands().last().unwrap(), "herdr agent list");
     assert_eq!(runner.commands().len(), 7);
@@ -448,7 +442,7 @@ fn a_snapshot_reads_each_agent_name_last_and_never_fails_for_it() {
         let runner = Scripted::default();
         evidence(&runner);
         failure(&runner);
-        assert_eq!(snapshot(&runner), vec![json!(null); 5]);
+        assert_eq!(snapshot(&runner), vec![None; 5]);
         runner.done();
     }
 

@@ -24,7 +24,7 @@ use tmt_core::{
         session::{HarnessId, RememberedSession, RuntimeState},
     },
     driver::descriptor::{self, Support},
-    endpoint::PaneObservation,
+    endpoint::{AgentName, PaneObservation},
     host::HostKind,
     identity::{Identity, Lifetime},
 };
@@ -48,7 +48,7 @@ fn pane_document(pane: &PaneObservation) -> Value {
         value["location"] = place;
     }
     // Absent, never null, when the host reports no agent name for the pane.
-    if let Some(agent_name) = &pane.agent_name {
+    if let Some(AgentName::Named(agent_name)) = &pane.agent_name {
         value["agentName"] = agent_name.clone().into();
     }
     value
@@ -318,9 +318,10 @@ fn action(row: &IdentityPresence, remembered: Option<&RememberedSession>) -> Opt
 }
 
 /// Advice on live rows of a host with agent names. TMT sets the agent name
-/// and never imports it into the identity, so a host's name that differs is
-/// repaired by an explicit `tmt this`, which replaces it. It never names the
-/// pane label.
+/// and never imports it into the identity, so a host's name that differs, or
+/// an agent the host lists without a name (`tmt run` does not name it), is
+/// repaired by an explicit `tmt this`. An unknown name gets no advice. It
+/// never names the pane label.
 fn agent_name_advice(rows: &[ListedRow]) -> Vec<(String, String)> {
     let mut advice = Vec::new();
     for row in rows {
@@ -336,15 +337,15 @@ fn agent_name_advice(rows: &[ListedRow]) -> Vec<(String, String)> {
         }
         let name = &presence.identity.name;
         let word = crate::output::shell_word(name);
-        if let Some(agent_name) = pane.agent_name.as_ref().filter(|agent| *agent != name) {
-            advice.push((
-                format!(
-                    "{name}'s agent has the {} agent name {agent_name}, not {name}",
-                    host.as_str()
-                ),
-                format!("In {word}'s pane run: tmt this {word}"),
-            ));
-        }
+        let host = host.as_str();
+        let what = match &pane.agent_name {
+            Some(AgentName::Named(agent_name)) if agent_name != name => {
+                format!("{name}'s agent has the {host} agent name {agent_name}, not {name}")
+            }
+            Some(AgentName::Unnamed) => format!("{name}'s agent has no {host} agent name"),
+            _ => continue,
+        };
+        advice.push((what, format!("In {word}'s pane run: tmt this {word}")));
     }
     advice
 }

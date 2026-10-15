@@ -382,7 +382,10 @@ struct Observed {
 
 fn observation(host: &HostName, pane: Pane, start: Option<ProcessIncarnation>) -> PaneObservation {
     PaneObservation {
-        agent_name: pane.agent_name,
+        agent_name: pane.agent_name.map(|name| match name {
+            Some(name) => tmt_core::endpoint::AgentName::Named(name),
+            None => tmt_core::endpoint::AgentName::Unnamed,
+        }),
         // An external host's wire has no session or window; only the host is known.
         location: Some(PaneLocation {
             host: host.as_str().into(),
