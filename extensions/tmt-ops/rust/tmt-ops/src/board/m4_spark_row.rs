@@ -229,6 +229,7 @@ impl Scene {
         theme: &Theme,
         depth: Depth,
         quotas: &[Option<Line<'static>>],
+        inspection: Option<&str>,
     ) -> Result<Vec<paint::Hit<'a>>, String> {
         let area = buffer.area;
         let mut cells = geometry::layout(&self.node, [area.width, area.height], text::measure)?;
@@ -277,6 +278,22 @@ impl Scene {
                 .intersection(area);
                 tmt_tui::components::strip::paint_left(buffer, rect, line.clone());
             }
+        }
+        if let Some(note) = inspection
+            && let Some(axis) = hits.iter().find(|hit| {
+                hit.id
+                    .and_then(|path| path.last())
+                    .is_some_and(|id| id == "time-ticks")
+            })
+        {
+            tmt_tui::components::strip::paint_left(
+                buffer,
+                Rect::new(area.x, axis.rect.y as u16, area.width, 1).intersection(area),
+                Line::styled(
+                    crate::board::view::fit(note, usize::from(area.width)),
+                    screen::style(theme, Role::Muted, depth),
+                ),
+            );
         }
         if self.no_data {
             crate::board::m18_empty_state::paint(
@@ -342,7 +359,7 @@ mod tests {
         assert_eq!(scene.rows(), 5);
         let mut buffer = Buffer::empty(Rect::new(0, 0, 103, 5));
         let hits = scene
-            .paint(&mut buffer, &Theme::default(), Depth::TrueColor, &[])
+            .paint(&mut buffer, &Theme::default(), Depth::TrueColor, &[], None)
             .unwrap();
         assert_eq!(
             line(&buffer, 1),
@@ -406,7 +423,7 @@ mod tests {
                     let scene = Scene::new(&source, width, 0).unwrap();
                     let mut buffer = Buffer::empty(Rect::new(2, 1, width, 5));
                     let hits = scene
-                        .paint(&mut buffer, &Theme::new(base), depth, &[])
+                        .paint(&mut buffer, &Theme::new(base), depth, &[], None)
                         .unwrap();
                     assert!(hits.iter().all(|hit| hit.rect.x >= 2
                         && hit.rect.y >= 1
@@ -453,6 +470,7 @@ mod tests {
                     Some(Line::raw("7d ████████░░ 82%  5h ██████████ 98%")),
                     Some(Line::raw("7d █████████░ 88%  resets 6d16h")),
                 ],
+                None,
             )
             .unwrap();
         let shown = (5..8)
@@ -486,7 +504,7 @@ mod tests {
         let scene = Scene::new(&zero, 103, 0).unwrap();
         let mut buffer = Buffer::empty(Rect::new(0, 0, 103, 5));
         scene
-            .paint(&mut buffer, &Theme::default(), Depth::TrueColor, &[])
+            .paint(&mut buffer, &Theme::default(), Depth::TrueColor, &[], None)
             .unwrap();
         assert!(line(&buffer, 1).contains("0%"));
         assert!(

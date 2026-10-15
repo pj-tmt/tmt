@@ -167,7 +167,7 @@ fn bucket_click_keyboard_and_hover_share_exact_unknown_evidence_with_no_close_re
             std::time::Instant::now(),
         );
         assert_eq!(app.usage_chart.borrow().hover, Some(2));
-        paint(&mut app, 160, 36);
+        assert!(text(&paint(&mut app, 160, 36)).contains("Observed tokens: unavailable"));
         let expected =
             project::details(&app.usage_chart.borrow().observed.as_ref().unwrap().buckets[2]);
         assert!(

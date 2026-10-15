@@ -220,7 +220,9 @@ total and share. The fixed tracks are name (8), a one-cell gap, spark, two space
 total (7, right-aligned), two spaces and share (8, right-aligned, muted). The unknown
 row is muted. There is no y-axis or vertical plot. The row below the heading labels TOK, % of all and the two quota percentage
 tracks (left) in the muted role. Start/midpoint/now ticks occupy only the drawn
-spark width. Each exact bucket repeats one eighth-height glyph over
+spark width. Received hover or keyboard bucket selection temporarily replaces the
+axis row with the same exact-evidence text used by Details; the idle layout keeps
+its axis and gains no extra row. Each exact bucket repeats one eighth-height glyph over
 `floor(spark_width / bucket_count)` cells, starting immediately after the name
 track; leftover cells pad the right. Narrowing
 changes only the spark track and never manufactures finer buckets.

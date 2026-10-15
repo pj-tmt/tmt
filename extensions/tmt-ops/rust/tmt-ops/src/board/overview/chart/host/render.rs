@@ -260,8 +260,20 @@ fn paint_chart(
             .push(crate::board::view::ClockSurface::OverviewUsageQuota { width: quota_width });
     }
     let mut buffer = Buffer::empty(plot);
+    let inspection = state
+        .hover
+        .or(active
+            .filter(|focus| *focus == Focus::Bars)
+            .map(|_| state.bar))
+        .map(|index| project::details(&data.buckets[index]).join(" · "));
     let hits = scene
-        .paint(&mut buffer, &look.theme, look.depth, &quotas)
+        .paint(
+            &mut buffer,
+            &look.theme,
+            look.depth,
+            &quotas,
+            inspection.as_deref(),
+        )
         .expect("admitted provider rows");
     for hit in &hits {
         if hit
