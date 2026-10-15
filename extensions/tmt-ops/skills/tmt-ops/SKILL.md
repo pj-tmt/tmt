@@ -343,7 +343,7 @@ session, opening Agents on the first named squad. Scope overrides saved hides,
 excludes Common pool, and appears as `Scope: product,infra · Esc clears` with
 whole names fitted to the width. Escape clears scope outside an editor, search
 or overlay; explicit bindings win. Duplicate room IDs collapse and an unknown
-name fails before terminal admission with valid squad names. `all` is an ordinary
+or retired name fails before terminal admission with active valid squad names. `all` is an ordinary
 squad name. Neither scope nor session reveal changes the saved hidden list;
 in-place reload carries both, including a cleared scope. Noninteractive `ui`
 reuses the existing listing documents: one unique requested squad gives its

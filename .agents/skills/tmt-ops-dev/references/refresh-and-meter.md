@@ -21,7 +21,8 @@
 - Providers: the board hands each load's members to one fetcher thread that runs due provider
   work off the paint path and again at the shortest `every`.
 - Startup: `board::run` consumes an ephemeral reload handoff and resolves cold launch
-  scope names before terminal admission (`startup.launch_scope`); a valid handoff
+  active scope names through `rooms.roster` before terminal admission
+  (`startup.launch_scope`); a valid handoff
   skips the original argv lookup. It then enters the terminal and paints a
   placeholder (`startup.placeholder`) before configuration and workspace acquisition.
   It spawns the worker, so its setup reads

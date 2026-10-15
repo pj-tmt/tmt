@@ -506,6 +506,21 @@ o = "run touch ${marker}"
     });
   });
 
+  it('launch scope refuses retired rooms and lists only active valid names', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      for (const name of ['product', 'retired']) {
+        expect((await squad(sandbox, ['init', name])).status).toBe(0);
+      }
+      expect((await runCli(sandbox, ['room', 'retire', 'squad-retired', '--json'])).status).toBe(0);
+      const refused = await ops(sandbox, ['ui', '--squad', 'retired']);
+      expect(refused.status).toBe(1);
+      expect(refused.body.error.code).toBe('SQUAD_NOT_FOUND');
+      expect(refused.body.error.message).toContain('Valid squads: product.');
+      expect((await ops(sandbox, ['ui', '--squad', 'product'])).status).toBe(0);
+    });
+  });
+
   it('lists built-in tabs with their board rows, including hidden and empty squads', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);

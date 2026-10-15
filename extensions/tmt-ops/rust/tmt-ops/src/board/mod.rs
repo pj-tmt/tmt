@@ -895,7 +895,7 @@ pub(super) fn launch_scope(
     let mut seen = std::collections::BTreeSet::new();
     let mut squads = Vec::new();
     for name in names {
-        let squad = Squad::resolve(core, Some(name)).map_err(|error| {
+        let squad = Squad::resolve_launch(core, name).map_err(|error| {
             if error.code != "SQUAD_NOT_FOUND" {
                 return error;
             }

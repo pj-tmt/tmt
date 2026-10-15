@@ -16,7 +16,8 @@ configuration and effects belong to [config-and-effects.md](config-and-effects.m
 `board::terminal` owns raw mode, mouse capture and the alternate screen through
 `Screen` and `Guard`. Partial entry is undone; restoration runs on return, error,
 panic and TERM/HUP. Worker shutdown follows terminal restoration. Cold launch
-scope names resolve before terminal admission; a valid ephemeral reload handoff
+scope names resolve active rooms through the existing `rooms.roster` snapshot port
+before terminal admission; a valid ephemeral reload handoff
 uses its carried UUID scope and does not resolve the original argv names again.
 Configuration and worker setup follow the admitted placeholder.
 The admitted board selects structured migration notices before entry: the shared
