@@ -2,6 +2,7 @@
 //! `tmt ops squad ls`, paints from it, and reloads in the background.
 
 mod app;
+mod buttons;
 mod changes;
 mod checklist;
 mod chip_group;

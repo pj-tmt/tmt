@@ -619,6 +619,7 @@ impl std::fmt::Debug for Hit {
 
 #[derive(Default)]
 pub struct App {
+    pub(super) buttons: super::buttons::State,
     /// Injected by the renderer, never inferred from NO_COLOR or stored preferences.
     pub cron_glyphs: super::overview::cron_counts::GlyphSet,
     pub(in crate::board) conversation_return: Option<super::shell::OpsTab>,
@@ -3260,6 +3261,10 @@ impl App {
         self.overlay().is_some() || self.menu.is_some()
     }
 
+    pub(super) fn button_owner_is_active(&self, owner: Option<Overlay>) -> bool {
+        self.menu.is_none() && self.overlay() == owner && (owner.is_some() || !self.searching)
+    }
+
     pub(in crate::board) fn usage_controls_active(&self) -> bool {
         self.overlay() == Some(Overlay::UsageControls) && self.menu.is_none()
     }
@@ -3421,6 +3426,7 @@ impl App {
     }
 
     pub fn key(&mut self, key: KeyEvent) -> Effect {
+        self.buttons.clear_hover();
         self.meter_hover = None;
         if key.kind == ratatui::crossterm::event::KeyEventKind::Release {
             return Effect::None;
@@ -3580,6 +3586,7 @@ impl App {
     /// Refuse pointer and viewport authority from a superseded frame. Offsets
     /// and drafts survive; only a new paint can publish interactive geometry.
     pub(super) fn invalidate_frame_geometry(&self) {
+        self.buttons.invalidate();
         if let Some(picker) = &self.panels_picker {
             picker.invalidate();
         }
@@ -3708,7 +3715,14 @@ impl App {
                     _ => None,
                 })
         };
-        let changed = next != self.meter_hover;
+        let buttons_changed = if self.menu.is_none() {
+            self.buttons
+                .move_pointer((event.column, event.row).into(), self.overlay())
+        } else {
+            self.buttons.clear_hover();
+            false
+        };
+        let changed = buttons_changed || next != self.meter_hover;
         self.meter_hover = next;
         changed
     }
@@ -3775,6 +3789,8 @@ impl App {
             self.move_pointer(event);
             return Effect::None;
         }
+        // Activation never transfers hover to a replacement modal or control.
+        self.buttons.clear_hover();
         // A button/wheel event carries the current position too. Reconcile an
         // existing hover, without inventing hover on terminals lacking motion.
         if self.meter_hover.is_some() {

@@ -18,9 +18,8 @@ use ratatui::{
 };
 use tmt_cli_style::Role;
 use tmt_tui::components::strip;
-use unicode_width::UnicodeWidthStr;
 
-const ANNOTATE: &str = "[ Annotate selection ]";
+const ANNOTATE: &str = "Annotate selection";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Anchor {
@@ -291,19 +290,19 @@ pub(super) fn paint(
             source.target == Target::Row(target.clone())
                 && app.response_quote_current(&source.target, quote)
         });
-        if let Some(quote) = quote.filter(|_| ANNOTATE.width() <= usize::from(footer.width)) {
-            strip::paint_left(
+        let control = quote.and_then(|quote| {
+            super::super::buttons::paint(
+                app,
                 frame.buffer_mut(),
                 footer,
-                Line::styled(ANNOTATE, look.role(Role::Accent)),
-            );
-            source.annotate = Some((
-                Rect {
-                    width: ANNOTATE.width() as u16,
-                    ..footer
-                },
-                quote,
-            ));
+                &[super::super::buttons::Button::secondary(ANNOTATE)],
+                tmt_cli_style::grid::Align::Left,
+                None,
+            )[0]
+            .map(|rect| (rect, quote))
+        });
+        if let Some(control) = control {
+            source.annotate = Some(control);
         } else {
             strip::paint_left(
                 frame.buffer_mut(),

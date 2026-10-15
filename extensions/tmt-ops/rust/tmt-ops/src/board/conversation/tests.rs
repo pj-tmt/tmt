@@ -856,7 +856,7 @@ fn mock_header_uses_held_squad_role_usage_and_uuid_fenced_details_buttons() {
     let screen: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
     assert!(screen.contains("working · product · member"));
     assert!(screen.contains("runtime-long-界") && screen.contains("model-long-value"));
-    assert!(screen.contains("tok/h") && screen.contains("[ Details ] [ Links ]"));
+    assert!(screen.contains("tok/h") && screen.contains(" Details   Links "));
     let hits = app.conversation.borrow().header_hits.clone();
     assert_eq!(hits.len(), 2);
     for hit in &hits {
@@ -865,7 +865,7 @@ fn mock_header_uses_held_squad_role_usage_and_uuid_fenced_details_buttons() {
         let painted: String = (hit.area.x..hit.area.right())
             .map(|x| buffer[(x, hit.area.y)].symbol())
             .collect();
-        assert!(painted == "[ Details ]" || painted == "[ Links ]");
+        assert!(painted == " Details " || painted == " Links ");
     }
     let click = MouseEvent {
         kind: MouseEventKind::Down(MouseButton::Left),
@@ -909,7 +909,7 @@ fn shortened_or_missing_header_rows_never_publish_timer_or_details_hits() {
                     .map(|x| buffer[(x, hit.area.y)].symbol())
                     .collect();
                 assert!(
-                    painted == "[ Details ]" || painted == "[ Links ]",
+                    painted == " Details " || painted == " Links ",
                     "{width}x{height}: {painted}"
                 );
             }
