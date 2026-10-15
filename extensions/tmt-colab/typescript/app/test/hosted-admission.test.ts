@@ -72,7 +72,7 @@ async function fixture(existing = false) {
       return { kind: 'confirmed' };
     },
   } as unknown as SealedSyncPort;
-  const admission = new HostedAdmission(port);
+  const admission = new HostedAdmission();
   return {
     admission,
     events,
@@ -89,7 +89,7 @@ async function fixture(existing = false) {
 
 it('creates exactly the Rules-shaped own member once, then gets page hints before any discovery', async () => {
   const f = await fixture();
-  expect(await f.admission.open(input, call())).toEqual({
+  expect(await f.admission.open(f.port, input, call())).toEqual({
     epoch: '7',
     expiresAtMs: Date.parse('2027-01-01T00:00:00Z'),
   });
@@ -104,7 +104,7 @@ it('creates exactly the Rules-shaped own member once, then gets page hints befor
 
 it('reads an existing own member without re-creating it', async () => {
   const f = await fixture(true);
-  expect((await f.admission.open(input, call())).epoch).toBe('7');
+  expect((await f.admission.open(f.port, input, call())).epoch).toBe('7');
   expect(f.events).toEqual([
     ['read', member],
     ['read', page],
@@ -113,7 +113,10 @@ it('reads an existing own member without re-creating it', async () => {
 
 it('joins duplicate opens to the same single admission attempt', async () => {
   const f = await fixture();
-  await Promise.all([f.admission.open(input, call()), f.admission.open(input, call())]);
+  await Promise.all([
+    f.admission.open(f.port, input, call()),
+    f.admission.open(f.port, input, call()),
+  ]);
   expect(f.events.filter((event) => (event as unknown[])[0] === 'publish')).toHaveLength(1);
 });
 
@@ -123,7 +126,7 @@ it('permits one create only after the own-target missing-row denial; never probe
     if (target.resource === 'members') throw { code: 'REMOTE_SCOPE_DENIED' };
     return f.pageDocument;
   });
-  await f.admission.open(input, call());
+  await f.admission.open(f.port, input, call());
   expect(f.events.filter((event) => (event as unknown[])[0] === 'publish')).toHaveLength(1);
 });
 
@@ -135,8 +138,8 @@ it.each(['REMOTE_SCOPE_DENIED', 'REMOTE_BUDGET_EXHAUSTED', 'REMOTE_RATE_LIMITED'
     f.publish(async () => {
       throw error;
     });
-    await expect(f.admission.open(input, call())).rejects.toEqual(error);
-    await expect(f.admission.open(input, call())).rejects.toEqual(error);
+    await expect(f.admission.open(f.port, input, call())).rejects.toEqual(error);
+    await expect(f.admission.open(f.port, input, call())).rejects.toEqual(error);
     expect(f.events.filter((event) => (event as unknown[])[0] === 'publish')).toHaveLength(1);
     expect(f.events.some((event) => JSON.stringify(event) === JSON.stringify(['read', page]))).toBe(
       false,
@@ -155,7 +158,7 @@ it('reads back an unknown create once and never sends it again', async () => {
         : await document(member, memberFields()),
   );
   f.publish(async () => ({ kind: 'unknown' }));
-  expect((await f.admission.open(input, call())).epoch).toBe('7');
+  expect((await f.admission.open(f.port, input, call())).epoch).toBe('7');
   expect(f.events.map((event) => (event as unknown[])[0])).toEqual([
     'read',
     'publish',
@@ -167,10 +170,10 @@ it('reads back an unknown create once and never sends it again', async () => {
 it('keeps an absent unknown create unavailable, with no re-create or page read', async () => {
   const f = await fixture();
   f.publish(async () => ({ kind: 'unknown' }));
-  await expect(f.admission.open(input, call())).rejects.toMatchObject({
+  await expect(f.admission.open(f.port, input, call())).rejects.toMatchObject({
     code: 'REMOTE_STATE_UNAVAILABLE',
   });
-  await expect(f.admission.open(input, call())).rejects.toMatchObject({
+  await expect(f.admission.open(f.port, input, call())).rejects.toMatchObject({
     code: 'REMOTE_STATE_UNAVAILABLE',
   });
   expect(f.events.filter((event) => (event as unknown[])[0] === 'publish')).toHaveLength(1);
@@ -179,7 +182,7 @@ it('keeps an absent unknown create unavailable, with no re-create or page read',
 it('refuses a different existing role/link/token without overwriting or probing', async () => {
   const f = await fixture();
   f.read(async () => document(member, { ...memberFields(), role: { stringValue: 'viewer' } }));
-  await expect(f.admission.open(input, call())).rejects.toMatchObject({
+  await expect(f.admission.open(f.port, input, call())).rejects.toMatchObject({
     code: 'REMOTE_SCOPE_DENIED',
   });
   expect(f.events).toEqual([['read', member]]);
@@ -191,14 +194,16 @@ it('never assumes epoch one or discovers after a denied page get', async () => {
     if (target.resource === 'pages') throw { code: 'REMOTE_SCOPE_DENIED' };
     return document(member, memberFields());
   });
-  await expect(f.admission.open(input, call())).rejects.toEqual({ code: 'REMOTE_SCOPE_DENIED' });
+  await expect(f.admission.open(f.port, input, call())).rejects.toEqual({
+    code: 'REMOTE_SCOPE_DENIED',
+  });
 });
 
 it('fences cancellation before any read or effect', async () => {
   const f = await fixture();
   const stopped = AbortSignal.abort();
   await expect(
-    f.admission.open(input, { signal: stopped, deadlineAtMs: Date.now() + 30_000 }),
+    f.admission.open(f.port, input, { signal: stopped, deadlineAtMs: Date.now() + 30_000 }),
   ).rejects.toMatchObject({ code: 'REMOTE_STATE_UNAVAILABLE', state: 'cancelled' });
   expect(f.events).toHaveLength(0);
 });
@@ -223,7 +228,7 @@ it('charges both bootstrap gets and the sole members commit through the caller g
     await guard.admit({ operation: 'commit', reads: 0, writes: 1, rulesLookupsPerDocument: 4 });
     return publish(mutation, budget);
   };
-  await f.admission.open(input, call());
+  await f.admission.open(f.port, input, call());
   expect(usage).toMatchObject({ reads: 12, writes: 1 });
 });
 
@@ -239,7 +244,7 @@ it.each([
       ? document(member, memberFields())
       : document(page, { ...pageFields(), ...change }),
   );
-  await expect(f.admission.open(input, call())).rejects.toMatchObject({
+  await expect(f.admission.open(f.port, input, call())).rejects.toMatchObject({
     code: 'REMOTE_STATE_UNAVAILABLE',
   });
   expect(f.events).toEqual([
@@ -250,12 +255,35 @@ it.each([
 
 it('refreshes the page routing hint without ever re-creating the same membership', async () => {
   const f = await fixture();
-  await f.admission.open(input, call());
+  await f.admission.open(f.port, input, call());
   f.read(async (target) =>
     target.resource === 'members'
       ? document(member, memberFields())
       : document(page, { ...pageFields(), epoch: { integerValue: '9' } }),
   );
-  expect((await f.admission.open(input, call())).epoch).toBe('9');
+  expect((await f.admission.open(f.port, input, call())).epoch).toBe('9');
   expect(f.events.filter((event) => (event as unknown[])[0] === 'publish')).toHaveLength(1);
+});
+
+it('keeps the one create attempt across fresh ports used by bounded page recovery', async () => {
+  const first = await fixture(),
+    next = await fixture();
+  await first.admission.open(first.port, input, call());
+  await first.admission.open(next.port, input, call());
+  expect(first.events.filter((event) => (event as unknown[])[0] === 'publish')).toHaveLength(1);
+  // The next port need not re-read or recreate the member; its page get is still Rules-checked.
+  expect(next.events).toEqual([['read', page]]);
+});
+
+it('never retries a refused or unknown admission create on a replacement port', async () => {
+  const first = await fixture(),
+    next = await fixture(),
+    refusal = { code: 'REMOTE_STATE_UNAVAILABLE' };
+  first.publish(async () => {
+    throw refusal;
+  });
+  await expect(first.admission.open(first.port, input, call())).rejects.toEqual(refusal);
+  await expect(first.admission.open(next.port, input, call())).rejects.toEqual(refusal);
+  expect(next.events).toEqual([]);
+  expect(first.events.filter((event) => (event as unknown[])[0] === 'publish')).toHaveLength(1);
 });

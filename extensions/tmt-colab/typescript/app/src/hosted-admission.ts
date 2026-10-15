@@ -29,8 +29,11 @@ export interface HostedPageHints {
 export class HostedAdmission {
   private attempt?: Promise<void>;
   private identity?: string;
-  constructor(private readonly port: SealedSyncPort) {}
-  async open(link: HostedLinkAdmission, call: SyncCall): Promise<HostedPageHints> {
+  async open(
+    port: SealedSyncPort,
+    link: HostedLinkAdmission,
+    call: SyncCall,
+  ): Promise<HostedPageHints> {
     live(call);
     const input = { ...link };
     const { space, page, token, role } = input;
@@ -43,8 +46,8 @@ export class HostedAdmission {
     } catch {
       throw invalid();
     }
-    if (space !== this.port.context.space) throw denied();
-    const uid = this.port.context.uid;
+    if (space !== port.context.space) throw denied();
+    const uid = port.context.uid;
     const bytes = new TextEncoder().encode(
       JSON.stringify({
         link: { stringValue: input.link },
@@ -67,11 +70,11 @@ export class HostedAdmission {
     // A reader owns one parsed link. Keep the failed attempt as well, so recovery never retries a create.
     if (this.identity !== undefined && this.identity !== desired.digest) throw denied();
     this.identity = desired.digest;
-    this.attempt ??= this.admitOnce(desired, call);
+    this.attempt ??= this.admitOnce(port, desired, call);
     await this.attempt;
     live(call);
     const target = { resource: 'pages', id: `${space}_${page}` };
-    const document = await this.port.read(target, call);
+    const document = await port.read(target, call);
     live(call);
     if (
       !document ||
@@ -115,10 +118,14 @@ export class HostedAdmission {
       throw unavailable();
     }
   }
-  private async admitOnce(desired: SealedDocument, call: SyncCall): Promise<void> {
+  private async admitOnce(
+    port: SealedSyncPort,
+    desired: SealedDocument,
+    call: SyncCall,
+  ): Promise<void> {
     let existing: SealedDocument | undefined;
     try {
-      existing = await this.port.read(desired.target, call);
+      existing = await port.read(desired.target, call);
     } catch (error) {
       live(call);
       // Rules deny a get of a missing own member. Only this exact bootstrap target can
@@ -136,10 +143,10 @@ export class HostedAdmission {
       matching(existing, desired);
       return;
     }
-    const outcome = await this.port.publish({ mode: 'create', document: desired }, call);
+    const outcome = await port.publish({ mode: 'create', document: desired }, call);
     live(call);
     if (outcome.kind === 'unknown') {
-      const readback = await this.port.read(desired.target, call);
+      const readback = await port.read(desired.target, call);
       live(call);
       if (!readback) throw unavailable();
       matching(readback, desired);
