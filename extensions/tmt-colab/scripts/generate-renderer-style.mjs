@@ -13,6 +13,8 @@ const roles = [
   ['surface', 'annotation-highlight'],
   ['surface', 'annotation-action'],
   ['color', 'annotation-on-action'],
+  ['surface', 'sheet'],
+  ['color', 'text'],
 ];
 const variables = (theme) =>
   roles

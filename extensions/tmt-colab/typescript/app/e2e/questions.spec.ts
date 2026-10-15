@@ -318,7 +318,18 @@ for (const width of [1440, 390])
           await (await pageAction(page.locator('#ask-page-fixture'), 'Theme: Dark')).click();
         const proposal = page.locator('[data-inline-proposal]');
         await expect(proposal).not.toHaveAttribute('data-detached');
-        // Both trusted overlays use the light leaf palette even when chrome/author differ.
+        const frame = page.frameLocator('#ask-page-fixture iframe');
+        await expect(frame.locator('html')).toHaveAttribute('data-theme', theme);
+        const question = frame.locator('[data-colab-question]');
+        await expect(question).toHaveCSS(
+          'background-color',
+          theme === 'dark' ? 'rgb(16, 16, 16)' : 'rgb(255, 255, 255)',
+        );
+        await expect(question).toHaveCSS(
+          'color',
+          theme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)',
+        );
+        // Both parent-drawn overlays retain their separately ruled neutral light palette.
         for (const surface of [
           card.locator('.question-controls'),
           proposal.locator('.proposal-card'),
