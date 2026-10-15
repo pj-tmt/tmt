@@ -36,6 +36,11 @@ A dark island on a light page needs dark foregrounds as well as dark surfaces.
 Every shared component is opaque, square and shadow-free; the product-owned annotation badge/pill exceptions are defined in [browser style](../gui-style.md#popover-composer). Semantic marks retain words.
 Links, essential edges, selection indicators and keyboard focus are separate.
 
+`src/favicon.svg` owns the light/dark TMT tab icon. Site, Colab and Remote HTML
+embed data-URI copies; their tests decode those copies and compare the exact SVG
+bytes with this source. Updating the icon requires refreshing these literals;
+no icon request or runtime generator is involved.
+
 ## Host metric inputs
 
 The leaf preserves differing product metrics through explicit custom properties;

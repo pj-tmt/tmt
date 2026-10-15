@@ -150,6 +150,25 @@ console.log(JSON.stringify({dataRoot: ${JSON.stringify(root)}}));`,
   }
 }
 
+async function expectSharedFavicon(page: Page) {
+  const canonical = await readFile(
+    new URL('../../../../../design/browser-ui/src/favicon.svg', import.meta.url),
+  );
+  await expect(page.locator('link[rel="icon"]')).toHaveAttribute(
+    'href',
+    `data:image/svg+xml;base64,${canonical.toString('base64')}`,
+  );
+  // Chromium must admit the inline image under the served policy, not only parse its link.
+  expect(
+    await page.evaluate(async () => {
+      const image = new Image();
+      image.src = document.querySelector<HTMLLinkElement>('link[rel="icon"]')!.href;
+      await image.decode();
+      return [image.naturalWidth, image.naturalHeight];
+    }),
+  ).toEqual([96, 96]);
+}
+
 async function captureDesign(page: Page, name: string) {
   const directory = process.env.COLAB_DESIGN_CAPTURE_DIR;
   if (!directory) return;
@@ -181,9 +200,12 @@ for (let run = 1; run <= 2; run++) {
       const appPolicy = response!.headers()['content-security-policy'];
       expect(appPolicy).toContain("script-src 'self'; style-src 'self'");
       expect(appPolicy).not.toContain('unsafe-inline');
+      expect(appPolicy).toContain("img-src 'self' data:");
+      await expectSharedFavicon(page);
       const renderer = await context.request.get(server.origin + mount + 'renderer.html');
       expect(renderer.status()).toBe(200);
       expect(await renderer.body()).toEqual(await readFile(app + '/renderer.html'));
+      expect(await renderer.text()).not.toContain('rel="icon"');
       expect(renderer.headers()['content-security-policy']).toContain('sandbox allow-scripts');
       expect(renderer.headers()['content-security-policy']).toContain("connect-src 'none'");
       // The renderer is public static bytes: the read-only entry frames pages with it too.
@@ -386,6 +408,22 @@ for (let run = 1; run <= 2; run++) {
 
 // #1545: the public read-only entry is served to an unpaired browser as static bytes only. The
 // real executable answers; the test door forwards without owner context.
+test('public reader serves the shared favicon under its unchanged CSP', async ({ page }) => {
+  const server = await serve(false);
+  const requests: string[] = [];
+  page.on('request', (request) => requests.push(request.url()));
+  try {
+    const entry = await page.goto(server.origin + mount + 'read');
+    expect(entry!.status()).toBe(200);
+    expect(await entry!.body()).toEqual(await readFile(app + '/reader.html'));
+    expect(entry!.headers()['content-security-policy']).toContain("img-src 'self' data:");
+    await expectSharedFavicon(page);
+    expect(requests.every((url) => new URL(url).origin === server.origin)).toBe(true);
+  } finally {
+    await server.close();
+  }
+});
+
 test('public reader entry: exact static bytes, link fragment removed, and no access without a grant', async ({
   page,
   context,

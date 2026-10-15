@@ -2646,7 +2646,8 @@ register root entries. Colab owns short-ID resolution and the browser's eventual
 
 Browser assets live at the door root, disjoint from the route prefix, under the same Host, path and
 framing rules. `GET /pair` serves the pairing page with `default-src 'none'; script-src 'self';
-style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`.
+style-src 'self'; img-src data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`.
+The landing, pairing, settings and error pages share this policy and embed the shared TMT SVG favicon as data; images cannot make network requests.
 `GET /sdk/pair.js` serves the synchronous fragment-erasing bootstrap, which then loads the SDK.
 `GET /sdk/pair-offer` returns only the current unconfirmed offer's
 `{profile, binding, machineId, windowId, offerId, address, serverChallenge}` descriptor with `no-store`; absent, expired, cancelled
