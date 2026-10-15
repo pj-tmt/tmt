@@ -247,6 +247,22 @@ unchanged in `snapshot` and `probe`. It never interprets the marker.
   nothing.
 - **Missing pane:** each of these answers `not_found`.
 
+**Core directional focus.** `tmt focus <target> --into <left|right|up|down>` is a
+Core host action, not an external-driver wire operation. External drivers,
+including Herdr, default to `HOST_UNSUPPORTED`. On tmux, Core verifies the caller
+pane and target on the same server, reads the caller window layout once, and
+swaps the target with its visible directional neighbour using `swap-pane -d`.
+The caller keeps focus and no pane is killed; the target may be in another window.
+Touching edges cross one border cell and perpendicular spans must overlap. Core
+prefers the neighbour containing the caller midpoint, then largest overlap, then
+smallest left/top. It never wraps and refuses a zoomed window as no neighbour.
+Success is `{"swapped":{"pane":"<target>"},"with":{"pane":"<neighbour>"}}`;
+already beside is `{"swapped":null,"with":{"pane":"<neighbour>"},"already":true}`.
+Refusals use the ordinary focus error envelope: `HOST_UNSUPPORTED` for an
+unsupported host, no caller pane or the caller as target; `PANE_NOT_FOUND` for a
+missing target or visible neighbour. Binding and evidence errors retain focus's
+existing codes. A name or UUID on another server remains inactive.
+
 **Delivery outcome.** An `input` answer tells core whether text reached the
 pane:
 

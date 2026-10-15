@@ -536,6 +536,25 @@ fn check_and_focus_reach_an_external_pane_through_its_driver() {
 }
 
 #[test]
+fn focus_into_is_unsupported_on_external_hosts_without_a_focus_effect() {
+    register();
+    let fixture = Fixture::delivering("focus-into-unsupported");
+    fixture.approve();
+    let named = fixture.tmt_in(Some("f1"), &["name", "worker", "--save", "--json"]);
+    assert!(named.status.success(), "{named:?}");
+    let before = fixture.calls().len();
+    let refused = fixture.tmt_in(Some("f1"), &["focus", "worker", "--into", "left", "--json"]);
+    assert_eq!(refused.status.code(), Some(1), "{refused:?}");
+    let document: Value = serde_json::from_slice(&refused.stdout).unwrap();
+    assert_eq!(document["error"]["code"], "HOST_UNSUPPORTED");
+    assert!(
+        fixture.calls()[before..]
+            .iter()
+            .all(|call| call != "focus" && call != "input" && call != "prompt")
+    );
+}
+
+#[test]
 fn focus_uuid_survives_rename_and_name_reuse_without_changing_check_routing() {
     register();
     let fixture = Fixture::delivering("focus-uuid-rename");

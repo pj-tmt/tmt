@@ -505,6 +505,13 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         ["focus"] if flag(m, "client") => Invocation::FocusClient,
         ["focus"] => Invocation::Focus {
             target: required(m, "target"),
+            into: text(m, "into").map(|direction| match direction.as_str() {
+                "left" => tmt_core::host::SwapDirection::Left,
+                "right" => tmt_core::host::SwapDirection::Right,
+                "up" => tmt_core::host::SwapDirection::Up,
+                "down" => tmt_core::host::SwapDirection::Down,
+                _ => unreachable!("grammar validates the direction"),
+            }),
         },
         ["check"] => {
             let positional = text(m, "capture-lines")

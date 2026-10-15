@@ -305,7 +305,7 @@ The CLI and the `delivery` and `pane_badge` adapters reach a terminal only throu
 `tmt whoami`), and the architecture guard rejects extension code that names the host
 port, the tmux module or core's `binding`, `endpoint` or `host` model. Every host,
 the built-in tmux and external drivers alike, implements `host::driver::HostDriver`,
-and one binding policy in `host::driver::{status, send, focus}` decides which
+and one binding policy in `host::driver::{status, send, focus, swap_into}` decides which
 evidence makes a binding present and when input is blocked. Endpoint identity is
 opaque to everything but its host: `HostKind` is pure data, evidence from another
 host is `Unknown`, and only `tmt-core/src/host.rs`, `tmt-adapters/src/host.rs` and
