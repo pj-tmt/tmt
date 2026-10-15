@@ -857,7 +857,8 @@ appears exactly once in any order; values are canonical (`space` and IDs as ever
 positive decimal, `st`, `seed` and `root` unpadded base64url of 32 bytes, `role` one of `viewer`,
 `commenter`, `editor`); anything else, including percent escapes, an unknown key, a link printed
 before `root` and `role` existed, or more than 512 bytes, is not a reader link (the longest
-form is about 300 bytes). `root` is the owner's root public key: every reader rejects a link
+form is about 300 bytes; the entry names a well-formed pre-`root` link as out of date and says to
+ask the owner for a new one, without any request). `root` is the owner's root public key: every reader rejects a link
 whose `root` does not derive `space`. `role` is only a hint for the one self-admission create of
 a hosted reader; the capability comes from the signed link statements, and the reader stays
 read-only whatever `role` says.

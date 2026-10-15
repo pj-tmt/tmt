@@ -603,6 +603,9 @@ export const text = {
   readerEnded: 'Access ended',
   readerEndedNote: 'This link no longer gives access to the page. Ask the owner for a new link.',
   readerInvalid: 'This link is incomplete or malformed. Open the full link again.',
+  readerOlderTitle: 'Link out of date',
+  readerOlder:
+    'This link was made by an older version. Ask the owner for a new link (tmt colab share link reset).',
   readerFailed: 'Could not open this page. Open the full link again.',
   readerNote:
     'You are reading a shared page. You cannot edit it or ask agents. Anyone who holds this link and can reach this address can read the page.',

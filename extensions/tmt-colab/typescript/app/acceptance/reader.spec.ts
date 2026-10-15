@@ -192,6 +192,21 @@ test('reader link: opens unpaired, shows live edits read-only, and ends on Reset
       reader.requests.filter((r) => r.url.includes(seed) || (r.body ?? '').includes(seed)),
     ).toEqual([]);
 
+    // A link printed before `root` and `role` existed says so, and tells the viewer what to ask for.
+    const older = await openReaderLink(
+      world,
+      door,
+      readerPath.replace(/&root=[^&]*&role=viewer$/, ''),
+      'reader-older',
+    );
+    await expect(
+      older.page.getByRole('heading', { name: 'Link out of date', level: 2 }),
+    ).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(older.page.getByText('tmt colab share link reset')).toBeVisible();
+    expect(older.requests.filter((r) => r.url.includes('/api/'))).toEqual([]);
+
     // Reset ends the old link, live, and the replacement opens in another profile.
     const reset = colab(world, [
       'share',

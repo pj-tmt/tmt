@@ -23,6 +23,19 @@ export interface ReaderLink {
 }
 const KEYS = ['v', 'space', 'page', 'link', 'rev', 'st', 'seed', 'root', 'role'];
 const ROLES = ['viewer', 'commenter', 'editor'];
+const OLDER_KEYS = ['v', 'space', 'page', 'link', 'rev', 'st', 'seed'];
+
+/** A well-formed link from before `root` and `role`: it opens nothing now, and the page says why. */
+export function isOlderReaderFragment(hash: string): boolean {
+  if (!hash.startsWith('#') || hash.length > 512) return false;
+  const parts = hash.slice(1).split('&'),
+    keys = parts.map((part) => part.split('=', 1)[0]);
+  return (
+    parts.length === OLDER_KEYS.length &&
+    OLDER_KEYS.every((key) => keys.includes(key)) &&
+    parts.includes('v=1')
+  );
+}
 
 /** Strict grammar: `#v=1&space&page&link&rev&st&seed&root&role`, each key exactly once, canonical
  * values, and a `root` that derives `space`. */

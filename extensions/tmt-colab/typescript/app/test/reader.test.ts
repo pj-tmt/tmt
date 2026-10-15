@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import * as c from '@tmt/colab-client';
 import { Admission } from '../src/admission.js';
 import { Catchup } from '../src/catchup.js';
-import { parseReaderFragment } from '../src/reader-link.js';
+import { isOlderReaderFragment, parseReaderFragment } from '../src/reader-link.js';
 import { ReaderSession } from '../src/reader.js';
 import type { Registration } from '../src/registration.js';
 
@@ -93,6 +93,17 @@ describe('reader link fragment', () => {
   ];
   it.each(bad)('rejects %s', async (_name, hash) => {
     await expect(parseReaderFragment(hash)).rejects.toThrow();
+  });
+  it('names a link from before root and role as older, and nothing else', () => {
+    const older = fragment({ root: null, role: null });
+    expect(isOlderReaderFragment(older)).toBe(true);
+    expect(isOlderReaderFragment(fragment({ role: null }))).toBe(false);
+    expect(isOlderReaderFragment(fragment())).toBe(false);
+    expect(isOlderReaderFragment(older.replace('v=1', 'v=2'))).toBe(false);
+    expect(isOlderReaderFragment(older + '&role=viewer')).toBe(false);
+    expect(isOlderReaderFragment(older.replace('rev=4', 'link=x'))).toBe(false);
+    expect(isOlderReaderFragment('')).toBe(false);
+    expect(isOlderReaderFragment('#v=1')).toBe(false);
   });
   it.each(['commenter', 'editor'])('accepts the %s role hint', async (role) => {
     expect((await parseReaderFragment(fragment({ role }))).role).toBe(role);
