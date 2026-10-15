@@ -670,7 +670,8 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
           (screen) => screen.includes('Workspace settings') && screen.includes('Actions'),
           shell.pane
         );
-        fixture.tmux(['send-keys', '-t', shell.pane, ...Array(5).fill('Down'), 'Enter']);
+        // Actions is the final entry; preceding preference choices may grow.
+        fixture.tmux(['send-keys', '-t', shell.pane, ...Array(40).fill('Down'), 'Enter']);
         await fixture.waitForCapture(
           (screen) => screen.includes('Checklist') && screen.includes('Esc closes'),
           shell.pane
