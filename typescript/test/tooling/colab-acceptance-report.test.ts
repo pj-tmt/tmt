@@ -97,6 +97,14 @@ describe('public Colab acceptance evidence', () => {
     expect(report.tests[0].results[0].ownPublications).toEqual([diagnostic]);
   });
 
+  it('retains the attachment-publication kind only under its intents root', () => {
+    const row = { ...diagnostic, root: 'intents', kind: 'attachment-publication' };
+    const { report } = runReport((result) => {
+      result.attachments.push(attachment(row), attachment({ ...row, root: 'messages' }));
+    });
+    expect(report.tests[0].results[0].ownPublications).toEqual([row]);
+  });
+
   it.each([
     { key: secret },
     { value: secret },
@@ -121,6 +129,24 @@ describe('public Colab acceptance evidence', () => {
         { ...attachment(diagnostic), name: 'private-diagnostic', path: secret },
         { ...attachment(diagnostic), body: '', path: secret }
       );
+    });
+    expect(report.tests[0].results[0]).not.toHaveProperty('ownPublications');
+  });
+
+  it.each([{ contentType: 'text/plain' }, { body: 'not base64' }, { body: 'A'.repeat(1028) }])(
+    'drops malformed or oversized diagnostic attachments: %j',
+    (change) => {
+      const { report } = runReport((result) => {
+        result.attachments.push({ ...attachment(diagnostic), ...change });
+      });
+      expect(report.tests[0].results[0]).not.toHaveProperty('ownPublications');
+    }
+  );
+
+  it('does not turn a passing result into publication failure evidence', () => {
+    const { report } = runReport((result) => {
+      result.status = 'passed';
+      result.attachments.push(attachment(diagnostic));
     });
     expect(report.tests[0].results[0]).not.toHaveProperty('ownPublications');
   });

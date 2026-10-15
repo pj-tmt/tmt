@@ -20,6 +20,24 @@ it('copies only the closed publication diagnostic, including an unknown replay s
 });
 
 it.each([
+  ['threads', 'thread'],
+  ['intents', 'ask'],
+  ['intents', 'attachment-publication'],
+  ['messages', 'comment'],
+  ['messages', 'ask-state'],
+  ['messages', 'thread-status'],
+  ['messages', 'thread-notification'],
+  ['messages', 'proposal-decision'],
+  ['replies', 'ask-reply'],
+])('keeps the admitted record kind %s/%s', (root, kind) => {
+  expect(publicationDiagnostic({ ...diagnostic, root, kind })).toEqual({
+    ...diagnostic,
+    root,
+    kind,
+  });
+});
+
+it.each([
   { key: 'PRIVATE' },
   { value: 'PRIVATE' },
   { url: 'https://PRIVATE' },

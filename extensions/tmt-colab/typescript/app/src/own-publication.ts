@@ -2,15 +2,8 @@ import type { OwnRecord, OwnRoot } from './fold-protocol.js';
 
 const kinds: Record<OwnRoot, readonly string[]> = {
   threads: ['thread'],
-  intents: ['ask'],
-  messages: [
-    'comment',
-    'ask-state',
-    'thread-status',
-    'thread-notification',
-    'proposal-decision',
-    'attachment-publication',
-  ],
+  intents: ['ask', 'attachment-publication'],
+  messages: ['comment', 'ask-state', 'thread-status', 'thread-notification', 'proposal-decision'],
   replies: ['ask-reply'],
 };
 export interface OwnPublicationDiagnostic {
