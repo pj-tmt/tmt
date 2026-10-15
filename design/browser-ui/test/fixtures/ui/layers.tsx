@@ -44,6 +44,7 @@ function LayerGallery() {
   const menuTrigger = useRef<HTMLButtonElement>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [sheetSide, setSheetSide] = useState<'top' | 'right' | 'bottom' | 'left'>('right');
   const [menuOpen, setMenuOpen] = useState(false);
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -123,6 +124,22 @@ function LayerGallery() {
         bypass it. Tooltip retains stock Radix behavior.
       </p>
       <Button ref={fallback}>Persistent layer fallback</Button>
+      <label>
+        Sheet side
+        <select
+          aria-label="Sheet side"
+          value={sheetSide}
+          onChange={(event) => {
+            const side = event.target.value;
+            if (side === 'top' || side === 'right' || side === 'bottom' || side === 'left')
+              setSheetSide(side);
+          }}
+        >
+          {['top', 'right', 'bottom', 'left'].map((side) => (
+            <option key={side}>{side}</option>
+          ))}
+        </select>
+      </label>
       {states}
       <Button onClick={() => setOutsideActions((n) => n + 1)}>Underlying host action</Button>
       <Button
@@ -275,6 +292,7 @@ function LayerGallery() {
               </SheetTrigger>
             )}
             <SheetContent
+              side={sheetSide}
               returnFocus={sheetHandoff.returnFocus}
               focusFallback={persistentFallback}
               aria-busy={busy || uncertain}

@@ -159,6 +159,7 @@ async function assertTokens(
   await expect(node).toHaveCSS('border-radius', '0px');
   await expect(node).toHaveCSS('box-shadow', 'none');
   await expect(node).toHaveCSS('z-index', tokens.browser.ui['z-layer']);
+  await expect(node).toHaveCSS('font-size', tokens.browser.metric['command-size']);
   expect(
     await node.evaluate(
       (element) =>
@@ -398,6 +399,34 @@ for (const width of [320, 390, 1440])
           }
         });
       }
+      test('all Sheet sides preserve token bounds, entry and return', async ({ page }, info) => {
+        await prepare(page, width, theme);
+        const gutter = Number.parseFloat(tokens.browser.ui['spacing-unit']) * 2;
+        for (const side of ['top', 'right', 'bottom', 'left']) {
+          await fixture(page).getByLabel('Sheet side', { exact: true }).selectOption(side);
+          await trigger(page, 'Sheet').click();
+          const node = surface(page, 'Sheet');
+          await expect(node).toHaveAttribute('data-side', side);
+          await expect(
+            node.getByRole('heading', { name: 'Fixture Sheet title', exact: true }),
+          ).toBeFocused();
+          await assertTokens(node, theme);
+          await assertBounds(node, { left: 0, top: 0, width, height: 900 });
+          const box = await node.boundingBox();
+          if (!box) throw new Error('Missing Sheet surface');
+          const edge =
+            side === 'left'
+              ? box.x
+              : side === 'right'
+                ? width - box.x - box.width
+                : side === 'top'
+                  ? box.y
+                  : 900 - box.y - box.height;
+          expect(edge).toBeCloseTo(gutter, 0);
+          await capture(page, info, `Sheet-side-${side}`);
+          await closeAndReturn(page, 'Sheet', 'Escape', trigger(page, 'Sheet'));
+        }
+      });
       test('vetoed menu transfer never opens Dialog/Sheet or invokes the fake host action', async ({
         page,
       }, info) => {
@@ -467,6 +496,8 @@ for (const width of [320, 390, 1440])
         await expect(
           page.getByRole('menuitem', { name: 'Open Dialog from menu', exact: true }),
         ).toBeFocused();
+        await assertTokens(page.getByRole('menu'), theme, 'sheet');
+        await assertBounds(page.getByRole('menu'), { left: 0, top: 0, width, height: 900 });
         await page.keyboard.press('ArrowDown');
         await expect(
           page.getByRole('menuitem', { name: 'Open Sheet from menu', exact: true }),
