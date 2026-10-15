@@ -13,6 +13,8 @@ import type { OwnAuthor } from '../src/own-seal.js';
 import type { Registration } from '../src/registration.js';
 import type { Fold } from '../src/fold.js';
 import type { FoldCommand } from '../src/fold-protocol.js';
+import * as budgetMath from '../../../../tmt-remote/typescript/remote-client/src/budget.js';
+import { HostedBudget } from '../src/hosted-budget.js';
 import { HostedPageReader } from '../src/hosted-reader.js';
 
 vi.mock('../src/storage.js', () => ({
@@ -342,7 +344,7 @@ it('feeds exact signed authority and contiguous cross-namespace updates to the e
   expect(f.admission.root).toBeNull();
   expect(f.fold.close).toHaveBeenCalledOnce();
 });
-it('uses its admitted stream position on later wakes and avoids unrelated authority discovery', async () => {
+it('uses its admitted stream position on later wakes with only chain inventory discovery', async () => {
   const f = await fixture(),
     one = await f.seal();
   await f.log(one);
@@ -351,7 +353,11 @@ it('uses its admitted stream position on later wakes and avoids unrelated author
   f.folded.length = 0;
   await f.log(await f.seal({ streamSeq: '2', prevHash: await one.hash() }));
   await f.reader.refresh(call(), new Set(['log']));
-  expect(f.requests.some((request) => request.query.resource === 'authority')).toBe(false);
+  expect(
+    f.requests
+      .filter((request) => request.query.resource === 'authority')
+      .map((request) => request.query.scope.kind),
+  ).toEqual([{ stringValue: 'chain' }]);
   expect(f.requests.find((request) => request.shape === 'stream')?.query).toMatchObject({
     cursor: { stream: v.page, seq: 1 },
   });
@@ -359,6 +365,101 @@ it('uses its admitted stream position on later wakes and avoids unrelated author
   expect(f.folded[0]).toMatchObject({ updates: [c.text('authenticated update')] });
   await f.reader.close();
 });
+it('does not re-list held history and charges equal wake reads at 20, 100 and 200 originals', async () => {
+  const costs: number[] = [];
+  for (const held of [20, 100, 200]) {
+    const f = await fixture();
+    let previous = new Uint8Array(32);
+    for (let seq = 1; seq <= held; seq++) {
+      const envelope = await f.seal({ streamSeq: String(seq), prevHash: previous });
+      await f.log(envelope);
+      previous = new Uint8Array(await envelope.hash());
+    }
+    await f.reader.refresh(call(), new Set(['authority', 'log', 'checkpoints']));
+    f.requests.length = 0;
+    const query = f.port.query.bind(f.port);
+    vi.spyOn(f.port, 'query').mockImplementation((request, call) => {
+      if (request.shape === 'discovery' && request.query.resource === 'log')
+        throw new Error('Whole-log rediscovery after initial catch-up');
+      return query(request, call);
+    });
+    await f.log(await f.seal({ streamSeq: String(held + 1), prevHash: previous }));
+    try {
+      await f.reader.refresh(call(), new Set(['log']));
+      const stream = f.requests.filter((request) => request.shape === 'stream');
+      expect(
+        stream.map((request) => 'cursor' in request.query && request.query.cursor?.seq),
+      ).toEqual([held, held + 1]);
+      expect(f.requests.filter((request) => request.query.resource === 'authority')).toHaveLength(
+        1,
+      );
+      // Exercise the real origin guard with the current SDK page reservations: authority 5, log 1.
+      let stored: unknown;
+      const guard = new HostedBudget(budgetMath, {
+        transact: async (change) => {
+          const next = change(stored);
+          stored = next.usage;
+          return next.result;
+        },
+      });
+      for (const request of f.requests)
+        await guard.admit({
+          operation: 'query',
+          reads: request.query.resource === 'log' ? 1 : 5,
+          writes: 0,
+          rulesLookupsPerDocument: 3,
+        });
+      costs.push((await guard.snapshot()).reads);
+      expect(f.folded.at(-1)).toMatchObject({ updates: [c.text('authenticated update')] });
+    } finally {
+      await f.reader.close();
+    }
+  }
+  expect(costs).toEqual([28, 28, 28]);
+});
+
+it('queries a dormant chain again when its first original arrives without a membership notice', async () => {
+  const f = await fixture(),
+    writer = '00000000-0000-4000-8000-000000000456';
+  await f.writer(writer);
+  await f.reader.refresh(call(), new Set(['authority', 'log', 'checkpoints']));
+  await f.reader.refresh(call(), new Set(['log']));
+  f.requests.length = 0;
+  await f.log(await f.seal({ authorDevice: writer }));
+  await f.reader.refresh(call(), new Set(['log']));
+  expect(
+    f.requests
+      .filter((request) => request.shape === 'stream')
+      .map((request) => 'stream' in request.query && request.query.stream),
+  ).toContain(writer);
+  expect(f.folded.at(-1)).toMatchObject({ updates: [c.text('authenticated update')] });
+  await f.reader.close();
+});
+
+it('finds a first writer on the queued log wake when it arrives during a chain scan', async () => {
+  const f = await fixture(),
+    writer = '00000000-0000-4000-8000-000000000456';
+  await f.reader.refresh(call(), new Set(['authority', 'log', 'checkpoints']));
+  const query = f.port.query.bind(f.port);
+  let arrived = false;
+  vi.spyOn(f.port, 'query').mockImplementation(async (request, call) => {
+    const response = await query(request, call);
+    if (!arrived && request.query.resource === 'authority') {
+      arrived = true;
+      await f.writer(writer);
+      await f.log(await f.seal({ authorDevice: writer }));
+    }
+    return response;
+  });
+  await f.reader.refresh(call(), new Set(['log']));
+  await f.reader.refresh(call(), new Set(['log']));
+  expect(arrived).toBe(true);
+  expect(f.folded.flatMap((command) => (command.type === 'apply' ? command.updates : []))).toEqual([
+    c.text('authenticated update'),
+  ]);
+  await f.reader.close();
+});
+
 it('loads a complete checkpoint pair then verifies the tail from their shared prefix', async () => {
   const f = await fixture(),
     prefix = new Uint8Array(32).fill(7);
