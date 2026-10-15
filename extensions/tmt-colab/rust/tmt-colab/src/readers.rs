@@ -55,8 +55,9 @@ pub(crate) struct Writer {
     pub revision: u64,
 }
 impl Writer {
-    /// A viewer link stores nothing, a commenter link its own namespace, an editor link both and
-    /// may also have the serve save page text for it.
+    /// A viewer link stores nothing, a commenter link its own namespace and an editor link both.
+    /// No link has the serve save page text for it through its session: an editor link asks for
+    /// that with an `edit-request` record, which the serve applies (`edits`).
     pub(crate) fn admit(&self, access: &Access<'_>) -> Result<[u8; 32], SyncCode> {
         let namespace_allowed = |namespace: &str| {
             matches!(
@@ -66,7 +67,6 @@ impl Writer {
         };
         match access {
             Access::Write if matches!(self.role.as_str(), "editor" | "commenter") => Ok(self.key),
-            Access::Save if self.role == "editor" => Ok(self.key),
             Access::Append(c)
                 if namespace_allowed(&c.namespace)
                     && c.author_device == self.device
@@ -76,6 +76,14 @@ impl Writer {
                 Ok(self.key)
             }
             _ => Err(SyncCode::Denied),
+        }
+    }
+    /// Whether the serve may apply this link's edit requests: an editor's alone.
+    pub(crate) fn edits(&self) -> Result<(), SyncCode> {
+        if self.role == "editor" {
+            Ok(())
+        } else {
+            Err(SyncCode::Denied)
         }
     }
 }

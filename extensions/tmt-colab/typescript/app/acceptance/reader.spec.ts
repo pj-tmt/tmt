@@ -495,7 +495,7 @@ async function publicRead(
   return browser;
 }
 
-test('editor link: the reader offers the Source drawer, its save changes the owner page, and a viewer link has none', async () => {
+test('editor link: the reader offers the Source drawer, its edit request changes the owner page, and a viewer or commenter link has none', async () => {
   await withWorld(async (world) => {
     const door = await startDoor(world, await freePort());
     const created = createPage(world, 'Editor link acceptance', '<h1 id="text">First text</h1>');
@@ -521,8 +521,9 @@ test('editor link: the reader offers the Source drawer, its save changes the own
     await expect(area).toHaveValue(/First text/);
     await area.fill((await area.inputValue()).replace('First text', 'Edited through a link'));
     await editor.page.getByRole('button', { name: 'Save source', exact: true }).click();
-    // The serve prepared and committed the save: the owner's page, read by the owner's CLI, has it,
-    // and the reader shows the saved page.
+    // The link sealed an edit request into its own stream and the owner's serve applied it as the
+    // owner's browser edit: the owner's page, read by the owner's CLI, has it, and the reader shows
+    // the applied page, with no notice left.
     await expect
       .poll(() => String(colab(world, ['page', 'read', created.pageId]).source), {
         timeout: 30_000,
@@ -532,6 +533,7 @@ test('editor link: the reader offers the Source drawer, its save changes the own
     await expect(
       editor.page.getByRole('button', { name: 'Save source', exact: true }),
     ).toBeDisabled();
+    await expect(editor.page.locator('.source-notice')).toHaveCount(0);
 
     // A viewer link to the same page reads it, with no Source control, and sees the edit.
     const viewerLink = colab(world, ['share', 'link', 'add', created.pageId, '--yes']);
@@ -542,6 +544,27 @@ test('editor link: the reader offers the Source drawer, its save changes the own
     );
     await expect(viewer.page.locator('.chip')).toHaveText('Read-only');
     await expect(viewer.page.getByTestId('source-toggle')).toHaveCount(0);
+    // A commenter link reads the edit too and has no Source drawer.
+    const commenterLink = colab(world, [
+      'share',
+      'link',
+      'add',
+      created.pageId,
+      '--role',
+      'commenter',
+      '--yes',
+    ]);
+    const commenter = await openReaderLink(
+      world,
+      door,
+      commenterLink.readerPath as string,
+      'commenter-one',
+    );
+    await expect(commenter.page.frameLocator('iframe').locator('#text')).toHaveText(
+      'Edited through a link',
+      { timeout: 30_000 },
+    );
+    await expect(commenter.page.getByTestId('source-toggle')).toHaveCount(0);
   });
 });
 

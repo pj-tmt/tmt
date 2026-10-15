@@ -37,7 +37,10 @@ export function position(value: unknown): asserts value is Position {
   decimal(value.seq);
   binary(value.envelopeHash, 32, 32);
 }
-export const UPDATE_ENVELOPE_BYTES = Math.floor(((UPDATE_BYTES + 2048) * 4) / 3) + 2048;
+/** The most bytes a sealed envelope holds for an update of `update` bytes: base64 of the update
+ * and its framing, plus the header and signature. */
+export const sealedBound = (update: number) => Math.floor(((update + 2048) * 4) / 3) + 2048;
+export const UPDATE_ENVELOPE_BYTES = sealedBound(UPDATE_BYTES);
 type Namespace = 'content' | 'own';
 interface Head {
   seq: bigint;

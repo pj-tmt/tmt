@@ -623,7 +623,7 @@ export class Connection {
     const plaintext = await env.open(
       h.context,
       a.root!,
-      a.author(a.registration.deviceId, h.context.membershipRevision),
+      await a.ownAuthor(h.context.membershipRevision),
     );
     plaintext.fill(0);
     requireValue(!this.#receipts.has(entry.seq));

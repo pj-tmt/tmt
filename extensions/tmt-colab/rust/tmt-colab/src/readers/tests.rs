@@ -586,26 +586,20 @@ fn an_append_frame_from_a_link_session_is_stored_as_the_link_devices_stream_by_r
 }
 
 #[test]
-fn only_an_editor_link_may_have_the_serve_save_page_text_and_no_link_the_rest_of_a_writer() {
-    let key = SigningKey::from_bytes(&[19; 32]).verifying_key().to_bytes();
-    for (role, saves) in [("viewer", false), ("commenter", false), ("editor", true)] {
+fn no_link_has_the_serve_save_page_text_or_the_rest_of_a_writer() {
+    for role in ["viewer", "commenter", "editor"] {
         let mut f = Fixture::new();
         f.share(ShareMode::Link);
         f.add_link_as(role);
         let id = f.upgrade(&f.session(true)).unwrap();
         let (admission, scope) = (OwnerAdmission(f.service.clone()), f.scope());
-        assert_eq!(
-            admission.authorize(&id, &scope, Access::Save),
-            if saves {
-                Ok(key)
-            } else {
-                Err(crate::sync::Code::Denied)
-            },
-            "{role}"
-        );
-        assert_eq!(
-            admission.authorize(&id, &scope, Access::Publish),
-            Err(crate::sync::Code::Denied)
-        );
+        // An editor link asks for a text change with an edit request; it does not save one.
+        for access in [Access::Save, Access::Publish] {
+            assert_eq!(
+                admission.authorize(&id, &scope, access),
+                Err(crate::sync::Code::Denied),
+                "{role}"
+            );
+        }
     }
 }

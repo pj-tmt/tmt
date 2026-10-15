@@ -4658,7 +4658,7 @@ fn a_public_reader_cannot_save_or_ask_about_a_save() {
 }
 
 #[test]
-fn an_editor_link_save_commits_as_the_root_local_writer_and_no_other_link_can_save() {
+fn no_link_can_save_page_text_through_its_session_and_none_has_the_rest_of_a_writer() {
     let source = "<p>Saved through an editor link</p>";
     for role in ["viewer", "commenter", "editor"] {
         let server = Running::start(Tunnels::PRODUCT);
@@ -4672,27 +4672,23 @@ fn an_editor_link_save_commits_as_the_root_local_writer_and_no_other_link_can_sa
             }
             server.reader_frame(&session, "save", fields)
         };
-        // Saving text is the editor's alone, and saving attachments is nobody's.
-        send(&mut link, save(SAVE_ONE, true));
-        assert_eq!(
-            receive_until(&mut link, "error").0["type"],
-            "error",
-            "{role}"
-        );
-        send(&mut link, save(SAVE_TWO, false));
-        if role == "editor" {
-            let (result, _) = receive_until(&mut link, "saveresult");
-            assert_eq!(result["state"], "committed", "{result}");
-            let layout = Layout::existing(&server.root).unwrap().unwrap();
-            let key = Keyring::read(&layout).unwrap();
-            assert_eq!(native_source(&layout, &key), source);
-        } else {
+        // An editor link asks for a text change with an edit request, so no link saves one, with
+        // or without attachments, and none asks about a save either.
+        for frame in [
+            save(SAVE_ONE, true),
+            save(SAVE_TWO, false),
+            server.reader_frame(&session, "savestatus", json!({"operationId":SAVE_TWO})),
+        ] {
+            send(&mut link, frame);
             assert_eq!(
                 receive_until(&mut link, "error").0["type"],
                 "error",
                 "{role}"
             );
         }
+        let layout = Layout::existing(&server.root).unwrap().unwrap();
+        let key = Keyring::read(&layout).unwrap();
+        assert_eq!(native_source(&layout, &key), "", "{role}");
         // Awareness, usage and compaction belong to no link.
         for kind in ["usage", "compact"] {
             send(&mut link, server.reader_frame(&session, kind, json!({})));

@@ -1,18 +1,25 @@
-/** The shared-page reader of an editor link over a scripted save. Never imported by production. */
+/** The shared-page reader of an editor link over a scripted edit request. Never imported by
+ * production. */
 import { createRoot, type Root } from 'react-dom/client';
 import { ReaderApp } from '../src/reader-app.js';
-import { SaveConflict, SaveRefused } from '../src/save.js';
+import { EditTooLarge } from '../src/save.js';
 
 let root: Root | undefined;
 const saves: { source: string; base: string }[] = [];
-/** What the scripted serve answers to the next save. */
-let answer: 'saved' | 'merged' | 'conflict' | 'full' = 'saved';
+/** What the scripted page does after the next request: shows the text (`applied`), shows other
+ * text (`changed`), stays as it was (`waiting`, until `settle`), or the request is `large`. */
+let answer: 'applied' | 'changed' | 'waiting' | 'large' = 'applied';
+let release: ((source: string) => void) | undefined;
 
 export function proof() {
   return { saves };
 }
 export function script(next: typeof answer) {
   answer = next;
+}
+/** The waiting request's page finally shows `source`. */
+export function settle(source: string) {
+  release?.(source);
 }
 export async function mount(role: 'viewer' | 'editor') {
   document.getElementById('root')!.style.display = 'none';
@@ -26,7 +33,8 @@ export async function mount(role: 'viewer' | 'editor') {
   root = createRoot(host);
   await import('../src/reader-style.css');
   saves.length = 0;
-  answer = 'saved';
+  answer = 'applied';
+  release = undefined;
   const editor = role === 'editor';
   root.render(
     <ReaderApp
@@ -37,15 +45,19 @@ export async function mount(role: 'viewer' | 'editor') {
       canEdit={editor}
       edit={
         editor
-          ? async (source, base) => {
+          ? async (source, base, onWaiting) => {
               saves.push({ source, base });
-              if (answer === 'conflict') throw new SaveConflict(1, { line: 1, excerpt: 'Release' });
-              if (answer === 'full')
-                throw new SaveRefused('COLAB_CAPACITY', 'The page is full.', undefined);
-              return {
-                merged: answer === 'merged',
-                source: answer === 'merged' ? `${source}!` : source,
-              };
+              if (answer === 'large') throw new EditTooLarge(200 * 1024, 128 * 1024);
+              if (answer === 'waiting') {
+                onWaiting();
+                return new Promise((resolve) => {
+                  release = (shown) =>
+                    resolve({ kind: shown === source ? 'applied' : 'changed', source: shown });
+                });
+              }
+              return answer === 'changed'
+                ? { kind: 'changed', source: `${source}!` }
+                : { kind: 'applied', source };
             }
           : undefined
       }

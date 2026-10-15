@@ -955,8 +955,7 @@ impl crate::sync::Admission for OwnerAdmission {
                 Code::Denied | Code::Invalid => SyncCode::Denied,
                 Code::Conflict | Code::Unavailable | Code::Capacity => SyncCode::ResyncRequired,
             })
-            .and_then(|writer| writer.admit(&crate::sync::Access::Save))
-            .map(|_| ())
+            .and_then(|writer| writer.edits())
     }
     fn save_source(&self) -> Option<crate::page::save::SourceOpener> {
         self.0.lock().ok()?.save_source()
@@ -1099,10 +1098,11 @@ impl crate::sync::Admission for OwnerAdmission {
                 )
                 .map_err(reader_sync_error)?;
             // A link session reads; it stores its own originals only while the link's role may
-            // write them. Everything else a writer does (`Publish`) is denied to every link.
+            // write them. Everything else a writer does (`Save`, `Publish`) is denied to every
+            // link: an editor link asks for a text change with an `edit-request` record.
             return match access {
                 crate::sync::Access::Read => Ok([0; 32]),
-                crate::sync::Access::Publish => Err(SyncCode::Denied),
+                crate::sync::Access::Save | crate::sync::Access::Publish => Err(SyncCode::Denied),
                 access => service
                     .readers
                     .writer(

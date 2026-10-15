@@ -829,12 +829,11 @@ link session stores its own originals as its link's device: the stream is the
 device its chain certifies, and each object names the current membership head.
 The link's current role decides the namespaces. An `editor` link stores `update`
 objects in `content` and `own` (and `own` checkpoints), a `commenter` link in `own`
-only, and a `viewer` link nothing, from the first upload frame on. An `editor` link may also have the
-serve save page text (`save`, `savestatus`, and the upload chunks of a save), never a
-save that changes attachments: the serve prepares and seals it exactly as it does
-an owner browser's save, so the signed author is the root-local writer and no link
-is named (a browser never seals page content). A `commenter` or `viewer` link has
-no save. Every other frame, awareness publication, usage, compaction and every
+only, and a `viewer` link nothing, from the first upload frame on. No link has the serve save page
+text: `save`, `savestatus` and the upload chunks of a save are denied for every link, and a browser
+never seals page content. An `editor` link asks for a text change with an `edit-request` record in
+its own stream (Own-stream edit requests), which the owner's serve decides. Every other frame,
+awareness publication, usage, compaction and every
 object request (Ask, Chat, attachments), is denied for every link and for public
 sessions. What a
 stored original means is the fold's call as for any author: a `content` original
@@ -878,8 +877,8 @@ a hosted reader; the capability comes from the signed link statements, and a hos
 read-only whatever `role` says. `share link add --role viewer|commenter|editor` (default `viewer`)
 chooses the role the link statement carries, and `share link reset` keeps the replaced link's role.
 A link whose `role` is `editor` makes the `/read` entry offer the owner page's Source drawer and mark itself
-"Can edit" instead of "Read-only": a save travels the link's session as a `save` frame, which the serve admits
-for an editor link only and seals as the root-local writer (no link is named). The serve stays the authority:
+"Can edit" instead of "Read-only": a save is an `edit-request` record that the link's device seals into its own
+stream (Own-stream edit requests), which the owner's serve may apply. The serve stays the authority:
 the fragment's `role` only decides whether the drawer is offered, and a narrowed or removed link ends the session
 as before. A viewer or commenter link never shows it.
 
@@ -907,7 +906,8 @@ that wrote them there. The entry then runs the challenge and session exchange ab
 returned owner key equals the link's `root` (a mismatch ends access) and derives the linked
 `space`, verifies the owner log and link-addressed wraps
 with the owner-browser rules, and pins and stores nothing in the owner app's records
-(IndexedDB, local or session storage, cookies). It shows the page read-only and live, with no
+(IndexedDB, local or session storage, cookies; an editor link's writer keeps its state in memory,
+for the tab). It shows the page read-only and live, with no
 editor, Ask, share, export or history control. The ten-minute session ends in a reconnect with
 a fresh challenge; a `DENIED`/`STALE_EPOCH` result or a 403 from the exchange ends access
 ("Access ended"), which is what Reset, remove, narrowing or rotation produce.
@@ -1019,8 +1019,11 @@ base64url), `source` (the whole proposed source: UTF-8, at most 131072 bytes) an
 of a Save frame's anchored hunks (`oldStart` at least `1`, `old` not empty, at most 65536 bytes of
 `old` and `new` text together). No other field exists, and an absent `hunks` is never `null`. The
 record is immutable, as the other typed records are: a later update can neither replace nor remove
-it. One request is one own update of at most the decoder's `UPDATE_BYTES`, and sealed it is one log
-document. The record carries no authority; the owner's serve alone decides what it does with it.
+it. In v1 one request is exactly one own update of at most the decoder's `UPDATE_BYTES`, and sealed
+it is one log document of at most 393,216 bytes (the canonical fields one hosted document holds):
+a request is never split, and a text that needs more is not sent through a link. The browser
+refuses a source over its bound, and an update whose sealed bound is over the document, before it
+seals or sends anything. The record carries no authority; the owner's serve alone decides what it does with it.
 While it runs, the serve settles each request of a link device once, after the device's original
 is stored (an append at the door, or an original read from the cloud, and once per page when the
 page is first read after a start): the link must still be a live editor covering the page, and
@@ -1038,7 +1041,12 @@ the commit and the decision, the retry finds the change in place (`unchanged`, s
 hunks that no longer match (`conflict`); the change is never applied twice. A link that ended
 before the decision leaves its stream out of the page, so its request is neither seen nor
 applied, and its holder's session ends with the link. The holder learns the outcome from the
-page itself.
+page itself, and the browser says no more than that: once the request is sent, a page that shows
+exactly the proposed text is applied; a page that shows any other text (another edit, or a merge)
+is reported as changed, because part of the request may be missing; a page that has not changed
+after ten seconds is reported as waiting for the owner's Colab, and a request that is refused or
+never settled reads the same. Both keep the draft, offer to copy it, and never send the request
+again.
 `vectors/edit-request-v1.json` (generated by `edit-request-reference.py`) pins the grammar and
 the bounds for browser and native; a string `{"fill":text,"count":n}` there stands for `text`
 repeated `n` times.

@@ -2,7 +2,6 @@ import { AttachmentService, disclosureScope } from './attachment-service.js';
 import {
   binary,
   certificate,
-  digest,
   encodeBinary,
   equal,
   exactKeys,
@@ -10,17 +9,15 @@ import {
   link as linkKeys,
   requireValue,
   sign,
-  text as bytesOf,
 } from '@tmt/colab-client';
 import { Admission } from './admission.js';
 import { Connection } from './connection.js';
 import { jsonResponse, type Registration } from './registration.js';
 import type { ReaderLink } from './reader-link.js';
 import { deriveReaderKeys } from './reader-keys.js';
-import { SAVE_REOPEN_MS, SaveOutcomeUnknown, SaveTooLarge, settledAgainst } from './save.js';
-import type { SaveResult } from './save.js';
-import { hunksOf } from './save-hunks.js';
+import { PageAnswer, sendEditRequest, type EditOutcome } from './link-edit.js';
 import type { PageView } from './transport.js';
+import { memoryRecords, Writer } from './writer.js';
 
 /** The link no longer grants access: reset, removed, narrowed or the page is gone. */
 export class AccessEndedError extends Error {
@@ -31,6 +28,8 @@ export class AccessEndedError extends Error {
 /** Page modes a link may read: `link`, or `public` where anyone may. */
 const SHARING = ['link', 'public'];
 const RETRIES = 5;
+/** How long an edit waits for the session to reconnect before it is not sent. */
+const EDIT_CONNECT_MS = 10_000;
 
 async function post(mount: URL, path: string, body: unknown) {
   const response = await fetch(new URL(path, mount), {
@@ -60,8 +59,10 @@ export class ReaderSession {
   });
   #closed = false;
   #failures = 0;
-  /** The source of the latest page the connection admitted, which a save waits to see. */
-  #shown = '';
+  /** The source of the latest page the connection admitted, which a sent edit waits to see change. */
+  readonly #page = new PageAnswer();
+  /** Sends this link device's edit requests; created by its first edit. */
+  #writer: Writer | null = null;
   private constructor(
     readonly target: ReaderLink,
     readonly mount: URL,
@@ -166,7 +167,7 @@ export class ReaderSession {
         this.mount,
         SHARING,
         (view) => {
-          this.#shown = view.source;
+          this.#page.show(view.source);
           if (!this.#closed) this.publish(view);
         },
         resolve,
@@ -204,54 +205,41 @@ export class ReaderSession {
       }
     }
   }
-  /** Save page text as the owner's editor does: the serve prepares it from the anchored hunks and
-   * signs it, and admits it only for an editor link. A save whose reply was lost is settled by one
-   * status request on the reconnected session and is never sent again. Resolves once the admitted
-   * page shows the saved text. */
-  async edit(source: string, base: string): Promise<{ merged: boolean; source: string }> {
-    const connection = this.#connection;
-    if (this.#closed || !connection) throw new Error('Page editing unavailable');
-    const hunks = hunksOf(base, source);
-    const operationId = crypto.randomUUID();
-    let result: SaveResult;
-    try {
-      result = await connection.save(operationId, base, source, undefined, hunks);
-    } catch (error) {
-      if (!(error instanceof Error) || error instanceof SaveTooLarge || connection.active)
-        throw error;
-      result = await this.#settleLost(connection, operationId);
-    }
-    settledAgainst(result, hunks);
-    await this.#shows(source, result.merged ? result.sourceSha256 : undefined);
-    return { merged: result.merged === true, source: this.#shown };
+  /** Ask the page's owner to save page text: an edit request, sealed into this link device's own
+   * stream, which the owner's Colab applies or does not. A request that is over what one carries
+   * is refused before anything is sent. Once it is sent, the page is the only answer: this
+   * resolves when it shows the proposed text (`applied`) or anything else (`changed`), and calls
+   * `onWaiting` once if the page has not changed after `EDIT_WAITING_MS`. Never sent again. */
+  async edit(source: string, base: string, onWaiting: () => void = () => {}): Promise<EditOutcome> {
+    if (this.#closed) throw new Error('Page editing unavailable');
+    const before = this.#page.shown;
+    // A link session stores nothing in the owner app's records: its writer keeps its state in
+    // memory, for the life of the tab.
+    this.#writer ??= new Writer(
+      `colab-link-writer:${this.target.space}:${this.device.id}`,
+      () => this.#active(),
+      memoryRecords(),
+    );
+    await sendEditRequest(this.#writer, base, source);
+    return this.#page.answer(source, before, onWaiting);
   }
-  async #settleLost(lost: Connection, operationId: string): Promise<SaveResult> {
-    const deadline = Date.now() + SAVE_REOPEN_MS;
-    try {
-      while (!this.#closed && Date.now() < deadline) {
-        const next = this.#connection;
-        if (next && next !== lost && next.active) return await next.saveStatus(operationId);
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
-    } catch {
-      // The status could not be read either: the outcome stays unknown.
+  /** The connection to write over, waiting a short while for a dropped one to return. */
+  async #active(): Promise<Connection> {
+    const deadline = Date.now() + EDIT_CONNECT_MS;
+    for (;;) {
+      if (this.#closed) throw new Error('Page editing unavailable');
+      const connection = this.#connection;
+      if (connection?.active) return connection;
+      if (Date.now() >= deadline) throw new Error('Reader unavailable');
+      await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    throw new SaveOutcomeUnknown(operationId);
-  }
-  /** The saved text is on the page the editor now holds. A merged save is a source the editor never
-   * had: it is shown once the page holds the digest the serve named. */
-  async #shows(source: string, mergedDigest?: string) {
-    const deadline = Date.now() + SAVE_REOPEN_MS;
-    const shown = async () =>
-      mergedDigest !== undefined
-        ? encodeBinary(await digest(bytesOf(this.#shown))) === mergedDigest
-        : this.#shown === source;
-    while (!(await shown()) && !this.#closed && Date.now() < deadline)
-      await new Promise((resolve) => setTimeout(resolve, 25));
   }
   close() {
     this.#closed = true;
+    this.#writer?.close();
+    this.#writer = null;
     this.#connection?.close();
     this.#connection = null;
+    this.#page.end();
   }
 }

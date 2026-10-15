@@ -61,7 +61,7 @@ async function start() {
       failure,
     );
     files = session.attachments;
-    if (canEdit) edit = (source, base) => session.edit(source, base);
+    if (canEdit) edit = (source, base, onWaiting) => session.edit(source, base, onWaiting);
     render();
     addEventListener('pagehide', () => session.close());
   } catch (error) {

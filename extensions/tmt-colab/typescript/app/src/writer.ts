@@ -9,7 +9,7 @@ import {
 import { Connection } from './connection.js';
 import { type JsonValue, type OwnRoot, type OwnRecord, UPDATE_BYTES } from './fold-protocol.js';
 import type { ObjectEntry } from './objects.js';
-import { record } from './storage.js';
+import { record as durableRecord } from './storage.js';
 import { publicationSequence, type OwnPublicationReceipt } from './own-publication.js';
 interface SavedWriter {
   pending: { id: string; entry: ObjectEntry } | null;
@@ -40,6 +40,20 @@ function ownCompaction(value: unknown): OwnCompaction {
   return { outcome: raw.outcome as 'nothing' | 'not-combined' };
 }
 const COMPACT_RELAY_MS = 30_000;
+
+/** Where a writer keeps its state: the app's durable records, or, for a link session that stores
+ * nothing in the owner app's records, memory that lasts as long as the tab. */
+export interface WriterRecords {
+  <T>(key: string): Promise<T | undefined>;
+  <T>(key: string, value: T): Promise<void>;
+}
+export function memoryRecords(): WriterRecords {
+  const kept = new Map<string, unknown>();
+  return (async (key: string, ...values: unknown[]) => {
+    if (values.length === 0) return kept.get(key);
+    kept.set(key, structuredClone(values[0]));
+  }) as WriterRecords;
+}
 
 /** A lifetime Web Lock owns this device stream. Other tabs relay plaintext
  * update bytes; the leader validates them before signing, and persists exact
@@ -74,6 +88,7 @@ export class Writer {
   constructor(
     readonly key: string,
     readonly connection: () => Promise<Connection>,
+    private readonly record: WriterRecords = durableRecord,
   ) {
     this.#channel = new BroadcastChannel(key);
     this.#channel.onmessage = (event) => {
@@ -185,7 +200,7 @@ export class Writer {
   /** The saved writer state with any interrupted append finished first: exact stored bytes are
    * retried, never resealed. */
   async #settled(c: Connection): Promise<SavedWriter> {
-    const state = (await record<SavedWriter>(this.key)) ?? { pending: null, completed: [] };
+    const state = (await this.record<SavedWriter>(this.key)) ?? { pending: null, completed: [] };
     exactKeys(state, ['pending', 'completed']);
     requireValue(
       Array.isArray(state.completed) &&
@@ -201,7 +216,7 @@ export class Writer {
       state.completed.push(state.pending.id);
       state.completed = state.completed.slice(-64);
       state.pending = null;
-      await record(this.key, state);
+      await this.record(this.key, state);
     }
     return state;
   }
@@ -220,7 +235,7 @@ export class Writer {
       const a = c.admission,
         head = c.objects.head(a.registration.deviceId);
       requireValue(a.root !== null && a.head !== null);
-      a.author(a.registration.deviceId, a.head.revision.toString());
+      await a.ownAuthor(a.head.revision.toString());
       const envelope = await Envelope.seal(
         {
           space: a.space,
@@ -245,13 +260,13 @@ export class Writer {
       };
     });
     state.pending = { id, entry };
-    await record(this.key, state);
+    await this.record(this.key, state);
     requireValue(!this.#closed);
     await c.append(entry);
     state.pending = null;
     state.completed.push(id);
     state.completed = state.completed.slice(-64);
-    await record(this.key, state);
+    await this.record(this.key, state);
     return entry.seq;
   }
   /** Combine this device's own stream into a checkpoint at its head. Only the leader tab runs it,
@@ -272,7 +287,7 @@ export class Writer {
         const a = c.admission,
           head = c.objects.head(device);
         requireValue(a.root !== null && a.head !== null && c.objects.tail(device) === merged);
-        a.author(device, a.head.revision.toString());
+        await a.ownAuthor(a.head.revision.toString());
         const envelope = await Envelope.seal(
           {
             space: a.space,
@@ -302,13 +317,13 @@ export class Writer {
     if (!entry) return { outcome: 'not-combined' };
     const id = crypto.randomUUID();
     state.pending = { id, entry };
-    await record(this.key, state);
+    await this.record(this.key, state);
     requireValue(!this.#closed);
     await c.append(entry);
     state.pending = null;
     state.completed.push(id);
     state.completed = state.completed.slice(-64);
-    await record(this.key, state);
+    await this.record(this.key, state);
     return { outcome: 'combined', merged, through: Number(entry.seq) };
   }
   #acceptCompact(id: string): Promise<void> {
@@ -404,8 +419,9 @@ export class Writer {
   async submitOwn(root: OwnRoot, key: string, value: JsonValue) {
     return this.submitOwnRecords([{ root, key, value }]);
   }
-  /** A thread and its opening comment share one admitted envelope. */
-  async submitOwnRecords(records: OwnRecord[]) {
+  /** A thread and its opening comment share one admitted envelope. `fits` may refuse the prepared
+   * update by throwing, before it is submitted. */
+  async submitOwnRecords(records: OwnRecord[], fits?: (update: number) => void) {
     records = structuredClone(records);
     requireValue(records.length > 0 && records.length <= 32);
     requireValue(
@@ -423,6 +439,8 @@ export class Writer {
       }),
     );
     try {
+      // A refusal here is before anything is sealed, stored or sent.
+      fits?.(prepared.update.length);
       const receipt = await this.submit(prepared.update);
       await c.waitForOwnRecords(records, receipt);
     } finally {

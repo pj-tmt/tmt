@@ -164,38 +164,41 @@ export class Admission {
     const verified: certificate.Certificate[] = [];
     for (const value of values) {
       exactKeys(value, ['deviceId', 'chain']);
-      const chain = certificate.Chain.fromJson(binary(value.chain, 16 * 1024)),
-        c = chain.certificate();
-      requireValue(
-        c.deviceId === value.deviceId && c.space === this.space && c.issuedAt <= Date.now(),
-      );
-      if (c.issuerKind === 'member') {
-        const issuer = this.#log[Number(decimal(c.membershipRevision)) - 1];
-        requireValue(c.issuerId === this.head.ownerMember.id && issuer !== undefined);
-        await chain.verify(issuer.head.hash, c, this.head.ownerMember.signingKey);
-      } else {
-        // Native `verify_chain`: the issuer is the link recipient its `link.add` created, the
-        // chain cites that statement, and its revision lies between that statement and the head.
-        requireValue(c.issuerKind === 'link');
-        const add = this.#linkAdd(c.issuerId);
-        requireValue(
-          add !== undefined &&
-            decimal(c.membershipRevision) >= add.head.revision &&
-            decimal(c.membershipRevision) <= this.head.revision,
-        );
-        await chain.verify(add.head.hash, c, binary(add.value.linkSignKey, 32, 32));
-      }
-      const prior = this.#authors.get(c.deviceId);
-      requireValue(
-        !prior ||
-          (equal(prior.signingKey, c.signingKey) &&
-            prior.issuerKind === c.issuerKind &&
-            prior.issuerId === c.issuerId),
-      );
-      this.#authors.set(c.deviceId, c);
-      verified.push(c);
+      const chain = certificate.Chain.fromJson(binary(value.chain, 16 * 1024));
+      requireValue(chain.certificate().deviceId === value.deviceId);
+      verified.push(await this.#admitChain(chain));
     }
     return verified;
+  }
+  async #admitChain(chain: certificate.Chain): Promise<certificate.Certificate> {
+    requireValue(this.head !== null);
+    const c = chain.certificate();
+    requireValue(c.space === this.space && c.issuedAt <= Date.now());
+    if (c.issuerKind === 'member') {
+      const issuer = this.#log[Number(decimal(c.membershipRevision)) - 1];
+      requireValue(c.issuerId === this.head.ownerMember.id && issuer !== undefined);
+      await chain.verify(issuer.head.hash, c, this.head.ownerMember.signingKey);
+    } else {
+      // Native `verify_chain`: the issuer is the link recipient its `link.add` created, the
+      // chain cites that statement, and its revision lies between that statement and the head.
+      requireValue(c.issuerKind === 'link');
+      const add = this.#linkAdd(c.issuerId);
+      requireValue(
+        add !== undefined &&
+          decimal(c.membershipRevision) >= add.head.revision &&
+          decimal(c.membershipRevision) <= this.head.revision,
+      );
+      await chain.verify(add.head.hash, c, binary(add.value.linkSignKey, 32, 32));
+    }
+    const prior = this.#authors.get(c.deviceId);
+    requireValue(
+      !prior ||
+        (equal(prior.signingKey, c.signingKey) &&
+          prior.issuerKind === c.issuerKind &&
+          prior.issuerId === c.issuerId),
+    );
+    this.#authors.set(c.deviceId, c);
+    return c;
   }
   /** The `link.add` statement that created a link, with its signed payload. */
   #linkAdd(linkId: string) {
@@ -208,7 +211,12 @@ export class Admission {
    * is writable and link-shared in that state at the envelope's epoch, and the role is not a
    * viewer's (an editor's alone writes `content`). A removal at or before the revision is
    * refused with every other reduction, by `readAuthor`. */
-  #linkWrites(c: certificate.Certificate, context: Context, revision: bigint) {
+  #linkWrites(
+    c: certificate.Certificate,
+    namespace: Context['namespace'],
+    envelopeEpoch: string,
+    revision: bigint,
+  ) {
     const add = this.#linkAdd(c.issuerId);
     requireValue(
       add !== undefined &&
@@ -217,7 +225,7 @@ export class Admission {
         decimal(c.membershipRevision) <= revision &&
         add.value.pages.includes(this.page) &&
         add.value.role !== 'viewer' &&
-        (context.namespace !== 'content' || add.value.role === 'editor'),
+        (namespace !== 'content' || add.value.role === 'editor'),
     );
     let epoch = 1n,
       linkMode = false,
@@ -234,7 +242,7 @@ export class Admission {
       )
         writable = false;
     }
-    requireValue(linkMode && writable && epoch === decimal(context.epoch));
+    requireValue(linkMode && writable && epoch === decimal(envelopeEpoch));
   }
   async wraps(values: unknown) {
     requireValue(Array.isArray(values) && values.length <= 512 && this.head !== null);
@@ -362,7 +370,7 @@ export class Admission {
       // A link-issued device is admitted by exactly the rules native applies to it, and the
       // member path above is never its fallback. `c.issuedAt` bounds it as a member's.
       requireValue(c!.issuedAt <= Date.now());
-      this.#linkWrites(c!, context, revision);
+      this.#linkWrites(c!, context.namespace, context.epoch, revision);
     } else
       requireValue(
         c!.issuerKind === 'member' &&
@@ -434,6 +442,40 @@ export class Admission {
         ),
     );
     return c.signingKey.slice();
+  }
+  /** The signing key of a link-issued device that writes its own stream now: the fresh-write
+   * counterpart of `author()` for a chain a link issued. It stands only while the chain is
+   * unexpired, the device is not revoked, the link is not removed, and the link may write `own`
+   * records to this page at `revision` and this admission's epoch (`#linkWrites`). A member's
+   * chain never passes here, and a link's never passes `author()`. */
+  async linkAuthor(device: string, revision: string): Promise<Uint8Array> {
+    // The session's own chain is verified the first time it writes; streams the serve broadcasts
+    // bring every other chain.
+    if (!this.#authors.has(device) && device === this.registration.deviceId && this.head)
+      await this.#admitChain(this.registration.chain);
+    const c = this.#authors.get(device);
+    if (!this.head || decimal(revision) > this.head.revision || !c)
+      throw new Error('Fresh membership catchup required');
+    requireValue(
+      c.issuerKind === 'link' &&
+        c.issuedAt <= Date.now() &&
+        c.expiresAt > Date.now() &&
+        !this.#log.some(
+          ({ payload: p }) =>
+            (p.operation === 'device.revoke' && p.value.deviceId === device) ||
+            (p.operation === 'link.remove' && p.value.linkId === c.issuerId),
+        ),
+    );
+    this.#linkWrites(c, 'own', this.epoch, decimal(revision));
+    return c.signingKey.slice();
+  }
+  /** The signing key this admission's own device writes its `own` stream with now: the member
+   * path (`author`) for a member's device, the link path (`linkAuthor`) for a link's. */
+  async ownAuthor(revision: string): Promise<Uint8Array> {
+    const device = this.registration.deviceId;
+    return this.registration.chain.certificate().issuerKind === 'link'
+      ? this.linkAuthor(device, revision)
+      : this.author(device, revision);
   }
   /** Eligible keys came from this actual device/link's verified addressed wraps.
    * A member wrap or ambient server epoch secret never enters this map. */
