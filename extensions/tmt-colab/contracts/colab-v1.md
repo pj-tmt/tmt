@@ -3391,13 +3391,21 @@ expired entries and entries of expired or removed pages, preserving live entries
 of live pages and other tenants' data. Physical TTL remains eventual and is not
 required for logical expiry.
 
-Relay activity refresh, override selection, seven-day cloud warnings and the
-"not in the cloud" projection for expired reads await the Firestore relay binding.
-An activity refresh updates only the page row. Logs and checkpoint chunks have
-independent deadlines and need renewal only near their own expiry horizon, avoiding
-a rewrite of every entry on each page edit. Entries may outlive their page, but
-page expiry still denies every content read. The binding must renew needed entries
-before their own expiry and map expired-but-present cloud data to absence.
+The serve's cloud-sync worker applies the lifetime. A page's row carries `expiresAt` of
+its retention days from the write: the policy's 30 days by default, an owner override of
+1 through 365, and 365 for a page kept forever locally, since the cloud lifetime has no
+forever option. The row is written again at once when its epoch, state or lifetime
+changes (a log create is checked against the row's epoch and `open` state), and on
+activity after at most one day, or half of a one-day lifetime. An activity refresh
+updates only the page row. A row that lapsed while the owner was away is written again
+by the next pass after the page is reopened from local, and its entries, which keep their
+own deadlines, read again. Seven-day cloud warnings, the "not in the cloud" projection
+for expired reads and renewal of entries near their own expiry await their own slices.
+Logs and checkpoint chunks have independent deadlines and need renewal only near their
+own expiry horizon, avoiding a rewrite of every entry on each page edit. Entries may
+outlive their page, but page expiry still denies every content read. The binding must
+renew needed entries before their own expiry and map expired-but-present cloud data to
+absence.
 Local expiry never deletes local data: existing local warnings begin seven days
 ahead in the browser and `ls/show`, and expired local pages remain readable and
 writable unless signed archive/delete policy forbids it. Local retention accepts

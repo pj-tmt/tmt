@@ -18,8 +18,21 @@ use tmt_colab_model::{crypto, object};
 const DAY_MS: u64 = 24 * 3_600_000;
 /// Entries live for this long from when they are written. Rules cap an entry at 365 days.
 const ENTRY_DAYS: u64 = 360;
-/// A page row defaults to 30 days when the owner set no retention.
-const PAGE_DEFAULT_DAYS: u64 = 30;
+/// The longest a page's cloud copy lives without activity: what the declaration and the Rules
+/// admit (365 days from the request). A page with no local expiry (forever) is given this much,
+/// since the cloud lifetime has no forever option; the policy's own 30-day default is its
+/// retention, not a fallback here.
+const CLOUD_MAX_DAYS: u64 = 365;
+/// The cloud lifetime of a page with no activity, in days: its finite retention within one
+/// through [`CLOUD_MAX_DAYS`], and the maximum for a page kept forever locally.
+fn cloud_days(retention_days: Option<u64>) -> u64 {
+    retention_days.map_or(CLOUD_MAX_DAYS, |days| days.clamp(1, CLOUD_MAX_DAYS))
+}
+/// How soon after a write the page row is written again on activity: at most a day, and half
+/// the lifetime of a short one, so the cloud expiry stays close to the last activity.
+fn row_refresh(days: u64) -> std::time::Duration {
+    std::time::Duration::from_millis((days * DAY_MS / 2).min(DAY_MS))
+}
 /// The identity of one bound cloud client, frozen at bind.
 #[derive(Clone)]
 pub(crate) struct Bound {
@@ -197,27 +210,28 @@ impl Local for StoreLocal {
             Resource::Spaces,
             vec![("space", text(&self.space)), ("owner", text(uid))],
         )?));
-        let days = snapshot
-            .retention_days
-            .unwrap_or(PAGE_DEFAULT_DAYS)
-            .clamp(1, 365);
-        rows.push(Row::Put(admission(
-            Resource::Pages,
-            vec![
-                ("space", text(&self.space)),
-                ("page", text(&page.page)),
-                ("epoch", mapping(Field::number(page.epoch))?),
-                (
-                    "state",
-                    text(if snapshot.archived {
-                        "archived"
-                    } else {
-                        "open"
-                    }),
-                ),
-                ("expiresAt", mapping(Field::timestamp(now + days * DAY_MS))?),
-            ],
-        )?));
+        let days = cloud_days(snapshot.retention_days);
+        rows.push(Row::Put {
+            days,
+            refresh: row_refresh(days),
+            document: admission(
+                Resource::Pages,
+                vec![
+                    ("space", text(&self.space)),
+                    ("page", text(&page.page)),
+                    ("epoch", mapping(Field::number(page.epoch))?),
+                    (
+                        "state",
+                        text(if snapshot.archived {
+                            "archived"
+                        } else {
+                            "open"
+                        }),
+                    ),
+                    ("expiresAt", mapping(Field::timestamp(now + days * DAY_MS))?),
+                ],
+            )?,
+        });
         rows.push(Row::Create(admission(
             Resource::Members,
             vec![

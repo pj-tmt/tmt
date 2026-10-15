@@ -759,3 +759,106 @@ fn a_member_converges_inside_its_grant_and_nothing_forged_or_outside_it_does() {
     first.stop();
     second.stop();
 }
+
+/// The expiry the cloud holds for a page, as the provider prints it (sortable text).
+fn page_expiry(emulator: &Emulator, page: &str) -> String {
+    emulator
+        .list("pages")
+        .iter()
+        .find(|document| document["name"].as_str().unwrap().ends_with(page))
+        .and_then(|document| document["fields"]["expiresAt"]["timestampValue"].as_str())
+        .unwrap_or_default()
+        .to_owned()
+}
+
+/// A cloud copy that lapsed while its owner was away: the page row has expired and reads are
+/// refused, and reopening the page from local writes it again without losing what was there.
+#[test]
+#[ignore = "run by the cloud-sync emulator harness"]
+fn an_expired_cloud_copy_is_written_again_when_the_page_is_reopened_from_local() {
+    let inputs = Inputs::from_env();
+    let emulator = Emulator::new(&inputs);
+    let world = World::new(&inputs, "exp-a");
+    remote_setup(&world, &inputs);
+    sign_in(&world, &inputs);
+    let created = world.run_json(
+        "tmt-colab",
+        &["page", "create", "--title", "proof", "--no-open", "--json"],
+    );
+    let page = created["pageId"].as_str().unwrap().to_owned();
+    let layout = Layout::open(&world.state).unwrap();
+    device::register(
+        &layout,
+        &inputs.bins.join("tmt-colab"),
+        &[(DEVICE_A, SEED_A)],
+    );
+    let mut home = Running {
+        facts: Facts::read(&world, &page),
+        world,
+        serve: None,
+        door: None,
+    };
+    home.start();
+    let mut peer = home.peer(DEVICE_A);
+    peer.hello(home.facts.revision);
+    let (_, last) = append(&mut peer, &home.facts, DEVICE_A, SEED_A, 1, 2, [0; 32]);
+    until("the cloud holds the page and its updates", || {
+        in_cloud(&emulator, &page, "log", DEVICE_A) == 2
+            && in_cloud(&emulator, &page, "pages", &page) == 1
+    });
+    home.assert_emulator_routing();
+    // An owner override reaches the cloud copy without a restart: kept forever locally, the page
+    // row takes the 365-day maximum on the next activity.
+    let thirty = page_expiry(&emulator, &page);
+    home.world
+        .run_json("tmt-colab", &["retention", &page, "forever", "--json"]);
+    // The signed policy is a new membership revision; a browser opens the page at that one.
+    home.facts = Facts::read(&home.world, &page);
+    let mut peer = home.peer(DEVICE_A);
+    peer.hello(home.facts.revision);
+    let (_, last) = append(&mut peer, &home.facts, DEVICE_A, SEED_A, 3, 1, last);
+    let beyond = Field::timestamp(device::now() + 300 * 86_400_000).unwrap();
+    let beyond = serde_json::to_value(&beyond).unwrap()["timestampValue"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(thirty < beyond, "{thirty} is the 30-day default");
+    until("the page row takes the maximum cloud lifetime", || {
+        page_expiry(&emulator, &page) > beyond
+    });
+    // A viewer the owner admitted can read the copy while it lives.
+    let viewer = emulator.sign_up();
+    assert_eq!(
+        emulator.put(&member_row(&home.facts, &page, &viewer.uid, "viewer"), None),
+        200
+    );
+    let entry = emulator
+        .ids("log")
+        .into_iter()
+        .find(|id| id.contains(&page) && id.contains(DEVICE_A))
+        .unwrap();
+    assert_eq!(emulator.get_as("log", &entry, &viewer), 200);
+    // The owner is away past the cloud lifetime: the page row has expired, so every read of the
+    // page is refused, though its entries have not.
+    let row = emulator
+        .ids("pages")
+        .into_iter()
+        .find(|id| id.contains(&page))
+        .unwrap();
+    let lapsed = Field::timestamp(device::now() - 86_400_000).unwrap();
+    assert_eq!(emulator.set_expiry("pages", &row, &lapsed), 200);
+    assert_eq!(emulator.get_as("log", &entry, &viewer), 403);
+    // The page is reopened from local: the row is written again, the copy reads as before, and
+    // new local work is published on top of it.
+    home.restart();
+    let mut peer = home.peer(DEVICE_A);
+    peer.hello(home.facts.revision);
+    until("the page's cloud copy is written again", || {
+        emulator.get_as("log", &entry, &viewer) == 200
+    });
+    let (_, _) = append(&mut peer, &home.facts, DEVICE_A, SEED_A, 4, 1, last);
+    until("the update made after reopening is published", || {
+        in_cloud(&emulator, &page, "log", DEVICE_A) == 4
+    });
+    home.stop();
+}
