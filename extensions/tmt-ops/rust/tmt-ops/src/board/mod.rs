@@ -45,6 +45,7 @@ mod theme_picker;
 mod timing;
 mod view;
 mod view_state;
+pub(crate) use view_state::Layer as ViewLayer;
 mod workspace;
 
 pub use tabs::{ALL, LEADS};
@@ -955,6 +956,8 @@ pub fn run(
     core: Core,
     names: Vec<String>,
     popup: bool,
+    layer: ViewLayer,
+    reset_view: bool,
     interaction: tmt_cli_style::Interaction,
 ) -> Result<Option<i32>, SquadError> {
     let trace = timing::Trace::from_env();
@@ -966,6 +969,8 @@ pub fn run(
     let now_ms = crate::status::now_ms();
     let resume = resume::directory()
         .and_then(|directory| resume::Resume::take(&directory, std::process::id(), now_ms));
+    // An exec continues the admitted layer and never repeats the original reset.
+    let layer = resume.as_ref().map_or(layer, |state| state.layer.clone());
     let scope = timing::measure(startup.as_ref(), "startup.launch_scope", || {
         launch_scope(&core, &names, resume.is_some())
     })?;
@@ -992,13 +997,13 @@ pub fn run(
     // Resolve this disposable path only at the interactive entry, after the
     // placeholder. App/oracle constructors never resolve or read user state.
     let mut view_state = timing::measure(startup.as_ref(), "startup.view_state", || {
-        Ok::<_, SquadError>(crate::cache::directory("board").map(|directory| {
-            view_state::Session::load(
-                directory.join("view.json"),
-                resume.is_some(),
-                !scope.is_empty(),
-            )
-        }))
+        crate::cache::directory("board")
+            .map(|directory| {
+                let path = layer.path(&directory);
+                view_state::Session::open(path, resume.is_some(), !scope.is_empty(), reset_view)
+                    .map_err(failed)
+            })
+            .transpose()
     })?;
     let (events, input) = mpsc::channel();
     // The worker's setup reads (caller identity, config location) overlap the config
@@ -1050,6 +1055,7 @@ pub fn run(
         .or_else(|| config.obsolete_board_notice().map(str::to_owned));
     app.initial_look = Some(crate::look::Look::new(initial_theme));
     app.popup = popup;
+    app.view_layer = layer;
     app.reload = reload::Watch::start(now_ms);
     if let Some(resume) = resume {
         app.carry(resume);

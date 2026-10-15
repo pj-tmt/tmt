@@ -214,18 +214,31 @@ Cold startup keeps the delayed spinner (`SPINNER_DELAY`, 100 ms) and existing
 worker cancellation fences. Failed refresh retains stale evidence; it cannot
 turn unknown membership into an empty pool. Historical usage loads after roster
 without moving recipient authority. Effective refresh preserves search/drafts.
-Ordinary restart reads `board/view.json` under the existing per-user Ops cache
-after the opening frame: destination, expanded squad UUIDs, pool expansion and
-exact UUID selection. Deleting this disposable hint resets to cold defaults.
+Ordinary restart reads the selected disposable view layer under the existing
+per-user Ops cache after the opening frame. The default keeps `board/view.json`;
+`ui --view <name>` selects `board/views/<name>.json` (1–32 lowercase ASCII letters,
+digits or hyphens). Each bounded 64 KiB file retains destination, expanded squad
+UUIDs, pool expansion, exact UUID selection, committed search, Overview/Agents
+filters and sort, and pane scroll offsets clamped by the next draw. Old v1 hints
+without the additive controls/scroll fields still restore without a migration.
+Reads create nothing; first publication creates the layer. Same-name boards use
+last-writer-wins publication; different layer files never affect one another.
+Interactive `--reset-view` removes only the selected hint and opens cold; it is
+refused without a terminal and with `--reload-all`. Exec carry wins and does not
+repeat a reset from original argv. Nondefault layers appear in the shell header.
 For destination/selection, exec Resume wins, then an explicit startup squad,
 then the hint; an explicit squad still restores compatible expansion hints.
 The first fresh Complete roster applies it; partial/failed views neither apply
 nor overwrite it. Complete-proven removal uses the ordinary cold default; an
 existing hidden target remains hidden and refuses actions. Changed projections
 coalesce on the existing worker at two-second intervals, with one exit flush
-after terminal restoration; pane-kill keeps the last published hint. Drafts,
-search and scroll are not persisted across ordinary restarts. In-place reload
-retains its richer session carry and explicit hidden/missing action refusal.
+after terminal restoration; pane-kill keeps the last published hint. Active
+search drafts do not publish; only committed search is retained. Composer drafts,
+launch scope and hidden-room reveal stay session-only. In-place reload carries
+the layer and controls through the same App seam, preserving scope and explicit
+hidden/missing action refusal. Pins, hidden squads, panels, keys, theme and the
+startup-tab default remain shared Config preferences. Authored Config sort is a
+cold default; interactive sort changes only the current layer.
 
 ## Decisions and composers
 

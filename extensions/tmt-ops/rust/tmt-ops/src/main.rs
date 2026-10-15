@@ -218,6 +218,11 @@ fn grammar() -> Command {
                 .arg(Arg::new("squad").long("squad").value_name("NAME")
                     .action(ArgAction::Append)
                     .help("Show only this squad for this session; repeat for several squads; Esc clears"))
+                .arg(Arg::new("view").long("view").value_name("NAME")
+                    .value_parser(board::ViewLayer::parse).default_value("default")
+                    .help("Retain this board's view in a named layer (1–32 lowercase letters, digits or hyphens)"))
+                .arg(Arg::new("reset-view").long("reset-view").action(ArgAction::SetTrue)
+                    .help("Clear the selected view layer before opening the board (terminal required)"))
                 .arg(Arg::new("tabs").long("tabs").value_name("NAMES")
                     .help("Retired squad-tab selector; use Hide squad or repeatable --squad"))
                 .arg(
@@ -230,7 +235,7 @@ fn grammar() -> Command {
                     Arg::new("reload-all")
                         .long("reload-all")
                         .action(ArgAction::SetTrue)
-                        .conflicts_with_all(["squad", "tabs", "popup"])
+                        .conflicts_with_all(["squad", "tabs", "popup", "view", "reset-view"])
                         .help("Reload every open board in place once it is idle, keeping its tab and place"),
                 ),
         )
@@ -1199,6 +1204,17 @@ fn main() -> ExitCode {
     if command == "ui" && sub.get_flag("reload-all") {
         return reload_all(json);
     }
+    if command == "ui" && sub.get_flag("reset-view") && interaction.view() != Mode::Interactive {
+        let failure = SquadError::new(
+            "USAGE_ERROR",
+            "--reset-view requires an interactive terminal.",
+        );
+        if json {
+            return print_document(&failure.to_json(), USAGE_EXIT);
+        }
+        report(&failure);
+        return ExitCode::from(USAGE_EXIT);
+    }
     // The board needs a person at a terminal; otherwise it is `ls`.
     if command == "ui" && interaction.view() == Mode::Interactive {
         let squads: Vec<String> = sub
@@ -1211,7 +1227,16 @@ fn main() -> ExitCode {
         let picks = sub.get_one::<String>("tabs").cloned();
         return match Core::discover().and_then(|core| {
             board::reject_retired_tabs(picks.as_deref())?;
-            board::run(core, squads, popup, interaction)
+            board::run(
+                core,
+                squads,
+                popup,
+                sub.get_one::<board::ViewLayer>("view")
+                    .cloned()
+                    .unwrap_or_default(),
+                sub.get_flag("reset-view"),
+                interaction,
+            )
         }) {
             Ok(signal) => ExitCode::from(board::exit_status(signal)),
             Err(failure) => {
@@ -1454,6 +1479,34 @@ mod tests {
     }
 
     #[test]
+    fn ui_view_layer_admission_and_reload_all_conflicts_are_local() {
+        for args in [
+            vec!["tmt-ops", "ui"],
+            vec!["tmt-ops", "ui", "--reload-all"],
+            vec![
+                "tmt-ops",
+                "ui",
+                "--view",
+                "popup-2",
+                "--popup",
+                "--squad",
+                "product",
+                "--reset-view",
+            ],
+        ] {
+            assert!(grammar().try_get_matches_from(args).is_ok());
+        }
+        for args in [
+            vec!["tmt-ops", "ui", "--view", "../default"],
+            vec!["tmt-ops", "ui", "--view", "UPPER"],
+            vec!["tmt-ops", "ui", "--view", "popup", "--reload-all"],
+            vec!["tmt-ops", "ui", "--reset-view", "--reload-all"],
+        ] {
+            assert!(grammar().try_get_matches_from(args).is_err());
+        }
+    }
+
+    #[test]
     fn completion_offers_literal_subcommands_and_options_only() {
         assert_eq!(complete(&words("-- s")), ["skill", "squad"]);
         assert_eq!(
@@ -1500,8 +1553,10 @@ mod tests {
                 "--json",
                 "--popup",
                 "--reload-all",
+                "--reset-view",
                 "--squad",
-                "--tabs"
+                "--tabs",
+                "--view"
             ]
         );
         assert_eq!(complete(&words("-- skill s")), ["show"]);

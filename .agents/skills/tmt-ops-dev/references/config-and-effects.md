@@ -163,8 +163,10 @@ projection and providers stay on the shared fetcher path.
 ## Views (pane arrangements)
 
 The new interactive shell uses `config::workspace` preferences Auto/Side/Stack,
-room-UUID pins, optional hidden room UUIDs and sort/reverse, written by the existing
-Config CAS owner. `workspace.hidden` is a unique array of at most 1,024 canonical
+room-UUID pins and optional hidden room UUIDs, written by the existing
+Config CAS owner. Authored sort/reverse values are cold defaults; interactive
+sort, filters, committed search and pane scroll belong to the selected
+[view-state layer](board.md#workspace-and-retained-identity). `workspace.hidden` is a unique array of at most 1,024 canonical
 lowercase room UUIDs. An absent key means none; an empty saved set removes the key.
 Unknown/deleted room IDs remain stored without pruning and do not inflate the
 live hidden count. Pins remain independent. Session launch scope/reveal belongs

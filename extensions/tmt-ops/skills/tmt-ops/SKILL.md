@@ -194,6 +194,27 @@ A request tagged `[<squad> · <member>]` from the user is an annotation: a note
 about that member for you to act on. Answer it with `tmt reply` as usual. Never
 edit the user's notes for it.
 
+## Retained view layers
+
+`tmt ops ui --view popup --popup` opens a separate retained view; omit `--view`
+or use `--view default` to share the everyday board's layer. Names are 1–32
+lowercase ASCII letters, digits or hyphens. Boards with the same name share their
+last saved view; different names keep independent destination, UUID selection,
+expanded squads, Overview/Agents sort and filters, committed search and pane scroll.
+Only nondefault names appear in the header: `OPS / UI · popup`.
+
+`tmt ops ui --view popup --reset-view` clears that layer before opening cold.
+Reset requires an interactive terminal and cannot be combined with `--reload-all`;
+in-place reload carries the current layer without resetting again. A layer is
+created on first saved view. The default uses the existing Ops cache
+`board/view.json`; named layers use `board/views/<name>.json`. These are disposable
+hints, restored only against the first fresh complete roster. Pins, hidden squads,
+panels, keys, theme and startup-tab preferences remain shared. Authored Config sort
+provides cold defaults; interactive sorting does not change Config. Launch squad
+scope, hidden-room reveal and composer drafts are not retained across ordinary
+restarts. Active search drafts are not saved. Without an interactive terminal,
+`--view` validates its name and leaves the existing listing output unchanged.
+
 ## Reloading open boards
 
 An open board reloads itself in place, keeping its pid, shell section, exact selection, scroll,
@@ -230,7 +251,7 @@ to toggle its order; keyboard sorting requires authored bindings. Tokens and Cro
 descending; other columns ascend. Unknown values stay last in either direction,
 UUID breaks ties, and the initial order puts blocked then waiting first. This
 saved monitor order is independent of the Agents tree order. `f` switches the
-session-local All/Needs you filter without replacing a hidden selected UUID.
+layer-local All/Needs you filter without replacing a hidden selected UUID.
 Summary/Digest counts, provider limits, usage and recent exchanges have separate
 panels; unacquired/failed sources stay unknown. The Summary Timers control opens
 all rooms. With no selected target, Overview `c` does the same; a hidden/missing
@@ -241,7 +262,7 @@ TOK 1h, DIGEST and ◷ CRON. LEAD and room token totals appear at 100 inner list
 narrower tables drop whole optional columns. Only state glyphs/words carry state
 colour, and selection uses a background or the existing NO_COLOR reverse cue.
 All keeps Common pool first, then pinned squads and the selected sort order.
-`f` cycles the session-local All / Needs you / Pinned filter; explicit bindings win.
+`f` cycles the layer-local All / Needs you / Pinned filter; explicit bindings win.
 Search reveals matching children of visible squads temporarily without changing
 saved expansion. Select a squad and use `H` Hide squad (or its Actions entry) to
 hide it from Agents and Overview. The `Hidden: N` header's show control (`h` by
@@ -718,8 +739,8 @@ attention, and opens references only when you choose Open reference.
 ## Inspect board settings
 
 Press `,` for Workspace settings: Auto/Side/Stack, Theme, Token window and
-Actions. The menu reports current choices; cancel writes nothing. Layout, pins
-and sort are per-user Ops preferences. Config saves compare the opening values
+Actions. The menu reports current choices; cancel writes nothing. Layout, pins and hidden squads are shared per-user Ops preferences; interactive
+sort belongs to the current view layer. Config saves compare the opening values
 and file bytes, preserving comments and unrelated keys; a conflict keeps the
 current effective choice. Theme can use all-boards or selected-squad scope;
 Overview/Common pool have only the shared scope.

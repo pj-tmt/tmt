@@ -12,12 +12,18 @@ use tmt_tui::components::strip;
 /// Common shell counts are held snapshot evidence, independent of the active tab.
 pub(super) fn render_shell(frame: &mut Frame, app: &App, area: Rect) {
     let look = app.look();
+    let title = if app.view_layer.name() == "default" {
+        std::borrow::Cow::Borrowed("OPS / UI")
+    } else {
+        std::borrow::Cow::Owned(format!("OPS / UI · {}", app.view_layer.name()))
+    };
+    let title_width = unicode_width::UnicodeWidthStr::width(title.as_ref()) as u16 + 9;
     strip::paint_left(
         frame.buffer_mut(),
         area,
         Line::from(vec![
             Span::styled(" ▚ TMT   ", look.role(Role::Text)),
-            Span::styled("OPS / UI", look.role(Role::Muted)),
+            Span::styled(title, look.role(Role::Muted)),
         ]),
     );
     let Some(snapshot) = app.workspace_snapshot() else {
@@ -49,7 +55,7 @@ pub(super) fn render_shell(frame: &mut Frame, app: &App, area: Rect) {
         if complete { "" } else { " · totals unknown" }
     );
     let width = unicode_width::UnicodeWidthStr::width(text.as_str()) as u16;
-    if width + 19 <= area.width {
+    if width.saturating_add(title_width + 2) <= area.width {
         strip::paint_right(
             frame.buffer_mut(),
             area,

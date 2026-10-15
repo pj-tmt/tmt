@@ -11,6 +11,164 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// A layer name is admitted before it can become a cache path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Layer(String);
+impl Default for Layer {
+    fn default() -> Self {
+        Self("default".into())
+    }
+}
+impl Layer {
+    pub(crate) fn parse(name: &str) -> Result<Self, String> {
+        if !(1..=32).contains(&name.len())
+            || !name
+                .bytes()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-')
+        {
+            return Err("View name must be 1–32 lowercase letters, digits or hyphens.".into());
+        }
+        Ok(Self(name.into()))
+    }
+    pub(crate) fn name(&self) -> &str {
+        &self.0
+    }
+    pub(super) fn path(&self, directory: &Path) -> PathBuf {
+        if self == &Self::default() {
+            directory.join("view.json")
+        } else {
+            directory.join("views").join(format!("{}.json", self.0))
+        }
+    }
+}
+
+/// Reset is an explicit interactive entry operation, never a paint or exec effect.
+fn reset(path: &Path) -> io::Result<()> {
+    match std::fs::remove_file(path) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        result => result,
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(in crate::board) struct Order {
+    pub agents: crate::config::OpsSort,
+    pub reversed: bool,
+    pub overview: Option<crate::config::OverviewSort>,
+}
+impl From<&crate::config::OpsPreferences> for Order {
+    fn from(preferences: &crate::config::OpsPreferences) -> Self {
+        Self {
+            agents: preferences.sort,
+            reversed: preferences.reversed,
+            overview: preferences.overview_sort,
+        }
+    }
+}
+
+/// Committed view controls are separate from shared Config preferences and drafts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Controls {
+    query: String,
+    agents_filter: super::workspace::AgentsFilter,
+    overview_filter: super::overview::monitor::Filter,
+    order: Order,
+}
+impl Controls {
+    pub(super) fn capture(app: &App) -> Self {
+        Self {
+            query: app.search.clone(),
+            agents_filter: app.workspace.filter,
+            overview_filter: app.overview_filter,
+            order: app.workspace_order(),
+        }
+    }
+    pub(super) fn apply(&self, app: &mut App) {
+        app.search = self.query.clone();
+        app.workspace.query = self.query.clone();
+        app.workspace.filter = self.agents_filter;
+        app.overview_filter = self.overview_filter;
+        app.workspace.order = Some(self.order);
+        app.overview_rows.borrow_mut().clear();
+    }
+    pub(super) fn json(&self) -> Value {
+        use super::workspace::AgentsFilter;
+        use crate::config::{OpsSort, OverviewDirection};
+        json!({ "query": self.query,
+            "agentsFilter": match self.agents_filter { AgentsFilter::All => "all", AgentsFilter::NeedsYou => "needs-you", AgentsFilter::Pinned => "pinned" },
+            "overviewFilter": match self.overview_filter { super::overview::monitor::Filter::All => "all", _ => "needs-you" },
+            "sort": match self.order.agents { OpsSort::Name => "name", OpsSort::Attention => "attention", OpsSort::Members => "members" },
+            "reversed": self.order.reversed,
+            "overviewSort": self.order.overview.map(|order| json!({"column":order.column.key(), "descending":order.direction == OverviewDirection::Descending})) })
+    }
+    pub(super) fn decode(value: &Value) -> Option<Self> {
+        use super::workspace::AgentsFilter;
+        use crate::config::{OpsSort, OverviewColumn, OverviewDirection, OverviewSort};
+        let query = value["query"].as_str()?;
+        if query.len() > 4096 || query.chars().any(char::is_control) {
+            return None;
+        }
+        Some(Self {
+            query: query.into(),
+            agents_filter: match value["agentsFilter"].as_str()? {
+                "all" => AgentsFilter::All,
+                "needs-you" => AgentsFilter::NeedsYou,
+                "pinned" => AgentsFilter::Pinned,
+                _ => return None,
+            },
+            overview_filter: match value["overviewFilter"].as_str()? {
+                "all" => super::overview::monitor::Filter::All,
+                "needs-you" => super::overview::monitor::Filter::NeedsYou,
+                _ => return None,
+            },
+            order: Order {
+                agents: match value["sort"].as_str()? {
+                    "name" => OpsSort::Name,
+                    "attention" => OpsSort::Attention,
+                    "members" => OpsSort::Members,
+                    _ => return None,
+                },
+                reversed: value["reversed"].as_bool()?,
+                overview: match value.get("overviewSort")? {
+                    Value::Null => None,
+                    order => Some(OverviewSort {
+                        column: OverviewColumn::ALL.into_iter().find(|column| {
+                            column.key() == order["column"].as_str().unwrap_or("")
+                        })?,
+                        direction: if order["descending"].as_bool()? {
+                            OverviewDirection::Descending
+                        } else {
+                            OverviewDirection::Ascending
+                        },
+                    }),
+                },
+            },
+        })
+    }
+}
+
+/// Only known, unique pane offsets fit the bounded cache document.
+pub(super) fn scrolls_decode(value: &Value) -> Option<Vec<(crate::config::Pane, usize)>> {
+    let rows = value.as_array()?;
+    if rows.len() > 32 {
+        return None;
+    }
+    let mut seen = BTreeSet::new();
+    rows.iter()
+        .map(|row| {
+            let pair = row.as_array()?;
+            if pair.len() != 2 {
+                return None;
+            }
+            let pane = crate::config::Pane::parse(pair[0].as_str()?)?;
+            if !seen.insert(pane) {
+                return None;
+            }
+            Some((pane, usize::try_from(pair[1].as_u64()?).ok()?))
+        })
+        .collect()
+}
+
 const VERSION: u64 = 1;
 const MAX_BYTES: u64 = 64 * 1024;
 const MAX_ROOMS: usize = 1024;
@@ -19,6 +177,8 @@ const SAVE_EVERY: Duration = Duration::from_secs(2);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct ViewState {
     pub shell: OpsTab,
+    pub controls: Option<Controls>,
+    pub scrolls: Vec<(crate::config::Pane, usize)>,
     pub expanded: BTreeSet<String>,
     pub pool_expanded: bool,
     pub selected: Option<OpsTarget>,
@@ -37,6 +197,14 @@ impl ViewState {
         }
         Some(Self {
             shell: resume::shell_from(&document["shell"])?,
+            controls: match document.get("controls") {
+                None | Some(Value::Null) => None,
+                Some(value) => Some(Controls::decode(value)?),
+            },
+            scrolls: match document.get("scrolls") {
+                None => Vec::new(),
+                Some(value) => scrolls_decode(value)?,
+            },
             expanded: resume::room_ids(&document["squadsExpanded"])?
                 .into_iter()
                 .collect(),
@@ -58,6 +226,8 @@ impl ViewState {
         let document = json!({
             "version": VERSION,
             "shell": resume::shell_json(self.shell),
+            "controls": self.controls.as_ref().map(Controls::json),
+            "scrolls": self.scrolls.iter().map(|(pane, offset)| json!([pane.title(), offset])).collect::<Vec<_>>(),
             "squadsExpanded": self.expanded,
             "poolExpanded": self.pool_expanded,
             "selected": self.selected.clone().map(RowTarget::Workspace).as_ref().map(resume::row_json),
@@ -72,7 +242,8 @@ impl ViewState {
 
     fn capture(app: &App) -> Option<Self> {
         let snapshot = app.workspace_snapshot()?;
-        if app.loading()
+        if app.searching
+            || app.loading()
             || app.loading_since.is_some()
             || app.error.is_some()
             || !snapshot.roster.complete()
@@ -81,6 +252,8 @@ impl ViewState {
         }
         Some(Self {
             shell: app.shell.tab,
+            controls: Some(Controls::capture(app)),
+            scrolls: app.scrolls.offsets(),
             expanded: app
                 .workspace
                 .expanded
@@ -212,7 +385,19 @@ pub(super) struct Session {
 }
 
 impl Session {
-    pub fn load(path: PathBuf, exec_resume: bool, explicit_startup: bool) -> Self {
+    pub fn open(
+        path: PathBuf,
+        exec_resume: bool,
+        explicit_startup: bool,
+        reset_view: bool,
+    ) -> io::Result<Self> {
+        if reset_view && !exec_resume {
+            reset(&path)?;
+        }
+        Ok(Self::load(path, exec_resume, explicit_startup))
+    }
+
+    fn load(path: PathBuf, exec_resume: bool, explicit_startup: bool) -> Self {
         let saved = ViewState::read(&path);
         Self {
             hint: if exec_resume { None } else { saved.clone() },

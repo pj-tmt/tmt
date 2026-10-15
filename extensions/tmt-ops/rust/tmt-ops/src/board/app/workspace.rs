@@ -27,6 +27,20 @@ impl Drop for FrameRows<'_> {
 }
 
 impl App {
+    pub(in crate::board) fn workspace_order(&self) -> crate::board::view_state::Order {
+        self.workspace.order.unwrap_or_else(|| {
+            self.workspace_snapshot()
+                .map(|snapshot| crate::board::view_state::Order::from(&snapshot.preferences))
+                .unwrap_or_default()
+        })
+    }
+    fn changed_view_order(&mut self, order: crate::board::view_state::Order) -> Effect {
+        self.workspace.order = Some(order);
+        self.overview_rows.borrow_mut().clear();
+        self.workspace_reconcile();
+        self.invalidate_frame_geometry();
+        Effect::None
+    }
     pub(in crate::board) fn workspace_snapshot(&self) -> Option<&OpsWorkspaceSnapshot> {
         Some(&self.view.as_ref()?.home.as_ref()?.workspace)
     }
@@ -450,18 +464,18 @@ impl App {
         &mut self,
         column: crate::config::OverviewColumn,
     ) -> Effect {
-        let Some(snapshot) = self.workspace_snapshot() else {
+        let Some(_) = self.workspace_snapshot() else {
             return Effect::None;
         };
         if self.shell.tab != OpsTab::Overview {
             return Effect::None;
         }
-        let mut next = snapshot.preferences.clone();
-        next.overview_sort = Some(match next.overview_sort {
+        let mut next = self.workspace_order();
+        next.overview = Some(match next.overview {
             Some(order) if order.column == column => order.reverse(),
             _ => crate::config::OverviewSort::initial(column),
         });
-        self.workspace_save(next)
+        self.changed_view_order(next)
     }
     pub(super) fn workspace_action(&mut self, action: OpsUiAction) -> Effect {
         use OpsUiAction::*;
@@ -607,25 +621,23 @@ impl App {
                     self.workspace_reconcile();
                 }
             }
-            Sort | ReverseSort | Pin => {
-                let Some(snapshot) = self.workspace_snapshot() else {
-                    return Effect::None;
-                };
-                let mut next = snapshot.preferences.clone();
-                match action {
-                    Sort if self.shell.tab == OpsTab::Overview => {
-                        next.overview_sort = Some(next.overview_sort.map_or_else(
+            Sort | ReverseSort => {
+                let mut order = self.workspace_order();
+                match (action, self.shell.tab) {
+                    (Sort, OpsTab::Overview) => {
+                        order.overview = Some(order.overview.map_or_else(
                             || {
                                 crate::config::OverviewSort::initial(
                                     crate::config::OverviewColumn::Agent,
                                 )
                             },
-                            |order| order.next(),
+                            |value| value.next(),
                         ))
                     }
-                    ReverseSort if self.shell.tab == OpsTab::Overview => {
-                        next.overview_sort = Some(
-                            next.overview_sort
+                    (ReverseSort, OpsTab::Overview) => {
+                        order.overview = Some(
+                            order
+                                .overview
                                 .unwrap_or_else(|| {
                                     crate::config::OverviewSort::initial(
                                         crate::config::OverviewColumn::Agent,
@@ -634,6 +646,17 @@ impl App {
                                 .reverse(),
                         )
                     }
+                    (Sort, _) => order.agents = order.agents.next(),
+                    _ => order.reversed = !order.reversed,
+                }
+                return self.changed_view_order(order);
+            }
+            Pin => {
+                let Some(snapshot) = self.workspace_snapshot() else {
+                    return Effect::None;
+                };
+                let mut next = snapshot.preferences.clone();
+                match action {
                     Pin if self.shell.tab == OpsTab::Overview => {
                         if !self.workspace_selection_visible() {
                             return self.say("Select a visible agent to pin.");
@@ -671,8 +694,6 @@ impl App {
                             )),
                         });
                     }
-                    Sort => next.sort = next.sort.next(),
-                    ReverseSort => next.reversed = !next.reversed,
                     _ if !self.workspace_selection_visible()
                         || !self.workspace.toggle_pin(&mut next) =>
                     {

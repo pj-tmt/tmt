@@ -20,6 +20,8 @@ const MAX_BYTES: u64 = 64 * 1024;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Resume {
     pub tab: String,
+    pub layer: super::view_state::Layer,
+    pub controls: Option<super::view_state::Controls>,
     pub shell: super::shell::OpsTab,
     pub squads_expanded: Vec<String>,
     pub pool_expanded: bool,
@@ -49,6 +51,8 @@ impl Resume {
             "pid": pid,
             "writtenAtMs": now_ms,
             "tab": self.tab,
+            "view": self.layer.name(),
+            "controls": self.controls.as_ref().map(super::view_state::Controls::json),
             "shell": shell_json(self.shell),
             "squadsExpanded": self.squads_expanded,
             "poolExpanded": self.pool_expanded,
@@ -96,6 +100,14 @@ impl Resume {
         };
         Some(Self {
             tab: document["tab"].as_str()?.to_owned(),
+            layer: match document.get("view") {
+                None => Default::default(),
+                Some(value) => super::view_state::Layer::parse(value.as_str()?).ok()?,
+            },
+            controls: match document.get("controls") {
+                None | Some(Value::Null) => None,
+                Some(value) => Some(super::view_state::Controls::decode(value)?),
+            },
             shell: shell_from(&document["shell"])?,
             squads_expanded: room_ids(&document["squadsExpanded"])?,
             pool_expanded: document["poolExpanded"].as_bool()?,
@@ -238,6 +250,8 @@ mod tests {
 
     fn sample() -> Resume {
         Resume {
+            layer: Default::default(),
+            controls: None,
             visibility: Default::default(),
             shell: super::super::shell::OpsTab::Overview,
             squads_expanded: vec![],
