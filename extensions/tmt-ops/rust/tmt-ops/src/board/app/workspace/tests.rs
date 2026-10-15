@@ -3271,6 +3271,17 @@ fn visibility_capture_matrix_keeps_shell_global_and_views_scoped() {
                         }),
                         "{width} {mode} {text}"
                     );
+                    if mode == "hidden" {
+                        assert!(text.contains("Hidden: 1 · ✗ 1 blocked · show"));
+                        let x = lines[1].chars().position(|c| c == '✗').unwrap() as u16;
+                        assert_eq!(
+                            buffer[(x, 1)].fg,
+                            app.look()
+                                .role(tmt_cli_style::Role::Blocked)
+                                .fg
+                                .unwrap_or(ratatui::style::Color::Reset)
+                        );
+                    }
                     if mode == "scoped" {
                         assert!(text.contains("Esc clears"));
                         assert!(!text.contains("Hidden:"));
@@ -3406,4 +3417,40 @@ fn cold_view_hints_cannot_set_or_clear_session_visibility() {
         app.carry_view_hint(&hint, explicit);
         assert_eq!(app.workspace.visibility, visibility);
     }
+}
+
+#[test]
+fn hidden_line_reports_both_attention_kinds_but_omits_absent_and_revealed_attention() {
+    let mut app = board();
+    app.shell.tab = OpsTab::Agents;
+    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    snapshot.roster.members.get_mut(MEMBER).unwrap().waiting = true;
+    snapshot.roster.members.get_mut(MEMBER).unwrap().state = Some("blocked".into());
+    let mut preferences = snapshot.preferences.clone();
+    preferences.hidden.insert(ROOM.into());
+    snapshot.set_preferences(preferences.clone());
+    let paint = |app: &App| {
+        let mut terminal = Terminal::new(TestBackend::new(60, 24)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, app))
+            .unwrap();
+        (0..60)
+            .map(|x| terminal.backend().buffer()[(x, 1)].symbol())
+            .collect::<String>()
+    };
+    assert!(paint(&app).contains("Hidden: 1 · ◆ 1 waiting · ✗ 1 blocked · show"));
+    app.workspace.visibility.reveal_hidden = true;
+    let line = paint(&app);
+    assert!(line.contains("Hidden: 1 · shown"));
+    assert!(!line.contains("blocked"));
+    assert!(!line.contains("waiting"));
+    app.workspace.visibility.reveal_hidden = false;
+    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    snapshot.roster.members.get_mut(MEMBER).unwrap().waiting = false;
+    snapshot.roster.members.get_mut(MEMBER).unwrap().state = Some("working".into());
+    snapshot.set_preferences(preferences);
+    let line = paint(&app);
+    assert!(line.contains("Hidden: 1 · show"));
+    assert!(!line.contains("blocked"));
+    assert!(!line.contains("waiting"));
 }

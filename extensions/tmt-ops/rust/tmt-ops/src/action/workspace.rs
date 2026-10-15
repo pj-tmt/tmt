@@ -198,14 +198,14 @@ const SPECS: &[OpsUiSpec] = &[
     spec!(
         HideSquad,
         "hide-squad",
-        "hide squad",
+        "Hide squad",
         "hide the selected squad in Agents and Overview",
         6
     ),
     spec!(
         ShowSquad,
         "show-squad",
-        "show squad",
+        "Show squad",
         "remove the selected squad from saved hidden squads",
         6
     ),

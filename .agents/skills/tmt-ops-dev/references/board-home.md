@@ -27,7 +27,9 @@ one snapshot. Pool remains first outside a launch scope; pinned squads precede t
 selected sort order. Session visibility holds resolved launch room UUIDs and the
 explicit hidden-room reveal. Scope wins saved hiding. Hidden memberships never
 become Common pool members, and search never reveals hidden squads. Saved hiding
-filters Agents and Overview; launch scope applies across destinations. The
+filters Agents and Overview; launch scope applies across destinations. The hidden band reports UUID-deduplicated waiting/blocked evidence from hidden
+rooms in the existing state roles, cached when preferences configure the snapshot;
+it omits absent attention and drops these counts after session reveal. The
 acquired roster and global shell attention remain unchanged.
 A collapsed squad keeps its worst observed child state, prioritizing attention.
 Refresh, sorting, pinning and search preserve the anchor; a hidden or removed

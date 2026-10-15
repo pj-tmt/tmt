@@ -101,8 +101,50 @@ pub(super) fn render_visibility(frame: &mut Frame, app: &App, area: Rect) {
         " · show".into()
     };
     let width = usize::from(area.width.saturating_sub(2));
-    let text = if scope.is_empty() {
-        format!("Hidden: {}{suffix}", snapshot.hidden_count)
+    let line = if scope.is_empty() {
+        let look = app.look();
+        let counts = &snapshot.hidden_attention;
+        let mut spans = vec![Span::styled(
+            format!("Hidden: {}", snapshot.hidden_count),
+            look.role(Role::Muted),
+        )];
+        if !app.workspace.visibility.reveal_hidden {
+            let ascii = matches!(
+                app.cron_glyphs,
+                crate::board::overview::cron_counts::GlyphSet::Ascii
+            );
+            for (count, glyph, word, role) in [
+                (
+                    counts.waiting,
+                    if ascii { "!" } else { "◆" },
+                    "waiting",
+                    Role::Waiting,
+                ),
+                (
+                    counts.blocked,
+                    if ascii { "x" } else { "✗" },
+                    "blocked",
+                    Role::Blocked,
+                ),
+            ] {
+                if count > 0 {
+                    spans.push(Span::styled(" · ", look.role(Role::Muted)));
+                    spans.push(Span::styled(
+                        format!(
+                            "{glyph} {}{count} {word}",
+                            if counts.complete && app.error.is_none() {
+                                ""
+                            } else {
+                                "≥"
+                            }
+                        ),
+                        look.role(role),
+                    ));
+                }
+            }
+        }
+        spans.push(Span::styled(suffix, look.role(Role::Muted)));
+        Line::from(spans)
     } else {
         let mut names = Vec::new();
         for (index, id) in scope.iter().enumerate() {
@@ -135,22 +177,16 @@ pub(super) fn render_visibility(frame: &mut Frame, app: &App, area: Rect) {
         } else {
             format!(" +{remaining}")
         };
-        format!("Scope: {}{extra}{suffix}", names.join(","))
+        Line::styled(
+            format!("Scope: {}{extra}{suffix}", names.join(",")),
+            app.look().role(Role::Muted),
+        )
     };
-    if unicode_width::UnicodeWidthStr::width(text.as_str()) > width {
+    if line.width() > width {
         return;
     }
-    let rect = Rect::new(
-        area.x + 1,
-        area.y,
-        unicode_width::UnicodeWidthStr::width(text.as_str()) as u16,
-        1,
-    );
-    strip::paint_left(
-        frame.buffer_mut(),
-        rect,
-        Line::styled(text, app.look().role(Role::Muted)),
-    );
+    let rect = Rect::new(area.x + 1, area.y, line.width() as u16, 1);
+    strip::paint_left(frame.buffer_mut(), rect, line);
     if matches!(action.verb, Verb::Ui(OpsUiAction::ClearScope))
         || !app.workspace.visibility.reveal_hidden
     {

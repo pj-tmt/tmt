@@ -22,6 +22,7 @@ pub(crate) struct OpsWorkspaceSnapshot {
     pub roster: OpsRoster,
     pub shell_counts: ShellCounts,
     pub hidden_count: usize,
+    pub hidden_attention: ShellCounts,
     /// Exact admitted row projections used by the existing action/conversation
     /// adapters. Display models never reconstruct send data from visible text.
     pub rows: BTreeMap<OpsTarget, Value>,
@@ -66,6 +67,7 @@ impl OpsWorkspaceSnapshot {
             .iter()
             .filter(|squad| preferences.hidden.contains(&squad.room_id))
             .count();
+        self.hidden_attention = self.roster.hidden_counts(&preferences.hidden);
         self.preferences = preferences;
     }
 

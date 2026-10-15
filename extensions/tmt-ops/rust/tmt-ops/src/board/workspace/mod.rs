@@ -190,9 +190,25 @@ pub struct OpsTreeRow {
 impl OpsRoster {
     /// Independent UUID sets; presence and request attention are different facts.
     pub fn shell_counts(&self) -> ShellCounts {
+        self.counts(None)
+    }
+
+    pub(super) fn hidden_counts(&self, rooms: &BTreeSet<String>) -> ShellCounts {
+        self.counts(Some(rooms))
+    }
+
+    fn counts(&self, rooms: Option<&BTreeSet<String>>) -> ShellCounts {
+        let identities: Option<BTreeSet<_>> = rooms.map(|rooms| {
+            self.squads
+                .iter()
+                .filter(|squad| rooms.contains(&squad.room_id))
+                .flat_map(|squad| squad.members.iter())
+                .collect()
+        });
+        let admitted = |id: &String| identities.as_ref().is_none_or(|ids| ids.contains(id));
         let mut waiting = BTreeSet::new();
         let mut blocked = BTreeSet::new();
-        for member in self.members.values() {
+        for member in self.members.values().filter(|member| admitted(&member.id)) {
             if member.waiting {
                 waiting.insert(&member.id);
             }
@@ -200,7 +216,11 @@ impl OpsRoster {
                 blocked.insert(&member.id);
             }
         }
-        for squad in &self.squads {
+        for squad in self
+            .squads
+            .iter()
+            .filter(|squad| rooms.is_none_or(|rooms| rooms.contains(&squad.room_id)))
+        {
             let members: BTreeSet<_> = squad.members.iter().collect();
             for (id, state) in &squad.member_states {
                 if !members.contains(id) || !self.members.contains_key(id) {
@@ -218,7 +238,7 @@ impl OpsRoster {
             online: self
                 .members
                 .values()
-                .filter(|member| member.presence == Some(true))
+                .filter(|member| admitted(&member.id) && member.presence == Some(true))
                 .count(),
             waiting: waiting.len(),
             blocked: blocked.len(),
@@ -226,6 +246,7 @@ impl OpsRoster {
                 && self
                     .members
                     .values()
+                    .filter(|member| admitted(&member.id))
                     .all(|member| member.presence.is_some()),
         }
     }

@@ -687,3 +687,44 @@ fn a_collapsed_squad_preserves_its_configured_worst_observed_state() {
         Some("waiting")
     );
 }
+
+#[test]
+fn hidden_attention_reuses_shell_evidence_and_deduplicates_room_memberships() {
+    let mut roster = roster();
+    for member in roster.members.values_mut() {
+        member.presence = Some(true);
+    }
+    roster.members.get_mut("one").unwrap().waiting = true;
+    roster.members.get_mut("lead").unwrap().state = Some("blocked".into());
+    let mut duplicate = roster.squads[0].clone();
+    duplicate.room_id = "duplicate".into();
+    duplicate.members.extend(["one".into(), "missing".into()]);
+    duplicate.member_states.insert(
+        "one".into(),
+        OpsMembershipState {
+            state: Some("blocked".into()),
+            waiting: true,
+            rank: None,
+        },
+    );
+    duplicate.member_states.insert(
+        "missing".into(),
+        OpsMembershipState {
+            state: Some("blocked".into()),
+            waiting: true,
+            rank: None,
+        },
+    );
+    roster.squads.push(duplicate);
+    let hidden = ["room".into(), "duplicate".into(), "deleted".into()].into();
+    let counts = roster.hidden_counts(&hidden);
+    assert_eq!(counts.waiting, 1);
+    assert_eq!(counts.blocked, 2);
+    assert!(counts.complete);
+    assert_eq!(roster.hidden_counts(&["deleted".into()].into()).waiting, 0);
+    assert_eq!(roster.hidden_counts(&["deleted".into()].into()).blocked, 0);
+    assert_eq!(roster.shell_counts().waiting, 1);
+    assert_eq!(roster.shell_counts().blocked, 2);
+    roster.observation = OpsObservation::Partial;
+    assert!(!roster.hidden_counts(&hidden).complete);
+}

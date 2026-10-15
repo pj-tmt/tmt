@@ -238,7 +238,8 @@ All keeps Common pool first, then pinned squads and the selected sort order.
 Search reveals matching children of visible squads temporarily without changing
 saved expansion. Select a squad and use `H` Hide squad (or its Actions entry) to
 hide it from Agents and Overview. The `Hidden: N` header's show control (`h` by
-default) reveals hidden squads only for this session; select a revealed squad and
+default) reveals hidden squads only for this session. Before reveal, the line
+shows waiting/blocked counts from hidden squads in their state colours. Select a revealed squad and
 use `S` Show squad to remove its saved hide. Common pool cannot be hidden. Pins
 are retained independently, and hidden squads still contribute to global shell
 attention. Explicit Hide moves the selection only after the save succeeds;
