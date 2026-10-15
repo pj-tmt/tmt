@@ -197,7 +197,11 @@ test('a hosted editor verifies native content, publishes one own edit request an
         if (url.pathname.endsWith(':commit')) writes.push(request.postData() ?? '');
         const requestedPhase = phase;
         const response = await route
-          .fetch({ url: `http://${firestore}${url.pathname}${url.search}` })
+          .fetch({
+            url: `http://${firestore}${url.pathname}${url.search}`,
+            // Isolate emulator proxy requests from pooled socket resets; never retry a read/write.
+            headers: { ...request.headers(), connection: 'close' },
+          })
           .catch(async (error: unknown) => {
             if (!(error instanceof Error) || !error.message.includes('socket hang up')) throw error;
             // An aborted long-poll must not replace the product assertion with proxy noise.
