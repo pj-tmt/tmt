@@ -558,11 +558,41 @@ for (const width of [320, 390, 1440])
           includeHidden: true,
         });
         const box = await underlying.boundingBox();
-        if (!box) throw new Error('Underlying private control has no bounds');
-        await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-        await expectState(page, { menuOpen: false, outsideActions: 0 });
-        await underlying.click();
-        await expectState(page, { outsideActions: 1 });
+        const menuBox = await page.getByRole('menu').boundingBox();
+        if (!box || !menuBox) throw new Error('Missing private outside-press geometry');
+        // Platform fonts can put the menu over the underlying button's center.
+        // Prove the chosen physical point is on that button and outside the menu.
+        const point = [
+          { x: box.x + 2, y: box.y + box.height / 2 },
+          { x: box.x + box.width - 2, y: box.y + box.height / 2 },
+          { x: box.x + box.width / 2, y: box.y + 2 },
+          { x: box.x + box.width / 2, y: box.y + box.height - 2 },
+        ].find(
+          ({ x, y }) =>
+            x >= 0 &&
+            x < width &&
+            y >= 0 &&
+            y < 900 &&
+            !(
+              x >= menuBox.x &&
+              x <= menuBox.x + menuBox.width &&
+              y >= menuBox.y &&
+              y <= menuBox.y + menuBox.height
+            ),
+        );
+        if (!point) throw new Error('Underlying private control has no uncovered viewport point');
+        const beforeOutside = await state(page);
+        await page.mouse.click(point.x, point.y);
+        await expectState(page, {
+          menuOpen: false,
+          lastClose: 'outside',
+          outsideActions: 0,
+          menuActions: 0,
+          denied: beforeOutside.denied,
+          menuCloseFocusEvents: beforeOutside.menuCloseFocusEvents + 1,
+        });
+        await underlying.click({ position: { x: point.x - box.x, y: point.y - box.y } });
+        await expectState(page, { outsideActions: 1, menuActions: 0 });
       });
       test('nested stock nonmodal Popover loops Tab, permits outside focus and consumes inner Escape', async ({
         page,
