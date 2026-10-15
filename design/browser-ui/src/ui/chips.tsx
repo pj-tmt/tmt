@@ -12,10 +12,16 @@ import { Button } from './button.js';
 import {
   Combobox,
   type ComboboxProps,
-  type SelectionItem,
   type SelectionOption,
   type SelectionEvent,
 } from './combobox.js';
+
+export interface SelectionItem {
+  id: string;
+  label: string;
+  removeLabel: string;
+  disabled?: boolean;
+}
 
 export interface ChipProps {
   item: SelectionItem;

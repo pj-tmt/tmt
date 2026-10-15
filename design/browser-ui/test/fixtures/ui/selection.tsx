@@ -57,7 +57,7 @@ export function SelectionFixtures() {
       aria-label="Selection qualification"
       className="tmt:grid tmt:gap-3 tmt:p-3 tmt:max-w-full tmt:bg-background tmt:text-foreground tmt:font-body tmt:text-(length:--tmt-foundation-command-size)"
     >
-      <h2>Slice4 selection qualification</h2>
+      <h3>Slice4 selection qualification</h3>
       <div className="tmt:flex tmt:flex-wrap tmt:gap-2">
         <Button onClick={() => setPrevent(!prevent)}>
           Prevent selection keys {prevent ? 'on' : 'off'}

@@ -575,7 +575,10 @@ command-size/caption-size/eyebrow-weight metrics, never a second token palette.
 ### Controlled selection (Slice4)
 
 `selection.ts` exports the pinned Command family, Combobox, Chip and Chips with
-selection prop/event types. CommandItem retains cmdk's stock value-only
+selection prop/event types. Combobox owns its `SelectionOption` primitive props;
+Chips owns `SelectionItem` from its displayed/removable fields. Existing Browser
+chip values remain structurally assignable, with no UI-to-static source import.
+CommandItem retains cmdk's stock value-only
 `onSelect(value)` callback; it does not promise an originating keyboard event.
 The composed Combobox/Chips callbacks instead receive the actual React event
 from the input key handler or item's click capture. Do not add a second host
@@ -593,7 +596,8 @@ The input remains mounted when its originating-island option portal closes.
 Enter commits once with its original event after close admission. Combobox Tab
 commits once on admitted close; Chips Tab closes without committing. Native Tab
 traversal remains native; an admitted Tab close suppresses competing close
-return-focus only for that transition. A veto holds open state and makes no
+return-focus only for that transition. A newer admitted focus move also wins
+over deferred popup close autofocus, including chip removal. A veto holds open state and makes no
 selection callback. Composition/code229, modified/prevented/untrusted keys and
 removed/disabled options never commit. Space in the editable query remains text.
 No selection/removal key dispatches an enclosing product Send operation.

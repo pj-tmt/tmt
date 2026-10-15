@@ -1,13 +1,16 @@
 import { useRef, type ComponentProps, type KeyboardEvent, type MouseEvent, type Ref } from 'react';
 import { useCommandState } from 'cmdk';
-import type { BrowserChipItem, BrowserChipOption } from '../static.js';
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from './command.js';
 import { Popover, PopoverAnchor, PopoverContent } from './popover.js';
 import type { LayerController, LayerFocusOptions } from './layer.js';
 import { cn } from './utils.js';
 
-export type SelectionItem = BrowserChipItem;
-export type SelectionOption = BrowserChipOption;
+export interface SelectionOption {
+  id: string;
+  label: string;
+  description?: string;
+  disabled?: boolean;
+}
 export type SelectionEvent = KeyboardEvent<HTMLInputElement> | MouseEvent<HTMLDivElement>;
 export interface ComboboxProps extends Omit<LayerFocusOptions, 'initialFocus'> {
   controller: LayerController;
@@ -166,7 +169,16 @@ function SelectionInput({
         align="start"
         className="tmt:p-0"
         onCloseAutoFocus={(event) => {
-          if (preserveFocus.current) {
+          const field = input.current;
+          const active = field?.ownerDocument.activeElement;
+          // Stock unmount autofocus is deferred. A newer admitted focus move
+          // (for example chip removal) must win over this older close.
+          const focusMoved =
+            active?.isConnected &&
+            active !== field &&
+            active !== field?.ownerDocument.body &&
+            active !== field?.ownerDocument.documentElement;
+          if (preserveFocus.current || focusMoved) {
             event.preventDefault();
             preserveFocus.current = false;
           } else {

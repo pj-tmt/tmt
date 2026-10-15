@@ -1,5 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, expect, it, vi } from 'vite-plus/test';
+import type { BrowserChipItem, BrowserChipOption } from '../src/static.js';
+import type { SelectionItem, SelectionOption } from '../src/ui/selection.js';
 import { UiTheme } from '../src/ui/theme.js';
 import {
   Chip,
@@ -201,4 +203,33 @@ it('reveals only the focused out-of-viewport input once per resize and cleans li
   const scheduled = view.requestAnimationFrame.mock.calls.length;
   viewport.dispatchEvent(new Event('resize'));
   expect(view.requestAnimationFrame).toHaveBeenCalledTimes(scheduled);
+});
+
+// This test is included by the leaf tsc check; the negative must produce TS2741
+// without its directive, not merely pass the runtime runner.
+it('accepts existing public values structurally while requiring local primitive IDs', () => {
+  const legacyOption: BrowserChipOption = {
+    id: 'one',
+    label: 'One',
+    description: 'Kept',
+    disabled: false,
+  };
+  const legacyItem: BrowserChipItem = {
+    id: 'one',
+    label: 'One',
+    removeLabel: 'Remove one',
+    disabled: false,
+  };
+  const option: SelectionOption = legacyOption;
+  const item: SelectionItem = legacyItem;
+  const optionRoundTrip: BrowserChipOption = option;
+  const itemRoundTrip: BrowserChipItem = item;
+  // @ts-expect-error SelectionOption requires its stable id.
+  const missingOptionId: SelectionOption = { label: 'Missing option ID' };
+  // @ts-expect-error SelectionItem requires its stable id.
+  const missingItemId: SelectionItem = { label: 'Missing item ID', removeLabel: 'Remove missing' };
+  expect(optionRoundTrip).toBe(legacyOption);
+  expect(itemRoundTrip).toBe(legacyItem);
+  expect(missingOptionId.label).toBe('Missing option ID');
+  expect(missingItemId.label).toBe('Missing item ID');
 });

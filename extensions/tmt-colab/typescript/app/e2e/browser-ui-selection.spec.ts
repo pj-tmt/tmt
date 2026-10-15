@@ -655,3 +655,43 @@ test('programmatic close requests honor host veto without a selection or query m
   await expect(input).toBeFocused();
   await expect(page.getByLabel('Selection callback count')).toHaveText('0');
 });
+
+test('deferred popup close never steals focus from an admitted chip removal', async ({
+  page,
+}, info) => {
+  await gallery(page);
+  const input = page.getByRole('combobox', { name: 'Chips search' });
+  await input.focus();
+  await input.pressSequentially('Be');
+  await input.press('Enter');
+  await expect(page.getByLabel('Chips add count')).toHaveText('1');
+  await expect(input).toHaveAttribute('aria-expanded', 'false');
+  await input.press('ArrowDown');
+  await expect(input).toHaveAttribute('aria-expanded', 'true');
+  // Freeze only this regression's deferred stock FocusScope cleanup. Native
+  // key events/removal still run; releasing the clock exposes late focus theft.
+  await page.clock.install({ time: new Date('2026-01-01T00:00:00Z') });
+  await page.clock.pauseAt(new Date('2026-01-01T00:00:01Z'));
+  await input.press('Escape');
+  await expect(input).toHaveAttribute('aria-expanded', 'false');
+  const alpha = page.getByRole('button', { name: 'Remove Alpha', exact: true });
+  const beta = page.getByRole('button', { name: 'Remove Beta', exact: true });
+  await alpha.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByLabel('Chips remove count')).toHaveText('1');
+  await expect(beta).toBeFocused();
+  await page.clock.runFor(1);
+  try {
+    await expect(beta).toBeFocused();
+  } finally {
+    await info.attach('deferred-close-focus', {
+      contentType: 'application/json',
+      body: JSON.stringify(
+        await page.evaluate(() => ({
+          active: document.activeElement?.outerHTML,
+          input: document.querySelector('input[aria-label="Chips search"]')?.outerHTML,
+        })),
+      ),
+    });
+  }
+});
