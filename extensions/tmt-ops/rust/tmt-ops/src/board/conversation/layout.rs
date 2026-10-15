@@ -80,9 +80,9 @@ pub fn agents_tree(
         Placement {
             list: Some(Rect::new(body.x, body.y, left, body.height)),
             conversation: Some(Rect::new(
-                body.x + left + 1,
+                body.x + left + 2,
                 body.y,
-                body.width - left - 1,
+                body.width - left - 2,
                 body.height,
             )),
         }
@@ -183,7 +183,7 @@ mod tests {
     fn agents_tree_matches_the_mock_bands_and_keeps_the_conversation_minimum() {
         let wide = agents_tree(Rect::new(0, 4, 160, 37), Preference::Auto, false);
         assert_eq!(wide.list, Some(Rect::new(0, 7, 75, 34)));
-        assert_eq!(wide.conversation, Some(Rect::new(76, 7, 84, 34)));
+        assert_eq!(wide.conversation, Some(Rect::new(77, 7, 83, 34)));
         let medium = agents_tree(Rect::new(0, 4, 100, 17), Preference::Auto, false);
         assert_eq!(medium.list, Some(Rect::new(0, 7, 100, 4)));
         assert_eq!(medium.conversation, Some(Rect::new(0, 11, 100, 10)));
