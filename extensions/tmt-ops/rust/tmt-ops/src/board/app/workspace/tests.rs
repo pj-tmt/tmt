@@ -347,6 +347,33 @@ enter = "run herdr pane focus {pane} {session}"
 }
 
 #[test]
+fn enter_with_no_host_table_talks_the_same_for_every_host() {
+    // Without any `[bind.<host>]` table, a member row on tmux, Herdr, an unknown
+    // host or no observed location resolves Enter through the one global Member
+    // table: it opens the composer. No host gets a menu, a silent refusal or a
+    // different default because it has no table of its own.
+    for pane in [
+        json!({"id":"%1","location":{"host":"tmux","session":"work","window":"2"}}),
+        json!({"id":"%2","location":{"host":"herdr"}}),
+        json!({"id":"%3","location":{"host":"other"}}),
+        json!({"id":"%4"}),
+    ] {
+        let mut app = configured_member("", json!({"id":MEMBER,"name":"worker","pane":pane}));
+        assert_eq!(key(&mut app, KeyCode::Enter), Effect::None, "{pane}");
+        assert!(app.menu.is_none(), "{pane}: Enter must not open a menu");
+        assert!(app.notice.is_none(), "{pane}: {:?}", app.notice);
+        assert!(app.input.is_some(), "{pane}: Enter must open the composer");
+    }
+    // A table for another host never changes the default of a host without one.
+    let mut app = configured_member(
+        "[bind.tmux]\nenter = \"run tmux-only {pane}\"\n",
+        json!({"id":MEMBER,"name":"worker","pane":{"id":"%2","location":{"host":"herdr"}}}),
+    );
+    assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
+    assert!(app.menu.is_none() && app.input.is_some());
+}
+
+#[test]
 fn configured_section_keeps_unoverridden_host_actions_for_the_same_membership() {
     let mut app = configured_member(
         r#"

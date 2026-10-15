@@ -237,6 +237,9 @@ or failed reads never prove that an identity belongs in the pool.
 
 With tree focus, ↑/↓ move, Right expands and Left collapses; Enter focuses a
 selected agent's composer. Enter on a squad or Common pool inspects that group.
+These defaults are the same on every host (tmux, Herdr or unknown); a
+`[bind.<host>]` table only overrides keys for rows on that host and never changes
+the default of a host without one.
 Tab moves between the tree and conversation. `1`/`2`/`3` switch
 sections only when an editor, search, completion, overlay or conversation has not
 claimed the key. In Overview, click a header to sort and `p` pins/unpins the
