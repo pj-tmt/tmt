@@ -315,7 +315,9 @@ impl Controller {
         static TEMPLATE: OnceLock<surface::Template<()>> = OnceLock::new();
         static REVIEW_TEMPLATE: OnceLock<surface::Template<()>> = OnceLock::new();
         static SHEET_TEMPLATE: OnceLock<surface::Template<()>> = OnceLock::new();
-        let short = self.screen == Screen::Confirm && body.height < 8;
+        // Center's 4/5 bound needs ten body rows to leave two reading
+        // rows after borders, query, status, position and footer.
+        let short = self.screen == Screen::Confirm && body.height < 10;
         let template = if short {
             SHEET_TEMPLATE.get_or_init(|| {
                 picker_surface::compile(

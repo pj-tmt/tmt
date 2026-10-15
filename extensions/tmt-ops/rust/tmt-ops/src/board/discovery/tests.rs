@@ -471,61 +471,67 @@ fn discovery_confirmation_keeps_escape_hint_whole_at_low_height() {
 #[test]
 fn short_binding_review_keeps_its_subject_and_cancel_visible() {
     use ratatui::crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
-    let mut c = controller();
-    assert!(c.review(AgentSelector::NewName("worker".into()), false));
-    let mut app = crate::board::app::workspace::tests::board();
-    app.discovery = Some(c);
-    let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(60, 8)).unwrap();
-    terminal
-        .draw(|frame| crate::board::view::render(frame, &app))
-        .unwrap();
-    let c = app.discovery.as_ref().unwrap();
-    let state = c.ui.borrow();
-    let map = state.frame.as_ref().unwrap();
-    assert_eq!(map.areas.outer, ratatui::layout::Rect::new(0, 0, 60, 8));
-    assert!(map.areas.content.height > 0);
-    let text: String = terminal
-        .backend()
-        .buffer()
-        .content
-        .iter()
-        .map(|cell| cell.symbol())
-        .collect();
-    assert!(text.contains("Bind %3"), "{text}");
-    assert!(text.contains("worker"), "{text}");
-    assert!(
-        map.hits
+    for height in [8, 10, 12] {
+        let mut c = controller();
+        assert!(c.review(AgentSelector::NewName("worker".into()), false));
+        let mut app = crate::board::app::workspace::tests::board();
+        app.discovery = Some(c);
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(60, height)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        let c = app.discovery.as_ref().unwrap();
+        let state = c.ui.borrow();
+        let map = state.frame.as_ref().unwrap();
+        assert_eq!(
+            map.areas.outer,
+            ratatui::layout::Rect::new(0, 0, 60, height)
+        );
+        assert!(map.areas.content.height > 0);
+        let text: String = terminal
+            .backend()
+            .buffer()
+            .content
             .iter()
-            .any(|hit| hit.row_id.as_deref() == Some("cancel") && hit.rect.height > 0)
-    );
-    assert!(
-        !c.readable.get(),
-        "clipped target notes cannot authorize binding"
-    );
-    drop(state);
-    assert!(
-        app.discovery
-            .as_mut()
-            .unwrap()
-            .input(&Event::Key(KeyEvent::new(
-                KeyCode::Down,
-                KeyModifiers::NONE
-            )))
-            .is_none()
-    );
-    terminal
-        .draw(|frame| crate::board::view::render(frame, &app))
-        .unwrap();
-    let text: String = terminal
-        .backend()
-        .buffer()
-        .content
-        .iter()
-        .map(|cell| cell.symbol())
-        .collect();
-    assert!(text.contains("Bind agent"));
-    assert!(text.contains("Bind %3"));
-    assert!(!app.discovery.as_ref().unwrap().readable.get());
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(text.contains("Bind %3"), "{text}");
+        assert!(text.contains("worker"), "{text}");
+        assert!(
+            map.hits
+                .iter()
+                .any(|hit| hit.row_id.as_deref() == Some("cancel") && hit.rect.height > 0)
+        );
+        assert!(
+            !c.readable.get(),
+            "clipped target notes cannot authorize binding"
+        );
+        drop(state);
+        assert!(
+            app.discovery
+                .as_mut()
+                .unwrap()
+                .input(&Event::Key(KeyEvent::new(
+                    KeyCode::Down,
+                    KeyModifiers::NONE
+                )))
+                .is_none()
+        );
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        let text: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(text.contains("Bind agent"));
+        assert!(text.contains("Bind %3"));
+        assert!(!app.discovery.as_ref().unwrap().readable.get());
+    }
 }
 #[test]
 fn actual_mouse_scan_select_review_and_cancel_emit_no_binding() {
