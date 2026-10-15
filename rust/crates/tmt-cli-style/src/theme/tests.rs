@@ -515,3 +515,106 @@ fn every_rgb_role_fill_keeps_wcag_label_contrast_in_both_bases() {
         }
     }
 }
+
+#[cfg(feature = "ratatui")]
+#[test]
+fn chips_use_existing_surfaces_and_keep_hot_and_disabled_distinct() {
+    use ratatui::style::{Modifier, Style};
+    use screen::{ChipKind, ChipState, Fill};
+    for base in [Base::Tmt, Base::TmtLight, Base::Terminal, Base::Mono] {
+        let theme = Theme::new(base);
+        for depth in [Depth::TrueColor, Depth::Ansi16, Depth::None] {
+            for kind in [ChipKind::Secondary, ChipKind::Primary] {
+                let idle = screen::chip(&theme, kind, ChipState::Idle, depth);
+                let hot = screen::chip(&theme, kind, ChipState::Hot, depth);
+                let disabled = screen::chip(&theme, kind, ChipState::Disabled, depth);
+                assert_ne!(idle, hot, "{base:?}/{depth:?}/{kind:?}");
+                if depth == Depth::Ansi16 {
+                    assert!(hot.add_modifier.contains(Modifier::BOLD));
+                }
+                assert_ne!(disabled, hot);
+                assert!(disabled.add_modifier.contains(Modifier::DIM));
+                assert_eq!(
+                    disabled,
+                    screen::chip(&theme, ChipKind::Secondary, ChipState::Disabled, depth)
+                );
+                if depth == Depth::None {
+                    assert!(idle.add_modifier.contains(Modifier::REVERSED));
+                    assert!(hot.add_modifier.contains(Modifier::BOLD));
+                    assert_eq!(disabled, Style::new().add_modifier(Modifier::DIM));
+                    if kind == ChipKind::Primary {
+                        assert!(idle.add_modifier.contains(Modifier::BOLD));
+                        assert!(hot.add_modifier.contains(Modifier::UNDERLINED));
+                    }
+                } else {
+                    let role = if kind == ChipKind::Primary {
+                        Role::Accent
+                    } else {
+                        Role::Track
+                    };
+                    assert_eq!(idle, screen::fill(&theme, role, depth, Fill::Solid));
+                    assert_eq!(
+                        disabled.bg,
+                        screen::fill(&theme, Role::Track, depth, Fill::Solid).bg
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[cfg(feature = "ratatui")]
+#[test]
+fn chips_honor_overrides_and_retain_readable_rgb_labels() {
+    use ratatui::style::{Color, Modifier};
+    use screen::{ChipKind, ChipState};
+    let luminance = |r: u8, g: u8, b: u8| {
+        let linear = |v: u8| {
+            let x = f64::from(v) / 255.0;
+            if x <= 0.04045 {
+                x / 12.92
+            } else {
+                ((x + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b)
+    };
+    for base in [Base::Tmt, Base::TmtLight] {
+        for kind in [ChipKind::Secondary, ChipKind::Primary] {
+            for state in [ChipState::Idle, ChipState::Hot] {
+                let style = screen::chip(&Theme::new(base), kind, state, Depth::TrueColor);
+                let Some(Color::Rgb(r, g, b)) = style.bg else {
+                    panic!("missing RGB surface")
+                };
+                let bg = luminance(r, g, b);
+                let fg: f64 = match style.fg {
+                    Some(Color::Black) => 0.0,
+                    Some(Color::White) => 1.0,
+                    other => panic!("unreadable label color: {other:?}"),
+                };
+                assert!((fg.max(bg) + 0.05) / (fg.min(bg) + 0.05) >= 4.5);
+            }
+        }
+    }
+    let theme = Theme::default()
+        .with(Role::Track, Paint::Rgb(10, 20, 30))
+        .with(Role::Selection, Paint::Rgb(40, 50, 60))
+        .with(Role::Accent, Paint::Rgb(70, 80, 90));
+    for (kind, state, expected) in [
+        (ChipKind::Secondary, ChipState::Idle, Color::Rgb(10, 20, 30)),
+        (ChipKind::Secondary, ChipState::Hot, Color::Rgb(40, 50, 60)),
+        (ChipKind::Primary, ChipState::Idle, Color::Rgb(70, 80, 90)),
+        (ChipKind::Primary, ChipState::Hot, Color::Rgb(107, 115, 123)),
+    ] {
+        assert_eq!(
+            screen::chip(&theme, kind, state, Depth::TrueColor).bg,
+            Some(expected)
+        );
+    }
+    let same = Theme::default()
+        .with(Role::Track, Paint::Plain)
+        .with(Role::Selection, Paint::Plain);
+    let idle = screen::chip(&same, ChipKind::Secondary, ChipState::Idle, Depth::Ansi16);
+    let hot = screen::chip(&same, ChipKind::Secondary, ChipState::Hot, Depth::Ansi16);
+    assert_eq!(hot, idle.add_modifier(Modifier::BOLD));
+}
