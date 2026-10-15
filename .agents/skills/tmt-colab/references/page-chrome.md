@@ -91,9 +91,10 @@ opaque frame, through the existing slot owner and its strict cosmetic protocol.
 The [inline slot contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#own-stream-discussion-records-1427)
 owns the exact shapes and admission limits. The parent floating-action placement
 effect reuses its resize/scroll observer to clear attached visible question cards
-containing footers, including answer controls, recipients and Send; with no available space above them,
-the floating actions temporarily hide while header entry points remain available.
-Footer/FAB observers and scroll listeners clean up with that effect. This does not
+containing footers, including answer controls, recipients and Send, and attached inline
+Proposal cards, including Approve, Decline, Follow up, Resolve and the follow-up composer;
+with no available space above them, the floating actions temporarily hide while header
+entry points remain available. Card/FAB observers and scroll listeners clean up with that effect. This does not
 change drafts, active-tab geometry retirement, selection coordinates or send policy.
 Author backgrounds and widths belong to the page; parent theme tokens style
 chrome. `theme.ts` reads the parent's explicit root choice, otherwise the live OS
