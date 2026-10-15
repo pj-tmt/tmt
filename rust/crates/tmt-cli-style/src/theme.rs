@@ -536,6 +536,66 @@ pub mod screen {
         }
     }
 
+    /// Primary actions use the accent surface; other controls use neutral surfaces.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum ChipKind {
+        Secondary,
+        Primary,
+    }
+
+    /// Presentation only: callers retain focus, hover and activation admission.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum ChipState {
+        Idle,
+        Hot,
+        Disabled,
+    }
+
+    /// Resolve a padded control's surface using existing theme roles and overrides.
+    pub fn chip(theme: &Theme, kind: ChipKind, state: ChipState, depth: Depth) -> Style {
+        if depth == Depth::None {
+            return match (kind, state) {
+                (_, ChipState::Disabled) => Style::new().add_modifier(Modifier::DIM),
+                (ChipKind::Secondary, ChipState::Idle) => {
+                    Style::new().add_modifier(Modifier::REVERSED)
+                }
+                (ChipKind::Secondary, ChipState::Hot) => {
+                    Style::new().add_modifier(Modifier::REVERSED | Modifier::BOLD)
+                }
+                (ChipKind::Primary, ChipState::Idle) => {
+                    Style::new().add_modifier(Modifier::REVERSED | Modifier::BOLD)
+                }
+                (ChipKind::Primary, ChipState::Hot) => Style::new()
+                    .add_modifier(Modifier::REVERSED | Modifier::BOLD | Modifier::UNDERLINED),
+            };
+        }
+        if state == ChipState::Disabled {
+            return fill(theme, Role::Track, depth, Fill::Solid).add_modifier(Modifier::DIM);
+        }
+        let idle_role = match kind {
+            ChipKind::Secondary => Role::Track,
+            ChipKind::Primary => Role::Accent,
+        };
+        let idle = fill(theme, idle_role, depth, Fill::Solid);
+        if state == ChipState::Idle {
+            return idle;
+        }
+        let hot = match kind {
+            ChipKind::Secondary => fill(theme, Role::Selection, depth, Fill::Solid),
+            ChipKind::Primary => fill(theme, Role::Accent, depth, Fill::Lighter),
+        };
+        if hot != idle {
+            return hot;
+        }
+        // A monochrome theme or override can collapse both surfaces, even at TrueColor.
+        let emphasized = hot.add_modifier(Modifier::BOLD);
+        if emphasized == idle {
+            emphasized.add_modifier(Modifier::UNDERLINED)
+        } else {
+            emphasized
+        }
+    }
+
     /// The role's style for a ratatui cell.
     pub fn style(theme: &Theme, role: Role, depth: Depth) -> Style {
         let text = theme.style(role, depth);

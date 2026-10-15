@@ -52,6 +52,8 @@ values from that single token source; semantic colors remain saturated. On
 `terminal`, `mono` and 16 colors `track` is the dim effect with no background,
 and with `NO_COLOR` the theme adds no style, so a meter marks its own track.
 Terminal16, `mono`, `NO_COLOR` and explicit overrides keep their existing behavior.
+Chips resolve through `screen::chip`: neutral Track/Selection surfaces or primary Accent solid/lighter, Dim-on-Track when disabled, and explicit reverse/bold/underline states without color; they add no role or token.
+
 A `Theme` is a built-in base plus per-role overrides:
 
 | Base        | Rendering                                                                      |
