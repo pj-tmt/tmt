@@ -5,28 +5,31 @@
 //! first other answer: a definite refusal is final, and an uncertain one is
 //! never repeated in the loop.
 //!
-//! An attempt holds the storage write lock while it checks that the binding
-//! and the identity's name are still the run's and calls the host. A `tmt mv`
-//! commits only before or after it, and names the agent after its commit, so
-//! a run never sets an old name back over a newer one.
+//! An attempt reads the identity's current name, calls the host with no
+//! storage transaction open, and reads again. A `tmt mv` names the agent only
+//! after its commit, so a call of the run that lands after that naming is
+//! followed by a read that sees the new name, and the next tick sets it; a
+//! call that lands before it is overwritten by it. A binding that ended while
+//! the run set the name gets one warning: the run does not clear the name.
 
 use std::time::{Duration, Instant};
 use tmt_adapters::{
     config::ConfigPaths,
     host::{AgentNameRefusal, AgentNaming, Host, HostError},
-    storage::{Storage, StorageError},
+    storage::Storage,
 };
-use tmt_core::{
-    binding::{Binding, BindingRepository},
-    identity::Identity,
-};
+use tmt_core::{binding::Binding, identity::Identity};
 
 /// The most attempts, one per wait tick: about 30 s at the 5 s cadence.
 pub(super) const ATTEMPTS: u32 = 6;
 
-/// The most one attempt may take. A tick blocks signal forwarding to the
-/// child while it runs, so an attempt is short, and a timeout ends the loop.
+/// The most the host call of one attempt may take. A tick blocks signal
+/// forwarding to the child while it runs, so an attempt is short, and a
+/// timeout ends the loop.
 pub(super) const CALL: Duration = Duration::from_secs(1);
+
+/// The most each storage read of an attempt waits for a writer.
+const READ: Duration = Duration::from_millis(250);
 
 /// An answer's refusal class, which alone decides a retry, and whether the
 /// driver process could not be cleaned up.
@@ -45,63 +48,93 @@ impl Refusal for HostError {
     }
 }
 
+/// What the naming has to say after the command exits.
+pub(super) enum Issue<E> {
+    /// The host's last answer for `name`.
+    Host { name: String, error: E },
+    /// The identity was renamed at every attempt; `name` is the newest.
+    Renamed(String),
+    /// The binding ended after the host may have set `name`.
+    Ended(String),
+}
+
 /// How the naming ended, for after the command exits.
 pub(super) enum Outcome<E> {
     /// Named, not linked, moved on, or never tried: nothing to say.
     Quiet,
-    /// The agent has no confirmed name: one warning.
-    Warning(E),
+    /// One warning.
+    Warning(Issue<E>),
     /// A driver process could not be cleaned up: a failure, not a warning.
     Leaked(E),
 }
 
+/// What storage said after the call.
+pub(super) enum After {
+    /// The binding is current and the identity keeps the name it was given.
+    Current,
+    /// The binding is current, and the identity now has this name.
+    Renamed(String),
+    /// The binding ended or moved to another pane.
+    Ended,
+    /// Storage could not be read: the host's answer stands.
+    Unknown,
+}
+
 /// What one tick did.
 pub(super) enum Attempt<E> {
-    /// The host answered.
-    Answered(Result<AgentNaming, E>),
-    /// The binding or the identity's name changed: whoever changed it names
-    /// the agent, so the run stops without a warning.
+    /// The host answered for `name`, and storage then said `after`.
+    Answered {
+        name: String,
+        answer: Result<AgentNaming, E>,
+        after: After,
+    },
+    /// The binding ended before any call: whoever ended it handles the
+    /// name, so the run stops without a warning.
     Moved,
-    /// Storage could not be read in time; the attempt counts, and the next
-    /// tick tries again.
+    /// Storage could not be read in time, and nothing was called; the
+    /// attempt counts, and the next tick tries again.
     Skipped,
 }
 
-/// One attempt under the storage write lock, all of it within [`CALL`].
-pub(super) fn attempt(
-    paths: &ConfigPaths,
-    host: &Host,
-    binding: &Binding,
-    identity: &Identity,
-) -> Attempt<HostError> {
-    let deadline = Instant::now() + CALL;
-    let Ok(mut storage) = Storage::open_hook(&paths.database, deadline) else {
-        return Attempt::Skipped;
-    };
-    let answered = storage.with_binding_transaction::<_, StorageError>(|records| {
-        let current = records
-            .entry_by_id(&binding.identity_id)?
-            .is_some_and(|entry| {
-                entry.identity.name == identity.name
-                    && entry
-                        .binding
-                        .is_some_and(|current| current.id == binding.id)
-            });
-        Ok(current.then(|| host.name_agent(binding, identity, Some(deadline))))
-    });
+/// The identity of the run's binding while it is still current, or `None`.
+fn current(paths: &ConfigPaths, binding: &Binding) -> Result<Option<Identity>, ()> {
+    let mut storage = Storage::open_hook(&paths.database, Instant::now() + READ).map_err(|_| ())?;
+    let entry = storage.binding_entry(&binding.identity_id);
     let _ = storage.close();
-    match answered {
-        Ok(Some(answer)) => Attempt::Answered(answer),
-        Ok(None) => Attempt::Moved,
-        Err(_) => Attempt::Skipped,
+    Ok(entry.map_err(|_| ())?.and_then(|entry| {
+        entry
+            .binding
+            .is_some_and(|current| current.id == binding.id)
+            .then_some(entry.identity)
+    }))
+}
+
+/// One attempt: a read, the host call with no transaction open, a read.
+pub(super) fn attempt(paths: &ConfigPaths, host: &Host, binding: &Binding) -> Attempt<HostError> {
+    let identity = match current(paths, binding) {
+        Ok(Some(identity)) => identity,
+        Ok(None) => return Attempt::Moved,
+        Err(()) => return Attempt::Skipped,
+    };
+    let answer = host.name_agent(binding, &identity, Some(Instant::now() + CALL));
+    let after = match current(paths, binding) {
+        Ok(Some(now)) if now.name == identity.name => After::Current,
+        Ok(Some(now)) => After::Renamed(now.name),
+        Ok(None) => After::Ended,
+        Err(()) => After::Unknown,
+    };
+    Attempt::Answered {
+        name: identity.name,
+        answer,
+        after,
     }
 }
 
 pub(super) struct AgentNamer<E = HostError> {
     attempts: u32,
     settled: bool,
-    last: Option<E>,
-    leaked: bool,
+    last: Option<Issue<E>>,
+    leaked: Option<E>,
 }
 
 impl<E> Default for AgentNamer<E> {
@@ -110,7 +143,7 @@ impl<E> Default for AgentNamer<E> {
             attempts: 0,
             settled: false,
             last: None,
-            leaked: false,
+            leaked: None,
         }
     }
 }
@@ -122,46 +155,79 @@ impl<E: Refusal> AgentNamer<E> {
             return;
         }
         self.attempts += 1;
-        match call() {
-            Attempt::Answered(Ok(_)) | Attempt::Moved => {
-                self.settled = true;
-                self.last = None;
+        let exhausted = self.attempts >= ATTEMPTS;
+        let (settled, last) = match call() {
+            Attempt::Moved => (true, None),
+            Attempt::Skipped => (exhausted, self.last.take()),
+            Attempt::Answered {
+                answer: Err(error), ..
+            } if error.leaked() => {
+                self.leaked = Some(error);
+                (true, None)
             }
-            Attempt::Skipped => self.settled = self.attempts >= ATTEMPTS,
-            Attempt::Answered(Err(error)) if error.leaked() => {
-                self.settled = true;
-                self.leaked = true;
-                self.last = Some(error);
+            Attempt::Answered {
+                name,
+                answer,
+                after: After::Ended,
+            } => {
+                // The host may hold the name of a binding that is gone.
+                let maybe_set = match &answer {
+                    Ok(naming) => *naming == AgentNaming::Done,
+                    Err(error) => error.class() == AgentNameRefusal::Uncertain,
+                };
+                (true, maybe_set.then_some(Issue::Ended(name)))
             }
-            Attempt::Answered(Err(error)) => {
-                self.settled =
-                    error.class() != AgentNameRefusal::NoAgent || self.attempts >= ATTEMPTS;
-                self.last = Some(error);
-            }
-        }
+            Attempt::Answered {
+                answer: Ok(AgentNaming::NotLinked),
+                ..
+            } => (true, None),
+            Attempt::Answered {
+                answer,
+                after: After::Renamed(newer),
+                ..
+            } => match answer {
+                // The call may have landed after the rename's own naming,
+                // so the next tick sets the newer name.
+                Ok(_) => (exhausted, Some(Issue::Renamed(newer))),
+                Err(error)
+                    if matches!(
+                        error.class(),
+                        AgentNameRefusal::NoAgent | AgentNameRefusal::Uncertain
+                    ) =>
+                {
+                    (exhausted, Some(Issue::Renamed(newer)))
+                }
+                // A definite refusal changed nothing, and the rename names
+                // the agent itself.
+                Err(_) => (true, None),
+            },
+            Attempt::Answered { answer: Ok(_), .. } => (true, None),
+            Attempt::Answered {
+                name,
+                answer: Err(error),
+                ..
+            } => (
+                error.class() != AgentNameRefusal::NoAgent || exhausted,
+                Some(Issue::Host { name, error }),
+            ),
+        };
+        self.settled = settled;
+        self.last = last;
     }
 
     /// Whether a driver process could not be cleaned up: the run then stops
     /// all optional work and keeps only the command's own supervision.
     pub(super) fn leaked(&self) -> bool {
-        self.leaked
+        self.leaked.is_some()
     }
 
     /// How the naming ended. A command that exits before the first attempt
     /// gets nothing to say.
     pub(super) fn into_outcome(self) -> Outcome<E> {
-        match self.last {
-            None => Outcome::Quiet,
-            Some(error) if self.leaked => Outcome::Leaked(error),
-            Some(error) => Outcome::Warning(error),
-        }
-    }
-
-    #[cfg(test)]
-    fn into_issue(self) -> Option<E> {
-        match self.into_outcome() {
-            Outcome::Warning(error) => Some(error),
-            Outcome::Quiet | Outcome::Leaked(_) => None,
+        match (self.leaked, self.last) {
+            (Some(error), _) => Outcome::Leaked(error),
+            (None, Some(issue)) => Outcome::Warning(issue),
+            (None, None) => Outcome::Quiet,
         }
     }
 
@@ -194,13 +260,38 @@ mod tests {
         Refused(class, false)
     }
 
+    /// The host's answer for `worker`, with the binding still current.
+    fn answered(answer: Result<AgentNaming, Refused>) -> Attempt<Refused> {
+        answered_then(answer, After::Current)
+    }
+
+    fn answered_then(answer: Result<AgentNaming, Refused>, after: After) -> Attempt<Refused> {
+        Attempt::Answered {
+            name: "worker".into(),
+            answer,
+            after,
+        }
+    }
+
+    /// The issue a namer ends with, as the class of a host answer or the
+    /// name of a rename or an ended binding.
+    fn issue(namer: AgentNamer<Refused>) -> Option<String> {
+        match namer.into_outcome() {
+            Outcome::Quiet => None,
+            Outcome::Warning(Issue::Host { name, error }) => Some(format!("{name}:{:?}", error.0)),
+            Outcome::Warning(Issue::Renamed(name)) => Some(format!("renamed:{name}")),
+            Outcome::Warning(Issue::Ended(name)) => Some(format!("ended:{name}")),
+            Outcome::Leaked(_) => Some("leaked".into()),
+        }
+    }
+
     /// A driver process that could not be cleaned up is fatal for the
     /// naming, even on an answer that would otherwise be retried, and is a
     /// failure, never a warning.
     #[test]
     fn a_leaked_driver_process_stops_the_loop_as_a_failure() {
         let mut namer = AgentNamer::<Refused>::default();
-        namer.attempt(|| Attempt::Answered(Err(Refused(AgentNameRefusal::NoAgent, true))));
+        namer.attempt(|| answered(Err(Refused(AgentNameRefusal::NoAgent, true))));
         assert!(namer.leaked());
         namer.attempt(|| panic!("no attempt after a leaked driver process"));
         assert_eq!(namer.attempts(), 1);
@@ -216,12 +307,10 @@ mod tests {
         ]
         .into_iter();
         for _ in 0..10 {
-            namer.attempt(|| {
-                Attempt::Answered(answers.next().expect("no call after the name is set"))
-            });
+            namer.attempt(|| answered(answers.next().expect("no call after the name is set")));
         }
         assert_eq!(namer.attempts(), 2);
-        assert!(namer.into_issue().is_none());
+        assert_eq!(issue(namer), None);
     }
 
     #[test]
@@ -231,52 +320,51 @@ mod tests {
         for _ in 0..10 {
             namer.attempt(|| {
                 calls += 1;
-                Attempt::Answered(Err(refused(AgentNameRefusal::NoAgent)))
+                answered(Err(refused(AgentNameRefusal::NoAgent)))
             });
         }
         assert_eq!(calls, ATTEMPTS);
-        let issue = namer.into_issue().expect("an issue to warn about");
-        assert_eq!(issue.class(), AgentNameRefusal::NoAgent);
+        assert_eq!(issue(namer).as_deref(), Some("worker:NoAgent"));
     }
 
     #[test]
     fn any_other_answer_ends_the_loop_at_once() {
-        for (answer, issue) in [
+        for (answer, expected) in [
             (Ok(AgentNaming::NotLinked), None),
             (
                 Err(refused(AgentNameRefusal::Rejected)),
-                Some(AgentNameRefusal::Rejected),
+                Some("worker:Rejected"),
             ),
             (
                 Err(refused(AgentNameRefusal::Foreign)),
-                Some(AgentNameRefusal::Foreign),
+                Some("worker:Foreign"),
             ),
             // A timeout or failure is uncertain, and is not repeated.
             (
                 Err(refused(AgentNameRefusal::Uncertain)),
-                Some(AgentNameRefusal::Uncertain),
+                Some("worker:Uncertain"),
             ),
         ] {
             let mut namer = AgentNamer::<Refused>::default();
             let mut answer = Some(answer);
             for _ in 0..3 {
-                namer.attempt(|| Attempt::Answered(answer.take().expect("one attempt only")));
+                namer.attempt(|| answered(answer.take().expect("one attempt only")));
             }
             assert_eq!(namer.attempts(), 1);
-            assert_eq!(namer.into_issue().map(|issue| issue.class()), issue);
+            assert_eq!(issue(namer).as_deref(), expected);
         }
     }
 
-    /// A `tmt mv` (or another bind) changed the name: the run stops and
-    /// leaves the naming to it, with no warning. A skipped tick counts.
+    /// A binding that ended before any call stops the run quietly. A skipped
+    /// tick counts, and called nothing.
     #[test]
-    fn a_moved_binding_stops_the_loop_quietly_and_a_skipped_tick_counts() {
+    fn a_binding_gone_before_the_call_stops_the_loop_quietly_and_a_skipped_tick_counts() {
         let mut namer = AgentNamer::<Refused>::default();
-        namer.attempt(|| Attempt::Answered(Err(refused(AgentNameRefusal::NoAgent))));
+        namer.attempt(|| answered(Err(refused(AgentNameRefusal::NoAgent))));
         namer.attempt(|| Attempt::Moved);
         namer.attempt(|| panic!("no attempt after the binding moved"));
         assert_eq!(namer.attempts(), 2);
-        assert!(namer.into_issue().is_none());
+        assert_eq!(issue(namer), None);
 
         let mut namer = AgentNamer::<Refused>::default();
         for _ in 0..10 {
@@ -285,8 +373,92 @@ mod tests {
         assert_eq!(namer.attempts(), ATTEMPTS);
     }
 
+    /// A storage read that fails after the call never turns the host's
+    /// answer into a retry: the answer stands.
+    #[test]
+    fn a_failed_read_after_the_call_keeps_the_hosts_answer() {
+        for (answer, expected) in [
+            (Ok(AgentNaming::Done), None),
+            (
+                Err(refused(AgentNameRefusal::Uncertain)),
+                Some("worker:Uncertain"),
+            ),
+        ] {
+            let mut namer = AgentNamer::<Refused>::default();
+            let mut answer = Some(answer);
+            for _ in 0..3 {
+                namer.attempt(|| {
+                    answered_then(answer.take().expect("one attempt only"), After::Unknown)
+                });
+            }
+            assert_eq!(namer.attempts(), 1);
+            assert_eq!(issue(namer).as_deref(), expected);
+        }
+    }
+
+    /// A rename seen after a call is set at the next tick, again after each
+    /// call, and a run that never catches up says so once.
+    #[test]
+    fn a_rename_after_a_call_is_set_at_the_next_tick() {
+        let mut namer = AgentNamer::<Refused>::default();
+        namer.attempt(|| answered_then(Ok(AgentNaming::Done), After::Renamed("boss".into())));
+        namer.attempt(|| answered_then(Ok(AgentNaming::Done), After::Renamed("chief".into())));
+        namer.attempt(|| answered(Ok(AgentNaming::Done)));
+        namer.attempt(|| panic!("no attempt after the newest name is set"));
+        assert_eq!(namer.attempts(), 3);
+        assert_eq!(issue(namer), None);
+
+        let mut namer = AgentNamer::<Refused>::default();
+        for round in 0..10 {
+            namer.attempt(|| {
+                answered_then(
+                    Err(refused(AgentNameRefusal::Uncertain)),
+                    After::Renamed(format!("name{round}")),
+                )
+            });
+        }
+        assert_eq!(namer.attempts(), ATTEMPTS);
+        assert_eq!(issue(namer).as_deref(), Some("renamed:name5"));
+
+        // A definite refusal changed nothing: the rename names the agent.
+        let mut namer = AgentNamer::<Refused>::default();
+        namer.attempt(|| {
+            answered_then(
+                Err(refused(AgentNameRefusal::Foreign)),
+                After::Renamed("boss".into()),
+            )
+        });
+        namer.attempt(|| panic!("no attempt after a definite refusal"));
+        assert_eq!(issue(namer), None);
+    }
+
+    /// A binding that ended after a call that may have set the name gets
+    /// one warning; one whose call changed nothing gets none.
+    #[test]
+    fn a_binding_that_ended_after_a_call_warns_only_when_the_name_may_be_set() {
+        for (answer, expected) in [
+            (Ok(AgentNaming::Done), Some("ended:worker")),
+            (
+                Err(refused(AgentNameRefusal::Uncertain)),
+                Some("ended:worker"),
+            ),
+            (Err(refused(AgentNameRefusal::NoAgent)), None),
+            (Err(refused(AgentNameRefusal::Foreign)), None),
+            (Ok(AgentNaming::NotLinked), None),
+        ] {
+            let mut namer = AgentNamer::<Refused>::default();
+            let mut answer = Some(answer);
+            for _ in 0..3 {
+                namer.attempt(|| {
+                    answered_then(answer.take().expect("one attempt only"), After::Ended)
+                });
+            }
+            assert_eq!(issue(namer).as_deref(), expected);
+        }
+    }
+
     #[test]
     fn a_command_that_exits_before_the_first_tick_gets_no_warning() {
-        assert!(AgentNamer::<Refused>::default().into_issue().is_none());
+        assert_eq!(issue(AgentNamer::<Refused>::default()), None);
     }
 }

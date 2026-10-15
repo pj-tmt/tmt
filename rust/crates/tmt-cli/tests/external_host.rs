@@ -66,6 +66,14 @@ case "$3" in
     # One answer per call from the queue; an empty queue sets the name.
     a=$(head -n 1 "$d/naming" 2>/dev/null)
     if [ -f "$d/naming" ]; then tail -n +2 "$d/naming" > "$d/naming.next"; mv "$d/naming.next" "$d/naming"; fi
+    # `hold` keeps the call in flight until the test releases it (at most
+    # 0.8 s, inside the run's 1 s budget), then answers like an empty queue.
+    if [ "$a" = hold ]; then
+      : > "$d/holding"; i=0
+      while [ ! -f "$d/release" ] && [ $i -lt 16 ]; do sleep 0.05; i=$((i+1)); done
+      if [ -f "$d/release" ]; then echo released >> "$d/held"; else echo lapsed >> "$d/held"; fi
+      rm -f "$d/holding" "$d/release"; a=
+    fi
     # Like a host driver, a host name TMT did not record is not changed.
     n=$(printf '%s' "$input" | sed -n 's/.*"name":"\([^"]*\)".*/\1/p')
     h=$(cat "$d/agentname" 2>/dev/null); r=$(cat "$d/recorded" 2>/dev/null)
@@ -823,50 +831,120 @@ fn run_does_not_repeat_an_uncertain_answer_and_says_it_is_uncertain() {
     assert!(!after.contains("was not set"), "{after}");
 }
 
-/// A `tmt mv` while the run still waits for the host to recognize the agent:
-/// `mv` names the agent after its commit, and the run's next tick sees the
-/// new name and stops, so it never sets the old name back.
-#[test]
-fn run_never_sets_an_old_name_back_after_a_rename() {
-    register();
-    let fixture = naming("run-moved", &["no_agent", "ok"]);
-    fixture.approve();
-    let run = fixture
-        .command_in(
-            Some("f1"),
-            &[
-                "run",
-                "worker",
-                "/bin/sh",
-                "-c",
-                "sleep 12; echo child-end >&2",
-            ],
-        )
+/// `tmt run` in the driver's pane for a command of `seconds`, still running.
+fn spawn_run(fixture: &Fixture, seconds: u32) -> std::process::Child {
+    let script = format!("sleep {seconds}; echo child-end >&2");
+    fixture
+        .command_in(Some("f1"), &["run", "worker", "/bin/sh", "-c", &script])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .unwrap();
-    // Bounded wait for the run's first attempt (at its first 5 s tick).
+        .unwrap()
+}
+
+/// Runs `args` while the run's next `hold` call is in flight, then lets the
+/// call finish, so the command's effects land between the run's two reads.
+fn during_the_call(fixture: &Fixture, args: &[&str]) {
+    let holding = fixture.root.join("driver/holding");
+    // Bounded: the run's attempts come at its 5 s ticks.
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(9);
-    while fixture.requests("named").is_empty() {
-        assert!(std::time::Instant::now() < deadline, "no first attempt");
-        std::thread::sleep(std::time::Duration::from_millis(50));
+    while !holding.exists() {
+        assert!(std::time::Instant::now() < deadline, "no held call");
+        std::thread::sleep(std::time::Duration::from_millis(10));
     }
-    let moved = fixture.tmt(&["mv", "worker", "boss", "--json"]);
-    let output = run.wait_with_output().unwrap();
-    assert!(moved.status.success(), "{moved:?}");
-    assert!(output.status.success(), "{output:?}");
-    let names: Vec<_> = fixture
+    let output = fixture.tmt_in(Some("f1"), args);
+    assert!(output.status.success(), "tmt {args:?}: {output:?}");
+    fs::write(fixture.root.join("driver/release"), "").unwrap();
+    while holding.exists() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the held call did not end"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
+/// The names the driver was asked to set, in order.
+fn named_names(fixture: &Fixture) -> Vec<Value> {
+    fixture
         .requests("named")
         .iter()
         .map(|request| request["name"].clone())
-        .collect();
+        .collect()
+}
+
+/// Two `tmt mv`s, each committed and naming the agent while a call of the
+/// run is in flight: the run's call lands last with the older name, its read
+/// after the call sees the newer one, and its next tick sets that. The run
+/// ends with the newest name.
+#[test]
+fn run_ends_with_the_newest_name_after_renames_during_its_calls() {
+    register();
+    let fixture = naming("run-renamed", &["hold", "", "hold", "", ""]);
+    fixture.approve();
+    let run = spawn_run(&fixture, 18);
+    during_the_call(&fixture, &["mv", "worker", "boss"]);
+    during_the_call(&fixture, &["mv", "boss", "chief"]);
+    let output = run.wait_with_output().unwrap();
+    assert!(output.status.success(), "{output:?}");
     assert_eq!(
-        names,
-        ["worker", "boss"],
-        "the run's next tick made no call"
+        fs::read_to_string(fixture.root.join("driver/held")).unwrap(),
+        "released\nreleased\n",
+        "each mv landed inside the run's call"
+    );
+    // The run, the first mv, the run's correction (held), the second mv,
+    // the run's correction.
+    assert_eq!(
+        named_names(&fixture),
+        ["worker", "boss", "boss", "chief", "chief"]
+    );
+    assert_eq!(
+        fs::read_to_string(fixture.root.join("driver/agentname")).unwrap(),
+        "chief"
     );
     assert_eq!(after_the_command(&output), (String::new(), String::new()));
+}
+
+/// A binding that ends while the run's call is in flight: the call sets the
+/// name of a binding that is gone. The run does not clear it, and says once,
+/// after the command, how to clear it.
+#[test]
+fn a_binding_that_ends_during_the_runs_call_gets_one_warning() {
+    register();
+    let fixture = naming("run-ended", &["hold", ""]);
+    fixture.approve();
+    let run = spawn_run(&fixture, 8);
+    during_the_call(&fixture, &["unbind"]);
+    let output = run.wait_with_output().unwrap();
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(
+        fs::read_to_string(fixture.root.join("driver/held")).unwrap(),
+        "released\n"
+    );
+    // The run, then the unbind's clear; the run made no later call.
+    assert_eq!(
+        named_names(&fixture),
+        [serde_json::json!("worker"), Value::Null]
+    );
+    assert_eq!(
+        fs::read_to_string(fixture.root.join("driver/agentname")).unwrap(),
+        "worker",
+        "the run's call landed last and the run left it"
+    );
+    let (during, after) = after_the_command(&output);
+    assert_eq!(during, "");
+    assert!(
+        after.contains(
+            "The binding ended while TMT set the agent name worker. If the fake agent still \
+             has that agent name, clear it in the host"
+        ),
+        "{after}"
+    );
+    assert_eq!(
+        after.matches("agent name").count(),
+        2,
+        "one warning: {after}"
+    );
 }
 
 /// The `agentName` member of a JSON bind or rename.
@@ -1088,7 +1166,11 @@ fn ls_shows_the_agent_name_and_advises_on_a_mismatch_or_a_kind_label() {
     };
     let refused = this(&fixture);
     assert_eq!(agent_name_of(&refused)["status"], "refused", "{refused:#}");
-    assert_eq!(agent_name_of(&refused)["code"], "foreign_name", "{refused:#}");
+    assert_eq!(
+        agent_name_of(&refused)["code"],
+        "foreign_name",
+        "{refused:#}"
+    );
     assert_eq!(fs::read_to_string(&agent_name).unwrap(), "ann");
     // The host clears its name, and the advised command then sets TMT's.
     fs::remove_file(&agent_name).unwrap();

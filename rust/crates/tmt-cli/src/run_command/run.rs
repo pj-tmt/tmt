@@ -646,8 +646,7 @@ pub(super) fn run_bound(
         }
     };
     let mut naming_step = || {
-        namer
-            .attempt(|| super::agent_name::attempt(paths, host, binding, &bound.presence.identity));
+        namer.attempt(|| super::agent_name::attempt(paths, host, binding));
         leaked.set(namer.leaked());
     };
     let waited = if already_exited {
@@ -673,10 +672,31 @@ pub(super) fn run_bound(
     // A leaked driver process fails the run after its state is recorded.
     let leaked = match namer.into_outcome() {
         super::agent_name::Outcome::Quiet => None,
-        super::agent_name::Outcome::Warning(error) => {
-            let (what, fix) =
-                crate::binding_command::agent_name_text(&bound.presence.identity.name, &error);
-            super::warn(&what, Some(&fix));
+        super::agent_name::Outcome::Warning(issue) => {
+            use super::agent_name::Issue;
+            let (what, fix) = match issue {
+                Issue::Host { name, error } => {
+                    let (what, fix) = crate::binding_command::agent_name_text(&name, &error);
+                    (what, Some(fix))
+                }
+                Issue::Renamed(name) => {
+                    let (what, fix) = crate::binding_command::agent_name_renamed_text(&name);
+                    (what, Some(fix))
+                }
+                Issue::Ended(name) => (
+                    crate::binding_command::agent_name_ended_text(
+                        &name,
+                        binding.server.host.as_str(),
+                        bound
+                            .presence
+                            .pane
+                            .as_ref()
+                            .and_then(|pane| pane.target.as_deref()),
+                    ),
+                    None,
+                ),
+            };
+            super::warn(&what, fix.as_deref());
             None
         }
         super::agent_name::Outcome::Leaked(error) => Some(error),

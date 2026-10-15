@@ -75,8 +75,10 @@ channels and the driver protocol. The owner map is in
   `name: null` inside the external `clear`, before the marker, with half the budget left.
   `AgentNameRefusal` separates definite refusals (`Rejected`, `NoAgent`, `Foreign`), which keep
   the agent's earlier name, from `Uncertain`, where the host may have set it. A run attempt
-  holds the storage write lock while it checks that the binding and name are still its own and
-  calls the host, so a `tmt mv` never loses to a run's older name. Sampling and naming are
+  reads the binding and the identity's name, calls the host with no transaction open, and reads
+  again; a name changed meanwhile is set at the next tick, so a `tmt mv` (which names the agent
+  after its commit) never loses to a run's older name. A storage read that fails after the
+  call keeps the host's answer and is never retried. Sampling and naming are
   separate tick steps, and `InteractiveChild::wait_with_ticks` checks the command's exit and
   forwards signals before each one. A `name-agent` whose driver process could not be cleaned
   up stops the run's optional work and fails the run with `CLEANUP_ERROR` after the command

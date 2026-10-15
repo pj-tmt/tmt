@@ -696,7 +696,7 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
 
 #[cfg(test)]
 pub(crate) use presentation::PRINTED_HINTS as PRESENTATION_HINTS;
-pub(crate) use presentation::agent_name_text;
+pub(crate) use presentation::{agent_name_ended_text, agent_name_renamed_text, agent_name_text};
 
 /// Guarded add bypasses optional learning/capture on refusal. It shares the
 /// existing binding/publication policy, with admission before storage creation.

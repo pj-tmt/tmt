@@ -379,6 +379,12 @@ impl Storage {
         session::preferences(self.connection()?, identity_id)
     }
 
+    /// Read one identity and its binding without a write transaction, for a
+    /// check that must not hold the write lock across host work.
+    pub fn binding_entry(&self, identity_id: &str) -> Result<Option<BindingEntry>, StorageError> {
+        BindingRows(self.connection()?).entry_by_id(identity_id)
+    }
+
     /// Purge remembered sessions, with their driver state, whose driver is not
     /// registered, so no state outlives its driver. Returns what was purged,
     /// for the one report the purging command makes.
