@@ -79,10 +79,9 @@ fn usage(app: &App, width: u16) -> (Vec<Line<'static>>, std::ops::Range<usize>) 
     (lines, savings_lines)
 }
 
-pub(in crate::board) fn status_in_body(app: &App) -> bool {
-    let policy = app.digest_panels();
-    !policy.shown(crate::config::DigestPanel::Status)
-        || policy.order().first() != Some(&crate::config::DigestPanel::Status)
+pub(super) fn status_in_body(app: &App) -> bool {
+    // Workspace shell chrome holds navigation, not a dashboard's Status panel.
+    app.workspace_snapshot().is_some()
 }
 
 pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {

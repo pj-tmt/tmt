@@ -119,8 +119,6 @@ pub(in crate::board) fn render_frame(
             .is_some_and(|view| view.home.is_some() && view.history_pending);
     let workspace = app.workspace_snapshot().is_some() || app.view.is_none();
     let shell_gap = u16::from(frame.area().height >= 24);
-    let digest_status_in_body = app.shell.tab == super::shell::OpsTab::Digest
-        && super::digest_dashboard::status_in_body(app);
     let [tabs, boundary, summary, limits, meter_status, body, footer] = if workspace {
         Layout::vertical([
             Constraint::Length(1),
@@ -136,21 +134,6 @@ pub(in crate::board) fn render_frame(
                     1
                 },
             ),
-        ])
-        .areas(frame.area())
-    } else if digest_status_in_body {
-        Layout::vertical([
-            Constraint::Length(1),
-            Constraint::Length(u16::from(
-                app.view.as_ref().is_some_and(|view| view.home.is_some()),
-            )),
-            Constraint::Length(u16::from(header::meter_enabled(app))),
-            Constraint::Length(home_limits.len().min(usize::from(u16::MAX)) as u16),
-            Constraint::Length(u16::from(
-                header::meter_enabled(app) || home_usage.is_some() || home_history_pending,
-            )),
-            Constraint::Min(1),
-            Constraint::Length(1),
         ])
         .areas(frame.area())
     } else {
@@ -179,9 +162,7 @@ pub(in crate::board) fn render_frame(
             ),
         );
     }
-    let summary_text = if digest_status_in_body {
-        ratatui::text::Line::default()
-    } else if app.workspace_snapshot().is_some() {
+    let summary_text = if app.workspace_snapshot().is_some() {
         super::workspace::render::summary(app, summary.width)
     } else {
         app.view

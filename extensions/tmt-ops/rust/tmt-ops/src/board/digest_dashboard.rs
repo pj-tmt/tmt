@@ -22,7 +22,7 @@ pub(super) fn summary(app: &crate::board::app::App) -> String {
     model::summary(&app.labels, Some(&identities))
 }
 pub(super) use model::{savings_caption, savings_start};
-pub(super) use render::{render, status_in_body};
+pub(super) use render::render;
 
 #[cfg(test)]
 mod tests;

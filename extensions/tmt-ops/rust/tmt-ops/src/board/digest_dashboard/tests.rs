@@ -1543,3 +1543,72 @@ fn hiding_status_does_not_hide_a_failed_observation_or_retain_old_list_controls(
     assert!(!app.workspace_selection_visible());
     assert_eq!(app.focused_pane(), Some(crate::config::Pane::Replies));
 }
+
+#[test]
+fn workspace_status_is_a_body_panel_and_keeps_the_shared_shell_unchanged() {
+    use crate::config::{DigestPanel as Id, DigestPanels, PanelSetting};
+    use ratatui::{Terminal, backend::TestBackend};
+    for width in [60, 100, 160] {
+        for position in [0, 1] {
+            let mut app = board();
+            app.shell.tab = crate::board::shell::OpsTab::Digest;
+            app.labels = supplied(serde_json::json!(3), false);
+            assert!(!app.loading());
+            let expected = model::summary(&app.labels);
+            let mut policy = DigestPanels::default();
+            for _ in 0..position {
+                policy.move_panel(Id::Status, true);
+            }
+            app.view
+                .as_mut()
+                .unwrap()
+                .home
+                .as_mut()
+                .unwrap()
+                .workspace
+                .preferences
+                .digest_panels = Some(PanelSetting::configured(policy));
+            let mut terminal = Terminal::new(TestBackend::new(width, 36)).unwrap();
+            terminal
+                .draw(|frame| {
+                    crate::board::view::prepare(&mut app, frame.area());
+                    crate::board::view::render(frame, &app);
+                })
+                .unwrap();
+            let lines = terminal
+                .backend()
+                .buffer()
+                .content
+                .chunks(usize::from(width))
+                .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+                .collect::<Vec<_>>();
+            let fitted = crate::board::view::fit(&expected, usize::from(width));
+            let matching = lines
+                .iter()
+                .enumerate()
+                .filter_map(|(row, line)| (line == &fitted).then_some(row))
+                .collect::<Vec<_>>();
+            assert_eq!(
+                matching.len(),
+                1,
+                "Status must appear exactly once at {width}: {lines:?}"
+            );
+            let status_y = matching[0];
+            let usage_y = lines
+                .iter()
+                .position(|line| line.starts_with("Usage · unique identities"))
+                .unwrap();
+            if position == 0 {
+                assert_eq!(status_y + 1, usage_y);
+            } else {
+                assert_eq!(usage_y + 2, status_y);
+            }
+            assert!(
+                status_y >= 4,
+                "Status never replaces the four-row shell chrome"
+            );
+            assert!(lines[0].contains("OPS / UI"));
+            assert!(lines[2].contains("Overview") && lines[2].contains("Digest"));
+        }
+    }
+}

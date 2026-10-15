@@ -357,7 +357,6 @@ mod tests {
         assert_eq!(count, 720);
     }
 
-
     #[test]
     fn agents_tree_matches_the_mock_bands_and_keeps_the_conversation_minimum() {
         let wide = agents_tree(Rect::new(0, 4, 160, 37), Preference::Auto, false);
