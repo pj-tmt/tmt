@@ -154,11 +154,11 @@ impl Summary {
         spans.push(Span::styled(text[from..].to_owned(), look.role(Role::Text)));
         ratatui::text::Line::from(spans)
     }
-    /// Counts first; the estimate follows only when it fits whole, because a
-    /// truncated figure would read as a smaller one.
-    pub fn digest_line(&self, width: usize) -> String {
+    /// The measured counts, then the estimate (with its separator) only when it
+    /// fits whole: a truncated figure would read as a smaller one.
+    pub fn digest_parts(&self, width: usize) -> (String, Option<String>) {
         if !self.digest_available {
-            return "Digest status unavailable".into();
+            return ("Digest status unavailable".into(), None);
         }
         let held = if self.unknown_held == self.total && self.total > 0 {
             "held unavailable".into()
@@ -181,11 +181,8 @@ impl Summary {
         let room = width.saturating_sub(counts.width() + SEPARATOR.width());
         let savings =
             crate::board::digest_dashboard::savings_caption(&self.savings, self.window, room);
-        if savings.width() <= room {
-            format!("{counts}{SEPARATOR}{savings}")
-        } else {
-            counts
-        }
+        let estimate = (savings.width() <= room).then(|| format!("{SEPARATOR}{savings}"));
+        (counts, estimate)
     }
 }
 
@@ -196,6 +193,13 @@ mod tests {
 
     fn project(snapshot: &OpsWorkspaceSnapshot, labels: &Supplied) -> Summary {
         super::project(snapshot, labels, &Default::default())
+    }
+
+    impl Summary {
+        fn digest_line(&self, width: usize) -> String {
+            let (counts, estimate) = self.digest_parts(width);
+            counts + &estimate.unwrap_or_default()
+        }
     }
 
     #[test]

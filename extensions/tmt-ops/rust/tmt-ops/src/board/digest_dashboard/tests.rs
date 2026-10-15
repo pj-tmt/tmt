@@ -739,6 +739,26 @@ fn overview_digest_line_shows_the_estimate_and_follows_the_window_without_readin
         shown.contains("Off · Est. ctx avoided 24h: 18.2k"),
         "{shown}"
     );
+    // Counts stay measured state; the estimate takes the dim role of every other
+    // savings surface.
+    let look = app.look();
+    let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(160, 44)).unwrap();
+    terminal
+        .draw(|frame| crate::board::view::render(frame, &app))
+        .unwrap();
+    let cells = &terminal.backend().buffer().content;
+    let symbols: Vec<&str> = cells.iter().map(|cell| cell.symbol()).collect();
+    let at = symbols
+        .windows(9)
+        .position(|window| window == ["O", "f", "f", " ", "·", " ", "E", "s", "t"])
+        .expect("the Digest line carries the estimate");
+    let has = |cell: &ratatui::buffer::Cell, role| {
+        let style: ratatui::style::Style = look.role(role);
+        cell.fg == style.fg.unwrap_or(ratatui::style::Color::Reset)
+            && cell.modifier.contains(style.add_modifier)
+    };
+    assert!(has(&cells[at], tmt_cli_style::Role::Muted));
+    assert!(has(&cells[at + 6], tmt_cli_style::Role::Dim));
     // The held Overview scene must not outlive the window it summed.
     let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
     workspace.preferences.digest_window = DigestWindow::Week;
