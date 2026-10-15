@@ -49,9 +49,31 @@ fn main() {
     );
     let steps: Vec<Step> = serde_json::from_slice(&fs::read(&args[1]).unwrap()).unwrap();
     let mut results = Vec::new();
-    for step in steps {
+    let trace_path = std::env::var_os("TMT_TEST_HOOK_TRACE");
+    let trace_start = std::time::Instant::now();
+    let trace = |event: serde_json::Value| {
+        if let Some(path) = &trace_path {
+            let mut file = fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+                .unwrap();
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis();
+            writeln!(
+                file,
+                "{}",
+                json!({"atMs": now, "elapsedMs": trace_start.elapsed().as_millis(), "event": event})
+            )
+            .unwrap();
+        }
+    };
+    for (index, step) in steps.into_iter().enumerate() {
         if let Some(checkpoint) = step.checkpoint {
             fs::write(&checkpoint, "ready").unwrap();
+            trace(json!({"step":index, "checkpoint":checkpoint, "state":"ready"}));
             let limit = std::time::Instant::now() + std::time::Duration::from_secs(10);
             while fs::read_to_string(&checkpoint).unwrap() != "continue" {
                 assert!(
@@ -61,6 +83,7 @@ fn main() {
                 std::thread::sleep(std::time::Duration::from_millis(5));
             }
         }
+        trace(json!({"step":index, "state":"running", "args":step.args}));
         let started = step.measure.then(std::time::Instant::now);
         let mut child = Command::new(&args[0])
             .args(step.args)
@@ -93,6 +116,7 @@ fn main() {
         if let Some(elapsed_ms) = elapsed_ms {
             result["elapsedMs"] = json!(elapsed_ms);
         }
+        trace(json!({"step":index, "state":"finished", "result":result}));
         results.push(result);
     }
     let stage = std::path::PathBuf::from(&args[2]).with_extension("pending");

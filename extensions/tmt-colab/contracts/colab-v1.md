@@ -4689,9 +4689,21 @@ change. Still available.`; the line is derived from the page and has no state of
 The paired owner browser uses accepted Live folds as its only title source. Home
 rows and the share/manage dialog show the last known title; the current page also
 updates the parent tab title. UUIDs remain routing identities and appear under
-Details. Without a usable title, chrome shows “Untitled, not opened in this browser
-yet”. Opening the page replaces a stale or missing hint with its verified folded
-title. Home never opens content or a decoder just to obtain labels.
+Details. Without a usable title, chrome shows “Untitled page”. Opening the page replaces a stale or missing hint with its verified folded
+title. Home opens a page's content only to fill a missing title hint, bounded and
+cancellable; it never replaces a cached hint without opening the page. A title
+changed elsewhere can therefore remain stale in this browser until that page is opened.
+
+Home admits only visible uncached rows: one read at a time, at most 24 attempted
+pages and 16 MiB of admitted incoming sync frames per Home generation, including failed
+reads. It uses the existing verified read catch-up and isolated fold, never an editor,
+Ask or a write. Each connection closes and joins before its successor; leaving Home or
+replacing the mounted session cancels its reads. A failure or exhausted budget keeps
+the existing fallback; no plaintext title endpoint or native title store is introduced.
+Only foreground page views (paired and shared-reader) send explicit `subscribe` after
+catch-up. A valid Subscribe selects the active cloud page, and every successful store still
+selects it. Existing early write wakes are unchanged; Hello and ACK, including Home title
+reads, leave that page unchanged.
 
 These are browser-local display hints, not membership, policy or access evidence.
 The Colab keyring owns a non-extractable AES-GCM-256 key per device in its existing
@@ -4703,9 +4715,9 @@ routes, logs, the renderer, or the decoder Worker. No native schema, title endpo
 Remote certification or network protocol is added.
 
 Cache absence, corruption, scope mismatch or storage failure falls back to the
-unopened label without denying page reading or management. Only publication of an
-accepted Live fold may update the cache, through the current mounted registration
-and tab lifetime. Reload can read the persisted encrypted hint; a different paired
+unopened label without denying page reading or management. Only an accepted foreground fold or an admitted missing-title Home fold may update
+the cache, through the current mounted registration and tab lifetime. Home's fill is
+serialized with foreground writes and cannot overwrite a usable cached hint. Reload can read the persisted encrypted hint; a different paired
 device or browser profile has its own cache. Leaving a page restores the home tab
 label. Local samples retain their existing source and title behavior.
 

@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { afterEach, expect, it, vi } from 'vite-plus/test';
 import { binary, concat, digest, encodeBinary, text } from '@tmt/colab-client';
+import type { TitleReadBudget } from '../src/transport.js';
 import type { Admission } from '../src/admission.js';
 import { Connection } from '../src/connection.js';
 import type { OwnState } from '../src/fold-protocol.js';
@@ -48,8 +49,9 @@ vi.mock('../src/objects.js', async (original) => ({
     }
   },
 }));
-class Socket {
+class Socket extends EventTarget {
   static OPEN = 1;
+  static CLOSED = 3;
   static current: Socket;
   readyState = 1;
   bufferedAmount = 0;
@@ -58,8 +60,12 @@ class Socket {
   onerror = null;
   onclose = null;
   send = vi.fn();
-  close = vi.fn();
+  close = vi.fn(() => {
+    this.readyState = Socket.CLOSED;
+    this.dispatchEvent(new Event('close'));
+  });
   constructor(readonly url: string | URL) {
+    super();
     Socket.current = this;
   }
   receive(frame: Record<string, unknown>) {
@@ -73,7 +79,7 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
-async function open(rejectChain = false) {
+async function open(rejectChain = false, budget?: TitleReadBudget) {
   calls.length = 0;
   projection.own = undefined;
   vi.stubGlobal('WebSocket', Socket);
@@ -100,6 +106,9 @@ async function open(rejectChain = false) {
     'private',
     publish,
     failed,
+    undefined,
+    false,
+    budget,
   );
   expect(Socket.current.url).toBe(admission.registration.syncUrl);
   Socket.current.receive({ ...scope, type: 'catchup', streams: [], more: false });
@@ -612,4 +621,73 @@ it('keeps one usage or compact request in flight, and closes when the reply neve
   await rejected;
   expect(failed).toHaveBeenCalledWith(new Error('Page reply timed out'));
   expect(connection.active).toBe(false);
+});
+
+it('a title fold never subscribes and charges received frames before admitting their bytes', async () => {
+  const budget = { remainingBytes: 1000 };
+  const { connection, socket, failed, publish } = await open(false, budget);
+  try {
+    const initial = { ...scope, type: 'catchup', streams: [], more: false };
+    expect(budget.remainingBytes).toBe(1000 - text(JSON.stringify(initial)).length);
+    expect(socket.send.mock.calls.map(([raw]) => JSON.parse(raw).type)).not.toContain('subscribe');
+    publish.mockClear();
+    budget.remainingBytes = 1;
+    socket.receive(broadcast());
+    expect(failed).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'Title read byte budget exhausted' }),
+    );
+    expect(publish).not.toHaveBeenCalled();
+    expect(socket.close).toHaveBeenCalledOnce();
+  } finally {
+    await connection.closeAndJoin();
+  }
+});
+
+it('close-and-join waits for in-flight admission work before another title reader may start', async () => {
+  const { connection } = await open();
+  let release!: () => void,
+    started = false;
+  const gate = new Promise<void>((done) => {
+    release = done;
+  });
+  const task = connection.run(async () => {
+    started = true;
+    await gate;
+  });
+  await vi.waitFor(() => expect(started).toBe(true));
+  let joined = false;
+  const closing = connection.closeAndJoin().then(() => {
+    joined = true;
+  });
+  await Promise.resolve();
+  expect(joined).toBe(false);
+  release();
+  await Promise.all([closing, task]);
+  expect(joined).toBe(true);
+});
+
+it('a title read joins the socket close handshake and reports an unconfirmed cleanup deadline', async () => {
+  const { connection, socket } = await open();
+  socket.close.mockImplementation(() => {
+    socket.readyState = 2;
+  });
+  let joined = false;
+  const closing = connection.closeAndJoin().then(() => {
+    joined = true;
+  });
+  await Promise.resolve();
+  expect(joined).toBe(false);
+  socket.readyState = Socket.CLOSED;
+  socket.dispatchEvent(new Event('close'));
+  await closing;
+  expect(joined).toBe(true);
+
+  vi.useFakeTimers();
+  const pending = await open();
+  pending.socket.close.mockImplementation(() => {
+    pending.socket.readyState = 2;
+  });
+  const deadline = expect(pending.connection.closeAndJoin()).rejects.toThrow('cleanup unconfirmed');
+  await vi.advanceTimersByTimeAsync(2000);
+  await deadline;
 });

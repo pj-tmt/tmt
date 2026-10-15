@@ -624,10 +624,18 @@ result that arrives after a close, a reopen or a change of transport or space.
 - `Live#publishViews` passes accepted folded titles and their exact admission
   registration to `mounted.ts`. Mounted tab ownership/current registration fences
   the best-effort cache write. Rejected folds and replaced sessions cannot supply hints.
-- Home reads hints only after verified discovery/policy. `router.tsx` and
-  `share-dialog.tsx` use them as display labels, with UUIDs under Details and the
+- Home reads hints only after verified discovery/policy. `home-titles.tsx` admits visible
+  uncached rows through a one-page queue (24 attempts and 16 MiB of incoming sync frames
+  per Home generation). `mounted.ts::readTitle` uses the existing Admission/Connection/Fold
+  path without Live, Ask, an editor or Subscribe. It serializes canceled generations until
+  their read work joins; `TitleCache.fillMissing` cannot replace a foreground/cached hint.
+- Paired Live and the shared reader explicitly Subscribe after catch-up. A valid
+  Subscribe selects the cloud active page, as does every successful store; existing early
+  write wakes are unchanged. A Home Hello/ACK does not select it.
+- `router.tsx` and `share-dialog.tsx` use them as display labels, with UUIDs under Details and the
   explicit unopened fallback; the parent tab title follows the live page. A later
-  fold replaces stale hints. Missing/corrupt cache data never authorizes or denies access.
+  foreground fold replaces stale hints; cached titles changed elsewhere remain stale until
+  opened. Missing/corrupt cache data never authorizes or denies access.
 - The cache adds no plaintext server field, native schema or Worker/renderer capability.
   Crypto/scope tests live in `test/title-cache.test.ts`; real IndexedDB reload and
   safe rendering are covered in `e2e/live.spec.ts`, and native page-create title

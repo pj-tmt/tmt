@@ -215,6 +215,7 @@ export async function openReaderLink(
   door: Door,
   readerPath: string,
   name: string,
+  beforeNavigate?: (page: Page) => void,
 ): Promise<UnpairedBrowser> {
   const profile = path.join(world.root, `profile-${name}`);
   fs.mkdirSync(profile, { mode: 0o700 });
@@ -225,6 +226,7 @@ export async function openReaderLink(
     requests.push({ url: request.url(), body: request.postData() }),
   );
   const page = await context.newPage();
+  beforeNavigate?.(page);
   await page.goto(`${door.address}/${readerPath}`);
   return { context, page, requests };
 }

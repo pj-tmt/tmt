@@ -567,12 +567,18 @@ async function wire(
     let pending: { frame: Record<string, unknown>; parts: Uint8Array[] } | null = null;
     let upload: { frame: Record<string, unknown>; parts: Uint8Array[] } | null = null;
     outgoing.set(socket, { frames: [], waiting: false });
-    socket.onClose(() => {
+    socket.onClose((code, reason) => {
       peers.delete(socket);
       outgoing.delete(socket);
+      // Installing onClose disables Playwright's default close forwarding.
+      void socket.close({ code, reason });
     });
     socket.onMessage((message) => {
       const frame = JSON.parse(String(message));
+      if (frame.type === 'subscribe') {
+        expect(frame.cursors).toEqual([]);
+        return;
+      }
       if (frame.type === 'ack') {
         for (const cursor of frame.cursors) {
           if (cursor.streamId === otherDevice) {
@@ -2658,7 +2664,7 @@ test('accepted fold titles persist as encrypted display hints for home, dialog a
   await wire(context, undefined, undefined, undefined, title);
   await page.goto(mount);
   const row = () => page.locator(`[data-page-id="${v.page}"]`);
-  await expect(row().locator('.tmt-ui-list-title')).toHaveText('Untitled page');
+  await expect(row().locator('.tmt-ui-list-title')).toHaveText(title);
   await expect(row().getByText(`Page ID: ${v.page}`, { exact: true })).toBeHidden();
   await row().locator('a').click();
   await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
@@ -2704,7 +2710,7 @@ test('accepted fold titles persist as encrypted display hints for home, dialog a
     { space: v.space, device: v.device, pageId: v.page },
   );
   await page.reload();
-  await expect(row().locator('.tmt-ui-list-title')).toHaveText('Untitled page');
+  await expect(row().locator('.tmt-ui-list-title')).toHaveText(title);
   await row().locator('a').click();
   await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
   await page.getByRole('link', { name: 'Space home', exact: true }).click();

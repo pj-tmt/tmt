@@ -979,11 +979,6 @@ impl<A: Admission> State<A> {
             return Err(Code::ResyncRequired);
         }
         self.peers.get_mut(&id).ok_or(Code::Denied)?.scope = Some(scope.clone());
-        // Opening a page names it the active one. A write names it only once it is stored: a
-        // pass that ran first would find nothing to publish and would not be asked again.
-        if matches!(&frame, Frame::Hello { .. } | Frame::Subscribe { .. }) {
-            self.touch(&scope);
-        }
         let writes = matches!(
             &frame,
             Frame::Append { .. } | Frame::Chunk { .. } | Frame::Compact { .. }
@@ -1279,7 +1274,9 @@ impl<A: Admission> State<A> {
                 self.reply_save(id, &scope, &reply)?;
             }
         }
-        if writes {
+        // Foreground subscriptions select a page; Hello also serves bounded title reads.
+        // Retain write wakes, including the wake after each successful store above.
+        if writes || subscribing {
             self.touch(&scope);
         }
         Ok(None)

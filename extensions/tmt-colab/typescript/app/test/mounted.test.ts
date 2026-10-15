@@ -28,6 +28,14 @@ const setup = vi.hoisted(() => {
     remote: vi.fn(),
     owner: null as LiveSessionOwner | null,
     titleRemember: vi.fn(async () => {}),
+    cachedTitles: new Map<string, string>(),
+    titleRead: vi.fn(async () => ({ title: 'Verified title' })),
+    titleJoin: vi.fn(async () => {}),
+    titleConnections: [] as {
+      args: unknown[];
+      close: ReturnType<typeof vi.fn>;
+      join: ReturnType<typeof vi.fn>;
+    }[],
     managementRead: vi.fn(async () => ({ page: { pageId: 'page' } })),
     managementPrepare: vi.fn(async () => ({ id: 'operation' })),
     managementSend: vi.fn(async () => ({ operationId: 'operation' })),
@@ -53,8 +61,39 @@ vi.mock('../src/ask-remote.js', () => ({ createRemoteClient: setup.remote }));
 vi.mock('../src/title-cache.js', () => ({
   TitleCache: class {
     remember = setup.titleRemember;
-    async read() {
-      return undefined;
+    async read(page: string) {
+      return setup.cachedTitles.get(page);
+    }
+    async fillMissing(page: string, title: string, signal: AbortSignal) {
+      if (signal.aborted) return undefined;
+      if (!setup.cachedTitles.has(page)) setup.cachedTitles.set(page, title);
+      return setup.cachedTitles.get(page);
+    }
+  },
+}));
+vi.mock('../src/admission.js', () => ({
+  Admission: class {
+    async restore() {}
+    closeKeys() {}
+  },
+}));
+vi.mock('../src/connection.js', () => ({
+  Connection: class {
+    ready: Promise<{ title: string }>;
+    close: ReturnType<typeof vi.fn<() => void>>;
+    closeAndJoin: ReturnType<typeof vi.fn<() => Promise<void>>>;
+    constructor(...args: unknown[]) {
+      let reject!: (error: Error) => void;
+      const stopped = new Promise<never>((_resolve, failed) => {
+        reject = failed;
+      });
+      this.ready = Promise.race([setup.titleRead(), stopped]);
+      this.close = vi.fn(() => reject(new Error('Page closed')));
+      this.closeAndJoin = vi.fn(async () => {
+        this.close();
+        await setup.titleJoin();
+      });
+      setup.titleConnections.push({ args, close: this.close, join: this.closeAndJoin });
     }
   },
 }));
@@ -414,6 +453,10 @@ it('title hints from a replaced registration or closed tab cannot reach the cach
 });
 
 beforeEach(() => {
+  setup.cachedTitles.clear();
+  setup.titleConnections.length = 0;
+  setup.titleRead.mockReset().mockResolvedValue({ title: 'Verified title' });
+  setup.titleJoin.mockReset().mockResolvedValue(undefined);
   setup.discover.mockReset();
   setup.registrations.length = 0;
 });
@@ -532,4 +575,101 @@ it('a page refresh and concurrent Live reconnect share one verified replacement'
   expect(setup.register).toHaveBeenCalledTimes(2);
   expect(setup.registrations).toEqual([setup.first, setup.second]);
   mounted.close();
+});
+
+it('fills an uncached title with a joined read binding and never opens Live or Ask', async () => {
+  setup.register.mockReset().mockResolvedValue(setup.first);
+  setup.remote.mockReset().mockResolvedValue({});
+  setup.pages = [{ pageId: 'page', sharing: 'private' }];
+  const mounted = await mountedTransport();
+  setup.events.length = 0;
+  try {
+    const budget = { remainingBytes: 1024 };
+    expect(await mounted.transport.readTitle!('page', budget, new AbortController().signal)).toBe(
+      'Verified title',
+    );
+    expect(setup.events).toEqual([]);
+    const connection = setup.titleConnections[0];
+    expect(connection.args.slice(5)).toEqual([['colab-sync-v1'], true, budget]);
+    expect(connection.join).toHaveBeenCalledOnce();
+    expect(setup.cachedTitles.get('page')).toBe('Verified title');
+    setup.discover.mockClear();
+    expect(await mounted.transport.readTitle!('page', budget, new AbortController().signal)).toBe(
+      'Verified title',
+    );
+    expect(setup.discover).not.toHaveBeenCalled();
+    expect(setup.titleConnections).toHaveLength(1);
+  } finally {
+    mounted.close();
+  }
+});
+
+it('joins a cancelled old generation before opening its successor and drops the late title', async () => {
+  setup.register.mockReset().mockResolvedValue(setup.first);
+  setup.remote.mockReset().mockResolvedValue({});
+  const mounted = await mountedTransport();
+  let release!: () => void;
+  setup.titleRead.mockReturnValueOnce(new Promise(() => {}));
+  setup.titleJoin.mockReturnValueOnce(
+    new Promise<void>((done) => {
+      release = done;
+    }),
+  );
+  const old = new AbortController(),
+    budget = { remainingBytes: 1024 };
+  const first = mounted.transport.readTitle!('page', budget, old.signal).catch(
+    (error: unknown) => error,
+  );
+  await vi.waitFor(() => expect(setup.titleConnections).toHaveLength(1));
+  old.abort();
+  const next = mounted.transport.readTitle!('page', budget, new AbortController().signal);
+  await Promise.resolve();
+  expect(setup.titleConnections).toHaveLength(1);
+  expect(setup.cachedTitles.has('page')).toBe(false);
+  release();
+  await first;
+  expect(await next).toBe('Verified title');
+  expect(setup.titleConnections).toHaveLength(2);
+  mounted.close();
+});
+
+it('session replacement cancels an in-flight title fold without caching its result', async () => {
+  setup.register.mockReset().mockResolvedValueOnce(setup.first).mockResolvedValue(setup.second);
+  setup.remote.mockReset().mockResolvedValue({});
+  const mounted = await mountedTransport();
+  await mounted.transport.page('page');
+  setup.titleRead.mockReturnValueOnce(new Promise(() => {}));
+  const reading = mounted.transport.readTitle!(
+    'page',
+    { remainingBytes: 1024 },
+    new AbortController().signal,
+  ).catch((error: unknown) => error);
+  await vi.waitFor(() => expect(setup.titleConnections).toHaveLength(1));
+  await setup.owner!.reconnect(setup.first as never);
+  expect(await reading).toBeInstanceOf(Error);
+  expect(setup.titleConnections[0].join).toHaveBeenCalledOnce();
+  expect(setup.cachedTitles.has('page')).toBe(false);
+  mounted.close();
+});
+
+it('an unconfirmed read close blocks successors across Home generations', async () => {
+  setup.register.mockReset().mockResolvedValue(setup.first);
+  setup.remote.mockReset().mockResolvedValue({});
+  const mounted = await mountedTransport();
+  setup.titleJoin.mockRejectedValueOnce(new Error('Title read cleanup unconfirmed'));
+  const budget = { remainingBytes: 1024 },
+    signal = new AbortController().signal;
+  try {
+    await expect(mounted.transport.readTitle!('page', budget, signal)).rejects.toThrow(
+      'cleanup unconfirmed',
+    );
+    expect(budget.remainingBytes).toBe(0);
+    await expect(
+      mounted.transport.readTitle!('page', { remainingBytes: 1024 }, signal),
+    ).rejects.toThrow();
+    expect(setup.titleConnections).toHaveLength(1);
+    expect(setup.cachedTitles.has('page')).toBe(false);
+  } finally {
+    mounted.close();
+  }
 });

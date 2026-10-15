@@ -142,7 +142,10 @@ agent pin (squad pins remain in Agents), `n` creates, `m` manages
 or assigns, `x` removes only the selected membership, `D` opens Digest, and `c`
 opens Timers. Member rename is deferred and has no `r` hint/default. `w` is reserved
 for snapshots. Text/search/completion/modal/conversation input claims its keys
-before section digits. Dispatch, help and footer use one effective binding table;
+before section digits. Top tabs have one cell of padding on each side of each label and one unstyled
+gap cell between tabs; pointer hits cover only the complete padded label.
+Factory `t` is unassigned; Enter shows `⏎ chat` where it starts the composer.
+Dispatch, help and footer use one effective binding table;
 compatible user/host/section bindings retain precedence.
 
 ### HOME overview and sections

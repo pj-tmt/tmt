@@ -31,14 +31,34 @@ export class TitleCache {
   /** Called only by the mounted owner after Live accepts a verified fold. */
   async remember(page: string, title: string, signal?: AbortSignal): Promise<void> {
     try {
-      if (signal?.aborted) return;
-      const plaintext = text(title);
-      requireValue(plaintext.length <= UPDATE_BYTES);
-      const sealed = await seal(await titleKey(this.device), this.#scope(page), plaintext);
-      if (signal?.aborted) return;
-      await record(this.#record(page), sealed);
+      await navigator.locks.request(this.#lock(page), () => this.#write(page, title, signal));
     } catch {
       // Persistence is best-effort presentation, never a page/management mutation.
     }
+  }
+  /** A background fold cannot replace a hint written by a foreground page or another tab. */
+  async fillMissing(page: string, title: string, signal: AbortSignal): Promise<string | undefined> {
+    try {
+      return await navigator.locks.request(this.#lock(page), async () => {
+        if (signal.aborted) return undefined;
+        const cached = await this.read(page);
+        if (cached !== undefined) return cached;
+        await this.#write(page, title, signal);
+        return signal.aborted ? undefined : title;
+      });
+    } catch {
+      return undefined;
+    }
+  }
+  #lock(page: string) {
+    return `colab-title-cache:${this.space}:${this.device}:${page}`;
+  }
+  async #write(page: string, title: string, signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) return;
+    const plaintext = text(title);
+    requireValue(plaintext.length <= UPDATE_BYTES);
+    const sealed = await seal(await titleKey(this.device), this.#scope(page), plaintext);
+    if (signal?.aborted) return;
+    await record(this.#record(page), sealed);
   }
 }
