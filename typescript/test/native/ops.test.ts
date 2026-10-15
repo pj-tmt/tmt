@@ -5295,6 +5295,205 @@ describe('large board responsiveness', () => {
     tabSwitch: 10_000,
   };
 
+  it('member mention links keep raw drafts and open adjacent actions on the real board', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      const found = spawnSync('/usr/bin/which', ['tmux'], { encoding: 'utf8' });
+      if (found.status !== 0) throw new Error('Build/install tmux for isolated mention tests');
+      const executable = found.stdout.trim();
+      const socket = path.join(sandbox.root, 'mentions.sock');
+      sandbox.env.PATH = [path.dirname(executable), sandbox.env.PATH].join(path.delimiter);
+      sandbox.env.TERM = 'xterm-256color';
+      sandbox.env.COLORTERM = 'truecolor';
+      const tmux = (args: string[]) => {
+        const result = spawnSync(executable, ['-S', socket, ...args], {
+          env: sandbox.env,
+          encoding: 'utf8',
+          timeout: 5000,
+        });
+        if (result.status !== 0) throw new Error(`Private tmux failed: ${result.stderr}`);
+        return result.stdout.trimEnd();
+      };
+      await identity(sandbox, 'Ben');
+      const worker = await identity(sandbox, 'worker');
+      expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
+      expect((await squad(sandbox, ['add', 'worker'])).status).toBe(0);
+      const sent = await runCli(sandbox, [
+        'talk',
+        'worker',
+        'mention source',
+        '--identity',
+        'Ben',
+        '--room',
+        'squad-product',
+        '--inbox',
+        '--detach',
+        '--json',
+      ]);
+      expect(sent.status).toBe(0);
+      const request = JSON.parse(sent.stdout).requestId;
+      const incoming = await runCli(sandbox, [
+        'x',
+        'show',
+        request,
+        '--incoming',
+        '--identity',
+        'worker',
+        '--json',
+      ]);
+      expect(incoming.status).toBe(0);
+      const raw = 'Mention #tmt:worker with #tmt:unknown.';
+      expect(
+        (
+          await runCli(sandbox, [
+            'reply',
+            request,
+            '--receipt',
+            JSON.parse(incoming.stdout).exchange.reply.receipt,
+            '--message',
+            raw,
+            '--json',
+          ])
+        ).status
+      ).toBe(0);
+      tmux([
+        '-f',
+        '/dev/null',
+        'new-session',
+        '-d',
+        '-s',
+        'mentions',
+        '-c',
+        sandbox.root,
+        '-x',
+        '160',
+        '-y',
+        '36',
+        '/bin/sh',
+      ]);
+      const server = Number(tmux(['display-message', '-p', '#{pid}']));
+      const pane = tmux(['display-message', '-p', '#{pane_id}']);
+      const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+      const screen = () => tmux(['capture-pane', '-p', '-t', pane]);
+      const captures: { theme: string; width: number; text: string; ansi: string }[] = [];
+      const draft = 'Keep #tmt:worker raw #tmt:unknown';
+      try {
+        for (const theme of ['tmt', 'tmt-light', 'NO_COLOR']) {
+          if (theme === 'NO_COLOR') sandbox.env.NO_COLOR = '1';
+          else {
+            delete sandbox.env.NO_COLOR;
+            expect(
+              (await runCli(sandbox, ['config', 'set', '--global', 'theme.base', theme, '--json']))
+                .status
+            ).toBe(0);
+          }
+          tmux(['set-environment', '-g', 'NO_COLOR', theme === 'NO_COLOR' ? '1' : '']);
+          tmux(['resize-window', '-t', 'mentions', '-x', '160', '-y', '36']);
+          const colour = theme === 'NO_COLOR' ? 'NO_COLOR=1' : 'env -u NO_COLOR';
+          const trace = path.join(sandbox.root, `mentions-${theme}.jsonl`);
+          tmux([
+            'send-keys',
+            '-t',
+            pane,
+            '-l',
+            `${colour} TMT_OPS_TIMING_TRACE=${quote(trace)} ${quote(sandbox.cli.executable)} ops ui --squad product --view mentions --reset-view`,
+          ]);
+          tmux(['send-keys', '-t', pane, 'Enter']);
+          await vi.waitFor(
+            () => {
+              expect(existsSync(trace)).toBe(true);
+              expect(readFileSync(trace, 'utf8')).toContain('fresh_board');
+              expect(screen()).toContain('Roster preview');
+            },
+            { timeout: 30_000, interval: 50 }
+          );
+          tmux(['send-keys', '-t', pane, 'Right']);
+          await vi.waitFor(() => expect(screen()).toContain('▾ product'), {
+            timeout: 10_000,
+            interval: 25,
+          });
+          tmux(['send-keys', '-t', pane, 'End']);
+          await vi.waitFor(() => expect(screen()).toContain('Mention worker with #tmt:unknown.'), {
+            timeout: 30_000,
+            interval: 50,
+          });
+          tmux(['send-keys', '-t', pane, 'Enter']);
+          tmux(['send-keys', '-t', pane, '-l', draft]);
+          tmux(['send-keys', '-t', pane, 'Escape']);
+          await vi.waitFor(() => expect(screen()).toContain('Keep worker raw #tmt:unknown'), {
+            timeout: 10_000,
+            interval: 25,
+          });
+          for (const width of [160, 100, 60]) {
+            tmux(['resize-window', '-t', 'mentions', '-x', String(width), '-y', '36']);
+            await vi.waitFor(
+              () => {
+                expect(tmux(['display-message', '-p', '-t', pane, '#{pane_width}'])).toBe(
+                  String(width)
+                );
+                expect(screen()).toContain('Mention worker with #tmt:unknown.');
+              },
+              { timeout: 10_000, interval: 25 }
+            );
+            // Tab enters read focus; Right selects its first visible member link.
+            tmux(['send-keys', '-t', pane, 'Tab', 'Right', 'Enter']);
+            await vi.waitFor(
+              () => {
+                expect(screen()).toContain('Show in Agents');
+                expect(screen()).toContain('Jump to host');
+                expect(screen()).toContain('offline');
+              },
+              { timeout: 10_000, interval: 25 }
+            );
+            captures.push({
+              theme,
+              width,
+              text: screen(),
+              ansi: tmux(['capture-pane', '-p', '-e', '-t', pane]),
+            });
+            tmux(['send-keys', '-t', pane, 'Enter']);
+            await vi.waitFor(() => expect(screen()).not.toContain('Show in Agents'), {
+              timeout: 10_000,
+              interval: 25,
+            });
+            tmux(['send-keys', '-t', pane, 'Enter']);
+            await vi.waitFor(() => expect(screen()).toContain(draft), {
+              timeout: 10_000,
+              interval: 25,
+            });
+            tmux(['send-keys', '-t', pane, 'Escape']);
+          }
+          tmux(['send-keys', '-t', pane, 'q']);
+          await vi.waitFor(
+            () =>
+              expect(
+                tmux(['display-message', '-p', '-t', pane, '#{pane_current_command}'])
+              ).not.toBe('tmt-ops'),
+            { timeout: 10_000, interval: 25 }
+          );
+        }
+        const result = await runCli(sandbox, ['result', request, '--json']);
+        expect(JSON.parse(result.stdout).response).toBe(raw);
+        const listing = await runCli(sandbox, ['api'], {
+          stdin: JSON.stringify({
+            version: 1,
+            operation: 'requests.list',
+            input: { recipientId: worker, limit: 50 },
+          }),
+        });
+        expect(JSON.parse(listing.stdout).items).toHaveLength(1);
+        if (process.env.TMT_MENTION_CAPTURES)
+          writeFileSync(process.env.TMT_MENTION_CAPTURES, JSON.stringify(captures));
+      } finally {
+        spawnSync(executable, ['-S', socket, 'kill-server'], { env: sandbox.env, timeout: 5000 });
+        await vi.waitFor(() => expect(() => process.kill(server, 0)).toThrow(), {
+          timeout: 10_000,
+          interval: 25,
+        });
+      }
+    });
+  }, 120_000);
+
   it('named view layers restore independently, reset one layer and retain controls through reload', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);

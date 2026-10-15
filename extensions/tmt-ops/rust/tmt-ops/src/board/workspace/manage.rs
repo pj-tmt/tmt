@@ -697,6 +697,7 @@ impl App {
                                 })
                                 .collect(),
                             selected: 0,
+                            anchor: None,
                             surface: Default::default(),
                         });
                         return Effect::None;

@@ -174,6 +174,7 @@ impl App {
             title,
             entries,
             selected,
+            anchor: None,
             surface: Default::default(),
         });
     }

@@ -8,6 +8,7 @@ use tmt_tui::components::Candidate;
 #[derive(Clone, Debug, Default)]
 pub(super) struct Inventory {
     pub candidates: Vec<Candidate>,
+    pub generation: std::sync::Arc<()>,
     pub agents: BTreeMap<String, Agent>,
     pub error: Option<String>,
 }
@@ -18,6 +19,8 @@ pub(super) struct Agent {
     /// Core's `driverSupport` is `basic`: the driver reports no activity, model or
     /// runtime, so their absence is not idleness and the board says so.
     pub basic: bool,
+    pub name: String,
+    pub canonical: String,
 }
 
 impl Inventory {
@@ -53,6 +56,8 @@ impl Inventory {
                 agents.insert(
                     id.to_owned(),
                     Agent {
+                        name: name.into(),
+                        canonical: row["canonicalName"].as_str().unwrap_or("").into(),
                         runtime: text(&row["runningDriver"]),
                         model: super::rate::resume_model(&row["resume"]).map(str::to_owned),
                         basic: row["driverSupport"] == "basic",
@@ -73,6 +78,7 @@ impl Inventory {
         let mut candidates: Vec<_> = candidates.into_values().collect();
         candidates.sort_by(|a, b| (&a.label, &a.kind, &a.id).cmp(&(&b.label, &b.kind, &b.id)));
         Self {
+            generation: Default::default(),
             candidates,
             agents,
             error: listed.as_ref().err().map(ToString::to_string),

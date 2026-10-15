@@ -20,6 +20,7 @@ fn open(title: &str, keys: &[(&str, &str)]) -> App {
             })
             .collect(),
         selected: 0,
+        anchor: None,
         surface: Default::default(),
     });
     app

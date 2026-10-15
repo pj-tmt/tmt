@@ -17,11 +17,31 @@ use unicode_width::UnicodeWidthChar;
 struct Block {
     prefix: String,
     indent: usize,
-    spans: Vec<(String, Style, usize)>,
+    spans: Vec<Part>,
     source_line: usize,
 }
 
+/// Styled source text with an optional resolved UUID and occurrence identity.
+struct Part {
+    text: String,
+    style: Style,
+    source: usize,
+    member: Option<(String, usize)>,
+}
+impl Part {
+    fn new(text: String, style: Style, source: usize, member: Option<(String, usize)>) -> Self {
+        Self {
+            text,
+            style,
+            source,
+            member,
+        }
+    }
+}
+
 struct Renderer<'a> {
+    inventory: Option<&'a super::inventory::Inventory>,
+    next_mention: usize,
     source: &'a str,
     starts: Vec<usize>,
     source_line: usize,
@@ -77,7 +97,34 @@ impl Renderer<'_> {
             self.start(" ".repeat(indent), indent);
         }
         if let Some(block) = &mut self.current {
-            block.spans.push((text.to_owned(), style, self.source_line));
+            let mut at = 0;
+            for mention in self.inventory.map_or_else(Vec::new, |inventory| {
+                super::member_links::resolve(text, inventory)
+            }) {
+                if mention.range.start > at {
+                    block.spans.push(Part::new(
+                        text[at..mention.range.start].into(),
+                        style,
+                        self.source_line,
+                        None,
+                    ));
+                }
+                block.spans.push(Part::new(
+                    mention.name,
+                    style
+                        .patch(self.look.role(Role::Link))
+                        .add_modifier(Modifier::UNDERLINED),
+                    self.source_line,
+                    Some((mention.identity, self.next_mention)),
+                ));
+                self.next_mention += 1;
+                at = mention.range.end;
+            }
+            if at < text.len() || text.is_empty() {
+                block
+                    .spans
+                    .push(Part::new(text[at..].into(), style, self.source_line, None));
+            }
         }
     }
 
@@ -102,7 +149,12 @@ impl Renderer<'_> {
             self.blocks.push(Block {
                 prefix: String::new(),
                 indent: 0,
-                spans: vec![(line.to_owned(), Style::new(), self.source_line + offset)],
+                spans: vec![Part::new(
+                    line.to_owned(),
+                    Style::new(),
+                    self.source_line + offset,
+                    None,
+                )],
                 source_line: self.source_line + offset,
             });
         }
@@ -210,7 +262,12 @@ impl Renderer<'_> {
                 self.blocks.push(Block {
                     prefix: String::new(),
                     indent: 0,
-                    spans: vec![("───".into(), self.look.role(Role::Dim), self.source_line)],
+                    spans: vec![Part::new(
+                        "───".into(),
+                        self.look.role(Role::Dim),
+                        self.source_line,
+                        None,
+                    )],
                     source_line: self.source_line,
                 });
             }
@@ -234,13 +291,42 @@ pub fn render(text: &str, width: usize, look: crate::look::Look) -> Vec<Line<'st
 pub(super) struct Mapped {
     pub lines: Vec<Line<'static>>,
     pub sources: Vec<usize>,
+    pub mentions: Vec<Vec<super::member_links::Link>>,
 }
 
 pub(super) fn render_mapped(text: &str, width: usize, look: crate::look::Look) -> Mapped {
+    render_with_members(text, width, look, None)
+}
+
+pub(super) fn render_with_members<'a>(
+    text: &'a str,
+    width: usize,
+    look: crate::look::Look,
+    inventory: Option<&'a super::inventory::Inventory>,
+) -> Mapped {
+    project(text, width, look, inventory, false)
+}
+pub(super) fn render_plain_with_members<'a>(
+    text: &'a str,
+    width: usize,
+    look: crate::look::Look,
+    inventory: &'a super::inventory::Inventory,
+) -> Mapped {
+    project(text, width, look, Some(inventory), true)
+}
+fn project<'a>(
+    text: &'a str,
+    width: usize,
+    look: crate::look::Look,
+    inventory: Option<&'a super::inventory::Inventory>,
+    plain: bool,
+) -> Mapped {
     let starts = std::iter::once(0)
         .chain(text.match_indices('\n').map(|(at, _)| at + 1))
         .collect();
     let mut renderer = Renderer {
+        inventory,
+        next_mention: 0,
         source: text,
         starts,
         source_line: 0,
@@ -255,18 +341,28 @@ pub(super) fn render_mapped(text: &str, width: usize, look: crate::look::Look) -
         skip_until: 0,
     };
     let options = Options::ENABLE_TABLES | Options::ENABLE_FOOTNOTES;
-    for (event, range) in Parser::new_ext(text, options).into_offset_iter() {
-        renderer.event(event, range);
+    if plain {
+        for (source, line) in text.split('\n').enumerate() {
+            renderer.source_line = source;
+            renderer.push(line, look.role(Role::Text));
+            renderer.finish();
+        }
+    } else {
+        for (event, range) in Parser::new_ext(text, options).into_offset_iter() {
+            renderer.event(event, range);
+        }
     }
     renderer.finish();
     let mut mapped = Mapped {
         lines: Vec::new(),
         sources: Vec::new(),
+        mentions: Vec::new(),
     };
     for block in renderer.blocks {
-        for (line, source) in wrap(block, width.max(1)) {
+        for (line, source, mentions) in wrap(block, width.max(1)) {
             mapped.lines.push(line);
             mapped.sources.push(source);
+            mapped.mentions.push(mentions);
         }
     }
     mapped
@@ -278,26 +374,43 @@ fn cells(text: &str) -> usize {
 
 /// Greedy word wrap over styled spans; continuation lines use the hanging
 /// indent, and a word longer than a line is split between characters.
-fn wrap(block: Block, width: usize) -> Vec<(Line<'static>, usize)> {
+fn wrap(block: Block, width: usize) -> Vec<(Line<'static>, usize, Vec<super::member_links::Link>)> {
     let mut lines = Vec::new();
+    let mut mentions = Vec::new();
     let mut line: Vec<Span<'static>> = vec![Span::raw(block.prefix.clone())];
     let mut used = cells(&block.prefix);
     let start = used;
     let mut source_line = block.source_line;
     let indent = " ".repeat(block.indent);
-    let mut words: Vec<(String, Style, usize)> = Vec::new();
-    for (text, style, source) in block.spans {
+    let mut words = Vec::new();
+    for Part {
+        text,
+        style,
+        source,
+        member: identity,
+    } in block.spans
+    {
         for word in text.split_inclusive(' ') {
-            words.push((word.to_owned(), style, source));
+            words.push(Part::new(word.to_owned(), style, source, identity.clone()));
         }
     }
-    for (word, style, source) in words {
+    for Part {
+        text: word,
+        style,
+        source,
+        member: identity,
+    } in words
+    {
         let body = word.trim_end_matches(' ');
         if used > start && used + cells(body) > width {
             if let Some(space) = line.last_mut().filter(|span| span.content == " ") {
                 space.style = space.style.remove_modifier(Modifier::UNDERLINED);
             }
-            lines.push((Line::from(std::mem::take(&mut line)), source_line));
+            lines.push((
+                Line::from(std::mem::take(&mut line)),
+                source_line,
+                std::mem::take(&mut mentions),
+            ));
             source_line = source;
             line.push(Span::raw(indent.clone()));
             used = block.indent;
@@ -307,21 +420,53 @@ fn wrap(block: Block, width: usize) -> Vec<(Line<'static>, usize)> {
             let size = character.width().unwrap_or(0);
             if used + size > width {
                 line.push(Span::styled(std::mem::take(&mut piece), style));
-                lines.push((Line::from(std::mem::take(&mut line)), source_line));
+                lines.push((
+                    Line::from(std::mem::take(&mut line)),
+                    source_line,
+                    std::mem::take(&mut mentions),
+                ));
                 source_line = source;
                 line.push(Span::raw(indent.clone()));
                 used = block.indent;
+            }
+            if let Some((identity, occurrence)) = &identity {
+                if let Some(last) =
+                    mentions
+                        .last_mut()
+                        .filter(|last: &&mut super::member_links::Link| {
+                            last.identity == *identity
+                                && last.occurrence == *occurrence
+                                && last.column + last.width == used
+                        })
+                {
+                    last.width += size;
+                } else {
+                    mentions.push(super::member_links::Link {
+                        column: used,
+                        width: size,
+                        identity: identity.clone(),
+                        occurrence: *occurrence,
+                    });
+                }
             }
             piece.push(character);
             used += size;
         }
         line.push(Span::styled(piece, style));
         if word.ends_with(' ') && used < width {
+            if let Some((identity, occurrence)) = &identity {
+                mentions.push(super::member_links::Link {
+                    column: used,
+                    width: 1,
+                    identity: identity.clone(),
+                    occurrence: *occurrence,
+                });
+            }
             line.push(Span::styled(" ", style));
             used += 1;
         }
     }
-    lines.push((Line::from(line), source_line));
+    lines.push((Line::from(line), source_line, mentions));
     lines
 }
 

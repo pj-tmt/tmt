@@ -45,6 +45,7 @@ owns moves and the tracked-file guard. Handbook language exceptions belong to
 
 `tmt-ux-lead` owns shared visual tokens and [private browser UI](design/browser-ui/README.md).
 `./ui` isolates React/Radix/cmdk/CVA, CSS/themes/portals; legacy/static unchanged; no domain state.
+Layers retain Radix focus/dismiss ownership and host close admission; layer integration contracts live in the linked leaf README.
 [Release procedures](.agents/skills/tmt-release/SKILL.md) include the archive’s
 product-neutral `rust/archive/NATIVE-INSTALL.md`; [dev-only embed](site/README.md) stays site-owned.
 
@@ -415,6 +416,10 @@ own module/drawing boundaries and verification.
   The shell replaces named-tab/factory/switcher navigation and HOME cursors; reload carries UUID anchors.
   `labels::Reader` acquires Config-selected windows; `labels::digest` sums
   [supplier estimates](extensions/tmt-digest/contracts/digest-v1.md#savings), never provider history.
+  Explicit member markup resolves through the acquired global identity inventory;
+  Markdown carries UUID tags into clipped frame hits. Existing menu/actions own
+  navigation, while copy/annotation retain raw source. No text grants new delivery
+  authority or paint/input I/O. [Reference ownership](.agents/skills/tmt-ops-dev/references/board-notebooks.md).
   Membership removal pauses jobs before leave;
   only explicit Resume clears pause. Rename CAS keeps the room UUID, then moves
   Ops metadata/config and cron namespaces under owned locks; partial results

@@ -242,6 +242,11 @@ hidden/missing action refusal. Pins, hidden squads, panels, keys, theme and the
 startup-tab default remain shared Config preferences. Authored Config sort is a
 cold default; interactive sort changes only the current layer.
 
+`member_links` owns the current-frame resolved-reference rectangles and conversation
+read-focus cursor. It reuses the existing action menu surface within an adjacent
+clipped rectangle; no separate popup/widget family or source authority is added.
+See [member references and source](board-notebooks.md#inert-text-and-independent-notebooksource-utilities).
+
 ## Decisions and composers
 
 - `attention::waits_on_you` owns the acquired pending/request predicate. The

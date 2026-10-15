@@ -251,10 +251,10 @@ fn append_and_resize_keep_source_anchor_without_reparsing_unchanged_text() {
     );
     session.update(Some(reply("r", &source)));
     let look = Look::default();
-    assert!(session.prepare(60, look));
+    assert!(session.prepare(60, look, &Default::default()));
     let cached = session.rendered.as_ref().unwrap().mapped.lines.as_ptr();
     session.update(Some(reply("r", &source)));
-    assert!(!session.prepare(60, look));
+    assert!(!session.prepare(60, look, &Default::default()));
     assert_eq!(
         cached,
         session.rendered.as_ref().unwrap().mapped.lines.as_ptr()
@@ -270,7 +270,7 @@ fn append_and_resize_keep_source_anchor_without_reparsing_unchanged_text() {
     assert!(session.change == Change::NewOutput);
     assert_eq!(session.anchor.source, source_line);
     for width in [60, 80, 100, 140, 160] {
-        session.prepare(width, look);
+        session.prepare(width, look, &Default::default());
         let mapped = &session.rendered.as_ref().unwrap().mapped;
         let visual = session.anchor.visual(&mapped.sources).unwrap();
         assert_eq!(mapped.sources[visual], source_line);
@@ -288,7 +288,7 @@ fn append_and_resize_keep_source_anchor_without_reparsing_unchanged_text() {
 fn reacquiring_same_request_keeps_readable_source_but_explicit_failure_does_not() {
     let mut session = Session::default();
     session.update(Some(reply("r", "known body")));
-    session.prepare(80, Look::default());
+    session.prepare(80, Look::default(), &Default::default());
     let cache = session.rendered.as_ref().unwrap().mapped.lines.as_ptr();
     let mut loading = reply("r", "(reading reply…)");
     loading.acquired = false;
@@ -312,7 +312,7 @@ fn malicious_response_remains_inert_and_full_source_is_available() {
     let raw = "# \u{1b}]0;bad\u{7}Heading\u{202e}\n\n- **bold** and `code`\n\n```text\n\u{1b}[31mred\u{1b}[0m\n```\n[Colab](https://example.test/page)\nFINAL";
     session.update(Some(reply("r", raw)));
     for width in [40, 80, 120] {
-        session.prepare(width, Look::default());
+        session.prepare(width, Look::default(), &Default::default());
         let mapped = &session.rendered.as_ref().unwrap().mapped;
         let text = mapped
             .lines
@@ -495,14 +495,14 @@ fn source_reader_opens_the_paused_response_and_rejects_stale_annotation() {
 fn membership_context_changes_do_not_invent_unread_output_or_reparse_source() {
     let mut session = Session::default();
     session.update(Some(reply("r", "same immutable final")));
-    session.prepare(80, Look::default());
+    session.prepare(80, Look::default(), &Default::default());
     let cached = session.rendered.as_ref().unwrap().mapped.lines.as_ptr();
     session.follow = false;
     let mut moved = reply("r", "same immutable final");
     moved.key.as_mut().unwrap().squad = "another membership".into();
     session.update(Some(moved));
     assert!(session.change == Change::Current);
-    assert!(!session.prepare(80, Look::default()));
+    assert!(!session.prepare(80, Look::default(), &Default::default()));
     assert_eq!(
         cached,
         session.rendered.as_ref().unwrap().mapped.lines.as_ptr()
@@ -977,4 +977,71 @@ fn response_position_counts_retained_lines_rather_than_empty_viewport_cells() {
             .collect();
         assert!(screen.contains("1–1 / 1"), "{screen}");
     }
+}
+
+#[test]
+fn member_projection_keeps_exact_response_and_refresh_invalidates_only_the_display_cache() {
+    let text = |lines: &[Line<'_>]| {
+        lines
+            .iter()
+            .flat_map(|line| &line.spans)
+            .map(|span| span.content.as_ref())
+            .collect::<String>()
+    };
+    let raw = "Ask #tmt:alpha; keep #tmt:missing literal.";
+    let mut inventory = crate::board::inventory::Inventory::from_listed(
+        &[],
+        &Ok(json!({"identities":[{"id":"a","name":"Alpha","canonicalName":"alpha"}]})),
+    );
+    let mut session = Session::default();
+    session.update(Some(reply("raw-mention-request", raw)));
+    assert!(session.prepare(80, Look::default(), &inventory));
+    let display = text(&session.rendered.as_ref().unwrap().mapped.lines);
+    assert!(display.contains("Ask Alpha; keep #tmt:missing literal."));
+    assert_eq!(
+        session.reply.as_ref().unwrap().body,
+        raw,
+        "exact reply/copy source remains original markup"
+    );
+    assert_eq!(
+        session.text, raw,
+        "source line anchors are based on the original sanitized source"
+    );
+    assert_eq!(
+        session
+            .reply
+            .as_ref()
+            .unwrap()
+            .key
+            .as_ref()
+            .unwrap()
+            .request,
+        "raw-mention-request"
+    );
+    assert!(
+        !session.prepare(80, Look::default(), &inventory),
+        "ordinary frames reuse the resolved render cache"
+    );
+    inventory = crate::board::inventory::Inventory::from_listed(
+        &[],
+        &Ok(json!({"identities":[{"id":"a","name":"Renamed","canonicalName":"renamed"}]})),
+    );
+    assert!(session.prepare(80, Look::default(), &inventory));
+    assert!(
+        text(&session.rendered.as_ref().unwrap().mapped.lines).contains("#tmt:alpha"),
+        "a refreshed canonical name withdraws the old display link"
+    );
+    assert!(
+        session
+            .rendered
+            .as_ref()
+            .unwrap()
+            .mapped
+            .mentions
+            .iter()
+            .flatten()
+            .next()
+            .is_none()
+    );
+    assert_eq!(session.reply.as_ref().unwrap().body, raw);
 }

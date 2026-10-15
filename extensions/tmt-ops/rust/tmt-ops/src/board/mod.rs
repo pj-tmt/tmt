@@ -20,6 +20,7 @@ mod inventory;
 mod lane;
 mod limits;
 mod markdown;
+mod member_links;
 mod mentions;
 mod menu_surface;
 mod meter;

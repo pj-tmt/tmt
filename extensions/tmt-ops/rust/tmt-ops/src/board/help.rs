@@ -204,6 +204,13 @@ pub(super) fn model(app: &App) -> KeyHelp {
         id: "composer-focus".into(), title: "message composer focus".into(),
         entries: vec![entry("focus-message", "", format!("{}; opening keeps the draft and sends nothing; double-click still inspects content", app.composer_focus_hint()))],
     });
+    if app.member_link_hint().is_some() {
+        sections.push(section("member-links", "member links", &[
+            ("#tmt:name / #tmt:UUID", "Known member links open an anchored action menu. Unknown references stay literal; copy and annotation keep exact markup."),
+            ("arrows / Enter", "In conversation read focus, left/right select a visible mention; Enter opens its actions. Tab and BackTab switch panes; authored bindings take precedence. j uses its configured host action; Enter shows the member in Agents and keeps the draft."),
+            ("Esc / click outside", "Close the mention menu without acting. Links never broadcast or change the message recipient."),
+        ]));
+    }
     sections.push(section("digest-estimate", "Digest estimate", &[
         ("window", "Choose Digest estimate window in workspace settings: 24h, 7d or all time; the choice is shared by member, squad and Digest views."),
         ("Est. ctx avoided", "Estimated context input tokens avoided by delivering messages together. Assumes each message would otherwise have been delivered on its own. Not billed tokens, not cost, not turns saved."),
