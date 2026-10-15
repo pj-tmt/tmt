@@ -663,6 +663,8 @@ pub struct App {
     pub selected: usize,
     pub notice: Option<String>,
     pub(super) migration_notice: Option<String>,
+    /// Why `tmt whoami` could not name this pane, when it failed outright.
+    pub(super) caller_failure: Option<String>,
     pub(in crate::board) usage_chart: RefCell<super::overview::chart::host::State>,
     pub(in crate::board) usage_controls: bool,
     pub(in crate::board) usage_details: Option<RefCell<super::overview::chart::detail::Details>>,
@@ -2340,6 +2342,18 @@ impl App {
         effect
     }
 
+    /// What to tell a user whose board has no sender. A pane the host could not
+    /// name is not an unbound pane: say why, in core's own words, because the
+    /// next step depends on the host.
+    pub(super) fn unknown_sender(&self) -> String {
+        match &self.caller_failure {
+            Some(why) => format!(
+                "Could not identify this pane: {why} Fix that, or record yourself with tmt ops squad me <name>."
+            ),
+            None => "Who is sending? Record yourself with tmt ops squad me <name>, or open the board from your named pane.".into(),
+        }
+    }
+
     fn compose(&mut self, action: &Action, row: &Value) -> Effect {
         if self
             .view
@@ -2347,7 +2361,7 @@ impl App {
             .and_then(|view| view.me.as_ref())
             .is_none()
         {
-            return self.say("Who is sending? Record yourself with tmt ops squad me <name>, or open the board from your named pane.");
+            return self.say(self.unknown_sender());
         }
         // Workspace selection already owns the exact membership. Do not infer
         // its target from a filtered flat row index or equal row payload.
@@ -4143,6 +4157,37 @@ pub(crate) mod tests {
         view.clipboard = Some(vec!["pbcopy".into()]);
         app.apply(snapshot);
         app
+    }
+
+    #[test]
+    fn a_host_that_cannot_name_the_pane_says_why_instead_of_asking_who_is_sending() {
+        let talk = || Action::parse("talk").expect("built-in Talk action");
+        let mut app = crew(Default::default());
+        app.view.as_mut().unwrap().me = None;
+        app.view.as_mut().unwrap().me_id = None;
+        // An unbound pane or no pane at all: the host answered, nobody is recorded.
+        app.perform(&talk());
+        let prompt = "Who is sending? Record yourself with tmt ops squad me <name>, or open the board from your named pane.";
+        assert_eq!(app.notice.as_deref(), Some(prompt));
+        assert!(app.input.is_none());
+        // `whoami` failed outright: the host's own words and the way out.
+        app.notice = None;
+        app.caller_failure = Some("Herdr reported an invalid pane.".into());
+        app.perform(&talk());
+        assert_eq!(
+            app.notice.as_deref(),
+            Some(
+                "Could not identify this pane: Herdr reported an invalid pane. Fix that, or record yourself with tmt ops squad me <name>."
+            )
+        );
+        assert!(app.input.is_none());
+        // A recorded sender needs no pane identity, so the failure is never shown.
+        app.notice = None;
+        app.view.as_mut().unwrap().me = Some("Ben".into());
+        app.view.as_mut().unwrap().me_id = Some("ben-id".into());
+        app.perform(&talk());
+        assert!(app.notice.is_none(), "{:?}", app.notice);
+        assert!(app.input.is_some());
     }
 
     #[test]

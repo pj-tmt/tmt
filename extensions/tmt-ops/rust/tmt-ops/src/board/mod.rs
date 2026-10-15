@@ -92,6 +92,9 @@ pub fn exit_status(signal: Option<i32>) -> u8 {
 /// with the process, and a read error disconnects the channel.
 pub(super) enum BoardEvent {
     Migration(Option<String>),
+    /// The host could not say which agent runs the board, once at startup; the
+    /// text is core's own error, shown instead of a bare sender prompt.
+    CallerFailed(String),
     Recovery(recovery::load::Completed),
     Checklist(checklist::load::Completed),
     Discovery(discovery::load::Completed),
@@ -480,6 +483,10 @@ fn session(
             Ok(BoardEvent::Migration(notice)) => {
                 app.migration_notice = notice;
                 dirty = true;
+                Effect::None
+            }
+            Ok(BoardEvent::CallerFailed(why)) => {
+                app.caller_failure = Some(why);
                 Effect::None
             }
             Ok(BoardEvent::Checklist(completed)) => {
@@ -2095,6 +2102,34 @@ mod tests {
         )
         .unwrap();
         assert_eq!(app.labels, Default::default());
+    }
+
+    #[test]
+    fn a_failed_caller_lookup_arrives_as_an_event_and_is_kept_for_the_sender_prompt() {
+        let (events, input) = channel();
+        let mut app = App::new(Some("product".into()));
+        assert!(app.caller_failure.is_none());
+        events
+            .send(BoardEvent::CallerFailed(
+                "Herdr reported an invalid pane.".into(),
+            ))
+            .unwrap();
+        events.send(key(KeyCode::Char('q'))).unwrap();
+        session(
+            &mut app,
+            &AtomicUsize::new(0),
+            &input,
+            |_, _, _| {},
+            |_, _| {},
+            |_| {},
+            no_io,
+            |_| Ok(()),
+        )
+        .unwrap();
+        assert_eq!(
+            app.caller_failure.as_deref(),
+            Some("Herdr reported an invalid pane.")
+        );
     }
 
     #[test]
