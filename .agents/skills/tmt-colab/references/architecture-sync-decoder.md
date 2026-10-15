@@ -53,8 +53,10 @@ and `limits.rs`; do not restate them.
   is launched through `tmt-invoke` with an empty environment allowlist.
 - The child checks namespace roots, materialized types and projection bounds, and merges
   only the supplied author updates. It also builds and verifies baselines from exact source
-  and title. The parent checks input/output binding and hashes, then strict typed Ask and
-  discussion record grammar (`ask.rs`, `threads.rs`).
+  and title. The parent checks input/output binding and hashes, then strict typed Ask,
+  discussion and edit-request record grammar (`ask.rs`, `threads.rs`, `edit_request.rs`; the
+  browser mirror is `colab-client/src/edit-request.ts`, both pinned by `edit-request-v1.json`).
+  An edit request is immutable like the other typed records and fits one own update.
 - Limits are enforced before decoding and before returning output. Linux sets
   `RLIMIT_AS` in the child before reading input (a failed `setrlimit` rejects the job);
   other platforms, macOS included, report `memory limit unavailable`. This is crash and
