@@ -614,6 +614,13 @@ Backspace removes only the last eligible supplied chip; nonempty editing is
 native. Caps are supplied through eligible options and state words, never
 inferred as a recipient/parser rule in this leaf.
 
+While Chips is open, its persistent input owns one `visualViewport.resize`
+listener. On the next animation frame, only an actually focused input outside
+the real visual viewport is revealed with nearest-block/inline `scrollIntoView`.
+Close/unmount removes the listener and cancels pending work. This event-driven
+reveal neither changes popup placement nor mutates focus, query or close state;
+ordinary Combobox does not add it.
+
 The allocated selection gallery/unit/spec own selection proofs, including
 original-event identity, exactly-once callbacks, blocked/veto cases, focus and
 viewport/theme coverage. Only `browser-ui-selection.spec.ts` is allocated in

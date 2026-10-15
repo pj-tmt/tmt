@@ -1,5 +1,5 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { expect, it, vi } from 'vite-plus/test';
+import { afterEach, expect, it, vi } from 'vite-plus/test';
 import { UiTheme } from '../src/ui/theme.js';
 import {
   Chip,
@@ -10,6 +10,38 @@ import {
   CommandItem,
   CommandList,
 } from '../src/ui/selection.js';
+
+// Capture only this component's effect boundary for deterministic host-resource
+// tests. Server-rendered component tests below retain the real React hooks.
+const resources = vi.hoisted(() => ({
+  capture: false,
+  refs: [] as { current: unknown }[],
+  effects: [] as (() => void | (() => void))[],
+}));
+vi.mock('react', async (original) => {
+  const actual = await original<typeof import('react')>();
+  return {
+    ...actual,
+    useRef<T>(value: T) {
+      if (!resources.capture) return actual.useRef(value);
+      const ref = { current: value };
+      resources.refs.push(ref);
+      return ref;
+    },
+    useEffect(...args: Parameters<typeof actual.useEffect>) {
+      if (resources.capture) resources.effects.push(args[0]);
+      else actual.useEffect(...args);
+    },
+    useLayoutEffect(...args: Parameters<typeof actual.useLayoutEffect>) {
+      if (!resources.capture) actual.useLayoutEffect(...args);
+    },
+  };
+});
+afterEach(() => {
+  resources.capture = false;
+  resources.refs = [];
+  resources.effects = [];
+});
 
 const controller = { open: false, requestOpen: vi.fn(), requestClose: vi.fn(() => true) };
 const option = { id: 'one', label: 'Choice one' };
@@ -99,4 +131,74 @@ it('retains cmdk native listbox/option/input relationships in the raw command co
   expect(html).toContain('role="option"');
   expect(html).toContain('aria-controls=');
   expect(html).toContain('aria-disabled="false"');
+});
+
+it('reveals only the focused out-of-viewport input once per resize and cleans listener/pending frame', () => {
+  resources.capture = true;
+  Chips({
+    ...props,
+    controller: { ...controller, open: true },
+    items: [],
+    onAdd: vi.fn(),
+    onRemove: vi.fn(),
+  });
+  const viewport = Object.assign(new EventTarget(), {
+    width: 320,
+    height: 420,
+    offsetLeft: 0,
+    offsetTop: 0,
+  });
+  const frames = new Map<number, FrameRequestCallback>();
+  let sequence = 0;
+  const view = {
+    visualViewport: viewport,
+    requestAnimationFrame: vi.fn((callback: FrameRequestCallback) => {
+      frames.set(++sequence, callback);
+      return sequence;
+    }),
+    cancelAnimationFrame: vi.fn((id: number) => {
+      frames.delete(id);
+    }),
+  };
+  const owner = { activeElement: null as unknown, defaultView: view };
+  let rect = { left: 0, top: 430, right: 120, bottom: 470 };
+  const field = {
+    isConnected: true,
+    ownerDocument: owner,
+    getBoundingClientRect: () => rect,
+    scrollIntoView: vi.fn(),
+  };
+  owner.activeElement = field;
+  resources.refs[0].current = field;
+  const cleanup = resources.effects[0]();
+  expect(cleanup).toBeTypeOf('function');
+  const runFrame = () => {
+    const entry = [...frames.entries()][0];
+    expect(entry).toBeDefined();
+    frames.delete(entry[0]);
+    entry[1](0);
+  };
+  viewport.dispatchEvent(new Event('resize'));
+  viewport.dispatchEvent(new Event('resize'));
+  expect(frames.size).toBe(1);
+  runFrame();
+  expect(field.scrollIntoView.mock.calls).toEqual([[{ block: 'nearest', inline: 'nearest' }]]);
+  expect(frames.size).toBe(0); // no reveal/polling loop
+  rect = { left: 0, top: 10, right: 120, bottom: 50 };
+  viewport.dispatchEvent(new Event('resize'));
+  runFrame();
+  expect(field.scrollIntoView).toHaveBeenCalledTimes(1);
+  owner.activeElement = {};
+  rect = { left: 0, top: 430, right: 120, bottom: 470 };
+  viewport.dispatchEvent(new Event('resize'));
+  runFrame();
+  expect(field.scrollIntoView).toHaveBeenCalledTimes(1);
+  viewport.dispatchEvent(new Event('resize'));
+  const pending = sequence;
+  if (typeof cleanup === 'function') cleanup();
+  expect(view.cancelAnimationFrame).toHaveBeenLastCalledWith(pending);
+  expect(frames.size).toBe(0);
+  const scheduled = view.requestAnimationFrame.mock.calls.length;
+  viewport.dispatchEvent(new Event('resize'));
+  expect(view.requestAnimationFrame).toHaveBeenCalledTimes(scheduled);
 });

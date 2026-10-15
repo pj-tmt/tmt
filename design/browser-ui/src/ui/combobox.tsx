@@ -69,6 +69,7 @@ function SelectionInput({
     !blocked && options.find((option) => option.id === active && !option.disabled);
   function keyDown(event: KeyboardEvent<HTMLInputElement>) {
     onKeyDown?.(event);
+    if (event.key === ' ') event.stopPropagation();
     if (
       event.defaultPrevented ||
       event.nativeEvent.isComposing ||

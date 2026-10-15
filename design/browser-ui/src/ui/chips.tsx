@@ -1,4 +1,11 @@
-import { useId, useLayoutEffect, useRef, type KeyboardEvent, type MouseEvent } from 'react';
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  type KeyboardEvent,
+  type MouseEvent,
+} from 'react';
 import { XIcon } from 'lucide-react';
 import { Badge } from './badge.js';
 import { Button } from './button.js';
@@ -40,6 +47,18 @@ export function Chip({ item, onRemove, readOnly, busy, stateLabel, removeRef }: 
           aria-disabled={blocked || undefined}
           aria-busy={busy || undefined}
           disabled={item.disabled || busy}
+          onClickCapture={(event) => {
+            if (readOnly) {
+              event.preventDefault();
+              event.stopPropagation();
+            }
+          }}
+          onKeyDownCapture={(event) => {
+            if (readOnly && (event.key === 'Enter' || event.key === ' ')) {
+              event.preventDefault();
+              event.stopPropagation();
+            }
+          }}
           onKeyDown={(event) => {
             if (event.key === 'Enter' || event.key === ' ') event.stopPropagation();
           }}
@@ -81,6 +100,36 @@ export function Chips({
   const input = useRef<HTMLInputElement | null>(null);
   const controls = useRef(new Map<string, HTMLButtonElement>());
   const removalFocus = useRef<{ removed: string; after?: string; before?: string } | null>(null);
+  const open = props.controller.open;
+  const focusFallback = props.focusFallback;
+  useEffect(() => {
+    if (!open) return;
+    const field = input.current;
+    const view = field?.ownerDocument.defaultView;
+    const viewport = view?.visualViewport;
+    if (!field || !view || !viewport) return;
+    let pendingFrame: number | undefined;
+    const queueReveal = () => {
+      if (pendingFrame !== undefined) view.cancelAnimationFrame(pendingFrame);
+      pendingFrame = view.requestAnimationFrame(() => {
+        pendingFrame = undefined;
+        if (!field.isConnected || field.ownerDocument.activeElement !== field) return;
+        const rect = field.getBoundingClientRect();
+        if (
+          rect.left < viewport.offsetLeft ||
+          rect.top < viewport.offsetTop ||
+          rect.right > viewport.offsetLeft + viewport.width ||
+          rect.bottom > viewport.offsetTop + viewport.height
+        )
+          field.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      });
+    };
+    viewport.addEventListener('resize', queueReveal);
+    return () => {
+      viewport.removeEventListener('resize', queueReveal);
+      if (pendingFrame !== undefined) view.cancelAnimationFrame(pendingFrame);
+    };
+  }, [open]);
   useLayoutEffect(() => {
     const pending = removalFocus.current;
     if (!pending || items.some((item) => item.id === pending.removed)) return;
@@ -89,10 +138,10 @@ export function Chips({
       (pending.after && controls.current.get(pending.after)) ||
       (pending.before && controls.current.get(pending.before)) ||
       input.current ||
-      props.focusFallback?.();
+      focusFallback?.();
     if (target?.isConnected && !target.matches(':disabled') && !target.closest('[inert]'))
       target.focus();
-  }, [items, props.focusFallback]);
+  }, [items, focusFallback]);
   function remove(
     item: SelectionItem,
     event: KeyboardEvent<HTMLInputElement> | MouseEvent<HTMLButtonElement>,

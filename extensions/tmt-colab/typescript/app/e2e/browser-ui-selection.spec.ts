@@ -168,6 +168,8 @@ test('external input remains hit-testable/editable with stable DOM; caps and rem
   await input.press('Enter');
   await expect(page.getByLabel('Chips add count')).toHaveText('1');
   await input.press('Escape');
+  await expect(input).toHaveAttribute('aria-expanded', 'false');
+  await expect(input).toBeFocused();
   const alpha = page.getByRole('button', { name: 'Remove Alpha', exact: true });
   await alpha.press('Enter');
   await expect(page.getByRole('button', { name: 'Remove Beta', exact: true })).toBeFocused();
@@ -251,37 +253,38 @@ test('raw host unmount and StrictMode leave no shield, pointer suppression or fo
   await expect(page.getByRole('combobox', { name: 'Chips search' })).toHaveCount(0);
   await expect(page.locator('[data-slot=popover-outside-shield]')).toHaveCount(0);
   await expect(guards).toHaveCount(before);
+  await expect(page.getByRole('button', { name: 'After chips', exact: true })).toBeFocused();
   expect(await page.evaluate(() => document.body.style.pointerEvents)).toBe('');
   await page.getByRole('button', { name: 'Chips mounted off' }).click();
   await expect(page.getByRole('combobox', { name: 'Chips search' })).toBeVisible();
 });
 
-test('host-opened menu and Popover above Chips dismiss only the innermost layer', async ({
+test('genuine descendant Menu and Popover dismiss innermost without closing their parent shield', async ({
   page,
 }) => {
   await gallery(page);
-  const input = page.getByRole('combobox', { name: 'Chips search' });
-  await input.click();
-  await page
-    .getByRole('button', { name: 'Open chips nested menu' })
-    .evaluate((button) => button.click());
-  await expect(page.getByRole('menu')).toBeVisible();
-  // Programmatic entry preserves stock menu focus; ArrowDown enters its first item.
+  const input = page.getByRole('combobox', { name: 'Descendant input' });
+  await page.getByRole('button', { name: 'Open descendant selection layer' }).click();
+  await expect(input).toBeFocused();
+  await page.getByRole('button', { name: 'Descendant menu trigger' }).click();
   await page.keyboard.press('ArrowDown');
-  await expect(page.getByRole('menuitem', { name: 'Nested chips menu action' })).toBeFocused();
+  await expect(page.getByRole('menuitem', { name: 'Descendant menu action' })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(page.getByRole('menu')).toHaveCount(0);
   await expect(input).toHaveAttribute('aria-expanded', 'true');
-  await page
-    .getByRole('button', { name: 'Open chips nested popover' })
-    .evaluate((button) => button.click());
-  await expect(page.getByRole('button', { name: 'Nested chips popover action' })).toBeFocused();
+  await expect(page.getByRole('button', { name: 'Descendant menu trigger' })).toBeFocused();
+  await page.getByRole('button', { name: 'Descendant Popover trigger' }).click();
+  await expect(page.getByRole('button', { name: 'Descendant Popover action' })).toBeFocused();
   await page.keyboard.press('Escape');
-  await expect(page.getByRole('heading', { name: 'Nested chips popover' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Descendant child Popover' })).toHaveCount(0);
   await expect(input).toHaveAttribute('aria-expanded', 'true');
-  await input.press('Escape');
+  await expect(page.getByRole('button', { name: 'Descendant Popover trigger' })).toBeFocused();
+  await page.keyboard.press('Escape');
   await expect(input).toHaveAttribute('aria-expanded', 'false');
+  await expect(input).toBeFocused();
+  await expect(input).toHaveValue('Retained nested query');
   await expect(page.locator('[data-slot=popover-outside-shield]')).toHaveCount(0);
+  expect(await page.evaluate(() => document.body.style.pointerEvents)).toBe('');
 });
 
 test('real Chips compose inside Dialog and return through persistent controls', async ({
@@ -349,8 +352,29 @@ for (const width of [320, 390, 1440]) {
       };
       await assertContained();
       await page.screenshot({ path: info.outputPath('open-900.png') });
+      await page
+        .getByRole('button', { name: 'Chips busy off', exact: true })
+        .evaluate((button) => button.click());
+      await expect(input).toHaveAttribute('aria-busy', 'true');
+      const beforeResize = await input.boundingBox();
+      expect(beforeResize!.y + beforeResize!.height).toBeGreaterThan(420);
+      await info.attach('before-resize-input', {
+        body: JSON.stringify(beforeResize),
+        contentType: 'application/json',
+      });
+      await input.evaluate((field) => {
+        const original = field.scrollIntoView.bind(field);
+        let calls = 0;
+        field.setAttribute('data-host-reveals', '0');
+        field.scrollIntoView = (options?: boolean | ScrollIntoViewOptions) => {
+          field.setAttribute('data-host-reveals', String(++calls));
+          field.setAttribute('data-host-reveal-options', JSON.stringify(options));
+          original(options);
+        };
+      });
       await page.setViewportSize({ width, height: 420 });
       try {
+        await expect(input).toHaveAttribute('data-host-reveals', '1');
         await assertContained();
       } finally {
         const observed = await popup.evaluate((node) => {
@@ -365,6 +389,17 @@ for (const width of [320, 390, 1440]) {
             query: field?.value,
             inputFocused: document.activeElement === field,
             expanded: field?.getAttribute('aria-expanded'),
+            hostReveals: field?.getAttribute('data-host-reveals'),
+            revealOptions: field?.getAttribute('data-host-reveal-options'),
+            minimum: {
+              minHeight: style.minHeight,
+              paddingTop: style.paddingTop,
+              paddingBottom: style.paddingBottom,
+              borderTop: style.borderTopWidth,
+              borderBottom: style.borderBottomWidth,
+              clientHeight: node.clientHeight,
+              scrollHeight: node.scrollHeight,
+            },
             viewport: v && {
               width: v.width,
               height: v.height,
@@ -392,6 +427,13 @@ for (const width of [320, 390, 1440]) {
       await page.evaluate(() => window.scrollBy(0, 120));
       await assertContained();
       await page.screenshot({ path: info.outputPath('after-page-scroll.png') });
+      await expect(input).toHaveAttribute('data-host-reveals', '1');
+      await input.press('Escape');
+      await expect(input).toHaveAttribute('aria-expanded', 'true');
+      await expect(input).toHaveValue('Gamma');
+      await page
+        .getByRole('button', { name: 'Chips busy on', exact: true })
+        .evaluate((button) => button.click());
       await input.press('Escape');
       await expect(input).toHaveAttribute('aria-expanded', 'false');
       await expect(page.locator('[data-slot=popover-outside-shield]')).toHaveCount(0);
@@ -399,3 +441,215 @@ for (const width of [320, 390, 1440]) {
     });
   }
 }
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`readonly and unknown chips remain announced and inert ${theme}`, async ({ page }, info) => {
+    await page.emulateMedia({ colorScheme: theme });
+    await gallery(page);
+    await page.getByLabel('Outer theme').selectOption(theme);
+    await page.getByRole('button', { name: 'Chips read-only off', exact: true }).click();
+    const remove = page.getByRole('button', { name: 'Remove Alpha', exact: true });
+    await expect(remove).toHaveAttribute('aria-disabled', 'true');
+    expect(await remove.evaluate((node) => (node as HTMLButtonElement).disabled)).toBe(false);
+    const before = await page.getByLabel('Chips parent clicks').textContent();
+    await remove.click({ force: true });
+    await remove.press('Enter');
+    await remove.press('Space');
+    await expect(remove).toBeFocused();
+    await expect(page.getByLabel('Chips remove count')).toHaveText('0');
+    await expect(page.getByLabel('Chips Send count')).toHaveText('0');
+    await expect(page.getByLabel('Chips parent clicks')).toHaveText(before!);
+    await page.screenshot({ path: info.outputPath('readonly-state.png') });
+    await page.getByRole('button', { name: 'Chips read-only on', exact: true }).click();
+    await page.getByRole('button', { name: 'Chips unknown off', exact: true }).click();
+    await expect(remove).toBeDisabled();
+    await expect(remove).toHaveAttribute('aria-busy', 'true');
+    await expect(
+      page.getByRole('status').filter({ hasText: 'Unknown: outcome uncertain; draft retained' }),
+    ).toBeVisible();
+    await remove.click({ force: true });
+    await expect(page.getByLabel('Chips remove count')).toHaveText('0');
+    await expect(page.getByRole('combobox', { name: 'Chips search' })).toHaveAttribute(
+      'aria-busy',
+      'true',
+    );
+    await page.screenshot({ path: info.outputPath('unknown-state.png') });
+  });
+}
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`native visual viewport offset preserves the focused draft ${theme}`, async ({
+    page,
+  }, info) => {
+    await page.setViewportSize({ width: 390, height: 900 });
+    await gallery(page);
+    await page.getByLabel('Outer theme').selectOption(theme);
+    const input = page.getByRole('combobox', { name: 'Chips search' });
+    await input.click();
+    await input.pressSequentially('Gamma');
+    await input.evaluate((field) => field.setAttribute('data-retained-offset-input', 'yes'));
+    await page
+      .getByRole('button', { name: 'Chips busy off', exact: true })
+      .evaluate((button) => button.click());
+    const session = await page.context().newCDPSession(page);
+    try {
+      // Native Chromium page scaling changes the actual visual viewport. This
+      // is an emulated pinch/viewport test, not a physical keyboard claim.
+      await session.send('Emulation.setPageScaleFactor', { pageScaleFactor: 1.25 });
+      const popup = page.locator('[data-slot=popover-content]');
+      try {
+        await expect
+          .poll(() =>
+            popup.evaluate((node) => {
+              const r = node.getBoundingClientRect();
+              const v = window.visualViewport;
+              if (!v) throw new Error('Missing real visualViewport');
+              return (
+                v.scale > 1 &&
+                (v.offsetLeft > 0 || v.offsetTop > 0) &&
+                r.width > 0 &&
+                r.height > 0 &&
+                r.left >= v.offsetLeft - 1 &&
+                r.top >= v.offsetTop - 1 &&
+                r.right <= v.offsetLeft + v.width + 1 &&
+                r.bottom <= v.offsetTop + v.height + 1
+              );
+            }),
+          )
+          .toBe(true);
+      } finally {
+        await info.attach('native-offset-bounds', {
+          contentType: 'application/json',
+          body: JSON.stringify(
+            await popup.evaluate((node) => {
+              const v = window.visualViewport;
+              const field = document.querySelector<HTMLInputElement>(
+                'input[aria-label="Chips search"]',
+              );
+              const style = getComputedStyle(node);
+              return {
+                popup: node.getBoundingClientRect().toJSON(),
+                input: field?.getBoundingClientRect().toJSON(),
+                viewport: v && {
+                  width: v.width,
+                  height: v.height,
+                  offsetLeft: v.offsetLeft,
+                  offsetTop: v.offsetTop,
+                  scale: v.scale,
+                },
+                minimum: {
+                  minHeight: style.minHeight,
+                  paddingTop: style.paddingTop,
+                  paddingBottom: style.paddingBottom,
+                  borderTop: style.borderTopWidth,
+                  borderBottom: style.borderBottomWidth,
+                  scrollHeight: node.scrollHeight,
+                  clientHeight: node.clientHeight,
+                },
+                query: field?.value,
+                focused: document.activeElement === field,
+              };
+            }),
+            null,
+            2,
+          ),
+        });
+        await page.screenshot({ path: info.outputPath('native-offset.png') });
+      }
+      await expect(input).toHaveValue('Gamma');
+      await expect(input).toBeFocused();
+      await expect(input).toHaveAttribute('data-retained-offset-input', 'yes');
+      await input.press('Escape');
+      await expect(input).toHaveAttribute('aria-expanded', 'true');
+    } finally {
+      await session.send('Emulation.setPageScaleFactor', { pageScaleFactor: 1 });
+      await session.detach();
+    }
+  });
+}
+
+test('cmdk owns Home/End/arrows and skips disabled options while Space remains editing', async ({
+  page,
+}) => {
+  await gallery(page);
+  const input = page.getByRole('combobox', { name: 'Selection search' });
+  await input.focus();
+  await input.press('End');
+  await expect(
+    page.getByRole('option', { name: /Gamma with a deliberately long label/ }),
+  ).toHaveAttribute('aria-selected', 'true');
+  await input.press('Home');
+  await expect(page.getByRole('option', { name: 'Alpha', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await input.press('ArrowDown');
+  await expect(page.getByRole('option', { name: 'Beta', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await input.press('ArrowDown');
+  await expect(
+    page.getByRole('option', { name: /Gamma with a deliberately long label/ }),
+  ).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('option', { name: 'Unavailable option' })).toHaveAttribute(
+    'aria-disabled',
+    'true',
+  );
+  await expect(page.locator('[cmdk-item][aria-selected=true]')).toHaveCount(1);
+  await input.press('Space');
+  await expect(input).toHaveValue(' ');
+  await expect(input).toBeFocused();
+  await expect(page.getByLabel('Selection callback count')).toHaveText('0');
+  await expect(page.getByLabel('Selection send count')).toHaveText('0');
+});
+
+test('Chips Tab in both directions closes without adding and preserves native traversal', async ({
+  page,
+}) => {
+  await gallery(page);
+  const input = page.getByRole('combobox', { name: 'Chips search' });
+  await input.focus();
+  await input.pressSequentially('Be');
+  await input.press('Tab');
+  await expect(page.getByRole('button', { name: 'After chips', exact: true })).toBeFocused();
+  await expect(input).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByLabel('Chips add count')).toHaveText('0');
+  await input.focus();
+  await input.press('Shift+Tab');
+  await expect(page.getByRole('button', { name: 'Remove Alpha', exact: true })).toBeFocused();
+  await expect(input).toHaveAttribute('aria-expanded', 'false');
+  await expect(input).toHaveValue('Be');
+  await expect(page.getByLabel('Chips add count')).toHaveText('0');
+  await expect(page.getByLabel('Chips Send count')).toHaveText('0');
+});
+
+test('programmatic close requests honor host veto without a selection or query mutation', async ({
+  page,
+}) => {
+  await gallery(page);
+  const input = page.getByRole('combobox', { name: 'Selection search' });
+  await page.getByRole('button', { name: 'Close veto off', exact: true }).click();
+  await page
+    .getByRole('button', { name: 'Open selection programmatically' })
+    .evaluate((button) => button.click());
+  await expect(input).toHaveAttribute('aria-expanded', 'true');
+  await input.pressSequentially('Be');
+  await page
+    .getByRole('button', { name: 'Close selection programmatically' })
+    .evaluate((button) => button.click());
+  await expect(input).toHaveAttribute('aria-expanded', 'true');
+  await expect(input).toHaveValue('Be');
+  await expect(input).toBeFocused();
+  await expect(page.getByLabel('Selection callback count')).toHaveText('0');
+  await page
+    .getByRole('button', { name: 'Close veto on', exact: true })
+    .evaluate((button) => button.click());
+  await page
+    .getByRole('button', { name: 'Close selection programmatically' })
+    .evaluate((button) => button.click());
+  await expect(input).toHaveAttribute('aria-expanded', 'false');
+  await expect(input).toHaveValue('Be');
+  await expect(input).toBeFocused();
+  await expect(page.getByLabel('Selection callback count')).toHaveText('0');
+});

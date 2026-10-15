@@ -1,6 +1,11 @@
 import { StrictMode, useRef, useState } from 'react';
 import {
   Combobox,
+  Command,
+  CommandInput,
+  CommandList,
+  CommandItem,
+  PopoverAnchor,
   Dialog,
   DialogContent,
   DialogTitle,
@@ -50,7 +55,7 @@ export function SelectionFixtures() {
   return (
     <section
       aria-label="Selection qualification"
-      className="tmt:grid tmt:gap-3 tmt:p-3 tmt:max-w-full"
+      className="tmt:grid tmt:gap-3 tmt:p-3 tmt:max-w-full tmt:bg-background tmt:text-foreground tmt:font-body tmt:text-(length:--tmt-foundation-command-size)"
     >
       <h2>Slice4 selection qualification</h2>
       <div className="tmt:flex tmt:flex-wrap tmt:gap-2">
@@ -79,7 +84,7 @@ export function SelectionFixtures() {
           original.current = event.nativeEvent;
         }}
         onKeyDown={(event) => {
-          if (event.key === 'Enter') setSend((count) => count + 1);
+          if (event.key === 'Enter' || event.key === ' ') setSend((count) => count + 1);
         }}
       >
         <Button>Before selection</Button>
@@ -121,6 +126,7 @@ export function SelectionFixtures() {
         <ChipsCase />
       </StrictMode>
       <NestedCase />
+      <DescendantLayersCase />
       <output aria-label="Selection key detail">{keyDetail}</output>
       <output aria-label="Selection value">{value ?? 'None'}</output>
       <output aria-label="Selection callback count">{calls}</output>
@@ -142,18 +148,23 @@ function ChipsCase({ nested = false }: { nested?: boolean }) {
   const [adds, setAdds] = useState(0);
   const [removes, setRemoves] = useState(0);
   const [send, setSend] = useState(0);
+  const [clicks, setClicks] = useState(0);
   const [blocked, setBlocked] = useState(false);
   const [proof, setProof] = useState('None');
   const [mounted, setMounted] = useState(true);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [popoverOpen, setPopoverOpen] = useState(false);
+  const [readOnly, setReadOnly] = useState(false);
+  const [uncertain, setUncertain] = useState(false);
   const fallback = useRef<HTMLButtonElement>(null);
-  const menu = useLayerController({ open: menuOpen, onOpenChange: setMenuOpen });
-  const popover = useLayerController({ open: popoverOpen, onOpenChange: setPopoverOpen });
-  const controller = useLayerController({ open, onOpenChange: setOpen, canClose: () => !blocked });
+
+  const controller = useLayerController({
+    open,
+    onOpenChange: setOpen,
+    canClose: () => !blocked && !uncertain,
+  });
   return (
     <section
       aria-label="Chips qualification"
+      onClick={() => setClicks((count) => count + 1)}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') setSend((count) => count + 1);
       }}
@@ -162,8 +173,12 @@ function ChipsCase({ nested = false }: { nested?: boolean }) {
       <Button onClick={() => setBlocked(!blocked)}>Chips busy {blocked ? 'on' : 'off'}</Button>
       <Button onClick={() => controller.requestOpen()}>Open chips programmatically</Button>
       <Button onClick={() => setMounted(!mounted)}>Chips mounted {mounted ? 'on' : 'off'}</Button>
-      <Button onClick={() => menu.requestOpen()}>Open chips nested menu</Button>
-      <Button onClick={() => popover.requestOpen()}>Open chips nested popover</Button>
+      <Button onClick={() => setReadOnly(!readOnly)}>
+        Chips read-only {readOnly ? 'on' : 'off'}
+      </Button>
+      <Button onClick={() => setUncertain(!uncertain)}>
+        Chips unknown {uncertain ? 'on' : 'off'}
+      </Button>
       {mounted && (
         <Chips
           controller={controller}
@@ -196,34 +211,22 @@ function ChipsCase({ nested = false }: { nested?: boolean }) {
             setItems((values) => values.filter((value) => value.id !== item.id));
           }}
           emptyLabel="No eligible choices"
-          busy={blocked}
+          readOnly={readOnly}
+          busy={blocked || uncertain}
           stateLabel={
-            blocked
-              ? 'Working: draft retained'
-              : items.length >= 2
-                ? 'Capacity reached: remove a chip to add another'
-                : undefined
+            uncertain
+              ? 'Unknown: outcome uncertain; draft retained'
+              : readOnly
+                ? 'Read-only: retained chips'
+                : blocked
+                  ? 'Working: draft retained'
+                  : items.length >= 2
+                    ? 'Capacity reached: remove a chip to add another'
+                    : undefined
           }
         />
       )}
       <Button ref={fallback}>After chips</Button>
-      <DropdownMenu controller={menu}>
-        <DropdownMenuTrigger asChild>
-          <Button>Chips menu trigger</Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent>
-          <DropdownMenuItem>Nested chips menu action</DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-      <Popover controller={popover}>
-        <PopoverTrigger asChild>
-          <Button>Chips popover trigger</Button>
-        </PopoverTrigger>
-        <PopoverContent>
-          <PopoverTitle>Nested chips popover</PopoverTitle>
-          <Button>Nested chips popover action</Button>
-        </PopoverContent>
-      </Popover>
       <Button
         className="tmt:fixed tmt:right-0 tmt:top-0"
         onClick={() => setOutside((count) => count + 1)}
@@ -233,6 +236,7 @@ function ChipsCase({ nested = false }: { nested?: boolean }) {
       <output aria-label="Chips outside count">{outside}</output>
       <output aria-label="Chips add count">{adds}</output>
       <output aria-label="Chips remove count">{removes}</output>
+      <output aria-label="Chips parent clicks">{clicks}</output>
       <output aria-label="Chips Send count">{send}</output>
       <output aria-label="Chips event">{proof}</output>
     </section>
@@ -252,5 +256,64 @@ function NestedCase() {
         <ChipsCase nested />
       </DialogContent>
     </Dialog>
+  );
+}
+
+// Genuine React descendants, not sibling roots: the public layer composition
+// exercises its shield/nesting contract. Actual Chips-in-Dialog is separate.
+function DescendantLayersCase() {
+  const [open, setOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [childOpen, setChildOpen] = useState(false);
+  const [query, setQuery] = useState('Retained nested query');
+  const input = useRef<HTMLInputElement>(null);
+  const controller = useLayerController({ open, onOpenChange: setOpen });
+  const menu = useLayerController({ open: menuOpen, onOpenChange: setMenuOpen });
+  const child = useLayerController({ open: childOpen, onOpenChange: setChildOpen });
+  return (
+    <Command label="Descendant input" shouldFilter={false}>
+      <Popover controller={controller}>
+        <PopoverAnchor asChild>
+          <div className="tmt:relative tmt:z-[calc(var(--tmt-foundation-z-layer)+1)]">
+            <CommandInput asChild value={query} onValueChange={setQuery}>
+              <input ref={input} aria-label="Descendant input" aria-expanded={open} />
+            </CommandInput>
+          </div>
+        </PopoverAnchor>
+        <PopoverTrigger asChild>
+          <Button>Open descendant selection layer</Button>
+        </PopoverTrigger>
+        <PopoverContent
+          outsidePress="dismiss-only"
+          initialFocus={() => input.current}
+          returnFocus={() => input.current}
+          onInteractOutside={(event) => {
+            if (event.detail.originalEvent.target === input.current) event.preventDefault();
+          }}
+        >
+          <PopoverTitle>Descendant parent layer</PopoverTitle>
+          <CommandList>
+            <CommandItem value="nested">Retained nested option</CommandItem>
+          </CommandList>
+          <DropdownMenu controller={menu}>
+            <DropdownMenuTrigger asChild>
+              <Button>Descendant menu trigger</Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              <DropdownMenuItem>Descendant menu action</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Popover controller={child}>
+            <PopoverTrigger asChild>
+              <Button>Descendant Popover trigger</Button>
+            </PopoverTrigger>
+            <PopoverContent>
+              <PopoverTitle>Descendant child Popover</PopoverTitle>
+              <Button>Descendant Popover action</Button>
+            </PopoverContent>
+          </Popover>
+        </PopoverContent>
+      </Popover>
+    </Command>
   );
 }
