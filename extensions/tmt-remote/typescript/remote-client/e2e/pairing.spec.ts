@@ -1001,6 +1001,11 @@ test('a browser pairs, gets a door session and certifies only its own extension'
 // Optional exported evidence uses the same real-door fixture as the pairing smoke.
 // No mocked HTML or network responses enter the captures.
 test('browser pages consume shared presentation in both schemes and fit desktop and mobile', async () => {
+  const testInfo = test.info();
+  const favicon = await readFile(
+    new URL('../../../../../design/browser-ui/src/favicon.svg', import.meta.url),
+  );
+  const iconEvidence: { scheme: string; sha256: string; path: string }[] = [];
   const captures = process.env.TMT_REMOTE_CAPTURE_DIR;
   if (captures) await mkdir(captures, { recursive: true });
   for (const colorScheme of ['light', 'dark'] as const) {
@@ -1023,6 +1028,48 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
           if (message.text().startsWith('CSP violation:')) violations.push(message.text());
         });
         const inspect = async (state: 'landing' | 'pairing' | 'confirmation' | 'error') => {
+          const href = await page.locator('link[rel="icon"]').getAttribute('href');
+          expect(href).toBe(`data:image/svg+xml;base64,${favicon.toString('base64')}`);
+          // Decode under the actual door CSP; render the tab icon, not simulated browser chrome.
+          const icon = await page.evaluate(async () => {
+            const image = new Image();
+            image.src = document.querySelector<HTMLLinkElement>('link[rel="icon"]')!.href;
+            await image.decode();
+            const canvas = document.createElement('canvas');
+            canvas.width = canvas.height = 32;
+            const context = canvas.getContext('2d')!;
+            context.fillStyle = matchMedia('(prefers-color-scheme: dark)').matches
+              ? '#111'
+              : '#fff';
+            context.fillRect(0, 0, 32, 32);
+            context.drawImage(image, 0, 0, 32, 32);
+            return {
+              pixel: [...context.getImageData(10, 4, 1, 1).data],
+              corner: [...context.getImageData(0, 0, 1, 1).data],
+              png: canvas.toDataURL('image/png').split(',')[1]!,
+            };
+          });
+          expect(icon.pixel).toEqual(
+            colorScheme === 'light' ? [17, 17, 17, 255] : [255, 255, 255, 255],
+          );
+          expect(icon.corner).toEqual(
+            colorScheme === 'light' ? [255, 255, 255, 255] : [17, 17, 17, 255],
+          );
+          if (state === 'landing' && width === 1440) {
+            const png = Buffer.from(icon.png, 'base64');
+            const path = testInfo.outputPath(`favicon-${colorScheme}-32.png`);
+            await writeFile(path, png);
+            await testInfo.attach(`favicon-${colorScheme}-32`, { path, contentType: 'image/png' });
+            iconEvidence.push({
+              scheme: colorScheme,
+              sha256: createHash('sha256').update(png).digest('hex'),
+              path,
+            });
+            await writeFile(
+              testInfo.outputPath('favicon-index.json'),
+              JSON.stringify(iconEvidence, null, 2),
+            );
+          }
           await expect(page.locator('.header-title')).toHaveText(
             state === 'error'
               ? 'Page unavailable'

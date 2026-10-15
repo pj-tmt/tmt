@@ -4,6 +4,7 @@
 #[path = "support/door.rs"]
 mod door;
 
+use base64::{Engine, engine::general_purpose::STANDARD};
 use door::*;
 use serde_json::{Value, json};
 use std::{
@@ -12,6 +13,8 @@ use std::{
     time::Duration,
 };
 use tmt_remote::pairing::Timing;
+
+const PAGE_CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
 const FAST: Timing = Timing {
     lifetime: Duration::from_secs(30),
@@ -81,12 +84,7 @@ fn the_pairing_page_and_sdk_are_served_with_exact_types_and_policy() {
         page.header("content-type"),
         Some("text/html; charset=utf-8")
     );
-    assert_eq!(
-        page.header("content-security-policy"),
-        Some(
-            "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
-        )
-    );
+    assert_eq!(page.header("content-security-policy"), Some(PAGE_CSP));
     assert_eq!(page.header("cache-control"), Some("no-store"));
     assert_eq!(page.body, include_str!("../assets/pair.html"));
     assert!(
@@ -748,5 +746,48 @@ fn remote_static_headers_pin_the_approved_aperture_mark() {
         assert!(normalized.contains(&expected));
         assert_eq!(page.matches("class=\"header-mark tmt-ui-mark\"").count(), 1);
         assert!(page.contains("class=\"header-wordmark tmt-ui-wordmark\">Remote</span>"));
+    }
+}
+
+#[test]
+fn every_door_html_page_serves_the_shared_favicon_with_the_exact_data_only_policy() {
+    let h = Harness::new(FAST);
+    for (path, status) in [
+        ("/", 200),
+        ("/pair", 200),
+        ("/settings", 200),
+        ("/pair/", 404),
+    ] {
+        let reply = get(&h, path, "");
+        assert_eq!(reply.status, status, "{path}");
+        let links: Vec<_> = reply
+            .body
+            .split("<link")
+            .skip(1)
+            .map(|tail| tail.split('>').next().unwrap())
+            .filter(|tag| tag.contains("rel=\"icon\""))
+            .collect();
+        assert_eq!(links.len(), 1, "{path}");
+        assert_eq!(
+            reply.header("content-security-policy"),
+            Some(PAGE_CSP),
+            "{path}"
+        );
+        let link = links[0];
+        let href = link
+            .split("href=\"")
+            .nth(1)
+            .unwrap()
+            .split('"')
+            .next()
+            .unwrap();
+        let bytes = STANDARD
+            .decode(href.strip_prefix("data:image/svg+xml;base64,").unwrap())
+            .unwrap();
+        assert_eq!(
+            bytes,
+            include_bytes!("../../../../../design/browser-ui/src/favicon.svg"),
+            "{path}"
+        );
     }
 }
