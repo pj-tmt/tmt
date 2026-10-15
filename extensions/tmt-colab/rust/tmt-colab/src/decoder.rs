@@ -101,6 +101,8 @@ fn validate_own_records(records: &[OwnRecord]) -> Result<(), DecodeFault> {
                 &record.value,
             )
             .is_err()
+            || crate::edit_request::validate_record(&record.root, &record.key, &record.value)
+                .is_err()
         {
             return Err(DecodeFault::InvalidInput);
         }
@@ -1142,6 +1144,8 @@ fn validate_projection(namespace: Namespace, value: &Value) -> Result<(), Decode
                     crate::ask::validate_record(root, key, value)
                         .map_err(|_| DecodeFault::InvalidOutput)?;
                     crate::attachments::validate_attachment_record(root, key, value)
+                        .map_err(|_| DecodeFault::InvalidOutput)?;
+                    crate::edit_request::validate_record(root, key, value)
                         .map_err(|_| DecodeFault::InvalidOutput)?;
                 }
             }

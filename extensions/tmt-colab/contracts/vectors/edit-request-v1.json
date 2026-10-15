@@ -1,0 +1,1378 @@
+{
+  "version": 1,
+  "sourceBytes": 131072,
+  "hunkBytes": 65536,
+  "hunks": 64,
+  "cases": [
+    {
+      "name": "minimal",
+      "valid": true,
+      "root": "intents",
+      "key": "00000000-0000-4000-8000-000000000001",
+      "record": {
+        "version": 1,
+        "kind": "edit-request",
+        "operationId": "00000000-0000-4000-8000-000000000001",
+        "baseSha256": "1ubo7M6NBEdSuW0b9UNnsFxzTGzFypcHSUZTYrLvhp0",
+        "sourceSha256": "v34buBlPPh9rJyggo2p0HPBxuhMGU2Qv4QxsoDqCmvI",
+        "source": "<p>edited</p>\n"
+      }
+    },
+    {
+      "name": "with-hunks",
+      "valid": true,
+      "root": "intents",
+      "key": "00000000-0000-4000-8000-000000000001",
+      "record": {
+        "version": 1,
+        "kind": "edit-request",
+        "operationId": "00000000-0000-4000-8000-000000000001",
+        "baseSha256": "1ubo7M6NBEdSuW0b9UNnsFxzTGzFypcHSUZTYrLvhp0",
+        "sourceSha256": "v34buBlPPh9rJyggo2p0HPBxuhMGU2Qv4QxsoDqCmvI",
+        "source": "<p>edited</p>\n",
+        "hunks": [
+          {
+            "oldStart": 1,
+            "old": "<p>base</p>\n",
+            "new": "<p>edited</p>\n"
+          },
+          {
+            "oldStart": 4,
+            "old": "a\n",
+            "new": "b\nc\n"
+          }
+        ]
+      }
+    },
+    {
+      "name": "maximal",
+      "valid": true,
+      "root": "intents",
+      "key": "00000000-0000-4000-8000-000000000001",
+      "record": {
+        "version": 1,
+        "kind": "edit-request",
+        "operationId": "00000000-0000-4000-8000-000000000001",
+        "baseSha256": "1ubo7M6NBEdSuW0b9UNnsFxzTGzFypcHSUZTYrLvhp0",
+        "sourceSha256": "2YCV8nPn_GQhoxwofJNyDX5T_0C2gl0TEdcwz4gmpZM",
+        "source": {
+          "fill": "é",
+          "count": 65536
+        },
+        "hunks": [
+          {
+            "oldStart": 1,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 2,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 3,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 4,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 5,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 6,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 7,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 8,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 9,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 10,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 11,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 12,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 13,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 14,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 15,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 16,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 17,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 18,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 19,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 20,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 21,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 22,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 23,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 24,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 25,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 26,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 27,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 28,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 29,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 30,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 31,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 32,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 33,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 34,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 35,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 36,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 37,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 38,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 39,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 40,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 41,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 42,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 43,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 44,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 45,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 46,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 47,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 48,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 49,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 50,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 51,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 52,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 53,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 54,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 55,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 56,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 57,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 58,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 59,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 60,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 61,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 62,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 63,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          },
+          {
+            "oldStart": 64,
+            "old": {
+              "fill": "o",
+              "count": 512
+            },
+            "new": {
+              "fill": "n",
+              "count": 512
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "source-one-byte-over",
+      "valid": false,
+      "root": "intents",
+      "key": "00000000-0000-4000-8000-000000000001",
+      "record": {
+        "version": 1,
+        "kind": "edit-request",
+        "operationId": "00000000-0000-4000-8000-000000000001",
+        "baseSha256": "1ubo7M6NBEdSuW0b9UNnsFxzTGzFypcHSUZTYrLvhp0",
+        "sourceSha256": "fgCepO-ILjhbPAvLv6jQCbsKYzvddkQVwJGC7g512nM",
+        "source": {
+          "fill": "a",
+          "count": 131073
+        }
+      }
+    },
+    {
+      "name": "hunk-text-one-byte-over",
+      "valid": false,
+      "root": "intents",
+      "key": "00000000-0000-4000-8000-000000000001",
+      "record": {
+        "version": 1,
+        "kind": "edit-request",
+        "operationId": "00000000-0000-4000-8000-000000000001",
+        "baseSha256": "1ubo7M6NBEdSuW0b9UNnsFxzTGzFypcHSUZTYrLvhp0",
+        "sourceSha256": "v34buBlPPh9rJyggo2p0HPBxuhMGU2Qv4QxsoDqCmvI",
+        "source": "<p>edited</p>\n",
+        "hunks": [
+          {
+            "oldStart": 1,
+            "old": {
+              "fill": "o",
+              "count": 32768
+            },
+            "new": {
+              "fill": "n",
+              "count": 32769
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "too-many-hunks",
+      "valid": false,
+      "root": "intents",
+      "key": "00000000-0000-4000-8000-000000000001",
+      "record": {
+        "version": 1,
+        "kind": "edit-request",
+        "operationId": "00000000-0000-4000-8000-000000000001",
+        "baseSha256": "1ubo7M6NBEdSuW0b9UNnsFxzTGzFypcHSUZTYrLvhp0",
+        "sourceSha256": "v34buBlPPh9rJyggo2p0HPBxuhMGU2Qv4QxsoDqCmvI",
+        "source": "<p>edited</p>\n",
+        "hunks": [
+          {
+            "oldStart": 1,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 2,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 3,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 4,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 5,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 6,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 7,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 8,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 9,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 10,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 11,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 12,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 13,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 14,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 15,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 16,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 17,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 18,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 19,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 20,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 21,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 22,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 23,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 24,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 25,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 26,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 27,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 28,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 29,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 30,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 31,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 32,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 33,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 34,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 35,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 36,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 37,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 38,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 39,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 40,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 41,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 42,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 43,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 44,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 45,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 46,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 47,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 48,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 49,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 50,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 51,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 52,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 53,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 54,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 55,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 56,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 57,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 58,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 59,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 60,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 61,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 62,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 63,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 64,
+            "old": "a",
+            "new": "b"
+          },
+          {
+            "oldStart": 65,
+            "old": "a",
+            "new": "b"
+          }
+        ]
+      }
+    },
+    {
+      "name": "source-hash-differs",
+      "valid": false,
+      "root": "intents",
+      "key": "00000000-0000-4000-8000-000000000001",
+      "record": {
+        "version": 1,
+        "kind": "edit-request",
+        "operationId": "00000000-0000-4000-8000-000000000001",
+        "baseSha256": "1ubo7M6NBEdSuW0b9UNnsFxzTGzFypcHSUZTYrLvhp0",
+        "sourceSha256": "GjH5D9HmZkzawgfQB9_DWNdXT-cXX7qyrGLVd6yYY1c",
+        "source": "<p>edited</p>\n"
+      },
+      "digestOnly": true
+    },
+    {
+      "name": "base-hash-padded",
+      "valid": false,
+      "root": "intents",
+      "key": "00000000-0000-4000-8000-000000000001",
+      "record": {
+        "version": 1,
+        "kind": "edit-request",
+        "operationId": "00000000-0000-4000-8000-000000000001",
+        "baseSha256": "1ubo7M6NBEdSuW0b9UNnsFxzTGzFypcHSUZTYrLvhp0=",
+        "sourceSha256": "v34buBlPPh9rJyggo2p0HPBxuhMGU2Qv4QxsoDqCmvI",
+        "source": "<p>edited</p>\n"
+      }
+    },
+    {
+      "name": "base-hash-short",
+      "valid": false,
+      "root": "intents",
+      "key": "00000000-0000-4000-8000-000000000001",
+      "record": {
+        "version": 1,
+        "kind": "edit-request",
+        "operationId": "00000000-0000-4000-8000-000000000001",
+        "baseSha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "sourceSha256": "v34buBlPPh9rJyggo2p0HPBxuhMGU2Qv4QxsoDqCmvI",
+        "source": "<p>edited</p>\n"
+      }
+    },
+    {
+      "name": "wrong-root",
+      "valid": false,
+      "root": "messages",
+      "key": "00000000-0000-4000-8000-000000000001",
+      "record": {
+        "version": 1,
+        "kind": "edit-request",
+        "operationId": "00000000-0000-4000-8000-000000000001",
+        "baseSha256": "1ubo7M6NBEdSuW0b9UNnsFxzTGzFypcHSUZTYrLvhp0",
+        "sourceSha256": "v34buBlPPh9rJyggo2p0HPBxuhMGU2Qv4QxsoDqCmvI",
+        "source": "<p>edited</p>\n"
+      }
+    },
+    {
+      "name": "key-is-not-the-operation",
+      "valid": false,
+      "root": "intents",
+      "key": "00000000-0000-4000-8000-000000000002",
+      "record": {
+        "version": 1,
+        "kind": "edit-request",
+        "operationId": "00000000-0000-4000-8000-000000000001",
+        "baseSha256": "1ubo7M6NBEdSuW0b9UNnsFxzTGzFypcHSUZTYrLvhp0",
+        "sourceSha256": "v34buBlPPh9rJyggo2p0HPBxuhMGU2Qv4QxsoDqCmvI",
+        "source": "<p>edited</p>\n"
+      }
+    },
+    {
+      "name": "operation-is-not-an-id",
+      "valid": false,
+      "root": "intents",
+      "key": "not-an-id",
+      "record": {
+        "version": 1,
+        "kind": "edit-request",
+        "operationId": "not-an-id",
+        "baseSha256": "1ubo7M6NBEdSuW0b9UNnsFxzTGzFypcHSUZTYrLvhp0",
+        "sourceSha256": "v34buBlPPh9rJyggo2p0HPBxuhMGU2Qv4QxsoDqCmvI",
+        "source": "<p>edited</p>\n"
+      }
+    },
+    {
+      "name": "version-two",
+      "valid": false,
+      "root": "intents",
+      "key": "00000000-0000-4000-8000-000000000001",
+      "record": {
+        "version": 2,
+        "kind": "edit-request",
+        "operationId": "00000000-0000-4000-8000-000000000001",
+        "baseSha256": "1ubo7M6NBEdSuW0b9UNnsFxzTGzFypcHSUZTYrLvhp0",
+        "sourceSha256": "v34buBlPPh9rJyggo2p0HPBxuhMGU2Qv4QxsoDqCmvI",
+        "source": "<p>edited</p>\n"
+      }
+    },
+    {
+      "name": "extra-field",
+      "valid": false,
+      "root": "intents",
+      "key": "00000000-0000-4000-8000-000000000001",
+      "record": {
+        "version": 1,
+        "kind": "edit-request",
+        "operationId": "00000000-0000-4000-8000-000000000001",
+        "baseSha256": "1ubo7M6NBEdSuW0b9UNnsFxzTGzFypcHSUZTYrLvhp0",
+        "sourceSha256": "v34buBlPPh9rJyggo2p0HPBxuhMGU2Qv4QxsoDqCmvI",
+        "source": "<p>edited</p>\n",
+        "extra": true
+      }
+    },
+    {
+      "name": "empty-hunks",
+      "valid": false,
+      "root": "intents",
+      "key": "00000000-0000-4000-8000-000000000001",
+      "record": {
+        "version": 1,
+        "kind": "edit-request",
+        "operationId": "00000000-0000-4000-8000-000000000001",
+        "baseSha256": "1ubo7M6NBEdSuW0b9UNnsFxzTGzFypcHSUZTYrLvhp0",
+        "sourceSha256": "v34buBlPPh9rJyggo2p0HPBxuhMGU2Qv4QxsoDqCmvI",
+        "source": "<p>edited</p>\n",
+        "hunks": []
+      }
+    },
+    {
+      "name": "null-hunks",
+      "valid": false,
+      "root": "intents",
+      "key": "00000000-0000-4000-8000-000000000001",
+      "record": {
+        "version": 1,
+        "kind": "edit-request",
+        "operationId": "00000000-0000-4000-8000-000000000001",
+        "baseSha256": "1ubo7M6NBEdSuW0b9UNnsFxzTGzFypcHSUZTYrLvhp0",
+        "sourceSha256": "v34buBlPPh9rJyggo2p0HPBxuhMGU2Qv4QxsoDqCmvI",
+        "source": "<p>edited</p>\n",
+        "hunks": null
+      }
+    },
+    {
+      "name": "empty-old",
+      "valid": false,
+      "root": "intents",
+      "key": "00000000-0000-4000-8000-000000000001",
+      "record": {
+        "version": 1,
+        "kind": "edit-request",
+        "operationId": "00000000-0000-4000-8000-000000000001",
+        "baseSha256": "1ubo7M6NBEdSuW0b9UNnsFxzTGzFypcHSUZTYrLvhp0",
+        "sourceSha256": "v34buBlPPh9rJyggo2p0HPBxuhMGU2Qv4QxsoDqCmvI",
+        "source": "<p>edited</p>\n",
+        "hunks": [
+          {
+            "oldStart": 1,
+            "old": "",
+            "new": "x"
+          }
+        ]
+      }
+    },
+    {
+      "name": "hunk-starts-at-zero",
+      "valid": false,
+      "root": "intents",
+      "key": "00000000-0000-4000-8000-000000000001",
+      "record": {
+        "version": 1,
+        "kind": "edit-request",
+        "operationId": "00000000-0000-4000-8000-000000000001",
+        "baseSha256": "1ubo7M6NBEdSuW0b9UNnsFxzTGzFypcHSUZTYrLvhp0",
+        "sourceSha256": "v34buBlPPh9rJyggo2p0HPBxuhMGU2Qv4QxsoDqCmvI",
+        "source": "<p>edited</p>\n",
+        "hunks": [
+          {
+            "oldStart": 0,
+            "old": "a",
+            "new": "b"
+          }
+        ]
+      }
+    },
+    {
+      "name": "hunk-extra-field",
+      "valid": false,
+      "root": "intents",
+      "key": "00000000-0000-4000-8000-000000000001",
+      "record": {
+        "version": 1,
+        "kind": "edit-request",
+        "operationId": "00000000-0000-4000-8000-000000000001",
+        "baseSha256": "1ubo7M6NBEdSuW0b9UNnsFxzTGzFypcHSUZTYrLvhp0",
+        "sourceSha256": "v34buBlPPh9rJyggo2p0HPBxuhMGU2Qv4QxsoDqCmvI",
+        "source": "<p>edited</p>\n",
+        "hunks": [
+          {
+            "oldStart": 1,
+            "old": "a",
+            "new": "b",
+            "note": "x"
+          }
+        ]
+      }
+    },
+    {
+      "name": "source-not-a-string",
+      "valid": false,
+      "root": "intents",
+      "key": "00000000-0000-4000-8000-000000000001",
+      "record": {
+        "version": 1,
+        "kind": "edit-request",
+        "operationId": "00000000-0000-4000-8000-000000000001",
+        "baseSha256": "1ubo7M6NBEdSuW0b9UNnsFxzTGzFypcHSUZTYrLvhp0",
+        "sourceSha256": "47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU",
+        "source": 3
+      }
+    }
+  ]
+}

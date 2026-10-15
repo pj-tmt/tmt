@@ -44,6 +44,22 @@ fn log_roundtrip_keeps_exact_original_bytes_and_page_bound_id() {
     assert!(decode(Resource::Authority, &doc).is_err());
 }
 #[test]
+fn the_largest_sealed_update_the_decoder_admits_is_one_log_document() {
+    // A request is one own update of at most `UPDATE_BYTES` sealed; hosted, it is exactly one
+    // log create, because the document limit holds that envelope with its routing fields.
+    let mut fields = log();
+    fields.insert(
+        "envelope".into(),
+        string(&"x".repeat(crate::limits::UPDATE_BYTES)),
+    );
+    assert!(encode(Resource::Log, fields.clone()).is_ok());
+    fields.insert(
+        "envelope".into(),
+        string(&"x".repeat(tmt_extension_objects::limits::SYNC_DOCUMENT_BYTES)),
+    );
+    assert!(encode(Resource::Log, fields).is_err());
+}
+#[test]
 fn mappings_match_the_single_declaration_owner() {
     let declaration: Value =
         serde_json::from_str(include_str!("../../../../../firestore/declaration.json")).unwrap();

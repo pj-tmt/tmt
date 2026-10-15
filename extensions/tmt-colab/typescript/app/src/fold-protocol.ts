@@ -1,5 +1,13 @@
 import { validateDiscussionRecord } from './thread-records.js';
-import { attachment, coreId, exactKeys, generatedId, requireValue, text } from '@tmt/colab-client';
+import {
+  attachment,
+  coreId,
+  editRequest,
+  exactKeys,
+  generatedId,
+  requireValue,
+  text,
+} from '@tmt/colab-client';
 /** Plaintext-only decoder protocol. No CryptoKeys or transport capabilities. */
 // Mirror decoder.rs: UPDATE_BYTES, WRITE_TAIL_UPDATES, WRITE_TAIL_BYTES, UPDATES, STATE_BYTES and
 // BASELINE_UPDATE_BYTES. Read admission is wider; prepare/check still use write limits.
@@ -120,6 +128,13 @@ export function validateOwn(value: unknown): asserts value is OwnState {
           const publication = attachment.attachmentPublication(record);
           requireValue(root === 'intents' && key === publication.attachmentId);
         }
+        if (
+          record &&
+          typeof record === 'object' &&
+          !Array.isArray(record) &&
+          (record as Record<string, unknown>).kind === 'edit-request'
+        )
+          editRequest.editRequest(record, root, key);
         if (
           record &&
           typeof record === 'object' &&

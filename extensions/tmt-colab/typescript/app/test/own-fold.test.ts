@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { afterEach, expect, it, vi } from 'vite-plus/test';
 import * as Y from 'yjs';
 import { binary, digest, frame, text } from '@tmt/colab-client';
+import { UPDATE_BYTES } from '../src/fold-protocol.js';
 import type {
   FoldCommand,
   FoldResult,
@@ -171,6 +172,77 @@ it('prepares immutable own records without publishing until the durable append i
     }),
   ).rejects.toThrow();
   expect((await run({ type: 'apply', updates: [] })).own).toEqual(admitted.own);
+});
+
+it('an edit request is one own update within the cap, and the fold admits and refuses what the vectors list', async () => {
+  const corpus = JSON.parse(
+    readFileSync(
+      new URL('../../../contracts/vectors/edit-request-v1.json', import.meta.url),
+      'utf8',
+    ),
+  );
+  const expand = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(expand);
+    if (value !== null && typeof value === 'object') {
+      const map = value as Record<string, unknown>;
+      if (Object.keys(map).length === 2 && 'fill' in map && 'count' in map)
+        return (map.fill as string).repeat(map.count as number);
+      return Object.fromEntries(Object.entries(map).map(([k, x]) => [k, expand(x)]));
+    }
+    return value;
+  };
+  const run = await worker();
+  for (const c of corpus.cases) {
+    const prepare = run({
+      type: 'prepare-own',
+      writer: a,
+      records: [{ root: c.root, key: c.key, value: expand(c.record) as never }],
+    });
+    if (!c.valid && !c.digestOnly) {
+      await expect(prepare, c.name).rejects.toThrow();
+      continue;
+    }
+    if (c.digestOnly) {
+      await prepare;
+      continue;
+    }
+    const prepared = await prepare;
+    // The largest request is exactly one update of at most the decoder's cap.
+    expect(prepared.update.length, c.name).toBeLessThanOrEqual(UPDATE_BYTES);
+    expect(prepared.own[a].intents[c.key], c.name).toEqual(expand(c.record));
+  }
+  // A stored request cannot be replaced by a later update of its writer.
+  const first = corpus.cases[0];
+  const kept = await run({
+    type: 'prepare-own',
+    writer: b,
+    records: [{ root: first.root, key: first.key, value: first.record }],
+  });
+  await run({ type: 'apply', updates: [], own: [{ writer: b, update: kept.update }] });
+  const other = expand(corpus.cases[2].record);
+  await expect(
+    run({
+      type: 'prepare-own',
+      writer: b,
+      records: [{ root: first.root, key: first.key, value: other as never }],
+    }),
+  ).rejects.toThrow();
+  // Nor can a later update of that writer's stream replace or remove it.
+  for (const replace of [true, false]) {
+    const doc = new Y.Doc();
+    Y.applyUpdate(doc, kept.update);
+    const before = Y.encodeStateVector(doc);
+    const intents = doc.getMap('intents');
+    if (replace) intents.set(first.key, other);
+    else intents.delete(first.key);
+    await expect(
+      run({
+        type: 'apply',
+        updates: [],
+        own: [{ writer: b, update: Y.encodeStateAsUpdate(doc, before) }],
+      }),
+    ).rejects.toThrow();
+  }
 });
 
 it('thread creation prepares one atomic typed batch; malformed and conflicting candidates preserve committed state', async () => {
