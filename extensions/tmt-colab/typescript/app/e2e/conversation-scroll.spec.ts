@@ -173,6 +173,43 @@ for (const width of [1440, 390]) {
   }
 }
 
+test('thread follows a layout clamp and viewport shrink before the queued scroll', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const window = await mount(page, 'thread');
+  const history = window.locator('.conversation-messages');
+  const layout = await history.evaluate((node) => {
+    const content = node.firstElementChild as HTMLElement;
+    content.style.paddingBottom = '600px';
+    node.scrollTop = node.scrollHeight;
+    node.dispatchEvent(new Event('scroll'));
+    const before = node.scrollTop;
+    const height = node.clientHeight;
+    // Shrinking content clamps the bottom offset, then the viewport shrinks before
+    // that native scroll event reaches React or ResizeObserver can follow again.
+    content.style.paddingBottom = '553px';
+    const clamped = node.scrollTop;
+    node.style.maxHeight = `${height - 200}px`;
+    const gap = node.scrollHeight - node.clientHeight - node.scrollTop;
+    node.dispatchEvent(new Event('scroll'));
+    return { before, clamped, gap };
+  });
+  expect(layout.before - layout.clamped).toBe(47);
+  expect(layout.gap).toBe(200);
+  await expect.poll(() => distance(history)).toBeLessThanOrEqual(1);
+
+  await history.hover();
+  const bottom = await history.evaluate((node) => node.scrollTop);
+  await page.mouse.wheel(0, -300);
+  await expect.poll(() => history.evaluate((node) => node.scrollTop)).toBe(bottom - 300);
+  const reading = await history.evaluate((node) => node.scrollTop);
+  await run(page, 'resizeHistory');
+  await expect(window.getByTestId('comment-entry').last()).toContainText('More detail');
+  await expect.poll(() => history.evaluate((node) => node.scrollTop)).toBe(reading);
+  await expect(window.getByRole('button', { name: 'New messages', exact: true })).toHaveCount(0);
+});
+
 for (const surface of ['chat', 'thread'] as const) {
   test(`${surface} bottom threshold, resize and reopen`, async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });

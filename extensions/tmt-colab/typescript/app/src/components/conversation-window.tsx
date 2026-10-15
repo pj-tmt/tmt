@@ -15,6 +15,9 @@ const bottomThreshold = 24;
 function atBottom(node: HTMLDivElement) {
   return node.scrollHeight - node.clientHeight - node.scrollTop <= bottomThreshold;
 }
+function scrollPosition(node: HTMLDivElement) {
+  return { top: node.scrollTop, height: node.clientHeight, contentHeight: node.scrollHeight };
+}
 /** Owns history scrolling; callers retain placement, draft and action lifetimes. */
 export function ConversationWindow({
   title,
@@ -58,7 +61,7 @@ export function ConversationWindow({
   const arrivals = useRef<HTMLDivElement>(null);
   const previous = useRef<Set<string>>(undefined);
   const following = useRef(true);
-  const position = useRef(0);
+  const position = useRef<ReturnType<typeof scrollPosition> | undefined>(undefined);
   const [pending, setPending] = useState(false);
   const notification = useNotificationConversation(notificationDestination);
   const notificationRef = useRef(notification);
@@ -90,7 +93,7 @@ export function ConversationWindow({
     );
     if (!record) return;
     node.scrollTop += record.getBoundingClientRect().top - node.getBoundingClientRect().top;
-    position.current = node.scrollTop;
+    position.current = scrollPosition(node);
     following.current = atBottom(node);
     if (following.current) clearPending();
     node.focus({ preventScroll: true });
@@ -111,7 +114,7 @@ export function ConversationWindow({
     if (!node) return;
     following.current = true;
     node.scrollTop = node.scrollHeight;
-    position.current = node.scrollTop;
+    position.current = scrollPosition(node);
     clearPending();
     reportReading();
   }, [clearPending, reportReading]);
@@ -142,6 +145,7 @@ export function ConversationWindow({
       const node = history.current;
       if (node && (!node.clientHeight || atBottom(node))) following.current = true;
       if (following.current) latest();
+      else if (node) position.current = scrollPosition(node);
       requestReveal();
       reportReading();
     });
@@ -180,10 +184,26 @@ export function ConversationWindow({
           onScroll={() => {
             const node = history.current;
             if (!node) return;
-            // Our queued scroll event can arrive after a resize. An unchanged
-            // offset is not a reader leaving the bottom.
-            if (node.scrollTop === position.current) return;
-            position.current = node.scrollTop;
+            const previousPosition = position.current;
+            const currentPosition = scrollPosition(node);
+            position.current = currentPosition;
+            // A queued scroll may reflect a layout clamp before size observation.
+            // Only ignore the offset that the shrinking range can clamp to, using
+            // either content/viewport ordering. A reader's different offset still
+            // detaches even when a resize is pending; size observation owns following.
+            if (
+              !previousPosition ||
+              currentPosition.top ===
+                Math.min(
+                  previousPosition.top,
+                  Math.max(
+                    0,
+                    Math.min(previousPosition.contentHeight, currentPosition.contentHeight) -
+                      Math.max(previousPosition.height, currentPosition.height),
+                  ),
+                )
+            )
+              return;
             following.current = atBottom(node);
             if (following.current) clearPending();
             reportReading();
