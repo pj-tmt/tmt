@@ -7,10 +7,15 @@ import { text } from './strings.js';
 import './hosted-app.css';
 
 /** Fixed copy only: raw provider/crypto diagnostics, keys and tokens never reach presentation. */
-export function hostedFailureCopy(failure: unknown): {
+export function hostedFailureCopy(
+  failure: unknown,
+  presentation: { nowMs?: number; timeZone?: string } = {},
+): {
   title: string;
   body: string;
   reset?: string;
+  state?: 'inactive';
+  stateLabel?: string;
 } {
   const value =
     typeof failure === 'object' && failure !== null ? (failure as Record<string, unknown>) : {};
@@ -33,16 +38,48 @@ export function hostedFailureCopy(failure: unknown): {
         Number.isSafeInteger(value.resetAtMs) &&
         value.resetAtMs > 0 &&
         value.resetAtMs <= 8_640_000_000_000_000
-          ? new Date(value.resetAtMs).toISOString()
+          ? new Date(value.resetAtMs)
           : undefined;
+      let resetLine: string | undefined;
+      if (reset) {
+        const zone = { timeZone: presentation.timeZone };
+        const day = new Intl.DateTimeFormat('en-US', {
+          ...zone,
+          year: 'numeric',
+          month: 'numeric',
+          day: 'numeric',
+        });
+        const time = new Intl.DateTimeFormat('en-US', {
+          ...zone,
+          hour: '2-digit',
+          minute: '2-digit',
+          hourCycle: 'h23',
+        }).format(reset);
+        const sameDay = day.format(reset) === day.format(presentation.nowMs ?? Date.now());
+        const date = new Intl.DateTimeFormat('en-US', {
+          ...zone,
+          month: 'short',
+          day: 'numeric',
+        }).format(reset);
+        resetLine = sameDay
+          ? `The allowance resets at ${time}.`
+          : `The allowance resets on ${date} at ${time}.`;
+      }
       return {
         title: 'Daily reading allowance reached',
-        body: 'Hosted reading has stopped in this browser. Open the link again after the daily allowance resets.',
-        ...(reset ? { reset: `The allowance resets at ${reset}.` } : {}),
+        body: 'Reading has stopped in this browser for today. Open the link again after the allowance resets.',
+        state: 'inactive',
+        stateLabel: 'Limit reached',
+        ...(resetLine ? { reset: resetLine } : {}),
       };
     }
     case 'REMOTE_RATE_LIMITED':
-      return { title: 'Reading stopped', body: 'Firestore is limiting requests. Try again later.' };
+      return {
+        title: 'Too many requests',
+        body: 'Reading is paused for a moment. Try again in a few minutes.',
+        state: 'inactive',
+        stateLabel: 'Paused',
+      };
     case 'REMOTE_SCOPE_DENIED':
       return {
         title: 'Link cannot read this page',
@@ -66,8 +103,7 @@ export function HostedApp({ state, signIn }: { state: HostedEntryState; signIn()
           notice={
             state.budget.state === 'warn' ? (
               <p className="hosted-reading-warning" role="status">
-                This browser is close to its daily hosted reading allowance. Reads in other tabs
-                count too.
+                This browser is close to its daily reading allowance. Reads in other tabs count too.
               </p>
             ) : undefined
           }
@@ -93,7 +129,7 @@ export function HostedApp({ state, signIn }: { state: HostedEntryState; signIn()
         <NoticeCard
           state={
             state.phase === 'failed'
-              ? 'blocked'
+              ? (failure?.state ?? 'blocked')
               : state.phase === 'paused'
                 ? 'inactive'
                 : state.phase === 'sign-in' || state.phase === 'link-needed'
@@ -101,11 +137,12 @@ export function HostedApp({ state, signIn }: { state: HostedEntryState; signIn()
                   : 'opening'
           }
           stateLabel={
-            state.phase === 'sign-in'
-              ? 'Firestore sign-in'
+            failure?.stateLabel ??
+            (state.phase === 'sign-in'
+              ? 'Sign-in needed'
               : state.phase === 'link-needed'
                 ? 'Share link needed'
-                : undefined
+                : undefined)
           }
           eyebrow="Read-only"
           title={title}
@@ -115,7 +152,7 @@ export function HostedApp({ state, signIn }: { state: HostedEntryState; signIn()
               <BrowserAction
                 type="button"
                 variant="text"
-                label="Sign in to Firestore"
+                label="Sign in"
                 onActivate={(event) => {
                   if (event.isTrusted) signIn();
                 }}
@@ -125,7 +162,8 @@ export function HostedApp({ state, signIn }: { state: HostedEntryState; signIn()
         >
           {state.phase === 'sign-in' && (
             <p>
-              Sign in to Firestore to read the shared page. This does not give you editing access.
+              Sign in to read the shared page. Signing in gives read access only; you cannot edit
+              the page.
             </p>
           )}
           {(state.phase === 'link-needed' || (state.phase === 'sign-in' && !state.hasLink)) && (

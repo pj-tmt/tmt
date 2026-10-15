@@ -187,7 +187,7 @@ test('a hosted link holder verifies native authority and admits empty discovery 
     page.on('pageerror', (error) => crashes.push(error.message));
     await page.goto(`${origin}/read/${created.pageId}${fragment}`);
     await expect(page).toHaveURL(`${origin}/read/${created.pageId}`);
-    await page.getByRole('button', { name: 'Sign in to Firestore', exact: true }).click();
+    await page.getByRole('button', { name: 'Sign in', exact: true }).click();
     await expect(page.getByText('Live', { exact: true })).toBeVisible({ timeout: 25000 });
     await expect(page.locator('iframe')).toHaveCount(1);
     // #3127: the native CLI's local stream is currently excluded from publication. Do not seed

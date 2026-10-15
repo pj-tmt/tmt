@@ -25,6 +25,7 @@ const states: Record<string, HostedEntryState> = {
     phase: 'failed',
     failure: { code: 'REMOTE_BUDGET_EXHAUSTED', resetAtMs: Date.parse('2026-11-02T08:00:00Z') },
   },
+  'rate-limited': { phase: 'failed', failure: { code: 'REMOTE_RATE_LIMITED' } },
   denied: { phase: 'failed', failure: { code: 'REMOTE_SCOPE_DENIED' } },
   missing: { phase: 'failed', failure: { code: 'COLAB_HOSTED_NOT_IN_CLOUD' } },
 };

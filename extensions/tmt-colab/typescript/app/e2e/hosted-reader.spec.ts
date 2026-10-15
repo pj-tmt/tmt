@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test';
 import { capturePath } from './captures.js';
 
+test.use({ timezoneId: 'Asia/Tokyo' });
+
 // This fixture verifies actual chrome/rendering, not authority or provider behavior. The embedded
 // hosted-bundle acceptance separately enforces the composed CSP with the real SDK bytes.
 for (const width of [390, 1280]) {
@@ -8,6 +10,7 @@ for (const width of [390, 1280]) {
     const origin = 'https://demo-tmt-hosted.web.app';
     const outside: string[] = [];
     await page.setViewportSize({ width, height: 844 });
+    await page.clock.setFixedTime(new Date('2026-11-02T00:00:00Z'));
     await page.routeWebSocket('**/*', (socket) => socket.close());
     await page.route('**/*', async (route) => {
       const url = new URL(route.request().url());
@@ -29,6 +32,7 @@ for (const width of [390, 1280]) {
       'ready',
       'reshare',
       'budget',
+      'rate-limited',
       'denied',
       'missing',
     ]) {
@@ -40,7 +44,7 @@ for (const width of [390, 1280]) {
         await expect(page.locator('iframe')).toHaveAttribute('src', `${origin}/renderer.html`);
         await expect(page.getByText('Live', { exact: true })).toBeVisible();
         await expect(
-          page.getByText('This browser is close to its daily hosted reading allowance.', {
+          page.getByText('This browser is close to its daily reading allowance.', {
             exact: false,
           }),
         ).toBeVisible();
@@ -57,9 +61,7 @@ for (const width of [390, 1280]) {
         await expect(page.locator('iframe')).toHaveCount(0);
         await expect(page.getByText('Live', { exact: true })).toHaveCount(0);
         if (state === 'sign-in')
-          await expect(
-            page.getByRole('button', { name: 'Sign in to Firestore', exact: true }),
-          ).toBeVisible();
+          await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
         if (state === 'reshare')
           await expect(
             page.getByText(
@@ -67,11 +69,19 @@ for (const width of [390, 1280]) {
             ),
           ).toBeVisible();
         if (state === 'budget') {
-          await expect(
-            page.getByText('The allowance resets at 2026-11-02T08:00:00.000Z.'),
-          ).toBeVisible();
+          await expect(page.getByText('The allowance resets at 17:00.')).toBeVisible();
+          await expect(page.getByText('Limit reached', { exact: true })).toBeVisible();
+          await expect(page.getByText('failed', { exact: true })).toHaveCount(0);
           await expect(page.getByRole('button')).toHaveCount(0);
         }
+      }
+      if (state === 'rate-limited') {
+        await expect(
+          page.getByRole('heading', { name: 'Too many requests', exact: true }),
+        ).toBeVisible();
+        await expect(page.getByText('Paused', { exact: true })).toBeVisible();
+        await expect(page.getByText('failed', { exact: true })).toHaveCount(0);
+        await expect(page.getByRole('button')).toHaveCount(0);
       }
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
         width,

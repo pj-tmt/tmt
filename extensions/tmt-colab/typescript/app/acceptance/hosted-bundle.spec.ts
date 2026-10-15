@@ -105,9 +105,7 @@ test("the embedded hosted bundle serves its declared bytes and shell under Remot
         statuses.set(new URL(response.url()).pathname, response.status());
     });
     await page.goto(`${HOSTED_ORIGIN}/`, { waitUntil: 'networkidle' });
-    await expect(
-      page.getByRole('button', { name: 'Sign in to Firestore', exact: true }),
-    ).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
     await expect(page.getByText('Open a share link from Colab to read a page here.')).toBeVisible();
     await expect(
       page.getByText('This preview uses local sample pages.', { exact: false }),
