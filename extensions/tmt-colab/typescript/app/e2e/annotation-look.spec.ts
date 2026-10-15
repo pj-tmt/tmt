@@ -153,25 +153,69 @@ for (const width of [1440, 390])
   }
 
 async function numberMetrics(number: Locator) {
-  return number.evaluate((node) => {
-    const style = getComputedStyle(node);
-    return Object.fromEntries(
-      [
-        'width',
-        'height',
-        'font-family',
-        'font-size',
-        'font-weight',
-        'line-height',
-        'align-items',
-        'justify-items',
-        'padding',
-        'border-radius',
-        'letter-spacing',
-      ].map((key) => [key, style.getPropertyValue(key)]),
-    );
-  });
+  let metrics: Record<string, string> | undefined;
+  await expect
+    .poll(
+      async () => {
+        metrics = await number.evaluate((node) => {
+          const style = getComputedStyle(node);
+          const rect = node.getBoundingClientRect();
+          const values = Object.fromEntries(
+            [
+              'width',
+              'height',
+              'font-family',
+              'font-size',
+              'font-weight',
+              'line-height',
+              'align-items',
+              'justify-items',
+              'padding',
+              'border-radius',
+              'letter-spacing',
+            ].map((key) => [key, style.getPropertyValue(key)]),
+          );
+          // Capture readiness and metrics together: resolving annotations can replace the node.
+          return node.isConnected &&
+            rect.width > 0 &&
+            rect.height > 0 &&
+            (style.display === 'inline-grid' || style.display === 'grid') &&
+            Object.values(values).every((value) => value !== '')
+            ? values
+            : undefined;
+        });
+        return metrics !== undefined;
+      },
+      { message: 'Number circle must be connected, styled and laid out' },
+    )
+    .toBe(true);
+  return metrics!;
 }
+test('number metrics wait for a replacement marker to be styled and laid out', async ({ page }) => {
+  await page.setContent('<iframe title="Marker lifecycle"></iframe>');
+  const frame = page.frameLocator('iframe');
+  await frame.locator('body').evaluate((body) => {
+    body.innerHTML =
+      '<style>.annotation-number { display: inline-grid; position: absolute; width: 22px; height: 22px; }</style><button class="annotation-number">1</button>';
+    const view = body.ownerDocument.defaultView!;
+    const computedStyle = view.getComputedStyle.bind(view);
+    let replaced = false;
+    view.getComputedStyle = (node, pseudo) => {
+      if (!replaced && node.matches('.annotation-number')) {
+        replaced = true;
+        node.replaceWith(node.cloneNode(true));
+        body.dataset.replacements = '1';
+      }
+      return computedStyle(node, pseudo);
+    };
+  });
+  const marker = frame.locator('.annotation-number');
+  const metrics = await numberMetrics(marker);
+  await expect(marker).toHaveCSS('display', 'grid');
+  expect(metrics).toMatchObject({ width: '22px', height: '22px' });
+  await expect(frame.locator('body')).toHaveAttribute('data-replacements', '1');
+});
+
 async function sharedComposer(window: Locator) {
   const compose = window.locator('.annotation-compose');
   await expect(compose).toHaveCount(1);
