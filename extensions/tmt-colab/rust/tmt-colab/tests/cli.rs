@@ -6112,6 +6112,20 @@ fn page_prefix_reads_writes_exports_and_confirmations_use_the_resolved_full_id()
             format!("Adding a read-only link to page {PAGE} lets anyone who has it read the page,"),
             "add the link",
         ),
+        (
+            vec!["share", "link", "add", prefix, "--role", "commenter"],
+            format!(
+                "Adding a commenting link to page {PAGE} lets anyone who has it read and comment on the page,"
+            ),
+            "add the link",
+        ),
+        (
+            vec!["share", "link", "add", prefix, "--role", "editor"],
+            format!(
+                "Adding an editing link to page {PAGE} lets anyone who has it read and edit the page,"
+            ),
+            "add the link",
+        ),
     ] {
         let mut json_args = args.clone();
         json_args.push("--json");
@@ -6132,6 +6146,54 @@ fn page_prefix_reads_writes_exports_and_confirmations_use_the_resolved_full_id()
     let link = pilot.call(&["share", "link", "add", prefix, "--yes", "--json"]);
     assert_eq!(link["pageId"], PAGE);
     assert!(link["readerPath"].as_str().unwrap().contains(PAGE));
+    assert!(
+        link["readerPath"]
+            .as_str()
+            .unwrap()
+            .ends_with("&role=viewer")
+    );
+    // The role is chosen at add and a reset keeps it; an unknown role is refused before any effect.
+    let editor = pilot.call(&[
+        "share", "link", "add", prefix, "--role", "editor", "--yes", "--json",
+    ]);
+    assert!(
+        editor["readerPath"]
+            .as_str()
+            .unwrap()
+            .ends_with("&role=editor")
+    );
+    let reset = pilot.call(&[
+        "share",
+        "link",
+        "reset",
+        prefix,
+        editor["linkId"].as_str().unwrap(),
+        "--yes",
+        "--json",
+    ]);
+    assert!(
+        reset["readerPath"]
+            .as_str()
+            .unwrap()
+            .ends_with("&role=editor")
+    );
+    assert_ne!(reset["linkId"], editor["linkId"]);
+    let refused = pilot
+        .command()
+        .args(["share", "link", "add", prefix, "--role", "owner", "--yes"])
+        .output()
+        .unwrap();
+    assert!(!refused.status.success());
+    let links = pilot.call(&["share", "link", "ls", prefix, "--json"]);
+    let roles = |wanted: &str| {
+        links["links"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|row| row["role"] == wanted && row["revoked"] != true)
+            .count()
+    };
+    assert_eq!((roles("viewer"), roles("editor")), (1, 1), "{links}");
     let human = pilot.command().args(["archive", prefix]).output().unwrap();
     assert!(human.status.success(), "{human:?}");
     assert!(String::from_utf8_lossy(&human.stdout).contains(PAGE));

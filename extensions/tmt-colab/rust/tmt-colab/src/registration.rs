@@ -929,6 +929,13 @@ impl OwnerAdmission {
     }
 }
 impl crate::sync::Admission for OwnerAdmission {
+    fn device(&self, principal: &str) -> String {
+        self.0
+            .lock()
+            .ok()
+            .and_then(|service| service.readers.device(principal))
+            .unwrap_or_else(|| principal.to_owned())
+    }
     fn save_source(&self) -> Option<crate::page::save::SourceOpener> {
         self.0.lock().ok()?.save_source()
     }
@@ -1069,10 +1076,22 @@ impl crate::sync::Admission for OwnerAdmission {
                     (service.reader_clock)().map_err(|_| SyncCode::Denied)?,
                 )
                 .map_err(reader_sync_error)?;
-            return if matches!(access, crate::sync::Access::Read) {
-                Ok([0; 32])
-            } else {
-                Err(SyncCode::Denied)
+            // A link session reads; it stores its own originals only while the link's role may
+            // write them. Everything else a writer does (`Publish`) is denied to every link.
+            return match access {
+                crate::sync::Access::Read => Ok([0; 32]),
+                crate::sync::Access::Publish => Err(SyncCode::Denied),
+                access => service
+                    .readers
+                    .writer(
+                        principal,
+                        scope,
+                        &service.store,
+                        &service.keyring,
+                        (service.reader_clock)().map_err(|_| SyncCode::Denied)?,
+                    )
+                    .map_err(reader_sync_error)
+                    .and_then(|writer| writer.admit(&access)),
             };
         }
         service
@@ -1117,7 +1136,9 @@ impl crate::sync::Admission for OwnerAdmission {
                     || (policy.archived
                         && matches!(
                             access,
-                            crate::sync::Access::Append(_) | crate::sync::Access::Publish
+                            crate::sync::Access::Append(_)
+                                | crate::sync::Access::Write
+                                | crate::sync::Access::Publish
                         ))
                 {
                     return Err(SyncCode::Denied.into());

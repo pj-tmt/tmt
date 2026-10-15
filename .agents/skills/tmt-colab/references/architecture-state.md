@@ -526,7 +526,11 @@ changed scope, a second stale head and unknown outcomes never rebuild (colab-v1 
 
 - `readers::Sessions` keeps at most 64 ephemeral challenges, tickets and active readers
   (`CAP`), with a one-minute challenge and ten-minute session. Readers are page- and
-  epoch-scoped and never owner devices or writers (`readers.rs`).
+  epoch-scoped and never owner devices. A link session writes only through `sync::Access::Write` and
+  `Append`: `Sessions::writer` reads the live link, so its role admits `content` and `own` (editor),
+  `own` (commenter) or nothing (viewer), signed by the link device (`Admission::device`); the fold
+  stays the authority on what a stored original means. Every other frame stays denied
+  (`readers.rs`, `registration.rs`).
 
 The quick switcher's data (#2599) is React-free except one hook. `quick-switcher.ts` ranks the
 list's own `PageSummary` rows for the list's own `PageFilter` (no second index or parser): match

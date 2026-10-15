@@ -1,7 +1,7 @@
 use clap::{Arg, ArgAction, Command};
 use tmt_cli_style::{CommandSpec, Example, OutputModes};
 const DISCLOSURE: &str = "Widening access requires --yes. Shared history includes deleted text, snapshots, comments and agent replies, up to the 64 most recent epochs. Current history shares the current epoch window. Public mode is loopback-only; previously public content remains public.";
-const READER_LINK: &str = "Prints readerPath, the only place the link seed appears, and readerUrl, the same link under the running Remote door (while tmt remote serve runs); otherwise open readerPath under your Remote door address. Anyone holding the link who can reach that door can read this page, but cannot edit it or ask agents. Without --seed-file a fresh seed is generated; to retry a possibly committed add, pass the same --link-id and --seed-file. Widening access requires --yes. Shared history includes deleted text, snapshots, comments and agent replies, up to the 64 most recent epochs. Current history shares the current epoch window.";
+const READER_LINK: &str = "Prints readerPath, the only place the link seed appears, and readerUrl, the same link under the running Remote door (while tmt remote serve runs); otherwise open readerPath under your Remote door address. Anyone who holds the link and can reach that door gets the link's role: viewer reads the page, commenter also comments, editor also edits. No link can ask agents. Without --seed-file a fresh seed is generated; to retry a possibly committed add, pass the same --link-id and --seed-file. Widening access requires --yes. Shared history includes deleted text, snapshots, comments and agent replies, up to the 64 most recent epochs. Current history shares the current epoch window.";
 const RESET_LINK: &str = "Reset revokes the old link and its devices and rotates affected pages, then prints the replacement readerPath, and readerUrl while a door runs (the only places its seed appears). Without --seed-file a fresh seed is generated; to retry a possibly committed reset, pass the same --link-id and --seed-file. Anyone who can reach the Remote door and holds the new link can read the page.";
 macro_rules! cmd {
     ($name:literal, $summary:literal, $example:literal, $details:expr) => {
@@ -100,7 +100,13 @@ pub fn extend(root: Command) -> Command {
     let links = cmd!("link", "Manage caller-held sharing links", "tmt colab share link add 10000000-0000-4000-8000-000000000001 --seed-file seed --yes", DISCLOSURE)
         .subcommand_required(true)
         .subcommand(cmd!("ls", "List page links", "tmt colab share link ls 10000000-0000-4000-8000-000000000001", "Never returns bearer seeds or private keys.").alias("list").arg(page()))
-        .subcommand(seed(cmd!("add", "Add a fresh read-only sharing link", "tmt colab share link add 10000000-0000-4000-8000-000000000001 --yes", READER_LINK)))
+        .subcommand(seed(cmd!("add", "Add a fresh sharing link", "tmt colab share link add 10000000-0000-4000-8000-000000000001 --yes", READER_LINK)).arg(
+            Arg::new("role")
+                .long("role")
+                .value_parser(["viewer", "commenter", "editor"])
+                .default_value("viewer")
+                .help("Role the link grants: viewer reads, commenter also comments, editor also edits. Default: viewer"),
+        ))
         .subcommand(seed(cmd!("reset", "Revoke a link and create its replacement atomically", "tmt colab share link reset 10000000-0000-4000-8000-000000000001 20000000-0000-4000-8000-000000000001 --yes", RESET_LINK).arg(Arg::new("link").required(true).index(2))))
         .subcommand(cmd!("remove", "Revoke a link and its certified devices", "tmt colab share link remove 10000000-0000-4000-8000-000000000001 20000000-0000-4000-8000-000000000001", "Rotates affected pages; copied plaintext cannot be recalled.").arg(page()).arg(Arg::new("link").required(true).index(2)));
     let share = mutation(

@@ -75,7 +75,12 @@ impl From<store::Fault> for Code {
 /// Append receives the exact model-decoded header, never unsigned routing claims.
 pub enum Access<'a> {
     Read,
+    /// Everything a writer does besides storing its own originals: awareness, saves, usage,
+    /// compaction and object requests. A link session never has it.
     Publish,
+    /// Storing the principal's own originals (an append and its upload chunks), before the exact
+    /// header is known. A link session has it only while its role may write.
+    Write,
     Append(&'a object::Context),
 }
 pub use crate::store::owner::WrapRecipients;
@@ -91,6 +96,11 @@ pub struct CatchupContext {
 pub trait Admission: Send {
     fn alive(&self, _: &str) -> Result<(), Code> {
         Ok(())
+    }
+    /// The device that signs this principal's originals and owns its stream. A session whose
+    /// principal is not itself a device (a link reader) names the device its chain certifies.
+    fn device(&self, principal: &str) -> String {
+        principal.to_owned()
     }
     fn catchup_context(
         &self,
@@ -932,11 +942,13 @@ impl<A: Admission> State<A> {
         }
         let principal = peer.principal.clone();
         self.admission.authorize(&principal, &scope, Access::Read)?;
+        if matches!(&frame, Frame::Append { .. } | Frame::Chunk { .. }) {
+            self.admission
+                .authorize(&principal, &scope, Access::Write)?;
+        }
         if matches!(
             &frame,
-            Frame::Append { .. }
-                | Frame::Chunk { .. }
-                | Frame::Awareness { .. }
+            Frame::Awareness { .. }
                 | Frame::Save { .. }
                 | Frame::SaveStatus { .. }
                 | Frame::Usage { .. }
@@ -1050,7 +1062,7 @@ impl<A: Admission> State<A> {
                 if self.peers[&id].incoming.is_some() {
                     return Err(Code::Invalid);
                 }
-                if stream_id != principal {
+                if stream_id != self.admission.device(&principal) {
                     return Err(Code::Denied);
                 }
                 values::decimal(&seq, false)?;
@@ -1789,11 +1801,12 @@ impl<A: Admission> State<A> {
         principal: &str,
         request: AppendRequest,
     ) -> Result<(), Code> {
-        let checked = Checked::new(scope, principal, request)?;
+        let device = self.admission.device(principal);
+        let checked = Checked::new(scope, &device, request)?;
         let key =
             self.admission
                 .authorize(principal, scope, Access::Append(&checked.header.context))?;
-        self.apply(Some(id), scope, principal, &checked, &key)
+        self.apply(Some(id), scope, &device, &checked, &key)
             .map(|_| ())
     }
     /// Verify the author's signature with a key the caller admitted, store the original and

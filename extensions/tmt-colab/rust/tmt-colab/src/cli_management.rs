@@ -408,10 +408,23 @@ fn selection(
                             .map(|v| uuid(v))
                             .transpose()?
                             .map_or_else(fresh_id, Ok)?;
-                        let new = json!({"linkId":link_id,"role":"viewer","pages":pages,"seed":seed(selected)?});
+                        // A reset keeps the role of the link it replaces; only an add chooses one.
+                        let role = match old {
+                            Some(link) => link["role"].as_str().unwrap_or("viewer"),
+                            None => selected
+                                .get_one::<String>("role")
+                                .map_or("viewer", String::as_str),
+                        };
+                        let (adjective, grant) = match role {
+                            "editor" => ("editing", "read and edit"),
+                            "commenter" => ("commenting", "read and comment on"),
+                            _ => ("read-only", "read"),
+                        };
+                        let article = if adjective == "editing" { "an" } else { "a" };
+                        let new = json!({"linkId":link_id,"role":role,"pages":pages,"seed":seed(selected)?});
                         if action == "add" {
                             let consequence = format!(
-                                "Adding a read-only link to page {page_id} lets anyone who has it read the page, and copies can't be recalled later."
+                                "Adding {article} {adjective} link to page {page_id} lets anyone who has it {grant} the page, and copies can't be recalled later."
                             );
                             ("link.add", new, confirm(consequence, "add the link"))
                         } else {
@@ -420,8 +433,9 @@ fn selection(
                                 json!({"linkId":text(selected,"link"),"pages":pages,"replacement":new}),
                                 confirm(
                                     format!(
-                                        "Resetting link {} turns off the old link and creates a new read-only one; anyone with the new link can read page {page_id}.",
-                                        text(selected, "link")
+                                        "Resetting link {} turns off the old link and creates a new {} one; anyone with the new link can {grant} page {page_id}.",
+                                        text(selected, "link"),
+                                        adjective
                                     ),
                                     "reset the link",
                                 ),
