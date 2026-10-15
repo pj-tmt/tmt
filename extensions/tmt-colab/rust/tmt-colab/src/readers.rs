@@ -6,7 +6,7 @@ use crate::{
         Store,
         owner::{Device, OwnerTransaction},
     },
-    sync::{SyncScope, WrapRecipients},
+    sync::{Access, Code as SyncCode, SyncScope, WrapRecipients},
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -44,6 +44,38 @@ enum ReaderExchange {
         id: String,
         signature: String,
     },
+}
+/// A live link session's write authority at one moment.
+pub(crate) struct Writer {
+    pub device: String,
+    /// The link device's signing key, which verifies what the session stores.
+    pub key: [u8; 32],
+    pub role: String,
+    /// The membership head the session's originals must name.
+    pub revision: u64,
+}
+impl Writer {
+    /// A viewer link stores nothing, a commenter link its own namespace, an editor link both.
+    pub(crate) fn admit(&self, access: &Access<'_>) -> Result<[u8; 32], SyncCode> {
+        let namespace_allowed = |namespace: &str| {
+            matches!(
+                (self.role.as_str(), namespace),
+                ("editor", "content" | "own") | ("commenter", "own")
+            )
+        };
+        match access {
+            Access::Write if matches!(self.role.as_str(), "editor" | "commenter") => Ok(self.key),
+            Access::Append(c)
+                if namespace_allowed(&c.namespace)
+                    && c.author_device == self.device
+                    && values::decimal(&c.membership_revision, false)
+                        .is_ok_and(|revision| revision == self.revision) =>
+            {
+                Ok(self.key)
+            }
+            _ => Err(SyncCode::Denied),
+        }
+    }
 }
 struct Reader {
     scope: SyncScope,
@@ -263,6 +295,48 @@ impl Sessions {
     }
     pub(crate) fn contains(&self, id: &str) -> bool {
         self.0.contains_key(id)
+    }
+    /// The device a link session's chain certifies, which signs and owns the session's stream.
+    pub(crate) fn device(&self, id: &str) -> Option<String> {
+        let chain = certificate::Chain::from_json(self.0.get(id)?.chain.as_deref()?).ok()?;
+        Some(chain.certificate().ok()?.device_id.to_owned())
+    }
+    /// What an active link session may store right now, read from the live owner log: the link
+    /// must still exist for this page and epoch, and the page must not be archived.
+    pub(crate) fn writer(
+        &self,
+        id: &str,
+        scope: &SyncScope,
+        store: &Store,
+        key: &Keyring,
+        now: u64,
+    ) -> Result<Writer, Code> {
+        let reader = self.0.get(id).ok_or(Code::Denied)?;
+        if !matches!(reader.phase, Phase::Active) || scope != &reader.scope {
+            return Err(Code::Denied);
+        }
+        let chain = certificate::Chain::from_json(reader.chain.as_deref().ok_or(Code::Denied)?)?;
+        let cert = chain.certificate()?;
+        let (device, signing_key) = (cert.device_id.to_owned(), *cert.signing_key);
+        store
+            .owner_read(&key.space_id, &key.owner_public(), |tx| {
+                reader.check_tx(tx, now)?;
+                let head = tx.head().ok_or(Code::Denied)?;
+                if tx
+                    .page_policy_at(&reader.scope.page, head.revision)?
+                    .archived
+                {
+                    return Err(Code::Denied.into());
+                }
+                let link = tx.recipient("link", cert.issuer_id)?.ok_or(Code::Denied)?;
+                Ok(Writer {
+                    device: device.clone(),
+                    key: signing_key,
+                    role: link.role.unwrap_or_default(),
+                    revision: head.revision,
+                })
+            })
+            .map_err(error)
     }
     pub(crate) fn check(
         &self,

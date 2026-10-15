@@ -131,9 +131,12 @@ impl Fixture {
         });
     }
     pub(crate) fn add_link(&mut self) {
+        self.add_link_as("editor");
+    }
+    pub(crate) fn add_link_as(&mut self, role: &str) {
         self.apply(OwnerAction::Link(LinkAction::Add(LinkSpec {
             id: LINK,
-            role: "editor",
+            role,
             pages: vec![PAGE.into()],
             seed: &SEED,
         })));
@@ -225,6 +228,14 @@ impl Fixture {
             .unwrap()
             .reader_upgrade(&token)
             .map(|r| r.0)
+    }
+    /// The membership revision a new original names: the owner log's head.
+    pub(crate) fn revision(&self) -> u64 {
+        self.store
+            .owner_head(&self.key.space_id, &self.key.owner_public())
+            .unwrap()
+            .unwrap()
+            .revision
     }
     pub(crate) fn scope(&self) -> SyncScope {
         SyncScope {

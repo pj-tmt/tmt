@@ -5,6 +5,7 @@ use crate::{
     sync::{Access, Admission},
     transitions::{OwnerAction, ShareMode},
 };
+use ed25519_dalek::SigningKey;
 use std::{os::unix::net::UnixStream, sync::atomic::Ordering};
 use tungstenite::{Message, WebSocket, protocol::Role};
 #[test]
@@ -375,4 +376,211 @@ fn attachment_history_refuses_ambient_owner_keys_for_a_current_only_reader() {
             .unwrap()
             .is_some()
     );
+}
+
+fn context(
+    f: &Fixture,
+    namespace: &str,
+    device: &str,
+    revision: u64,
+) -> tmt_colab_model::object::Context {
+    let scope = f.scope();
+    tmt_colab_model::object::Context {
+        space: scope.space,
+        page: scope.page,
+        epoch: scope.epoch,
+        kind: "update".into(),
+        namespace: namespace.into(),
+        author_device: device.into(),
+        membership_revision: revision.to_string(),
+        stream_seq: "1".into(),
+        prev_hash: [0; 32],
+    }
+}
+
+#[test]
+fn a_link_session_stores_what_its_role_may_and_only_as_its_own_device() {
+    let key = SigningKey::from_bytes(&[19; 32]).verifying_key().to_bytes();
+    for (role, content, own) in [
+        ("viewer", false, false),
+        ("commenter", false, true),
+        ("editor", true, true),
+    ] {
+        let mut f = Fixture::new();
+        f.share(ShareMode::Link);
+        f.add_link_as(role);
+        let id = f.upgrade(&f.session(true)).unwrap();
+        let (admission, scope, head) = (OwnerAdmission(f.service.clone()), f.scope(), f.revision());
+        assert_eq!(
+            admission.device(&id),
+            DEVICE,
+            "{role}: the stream is the link device's"
+        );
+        // Awareness, saves, usage, compaction and object requests belong to no link.
+        assert_eq!(
+            admission.authorize(&id, &scope, Access::Publish),
+            Err(crate::sync::Code::Denied)
+        );
+        assert_eq!(
+            admission.authorize(&id, &scope, Access::Write),
+            if role == "viewer" {
+                Err(crate::sync::Code::Denied)
+            } else {
+                Ok(key)
+            },
+            "{role}: may open an upload"
+        );
+        for (namespace, allowed) in [("content", content), ("own", own)] {
+            let append = |device: &str, revision: u64| {
+                admission.authorize(
+                    &id,
+                    &scope,
+                    Access::Append(&context(&f, namespace, device, revision)),
+                )
+            };
+            assert_eq!(
+                append(DEVICE, head),
+                if allowed {
+                    Ok(key)
+                } else {
+                    Err(crate::sync::Code::Denied)
+                },
+                "{role}: {namespace}"
+            );
+            // Another device's stream, or a stale membership revision, is never admitted.
+            assert_eq!(append(OTHER, head), Err(crate::sync::Code::Denied));
+            assert_eq!(append(DEVICE, head - 1), Err(crate::sync::Code::Denied));
+        }
+    }
+}
+
+#[test]
+fn a_public_session_and_a_removed_link_store_nothing() {
+    let mut f = Fixture::new();
+    f.share(ShareMode::Public);
+    let public = f.upgrade(&f.session(false)).unwrap();
+    let admission = OwnerAdmission(f.service.clone());
+    let scope = f.scope();
+    assert_eq!(admission.device(&public), public, "no chain, no device");
+    assert_eq!(
+        admission.authorize(&public, &scope, Access::Write),
+        Err(crate::sync::Code::Denied)
+    );
+    let head = f.revision();
+    assert_eq!(
+        admission.authorize(
+            &public,
+            &scope,
+            Access::Append(&context(&f, "own", DEVICE, head))
+        ),
+        Err(crate::sync::Code::Denied)
+    );
+    f.share(ShareMode::Link);
+    f.add_link();
+    let id = f.upgrade(&f.session(true)).unwrap();
+    let scope = f.scope();
+    assert!(admission.authorize(&id, &scope, Access::Write).is_ok());
+    f.apply(OwnerAction::Link(crate::transitions::LinkAction::Remove {
+        link_id: LINK,
+    }));
+    assert_eq!(
+        admission.authorize(&id, &f.scope(), Access::Write),
+        Err(crate::sync::Code::Denied)
+    );
+    let head = f.revision();
+    assert_eq!(
+        admission.authorize(
+            &id,
+            &f.scope(),
+            Access::Append(&context(&f, "own", DEVICE, head))
+        ),
+        Err(crate::sync::Code::Denied)
+    );
+}
+
+/// One frame in, whatever the server answers out; a close or silence reads as no receipt.
+fn answer(
+    connection: &mut crate::sync::Connection<UnixStream, OwnerAdmission>,
+    peer: &mut WebSocket<UnixStream>,
+    frame: serde_json::Value,
+) -> serde_json::Value {
+    if peer.send(Message::Text(frame.to_string().into())).is_err() {
+        return json!({"type": "closed"});
+    }
+    for _ in 0..8 {
+        let _ = connection.poll();
+    }
+    match peer.read() {
+        Ok(Message::Text(text)) => serde_json::from_str(&text).unwrap(),
+        _ => json!({"type": "closed"}),
+    }
+}
+fn update(
+    f: &Fixture,
+    namespace: &str,
+    seq: u64,
+    previous: [u8; 32],
+) -> (serde_json::Value, [u8; 32]) {
+    let scope = f.scope();
+    let mut c = context(f, namespace, DEVICE, f.revision());
+    (c.stream_seq, c.prev_hash) = (seq.to_string(), previous);
+    let envelope = tmt_colab_model::object::seal(
+        &c,
+        &[11; 32],
+        &SigningKey::from_bytes(&[19; 32]),
+        namespace.as_bytes(),
+    )
+    .unwrap();
+    let hash = envelope.hash().unwrap();
+    (
+        json!({"type":"append","version":1,"space":scope.space,"page":scope.page,"epoch":scope.epoch,
+            "streamId":DEVICE,"seq":seq.to_string(),"envelopeHash":values::encode_binary(&hash),
+            "envelope":values::encode_binary(&envelope.to_json().unwrap())}),
+        hash,
+    )
+}
+
+#[test]
+fn an_append_frame_from_a_link_session_is_stored_as_the_link_devices_stream_by_role() {
+    // (role, namespace, accepted)
+    for (role, accepted) in [
+        ("viewer", [false, false]),
+        ("commenter", [false, true]),
+        ("editor", [true, true]),
+    ] {
+        let mut f = Fixture::new();
+        f.share(ShareMode::Link);
+        f.add_link_as(role);
+        let id = f.upgrade(&f.session(true)).unwrap();
+        let (server, client) = UnixStream::pair().unwrap();
+        server.set_nonblocking(true).unwrap();
+        client
+            .set_read_timeout(Some(std::time::Duration::from_secs(1)))
+            .unwrap();
+        let mut connection = f.server.connect(server, id).unwrap();
+        let mut peer = WebSocket::from_raw_socket(client, Role::Client, None);
+        let (mut seq, mut previous) = (0, [0; 32]);
+        for (namespace, accepted) in ["content", "own"].into_iter().zip(accepted) {
+            let (frame, hash) = update(&f, namespace, seq + 1, previous);
+            let reply = answer(&mut connection, &mut peer, frame);
+            assert_eq!(
+                reply["type"] == "receipt",
+                accepted,
+                "{role} {namespace}: {reply}"
+            );
+            if accepted {
+                (seq, previous) = (seq + 1, hash);
+                assert_eq!(reply["streamId"], DEVICE);
+            }
+            let stored = f
+                .store
+                .stream_head(crate::store::StreamScope {
+                    page: PAGE,
+                    epoch: f.scope().epoch.parse().unwrap(),
+                    stream: DEVICE,
+                })
+                .unwrap();
+            assert_eq!(stored.map_or(0, |(seq, _)| seq), seq, "{role} {namespace}");
+        }
+    }
 }

@@ -36,9 +36,10 @@ no admission. The public opaque SealedClient has no standalone constructor.
 and stopped after the object channel closes. Per generation it asks Remote to activate (the
 binary injects `supervisor::activate_sync`), waits for that generation's channel, binds, and
 keeps the most recently active page published: `object_channel/cloud_sync/publisher.rs` creates the page's
-admission rows (including a live link's `links` row), then the signed membership, chain and wrap
-originals of the streams this machine registered (and the wraps addressed to those links), then each local
-original in sequence, and `object_channel/cloud_sync/local.rs` reads them from the
+admission rows (including a live link's `links` row), then the signed membership and chain
+originals of the streams this machine registered, the epoch's signed baseline (from the second epoch, in
+the `checkpoints` carrier under the hash its `epoch.advance` names), the wraps (including those addressed to
+links), then each local original in sequence, and `object_channel/cloud_sync/local.rs` reads them from the
 Store and records a position only after the exact original was created or read back identical
 (`store/publication.rs` owns the positions). An ended link's cloud rows are removed by the publisher's
 retirement step (`links` row, then its `holders`), driven by `link_publications`. `sync.rs` reports the page a peer opened or wrote
@@ -525,7 +526,11 @@ changed scope, a second stale head and unknown outcomes never rebuild (colab-v1 
 
 - `readers::Sessions` keeps at most 64 ephemeral challenges, tickets and active readers
   (`CAP`), with a one-minute challenge and ten-minute session. Readers are page- and
-  epoch-scoped and never owner devices or writers (`readers.rs`).
+  epoch-scoped and never owner devices. A link session writes only through `sync::Access::Write` and
+  `Append`: `Sessions::writer` reads the live link, so its role admits `content` and `own` (editor),
+  `own` (commenter) or nothing (viewer), signed by the link device (`Admission::device`); the fold
+  stays the authority on what a stored original means. Every other frame stays denied
+  (`readers.rs`, `registration.rs`).
 
 The quick switcher's data (#2599) is React-free except one hook. `quick-switcher.ts` ranks the
 list's own `PageSummary` rows for the list's own `PageFilter` (no second index or parser): match

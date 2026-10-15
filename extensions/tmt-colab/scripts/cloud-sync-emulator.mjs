@@ -15,7 +15,7 @@ const root = fileURLToPath(new URL('../../../', import.meta.url));
 const artifacts = path.join(root, 'extensions/tmt-colab/contracts/vectors');
 const project = 'demo-tmt-colab-sync';
 const proofs = 'object_channel::cloud_sync::proof::';
-const scenarios = 4;
+const scenarios = 5;
 const test = [
   'test',
   '--locked',

@@ -772,7 +772,7 @@ existing restrictive placeholder/API policy.
 
 ### Mounted read-only reader sessions (#1310)
 
-The local socket admits explicitly read-only link and anonymous public sessions.
+The local socket admits link sessions, which store only what their link's role allows (below), and anonymous public sessions, which are read-only.
 They use the [Remote route-mounting contract](../../../contracts/remote-channel-v1.md#extension-channel-api)
 without Remote enrollment. Remote's Route mounting section owns subprotocol
 forwarding, reserved-header stripping and logging policy; Colab owns these
@@ -823,9 +823,18 @@ messages, cookies or owner device context. Disconnection releases the capability
 reconnect and restart require a fresh challenge/exchange. An owner context does
 not upgrade a supplied reader ticket into owner authority.
 
-Only hello, catchup, subscribe and scoped ack are allowed, on the admitted
-page/epoch. Deny content and own appends, referenced-upload acquisition/chunks
-and awareness publication even for an editor link. Link catchup selects only
+Only hello, catchup, subscribe, scoped ack and, for a link whose role allows
+it, append (with its upload chunks) are allowed, on the admitted page/epoch. A
+link session stores its own originals as its link's device: the stream is the
+device its chain certifies, and each object names the current membership head.
+The link's current role decides the namespaces. An `editor` link stores `update`
+objects in `content` and `own` (and `own` checkpoints), a `commenter` link in `own`
+only, and a `viewer` link nothing, from the first upload frame on. Every other
+frame, awareness publication, saves, usage, compaction and every object request
+(Ask, Chat, attachments), is denied for every link and for public sessions. What a
+stored original means is the fold's call as for any author: a `content` original
+from a link that is not an editor, or any original from a viewer, is refused there.
+Link catchup selects only
 link-addressed wraps; public catchup selects none and obtains published keys
 from signed statements. Owner catchup retains its existing exact bytes.
 All operations, deliveries and pre-hello tunnels recheck session expiry, live
@@ -860,8 +869,9 @@ before `root` and `role` existed, or more than 512 bytes, is not a reader link (
 form is about 300 bytes; the entry names a well-formed pre-`root` link as out of date and says to
 ask the owner for a new one, without any request). `root` is the owner's root public key: every reader rejects a link
 whose `root` does not derive `space`. `role` is only a hint for the one self-admission create of
-a hosted reader; the capability comes from the signed link statements, and the reader stays
-read-only whatever `role` says.
+a hosted reader; the capability comes from the signed link statements, and a hosted reader stays
+read-only whatever `role` says. `share link add --role viewer|commenter|editor` (default `viewer`)
+chooses the role the link statement carries, and `share link reset` keeps the replaced link's role.
 
 The public `/read` entry removes the fragment from the address bar before any other work
 (a reload therefore needs the full link again). In memory only, it derives the link keys from
@@ -3151,7 +3161,7 @@ IDs, a missing `space` field and queries that omit a filter.
 | `links`         | checkpoint | `space_page_link`                   | an owner-written enrollment secret and role for a share link; holders cannot read it                                                                                                    |
 | `members`       | checkpoint | `space_page_uid`                    | who may read or write and in which role (`viewer`, `commenter`, `editor`, `bridge`)                                                                                                     |
 | `log`           | log        | `space_page_epoch_stream_seq`       | one immutable encrypted envelope: `uid` (the writer), `hash`, `envelope`, `expiresAt`                                                                                                   |
-| `checkpoints`   | checkpoint | `space_page_epoch_object_index`     | one immutable 32 KiB chunk of an encrypted object: `uid` (the writer), `index` of `count` (at most 513)                                                                                 |
+| `checkpoints`   | checkpoint | `space_page_epoch_object_index`     | one immutable 32 KiB chunk of an encrypted object (a content checkpoint or an epoch's baseline): `uid` (the writer), `index` of `count` (at most 513)                                   |
 | `authority`     | checkpoint | `space_page_epoch_kind_subject_seq` | owner-written exact signed membership statements, key wraps and certificate chains, in immutable chunks                                                                                 |
 
 There is no `blob` resource and no presence resource: Awareness stores nothing on Firestore, and
@@ -3190,6 +3200,13 @@ Late writers are found by repeated runs, even when another writer is far ahead. 
 stream field and **`seq = index + 1`** as the positive chunk sequence; the existing index-based
 ID and first-chunk writer ownership do not change. Their `objects` discovery drops only object.
 Checkpoint and authority limits declare `chunkBytes:32768`; all previous planning bounds remain.
+
+**Epoch baselines.** From the second epoch on, the owner publishes that epoch's exact signed `html`
+baseline original through the same `checkpoints` carrier, chunked like any checkpoint object, with
+the object ID the lowercase hex of the `objectEnvelopeHash` its signed `epoch.advance` names, and
+confirms it before that epoch's wraps. The first epoch has none. A reader finds the object from the
+verified membership log, reassembles every chunk in order and verifies the hash, the signed
+descriptor and the signatures itself; the rows grant no authority and add no collection or Rules.
 
 Authority has exactly three kinds: `membership` (the original signed statement), `wrap` (the
 original signed key-wrap envelope), and `chain` (the original certificate-chain JSON).

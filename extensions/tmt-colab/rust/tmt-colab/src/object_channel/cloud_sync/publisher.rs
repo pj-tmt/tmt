@@ -206,6 +206,8 @@ impl Publisher {
     }
     /// Delete a document. Rules read the document being deleted, so a delete of one that is not
     /// there is refused like any other: a refusal reads as already gone, as it does for a get.
+    /// Only the space owner's uid deletes: a serve bound to any other uid stops at the `spaces`
+    /// refusal before it can reach a retirement, so a refusal here is never a missing permission.
     fn delete(&self, target: &sync::Target) -> Result<(), Fault> {
         match self.request(sync::Call::Publish {
             binding: self.binding.clone(),

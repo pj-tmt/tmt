@@ -17,6 +17,10 @@ import { listE2eFiles } from '../../scripts/e2e-shards.mjs';
 import { readCargoWorkspace } from '../../scripts/cargo-workspace.mjs';
 import {
   RUST_WORKERS,
+  MAIN_FULL_JOBS,
+  admitMainFull,
+  mainFullGatePasses,
+  notifyMainFullFailure,
   ciGatePasses,
   e2eGatePasses,
   explainCiSelection,
@@ -49,6 +53,377 @@ const { runPackedCommand } = await import(
 const { isComponentRetired } = (await import(
   new URL('../../scripts/native-release-policy.mjs', import.meta.url).href
 )) as { isComponentRetired: (name: string) => boolean };
+
+describe('complete trusted-main verification', () => {
+  const context = {
+    repository: 'pj-tmt/tmt',
+    eventName: 'push',
+    ref: 'refs/heads/main',
+    sha: 'a'.repeat(40),
+    runId: '42',
+    runAttempt: '1',
+  };
+  const capture = () => {
+    let text = '';
+    return { write: (value: string) => (text += value), text: () => text };
+  };
+  const completeNeeds = () => {
+    const stdout = capture();
+    runCiScope(['main-full'], { cwd: '/unused', stdout, stderr: capture() });
+    const needs: Record<string, { result: string; outputs?: Record<string, string> }> =
+      Object.fromEntries(MAIN_FULL_JOBS.map((job) => [job, { result: 'success' }]));
+    needs.changes.outputs = {
+      ...Object.fromEntries(
+        stdout
+          .text()
+          .trim()
+          .split('\n')
+          .map((line) => line.split('='))
+      ),
+      verify: 'true',
+      macos: 'true',
+      main_full_admitted: 'true',
+    };
+    return needs;
+  };
+  const job = (id: number, conclusion = 'success') => ({ id, name: `worker ${id}`, conclusion });
+
+  it('selects both Rules suites and native sync, unlike weekly cache seeding', () => {
+    let output = '';
+    runCiScope(['main-full'], {
+      cwd: '/no-diff-required',
+      stdout: { write: (text: string) => (output += text) },
+      stderr: { write: () => {} },
+    });
+    const selected = Object.fromEntries(
+      output
+        .trim()
+        .split('\n')
+        .map((line) => line.split('='))
+    );
+    expect(selected).toMatchObject({
+      native: 'true',
+      native_scope: 'full',
+      native_notices: 'true',
+      remote_firestore: 'true',
+      colab_firestore: 'true',
+      native_sync_emulator: 'true',
+    });
+  });
+
+  it('admits current main once and skips a superseded event without retargeting it', () => {
+    const reads: string[] = [];
+    expect(
+      admitMainFull(context, () => {
+        reads.push('current');
+        return context.sha;
+      })
+    ).toBe(true);
+    expect(
+      admitMainFull(context, () => {
+        reads.push('newer');
+        return 'b'.repeat(40);
+      })
+    ).toBe(false);
+    expect(reads).toEqual(['current', 'newer']);
+    const failure = new Error('API unavailable');
+    expect(() =>
+      admitMainFull(context, () => {
+        throw failure;
+      })
+    ).toThrow(failure);
+    expect(() => admitMainFull(context, () => null)).toThrow('no exact commit SHA');
+  });
+
+  it.each([
+    { eventName: 'pull_request' },
+    { eventName: 'merge_group' },
+    { eventName: 'workflow_dispatch' },
+    { eventName: 'schedule' },
+    { ref: 'refs/heads/feature' },
+    { repository: 'someone/tmt' },
+    { sha: 'main' },
+  ])('rejects non-authoritative context before any API access: %j', (changed) => {
+    let reads = 0;
+    const bad = { ...context, ...changed };
+    expect(() =>
+      admitMainFull(bad, () => {
+        reads += 1;
+        return context.sha;
+      })
+    ).toThrow('trusted main push');
+    expect(mainFullGatePasses(bad, completeNeeds())).toBe(false);
+    expect(() =>
+      notifyMainFullFailure(bad, () => {
+        reads += 1;
+        return null;
+      })
+    ).toThrow('trusted main push');
+    expect(reads).toBe(0);
+  });
+
+  it('requires all full flags, complete disjoint shards and the exact worker inventory', () => {
+    expect(mainFullGatePasses(context, completeNeeds())).toBe(true);
+    for (const key of [
+      'verify',
+      'macos',
+      'main_full_admitted',
+      'native',
+      'native_notices',
+      'remote_firestore',
+      'colab_firestore',
+      'native_sync_emulator',
+    ]) {
+      const needs = completeNeeds();
+      needs.changes.outputs![key] = 'false';
+      expect(mainFullGatePasses(context, needs), key).toBe(false);
+    }
+    for (const key of ['native_scope', 'e2e_shard_1', 'e2e_shard_2']) {
+      const needs = completeNeeds();
+      needs.changes.outputs![key] = '';
+      expect(mainFullGatePasses(context, needs), key).toBe(false);
+    }
+    const extra = completeNeeds();
+    extra.unclassified = { result: 'success' };
+    expect(mainFullGatePasses(context, extra)).toBe(false);
+    expect(mainFullGatePasses(context, null)).toBe(false);
+  });
+
+  it.each(MAIN_FULL_JOBS)('cannot omit or skip any complete obligation: %s', (name) => {
+    const needs = completeNeeds();
+    delete needs[name];
+    expect(mainFullGatePasses(context, needs)).toBe(false);
+    for (const result of ['skipped', 'failure', 'cancelled', 'timed_out', '']) {
+      needs[name] = { result };
+      expect(mainFullGatePasses(context, needs), `${name}: ${result}`).toBe(false);
+    }
+  });
+
+  it('wires main admission and aggregate through injected reads and explicit outputs', () => {
+    const env = {
+      GITHUB_REPOSITORY: context.repository,
+      GITHUB_EVENT_NAME: context.eventName,
+      GITHUB_REF: context.ref,
+      GITHUB_SHA: context.sha,
+    };
+    const stdout = capture();
+    const routes: string[] = [];
+    runCiScope(['main-admit'], {
+      cwd: '/unused',
+      env,
+      stdout,
+      stderr: capture(),
+      request: (route) => {
+        routes.push(route);
+        return { object: { sha: 'b'.repeat(40) } };
+      },
+    });
+    expect(stdout.text()).toBe('admitted=false\nverify=false\nmacos=false\n');
+    expect(routes).toEqual(['git/ref/heads/main']);
+    const passed = capture();
+    runCiScope(['gate-main'], {
+      cwd: '/unused',
+      env: { ...env, MAIN_FULL_NEEDS: JSON.stringify(completeNeeds()) },
+      stdout: passed,
+      stderr: capture(),
+      request: () => {
+        throw new Error('must not read');
+      },
+    });
+    expect(passed.text()).toContain(`succeeded at ${context.sha}`);
+    expect(() =>
+      runCiScope(['gate-main'], {
+        cwd: '/unused',
+        env: { ...env, MAIN_FULL_NEEDS: '{}' },
+        stdout: capture(),
+        stderr: capture(),
+      })
+    ).toThrow('missing, unexpected or unsuccessful obligations');
+  });
+
+  it('posts one bounded failure notification with real job IDs, and never retries a write', () => {
+    const calls: { route: string; method?: string; body?: string }[] = [];
+    const request = (route: string, method?: string, body?: string) => {
+      calls.push({ route, method, body });
+      if (route.startsWith('actions/'))
+        return { total_count: 2, jobs: [job(7, 'failure'), job(8)] };
+      if (method === 'POST') return { id: 99 };
+      return [];
+    };
+    expect(notifyMainFullFailure(context, request)).toEqual({ created: true, commentId: 99 });
+    expect(calls.map(({ route }) => route)).toEqual([
+      'actions/runs/42/attempts/1/jobs?per_page=100&page=1',
+      'issues/3054/comments?per_page=100&page=1',
+      'issues/3054/comments',
+    ]);
+    const post = calls[2];
+    expect(post.method).toBe('POST');
+    expect(post.body).toContain(`failed at ${context.sha}, attempt 1`);
+    expect(post.body).toContain('[job 7](https://github.com/pj-tmt/tmt/actions/runs/42/job/7)');
+    expect(post.body).not.toContain('job 8');
+    let writes = 0;
+    const uncertain = new Error('POST response lost');
+    expect(() =>
+      notifyMainFullFailure(context, (route, method) => {
+        if (method === 'POST') {
+          writes += 1;
+          throw uncertain;
+        }
+        return request(route, method);
+      })
+    ).toThrow(uncertain);
+    expect(writes).toBe(1);
+  });
+
+  it('retains a prior bot notification but does not trust an operator-controlled marker', () => {
+    for (const login of ['github-actions[bot]', 'someone']) {
+      let writes = 0;
+      const result = notifyMainFullFailure(context, (route, method) => {
+        if (route.startsWith('actions/')) return { total_count: 1, jobs: [job(7, 'failure')] };
+        if (method === 'POST') {
+          writes += 1;
+          return { id: 99 };
+        }
+        return [{ id: 77, user: { login }, body: '<!-- main-full:42:1 -->' }];
+      });
+      expect(result).toEqual(
+        login === 'github-actions[bot]'
+          ? { created: false, commentId: 77 }
+          : { created: true, commentId: 99 }
+      );
+      expect(writes).toBe(login === 'github-actions[bot]' ? 0 : 1);
+    }
+  });
+
+  it('finishes bounded pagination before notifying and refuses incomplete or oversized evidence', () => {
+    const routes: string[] = [];
+    notifyMainFullFailure(context, (route, method) => {
+      routes.push(route);
+      if (route.startsWith('actions/'))
+        return {
+          total_count: 101,
+          jobs: route.endsWith('page=1')
+            ? Array.from({ length: 100 }, (_, i) => job(i + 1))
+            : [job(101, 'failure')],
+        };
+      return method === 'POST' ? { id: 99 } : [];
+    });
+    expect(routes).toHaveLength(4);
+    expect(routes[1]).toContain('page=2');
+    for (const response of [
+      { total_count: 1, jobs: [job(1)] },
+      { total_count: 2, jobs: [job(1, 'failure')] },
+      { total_count: 501, jobs: [] },
+    ]) {
+      let writes = 0;
+      expect(() =>
+        notifyMainFullFailure(context, (_route, method) => {
+          if (method === 'POST') writes += 1;
+          return response;
+        })
+      ).toThrow();
+      expect(writes).toBe(0);
+    }
+  });
+
+  it('keeps every full worker in the aggregate and only the notifier can write', () => {
+    const workflow = readFileSync(
+      new URL('../../../.github/workflows/ci.yml', import.meta.url),
+      'utf8'
+    );
+    const job = (name: string) =>
+      workflow.split(`\n  ${name}:\n`)[1].split(/\n {2}[a-z0-9-]+:\n/)[0];
+    const ids = [...workflow.split('\njobs:\n')[1].matchAll(/^  ([a-z][a-z0-9-]+):\n/gm)].map(
+      (match) => match[1]
+    );
+    expect(ids.sort()).toEqual(
+      [...MAIN_FULL_JOBS, 'release-rehearsal', 'complete-main', 'notify-main-failure'].sort()
+    );
+    const complete = job('complete-main');
+    const needs = complete.split('    needs:\n')[1].split('    if:')[0];
+    expect([...needs.matchAll(/^      - (.+)$/gm)].map((match) => match[1]).sort()).toEqual(
+      [...MAIN_FULL_JOBS].sort()
+    );
+    expect(complete).toContain('always()');
+    expect(complete).toContain("github.event_name == 'push'");
+    expect(complete).toContain("github.ref == 'refs/heads/main'");
+    expect(complete).toContain("needs.changes.outputs.main_full_admitted == 'true'");
+    expect(complete).toContain('MAIN_FULL_NEEDS: ${{ toJSON(needs) }}');
+    expect(complete).toContain('ci-scope.mjs gate-main');
+    expect(workflow.split('\npermissions:\n')[1].split('\nconcurrency:')[0].trim()).toBe(
+      'contents: read'
+    );
+    for (const name of ids.filter((name) => name !== 'notify-main-failure')) {
+      expect(job(name), name).not.toMatch(
+        /^      (?:issues|contents|actions|pull-requests): write$/m
+      );
+    }
+    const notify = job('notify-main-failure');
+    expect(notify).toContain('needs: [changes, complete-main]');
+    expect(notify).toContain(
+      "needs.changes.result == 'failure' || needs.complete-main.result == 'failure'"
+    );
+    expect(notify).toContain("github.repository == 'pj-tmt/tmt'");
+    expect(notify).toContain("github.event_name == 'push'");
+    expect(notify).toContain("github.ref == 'refs/heads/main'");
+    expect(notify).toContain('issues: write');
+    expect(notify).toContain('GH_TOKEN: ${{ github.token }}');
+    expect(notify).toContain('persist-credentials: false');
+    expect(notify).toContain('ci-scope.mjs notify-main-failure');
+    expect(workflow).toContain('name: Code quality');
+    expect(workflow).toContain('name: Unit tests');
+    expect(workflow).toContain('name: Docker E2E\n');
+    expect(workflow).toContain('name: Native package matrix');
+  });
+
+  it('admits all main pushes without cancelling useful work or falling back to seed', () => {
+    const workflow = readFileSync(
+      new URL('../../../.github/workflows/ci.yml', import.meta.url),
+      'utf8'
+    );
+    const push = workflow.split('  push:\n')[1].split('  schedule:')[0];
+    expect(push).toContain('branches: [main]');
+    expect(push).not.toContain('paths:');
+    expect(workflow).toContain(
+      "'ci-main-verification' || format('ci-{0}', github.event.pull_request.number || github.ref)"
+    );
+    expect(workflow).toContain("cancel-in-progress: ${{ github.event_name == 'pull_request' }}");
+    expect(workflow).toContain(
+      "if: steps.event.outputs.verify != 'true' && github.event_name != 'push'"
+    );
+    expect(workflow).toContain("if: steps.main.outputs.admitted == 'true'");
+    expect(workflow).toContain('ci-scope.mjs main-admit >> "$GITHUB_OUTPUT"');
+    expect(workflow).toContain('ci-scope.mjs main-full >> "$GITHUB_OUTPUT"');
+    for (const name of ['Check conventional PR titles', 'Check current PR Agent attribution']) {
+      const step = workflow.split(`      - name: ${name}\n`)[1].split('\n      - ')[0];
+      expect(step).toContain(
+        "if: github.event_name == 'pull_request' || github.event_name == 'merge_group'"
+      );
+    }
+    const block = (name: string) =>
+      workflow.split(`\n  ${name}:\n`)[1].split(/\n {2}[a-z0-9-]+:\n/)[0];
+    const targets = (name: string) =>
+      [...block(name).matchAll(/target: ([a-z0-9_-]+)/g)].map((match) => match[1]).sort();
+    expect(targets('native-runtime-build')).toEqual([
+      'aarch64-unknown-linux-musl',
+      'x86_64-unknown-linux-musl',
+    ]);
+    expect(targets('native-runtime-build-macos')).toEqual([
+      'aarch64-apple-darwin',
+      'x86_64-apple-darwin',
+    ]);
+    expect(targets('packed-native-install')).toEqual([
+      'aarch64-unknown-linux-musl',
+      'aarch64-unknown-linux-musl',
+      'x86_64-unknown-linux-musl',
+      'x86_64-unknown-linux-musl',
+    ]);
+    expect(targets('packed-native-install-macos')).toEqual([
+      'aarch64-apple-darwin',
+      'x86_64-apple-darwin',
+    ]);
+  });
+});
 
 describe('native dependency notices selection', () => {
   it.each([
@@ -1407,7 +1782,7 @@ describe('CI diff and command integration', () => {
       job.indexOf('- name: Run retained developer tooling tests')
     );
     expect(ci).toContain(
-      "      remote_firestore: ${{ steps.scope.outputs.remote_firestore || steps.queue.outputs.remote_firestore || 'false' }}"
+      "      remote_firestore: ${{ steps.mainfull.outputs.remote_firestore || steps.scope.outputs.remote_firestore || steps.queue.outputs.remote_firestore || 'false' }}"
     );
     expect(
       steps.match(/^        if: needs\.changes\.outputs\.remote_firestore == 'true'$/gm)
@@ -1476,7 +1851,7 @@ describe('CI diff and command integration', () => {
     const ci = read('.github/workflows/ci.yml');
     const job = ci.slice(ci.indexOf('\n  unit-tests:'), ci.indexOf('\n  # The Docker E2E suite'));
     expect(ci).toContain(
-      "      colab_firestore: ${{ steps.scope.outputs.colab_firestore || steps.queue.outputs.colab_firestore || 'false' }}"
+      "      colab_firestore: ${{ steps.mainfull.outputs.colab_firestore || steps.scope.outputs.colab_firestore || steps.queue.outputs.colab_firestore || 'false' }}"
     );
     expect(job).toContain(
       "if: needs.changes.outputs.verify == 'true' && needs.changes.outputs.native_scope == 'full'"
@@ -2211,8 +2586,12 @@ describe('required CI gate', () => {
       "VERIFY: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}"
     );
     expect(workflow).toContain("if: steps.event.outputs.verify != 'true'");
-    expect(workflow).toContain('verify: ${{ steps.event.outputs.verify }}');
-    expect(workflow).toContain('macos: ${{ steps.event.outputs.macos }}');
+    expect(workflow).toContain(
+      'verify: ${{ steps.main.outputs.verify || steps.event.outputs.verify }}'
+    );
+    expect(workflow).toContain(
+      'macos: ${{ steps.main.outputs.macos || steps.event.outputs.macos }}'
+    );
     expect(workflow).toContain("MACOS: ${{ github.event_name != 'merge_group' }}");
     expect(workflow).toContain('fetch-depth: 0');
     expect(workflow).not.toContain('github.event.merge_group.base_sha');
@@ -2226,7 +2605,7 @@ describe('required CI gate', () => {
     expect(writers).toHaveLength(4);
     for (const writer of writers) {
       expect(writer.trim()).toBe(
-        "save-if: ${{ needs.changes.outputs.verify == 'false' && github.ref == 'refs/heads/main' }}"
+        "save-if: ${{ github.ref == 'refs/heads/main' && (needs.changes.outputs.verify == 'false' || needs.changes.outputs.main_full_admitted == 'true') }}"
       );
     }
     for (const name of ['code-quality', 'docker-e2e', 'native-install-gate']) {
@@ -2303,12 +2682,12 @@ describe('required CI gate', () => {
     const changes = job('changes');
     for (const output of ['scoped_native_tests', 'e2e_shard_1', 'e2e_shard_2']) {
       expect(changes).toContain(
-        `${output}: \${{ steps.scope.outputs.${output} || steps.queue.outputs.${output} }}`
+        `${output}: \${{ steps.mainfull.outputs.${output} || steps.scope.outputs.${output} || steps.queue.outputs.${output} }}`
       );
     }
     // A seeding run (no pull request, no diff) builds the whole workspace, so it is the full scope.
     expect(changes).toContain(
-      'native_scope: ${{ steps.scope.outputs.native_scope || steps.queue.outputs.native_scope || steps.seed.outputs.native_scope }}'
+      'native_scope: ${{ steps.mainfull.outputs.native_scope || steps.scope.outputs.native_scope || steps.queue.outputs.native_scope || steps.seed.outputs.native_scope }}'
     );
     expect(changes).toContain('node typescript/scripts/ci-scope.mjs "$SEED_SCOPE"');
     expect(changes).toContain(
@@ -2352,7 +2731,7 @@ describe('required CI gate', () => {
     expect(rustGate).toContain(`ci-scope.mjs gate-rust "$NATIVE_SCOPE" ${rustArguments}`);
     expect(job('native-msrv')).toContain('shared-key: native-rust-msrv');
     expect(job('native-msrv')).toContain(
-      "save-if: ${{ needs.changes.outputs.verify == 'false' && github.ref == 'refs/heads/main' }}"
+      "save-if: ${{ github.ref == 'refs/heads/main' && (needs.changes.outputs.verify == 'false' || needs.changes.outputs.main_full_admitted == 'true') }}"
     );
     expect(job('native-msrv')).toContain('["workspace"]["package"]["rust-version"]');
     expect(job('native-msrv')).toContain('RUSTUP_TOOLCHAIN=%s');
@@ -2461,7 +2840,7 @@ describe('required CI gate', () => {
     expect(job('native-clippy')).toContain('save-if: false');
     expect(job('native-workspace-tests')).toContain('shared-key: native-rust');
     expect(job('native-workspace-tests')).toContain(
-      "save-if: ${{ needs.changes.outputs.verify == 'false' && github.ref == 'refs/heads/main' }}"
+      "save-if: ${{ github.ref == 'refs/heads/main' && (needs.changes.outputs.verify == 'false' || needs.changes.outputs.main_full_admitted == 'true') }}"
     );
     // The process job seeds its existing dev/release builds in an isolated main-only cache.
     const processCache = job('native-process-tests');
@@ -2919,7 +3298,7 @@ describe('native Auth+Firestore emulator selection', () => {
     );
     expect(runner).toContain('runInPrivateWorld');
     expect(runner).toContain("'--ignored'");
-    expect(runner).toContain('const scenarios = 4;');
+    expect(runner).toContain('const scenarios = 5;');
     expect(runner).toContain('passed; 0 failed; 0 ignored;');
     expect(runner).toContain("host: '127.0.0.1'");
     expect(runner).not.toContain('docker');

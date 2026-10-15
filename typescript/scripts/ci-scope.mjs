@@ -651,6 +651,149 @@ const E2E_JOBS = ['e2eShard1', 'e2eShard2'];
 /** Positional result order accepted by the gate-rust CLI. */
 export const RUST_WORKERS = ['clippy', 'tests', 'process', 'msrv'];
 
+/** Direct obligations of the main-only complete aggregate; rehearsal is PR-only. */
+export const MAIN_FULL_JOBS = [
+  'changes',
+  'code-quality',
+  'native-notices',
+  'native-clippy',
+  'native-workspace-tests',
+  'native-process-tests',
+  'native-msrv',
+  'native-rust',
+  'unit-tests',
+  'docker-e2e-shard-1',
+  'docker-e2e-shard-2',
+  'docker-e2e',
+  'native-runtime-build',
+  'native-runtime-build-macos',
+  'packed-native-install',
+  'packed-native-install-macos',
+  'native-install-gate',
+];
+
+const record = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+const commitSha = (value) => typeof value === 'string' && /^[a-f0-9]{40}$/.test(value);
+const trustedMain = ({ repository, eventName, ref, sha }) =>
+  repository === 'pj-tmt/tmt' &&
+  eventName === 'push' &&
+  ref === 'refs/heads/main' &&
+  commitSha(sha);
+
+/** Queued superseded events do no work; an admitted run keeps its own captured SHA. */
+export function admitMainFull(context, readMain) {
+  if (!trustedMain(context)) throw new Error('Complete verification requires a trusted main push.');
+  const main = readMain();
+  if (!commitSha(main)) throw new Error('Main admission returned no exact commit SHA.');
+  return main === context.sha;
+}
+
+/** A main full result cannot be supplied by a seed or an incomplete worker inventory. */
+export function mainFullGatePasses(context, needs) {
+  if (!trustedMain(context) || !record(needs)) return false;
+  if (
+    Object.keys(needs).length !== MAIN_FULL_JOBS.length ||
+    MAIN_FULL_JOBS.some((job) => !Object.hasOwn(needs, job) || needs[job]?.result !== 'success')
+  )
+    return false;
+  const outputs = needs.changes.outputs;
+  if (!record(outputs) || outputs.native_scope !== 'full') return false;
+  if (
+    [
+      'verify',
+      'macos',
+      'main_full_admitted',
+      'native',
+      'native_notices',
+      'remote_firestore',
+      'colab_firestore',
+      'native_sync_emulator',
+    ].some((key) => outputs[key] !== 'true')
+  )
+    return false;
+  const shards = e2eShardFiles('full', []);
+  return shards.every((files, index) => outputs[`e2e_shard_${index + 1}`] === files.join(' '));
+}
+
+/** Failure-only, main-reviewed notification; the port exposes no release or PR mutation. */
+export function notifyMainFullFailure(context, request) {
+  if (!trustedMain(context)) throw new Error('Failure notification requires a trusted main push.');
+  const integer = (value) => Number.isSafeInteger(value) && value > 0;
+  const run = Number(context.runId);
+  const attempt = Number(context.runAttempt);
+  if (
+    !/^[1-9][0-9]{0,15}$/.test(context.runId ?? '') ||
+    !/^[1-9][0-9]{0,15}$/.test(context.runAttempt ?? '') ||
+    !integer(run) ||
+    !integer(attempt)
+  )
+    throw new Error('Invalid main verification run identity.');
+  const jobs = [];
+  let count;
+  for (let page = 1; page <= 5; page += 1) {
+    const response = request(
+      `actions/runs/${run}/attempts/${attempt}/jobs?per_page=100&page=${page}`
+    );
+    if (
+      !record(response) ||
+      !Number.isSafeInteger(response.total_count) ||
+      response.total_count < 0 ||
+      !Array.isArray(response.jobs) ||
+      response.jobs.length > 100
+    )
+      throw new Error('Incomplete main verification job inventory.');
+    count ??= response.total_count;
+    if (count !== response.total_count || count > 500) {
+      throw new Error('Main notification guard capacity exceeded or inventory changed.');
+    }
+    jobs.push(...response.jobs);
+    if (jobs.length === count) break;
+    if (jobs.length > count || response.jobs.length !== 100 || page === 5) {
+      throw new Error('Incomplete main verification job inventory.');
+    }
+  }
+  if (jobs.some((job) => !record(job) || !integer(job.id) || typeof job.name !== 'string')) {
+    throw new Error('Invalid main verification job evidence.');
+  }
+  const failed = jobs.filter((job) =>
+    ['failure', 'timed_out', 'cancelled', 'action_required'].includes(job.conclusion)
+  );
+  if (!failed.length) throw new Error('No failed main verification jobs to notify.');
+  const marker = `<!-- main-full:${run}:${attempt} -->`;
+  for (let page = 1; page <= 5; page += 1) {
+    const comments = request(`issues/3054/comments?per_page=100&page=${page}`);
+    if (!Array.isArray(comments) || comments.length > 100) {
+      throw new Error('Incomplete main failure notification readback.');
+    }
+    const prior = comments.find(
+      (comment) =>
+        comment?.user?.login === 'github-actions[bot]' &&
+        typeof comment.body === 'string' &&
+        comment.body.includes(marker)
+    );
+    if (prior) {
+      if (!integer(prior.id)) throw new Error('Invalid existing notification identity.');
+      return { created: false, commentId: prior.id };
+    }
+    if (comments.length < 100) break;
+    if (page === 5) throw new Error('Main notification guard capacity exceeded (500 comments).');
+  }
+  const url = `https://github.com/pj-tmt/tmt/actions/runs/${run}`;
+  const lines = failed.slice(0, 50).map((job) => {
+    const name = job.name
+      .replace(/[\r\n\u0000-\u001f]/g, ' ')
+      .replace(/https?:\/\/\S+/g, '[URL omitted]')
+      .slice(0, 200);
+    return `- ${name}: ${job.conclusion} ([job ${job.id}](${url}/job/${job.id}))`;
+  });
+  const body = `${marker}\nComplete main verification failed at ${context.sha}, attempt ${attempt}. Infra: fix forward before considering scoped enablement.\n\n[Run ${run}](${url})\n\n${lines.join('\n')}${failed.length > 50 ? `\n${failed.length - 50} more failed jobs in the run.` : ''}`;
+  // An uncertain POST is never repeated. A rerun reads the marker before writing.
+  const created = request('issues/3054/comments', 'POST', body);
+  if (!record(created) || !integer(created.id))
+    throw new Error('Failure notification has no readback identity.');
+  return { created: true, commentId: created.id };
+}
+
 /**
  * What each native job must have reported for the scope. A scoped component runs
  * its Rust checks and the first E2E shard (which holds its files); the second shard,
@@ -747,7 +890,55 @@ export function readChangedCiAreas(base, head, cwd) {
  * Standard output is the step's `$GITHUB_OUTPUT`, so it carries only the
  * selection outputs; the evidence table goes to standard error and the step summary.
  */
-export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
+export function runCiScope(args, { cwd, stdout, stderr, summaryFile, env = process.env, request }) {
+  if (['main-admit', 'gate-main', 'notify-main-failure'].includes(args[0])) {
+    if (args.length !== 1) throw new Error('Unexpected main verification arguments.');
+    const context = {
+      repository: env.GITHUB_REPOSITORY,
+      eventName: env.GITHUB_EVENT_NAME,
+      ref: env.GITHUB_REF,
+      sha: env.GITHUB_SHA,
+      runId: env.GITHUB_RUN_ID,
+      runAttempt: env.GITHUB_RUN_ATTEMPT,
+    };
+    let requests = 0;
+    const api =
+      request ??
+      ((route, method = 'GET', body) => {
+        if (!env.GH_TOKEN)
+          throw new Error('Main verification API needs the workflow token environment.');
+        if (++requests > 12) throw new Error('Main verification API request budget exceeded.');
+        const args = ['api', `repos/pj-tmt/tmt/${route}`, '--method', method];
+        if (body !== undefined) args.push('-f', `body=${body}`);
+        const output = runPackedCommand('gh', args, { cwd, env, timeoutMs: 10_000 });
+        if (Buffer.byteLength(output) > 2 * 1024 * 1024) {
+          throw new Error('Main verification API guard capacity exceeded (2 MiB).');
+        }
+        return JSON.parse(output);
+      });
+    if (args[0] === 'main-admit') {
+      const admitted = admitMainFull(context, () => api('git/ref/heads/main')?.object?.sha);
+      stdout.write(`admitted=${admitted}\nverify=${admitted}\nmacos=${admitted}\n`);
+      stderr.write(
+        admitted
+          ? `Complete main verification admitted at ${context.sha}.\n`
+          : `Superseded main event ${context.sha}: verification and seed work skipped.\n`
+      );
+    } else if (args[0] === 'gate-main') {
+      if (!mainFullGatePasses(context, JSON.parse(env.MAIN_FULL_NEEDS ?? 'null'))) {
+        throw new Error(
+          'Complete trusted-main verification has missing, unexpected or unsuccessful obligations.'
+        );
+      }
+      stdout.write(`Complete trusted-main verification succeeded at ${context.sha}.\n`);
+    } else {
+      const notified = notifyMainFullFailure(context, api);
+      stdout.write(
+        `Main verification failure notification ${notified.created ? 'created' : 'already recorded'}: ${notified.commentId}.\n`
+      );
+    }
+    return;
+  }
   if (args[0] === 'gate') {
     if (!ciGatePasses(args[1], args.slice(2))) {
       throw new Error(
@@ -785,7 +976,8 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
     }
     return;
   }
-  const full = args.length === 1 && args[0] === 'full';
+  const mainFull = args.length === 1 && args[0] === 'main-full';
+  const full = mainFull || (args.length === 1 && args[0] === 'full');
   const seed = args.length === 1 && args[0] === 'seed';
   const queue = args[0] === 'merge-group';
   if (!full && !seed && !queue && args.length !== 2) {
@@ -825,12 +1017,13 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
   const colabApp = !queue && !seed && !full && selectColabApp(selection.paths);
   const colabHosted = !queue && !seed && !full && selectColabHosted(selection.paths);
   const nativeNotices = !seed && (full || selectNativeNotices(selection.paths));
-  const remoteFirestore = !seed && !full && selectRemoteFirestore(selection.paths);
-  const colabFirestore = !seed && !full && selectColabFirestore(selection.paths);
-  const nativeSyncEmulator = !seed && !full && selectNativeSyncEmulator(selection.paths);
+  const remoteFirestore = mainFull || (!seed && !full && selectRemoteFirestore(selection.paths));
+  const colabFirestore = mainFull || (!seed && !full && selectColabFirestore(selection.paths));
+  const nativeSyncEmulator =
+    mainFull || (!seed && !full && selectNativeSyncEmulator(selection.paths));
   const evidence =
     (full || seed || fallback
-      ? `### CI selection\n\n${fallback ?? (full ? 'Weekly/manual retained-product verification.' : 'Main cache seed.')}\n`
+      ? `### CI selection\n\n${fallback ?? (mainFull ? 'Complete trusted-main verification.' : full ? 'Weekly/manual retained-product verification.' : 'Main cache seed.')}\n`
       : renderSelectionEvidence({ base, head, range, ...selection })) +
     `\nColab browser PR selection (client, model, vectors or harness workflow): ${colabHarness}.\n` +
     `\nColab app component suite PR selection (app, client, browser UI, workflow or lockfile): ${colabApp}.\n` +

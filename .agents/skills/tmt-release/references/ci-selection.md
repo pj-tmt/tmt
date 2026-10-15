@@ -76,6 +76,24 @@ Its component rule retains full native verification; this is not product adoptio
 or broader advisory browser coverage. E2E/artifact stages prepare checked CSS, and
 all three native stages retain the actual Rust embedded-input guard.
 
+## Trusted main verification
+
+Every main push selects complete CI verification after a bounded read confirms
+its event SHA is still current main. One admitted run finishes without cancellation;
+one pending run is replaced by newer pushes. Superseded events skip verification
+and seed work. All workers keep the admitted SHA, including both Rules suites,
+native sync, notices, both Docker shards and all runtime/packed targets. PR/MG
+selection and the four required names stay unchanged. PR title/Agent metadata
+steps enforce only PR/MG events; main still runs the actual code and frontend checks.
+
+`Complete trusted-main verification` requires the exact full worker inventory and
+flags; missing, extra, failed, cancelled or skipped obligations refuse. It grants
+no publication authorization and does not change release cut admission. A main-only
+failure job reports bounded run/SHA/job evidence on #3054 with the workflow token;
+only that job has issue-write permission. Repeated notification reads the bot's
+run/attempt marker before one POST; uncertain writes never retry. Capacity or API
+failures remain visible. Seeds cannot supply complete-verification evidence.
+
 ## Cache ownership
 
 Docker E2E PR/merge-group shards restore only exact main-owned dependency archives; the purpose-specific main seed exports Cargo target/debug and registry, while misses build cold and real compiler failures never retry cold.
@@ -84,7 +102,7 @@ Rust dependency caches use the pinned `Swatinem/rust-cache` action with one
 main-only writer per key: workspace tests for shared dev dependencies, process
 contracts for their existing dev/release builds under `native-process-rust`, MSRV
 for its toolchain, and each runtime target for its own cache. These CI writers use the
-shared seed-event classification (`verify=false`) and main ref. PRs, merge groups
+seed classification (`verify=false`) or admitted main-full event, and the main ref. PRs, merge groups
 and other workers only restore; the process cache is cold until its first main save.
 Dev debug information and incremental compilation
 are disabled in CI; release profiles keep their manifest policy.
@@ -104,10 +122,10 @@ product/target keys. Cache keys retain compiler, platform, environment and
 manifest identities; an exact hit does not certify complete feature/profile
 population.
 
-Main seeding runs on selected Cargo/workflow changes, weekly and manually. It has
-no diff and selects full native scope; the Rust aggregate validates its workers
-while outer verification gates remain skipped. Feature-branch dispatches only
-restore.
+Weekly/manual seeding has no diff and selects full native scope; the Rust aggregate
+validates its workers while outer verification gates remain skipped. Main-full
+verification retains the same cache owners and keys. Feature-branch dispatches
+only restore.
 
 ## Advisory browser selection
 

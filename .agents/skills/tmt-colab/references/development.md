@@ -167,7 +167,7 @@ Each is `(cd rust && cargo test --offline --locked -p tmt-colab <selector>)`:
 | Firestore declaration command and vector            | `--test deploy_declaration`, `--lib deploy_declaration`, then Remote's `-p tmt-remote --test deploy_vectors` mirror                                                               |
 
 - The cloud-sync emulator proof needs Java 21 and `firebase-tools`, builds Remote with its `test-emulator`
-  feature, and runs only the four ignored `object_channel::cloud_sync::proof` scenarios in a private world on
+  feature, and runs only the five ignored `object_channel::cloud_sync::proof` scenarios in a private world on
   loopback emulators; it never touches the host browser, tmux or stores. Each scenario restarts the serves
   once every device chain is in the cloud, so it does not depend on which home read first; a device that
   joins later without a membership change waits up to a minute for the chain recheck, which the worker and
