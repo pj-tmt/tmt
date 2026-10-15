@@ -5,10 +5,5 @@ pub(in crate::board) fn render(
     app: &crate::board::app::App,
     area: Rect,
 ) {
-    if app
-        .overview_panels()
-        .shown(crate::config::OverviewPanel::Monitor)
-    {
-        super::super::view::render(frame, app, area);
-    }
+    super::super::view::render(frame, app, area);
 }

@@ -21,8 +21,8 @@ pub(super) fn summary(app: &crate::board::app::App) -> String {
         .collect();
     model::summary(&app.labels, Some(&identities))
 }
-pub(super) use model::{savings_caption, savings_start};
+pub(super) use model::{savings_caption, savings_start, savings_value};
 pub(super) use render::render;
 
 #[cfg(test)]
-mod tests;
+pub(in crate::board) mod tests;

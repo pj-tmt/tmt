@@ -122,7 +122,9 @@ fn capture_monitor_modal_packet() {
 #[ignore = "explicit Overview mock-fidelity frame export"]
 fn capture_overview_mock_packet() {
     let output = std::env::var("TMT_OVERVIEW_CAPTURE").expect("task-owned evidence path");
-    if std::env::var_os("TMT_OVERVIEW_S2_CAPTURE").is_some() {
+    if std::env::var_os("TMT_OVERVIEW_S2_CAPTURE").is_some()
+        || std::env::var_os("TMT_OVERVIEW_S3_CAPTURE").is_some()
+    {
         capture_squads_packet(&output);
         return;
     }
@@ -280,7 +282,12 @@ fn pinned_large_case(look: crate::look::Look) -> crate::board::app::App {
 
 /// S2 evidence uses acquired fixture documents and the actual App painter.
 fn capture_squads_packet(output: &str) {
-    crate::status::with_now_ms(1_791_600_000_000, || {
+    let now = if std::env::var_os("TMT_OVERVIEW_S3_CAPTURE").is_some() {
+        1_792_108_800_000
+    } else {
+        1_791_600_000_000
+    };
+    crate::status::with_now_ms(now, || {
         let _no_commands = crate::runner::forbid_commands();
         let mut frames = Vec::new();
         for scene in [
@@ -345,6 +352,9 @@ fn capture_squads_packet(output: &str) {
                         snapshot.roster.membership_complete = false;
                     }
                     snapshot.shell_counts = snapshot.roster.shell_counts();
+                    if std::env::var_os("TMT_OVERVIEW_S3_CAPTURE").is_some() {
+                        populate_lower_band(&mut app, scene);
+                    }
                     app.overview_rows.borrow_mut().clear();
                     app.workspace_reconcile();
                     app.workspace.selected =
@@ -376,4 +386,64 @@ fn capture_squads_packet(output: &str) {
         assert_eq!(frames.len(), 54);
         std::fs::write(output, serde_json::to_vec(&frames).unwrap()).unwrap();
     });
+}
+
+/// Admitted fixture observations pass through the normal label/cron projections.
+fn populate_lower_band(app: &mut crate::board::app::App, scene: &str) {
+    use crate::board::cronboard::{test_cron, test_views};
+    use tmt_ops::cron::{ClockStatus, Holder};
+    let now = crate::status::now_ms() as i64;
+    let mut document = crate::board::digest_dashboard::tests::valued_document();
+    let template = document["members"][0].clone();
+    document["observedAtMs"] = json!(now);
+    document["members"] = json!(
+        app.workspace_snapshot()
+            .unwrap()
+            .roster
+            .members
+            .iter()
+            .map(|(id, member)| {
+                let mut row = template.clone();
+                row["identityId"] = json!(id);
+                row["name"] = json!(member.name);
+                row["savings"] = json!(null);
+                row["statsObservedAtMs"] = json!(now - 1_000);
+                row
+            })
+            .collect::<Vec<_>>()
+    );
+    app.labels =
+        crate::labels::Supplied::from_document("digest", &document, scene == "squads-partial");
+    let core = test_views(4, "tmt-core", "core-room");
+    let infra = test_views(2, "tmt-infra", "infra-room");
+    let mut ux = test_views(1, "tmt-ux", "ux-room").remove(0);
+    ux.owner_missing = true;
+    let mut jobs = vec![
+        core[3].clone(),
+        infra[0].clone(),
+        core[0].clone(),
+        infra[1].clone(),
+        ux,
+    ];
+    for (job, minutes) in jobs.iter_mut().zip([19, 21, 49, 3 * 24 * 60 + 11 * 60, 0]) {
+        job.next_ms = vec![now + minutes * 60_000];
+    }
+    if scene == "squads-empty" {
+        jobs.clear();
+    }
+    let mut cron = test_cron(
+        jobs,
+        ClockStatus::Running(Holder {
+            pid: 7,
+            pane: Some("%41".into()),
+            since_ms: now - 60_000,
+            expires_ms: now + 5_000,
+        }),
+    );
+    cron.read_ms = now;
+    app.cron.replace(Ok(cron));
+    if scene == "squads-partial" {
+        app.cron
+            .replace(Err("Timer observation unavailable".into()));
+    }
 }

@@ -85,7 +85,10 @@ fn rows<P: Panel>(policy: &Panels<P>) -> Vec<(String, String, String)> {
         .iter()
         .filter(|panel| {
             P::SIDE_KEY != "conversation"
-                || matches!(panel.key(), "usage" | "subscriptions" | "monitor")
+                || matches!(
+                    panel.key(),
+                    "usage" | "subscriptions" | "monitor" | "digest"
+                )
         })
         .map(|panel| {
             (
@@ -95,6 +98,8 @@ fn rows<P: Panel>(policy: &Panels<P>) -> Vec<(String, String, String)> {
                     "Usage (fixed header)".into()
                 } else if P::SIDE_KEY == "conversation" && panel.key() == "subscriptions" {
                     "Quota in Usage (fixed row)".into()
+                } else if P::SIDE_KEY == "conversation" && panel.key() == "digest" {
+                    "Digest (narrow section)".into()
                 } else if P::SIDE_KEY == "conversation" && panel.key() == "monitor" {
                     "Squads / Needs you (fixed body)".into()
                 } else if panel.key() == "usage" && P::SIDE_KEY == "details" {

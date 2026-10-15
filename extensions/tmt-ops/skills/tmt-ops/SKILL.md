@@ -300,12 +300,13 @@ last exact bucket and time labels follow the drawn width. Narrowing shrinks the 
 longer history. Provider quota occupies the same row, with neutral 7d/5h remaining
 bars and percentages. The Subscription quota toggle controls these inline cells;
 there is no separate Subscriptions block. Usage has a fixed header position. With no observed token bucket, provider names and available quota remain beside one muted empty-state line and em-dash totals; no axis or invented unknown row appears. A measured zero stays zero.
-With no selected target, Overview `c` opens all-room Timers; a hidden/missing
-selected scope still refuses to widen.
+Overview's default `c` uses `all-timers` and opens all-room Timers, matching the
+narrow preview. An authored `timers` binding keeps the selected-scope behavior;
+hidden or missing selected scopes still refuse to widen.
 
 Workspace settings → Panels previews each dashboard's visibility and its separate
 Conversation/Details switch. Overview sections have fixed positions; its picker
-exposes Usage, quota inside Usage, and Squads / Agents. Digest keeps ordered
+exposes Usage, quota inside Usage, Squads / Agents, and its narrow Digest section. The Digest destination keeps ordered
 panels with visible Move up/down controls and plain `u`/`d`. Save, Cancel or Reset
 to default through the same picker. Keep at least one
 interactive surface visible. Cancel discards the preview; stale Save retains it
@@ -322,6 +323,16 @@ tab) choose the window. Ops reads it in the background about once a minute, and 
 once when the window changes, only while the panel is shown on the Digest tab;
 hiding the panel stops the reads. A source that is slow or failing leaves the panel
 saying so, and unavailable evidence is never shown as zero.
+
+The narrow Overview lower band shows up to three soonest timers, with a more
+control and the effective all-room shortcut, beside Digest key/value observations.
+Paused timers are dim. Empty, stale and unavailable reads stay distinct; a missing
+clock never becomes a promised countdown. Timers remain global and say so when
+the roster is filtered or scoped. Digest counts and estimates use the visible
+scoped roster, retain unknown values as `—`, and show list-price quotes separately
+from avoided context tokens. These fixed token/cost rows do not change the saved
+savings-unit preference. Small widths stack the lower modules; wide screens keep
+the existing conversation placement until the final matrix layout is available.
 
 The Agents tree is a fixed-column table: SQUAD / AGENT, LEAD, MEMBERS / STATE,
 TOK 1h, DIGEST and ◷ CRON. LEAD and room token totals appear at 100 inner list cells;

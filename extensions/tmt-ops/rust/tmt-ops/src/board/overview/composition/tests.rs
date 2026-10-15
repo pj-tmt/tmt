@@ -204,9 +204,25 @@ fn eight_rows_keep_view_details_and_usage_keys_without_a_table_header() {
     }
 }
 #[test]
-fn keyboard_timers_never_widens_a_hidden_missing_or_other_tab_scope() {
+fn authored_selected_scope_timers_never_widens_a_hidden_missing_or_other_tab_scope() {
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     let mut app = board();
+    // Acquired authored bindings retain the selected-scope action; Overview's
+    // new default is a separate, explicit all-room action.
+    for keys in app
+        .view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .keys
+        .values_mut()
+    {
+        keys.insert("c".into(), crate::action::Action::parse("timers").unwrap());
+    }
+
     app.cron.replace(Ok(crate::board::cronboard::test_cron(
         vec![],
         tmt_ops::cron::ClockStatus::NoClock,

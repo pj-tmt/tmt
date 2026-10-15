@@ -181,6 +181,57 @@ fn rate_text(micros: u64) -> String {
     format!("${whole}.{fraction}")
 }
 
+/// Formatted amount, source coverage and optional combination failure.
+/// Captions, key/value rows and matrices share the same unit evidence.
+pub(in crate::board) fn savings_value(
+    summary: &crate::labels::digest::SavingsSummary,
+    window: crate::config::DigestWindow,
+    unit: crate::config::SavingsUnit,
+) -> (Option<String>, String, Option<&'static str>) {
+    use crate::config::SavingsUnit;
+    let coverage = |included: usize| {
+        if included < summary.total {
+            format!(" ({included} of {})", summary.total)
+        } else {
+            String::new()
+        }
+    };
+    // (value, coverage, note about values that could not be combined)
+    match unit.shown(window) {
+        SavingsUnit::Tokens => (
+            summary
+                .tokens
+                .map(|tokens| crate::source::compact_tokens(u128::from(tokens))),
+            coverage(summary.included),
+            None,
+        ),
+        SavingsUnit::Percent => {
+            let percent = &summary.percent;
+            match (percent.value, percent.conflict) {
+                (Some(points), _) => (
+                    Some(format!("{} of input", percent_text(points))),
+                    coverage(percent.included),
+                    None,
+                ),
+                (None, true) => (None, String::new(), Some("intervals differ")),
+                (None, false) => (None, coverage(percent.included), None),
+            }
+        }
+        SavingsUnit::Cost => {
+            let cost = &summary.cost;
+            match (cost.value, cost.conflict) {
+                (Some(micros), _) => (
+                    Some(format!("{} at list price", usd_text(micros))),
+                    coverage(cost.included),
+                    None,
+                ),
+                (None, true) => (None, String::new(), Some("prices differ")),
+                (None, false) => (None, coverage(cost.included), None),
+            }
+        }
+    }
+}
+
 /// Shared secondary caption for member, squad, Overview and Digest usage
 /// surfaces. One label for every unit; only the value changes. Estimate and
 /// coverage stay visible even when the longer context label cannot fit; only
@@ -191,50 +242,9 @@ pub(in crate::board) fn savings_caption(
     unit: crate::config::SavingsUnit,
     width: usize,
 ) -> String {
-    use crate::config::SavingsUnit;
     use unicode_width::UnicodeWidthStr;
-    let coverage = |included: usize| {
-        if included < summary.total {
-            format!(" ({included} of {})", summary.total)
-        } else {
-            String::new()
-        }
-    };
-    let none = || "—".to_owned();
-    // (value, coverage, note about values that could not be combined)
-    let (value, coverage, note) = match unit.shown(window) {
-        SavingsUnit::Tokens => (
-            summary.tokens.map_or_else(none, |tokens| {
-                crate::source::compact_tokens(u128::from(tokens))
-            }),
-            coverage(summary.included),
-            None,
-        ),
-        SavingsUnit::Percent => {
-            let percent = &summary.percent;
-            match (percent.value, percent.conflict) {
-                (Some(points), _) => (
-                    format!("{} of input", percent_text(points)),
-                    coverage(percent.included),
-                    None,
-                ),
-                (None, true) => (none(), String::new(), Some("intervals differ")),
-                (None, false) => (none(), coverage(percent.included), None),
-            }
-        }
-        SavingsUnit::Cost => {
-            let cost = &summary.cost;
-            match (cost.value, cost.conflict) {
-                (Some(micros), _) => (
-                    format!("{} at list price", usd_text(micros)),
-                    coverage(cost.included),
-                    None,
-                ),
-                (None, true) => (none(), String::new(), Some("prices differ")),
-                (None, false) => (none(), coverage(cost.included), None),
-            }
-        }
-    };
+    let (value, coverage, note) = savings_value(summary, window, unit);
+    let value = value.unwrap_or_else(|| "—".into());
     let build = |label: &str, note: Option<&str>| {
         format!(
             "{label} {}: {value}{coverage}{}",

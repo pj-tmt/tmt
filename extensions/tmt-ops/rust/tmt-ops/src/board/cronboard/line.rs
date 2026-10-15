@@ -81,5 +81,27 @@ pub(super) fn next_time(view: &JobView, now_ms: i64) -> Option<String> {
     time(*view.next_ms.first()?, now_ms, &zone(view))
 }
 
+/// Snapshot-relative next occurrence; no wall clock or scheduling work runs here.
+pub(in crate::board) fn countdown(next_ms: i64, read_ms: i64) -> String {
+    let remaining = next_ms.saturating_sub(read_ms);
+    if remaining <= 0 {
+        return "due".into();
+    }
+    let minutes = remaining / 60_000;
+    let hours = minutes / 60;
+    let days = hours / 24;
+    if minutes == 0 {
+        "in <1m".into()
+    } else if hours == 0 {
+        format!("in {minutes}m")
+    } else if days == 0 {
+        format!("in {hours}h")
+    } else if days < 10 && hours % 24 != 0 {
+        format!("in {days}d{}h", hours % 24)
+    } else {
+        format!("in {days}d")
+    }
+}
+
 #[cfg(test)]
 pub(super) mod tests;

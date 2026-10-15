@@ -17,7 +17,7 @@ fn preview_reads_override_but_cancel_uses_the_latest_acquisition_without_a_write
     assert_eq!(app.panels_event(&key(KeyCode::Enter)), Some(Effect::None));
     assert!(
         !app.overview_panels()
-            .shown(crate::config::OverviewPanel::Subscriptions)
+            .shown(crate::config::OverviewPanel::Digest)
     );
     assert_eq!(app.workspace_snapshot().unwrap().preferences, expected);
     let mut fresh = OverviewPanels::default();
@@ -397,8 +397,8 @@ fn revealed_conversation_survives_preview_save_and_uses_the_existing_busy_refusa
     assert_eq!(app.focused_pane(), Some(crate::config::Pane::Replies));
     app.in_flight = 0;
     app.open_panels();
-    // Conversation follows the three live Overview controls.
-    for _ in 0..3 {
+    // Conversation follows the four live Overview controls.
+    for _ in 0..4 {
         app.panels_event(&key(KeyCode::Down));
     }
     app.panels_event(&key(KeyCode::Enter));

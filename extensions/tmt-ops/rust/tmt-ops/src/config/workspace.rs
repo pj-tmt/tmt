@@ -210,6 +210,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
     match scope {
         OpsKeyScope::Reader => {}
         OpsKeyScope::Overview => entries.extend([
+            ("c", "all-timers"),
             ("enter", "talk"),
             ("j", "jump"),
             ("o", "open"),

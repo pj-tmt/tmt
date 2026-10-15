@@ -18,7 +18,7 @@ fn opening_and_preview_never_mutate_expected_and_cancel_is_disposable() {
             .draft
             .overview()
             .unwrap()
-            .shown(OverviewPanel::Subscriptions)
+            .shown(OverviewPanel::Digest)
     );
     assert_eq!(picker.expected, expected);
     assert!(picker.next().overview_panels.is_some());
@@ -94,6 +94,7 @@ fn overview_picker_only_exposes_live_fixed_sections_and_keeps_durable_policy() {
     assert_eq!(
         keys,
         [
+            "digest",
             "subscriptions",
             "usage",
             "monitor",

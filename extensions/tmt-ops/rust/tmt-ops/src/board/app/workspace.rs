@@ -806,6 +806,7 @@ impl App {
                 }
                 return self.workspace_save(next);
             }
+            AllTimers => return self.workspace_owner_timers(None, None),
             Timers => {
                 if self.shell.tab == OpsTab::Overview && self.workspace.selected.is_none() {
                     return self.workspace_owner_timers(None, None);
