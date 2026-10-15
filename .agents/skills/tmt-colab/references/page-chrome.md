@@ -100,9 +100,10 @@ chrome. `theme.ts` reads the parent's explicit root choice, otherwise the live O
 preference; theme actions record Light/Dark or remove the explicit choice for System only on activation. `renderer.ts` subscribes
 for its mounted lifetime and projects the effective light/dark value through the
 bound init/port. The bootstrap sets root `data-theme` before author code and updates
-it without replacing the document. Frame question text uses the browser sheet/text
-roles projected by the renderer token generator; parent-drawn answer controls and
-Proposal cards keep their neutral light palette. The [renderer contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#renderer-and-live-anchors)
+it without replacing the document. Each question card uses one effective Colab theme:
+frame text uses generated browser sheet/text roles, and parent-drawn controls inherit
+the same theme. Fixed-look author pages do not override that card theme. Proposal
+cards keep their neutral light palette. The [renderer contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#renderer-and-live-anchors)
 owns the exact shapes and author CSS selector rule: the bundled starter follows
 Colab's choice, while media-only author CSS follows the OS. Fixed-look pages use
 unconditional CSS palettes, not a pinned root theme attribute; the bundled skill

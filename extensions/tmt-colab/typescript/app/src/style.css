@@ -1134,7 +1134,7 @@ footer {
   overflow-wrap: anywhere;
 }
 
-/* In-page controls use the leaf light palette, independent of chrome and author CSS. */
+/* Proposal controls pin the light palette; question cards inherit the app theme. */
 .proposal-inline {
   color-scheme: light;
   position: absolute;
@@ -1302,6 +1302,9 @@ footer {
   color: var(--tmt-ui-color-text);
   background: transparent;
   padding: 0;
+}
+.proposal-inline.question-inline {
+  color-scheme: inherit;
 }
 .question-inline {
   right: auto;

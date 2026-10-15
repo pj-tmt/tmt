@@ -113,7 +113,6 @@ export function useQuestionLayer({
               key={group.id}
               data-inline-question={current}
               data-question-group={group.id}
-              data-theme="light"
               data-inline-slot={group.id}
               className="proposal-inline question-inline"
               data-detached={!attached || undefined}

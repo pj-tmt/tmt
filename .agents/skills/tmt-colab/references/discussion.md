@@ -56,7 +56,7 @@ owns record fields, limits, revision semantics and trust boundaries.
   store or dispatcher exists. `proposal-layer.tsx` owns proposal state, card/composer
   rendering; `inline-slots.ts` owns the shared proposal/question measurement batch;
   `router.tsx` only wires these layers. `components/proposal-card.tsx`
-  presents admitted cards. Parent-drawn in-page proposal/question overlays pin the shared light
+  presents admitted cards. Parent-drawn in-page proposal overlays pin the shared light
   token set with a neutral 1px bordered sheet and light control/focus roles, independently
   of app chrome or authored page colors; chrome-side cards retain the app theme. `proposal-actions.ts`
   fences live decisions, publishes the final decision first, then the ordinary
