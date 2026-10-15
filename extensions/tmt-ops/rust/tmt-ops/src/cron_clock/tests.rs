@@ -720,13 +720,27 @@ fn board_and_explicit_clocks_run_digest_without_refresh_and_stop_before_lease_re
             nix::errno::Errno::ESRCH
         );
         assert_eq!(clock.status(now()), ClockStatus::NoClock);
+        // `stop` has joined every tick, so these counts and the pid file are final. A
+        // shutdown that overlaps a minute rollover cancels two ticks at once: the
+        // second can take the digest lock between the first one dying and its own
+        // cancellation, so one session leaves one or two acquisitions. Readiness is
+        // therefore a new acquisition after the restart, not a fixed total.
+        let before = digest_calls(&f, "digest-acquired");
         fs::remove_file(f.directory.join("digest.pid")).unwrap();
         let mut restarted = ClockWorker::spawn(core, f.config.clone(), foreground);
-        wait_for(|| {
-            (digest_calls(&f, "digest-acquired") == 2 && f.directory.join("digest.pid").exists())
-                .then_some(())
+        let restarted_pid: i32 = wait_for(|| {
+            if digest_calls(&f, "digest-acquired") <= before {
+                return None;
+            }
+            fs::read_to_string(f.directory.join("digest.pid"))
+                .ok()
+                .and_then(|s| s.parse().ok())
         });
         restarted.stop().unwrap();
+        assert_eq!(
+            kill(Pid::from_raw(restarted_pid), None).unwrap_err(),
+            nix::errno::Errno::ESRCH
+        );
         assert_eq!(clock.status(now()), ClockStatus::NoClock);
     }
 }
