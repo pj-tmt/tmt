@@ -5,8 +5,9 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vite-plus/test';
+import { describe, expect, it, vi } from 'vite-plus/test';
 import { expectJsonResult } from './cli-assertions.js';
+import { publishDigestStep } from './claude-digest-step.js';
 import {
   readCompleteJsonLines,
   withE2EFixture as withFixture,
@@ -691,6 +692,75 @@ describe('Claude channel delivery', { concurrent: false }, () => {
     60_000
   );
 
+  it('does not consume a partial Digest command and executes its atomic publication once', async () => {
+    await withE2EFixture(async (fixture) => {
+      const name = 'AtomicDigestClaude';
+      writeExecutable(
+        path.join(fixture.wrapperDir, 'claude'),
+        fs.readFileSync('/opt/tmt-tests/claude'),
+        0o755
+      );
+      const worker = start(fixture, name, {
+        channel: true,
+        env: {
+          MOCK_SESSION_ID: randomUUID(),
+          MOCK_LAUNCH_HOOKS: '1',
+          MOCK_AUTOREPLY: '0',
+          TMT_TEST_CLAUDE_MOCK: mock,
+          TMT_TEST_CLAUDE_NODE: process.execPath,
+          TMT_TEST_CLAUDE_NATIVE_CHANNEL: '1',
+        },
+      });
+      await withCompletedSession(fixture, worker, async () => {
+        await waitForEvent(fixture, worker, 'prompt-recorded');
+        await waitForReady(fixture, 1);
+        const write = fs.promises.writeFile.bind(fs.promises);
+        let release!: () => void;
+        const blocked = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        let staged!: () => void;
+        const partial = new Promise<void>((resolve) => {
+          staged = resolve;
+        });
+        const spy = vi
+          .spyOn(fs.promises, 'writeFile')
+          .mockImplementationOnce(async (file, data, options) => {
+            const bytes = String(data);
+            await write(file, bytes.slice(0, 8), options);
+            staged();
+            await blocked;
+            await fs.promises.appendFile(file, bytes.slice(8));
+          });
+        const publication = publishDigestStep(worker.log, { event: 'atomic-stop' });
+        try {
+          await partial;
+          expect(fs.existsSync(`${worker.log}.digest-step`)).toBe(false);
+          // The independent mock completes a control-loop Stop while staging is partial.
+          fs.writeFileSync(`${worker.log}.stop-turn`, '');
+          await waitForEvent(fixture, worker, 'turn-recorded');
+          expect(named(worker, 'atomic-stop')).toEqual([]);
+        } finally {
+          release();
+          try {
+            await publication;
+          } finally {
+            spy.mockRestore();
+          }
+        }
+        await waitForEvent(fixture, worker, 'atomic-stop');
+        await publishDigestStep(worker.log, { event: 'following-stop' });
+        await waitForEvent(fixture, worker, 'following-stop');
+        expect(named(worker, 'atomic-stop')).toHaveLength(1);
+        expect(named(worker, 'following-stop')).toHaveLength(1);
+        expect(fs.existsSync(`${worker.log}.digest-step`)).toBe(false);
+        expect(
+          fs.readdirSync(fixture.root).filter((entry) => entry.includes('.digest-step'))
+        ).toEqual([]);
+      });
+    });
+  }, 60_000);
+
   it.each([
     { channel: true, setup: false, resume: false, legacy: false, quietNotice: false },
     { channel: false, setup: false, resume: true, legacy: false, quietNotice: false },
@@ -762,7 +832,7 @@ describe('Claude channel delivery', { concurrent: false }, () => {
             db.prepare('SELECT id,state FROM focus_checklists ORDER BY created_at_ms,id').all()
           ) as { id: string; state: string }[];
         const digestStep = async (event: string, extra: Record<string, unknown> = {}) => {
-          fs.writeFileSync(`${worker.log}.digest-step`, JSON.stringify({ event, ...extra }));
+          await publishDigestStep(worker.log, { event, ...extra });
           await waitForEvent(fixture, worker, event);
         };
         await withCompletedSession(fixture, worker, async () => {
@@ -1039,10 +1109,7 @@ describe('Claude channel delivery', { concurrent: false }, () => {
           ]);
           expect(held.json).toMatchObject({ status: 'queued', digest: true });
         }
-        fs.writeFileSync(
-          `${worker.log}.digest-step`,
-          JSON.stringify({ event: 'partial-stop', partialDigestOutput: true })
-        );
+        await publishDigestStep(worker.log, { event: 'partial-stop', partialDigestOutput: true });
         await waitForEvent(fixture, worker, 'partial-stop');
         expect(named(worker, 'digest-partial-handoff')).toMatchObject([
           { partialBytes: 4096, code: 0 },
@@ -1057,7 +1124,7 @@ describe('Claude channel delivery', { concurrent: false }, () => {
         expect((await talk(fixture, name, 'Later boundary work')).json).toMatchObject({
           digest: true,
         });
-        fs.writeFileSync(`${worker.log}.digest-step`, JSON.stringify({ event: 'no-replay-stop' }));
+        await publishDigestStep(worker.log, { event: 'no-replay-stop' });
         await waitForEvent(fixture, worker, 'no-replay-stop');
         expect(snapshot()).toEqual({ ...before, pending: { count: 1 } });
         expect(named(worker, 'digest-continuation')).toEqual([]);

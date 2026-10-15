@@ -69,6 +69,11 @@ remain with the private release tool. Build and select them using the
 [installation fixtures](../../tmt-release/references/installation-fixtures.md).
 Tiny fixtures prove sensitivity, never actual archive delivery.
 
+The Claude channel fixture publishes Digest control commands through
+`test/e2e/claude-digest-step.ts`: complete a private same-directory staging write,
+then rename to the watched path. Callers await consumption before the next command;
+the mock keeps malformed published JSON a hard failure.
+
 ## Native sandbox lifecycle
 
 `tmt-cli/tests/support` owns isolated Rust process environments and direct-child
