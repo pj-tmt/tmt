@@ -155,6 +155,9 @@ announced once. `pressed` is omitted when absent; supplied false/true becomes
 `aria-pressed`, and activation never changes it. Pressed uses selection colors
 and a 1px text-colored edge; disabled/busy styling and event fences take priority.
 The icon and busy mark share one fixed square target without changing geometry.
+Keyboard-only `:focus-visible` uses a flush 1px focus-token ring; pointer activation
+adds no focus ring. Header action groups and a nested navigation landmark share
+the host action gap, leaving space between neighboring hover backgrounds.
 Disclosure actions instead supply controlled `expanded` and optional `controls`,
 forwarded as `aria-expanded`/`aria-controls` on the same button. Hosts may supply
 `buttonRef`, `hasPopup` and `onKeyDown` for their own menu focus, popup semantics
@@ -168,6 +171,9 @@ independently sufficient accessible name. `ariaKeyShortcuts` exposes the same
 shortcut to assistive technology. Omitted tooltip text defaults to `label`;
 help is display-only and never replaces the button name.
 
+Only one icon tooltip is visible per document: opening help dismisses the prior
+help synchronously, including when keyboard focus remains on its action. This
+ephemeral replacement owner is independent of menu/dialog ownership.
 The tooltip is a manual native popover bounded by the visual viewport. It opens
 below the button, flips above when its measured height does not fit below and
 there is more room above, and clamps to that side when neither side fits. Pointer movement over the action and keyboard `:focus-visible` show it
@@ -274,6 +280,8 @@ false by default. Values, admission, loading, listbox semantics and navigation
 remain host-owned.
 
 ## Drawer and Menu
+
+Value-menu triggers use a centered ChevronDown icon in the shared icon box.
 
 Drawer and Menu render in place; native top-layer promotion keeps ancestor overflow and transforms from clipping them. Keep the mount point visible. Drawer uses native modal containment at every width, without body scroll locking.
 Its independently scrolling body uses `overscroll-behavior: contain`. It leaves

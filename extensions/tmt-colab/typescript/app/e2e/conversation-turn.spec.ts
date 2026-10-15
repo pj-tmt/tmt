@@ -112,9 +112,8 @@ async function shell(window: Locator) {
   if (chat) await expect(window.locator(':scope > .conversation-window-bar')).toHaveCount(0);
   await expect(window.locator(':scope > .conversation-composer')).toHaveCount(1);
   await expect(window.locator('.conversation-composer .annotation-compose')).toHaveCount(1);
-  await expect(window.locator('.conversation-composer')).toHaveCSS('padding', '8px 12px');
-  if (!chat)
-    await expect(window.locator('.conversation-composer')).toHaveCSS('border-top-width', '0px');
+  await expect(window.locator('.conversation-composer')).toHaveCSS('padding', '12px 16px 16px');
+  await expect(window.locator('.conversation-composer')).toHaveCSS('border-top-width', '1px');
   for (const button of await window.locator('.conversation-composer button').all())
     await expect(button).toBeInViewport();
   const bounds = await window.evaluate((node) => {
@@ -167,7 +166,7 @@ for (const width of [1440, 390]) {
         await expect(user.locator('.conversation-author')).toHaveText('You');
         await expect(user.locator('.conversation-body')).toHaveText(request);
         await flat(user);
-        await expect(user).toHaveCSS('padding-left', surface === 'chat' ? '12px' : '0px');
+        await expect(user).toHaveCSS('padding-left', surface === 'chat' ? '16px' : '0px');
         computed[`${surface}-user`] = await styles(user);
         for (const [state, label] of [
           ['waiting', 'Waiting for Atlas'],
@@ -181,10 +180,10 @@ for (const width of [1440, 390]) {
             await expect(agent).toHaveCount(1);
             await flat(agent);
             await expect(agent).toHaveCSS('border-left-width', surface === 'chat' ? '3px' : '0px');
-            await expect(agent).toHaveCSS('padding-left', surface === 'chat' ? '9px' : '8px');
+            await expect(agent).toHaveCSS('padding-left', surface === 'chat' ? '13px' : '8px');
             await expect(agent.getByTestId('ask-reply')).toHaveText(reply);
             await expect(agent.getByTestId('ask-reply-attribution')).toHaveText(
-              `Atlas · ${surface === 'chat' ? text.conversationAgent : 'AGENT'} · 5m ago`,
+              `Atlas ${text.conversationAgent} · 5m ago`,
             );
             computed[`${surface}-agent`] = await styles(agent);
             await expect(window.getByTestId('ask-state')).toHaveCount(0);
@@ -897,19 +896,18 @@ for (const [width, theme] of [
     const agent = panel.locator('[data-turn-role="agent"]');
     await expect(agent).toHaveCSS('border-left-width', '3px');
     await expect(panel.locator('.conversation-turn')).toHaveCount(3);
-    let sharedTimeEdge: number | undefined;
     for (const row of await panel.locator('.conversation-turn').all()) {
       await expect(row).toHaveCSS('border-bottom-width', '0px');
       const body = await row.locator('.conversation-body').boundingBox();
       const byline = await row.locator('.comment-byline').boundingBox();
-      // Owned rows reserve the existing right-edge action menu; the time fills
-      // the remaining identity row rather than staying beside the author.
+      // Ben's shared byline keeps the time beside its separator, not on a
+      // separate right edge; the own-message menu keeps its existing owner.
       expect(byline!.width).toBeGreaterThan(body!.width - 50);
-      const time = await row.locator('time').boundingBox();
-      const edge = time!.x + time!.width;
-      expect(edge).toBeCloseTo(byline!.x + byline!.width, 0);
-      if (sharedTimeEdge !== undefined) expect(edge).toBeCloseTo(sharedTimeEdge, 0);
-      sharedTimeEdge = edge;
+      const gap = await row.locator('time').evaluate((time) => {
+        const separator = time.previousElementSibling!.getBoundingClientRect();
+        return time.getBoundingClientRect().left - separator.right;
+      });
+      expect(gap).toBeCloseTo(6, 0);
     }
     await expect(panel.getByTestId('ask-state')).toHaveCount(0);
     await capture(page, panel, `chat-polish-messages-${width}-${theme}`);

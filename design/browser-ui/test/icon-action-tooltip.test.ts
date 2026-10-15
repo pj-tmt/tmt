@@ -223,3 +223,27 @@ it.each([false, true])(
     expect(dismiss).toHaveBeenLastCalledWith(false);
   },
 );
+
+it('replaces help per document and stale cleanup cannot release the next tooltip', () => {
+  const document = {} as Document;
+  const otherDocument = {} as Document;
+  const first = vi.fn();
+  const second = vi.fn();
+  const independent = vi.fn();
+  const releaseFirst = placement.claimIconActionTooltip(document, first);
+  const releaseIndependent = placement.claimIconActionTooltip(otherDocument, independent);
+  expect(first).not.toHaveBeenCalled();
+  const releaseSecond = placement.claimIconActionTooltip(document, second);
+  expect(first).toHaveBeenCalledTimes(1);
+  expect(independent).not.toHaveBeenCalled();
+  releaseFirst();
+  const third = vi.fn();
+  const releaseThird = placement.claimIconActionTooltip(document, third);
+  expect(second).toHaveBeenCalledTimes(1);
+  releaseSecond();
+  releaseThird();
+  const releaseAfterUnmount = placement.claimIconActionTooltip(document, vi.fn());
+  expect(third).not.toHaveBeenCalled();
+  releaseAfterUnmount();
+  releaseIndependent();
+});

@@ -428,14 +428,24 @@ recipient or sends. Source plaintext, undo and IME remain owned by the shared ed
 
 ### Conversation turn
 
-One message in Chat or a thread: author line (`name · agent · time`), body,
+Chat and annotation windows use the same borderless composer, with a thin rule
+above it and 16px side padding. Recipient chips precede the text; labeled Attach,
+the existing creator preference and the square arrow Send share its bottom row,
+aligned to the text edges. The composer retains one editor and draft owner.
+
+Annotation anchors and thread headers share one 22px circle, 12px semibold system
+font and grid-centered number. Header items align vertically with an 8px gap.
+An anchored window adds no decorative connector line beside the circle.
+
+One message in Chat or a thread: author line (`name AGENT · time` for agents, `name · time` for people), body,
 state (mark plus word), and a `⋯` menu for the author's own Edit or Delete.
 
 - Chat and threads share `ConversationTurn` structure and history ownership.
   In annotation/thread windows, human messages sit directly on the grey panel;
   agent messages use a whole-message sheet block without borders or bubbles.
   Every author line includes a person/agent icon, name and time; agent messages
-  carry `AGENT`. Chat retains its existing rows and driver rail treatment.
+  carry one small outlined `AGENT` tag, 6px after the name and before the time.
+  Chat retains its existing rows and trusted driver rail treatment.
 - In Chat, only the current verified `runningDriver`, matched by machine and agent,
   selects driver treatment: `claude` uses `review`, `codex` uses `link`. Present
   metadata adds a square filled Bot avatar, bold name and lowercase driver tag;

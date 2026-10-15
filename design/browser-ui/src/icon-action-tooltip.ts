@@ -1,3 +1,14 @@
+const activeTooltips = new WeakMap<Document, () => void>();
+
+/** Help has one ephemeral owner per document, independent of menu/dialog state. */
+export function claimIconActionTooltip(document: Document, dismiss: () => void): () => void {
+  activeTooltips.get(document)?.();
+  activeTooltips.set(document, dismiss);
+  return () => {
+    if (activeTooltips.get(document) === dismiss) activeTooltips.delete(document);
+  };
+}
+
 interface TooltipViewport {
   left: number;
   top: number;

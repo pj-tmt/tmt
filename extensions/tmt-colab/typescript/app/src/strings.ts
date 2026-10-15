@@ -262,7 +262,7 @@ export const text = {
   threadResolveAction: 'Resolve thread',
   threadCollapse: 'Collapse thread',
   threadCollapseHelp: 'Collapse · Esc',
-  conversationAgent: 'agent',
+  conversationAgent: 'AGENT',
   recoveryRequired: 'Reconnect to resume live updates.',
   reconnecting: 'Reconnecting…',
   sendOnHold: 'Send is on hold until the connection is back.',

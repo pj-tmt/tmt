@@ -79,3 +79,10 @@ svg.tmt-ui-mark {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
   outline-offset: var(--tmt-ui-host-focus-offset);
 }
+
+/* A host navigation landmark keeps the same spacing as adjacent header actions. */
+.tmt-ui-actions > nav {
+  display: flex;
+  align-items: center;
+  gap: inherit;
+}

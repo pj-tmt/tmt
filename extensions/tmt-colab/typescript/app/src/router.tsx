@@ -389,7 +389,7 @@ function SelectionAnnotation({
     <div
       ref={element}
       className={children ? 'annotation-popover' : 'selection-control'}
-      data-leader={position?.leaderSide}
+      data-leader={expanded ? undefined : position?.leaderSide}
       style={
         {
           ...(position

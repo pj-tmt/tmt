@@ -282,8 +282,9 @@ counterpart in `page_check/group.rs`), a reason-code row in colab-v1 and at leas
 
 ## App and browser client
 
-The opaque renderer's annotation paint roles are generated from the same browser
-role tokens without a network fetch. After token changes run
+The opaque renderer's annotation paint roles come from the browser role tokens;
+its number-circle CSS comes from the app's `src/annotation-number.css`, without a
+network fetch. After either input changes run
 `node extensions/tmt-colab/scripts/generate-renderer-style.mjs --write`, then
 `--check`; app check/build verify equality. The checked browser stylesheet retains
 its separate shared generator. Never hand-edit the generated renderer token block.

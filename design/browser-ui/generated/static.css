@@ -245,6 +245,13 @@ svg.tmt-ui-mark {
   outline-offset: var(--tmt-ui-host-focus-offset);
 }
 
+/* A host navigation landmark keeps the same spacing as adjacent header actions. */
+.tmt-ui-actions > nav {
+  display: flex;
+  align-items: center;
+  gap: inherit;
+}
+
 .tmt-ui-notice {
   box-sizing: border-box;
   padding: var(--tmt-ui-notice-padding);
@@ -496,6 +503,11 @@ svg.tmt-ui-mark {
   border-radius: var(--tmt-ui-radius);
   background: var(--tmt-ui-surface-sheet);
   box-shadow: none;
+}
+
+.tmt-ui-icon-action-control:focus-visible {
+  outline: 1px solid var(--tmt-ui-color-focus);
+  outline-offset: -1px;
 }
 
 .tmt-ui-toggle {
@@ -946,6 +958,10 @@ svg.tmt-ui-mark {
   padding: 0 12px 8px;
   color: var(--tmt-ui-color-muted);
   font-size: 12px;
+}
+
+.tmt-ui-menu-trigger > svg {
+  flex: none;
 }
 
 .tmt-ui-tabs {

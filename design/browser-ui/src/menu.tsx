@@ -7,7 +7,7 @@ import {
   type MouseEvent,
   type KeyboardEvent,
 } from 'react';
-import { Ellipsis } from 'lucide-react';
+import { ChevronDown, Ellipsis } from 'lucide-react';
 import { BrowserIconAction } from './icon-action.js';
 import { admitsOverlayEscape, outsideOverlay, restoreOverlayFocus } from './overlay.js';
 import { claimBrowserPopup, placeBrowserPopup } from './popup.js';
@@ -157,7 +157,7 @@ export function BrowserMenu<Key extends string>({
         >
           <span className="tmt-ui-menu-field-label">{label}</span>
           <span>{valueLabel}</span>
-          <span aria-hidden="true">⌄</span>
+          <ChevronDown className="tmt-ui-icon" aria-hidden="true" />
         </button>
       ) : (
         <BrowserIconAction

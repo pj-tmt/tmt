@@ -1,0 +1,31 @@
+/* One cosmetic number-circle specification, also projected into the opaque renderer. */
+.annotation-number {
+  box-sizing: border-box;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 22px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--tmt-ui-surface-annotation-action);
+  color: var(--tmt-ui-color-annotation-on-action);
+  font:
+    600 12px/1 system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
+  letter-spacing: 0;
+  text-align: center;
+  text-decoration: none;
+  box-shadow: none;
+  appearance: none;
+}
+.annotation-number::before,
+.annotation-number::after {
+  content: none;
+  display: none;
+}

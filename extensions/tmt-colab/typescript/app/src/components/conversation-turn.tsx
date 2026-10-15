@@ -61,22 +61,17 @@ export function ConversationTurn({
                 <Icon size={16} />
               </span>
             )}
-            <span className="conversation-author">{author}</span>
-            {driver ? (
+            <span className="conversation-author">{author}</span>{' '}
+            {role === 'agent' && (
               <>
-                <span className="conversation-agent-label">
-                  {chat ? text.conversationAgent : 'AGENT'}
-                </span>
-                <span className="conversation-driver"> {driver}</span>
+                <span className="conversation-agent-label">{text.conversationAgent}</span>{' '}
               </>
-            ) : (
-              role === 'agent' && (
-                <span className="conversation-agent-label">
-                  <span className="conversation-time-separator"> · </span>
-                  {chat ? text.conversationAgent : 'AGENT'}
-                </span>
-              )
-            )}{' '}
+            )}
+            {driver && (
+              <>
+                <span className="conversation-driver">{driver}</span>{' '}
+              </>
+            )}
             <span className="conversation-time-separator">· </span>
             <time dateTime={new Date(at).toISOString()} title={new Date(at).toISOString()}>
               {compactRelativeTime(at, now)}

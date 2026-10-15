@@ -219,7 +219,7 @@
           const sheet = document.createElement('style');
           // BEGIN GENERATED ANNOTATION TOKENS
           const annotationTokens =
-            ':root{--tmt-ui-surface-annotation-highlight:#ececeb;--tmt-ui-surface-annotation-action:#262626;--tmt-ui-color-annotation-on-action:#ffffff;}:root[data-theme="dark"]{--tmt-ui-surface-annotation-highlight:#343434;--tmt-ui-surface-annotation-action:#626262;--tmt-ui-color-annotation-on-action:#ffffff;}';
+            ':root{--tmt-ui-surface-annotation-highlight:#ececeb;--tmt-ui-surface-annotation-action:#262626;--tmt-ui-color-annotation-on-action:#ffffff;}:root[data-theme="dark"]{--tmt-ui-surface-annotation-highlight:#343434;--tmt-ui-surface-annotation-action:#626262;--tmt-ui-color-annotation-on-action:#ffffff;}.annotation-number { box-sizing: border-box; display: inline-grid; place-items: center; flex: none; width: 22px; min-width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: var(--tmt-ui-surface-annotation-action); color: var(--tmt-ui-color-annotation-on-action); font: 600 12px/1 system-ui, -apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif; letter-spacing: 0; text-align: center; text-decoration: none; box-shadow: none; appearance: none; } .annotation-number::before, .annotation-number::after { content: none; display: none; }';
           // END GENERATED ANNOTATION TOKENS
           const highlightStyle =
             annotationTokens +
@@ -867,7 +867,7 @@
                       a.item.ordinal - b.item.ordinal,
                   );
                 for (const { item, rect } of paint) {
-                  const size = Math.max(22, String(item.ordinal).length * 7 + 10);
+                  const size = 22;
                   const maxLeft = Math.max(4, innerWidth - size - 4);
                   let left = Math.max(4, Math.min(maxLeft, rect.right - 5));
                   let top = Math.max(4 - scrollY, rect.top - size * 0.7);
@@ -892,10 +892,11 @@
                   const marker = document.createElement('button');
                   marker.type = 'button';
                   marker.dataset.colabThread = item.id;
+                  marker.className = 'annotation-number';
                   marker.textContent = String(item.ordinal);
                   marker.title = 'Thread ' + item.ordinal + ': ' + item.selector.exact.slice(0, 80);
                   marker.setAttribute('aria-label', 'Open annotation: ' + marker.title);
-                  marker.style.cssText = `position:absolute;left:${left - origin.left}px;top:${top - origin.top}px;width:${size}px;height:${size}px;padding:0;border:0;border-radius:50%;background:var(--tmt-ui-surface-annotation-action);color:var(--tmt-ui-color-annotation-on-action);font:600 12px/${size}px sans-serif;pointer-events:auto;cursor:pointer;box-shadow:none`;
+                  marker.style.cssText = `position:absolute;left:${left - origin.left}px;top:${top - origin.top}px;pointer-events:auto;cursor:pointer`;
                   marker.addEventListener('click', (event) => {
                     if (event.isTrusted)
                       port.postMessage({
