@@ -1,3 +1,4 @@
+import './source-editor.css';
 import type { ComposerEdit } from './components/message-composer-edit.js';
 import {
   BrowserAction,

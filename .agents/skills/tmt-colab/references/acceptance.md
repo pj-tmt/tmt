@@ -180,6 +180,9 @@ never paired with the door. It asserts that an unpaired browser gets no owner fi
 leaves the address bar, the page shows read-only and live, an owner edit reaches it, no request
 carries the seed, Reset ends the open reader ("Access ended") and the old link, and the
 replacement link opens in a third profile.
+Its editor-link case adds `share link add --role editor`: the reader says "Can edit", its Source drawer
+saves page text through the serve, the owner's CLI reads the saved page, and a viewer link to the same page
+shows the edit with no Source control.
 
 `export.spec.ts` (#1574) has two paired writers discuss a selection, one asks the recipient
 agent about the comment, then exports through the browser's Export panel (real downloads) and

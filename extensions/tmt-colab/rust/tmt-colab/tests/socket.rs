@@ -3927,6 +3927,143 @@ impl Running {
         v["epoch"] = s["epoch"].clone();
         v
     }
+    /// The page shared by link with one link of `role`, and a ticket for that link's device.
+    fn link_session(&self, role: &str) -> Value {
+        use tmt_colab::{
+            store::owner::Mutation,
+            transitions::{
+                Engine, LinkAction, LinkSpec, OwnerAction, OwnerRequest, Publication, ShareMode,
+            },
+        };
+        const LINK: &str = "20000000-0000-4000-8000-000000000001";
+        const LINK_DEVICE: &str = "30000000-0000-4000-8000-000000000001";
+        const SEED: [u8; 32] = [17; 32];
+        let layout = Layout::open(&self.root).unwrap();
+        let key = Keyring::read(&layout).unwrap();
+        let mut store = Store::open(&layout).unwrap();
+        let head = |store: &Store| {
+            store
+                .owner_head(&self.space, &key.owner_public())
+                .unwrap()
+                .unwrap()
+        };
+        let revision = head(&store).revision;
+        store
+            .owner_transaction(
+                &self.space,
+                &key.owner_public(),
+                Mutation {
+                    operation_id: "40000000-0000-4000-8000-000000000001",
+                    expected_revision: revision,
+                    digest: [1; 32],
+                },
+                |tx| {
+                    tx.put_epoch_secret(PAGE, 1, &[8; 32])?;
+                    tx.append_statement(&key.sign_statement(
+                        tx.head(),
+                        "retention.set",
+                        &serde_json::to_vec(&json!({"pageId":PAGE,"days":null}))?,
+                    )?)?;
+                    Ok(Vec::new())
+                },
+            )
+            .unwrap();
+        let mut engine = Engine::with_decoder_config(support::decoder_config(
+            env!("CARGO_BIN_EXE_tmt-colab").into(),
+        ))
+        .unwrap();
+        for (operation, action) in [
+            (
+                "40000000-0000-4000-8000-000000000002",
+                OwnerAction::Share {
+                    page: PAGE,
+                    mode: ShareMode::Link,
+                    publication: Publication::Loopback,
+                },
+            ),
+            (
+                "40000000-0000-4000-8000-000000000003",
+                OwnerAction::Link(LinkAction::Add(LinkSpec {
+                    id: LINK,
+                    role,
+                    pages: vec![PAGE.into()],
+                    seed: &SEED,
+                })),
+            ),
+        ] {
+            let expected_revision = head(&store).revision;
+            engine
+                .apply(
+                    &mut store,
+                    &key,
+                    OwnerRequest {
+                        operation_id: operation,
+                        expected_revision,
+                        action,
+                        transport_digest: None,
+                        scope: None,
+                    },
+                    now(),
+                )
+                .unwrap();
+        }
+        // The last statement is the `link.add` the device chain must name.
+        let issuer = head(&store);
+        let link = tmt_colab_model::link::Keys::derive(&SEED, &self.space, LINK).unwrap();
+        let device = SigningKey::from_bytes(&[19; 32]);
+        let encryption = tmt_colab_model::wrap::RecipientKey::from_seed(&[20; 32])
+            .unwrap()
+            .public_key();
+        let certificate =
+            tmt_colab_model::certificate::input(&tmt_colab_model::certificate::Certificate {
+                space: &self.space,
+                issuer_kind: "link",
+                issuer_id: LINK,
+                device_id: LINK_DEVICE,
+                signing_key: &device.verifying_key().to_bytes(),
+                encryption_key: &encryption,
+                membership_revision: &head(&store).revision.to_string(),
+                issued_at: 0,
+                expires_at: 9_007_199_254_740_991,
+            })
+            .unwrap();
+        let chain = serde_json::to_vec(&json!({"version":1,
+            "issuerStatement":values::encode_binary(&issuer.hash),
+            "deviceCertificate":values::encode_binary(&certificate),
+            "issuerSignature":values::encode_binary(&link.certify(
+                &tmt_colab_model::certificate::decode(&certificate).unwrap()).unwrap())}))
+        .unwrap();
+        let response = self.event(
+            tmt_colab::readers::CHALLENGE_PATH,
+            "",
+            &json!({"kind":"link","space":self.space,"page":PAGE,
+                "chain":values::encode_binary(&chain)})
+            .to_string(),
+        );
+        assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+        let c: Value = serde_json::from_str(response.split_once("\r\n\r\n").unwrap().1).unwrap();
+        let input = framing::frame(&[
+            b"tmt-colab-reader-session-v1",
+            b"1",
+            c["challengeId"].as_str().unwrap().as_bytes(),
+            &values::binary(c["nonce"].as_str().unwrap(), 32).unwrap(),
+            self.space.as_bytes(),
+            PAGE.as_bytes(),
+            c["epoch"].as_str().unwrap().as_bytes(),
+            &values::binary(c["chainDigest"].as_str().unwrap(), 32).unwrap(),
+            c["expiresAt"].as_u64().unwrap().to_string().as_bytes(),
+        ])
+        .unwrap();
+        let response = self.event(
+            tmt_colab::readers::SESSION_PATH,
+            "",
+            &json!({"kind":"link","challengeId":c["challengeId"],
+                "signature":values::encode_binary(&device.sign(&input).to_bytes())})
+            .to_string(),
+        );
+        assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+        serde_json::from_str(response.split_once("\r\n\r\n").unwrap().1).unwrap()
+    }
 }
 #[test]
 fn mounted_public_readers_catch_up_and_cannot_publish_or_claim_owner_context_twice() {
@@ -4501,6 +4638,54 @@ fn a_public_reader_cannot_save_or_ask_about_a_save() {
     ] {
         send(&mut reader, frame);
         assert_eq!(receive_until(&mut reader, "error").0["type"], "error");
+    }
+}
+
+#[test]
+fn an_editor_link_save_commits_as_the_root_local_writer_and_no_other_link_can_save() {
+    let source = "<p>Saved through an editor link</p>";
+    for role in ["viewer", "commenter", "editor"] {
+        let server = Running::start(Tunnels::PRODUCT);
+        let session = server.link_session(role);
+        let mut link = server.reader_peer(&session);
+        let save = |operation: &str, attachments: bool| {
+            let mut fields = json!({"operationId":operation,"baseSha256":sha(b""),
+                "sourceSha256":sha(source.as_bytes()),"source":values::encode_binary(source.as_bytes())});
+            if attachments {
+                fields["attachments"] = json!({});
+            }
+            server.reader_frame(&session, "save", fields)
+        };
+        // Saving text is the editor's alone, and saving attachments is nobody's.
+        send(&mut link, save(SAVE_ONE, true));
+        assert_eq!(
+            receive_until(&mut link, "error").0["type"],
+            "error",
+            "{role}"
+        );
+        send(&mut link, save(SAVE_TWO, false));
+        if role == "editor" {
+            let (result, _) = receive_until(&mut link, "saveresult");
+            assert_eq!(result["state"], "committed", "{result}");
+            let layout = Layout::existing(&server.root).unwrap().unwrap();
+            let key = Keyring::read(&layout).unwrap();
+            assert_eq!(native_source(&layout, &key), source);
+        } else {
+            assert_eq!(
+                receive_until(&mut link, "error").0["type"],
+                "error",
+                "{role}"
+            );
+        }
+        // Awareness, usage and compaction belong to no link.
+        for kind in ["usage", "compact"] {
+            send(&mut link, server.reader_frame(&session, kind, json!({})));
+            assert_eq!(
+                receive_until(&mut link, "error").0["type"],
+                "error",
+                "{role} {kind}"
+            );
+        }
     }
 }
 

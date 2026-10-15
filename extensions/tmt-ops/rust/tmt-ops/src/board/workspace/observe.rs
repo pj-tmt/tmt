@@ -20,6 +20,7 @@ type BindingSources = BTreeMap<String, String>;
 #[derive(Debug, Default)]
 pub(crate) struct OpsWorkspaceSnapshot {
     pub roster: OpsRoster,
+    pub shell_counts: ShellCounts,
     /// Exact admitted row projections used by the existing action/conversation
     /// adapters. Display models never reconstruct send data from visible text.
     pub rows: BTreeMap<OpsTarget, Value>,
@@ -58,6 +59,7 @@ fn pool_row(row: &Value) -> Value {
 
 impl OpsWorkspaceSnapshot {
     pub(crate) fn configure(&mut self, config: &Config) -> Result<(), SquadError> {
+        self.shell_counts = self.roster.shell_counts();
         self.preferences = config.workspace_preferences()?;
         self.config_path = config.path().display().to_string();
         let scopes = [

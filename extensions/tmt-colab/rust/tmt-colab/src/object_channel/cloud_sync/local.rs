@@ -211,6 +211,7 @@ impl Local for StoreLocal {
                     ) else {
                         continue;
                     };
+                    chains.extend(tx.link_device_chains(&id)?);
                     links.push(LiveLink {
                         wraps: tx.owner_link_wraps(&page.page, page.epoch, &head, &id)?,
                         id,

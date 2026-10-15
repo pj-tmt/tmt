@@ -27,7 +27,7 @@ const STYLE: &str = concat!(
     include_str!("../assets/pages.css"),
 );
 /// The page runs only the same-origin SDK module and talks only to this door.
-const PAGE_POLICY: &str = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; \
+const PAGE_POLICY: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src data:; connect-src 'self'; \
     base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 /// Bound on a `/sdk/mount` body: one page path.
 const MOUNT_BODY_BYTES: usize = 2048;

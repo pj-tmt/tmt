@@ -37,7 +37,8 @@ and stopped after the object channel closes. Per generation it asks Remote to ac
 binary injects `supervisor::activate_sync`), waits for that generation's channel, binds, and
 keeps the most recently active page published: `object_channel/cloud_sync/publisher.rs` creates the page's
 admission rows (including a live link's `links` row), then the signed membership and chain
-originals of the streams this machine registered, the epoch's signed baseline (from the second epoch, in
+originals of the streams this machine registered and the chains of each live link's unrevoked
+devices (`link_device_chains`), the epoch's signed baseline (from the second epoch, in
 the `checkpoints` carrier under the hash its `epoch.advance` names), the wraps (including those addressed to
 links), then each local original in sequence, and `object_channel/cloud_sync/local.rs` reads them from the
 Store and records a position only after the exact original was created or read back identical
@@ -204,8 +205,10 @@ mechanism or CSP changes are required; no inline-style/eval relaxation is permit
 (`link.deriveLink`, `link.deriveDevice`, `link.certifyDevice`; byte-identical chain on every open), runs challenge, session and sync, and reconnects until access ends.
 It reuses `Admission` through its `ReaderSeat` option (link-addressed wraps, owner-log
 verification, nothing persisted) and `Connection` with the ticket subprotocol. `src/reader-main.tsx`
-removes the fragment first; `src/reader-app.tsx` renders read-only with the sandboxed renderer. The
-owner router, writer, Ask and export modules are not part of this bundle.
+removes the fragment first; `src/reader-app.tsx` renders read-only with the sandboxed renderer, and for a link
+whose `role` is `editor` also offers the shared Source drawer (`src/reader-source.tsx`, `source-editor.css`), which
+saves through `ReaderSession.edit` (`save.ts` maps the result as the owner editor does). The owner router, writer,
+Ask and export modules are not part of this bundle.
 
 ## Restart recovery
 
@@ -418,7 +421,11 @@ is added.
   existing page budgets across epochs, without eviction. The contract owns wire details;
   CLI `page write` and its serving route call it; browser Save does not.
 - Link seeds are borrowed for key derivation and never persisted or returned
-  (`transitions/links.rs`).
+  (`transitions/links.rs`). While the seed is borrowed, the same transaction derives the link's
+  reader device (`link::device_chain`, byte-equal to the `authority-v1.json` `linkDevice` oracle)
+  and keeps its chain as a device row naming the `link.add` statement (`put_link_device` in
+  `membership.rs`); it is never a registration, so `local_streams` does not treat it as a stream
+  this machine writes. A reset or removal revokes the row with the link.
 
 ## Admission and lock order
 
@@ -529,7 +536,9 @@ changed scope, a second stale head and unknown outcomes never rebuild (colab-v1 
   epoch-scoped and never owner devices. A link session writes only through `sync::Access::Write` and
   `Append`: `Sessions::writer` reads the live link, so its role admits `content` and `own` (editor),
   `own` (commenter) or nothing (viewer), signed by the link device (`Admission::device`); the fold
-  stays the authority on what a stored original means. Every other frame stays denied
+  stays the authority on what a stored original means. An editor link also has `Access::Save`: its text
+  save is prepared and sealed by the serve's root-local writer like any browser save (no link is named
+  as author), and a save changing attachments needs `Publish`. Every other frame stays denied
   (`readers.rs`, `registration.rs`).
 
 The quick switcher's data (#2599) is React-free except one hook. `quick-switcher.ts` ranks the

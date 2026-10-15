@@ -42,8 +42,7 @@ button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy)[aria-pr
 }
 .local,
 .eyebrow,
-.boundary,
-.source > span {
+.boundary {
   color: var(--c-muted);
   font: 11px var(--f-mono);
 }
@@ -219,41 +218,6 @@ footer {
   border: 0;
   background: #fff;
 }
-.source {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-}
-.source > span {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 16px;
-  background: var(--c-sheet);
-  border-bottom: 1px solid var(--c-rule);
-}
-.source-notice {
-  padding: 12px 16px 0;
-}
-.source-notice .tmt-ui-notice {
-  width: auto;
-  margin: 0;
-}
-.source-notice .tmt-ui-notice-actions {
-  align-items: baseline;
-}
-.source-notice > p,
-.source-notice .tmt-ui-notice-actions [role='status'] {
-  margin: 0;
-  font: 400 13px/1.5 var(--tmt-ui-font-body);
-}
-.source-notice .tmt-ui-notice-heading {
-  margin: 6px 0 0;
-  font: 400 13px/1.5 var(--tmt-ui-font-body);
-  letter-spacing: 0;
-}
 /* About > Page size: flat, tabular label/value rows that wrap at 390 with no horizontal scroll. */
 .page-size h3 {
   margin: 16px 0 8px;
@@ -278,17 +242,6 @@ footer {
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
-.source textarea {
-  width: 100%;
-  height: 100%;
-  min-height: 500px;
-  border: none;
-  resize: none;
-  padding: 16px;
-  background: var(--c-sheet);
-  color: var(--c-text);
-  font: 12px/1.65 var(--f-mono);
-}
 .isolation-note {
   font-size: 12px;
   color: var(--c-muted);
@@ -304,9 +257,6 @@ footer {
   .home {
     padding-left: 20px;
     padding-right: 20px;
-  }
-  .source textarea {
-    min-height: 220px;
   }
   footer {
     padding: 16px 20px;

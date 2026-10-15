@@ -25,6 +25,7 @@ it('only a verified ready view reaches the read-only reader and no writer contro
   expect(html).toContain('daily reading allowance');
   expect(html).not.toMatch(/>Save</);
   expect(html).not.toMatch(/>Ask</);
+  expect(html).not.toContain('source-toggle');
 });
 it.each(['loading', 'recovering', 'paused', 'link-needed'] as const)(
   'the %s state does not label retained content Live',

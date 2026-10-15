@@ -99,6 +99,7 @@ fn row(
         remembered,
         resume: None,
         running_driver: None,
+        driver_support: None,
     }
 }
 
@@ -382,6 +383,7 @@ fn running_document(mut row: ListedRow, runtime: RuntimeState) -> Value {
             resume: row.resume.clone(),
             activity: row.activity.clone(),
             running_driver: None,
+            driver_support: None,
         }],
         scope: ListScope::default(),
     });
@@ -620,5 +622,177 @@ fn a_row_without_a_live_observation_has_no_location_key_at_all() {
     assert!(
         json.as_object().unwrap().get("location").is_none(),
         "{json}"
+    );
+}
+
+/// A live row in `command`, with no remembered session, as `tmt ls` sees an
+/// agent that TMT cannot observe beyond its pane.
+fn pane_only_row(name: &str, command: &str) -> ListedRow {
+    row(
+        name,
+        Lifetime::Saved,
+        Some((
+            pane("%9", command, "/tmp"),
+            binding(RuntimeState::Unknown, None),
+        )),
+        None,
+    )
+}
+
+fn support_of(row: &ListedRow, preferred: Option<&str>) -> Option<&'static str> {
+    let preferred = preferred.map(|harness| HarnessId::new(harness).unwrap());
+    driver_support(&row.presence, row.remembered.as_ref(), preferred.as_ref()).map(Support::as_str)
+}
+
+#[test]
+fn every_built_in_driver_reports_its_declared_level_from_a_remembered_harness() {
+    for driver in descriptor::ALL {
+        let row = row(
+            "agent",
+            Lifetime::Saved,
+            None,
+            Some(remembered(driver.name, "session-1", false)),
+        );
+        assert_eq!(
+            support_of(&row, None),
+            Some(driver.support.as_str()),
+            "{}",
+            driver.name
+        );
+    }
+}
+
+#[test]
+fn the_identified_driver_is_remembered_then_preferred_then_the_exact_live_executable() {
+    // Remembered and preferred harnesses need no live pane, so a stopped agent
+    // keeps its level; the remembered one wins over the preferred one.
+    let stopped = row("sol", Lifetime::Saved, None, None);
+    assert_eq!(support_of(&stopped, Some("codex")), Some("full"));
+    assert_eq!(support_of(&stopped, Some("gemini")), Some("basic"));
+    let remembered_claude = row(
+        "sol",
+        Lifetime::Saved,
+        None,
+        Some(remembered("claude", "session-1", false)),
+    );
+    assert_eq!(support_of(&remembered_claude, Some("gemini")), Some("full"));
+    // Only without a harness does the live pane's foreground executable count.
+    for (command, expected) in [
+        ("gemini", Some("basic")),
+        ("pi", Some("basic")),
+        ("opencode", Some("basic")),
+        ("claude", Some("full")),
+        ("/opt/bin/muse", Some("basic")),
+        ("pi-calc", None),
+        ("node", None),
+        ("zsh", None),
+        ("2.1.283", None),
+    ] {
+        assert_eq!(
+            support_of(&pane_only_row("agent", command), None),
+            expected,
+            "{command}"
+        );
+    }
+    // A harness that is not a built-in driver has no level, and never falls
+    // back to a command that happens to match another driver.
+    let mut unregistered = pane_only_row("agent", "gemini");
+    unregistered.remembered = Some(remembered("unregistered", "session-1", false));
+    assert_eq!(support_of(&unregistered, None), None);
+    // The pane counts only while the row is active.
+    for presence in [Presence::Offline, Presence::Unknown] {
+        let mut row = pane_only_row("agent", "gemini");
+        row.presence.presence = presence;
+        assert_eq!(support_of(&row, None), None, "{presence:?}");
+    }
+}
+
+/// The JSON row with `driverSupport` removed must equal the same row without
+/// it, so the key is purely additive.
+fn support_document(mut row: ListedRow, support: Option<Support>) -> Value {
+    let baseline = document(&Report::Listed {
+        rows: vec![ListedRow {
+            presence: row.presence.clone(),
+            remembered: row.remembered.clone(),
+            resume: row.resume.clone(),
+            activity: row.activity.clone(),
+            running_driver: row.running_driver.clone(),
+            driver_support: None,
+        }],
+        scope: ListScope::default(),
+    });
+    row.driver_support = support;
+    let projected = document(&Report::Listed {
+        rows: vec![row],
+        scope: ListScope::default(),
+    });
+    let mut existing = projected.clone();
+    existing["identities"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("driverSupport");
+    assert_eq!(existing, baseline, "existing list fields must not change");
+    projected["identities"][0].clone()
+}
+
+#[test]
+fn json_driver_support_is_additive_a_plain_string_and_absent_never_null() {
+    let mut full = running_row("claude", CLAUDE);
+    full.running_driver = Some("claude".into());
+    let value = support_document(full, Some(Support::Full));
+    assert_eq!(value["driverSupport"], "full");
+    assert_eq!(value["runningDriver"], "claude");
+    assert_eq!(value["driver"], "claude");
+
+    // A basic driver has no runtime, so there is no `runningDriver` to sit
+    // beside; the level is still reported.
+    let value = support_document(pane_only_row("pi-1", "pi"), Some(Support::Basic));
+    assert_eq!(value["driverSupport"], "basic");
+    assert!(value.get("runningDriver").is_none());
+    assert_eq!(value["session"]["activity"]["state"], "unknown");
+
+    for row in [
+        pane_only_row("unknown", "node"),
+        row("offline", Lifetime::Saved, None, None),
+    ] {
+        let value = support_document(row, None);
+        assert!(value.get("driverSupport").is_none(), "{value}");
+    }
+}
+
+#[test]
+fn a_running_basic_agent_carries_a_dim_basic_note_that_never_replaces_an_action() {
+    let mut basic = pane_only_row("pi-1", "pi");
+    basic.driver_support = Some(Support::Basic);
+    let mut full = running_row("claude", CLAUDE);
+    full.driver_support = Some(Support::Full);
+    let text = render(vec![basic, full], Terminal::PLAIN, false);
+    let lines: Vec<&str> = text.lines().collect();
+    let basic_line = lines.iter().find(|line| line.contains("pi-1")).unwrap();
+    assert!(basic_line.trim_end().ends_with("basic"), "{text}");
+    let full_line = lines.iter().find(|line| line.contains("worker")).unwrap();
+    assert!(!full_line.contains("basic"), "{text}");
+
+    // An action keeps the slot; the note appears only where nothing else does.
+    let mut stale = row(
+        "pi-old",
+        Lifetime::Saved,
+        Some((
+            pane("%3", "pi", "/tmp"),
+            binding(RuntimeState::Running, Some(CLAUDE)),
+        )),
+        Some(remembered("claude", CLAUDE, true)),
+    );
+    stale.driver_support = Some(Support::Basic);
+    let text = render(vec![stale], Terminal::PLAIN, false);
+    assert!(text.contains("stale") && !text.contains("basic"), "{text}");
+
+    // An offline basic agent with nothing to resume still folds into one line.
+    let mut offline = row("pi-2", Lifetime::Saved, None, None);
+    offline.driver_support = Some(Support::Basic);
+    let text = render(vec![offline], Terminal::PLAIN, false);
+    assert!(
+        text.contains("offline: pi-2") && !text.contains("basic"),
+        "{text}"
     );
 }

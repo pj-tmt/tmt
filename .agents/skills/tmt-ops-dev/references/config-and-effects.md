@@ -251,7 +251,8 @@ scoped override semantics; CLI configuration remains available for explicit edit
   Member `rename-member` defaults to `r` only for a visible Agents list member, including
   Common pool; the staged form freezes its UUID and literal current name for Core's
   `identity.rename` CAS, with explicit review and no automatic retry.
-  Enter and double-click inspect; list `j` jumps, while Reader `j/k` scroll. The host table
+  Default Enter talks for a member and inspects a squad or the Common pool, on every host;
+  double-click inspects; list `j` jumps, while Reader `j/k` scroll. The host table
   uses only Core's published `location.host` (`tmux` or an external host); missing or
   unknown location supplies no host override. Retired actions produce located migration
   notices and preserve authored bytes. Arguments are fully resolved before execution;

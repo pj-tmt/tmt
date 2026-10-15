@@ -584,3 +584,28 @@ fn an_append_frame_from_a_link_session_is_stored_as_the_link_devices_stream_by_r
         }
     }
 }
+
+#[test]
+fn only_an_editor_link_may_have_the_serve_save_page_text_and_no_link_the_rest_of_a_writer() {
+    let key = SigningKey::from_bytes(&[19; 32]).verifying_key().to_bytes();
+    for (role, saves) in [("viewer", false), ("commenter", false), ("editor", true)] {
+        let mut f = Fixture::new();
+        f.share(ShareMode::Link);
+        f.add_link_as(role);
+        let id = f.upgrade(&f.session(true)).unwrap();
+        let (admission, scope) = (OwnerAdmission(f.service.clone()), f.scope());
+        assert_eq!(
+            admission.authorize(&id, &scope, Access::Save),
+            if saves {
+                Ok(key)
+            } else {
+                Err(crate::sync::Code::Denied)
+            },
+            "{role}"
+        );
+        assert_eq!(
+            admission.authorize(&id, &scope, Access::Publish),
+            Err(crate::sync::Code::Denied)
+        );
+    }
+}

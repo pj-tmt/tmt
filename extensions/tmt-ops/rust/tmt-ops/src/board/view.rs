@@ -106,6 +106,8 @@ pub(in crate::board) fn render_frame(
     app.workspace_action_hits.borrow_mut().clear();
     app.overview_sort_hits.borrow_mut().clear();
     app.cron_scope_hits.borrow_mut().clear();
+    app.agents_strip_hits.borrow_mut().clear();
+    app.workspace_state_cells.borrow_mut().clear();
     app.row_starts.borrow_mut().clear();
     app.tab_hits.borrow_mut().clear();
     app.scrolls.begin_frame();
@@ -115,17 +117,23 @@ pub(in crate::board) fn render_frame(
             .view
             .as_ref()
             .is_some_and(|view| view.home.is_some() && view.history_pending);
-    let overview =
-        app.workspace_snapshot().is_some() && app.shell.tab == super::shell::OpsTab::Overview;
-    let [tabs, boundary, summary, limits, meter_status, body, footer] = if overview {
+    let workspace = app.workspace_snapshot().is_some() || app.view.is_none();
+    let shell_gap = u16::from(frame.area().height >= 24);
+    let [tabs, boundary, summary, limits, meter_status, body, footer] = if workspace {
         Layout::vertical([
             Constraint::Length(1),
+            Constraint::Length(u16::from(frame.area().height >= 7)),
             Constraint::Length(1),
-            Constraint::Length(0),
-            Constraint::Length(0),
+            Constraint::Length(shell_gap),
             Constraint::Length(0),
             Constraint::Min(1),
-            Constraint::Length(1),
+            Constraint::Length(
+                if app.shell.tab == super::shell::OpsTab::Agents && frame.area().height >= 24 {
+                    3
+                } else {
+                    1
+                },
+            ),
         ])
         .areas(frame.area())
     } else {
@@ -137,8 +145,13 @@ pub(in crate::board) fn render_frame(
         )
     };
     app.conversation.borrow_mut().area = body;
-    strip::paint_left(frame.buffer_mut(), tabs, tabs::paint(app, tabs));
-    if boundary.height > 0 {
+    if workspace {
+        header::render_shell(frame, app, tabs);
+        strip::paint_left(frame.buffer_mut(), summary, tabs::paint(app, summary));
+    } else {
+        strip::paint_left(frame.buffer_mut(), tabs, tabs::paint(app, tabs));
+    }
+    if !workspace && boundary.height > 0 {
         strip::paint_left(
             frame.buffer_mut(),
             boundary,
@@ -164,7 +177,11 @@ pub(in crate::board) fn render_frame(
             width: meter.x.saturating_sub(summary.x).saturating_sub(2),
             ..summary
         });
-    strip::paint_left(frame.buffer_mut(), summary_area, summary_text);
+    if !workspace {
+        strip::paint_left(frame.buffer_mut(), summary_area, summary_text);
+    } else if app.view.is_none() {
+        strip::paint_left(frame.buffer_mut(), Rect { height: 1, ..body }, summary_text);
+    }
     header::render_meter(frame, app, summary);
     header::render_meter_status(frame, app, meter_status);
     let usage = if home_history_pending {
@@ -209,7 +226,11 @@ pub(in crate::board) fn render_frame(
     super::workspace::render::dialog(frame, app, body);
     waiting::prompt(frame, app, body);
     super::mentions::render(frame, app);
-    look.selected_words(frame.buffer_mut());
+    if app.modal_open() {
+        look.selected_words(frame.buffer_mut());
+    } else {
+        look.selected_words_except(frame.buffer_mut(), &app.workspace_state_cells.borrow());
+    }
     header::finish_meter_styles(frame, app, summary);
 }
 

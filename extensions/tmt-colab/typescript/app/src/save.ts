@@ -139,6 +139,21 @@ export function settled(result: SaveResult): SaveResult {
     );
   return result;
 }
+/** How long a lost save waits for the page to reopen, and for the saved source to show. */
+export const SAVE_REOPEN_MS = 20_000;
+/** `settled` for a save that sent anchored `hunks`: a refusal that names hunks which no longer fit
+ * is the conflict the first of them anchors, in the source the editor opened. */
+export function settledAgainst(result: SaveResult, hunks?: readonly SaveHunk[]): SaveResult {
+  try {
+    return settled(result);
+  } catch (error) {
+    const conflicts = error instanceof SaveRefused ? (error.conflicts ?? []) : [];
+    const named = conflicts.filter((at) => at < (hunks?.length ?? 0));
+    if (hunks && named.length > 0)
+      throw new SaveConflict(named.length, conflictAt(hunks[named[0]]));
+    throw error;
+  }
+}
 /** The sentence an editor shows for a save that did not succeed. */
 export function saveMessage(error: unknown): string {
   if (error instanceof SaveTooLarge) return text.saveTooLarge(error.size, error.limit);

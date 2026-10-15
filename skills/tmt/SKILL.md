@@ -45,6 +45,13 @@ TMT can send to a verified host pane (tmux, or Herdr after the user approves
 correlates durable requests and final replies by request ID. `check` captures a
 diagnostic pane snapshot and may deliver a due Digest checklist at verified idle.
 
+Claude and Codex are full drivers: TMT reads their activity, model and resume state.
+Gemini, Antigravity, Pi, OpenCode and Muse are basic: TMT detects them and
+installs skills, but their activity and model are not observable, so a blank
+field is not idle (`tmt ls` marks a running one `basic`; `driverSupport` in
+`tmt ls --json`, see the
+[contract](https://github.com/pj-tmt/tmt/blob/main/contracts/identity-status-v1.md#list-driver-support)).
+
 Do not infer completion from screen text, idle output, process exit or a sent
 receipt; do not automatically resend after timeout, interruption or uncertain
 delivery. Never type past an agent approval prompt, manufacture a receipt or

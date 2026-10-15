@@ -21,12 +21,10 @@ import { Admission } from './admission.js';
 import { Connection } from './connection.js';
 import { Writer, type OwnCompaction } from './writer.js';
 import {
-  SaveConflict,
+  SAVE_REOPEN_MS,
   SaveOutcomeUnknown,
-  SaveRefused,
   SaveTooLarge,
-  conflictAt,
-  settled,
+  settledAgainst,
   type SaveResult,
 } from './save.js';
 import { hunksOf } from './save-hunks.js';
@@ -34,9 +32,6 @@ import { prepareExport, hex, type ExportBundle } from './export.js';
 import { gatherAttachments } from './export-attachments.js';
 import { text } from './strings.js';
 import { RecoveryRequiredError } from './session-recovery.js';
-
-/** How long a lost save waits for the page to reopen, and for the saved source to show. */
-const SAVE_REOPEN_MS = 20_000;
 
 export interface LiveSession {
   registration: Registration;
@@ -722,16 +717,8 @@ export class Live implements PageBinding {
       result = await this.#settleLost(c, operationId);
       recovered = true;
     }
-    try {
-      settled(result);
-    } catch (error) {
-      const conflicts = error instanceof SaveRefused ? (error.conflicts ?? []) : [];
-      const named = conflicts.filter((at) => at < (hunks?.length ?? 0));
-      // The first hunk that does not fit is named from the base the editor holds.
-      if (hunks && named.length > 0)
-        throw new SaveConflict(named.length, conflictAt(hunks[named[0]]));
-      throw error;
-    }
+    // The first hunk that does not fit is named from the base the editor holds.
+    settledAgainst(result, hunks);
     // The record of a recovered save does not say whether it merged, so its revision is the other
     // way to tell that the page shows it.
     await this.#shows(

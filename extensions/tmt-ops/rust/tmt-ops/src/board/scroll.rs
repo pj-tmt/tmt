@@ -38,6 +38,11 @@ pub struct Scrolls {
     drawn: RefCell<BTreeMap<Pane, Drawn>>,
 }
 
+enum Indicator {
+    Overflow(Look),
+    Table(Look),
+}
+
 impl Scrolls {
     /// Forgets where panes were drawn; a render records them again.
     pub fn begin_frame(&self) {
@@ -77,6 +82,11 @@ impl Scrolls {
         }
     }
 
+    /// Tables always keep one range line when at least one target row can fit.
+    pub fn table_viewport(area: Rect) -> usize {
+        usize::from(area.height.saturating_sub(u16::from(area.height >= 2)))
+    }
+
     /// Moves `pane`. Before it was ever drawn, only its position is kept.
     pub fn scroll(&self, pane: Pane, step: Step) {
         let drawn = self.drawn.borrow().get(&pane).copied();
@@ -113,6 +123,14 @@ impl Scrolls {
         content: usize,
     ) {
         let viewport = Self::viewport(area, content).max(1);
+        self.reveal_with_viewport(pane, lines, viewport);
+    }
+
+    pub fn reveal_table_range(&self, pane: Pane, lines: std::ops::Range<usize>, area: Rect) {
+        self.reveal_with_viewport(pane, lines, Self::table_viewport(area).max(1));
+    }
+
+    fn reveal_with_viewport(&self, pane: Pane, lines: std::ops::Range<usize>, viewport: usize) {
         let end = if lines.len() > viewport {
             lines.start.saturating_add(1)
         } else {
@@ -208,7 +226,39 @@ impl Scrolls {
         look: Look,
         paint: impl FnOnce(&mut Frame, Rect, usize),
     ) -> (usize, usize) {
-        let viewport = Self::viewport(area, content);
+        self.paint_viewport(frame, pane, area, content, Indicator::Overflow(look), paint)
+    }
+
+    pub fn show_table(
+        &self,
+        frame: &mut Frame,
+        pane: Pane,
+        area: Rect,
+        content: usize,
+        look: Look,
+        paint: impl FnOnce(&mut Frame, Rect, usize),
+    ) -> (usize, usize) {
+        self.paint_viewport(frame, pane, area, content, Indicator::Table(look), paint)
+    }
+
+    fn paint_viewport(
+        &self,
+        frame: &mut Frame,
+        pane: Pane,
+        area: Rect,
+        content: usize,
+        indicator: Indicator,
+        paint: impl FnOnce(&mut Frame, Rect, usize),
+    ) -> (usize, usize) {
+        let (look, table) = match indicator {
+            Indicator::Overflow(look) => (look, false),
+            Indicator::Table(look) => (look, true),
+        };
+        let viewport = if table {
+            Self::table_viewport(area)
+        } else {
+            Self::viewport(area, content)
+        };
         self.drawn.borrow_mut().insert(
             pane,
             Drawn {
@@ -239,11 +289,29 @@ impl Scrolls {
                 height: 1,
                 ..area
             };
-            strip::paint_right(
-                frame.buffer_mut(),
-                indicator,
-                Line::styled(parts.join("  "), look.role(Role::Dim)),
-            );
+            if table {
+                let end = content.min(offset.saturating_add(viewport));
+                let start = if content == 0 { 0 } else { offset + 1 };
+                strip::paint_left(
+                    frame.buffer_mut(),
+                    Rect::new(
+                        indicator.x.saturating_add(1),
+                        indicator.y,
+                        indicator.width.saturating_sub(1),
+                        1,
+                    ),
+                    Line::styled(
+                        format!("{start}–{end} / {content} rows  ·  {below} more ↓"),
+                        look.role(Role::Dim),
+                    ),
+                );
+            } else {
+                strip::paint_right(
+                    frame.buffer_mut(),
+                    indicator,
+                    Line::styled(parts.join("  "), look.role(Role::Dim)),
+                );
+            }
         }
         (offset, viewport)
     }

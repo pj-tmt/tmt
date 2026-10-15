@@ -226,6 +226,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
     ) {
         entries.push(("w", "workspace-snapshots"));
         entries.push(("a", "discover-agents"));
+        entries.push(("f", "agents-filter"));
     }
     entries
         .into_iter()
@@ -615,6 +616,28 @@ mod tests {
         }
     }
     #[test]
+    fn agents_filter_default_yields_to_global_host_and_section_bindings() {
+        let config = config("[bind]\nf='search'\n[bind.tmux]\nf='talk'\n");
+        let section: Bindings = [("f".into(), Action::parse("run /usr/bin/true").unwrap())].into();
+        for scope in [OpsKeyScope::Squad, OpsKeyScope::Member, OpsKeyScope::Pool] {
+            assert_eq!(defaults(scope)["f"].text, "agents-filter");
+            for (host, section, expected, source) in [
+                (None, None, "search", "bind.f"),
+                (Some("tmux"), None, "talk", "bind.tmux.f"),
+                (
+                    Some("tmux"),
+                    Some(&section),
+                    "run /usr/bin/true",
+                    "selected squad section.bind",
+                ),
+            ] {
+                let keys = config.workspace_keys(scope, host, section).unwrap();
+                assert_eq!(keys.bindings["f"].text, expected);
+                assert_eq!(keys.sources["f"], source);
+            }
+        }
+    }
+    #[test]
     fn overview_filter_default_yields_to_all_explicit_binding_scopes() {
         let config = config("[bind]\nf='search'\n[bind.tmux]\nf='talk'\n");
         assert_eq!(defaults(OpsKeyScope::Overview)["f"].text, "overview-filter");
@@ -624,7 +647,11 @@ mod tests {
             OpsKeyScope::Squad,
             OpsKeyScope::Pool,
         ] {
-            assert!(!defaults(scope).contains_key("f"));
+            if scope == OpsKeyScope::Reader {
+                assert!(!defaults(scope).contains_key("f"));
+            } else {
+                assert_eq!(defaults(scope)["f"].text, "agents-filter");
+            }
         }
         assert_eq!(
             config

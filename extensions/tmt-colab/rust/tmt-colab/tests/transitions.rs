@@ -1369,6 +1369,56 @@ fn admissions(f: &Fixture) -> Vec<(String, String)> {
         .map(Result::unwrap)
         .collect()
 }
+/// The devices link `link` certified that the fixture did not seed by hand: id, revoked, chain.
+fn link_devices(f: &Fixture, link: &str) -> Vec<(String, bool, Vec<u8>)> {
+    let db = f.db();
+    let mut query = db
+        .prepare("SELECT id,record FROM devices ORDER BY id")
+        .unwrap();
+    let rows: Vec<(String, Vec<u8>)> = query
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    rows.into_iter()
+        .filter_map(|(id, record)| {
+            let device: Device = serde_json::from_slice(&record).unwrap();
+            let chain = certificate::Chain::from_json(&device.chain).unwrap();
+            let cert = chain.certificate().unwrap();
+            (id != LINK_DEVICE && cert.issuer_kind == "link" && cert.issuer_id == link).then_some((
+                id,
+                device.revoked,
+                device.chain,
+            ))
+        })
+        .collect()
+}
+fn registrations(f: &Fixture, device: &str) -> i64 {
+    f.db()
+        .query_row(
+            "SELECT COUNT(*) FROM device_registrations WHERE device_id=?",
+            [device],
+            |r| r.get(0),
+        )
+        .unwrap()
+}
+/// The chain a holder derives from the link's seed for the `link.add` statement at `head`.
+fn device_chain_of(f: &Fixture, id: &str, seed: &[u8; 32], head: &statement::Head) -> Vec<u8> {
+    tmt_colab_model::link::device_chain(
+        seed,
+        &f.key.space_id,
+        id,
+        &head.revision.to_string(),
+        &head.hash,
+    )
+    .unwrap()
+}
+fn head(f: &Fixture) -> statement::Head {
+    f.store
+        .owner_head(&f.key.space_id, &f.key.owner_public())
+        .unwrap()
+        .unwrap()
+}
 /// The token a holder derives from the link's seed (`link::Keys::rules_token`).
 fn token_of(f: &Fixture, id: &str, seed: &[u8; 32]) -> String {
     tmt_colab_model::link::Keys::derive(seed, &f.key.space_id, id)
@@ -1594,6 +1644,98 @@ fn a_links_admission_token_is_kept_for_the_live_link_only() {
     let (mut f, _, rev) = link_fixture(false);
     policy(&mut f, 136, rev, share(PAGE, ShareMode::Private)).unwrap();
     assert!(admissions(&f).is_empty());
+}
+#[test]
+fn a_links_derived_device_is_kept_when_it_is_added_and_is_never_a_registration() {
+    use tmt_colab::transitions::LinkAction;
+    let (mut f, _, rev) = link_fixture(false);
+    // The chain names the `link.add` statement and verifies under the link's signing key, so a
+    // holder that never opened the link on this machine still has a device the log admits.
+    let added = head(&f);
+    let devices = link_devices(&f, LINK);
+    assert_eq!(devices.len(), 1);
+    let (device, revoked, chain) = &devices[0];
+    assert!(!revoked);
+    assert_eq!(chain, &device_chain_of(&f, LINK, &LINK_SEED, &added));
+    let parsed = certificate::Chain::from_json(chain).unwrap();
+    let cert = parsed.certificate().unwrap();
+    let keys = tmt_colab_model::link::Keys::derive(&LINK_SEED, &f.key.space_id, LINK).unwrap();
+    parsed
+        .verify(&added.hash, &cert, &keys.signing_public())
+        .unwrap();
+    assert_eq!(cert.membership_revision, added.revision.to_string());
+    // This machine does not write that stream, so the device has no registration row.
+    assert_eq!(registrations(&f, device), 0);
+    assert_no_seed(&f, chain, &LINK_SEED);
+    // Reset ends the old device with its link and derives the replacement's from its own
+    // statement, the last one of the transaction.
+    link_change(
+        &mut f,
+        84,
+        rev,
+        LinkAction::Reset {
+            link_id: LINK,
+            replacement: Some(link_spec(REPLACEMENT, &REPLACEMENT_SEED, vec![PAGE.into()])),
+        },
+    )
+    .unwrap();
+    let replaced = head(&f);
+    assert_eq!(link_devices(&f, LINK).len(), 1);
+    assert!(link_devices(&f, LINK)[0].1, "the old link's device ends");
+    let fresh = link_devices(&f, REPLACEMENT);
+    assert_eq!(fresh.len(), 1);
+    assert!(!fresh[0].1);
+    assert_eq!(
+        fresh[0].2,
+        device_chain_of(&f, REPLACEMENT, &REPLACEMENT_SEED, &replaced)
+    );
+    assert_eq!(registrations(&f, &fresh[0].0), 0);
+    assert_no_seed(&f, &fresh[0].2, &REPLACEMENT_SEED);
+    // Removing the link ends its device too.
+    let rev = revision(&f);
+    link_change(
+        &mut f,
+        85,
+        rev,
+        LinkAction::Remove {
+            link_id: REPLACEMENT,
+        },
+    )
+    .unwrap();
+    assert!(link_devices(&f, REPLACEMENT)[0].1);
+}
+#[test]
+fn a_failed_device_write_leaves_no_link_at_all() {
+    use tmt_colab::transitions::LinkAction;
+    let mut f = Fixture::new();
+    link_policy(&mut f, &[PAGE.into()], false);
+    let rev = revision(&f);
+    f.db()
+        .execute_batch(
+            "CREATE TRIGGER device_failure BEFORE INSERT ON devices
+            BEGIN SELECT RAISE(ABORT,'injected'); END;",
+        )
+        .unwrap();
+    assert!(
+        link_change(
+            &mut f,
+            81,
+            rev,
+            LinkAction::Add(link_spec(LINK, &LINK_SEED, vec![PAGE.into()]))
+        )
+        .is_err()
+    );
+    assert_eq!(revision(&f), rev);
+    assert!(admissions(&f).is_empty() && link_devices(&f, LINK).is_empty());
+    let recipients: i64 = f
+        .db()
+        .query_row(
+            "SELECT COUNT(*) FROM recipients WHERE kind='link' AND id=?",
+            [LINK],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(recipients, 0);
 }
 #[test]
 fn a_failed_link_add_leaves_no_admission_token() {

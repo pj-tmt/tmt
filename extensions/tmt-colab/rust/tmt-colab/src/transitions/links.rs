@@ -52,7 +52,7 @@ impl Engine {
 }
 pub(super) fn action<'a>(key: &Keyring, action: LinkAction<'a>) -> crate::Result<Action<'a>> {
     let (remove, add, seed) = match action {
-        LinkAction::Add(spec) => (None, Some(recipient(key, &spec)?), None),
+        LinkAction::Add(spec) => (None, Some(recipient(key, &spec)?), Some(spec.seed)),
         LinkAction::Remove { link_id } => (Some(link_id), None, None),
         LinkAction::Reset {
             link_id,

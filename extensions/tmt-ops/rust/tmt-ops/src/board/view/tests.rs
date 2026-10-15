@@ -725,7 +725,7 @@ fn state_cells_use_the_projected_token_for_pattern_and_exact_states() {
                         .map(|x| buffer[(x, hit.y)].symbol())
                         .collect();
                     let shown = if state == "blocked-on-ci" {
-                        "blocked-o…"
+                        "blocked…"
                     } else {
                         state
                     };
@@ -737,16 +737,11 @@ fn state_cells_use_the_projected_token_for_pattern_and_exact_states() {
                     } else {
                         look.named("review")
                     };
-                    let mut expected = if selected {
-                        look.selection().patch(look.row_span(true, token, true))
+                    let expected = if selected {
+                        look.selection().patch(look.row_span(true, token, false))
                     } else {
                         token
                     };
-                    // The finished-frame selection policy keeps semantic words
-                    // readable on real backgrounds; reverse fallback keeps bold.
-                    if selected && look.selection().bg.is_some() {
-                        expected = expected.fg(look.role(Role::Text).fg.unwrap());
-                    }
                     for x in hit.x + at as u16
                         ..hit.x + at as u16 + unicode_width::UnicodeWidthStr::width(shown) as u16
                     {
@@ -836,13 +831,15 @@ fn initial_loading_uses_the_resolved_theme_before_any_snapshot() {
             let mut terminal = Terminal::new(TestBackend::new(80, 8)).unwrap();
             terminal.draw(|frame| render(frame, &app)).unwrap();
             let buffer = terminal.backend().buffer();
-            assert!(buffer[(10, 0)].modifier.contains(Modifier::BOLD));
+            let tab = app.tab_hits.borrow()[0];
+            assert!(buffer[(tab.x, tab.y)].modifier.contains(Modifier::BOLD));
+            let loading_y = app.conversation.borrow().area.y;
             assert_eq!(
-                buffer[(0, 1)].fg,
+                buffer[(0, loading_y)].fg,
                 look.role(Role::Dim).fg.unwrap_or_default()
             );
             assert_eq!(
-                buffer[(3, 1)].fg,
+                buffer[(3, loading_y)].fg,
                 look.role(Role::Muted).fg.unwrap_or_default()
             );
         }
@@ -867,7 +864,8 @@ fn startup_spinner_is_delayed_and_animated_without_squad_switch_state() {
         Some(1)
     );
     let screen = draw(&app, 80, 8);
-    assert!(screen[0].contains("1 Overview") && screen[0].contains("2 Agents"));
+    let tab_y = usize::from(app.tab_hits.borrow()[0].y);
+    assert!(screen[tab_y].contains("1 Overview") && screen[tab_y].contains("2 Agents"));
     assert!(screen.iter().any(|line| line.contains("Opening")));
     let settled = workspace_board();
     assert!(!settled.loading());
@@ -1080,7 +1078,7 @@ fn policy_chips_keep_actual_workspace_row_height_hits_and_selection_at_each_widt
                             // The monitor's labelled Digest column remains
                             // unknown without a verified supplied observation.
                             OpsTab::Overview => "—",
-                            OpsTab::Agents => "digest",
+                            OpsTab::Agents => "—",
                         };
                         assert!(line.contains(label), "{tab:?}/{width}/{depth:?}: {line}");
                         if tab == OpsTab::Overview {

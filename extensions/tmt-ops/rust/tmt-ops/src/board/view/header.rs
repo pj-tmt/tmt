@@ -9,6 +9,55 @@ use ratatui::{
 use tmt_cli_style::Role;
 use tmt_tui::components::strip;
 
+/// Common shell counts are held snapshot evidence, independent of the active tab.
+pub(super) fn render_shell(frame: &mut Frame, app: &App, area: Rect) {
+    let look = app.look();
+    strip::paint_left(
+        frame.buffer_mut(),
+        area,
+        Line::from(vec![
+            Span::styled(" ▚ TMT   ", look.role(Role::Text)),
+            Span::styled("OPS / UI", look.role(Role::Muted)),
+        ]),
+    );
+    let Some(snapshot) = app.workspace_snapshot() else {
+        return;
+    };
+    let counts = &snapshot.shell_counts;
+    let complete = counts.complete && snapshot.roster.complete() && app.error.is_none();
+    let number = |count: usize| {
+        if complete {
+            count.to_string()
+        } else if count > 0 {
+            format!("≥{count}")
+        } else {
+            "?".into()
+        }
+    };
+    let ascii = matches!(
+        app.cron_glyphs,
+        crate::board::overview::cron_counts::GlyphSet::Ascii
+    );
+    let text = format!(
+        "{} {} online  {} {} waiting  {} {} blocked{}",
+        if ascii { "+" } else { "●" },
+        number(counts.online),
+        if ascii { "!" } else { "◆" },
+        number(counts.waiting),
+        if ascii { "x" } else { "✗" },
+        number(counts.blocked),
+        if complete { "" } else { " · totals unknown" }
+    );
+    let width = unicode_width::UnicodeWidthStr::width(text.as_str()) as u16;
+    if width + 19 <= area.width {
+        strip::paint_right(
+            frame.buffer_mut(),
+            area,
+            Line::styled(text, look.role(Role::Muted)),
+        );
+    }
+}
+
 /// Shown only when a switch takes long enough to notice.
 pub(in crate::board) const SPINNER_DELAY: std::time::Duration =
     std::time::Duration::from_millis(100);

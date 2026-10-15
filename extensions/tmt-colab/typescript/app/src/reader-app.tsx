@@ -5,6 +5,7 @@ import { FilesList } from './files-panel.js';
 import { BrowserDrawer } from '@tmt/browser-ui/react';
 import { ColabHeader } from './colab-header.js';
 import { PageAttribution } from './page-attribution.js';
+import { ReaderSource, type ReaderEdit } from './reader-source.js';
 import { NoticeCard } from './notice-card.js';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { mountRenderer, type RenderState } from './renderer.js';
@@ -20,18 +21,27 @@ export type ReaderState =
   | { kind: 'older' }
   | { kind: 'failed' };
 
-/** The read-only page: no editor, Ask, export or share controls exist in this entry. */
+/** The shared page: no Ask, export or share controls exist in this entry. It is read-only, except
+ * that a link whose role is editor shows the owner's Source drawer and can save page text. */
 export function ReaderApp({
   state,
   attachments,
   notice,
+  canEdit = false,
+  edit,
 }: {
   state: ReaderState;
   /** Authorized reads of the page's files; absent until the session is open. */
   attachments?: AttachmentBinding;
   notice?: ReactNode;
+  /** The link says it may edit. The serve decides; this only changes what the page offers. */
+  canEdit?: boolean;
+  /** Saves page text; absent until the session is open. */
+  edit?: ReaderEdit;
 }) {
   const [files, setFiles] = useState(false);
+  const [sourceOpen, setSourceOpen] = useState(false);
+  const mode = canEdit ? text.readerCanEdit : text.readerOnly;
   const descriptors = state.kind === 'ready' ? (state.view.attachments ?? []) : [];
   const source = state.kind === 'ready' ? state.view.source : null;
   const title = state.kind === 'ready' ? state.view.title : '';
@@ -93,7 +103,7 @@ export function ReaderApp({
           <>
             {state.kind === 'ready' && (
               <>
-                <span className="chip">{text.readerOnly}</span>
+                <span className="chip">{mode}</span>
                 <span
                   className={`status ${render === 'ready' ? 'live' : render === 'loading' ? 'waiting' : 'blocked'}`}
                   role="status"
@@ -112,6 +122,19 @@ export function ReaderApp({
                       : text.readerStopped}
                 </span>
               </>
+            )}
+            {state.kind === 'ready' && edit && (
+              <button
+                className={ui.action}
+                data-variant="text"
+                data-testid="source-toggle"
+                aria-expanded={sourceOpen}
+                onClick={(event) => {
+                  if (event.isTrusted) setSourceOpen((open) => !open);
+                }}
+              >
+                {text.source}
+              </button>
             )}
             {descriptors.length > 0 && (
               <button
@@ -137,7 +160,7 @@ export function ReaderApp({
                     publisherAgent={state.view.publisherAgent}
                   />
                 )}
-                <p>{text.readerNote}</p>
+                <p>{canEdit ? text.readerNoteEditor : text.readerNote}</p>
                 <p>{text.warning}</p>
               </div>
             </details>
@@ -152,7 +175,7 @@ export function ReaderApp({
               <div className="canvas">
                 <div className="frame-host" ref={host} />
                 {(render === 'navigation' || render === 'failed') && (
-                  <NoticeCard state="blocked" eyebrow={text.readerOnly} title={text.blocked}>
+                  <NoticeCard state="blocked" eyebrow={mode} title={text.blocked}>
                     <p>{render === 'navigation' ? text.navigation : text.failed}</p>
                     <p>{text.limit}</p>
                   </NoticeCard>
@@ -165,7 +188,7 @@ export function ReaderApp({
             state={
               state.kind === 'opening' ? 'opening' : state.kind === 'ended' ? 'ended' : 'blocked'
             }
-            eyebrow={text.readerOnly}
+            eyebrow={mode}
             title={
               state.kind === 'opening'
                 ? text.readerOpening
@@ -183,6 +206,14 @@ export function ReaderApp({
           </NoticeCard>
         )}
       </main>
+      {state.kind === 'ready' && edit && (
+        <ReaderSource
+          source={state.view.source}
+          edit={edit}
+          open={sourceOpen}
+          onDismiss={() => setSourceOpen(false)}
+        />
+      )}
       {state.kind === 'ready' && (
         <BrowserDrawer
           focusFallback={() => document.querySelector<HTMLButtonElement>('.tmt-ui-header button')}
