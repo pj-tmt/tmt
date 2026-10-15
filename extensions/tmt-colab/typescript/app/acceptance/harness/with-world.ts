@@ -24,6 +24,7 @@ export async function withWorld<T>(scenario: (world: AcceptanceWorld) => Promise
     failure = error;
   }
   const failures: unknown[] = failed ? [failure] : [];
+  if (failed) await world.observeFailure();
   try {
     const leaks = await world.dispose();
     if (leaks.length > 0)
@@ -48,6 +49,7 @@ export async function disposeActiveWorlds(): Promise<void> {
   const leaks: string[] = [];
   for (const world of active) {
     try {
+      await world.observeFailure();
       for (const leak of await world.dispose()) leaks.push(`${world.root}: ${leak}`);
     } catch (error) {
       leaks.push(`${world.root}: teardown failed: ${String(error)}`);

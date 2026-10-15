@@ -36,6 +36,9 @@ vi.mock('../src/objects.js', async (original) => ({
   ...(await original<typeof import('../src/objects.js')>()),
   Objects: class {
     ownData = false;
+    head() {
+      return { seq: 4n };
+    }
     cursors() {
       return [];
     }
@@ -246,9 +249,47 @@ it('bounds own publication catchup and closes the unavailable connection', async
   await vi.advanceTimersByTimeAsync(10_000);
   await rejected;
   expect(connection.active).toBe(false);
-  expect(failed).toHaveBeenCalledWith(new Error('Own publication catchup timed out'));
+  expect(failed).toHaveBeenCalledWith(
+    expect.objectContaining({
+      message: 'Own publication catchup timed out',
+      diagnostic: {
+        root: 'messages',
+        kind: 'unknown',
+        streamId: author,
+        submittedSeq: null,
+        admittedSeq: '4',
+        leaderReceipt: false,
+      },
+    }),
+  );
   expect(socket.close).toHaveBeenCalledOnce();
   expect(publish).toHaveBeenCalledTimes(1);
+});
+
+it('names an unadmitted own publication without retaining its key or plaintext', async () => {
+  vi.useFakeTimers();
+  const { connection, failed } = await open();
+  const secret = 'PRIVATE_RECORD_SENTINEL';
+  const pending = connection.waitForOwnRecords(
+    [{ root: 'messages', key: secret, value: { kind: 'comment', body: secret } }],
+    { seq: '7' },
+  );
+  const rejected = expect(pending).rejects.toThrow('Own publication catchup timed out');
+  await vi.advanceTimersByTimeAsync(10_000);
+  await rejected;
+  const error = failed.mock.calls[0][0];
+  expect(error).toMatchObject({
+    message: 'Own publication catchup timed out',
+    diagnostic: {
+      root: 'messages',
+      kind: 'comment',
+      streamId: author,
+      submittedSeq: '7',
+      admittedSeq: '4',
+      leaderReceipt: true,
+    },
+  });
+  expect(JSON.stringify(error)).not.toContain(secret);
 });
 
 const operation = '40000000-0000-4000-8000-000000000001';

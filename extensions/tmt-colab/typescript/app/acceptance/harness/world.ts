@@ -106,6 +106,8 @@ export class AcceptanceWorld {
   private readonly servePids = new Set<number>();
   private readonly agentPanes = new Set<string>();
   private readonly closers: Closer[] = [];
+  private readonly failureObservers: Array<() => Promise<void>> = [];
+  private failureObservation?: Promise<void>;
   private tmuxPath = '';
   private socketPath = '';
   private serverPid = 0;
@@ -420,6 +422,21 @@ export class AcceptanceWorld {
   onDispose(close: Closer): void {
     this.live('register a closer');
     this.closers.push(close);
+  }
+
+  /** Read bounded diagnostics before cleanup closes the browsers. Never replace the failure. */
+  onFailure(observe: () => Promise<void>): void {
+    this.live('register failure diagnostics');
+    this.failureObservers.push(observe);
+  }
+  observeFailure(): Promise<void> {
+    return (this.failureObservation ??= bounded(
+      Promise.allSettled(this.failureObservers.map((observe) => Promise.resolve().then(observe))),
+      2_000,
+    ).then(
+      () => {},
+      () => {},
+    ));
   }
 
   // Deterministic barrier on one dispatch.create (see core-barrier.mjs).

@@ -1,4 +1,5 @@
 import './source-editor.css';
+import { OwnPublicationTimeout } from './own-publication.js';
 import type { ComposerEdit } from './components/message-composer-edit.js';
 import {
   BrowserAction,
@@ -453,7 +454,15 @@ function TerminalFailure({
         <p>
           <small className="failure-reference">
             {text.failureCodeLabel}{' '}
-            <code className="tmt-ui-code" data-failure-reference>
+            <code
+              className="tmt-ui-code"
+              data-failure-reference
+              data-own-publication={
+                error instanceof OwnPublicationTimeout && error.diagnostic
+                  ? JSON.stringify(error.diagnostic)
+                  : undefined
+              }
+            >
               {reference}
             </code>
           </small>

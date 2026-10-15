@@ -21,7 +21,7 @@ interface FixtureResult {
   duration: number;
   errorLocation: { file: string; line: number | string; column: number };
   error: { message: string; stack: string };
-  attachments: { body: string }[];
+  attachments: { name?: string; contentType?: string; body: string; path?: string }[];
   stdout: string[];
   stderr: string[];
 }
@@ -76,6 +76,55 @@ function runReport(change?: (result: FixtureResult) => void, missing = false) {
 }
 
 describe('public Colab acceptance evidence', () => {
+  const diagnostic = {
+    root: 'messages',
+    kind: 'ask-state',
+    streamId: '30000000-0000-4000-8000-000000000001',
+    submittedSeq: '7',
+    admittedSeq: '4',
+    leaderReceipt: true,
+  };
+  const attachment = (value: unknown) => ({
+    name: 'colab-own-publication',
+    contentType: 'application/json',
+    body: Buffer.from(JSON.stringify(value)).toString('base64'),
+  });
+
+  it('retains only a typed own-publication attachment, never generic private errors', () => {
+    const { report } = runReport((result) => {
+      result.attachments.push(attachment(diagnostic));
+    });
+    expect(report.tests[0].results[0].ownPublications).toEqual([diagnostic]);
+  });
+
+  it.each([
+    { key: secret },
+    { value: secret },
+    { url: secret },
+    { root: secret },
+    { kind: secret },
+    { streamId: secret },
+    { submittedSeq: secret },
+    { admittedSeq: 4 },
+    { submittedSeq: '18446744073709551616' },
+    { leaderReceipt: secret },
+  ])('drops diagnostics outside the closed schema: %j', (change) => {
+    const { report } = runReport((result) => {
+      result.attachments.push(attachment({ ...diagnostic, ...change }));
+    });
+    expect(report.tests[0].results[0]).not.toHaveProperty('ownPublications');
+  });
+
+  it('does not follow attachment paths or copy unnamed JSON attachments', () => {
+    const { report } = runReport((result) => {
+      result.attachments.push(
+        { ...attachment(diagnostic), name: 'private-diagnostic', path: secret },
+        { ...attachment(diagnostic), body: '', path: secret }
+      );
+    });
+    expect(report.tests[0].results[0]).not.toHaveProperty('ownPublications');
+  });
+
   it('retains a located failure and numeric poll timeout without private payloads', () => {
     const { report, stdout } = runReport();
     const expected = {

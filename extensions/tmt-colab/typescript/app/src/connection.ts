@@ -37,6 +37,7 @@ import {
 import { SAVE_SOURCE_BYTES, SaveTooLarge, saveResult, type SaveResult } from './save.js';
 import type { SaveHunk } from './save-hunks.js';
 import { text as strings } from './strings.js';
+import { OwnPublicationTimeout, type OwnPublicationReceipt } from './own-publication.js';
 
 function sameValue(a: JsonValue | undefined, b: JsonValue): boolean {
   if (a === b) return true;
@@ -302,7 +303,7 @@ export class Connection {
   }
   /** Relay success proves the leader appended, not that this reader has admitted
    * the broadcast. Dependent reads wait for this connection's verified fold. */
-  waitForOwnRecords(records: readonly OwnRecord[]): Promise<void> {
+  waitForOwnRecords(records: readonly OwnRecord[], receipt?: OwnPublicationReceipt): Promise<void> {
     requireValue(!this.#stopped && records.length > 0 && records.length <= 32);
     if (this.#containsOwn(records)) return Promise.resolve();
     requireValue(this.#ownPublications.size < 8);
@@ -311,7 +312,18 @@ export class Connection {
         records: structuredClone(records),
         resolve,
         reject,
-        timer: setTimeout(() => this.close(new Error('Own publication catchup timed out')), 10_000),
+        timer: setTimeout(() => {
+          const stream = this.admission.registration.deviceId;
+          const missing = pending.records.find((record) => !this.#containsOwn([record]))!;
+          this.close(
+            new OwnPublicationTimeout(
+              missing,
+              stream,
+              this.objects.head(stream).seq.toString(),
+              receipt,
+            ),
+          );
+        }, 10_000),
       };
       this.#ownPublications.add(pending);
     });
