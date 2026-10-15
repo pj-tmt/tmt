@@ -37,7 +37,8 @@ and stopped after the object channel closes. Per generation it asks Remote to ac
 binary injects `supervisor::activate_sync`), waits for that generation's channel, binds, and
 keeps the most recently active page published: `object_channel/cloud_sync/publisher.rs` creates the page's
 admission rows (including a live link's `links` row), then the signed membership and chain
-originals of the streams this machine registered, the epoch's signed baseline (from the second epoch, in
+originals of the streams this machine registered and the chains of each live link's unrevoked
+devices (`link_device_chains`), the epoch's signed baseline (from the second epoch, in
 the `checkpoints` carrier under the hash its `epoch.advance` names), the wraps (including those addressed to
 links), then each local original in sequence, and `object_channel/cloud_sync/local.rs` reads them from the
 Store and records a position only after the exact original was created or read back identical
@@ -418,7 +419,11 @@ is added.
   existing page budgets across epochs, without eviction. The contract owns wire details;
   CLI `page write` and its serving route call it; browser Save does not.
 - Link seeds are borrowed for key derivation and never persisted or returned
-  (`transitions/links.rs`).
+  (`transitions/links.rs`). While the seed is borrowed, the same transaction derives the link's
+  reader device (`link::device_chain`, byte-equal to the `authority-v1.json` `linkDevice` oracle)
+  and keeps its chain as a device row naming the `link.add` statement (`put_link_device` in
+  `membership.rs`); it is never a registration, so `local_streams` does not treat it as a stream
+  this machine writes. A reset or removal revokes the row with the link.
 
 ## Admission and lock order
 

@@ -890,7 +890,14 @@ certificate's). Ed25519 signing is deterministic, so every open presents a byte-
 and the server keeps one device row per link however often the link is opened
 (`authority-v1.json` `linkDevice` freezes the oracle bytes). The server never enforces this
 derivation: any seed holder may still certify a fresh random device, as the revocation rules above
-state. The entry then runs the challenge and session exchange above and opens
+state. The owner derives the same device while `share link add` or `reset` borrows the seed, in the
+transaction that appends the `link.add` statement, and keeps its chain as a device row beside the
+link's admission token: the chain names that statement, and the row is never a registration,
+because this machine does not write the link's stream. The cloud snapshot publishes the chain of
+each live link's unrevoked device with the writers' chains, so whoever follows the link's stream
+finds it; an ended link's chain is not published again. A link's `own` records written at the
+local door stay on this machine in v1: the cloud copy of a link's records comes from the holder
+that wrote them there. The entry then runs the challenge and session exchange above and opens
 `/sync` with the ticket subprotocol; hello names the session's `principal`. It checks that the
 returned owner key equals the link's `root` (a mismatch ends access) and derives the linked
 `space`, verifies the owner log and link-addressed wraps

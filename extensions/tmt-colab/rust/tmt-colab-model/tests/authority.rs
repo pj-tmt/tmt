@@ -80,6 +80,42 @@ fn derived_link_device_chain_is_accepted_with_its_fixed_validity_window() {
     assert_eq!(chain.digest().unwrap(), hex(device, "chainDigest"));
 }
 #[test]
+fn the_owner_derives_the_link_device_chain_the_oracle_freezes() {
+    let v = fixture();
+    let device = &v["linkDevice"];
+    let mine = link::device_chain(
+        &hex(&v, "linkSeed"),
+        v["space"].as_str().unwrap(),
+        v["linkId"].as_str().unwrap(),
+        "1",
+        &hex(&v, "statementHash"),
+    )
+    .unwrap();
+    assert_eq!(
+        serde_json::from_slice::<Value>(&mine).unwrap(),
+        device["chain"]
+    );
+    let chain = certificate::Chain::from_json(&mine).unwrap();
+    assert_eq!(chain.digest().unwrap(), hex(device, "chainDigest"));
+    assert_eq!(
+        chain.certificate().unwrap().device_id,
+        device["id"].as_str().unwrap()
+    );
+    // A seed, link or statement that is not the link's derives a different device or chain.
+    let other = |seed: [u8; 32], statement: [u8; 32]| {
+        link::device_chain(
+            &seed,
+            v["space"].as_str().unwrap(),
+            v["linkId"].as_str().unwrap(),
+            "1",
+            &statement,
+        )
+        .unwrap()
+    };
+    assert_ne!(other([7; 32], hex(&v, "statementHash")), mine);
+    assert_ne!(other(hex(&v, "linkSeed"), [9; 32]), mine);
+}
+#[test]
 fn fresh_wraps_open_and_low_order_dh_is_rejected_after_valid_owner_authentication() {
     let v = fixture();
     let owner = owner(&v);

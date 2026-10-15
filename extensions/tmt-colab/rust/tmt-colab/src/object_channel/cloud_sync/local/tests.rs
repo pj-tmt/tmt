@@ -364,6 +364,35 @@ fn add_link(fixture: &mut Fixture, token: bool) -> String {
         .unwrap();
     keys.rules_token()
 }
+/// The owner keeps the reader device the link's seed derives, as `link.add` does with the seed
+/// borrowed: a device row naming the `link.add` statement, never a registration.
+fn add_link_device(fixture: &mut Fixture) -> Vec<u8> {
+    let home = &mut fixture.home;
+    let key = &home.key;
+    let head = home
+        .store
+        .owner_head(&key.space_id, &key.owner_public())
+        .unwrap()
+        .unwrap();
+    let chain = tmt_colab_model::link::device_chain(
+        &LINK_SEED,
+        &key.space_id,
+        LINK,
+        &head.revision.to_string(),
+        &head.hash,
+    )
+    .unwrap();
+    home.store
+        .device_transaction(&key.space_id, &key.owner_public(), |tx| {
+            tx.put_device(&crate::store::owner::Device {
+                chain: chain.clone(),
+                revoked: false,
+            })?;
+            Ok(Vec::new())
+        })
+        .unwrap();
+    chain
+}
 /// The owner removes the link: its recipient is revoked and its admission token is dropped.
 fn end_link(fixture: &mut Fixture) {
     let home = &mut fixture.home;
@@ -467,6 +496,36 @@ fn a_live_link_is_a_row_and_wraps_for_the_link_and_is_tracked_for_its_removal() 
             .get("seq"),
         Some(&Field::number(1).unwrap())
     );
+}
+
+#[test]
+fn a_live_links_device_chain_is_published_after_the_writers_and_an_ended_links_is_not() {
+    let mut fixture = Fixture::new();
+    let page = fixture.page(1);
+    fixture.append(DEVICE);
+    add_link(&mut fixture, true);
+    let link_chain = add_link_device(&mut fixture);
+    let chains = |rows: &[Row]| -> Vec<Vec<u8>> {
+        documents(rows, "authority")
+            .into_iter()
+            .filter_map(|document| originals::authority(&[document]).ok())
+            .filter(|(kind, _)| *kind == originals::Authority::Chain)
+            .map(|(_, bytes)| bytes)
+            .collect()
+    };
+    let writer = fixture
+        .store
+        .owner_read(&fixture.key.space_id, &fixture.key.owner_public(), |tx| {
+            tx.author_chain(DEVICE)
+        })
+        .unwrap();
+    // No stream of the link's exists here, yet its chain is in the cloud for whoever follows it.
+    let rows = fixture.local.preamble(&page).ok().unwrap();
+    assert_eq!(chains(&rows), [writer.clone(), link_chain]);
+    // The link ends: it is no longer live, so its chain is not published again.
+    end_link(&mut fixture);
+    let rows = fixture.local.preamble(&page).ok().unwrap();
+    assert_eq!(chains(&rows), [writer]);
 }
 
 #[test]
