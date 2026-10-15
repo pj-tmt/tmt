@@ -1,6 +1,7 @@
 //! Parser, current-frame geometry, effect and source-authority regressions.
 use super::*;
 use crate::board::app::Request;
+use ratatui::crossterm::event::KeyModifiers;
 
 fn test_target() -> OpsTarget {
     OpsTarget::Member {
@@ -132,13 +133,13 @@ mod interaction_tests {
         app.focus = 1;
         paint(&app, 100, 24, 3);
         assert!(
-            app.member_link_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE))
+            app.member_link_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE))
                 .is_none(),
             "composer previews do not become conversation read stops"
         );
         app.member_links.borrow_mut().hits[0].reader = true;
         assert_eq!(
-            app.member_link_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)),
+            app.member_link_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE)),
             Some(Effect::None)
         );
         assert_eq!(
@@ -216,6 +217,82 @@ mod interaction_tests {
             6
         );
     }
+    fn painted_reader() -> App {
+        let mut app = app();
+        app.view.as_mut().unwrap().replies = vec![serde_json::json!({
+            "recipientId":crate::board::app::workspace::tests::MEMBER,
+            "requestId":"mention-navigation", "response":"Read #tmt:worker."
+        })];
+        app.focus = 1;
+        let mut terminal = Terminal::new(TestBackend::new(100, 36)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        assert!(app.member_links.borrow().hits.iter().any(|hit| hit.reader));
+        app
+    }
+    #[test]
+    fn tab_and_backtab_keep_switching_panes_with_a_visible_focused_mention() {
+        let mut app = painted_reader();
+        app.key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        assert!(app.member_links.borrow().focused.is_some());
+        for code in [
+            KeyCode::Tab,
+            KeyCode::Tab,
+            KeyCode::BackTab,
+            KeyCode::BackTab,
+        ] {
+            let before = app.focus;
+            assert_eq!(
+                app.key(KeyEvent::new(code, KeyModifiers::NONE)),
+                Effect::None
+            );
+            assert_ne!(app.focus, before, "{code:?} keeps its pane action");
+            assert!(app.menu.is_none());
+            let mut terminal = Terminal::new(TestBackend::new(100, 36)).unwrap();
+            terminal
+                .draw(|frame| crate::board::view::render(frame, &app))
+                .unwrap();
+            assert!(app.member_links.borrow().hits.iter().any(|hit| hit.reader));
+        }
+    }
+    #[test]
+    fn authored_reader_bindings_win_over_mention_navigation_and_activation() {
+        use crate::board::app::workspace::tests::MEMBER;
+        for (event, code) in [
+            ("left", KeyCode::Left),
+            ("right", KeyCode::Right),
+            ("enter", KeyCode::Enter),
+            ("tab", KeyCode::Tab),
+            ("backtab", KeyCode::BackTab),
+        ] {
+            let mut app = painted_reader();
+            app.key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+            assert!(app.member_links.borrow().focused.is_some());
+            let path = std::env::temp_dir().join(format!(
+                "ops-member-link-binding-{}-{event}.toml",
+                std::process::id()
+            ));
+            std::fs::write(&path, format!("[bind]\n{event} = 'run recorder {{id}}'\n")).unwrap();
+            let config = crate::config::Config::read(path.clone()).unwrap();
+            app.view
+                .as_mut()
+                .unwrap()
+                .home
+                .as_mut()
+                .unwrap()
+                .workspace
+                .configure(&config)
+                .unwrap();
+            std::fs::remove_file(path).unwrap();
+            assert_eq!(
+                app.key(KeyEvent::new(code, KeyModifiers::NONE)),
+                Effect::Act(Request::Run(vec!["recorder".into(), MEMBER.into()])),
+                "authored {event} must reach the ordinary binding dispatcher"
+            );
+            assert!(app.menu.is_none());
+        }
+    }
 }
 
 mod additional_tests {
@@ -246,7 +323,7 @@ mod additional_tests {
                 paint_hits(frame, &app, frame.area(), 0, 24, &mapped.mentions, true);
             })
             .unwrap();
-        app.member_link_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        app.member_link_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
         assert_eq!(
             app.member_links
                 .borrow()
@@ -256,7 +333,7 @@ mod additional_tests {
                 .occurrence,
             0
         );
-        app.member_link_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        app.member_link_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
         assert_eq!(
             app.member_links
                 .borrow()

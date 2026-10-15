@@ -226,9 +226,10 @@ Conversation responses, outgoing messages, inactive composer previews and Recent
 exchange previews use the same acquired identity inventory. Copy and annotation
 keep the original markup and exact source.
 
-Click a link, or use Tab and left/right in the conversation's read focus and press
-Enter, to open its adjacent menu. `j` uses that member's configured host action;
-unavailable bindings explain why it is disabled. Enter shows the member in Agents,
+Click a link, or use left/right in the conversation's read focus and press Enter,
+to open its adjacent menu. The first arrow selects the first visible mention. Tab
+and BackTab keep switching panes; authored bindings take precedence. `j` uses that
+member's configured host action; unavailable bindings explain why it is disabled. Enter shows the member in Agents,
 expanding its squad and keeping the current draft. This explicit navigation clears
 session search/scope and reveals hidden squads without changing shared preferences.
 Esc or a click outside closes the menu. The menu flips above a mention near the

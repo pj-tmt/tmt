@@ -73,7 +73,7 @@ use super::{
 };
 use ratatui::{
     Frame,
-    crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind},
+    crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind},
     layout::Rect,
     style::Modifier,
 };
@@ -316,7 +316,14 @@ impl App {
         Some(self.open_member_link(hit))
     }
     pub(super) fn member_link_key(&mut self, key: KeyEvent) -> Option<Effect> {
-        if self.focus != 1 {
+        if self.focus != 1
+            || !key.modifiers.is_empty()
+            || super::app::event_name(key).is_some_and(|event| {
+                self.workspace_binding_sources()
+                    .and_then(|sources| sources.get(&event))
+                    .is_some_and(|source| source != "workspace default")
+            })
+        {
             return None;
         }
         let mut state = self.member_links.borrow_mut();
@@ -336,24 +343,14 @@ impl App {
             .as_ref()
             .and_then(|focused| hits.iter().position(|hit| hit == focused));
         match key.code {
-            KeyCode::Tab | KeyCode::BackTab => {
-                let reverse =
-                    key.code == KeyCode::BackTab || key.modifiers.contains(KeyModifiers::SHIFT);
-                let index = if reverse {
-                    index.map_or(hits.len() - 1, |i| (i + hits.len() - 1) % hits.len())
-                } else {
-                    index.map_or(0, |i| (i + 1) % hits.len())
-                };
-                state.focused = Some(hits[index].clone());
-                Some(Effect::None)
-            }
-            KeyCode::Left | KeyCode::Right if index.is_some() => {
-                let i = index.unwrap();
-                let i = if key.code == KeyCode::Left {
-                    (i + hits.len() - 1) % hits.len()
-                } else {
-                    (i + 1) % hits.len()
-                };
+            KeyCode::Left | KeyCode::Right => {
+                let i = index.map_or(0, |i| {
+                    if key.code == KeyCode::Left {
+                        (i + hits.len() - 1) % hits.len()
+                    } else {
+                        (i + 1) % hits.len()
+                    }
+                });
                 state.focused = Some(hits[i].clone());
                 Some(Effect::None)
             }
@@ -445,7 +442,7 @@ impl App {
     pub(super) fn member_link_hint(&self) -> Option<&'static str> {
         let state = self.member_links.borrow();
         (self.input.is_none() && self.focus == 1 && state.hits.iter().any(|hit| hit.reader))
-            .then_some("Tab/←→ mentions · Enter actions · Esc back")
+            .then_some("←→ mentions · Enter actions · Tab panes · Esc back")
     }
 }
 

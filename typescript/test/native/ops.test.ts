@@ -5435,8 +5435,8 @@ describe('large board responsiveness', () => {
               },
               { timeout: 10_000, interval: 25 }
             );
-            // Tab enters read focus, then selects its first member link.
-            tmux(['send-keys', '-t', pane, 'Tab', 'Tab', 'Enter']);
+            // Tab enters read focus; Right selects its first visible member link.
+            tmux(['send-keys', '-t', pane, 'Tab', 'Right', 'Enter']);
             await vi.waitFor(
               () => {
                 expect(screen()).toContain('Show in Agents');
