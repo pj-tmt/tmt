@@ -391,6 +391,33 @@ test("log append: create-only, contiguous per stream, current epoch, writer role
   assert.equal(await commit(batch(1, 2, 3), writer), 200, "a contiguous batch");
 });
 
+test("log append: holders of one editor link share a hosted stream only through one uid (one hosted writer per link, v1)", async () => {
+  await boot();
+  const t = T.A;
+  // The stream is the link's `hosted` device: the ID the shared authority vector freezes, which
+  // is UUIDv4-shaped like every stream the Rules admit.
+  const hosted = JSON.parse(readFileSync(new URL("authority-v1.json", vectors), "utf8")).linkHostedDevice.id;
+  assert.match(hosted, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  // Two holders enroll by one editor link, each with an anonymous uid of its own.
+  const linkId = "30000000-0000-4000-8000-0000000000cc", token = "F".repeat(43);
+  assert.equal(await set(`links/${sp(t)}_${linkId}`, { space: t.space, page: t.page, link: linkId, role: "editor", token }, as("ownerA")), 200);
+  for (const uid of ["holder1", "holder2"])
+    assert.equal(await set(`members/${sp(t)}_${uid}`, { space: t.space, page: t.page, uid, role: "editor", link: linkId, token, seq: 1 }, as(uid)), 200, `${uid} enrolls`);
+  const at = (seq, uid) => set(`log/${logId(t, 1, hosted, seq)}`, entry(t, seq, { stream: hosted, uid }), as(uid));
+
+  assert.equal(await at(1, "holder1"), 200, "the first holder starts the hosted stream");
+  assert.equal(await at(2, "holder1"), 200, "and continues it");
+  // The second holder shares the derived device, and the Rules do not know that: the stream is
+  // the first holder's uid's, so the second holder can neither race it nor continue it.
+  assert.equal(await at(1, "holder2"), 403, "the same sequence is an update of an existing entry");
+  assert.equal(await at(2, "holder2"), 403, "a lost race stays lost: a create on an existing ID");
+  assert.equal(await at(3, "holder2"), 403, "the continuation of another uid's stream is refused, permanently");
+  assert.equal(await at(3, "holder1"), 200, "while the first holder still continues");
+  assert.equal(await at(4, "holder2"), 403, "still refused after the first holder advanced");
+  // The owner's own writes are not bound to a holder's uid.
+  assert.equal(await at(4, "ownerA"), 200, "the owner may continue any stream");
+});
+
 test("log owner bootstrap: only the owner skips a pruned predecessor; other guards remain", async () => {
   await boot();
   const t = T.A;

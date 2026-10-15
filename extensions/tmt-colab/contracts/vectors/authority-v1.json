@@ -43,6 +43,17 @@
     },
     "chainDigest": "b0cdb9485e97aa931327fb8c661251b563c8d35c66554fd2a2a75108ba4c2436"
   },
+  "linkHostedDevice": {
+    "id": "9ef59444-7512-48ad-9bf3-5337ff596c32",
+    "signingPublic": "0a1a6540ba3825b4c38d7d3f1b30740548ac27a98dc2ebd0e01de31a07d80f60",
+    "chain": {
+      "version": 1,
+      "issuerStatement": "iNu--0RTQXmO4HYuKYegXrsea1T-_ubissgQMjOzzlE",
+      "deviceCertificate": "AAAAGHRtdC1jb2xhYi1kZXZpY2UtY2VydC12MQAAAAExAAAAIHVxdnBnYTIydmdsd3BuZ3BnN2pkN3pwazV2emp0b3VkAAAABGxpbmsAAAAkMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDYwAAAAJDllZjU5NDQ0LTc1MTItNDhhZC05YmYzLTUzMzdmZjU5NmMzMgAAACAKGmVAujgltMONfT8bMHQFSKwnqY3C69DgHeMaB9gPYAAAACDZ7sVxFeonQzl8GPzO9sBCJHzz63L7qKlby3IyvTGIfgAAAAExAAAAATAAAAAQOTAwNzE5OTI1NDc0MDk5MQ",
+      "issuerSignature": "ja1DeaLYs6oAPaUUBvriKbb9ZXXP-Z29nBcKyCHjdMH3Os-Lzn64iS8o2yU3Abse6rJaFn77Pn7VZuekdy4sAA"
+    },
+    "chainDigest": "bac818dbff50b4410d01eeacb37c11e192faa51a1fa0afd3feb59929dc70a751"
+  },
   "historyCases": [
     {
       "name": "shared",

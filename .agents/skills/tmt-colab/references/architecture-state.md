@@ -204,8 +204,8 @@ mechanism or CSP changes are required; no inline-style/eval relaxation is permit
 ## Read-only reader
 
 `src/reader-link.ts` parses the fragment (strict grammar in the contract), `src/reader.ts`
-(`ReaderSession`) derives the link keys and the link's one reader device from the seed
-(`link.deriveLink`, `link.deriveDevice`, `link.certifyDevice`; byte-identical chain on every open), runs challenge, session and sync, and reconnects until access ends.
+(`ReaderSession`) derives the link keys and the link's `door` device from the seed
+(`link.deriveLink`, `link.deriveDevice(…, 'door')`, `link.certifyDevice`; byte-identical chain on every open), runs challenge, session and sync, and reconnects until access ends.
 It reuses `Admission` through its `ReaderSeat` option (link-addressed wraps, owner-log
 verification, nothing persisted) and `Connection` with the ticket subprotocol. `src/reader-main.tsx`
 removes the fragment first; `src/reader-app.tsx` renders read-only with the sandboxed renderer, and for a link
@@ -434,10 +434,13 @@ is added.
   CLI `page write` and its serving route call it; browser Save does not.
 - Link seeds are borrowed for key derivation and never persisted or returned
   (`transitions/links.rs`). While the seed is borrowed, the same transaction derives the link's
-  reader device (`link::device_chain`, byte-equal to the `authority-v1.json` `linkDevice` oracle)
-  and keeps its chain as a device row naming the `link.add` statement (`put_link_device` in
-  `membership.rs`); it is never a registration, so `local_streams` does not treat it as a stream
-  this machine writes. A reset or removal revokes the row with the link.
+  devices, one per `link::Transport` (`door`, `hosted`: `link::device_chain`, byte-equal to the
+  `authority-v1.json` `linkDevice` and `linkHostedDevice` oracles; `device_signer` and `device_id`
+  are the same derivation), and keeps their chains as device rows naming the `link.add` statement
+  (`put_link_device` in `membership.rs`); they are never registrations, so `local_streams` does not
+  treat them as streams this machine writes. A reset or removal revokes the rows with the link;
+  the cloud snapshot publishes every live one. Each transport has its own stream, so a door/hosted
+  race cannot fork one stream (#3174).
 
 ## Admission and lock order
 

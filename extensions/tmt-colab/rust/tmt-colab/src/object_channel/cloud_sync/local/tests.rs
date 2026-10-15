@@ -458,9 +458,9 @@ fn add_link(fixture: &mut Fixture, token: bool) -> String {
         .unwrap();
     keys.rules_token()
 }
-/// The owner keeps the reader device the link's seed derives, as `link.add` does with the seed
-/// borrowed: a device row naming the `link.add` statement, never a registration.
-fn add_link_device(fixture: &mut Fixture) -> Vec<u8> {
+/// The owner keeps the reader devices the link's seed derives, one per transport, as `link.add`
+/// does with the seed borrowed: device rows naming the `link.add` statement, never registrations.
+fn add_link_devices(fixture: &mut Fixture) -> Vec<Vec<u8>> {
     let home = &mut fixture.home;
     let key = &home.key;
     let head = home
@@ -468,24 +468,32 @@ fn add_link_device(fixture: &mut Fixture) -> Vec<u8> {
         .owner_head(&key.space_id, &key.owner_public())
         .unwrap()
         .unwrap();
-    let chain = tmt_colab_model::link::device_chain(
-        &LINK_SEED,
-        &key.space_id,
-        LINK,
-        &head.revision.to_string(),
-        &head.hash,
-    )
-    .unwrap();
+    let chains: Vec<Vec<u8>> = tmt_colab_model::link::Transport::ALL
+        .into_iter()
+        .map(|transport| {
+            tmt_colab_model::link::device_chain(
+                &LINK_SEED,
+                &key.space_id,
+                LINK,
+                &head.revision.to_string(),
+                &head.hash,
+                transport,
+            )
+            .unwrap()
+        })
+        .collect();
     home.store
         .device_transaction(&key.space_id, &key.owner_public(), |tx| {
-            tx.put_device(&crate::store::owner::Device {
-                chain: chain.clone(),
-                revoked: false,
-            })?;
+            for chain in &chains {
+                tx.put_device(&crate::store::owner::Device {
+                    chain: chain.clone(),
+                    revoked: false,
+                })?;
+            }
             Ok(Vec::new())
         })
         .unwrap();
-    chain
+    chains
 }
 /// The owner removes the link: its recipient is revoked and its admission token is dropped.
 fn end_link(fixture: &mut Fixture) {
@@ -598,7 +606,8 @@ fn a_live_links_device_chain_is_published_after_the_writers_and_an_ended_links_i
     let page = fixture.page(1);
     fixture.append(DEVICE);
     add_link(&mut fixture, true);
-    let link_chain = add_link_device(&mut fixture);
+    let mut link_chains = add_link_devices(&mut fixture);
+    link_chains.sort();
     let chains = |rows: &[Row]| -> Vec<Vec<u8>> {
         documents(rows, "authority")
             .into_iter()
@@ -613,10 +622,16 @@ fn a_live_links_device_chain_is_published_after_the_writers_and_an_ended_links_i
             tx.author_chain(DEVICE)
         })
         .unwrap();
-    // No stream of the link's exists here, yet its chain is in the cloud for whoever follows it.
+    // No stream of the link's exists here, yet the chains of its devices, one per transport, are
+    // in the cloud for whoever follows them.
     let rows = fixture.local.preamble(&page).ok().unwrap();
-    assert_eq!(chains(&rows), [writer.clone(), link_chain]);
-    // The link ends: it is no longer live, so its chain is not published again.
+    let published = chains(&rows);
+    assert_eq!(published[0], writer);
+    let mut link_published = published[1..].to_vec();
+    link_published.sort();
+    assert_eq!(link_published, link_chains);
+    assert_eq!(link_published.len(), 2);
+    // The link ends: it is no longer live, so its chains are not published again.
     end_link(&mut fixture);
     let rows = fixture.local.preamble(&page).ok().unwrap();
     assert_eq!(chains(&rows), [writer]);

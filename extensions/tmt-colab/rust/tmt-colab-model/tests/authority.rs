@@ -50,70 +50,104 @@ fn independent_wrap_chain_and_link_known_answers() {
     assert_eq!(*keys.join_proof(), hex(&v, "joinProof"));
     assert_eq!(keys.rules_token(), v["linkRulesToken"].as_str().unwrap());
 }
+/// The vector keys of each transport's frozen device.
+const DEVICES: [(&str, link::Transport); 2] = [
+    ("linkDevice", link::Transport::Door),
+    ("linkHostedDevice", link::Transport::Hosted),
+];
 #[test]
 fn derived_link_device_chain_is_accepted_with_its_fixed_validity_window() {
     let v = fixture();
-    let device = &v["linkDevice"];
-    let json = serde_json::to_vec(&device["chain"]).unwrap();
-    let chain = certificate::Chain::from_json(&json).unwrap();
-    let cert = chain.certificate().unwrap();
-    assert_eq!(cert.issuer_kind, "link");
-    assert_eq!(cert.issuer_id, v["linkId"].as_str().unwrap());
-    assert_eq!(cert.device_id, device["id"].as_str().unwrap());
-    assert_eq!(
-        cert.signing_key,
-        &hex(device, "signingPublic"),
-        "the oracle device key"
-    );
-    // A window from 0 to the largest time value passes every native range check.
-    assert_eq!(
-        (cert.issued_at, cert.expires_at),
-        (0, 9_007_199_254_740_991)
-    );
-    chain
-        .verify(
-            &hex(&v, "statementHash"),
-            &cert,
-            &hex(&v, "linkSigningPublic"),
-        )
-        .unwrap();
-    assert_eq!(chain.digest().unwrap(), hex(device, "chainDigest"));
+    for (name, _) in DEVICES {
+        let device = &v[name];
+        let json = serde_json::to_vec(&device["chain"]).unwrap();
+        let chain = certificate::Chain::from_json(&json).unwrap();
+        let cert = chain.certificate().unwrap();
+        assert_eq!(cert.issuer_kind, "link", "{name}");
+        assert_eq!(cert.issuer_id, v["linkId"].as_str().unwrap(), "{name}");
+        assert_eq!(cert.device_id, device["id"].as_str().unwrap(), "{name}");
+        assert_eq!(
+            cert.signing_key,
+            &hex(device, "signingPublic"),
+            "{name}: the oracle device key"
+        );
+        // A window from 0 to the largest time value passes every native range check.
+        assert_eq!(
+            (cert.issued_at, cert.expires_at),
+            (0, 9_007_199_254_740_991),
+            "{name}"
+        );
+        chain
+            .verify(
+                &hex(&v, "statementHash"),
+                &cert,
+                &hex(&v, "linkSigningPublic"),
+            )
+            .unwrap();
+        assert_eq!(
+            chain.digest().unwrap(),
+            hex(device, "chainDigest"),
+            "{name}"
+        );
+        // The ID is a version-4 UUID: it names a stream the cloud Rules admit.
+        let id = device["id"].as_str().unwrap();
+        assert_eq!(id.as_bytes()[14], b'4', "{name}");
+        assert!(
+            matches!(id.as_bytes()[19], b'8' | b'9' | b'a' | b'b'),
+            "{name}"
+        );
+    }
 }
 #[test]
-fn the_owner_derives_the_link_device_chain_the_oracle_freezes() {
+fn the_owner_derives_the_link_device_chains_the_oracle_freezes() {
     let v = fixture();
-    let device = &v["linkDevice"];
-    let mine = link::device_chain(
-        &hex(&v, "linkSeed"),
-        v["space"].as_str().unwrap(),
-        v["linkId"].as_str().unwrap(),
-        "1",
-        &hex(&v, "statementHash"),
-    )
-    .unwrap();
-    assert_eq!(
-        serde_json::from_slice::<Value>(&mine).unwrap(),
-        device["chain"]
-    );
-    let chain = certificate::Chain::from_json(&mine).unwrap();
-    assert_eq!(chain.digest().unwrap(), hex(device, "chainDigest"));
-    assert_eq!(
-        chain.certificate().unwrap().device_id,
-        device["id"].as_str().unwrap()
-    );
-    // A seed, link or statement that is not the link's derives a different device or chain.
-    let other = |seed: [u8; 32], statement: [u8; 32]| {
-        link::device_chain(
-            &seed,
+    for (name, transport) in DEVICES {
+        let device = &v[name];
+        let mine = link::device_chain(
+            &hex(&v, "linkSeed"),
             v["space"].as_str().unwrap(),
             v["linkId"].as_str().unwrap(),
             "1",
-            &statement,
+            &hex(&v, "statementHash"),
+            transport,
         )
-        .unwrap()
-    };
-    assert_ne!(other([7; 32], hex(&v, "statementHash")), mine);
-    assert_ne!(other(hex(&v, "linkSeed"), [9; 32]), mine);
+        .unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Value>(&mine).unwrap(),
+            device["chain"],
+            "{name}"
+        );
+        let chain = certificate::Chain::from_json(&mine).unwrap();
+        assert_eq!(
+            chain.digest().unwrap(),
+            hex(device, "chainDigest"),
+            "{name}"
+        );
+        assert_eq!(
+            chain.certificate().unwrap().device_id,
+            device["id"].as_str().unwrap(),
+            "{name}"
+        );
+        // A seed, link or statement that is not the link's derives a different device or chain.
+        let other = |seed: [u8; 32], statement: [u8; 32]| {
+            link::device_chain(
+                &seed,
+                v["space"].as_str().unwrap(),
+                v["linkId"].as_str().unwrap(),
+                "1",
+                &statement,
+                transport,
+            )
+            .unwrap()
+        };
+        assert_ne!(other([7; 32], hex(&v, "statementHash")), mine, "{name}");
+        assert_ne!(other(hex(&v, "linkSeed"), [9; 32]), mine, "{name}");
+    }
+    // The transports never share a device, a key or a chain: each has a stream of its own.
+    let (door, hosted) = (&v["linkDevice"], &v["linkHostedDevice"]);
+    assert_ne!(door["id"], hosted["id"]);
+    assert_ne!(door["signingPublic"], hosted["signingPublic"]);
+    assert_ne!(door["chainDigest"], hosted["chainDigest"]);
 }
 #[test]
 fn fresh_wraps_open_and_low_order_dh_is_rejected_after_valid_owner_authentication() {

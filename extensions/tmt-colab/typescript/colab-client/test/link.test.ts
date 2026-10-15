@@ -27,31 +27,60 @@ describe('link keys', () => {
 });
 
 describe('derived link device', () => {
-  it('matches the independent oracle: id, key and byte-identical chain', async () => {
+  const transports = [
+    ['door', 'linkDevice'],
+    ['hosted', 'linkHostedDevice'],
+  ] as const;
+  it.each(transports)(
+    'matches the independent oracle for %s: id, key and byte-identical chain',
+    async (transport, name) => {
+      const seed = hex(v.linkSeed);
+      const keys = await c.link.deriveLink(seed, v.space, v.linkId);
+      const device = await c.link.deriveDevice(seed, v.space, v.linkId, transport);
+      expect(device.id).toBe(v[name].id);
+      expect(device.signingPublic).toEqual(hex(v[name].signingPublic));
+      // The ID is a version-4 UUID: the cloud Rules admit it as a stream.
+      expect(device.id).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+      );
+      const build = () =>
+        c.link.certifyDevice(keys, {
+          deviceId: device.id,
+          signingPublic: device.signingPublic,
+          encryptionPublic: keys.encryption.publicKey(),
+          membershipRevision: '1',
+          issuerStatement: hex(v.statementHash),
+          issuedAt: c.link.DEVICE_ISSUED_AT,
+          expiresAt: c.link.DEVICE_EXPIRES_AT,
+        });
+      const first = await build();
+      expect(JSON.parse(c.decodeText(first))).toEqual(v[name].chain);
+      expect(await c.certificate.Chain.fromJson(first).digest()).toEqual(hex(v[name].chainDigest));
+      // A second open derives the same bytes, so the server sees one idempotent row.
+      expect(await build()).toEqual(first);
+      const other = await c.link.deriveDevice(
+        seed,
+        v.space,
+        '00000000-0000-4000-8000-000000000061',
+        transport,
+      );
+      expect(other.id).not.toBe(device.id);
+    },
+  );
+  it('defaults to the door, and gives each transport a device of its own', async () => {
     const seed = hex(v.linkSeed);
-    const keys = await c.link.deriveLink(seed, v.space, v.linkId);
-    const device = await c.link.deriveDevice(seed, v.space, v.linkId);
-    expect(device.id).toBe(v.linkDevice.id);
-    expect(device.signingPublic).toEqual(hex(v.linkDevice.signingPublic));
-    const build = () =>
-      c.link.certifyDevice(keys, {
-        deviceId: device.id,
-        signingPublic: device.signingPublic,
-        encryptionPublic: keys.encryption.publicKey(),
-        membershipRevision: '1',
-        issuerStatement: hex(v.statementHash),
-        issuedAt: c.link.DEVICE_ISSUED_AT,
-        expiresAt: c.link.DEVICE_EXPIRES_AT,
-      });
-    const first = await build();
-    expect(JSON.parse(c.decodeText(first))).toEqual(v.linkDevice.chain);
-    expect(await c.certificate.Chain.fromJson(first).digest()).toEqual(
-      hex(v.linkDevice.chainDigest),
-    );
-    // A second open derives the same bytes, so the server sees one idempotent row.
-    expect(await build()).toEqual(first);
-    const other = await c.link.deriveDevice(seed, v.space, '00000000-0000-4000-8000-000000000061');
-    expect(other.id).not.toBe(device.id);
+    const [door, hosted, bare] = await Promise.all([
+      c.link.deriveDevice(seed, v.space, v.linkId, 'door'),
+      c.link.deriveDevice(seed, v.space, v.linkId, 'hosted'),
+      c.link.deriveDevice(seed, v.space, v.linkId),
+    ]);
+    expect(bare.id).toBe(door.id);
+    expect(bare.signingPublic).toEqual(door.signingPublic);
+    expect(hosted.id).not.toBe(door.id);
+    expect(hosted.signingPublic).not.toEqual(door.signingPublic);
+    await expect(
+      c.link.deriveDevice(seed, v.space, v.linkId, 'other' as c.link.LinkTransport),
+    ).rejects.toThrow();
   });
 });
 

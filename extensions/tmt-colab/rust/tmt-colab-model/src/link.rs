@@ -85,38 +85,85 @@ impl Keys {
 /// The largest time the model accepts: a derived device's certificate never expires, because
 /// liveness is the link's.
 const DEVICE_EXPIRES_AT: u64 = 9_007_199_254_740_991;
-/// The chain a link's reader device presents. The device is a pure function of the seed, so the
-/// owner who minted the link and every holder derive the same bytes. `revision` and `statement`
-/// name the `link.add` statement that introduced the link.
-pub fn device_chain(
+/// The transport a holder of a link reaches the page's stream over. Every holder of one link
+/// derives the same device for a transport, so each transport has its own stream: the streams
+/// never fork one another, and a race within one transport has one winner.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Transport {
+    /// The owner's serve, through the Remote door.
+    Door,
+    /// The cloud log, written by a holder's browser directly.
+    Hosted,
+}
+impl Transport {
+    pub const ALL: [Self; 2] = [Self::Door, Self::Hosted];
+    /// The derivation labels of the transport's device: its signing seed and its ID. The door's
+    /// are the ones every link has always had.
+    fn labels(self) -> (&'static [u8], &'static [u8]) {
+        match self {
+            Self::Door => (
+                b"tmt-colab-link-device-seed-v1",
+                b"tmt-colab-link-device-id-v1",
+            ),
+            Self::Hosted => (
+                b"tmt-colab-link-hosted-device-seed-v1",
+                b"tmt-colab-link-hosted-device-id-v1",
+            ),
+        }
+    }
+}
+fn derive_label(seed: &[u8; 32], space: &str, id: &str, label: &[u8]) -> Result<[u8; 32]> {
+    Ok(crypto::derive_key(
+        seed,
+        &[],
+        &frame(&[label, space.as_bytes(), id.as_bytes()])?,
+    ))
+}
+/// The signing key of the link's device for `transport`: a holder derives it from the seed, so
+/// every holder of a link signs a transport's stream with the same key.
+pub fn device_signer(
     seed: &[u8; 32],
     space: &str,
     id: &str,
-    revision: &str,
-    statement: &[u8; 32],
-) -> Result<Vec<u8>> {
-    let link = Keys::derive(seed, space, id)?;
-    let derive = |label: &[u8]| -> Result<[u8; 32]> {
-        Ok(crypto::derive_key(
-            seed,
-            &[],
-            &frame(&[label, space.as_bytes(), id.as_bytes()])?,
-        ))
-    };
-    let signer = SigningKey::from_bytes(&derive(b"tmt-colab-link-device-seed-v1")?);
+    transport: Transport,
+) -> Result<SigningKey> {
+    Ok(SigningKey::from_bytes(&derive_label(
+        seed,
+        space,
+        id,
+        transport.labels().0,
+    )?))
+}
+/// The ID of the link's device for `transport`, a version-4 UUID: it names the stream.
+pub fn device_id(seed: &[u8; 32], space: &str, id: &str, transport: Transport) -> Result<String> {
     let mut name = [0; 16];
-    name.copy_from_slice(&derive(b"tmt-colab-link-device-id-v1")?[..16]);
+    name.copy_from_slice(&derive_label(seed, space, id, transport.labels().1)?[..16]);
     name[6] = name[6] & 15 | 64;
     name[8] = name[8] & 63 | 128;
     let hex: String = name.iter().map(|b| format!("{b:02x}")).collect();
-    let device_id = format!(
+    Ok(format!(
         "{}-{}-{}-{}-{}",
         &hex[..8],
         &hex[8..12],
         &hex[12..16],
         &hex[16..20],
         &hex[20..]
-    );
+    ))
+}
+/// The chain a link's device for `transport` presents. The device is a pure function of the seed,
+/// so the owner who minted the link and every holder derive the same bytes. `revision` and
+/// `statement` name the `link.add` statement that introduced the link.
+pub fn device_chain(
+    seed: &[u8; 32],
+    space: &str,
+    id: &str,
+    revision: &str,
+    statement: &[u8; 32],
+    transport: Transport,
+) -> Result<Vec<u8>> {
+    let link = Keys::derive(seed, space, id)?;
+    let signer = device_signer(seed, space, id, transport)?;
+    let device_id = device_id(seed, space, id, transport)?;
     let signing_key = signer.verifying_key().to_bytes();
     let encryption_key = link.recipient().public_key();
     let device = certificate::Certificate {

@@ -15,7 +15,9 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
-use tmt_colab_model::{certificate, crypto, framing, payload, statement, values, wrap};
+use tmt_colab_model::{
+    certificate, crypto, framing, link::Transport, payload, statement, values, wrap,
+};
 
 pub enum MemberAction {
     Add(Recipient),
@@ -482,10 +484,11 @@ impl Page {
         }
     }
 }
-/// The reader device a link certifies is a pure function of its seed, so the owner derives it
-/// while the seed is borrowed and keeps its chain: the cloud copy of the link's stream is then
-/// found by this machine. It is a device row, never a registration: this machine does not write
-/// that stream. `introduced` is the `link.add` statement the chain must name.
+/// The devices a link certifies are a pure function of its seed, one per transport, so the owner
+/// derives them while the seed is borrowed and keeps their chains: the cloud copy of the link's
+/// streams is then found by this machine, and each transport has a stream of its own. They are
+/// device rows, never registrations: this machine does not write those streams. `introduced` is
+/// the `link.add` statement the chains must name.
 fn put_link_device(
     tx: &mut OwnerTransaction<'_>,
     key: &Keyring,
@@ -493,17 +496,21 @@ fn put_link_device(
     seed: &[u8; 32],
     introduced: &statement::Head,
 ) -> Result<()> {
-    let chain = tmt_colab_model::link::device_chain(
-        seed,
-        &key.space_id,
-        id,
-        &introduced.revision.to_string(),
-        &introduced.hash,
-    )?;
-    tx.put_device(&Device {
-        chain,
-        revoked: false,
-    })
+    for transport in Transport::ALL {
+        let chain = tmt_colab_model::link::device_chain(
+            seed,
+            &key.space_id,
+            id,
+            &introduced.revision.to_string(),
+            &introduced.hash,
+            transport,
+        )?;
+        tx.put_device(&Device {
+            chain,
+            revoked: false,
+        })?;
+    }
+    Ok(())
 }
 fn rank(role: &str) -> u8 {
     match role {

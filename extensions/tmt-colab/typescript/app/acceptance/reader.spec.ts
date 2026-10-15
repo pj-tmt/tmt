@@ -72,8 +72,8 @@ test('reader link: opens unpaired, shows live edits read-only, and ends on Reset
     colab(world, ['share', 'mode', created.pageId, 'link', '--yes']);
     const baseline = deviceRows(world);
     const added = colab(world, ['share', 'link', 'add', created.pageId, '--yes']);
-    // Link creation keeps its derived device before any reader opens it.
-    expect(deviceRows(world)).toBe(baseline + 1);
+    // Link creation keeps its derived devices, one per transport, before any reader opens it.
+    expect(deviceRows(world)).toBe(baseline + 2);
     const readerPath = added.readerPath as string;
     expect(readerPath.startsWith('x/colab/read#v=1&')).toBe(true);
     const printed = new URLSearchParams(readerPath.split('#')[1]);
@@ -194,14 +194,14 @@ test('reader link: opens unpaired, shows live edits read-only, and ends on Reset
       .poll(async () => (await element.boundingBox())?.height ?? Infinity)
       .toBeLessThan(1100);
 
-    // Re-opening the same link in more browsers presents the same derived device: still one row.
+    // Re-opening the same link in more browsers presents the same derived device: no new row.
     for (const name of ['reader-again-1', 'reader-again-2']) {
       const again = await openReaderLink(world, door, readerPath, name);
       await expect(again.page.frameLocator('iframe').locator('#text')).toHaveText('Second text', {
         timeout: 30_000,
       });
     }
-    expect(deviceRows(world)).toBe(baseline + 1);
+    expect(deviceRows(world)).toBe(baseline + 2);
 
     // The seed never left the browser: no request URL or body carries it.
     const seed = seedOf(readerPath);
@@ -245,8 +245,8 @@ test('reader link: opens unpaired, shows live edits read-only, and ends on Reset
     await expect(fresh.page.frameLocator('iframe').locator('#text')).toHaveText('Second text', {
       timeout: 30_000,
     });
-    // The replacement link is a new identity with its own device; the old one stays revoked.
-    expect(deviceRows(world)).toBe(baseline + 2);
+    // The replacement link is a new identity with its own devices; the old ones stay revoked.
+    expect(deviceRows(world)).toBe(baseline + 4);
   });
 });
 
