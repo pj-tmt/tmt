@@ -74,8 +74,9 @@ channels and the driver protocol. The owner map is in
   one human warning on stderr), and `name: null` with the identity's name as `expected`
   inside the external `clear` (`BindingEndpoint::clear(binding, identity)`, reached only through
   core's `clear_observed`), before the marker, with half the budget left. `AgentNameRefusal`
-  separates definite refusals (`Rejected`, `NoAgent`), which keep the agent's earlier name, from
-  `Uncertain`, where the host may have set it. `tmt run`, `tmt resume`, read commands and provider hooks
+  separates a definite `Refused` (JSON status `refused`) and no agent yet (`NoAgent`,
+  `NotReady`) from `Uncertain`, where the host may have set it; the last three are JSON
+  `warnings` entries, never a status. `tmt run`, `tmt resume`, read commands and provider hooks
   never set a name; `tmt ls` shows the snapshot's `agentName` and its advice. The
   [contract](../../../../contracts/driver-protocol-v1.md#name-agent) owns the driver's guards.
 - Cosmetics: tmux badge and marker refresh (names sanitized before markup); `pane_badge` is

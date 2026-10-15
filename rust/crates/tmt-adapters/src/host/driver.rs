@@ -113,17 +113,20 @@ pub enum AgentNaming {
     Done,
 }
 
-/// Why a host did not set an agent name, as far as the fix differs.
+/// Why a host did not set an agent name. Only `Refused` is a definite
+/// answer that the agent keeps its earlier name; `NoAgent` and `NotReady`
+/// say there was no agent to name yet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentNameRefusal {
     /// The host refused this name, for example by its rule for names or
     /// because another agent has it.
-    Rejected,
-    /// The host recognizes no agent in the pane yet, or it is starting.
+    Refused,
+    /// The host recognizes no agent in the pane.
     NoAgent,
+    /// The agent is still starting.
+    NotReady,
     /// The outcome is not known: the call failed or timed out, possibly
-    /// after the host set the name. Only the refusals above are definite
-    /// and keep the agent's earlier name.
+    /// after the host set the name.
     Uncertain,
 }
 
@@ -132,8 +135,9 @@ impl AgentNameRefusal {
         use tmt_driver_protocol::ErrorCode;
         match error {
             HostError::Refused { code, .. } => match code {
-                ErrorCode::Refused => Self::Rejected,
-                ErrorCode::NoAgent | ErrorCode::NotReady => Self::NoAgent,
+                ErrorCode::Refused => Self::Refused,
+                ErrorCode::NoAgent => Self::NoAgent,
+                ErrorCode::NotReady => Self::NotReady,
                 _ => Self::Uncertain,
             },
             _ => Self::Uncertain,

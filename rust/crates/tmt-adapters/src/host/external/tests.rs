@@ -700,9 +700,9 @@ mod through_the_driver {
         );
         assert_eq!(installed.calls().last().unwrap(), "name-agent 1");
         for (code, class) in [
-            ("refused", AgentNameRefusal::Rejected),
+            ("refused", AgentNameRefusal::Refused),
             ("no_agent", AgentNameRefusal::NoAgent),
-            ("not_ready", AgentNameRefusal::NoAgent),
+            ("not_ready", AgentNameRefusal::NotReady),
             ("not_found", AgentNameRefusal::Uncertain),
             ("failed", AgentNameRefusal::Uncertain),
         ] {

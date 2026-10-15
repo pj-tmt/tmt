@@ -135,17 +135,18 @@ kind such as `claude`. The projection reuses the command's existing
 observation; it adds no probe and grants no dispatch authority.
 
 A bind (`tmt name`, `this`, `add`, `marked`) or a `tmt mv` of a binding on an
-external host asks that host for the agent name and adds `agentName` to its JSON
-result: `{"status": "set", "name"}` when the host confirmed it,
-`{"status": "not_linked"}` when its driver does not offer agent names,
-`{"status": "refused", "name", "code", "message"}` when the host
-definitely did not set it and the agent keeps its earlier name, and
-`{"status": "uncertain", "name", "code"?, "message"}` when the call failed,
-possibly after the host set the name. `code` is the driver's error code when it
-gave one. Every status leaves the binding as it is. An explicit bind repeated
-on the pane that already holds the binding asks again and reports the member. A
-tmux binding, a rename to the same name, and a command that binds nothing ask
-nothing and omit the member.
+external host asks that host for the agent name. A definite answer adds
+`agentName` to its JSON result: `{"status": "set", "name"}` when the host
+confirmed it, `{"status": "not_linked"}` when its driver does not offer agent
+names, and `{"status": "refused", "name", "message"}` when the host refused the
+name and the agent keeps its earlier name. Any other answer adds no `agentName`
+and one entry to `warnings`, `[{"code", "message"}]`: `AGENT_NAME_NO_AGENT` or
+`AGENT_NAME_NOT_READY` when there is no agent to name yet, and
+`AGENT_NAME_UNCONFIRMED` when the call failed, possibly after the host set the
+name. Human output gives the same message as one warning on stderr. Every
+answer leaves the binding as it is. An explicit bind repeated on the pane that
+already holds the binding asks again. A tmux binding, a rename to the same name,
+and a command that binds nothing ask nothing.
 
 ## Verification
 

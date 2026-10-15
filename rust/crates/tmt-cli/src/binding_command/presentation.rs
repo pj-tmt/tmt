@@ -681,29 +681,31 @@ pub(super) fn agent_name_warning(
     message::warning(output, terminal, &what, Some(&fix))
 }
 
-/// The JSON `agentName` member of a bind or rename that asked the host for
-/// the agent name. `set`: the host confirmed it. `not_linked`: the host has
-/// no agent names. `refused`: the host definitely did not set it, and the
-/// agent keeps its earlier name. `uncertain`: the call failed, possibly after
-/// the host set the name. `code` is the driver's, when it gave one.
-pub(super) fn agent_name_document(outcome: &super::AgentNameOutcome) -> Value {
-    use tmt_adapters::host::{AgentNameRefusal, AgentNaming, HostError};
-    match &outcome.result {
-        Ok(AgentNaming::Done) => json!({"status": "set", "name": outcome.name}),
-        Ok(AgentNaming::NotLinked) => json!({"status": "not_linked"}),
-        Err(error) => {
-            let status = match AgentNameRefusal::of(error) {
-                AgentNameRefusal::Uncertain => "uncertain",
-                _ => "refused",
-            };
-            let mut value =
-                json!({"status": status, "name": outcome.name, "message": error.to_string()});
-            if let HostError::Refused { code, .. } = error {
-                value["code"] = serde_json::to_value(code).unwrap_or(Value::Null);
-            }
-            value
+/// The JSON of a bind or rename that asked the host for the agent name: the
+/// `agentName` member for a definite answer, or one `warnings` entry when
+/// there was no agent yet or the outcome is unknown. `set`: the host confirmed
+/// it. `not_linked`: the host has no agent names. `refused`: the host said no,
+/// and the agent keeps its earlier name. An unknown outcome is never reported
+/// as `set` or `refused`.
+pub(super) fn agent_name_json(outcome: &super::AgentNameOutcome) -> (Option<Value>, Option<Value>) {
+    use tmt_adapters::host::{AgentNameRefusal, AgentNaming};
+    let name = &outcome.name;
+    let error = match &outcome.result {
+        Ok(AgentNaming::Done) => return (Some(json!({"status": "set", "name": name})), None),
+        Ok(AgentNaming::NotLinked) => return (Some(json!({"status": "not_linked"})), None),
+        Err(error) => error,
+    };
+    let code = match AgentNameRefusal::of(error) {
+        AgentNameRefusal::Refused => {
+            let refused = json!({"status": "refused", "name": name, "message": error.to_string()});
+            return (Some(refused), None);
         }
-    }
+        AgentNameRefusal::NoAgent => "AGENT_NAME_NO_AGENT",
+        AgentNameRefusal::NotReady => "AGENT_NAME_NOT_READY",
+        AgentNameRefusal::Uncertain => "AGENT_NAME_UNCONFIRMED",
+    };
+    let (message, _) = agent_name_text(name, error);
+    (None, Some(json!({"code": code, "message": message})))
 }
 
 /// The warning and its fix for an agent name the host did not confirm. A
@@ -713,11 +715,11 @@ fn agent_name_text(name: &str, error: &tmt_adapters::host::HostError) -> (String
     use tmt_adapters::host::AgentNameRefusal;
     let name = crate::output::shell_word(name);
     match AgentNameRefusal::of(error) {
-        AgentNameRefusal::Rejected => (
+        AgentNameRefusal::Refused => (
             format!("The agent name {name} was not set: {error}. The binding stays."),
             format!("Choose a name the host takes: tmt mv {name} <name>"),
         ),
-        AgentNameRefusal::NoAgent => (
+        AgentNameRefusal::NoAgent | AgentNameRefusal::NotReady => (
             format!("No agent to name yet: {error}. The binding stays."),
             format!("When the agent runs, in its pane run: tmt this {name}"),
         ),

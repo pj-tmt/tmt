@@ -789,43 +789,74 @@ fn an_explicit_bind_sets_the_agent_name_and_a_repeat_sets_it_again() {
     assert_eq!(named[0]["bindingId"], named[1]["bindingId"]);
 }
 
-/// Each refusal keeps the binding. A definite refusal says the name was not
-/// set; a failure says the outcome is unknown. Human output gives one warning
-/// with its fix on stderr.
+/// Each answer keeps the binding. A definite refusal is the `refused`
+/// status and says the name was not set. No agent yet, or an unknown
+/// outcome, gives no status but one structured JSON warning, never `set` or
+/// `refused`. Human output gives one warning with its fix on stderr.
 #[test]
-fn a_refused_or_uncertain_agent_name_keeps_the_binding_and_says_which() {
+fn a_refused_or_unconfirmed_agent_name_keeps_the_binding_and_says_which() {
     register();
-    for (code, status, said) in [
-        ("refused", "refused", "The agent name worker was not set"),
-        ("no_agent", "refused", "No agent to name yet"),
-        ("not_ready", "refused", "No agent to name yet"),
+    for (answer, warning, said) in [
+        ("refused", None, "The agent name worker was not set"),
+        (
+            "no_agent",
+            Some("AGENT_NAME_NO_AGENT"),
+            "No agent to name yet",
+        ),
+        (
+            "not_ready",
+            Some("AGENT_NAME_NOT_READY"),
+            "No agent to name yet",
+        ),
         (
             "failed",
-            "uncertain",
+            Some("AGENT_NAME_UNCONFIRMED"),
             "TMT could not confirm the agent name worker",
         ),
     ] {
-        let fixture = naming(&format!("bind-{code}"), &[code, code]);
+        let fixture = naming(&format!("bind-{answer}"), &[answer, answer]);
         fixture.approve();
         let output = fixture.tmt_in(Some("f1"), &["name", "worker", "--save", "--json"]);
-        assert!(output.status.success(), "{code}: {output:?}");
+        assert!(output.status.success(), "{answer}: {output:?}");
+        // One JSON document on stdout, and nothing on stderr.
         let bound: Value = serde_json::from_slice(&output.stdout).unwrap();
-        let member = agent_name_of(&bound);
-        assert_eq!(member["status"], status, "{code}: {member}");
-        assert_eq!(member["code"], code, "{code}: {member}");
-        assert_eq!(member["name"], "worker");
-        // The binding stands.
+        assert!(output.stderr.is_empty(), "{answer}: {output:?}");
+        assert_eq!(bound["name"], "worker", "{answer}: {bound:#}");
+        match warning {
+            None => {
+                assert_eq!(
+                    agent_name_of(&bound),
+                    &serde_json::json!({"status": "refused", "name": "worker",
+                        "message": "Host driver fake: host says refused"}),
+                    "{answer}"
+                );
+                assert!(bound.get("warnings").is_none(), "{bound:#}");
+            }
+            Some(code) => {
+                assert!(bound.get("agentName").is_none(), "{answer}: {bound:#}");
+                let warnings = bound["warnings"].as_array().unwrap();
+                assert_eq!(warnings.len(), 1, "{answer}: {bound:#}");
+                assert_eq!(warnings[0]["code"], code, "{answer}");
+                let message = warnings[0]["message"].as_str().unwrap();
+                assert!(message.contains(said), "{answer}: {message}");
+                assert!(message.contains("The binding stays"), "{answer}");
+            }
+        }
+        // The binding stands, and the host has no agent name.
         let row = worker(&fixture.json(&["ls", "--json"])).clone();
-        assert_eq!(row["presence"], "active", "{code}: {row:#}");
+        assert_eq!(row["presence"], "active", "{answer}: {row:#}");
+        assert!(!fixture.root.join("driver/agentname").exists(), "{answer}");
 
         let human = fixture.tmt_in(Some("f1"), &["name", "worker", "--save"]);
-        assert!(human.status.success(), "{code}: {human:?}");
+        assert!(human.status.success(), "{answer}: {human:?}");
         let stderr = String::from_utf8_lossy(&human.stderr);
-        assert!(stderr.contains(said), "{code}: {stderr}");
-        assert!(stderr.contains("The binding stays"), "{code}: {stderr}");
+        assert!(stderr.contains(said), "{answer}: {stderr}");
+        assert!(stderr.contains("The binding stays"), "{answer}: {stderr}");
+        assert_eq!(stderr.matches("warning:").count(), 1, "{answer}: {stderr}");
         assert_eq!(
             stderr.contains("was not set"),
-            status == "refused" && said.contains("was not set")
+            warning.is_none(),
+            "{answer}"
         );
     }
 }

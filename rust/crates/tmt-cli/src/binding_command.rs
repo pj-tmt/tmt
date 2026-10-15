@@ -631,7 +631,13 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
     if mode.json {
         let mut document = presentation::document(&report);
         if let Some(outcome) = &agent_name {
-            document["agentName"] = presentation::agent_name_document(outcome);
+            let (member, warning) = presentation::agent_name_json(outcome);
+            if let Some(member) = member {
+                document["agentName"] = member;
+            }
+            if let Some(warning) = warning {
+                document["warnings"] = serde_json::json!([warning]);
+            }
         }
         writeln!(stdout, "{document}")?;
     } else {
