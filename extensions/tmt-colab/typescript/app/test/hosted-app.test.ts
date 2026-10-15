@@ -168,5 +168,8 @@ it('never labels definitive writer occupancy sent, refused-before-effect or unkn
   expect(html).not.toContain('>Sent<');
   expect(html).not.toContain('>Not sent<');
   expect(html).not.toContain('>Unconfirmed<');
-  expect(html).toContain('[Pending Colab/UX writer-in-use copy]');
+  expect(html).toContain('Link in use');
+  expect(html).toContain(
+    'Another browser is already sending edits through this link, so this one can only read. Ask the owner for an editor link of your own.',
+  );
 });

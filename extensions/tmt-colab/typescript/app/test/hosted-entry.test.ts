@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { expect, it, vi } from 'vite-plus/test';
+import { afterEach, expect, it, vi } from 'vite-plus/test';
 import * as c from '@tmt/colab-client';
 import type {
   SealedDocument,
@@ -10,11 +10,38 @@ import type {
 import type { HostedBootstrap } from '../src/hosted-bootstrap.js';
 import type { ReaderLink } from '../src/reader-link.js';
 import { HostedEntry, type HostedEntryState } from '../src/hosted-entry.js';
+import { Admission } from '../src/admission.js';
+import type { OwnAuthor } from '../src/own-seal.js';
+import type { OwnRecord } from '../src/fold-protocol.js';
 
 const effects = vi.hoisted(() => [] as string[]);
+const publication = vi.hoisted(() => ({
+  author: undefined as OwnAuthor | undefined,
+  device: '',
+  records: [] as OwnRecord[],
+  fits: false,
+}));
+afterEach(() => vi.restoreAllMocks());
 vi.mock('../src/hosted-reader.js', () => ({
   HostedPageReader: class {
-    constructor(readonly port: SealedSyncPort) {}
+    constructor(
+      readonly port: SealedSyncPort,
+      admission: Admission,
+      _link: unknown,
+      _limits: unknown,
+      _fold: unknown,
+      author?: OwnAuthor,
+    ) {
+      publication.author = author;
+      publication.device = admission.registration.deviceId;
+    }
+    async submitOwn(records: OwnRecord[], _call: SyncCall, fits?: (size: number) => void) {
+      await publication.author!(publication.device, '1');
+      fits?.(100);
+      publication.fits = fits !== undefined;
+      publication.records = records;
+      return { outcome: 'sent', confirmed: 1 };
+    }
     async refresh(call: SyncCall) {
       if (call.signal.aborted) throw new Error('cancelled');
       effects.push('verified');
@@ -51,6 +78,8 @@ const pending = () => {
 };
 async function fixture() {
   effects.length = 0;
+  publication.records = [];
+  publication.fits = false;
   const states: HostedEntryState[] = [],
     creates: SyncMutation[] = [],
     ports: SealedSyncPort[] = [];
@@ -204,6 +233,34 @@ it('consumes Colab parsed keys before bootstrap, then one Rules admission and re
   await f.entry.close();
   expect(f.active()).toBe(0);
   expect(effects.indexOf('reader-close')).toBeLessThan(effects.indexOf('auth-close'));
+});
+
+it('the default editor wires fresh Colab ownAuthor and the one-document request-size hook', async () => {
+  const author = vi.spyOn(Admission.prototype, 'ownAuthor').mockResolvedValue(new Uint8Array(32));
+  const f = await fixture();
+  try {
+    await f.entry.select(target());
+    await f.entry.signIn();
+    const ready = f.states.at(-1);
+    expect(publication.device).toBe(v.linkHostedDevice.id);
+    expect(ready?.phase).toBe('ready');
+    if (ready?.phase !== 'ready') throw new Error('expected a verified ready page');
+    expect(ready.edit).toBeTypeOf('function');
+    const source = '<main>A requested edit</main>';
+    expect(await ready.edit!(source, 'verified only', () => {})).toEqual({ request: 'sent' });
+    expect(author).toHaveBeenCalledExactlyOnceWith('1');
+    expect(publication.fits).toBe(true);
+    expect(publication.records).toHaveLength(1);
+    expect(publication.records[0]).toMatchObject({
+      root: 'intents',
+      value: { version: 1, kind: 'edit-request', source },
+    });
+    const record = publication.records[0];
+    expect(record.key).toBe((record.value as Record<string, unknown>).operationId);
+    expect(f.creates).toHaveLength(1); // Only holder enrollment here: the request uses the reader.
+  } finally {
+    await f.entry.close();
+  }
 });
 
 it('switches pages only after old cancel/join, without replacing the signed-in identity or declaration', async () => {

@@ -1,11 +1,4 @@
-import {
-  decodeHeader,
-  encodeBinary,
-  Envelope,
-  exactKeys,
-  generatedId,
-  requireValue,
-} from '@tmt/colab-client';
+import { encodeBinary, Envelope, exactKeys, generatedId, requireValue } from '@tmt/colab-client';
 import { Connection } from './connection.js';
 import { type JsonValue, type OwnRoot, type OwnRecord, UPDATE_BYTES } from './fold-protocol.js';
 import type { ObjectEntry } from './objects.js';
@@ -270,7 +263,9 @@ export class Writer {
       });
       const a = c.admission,
         head = c.objects.head(a.registration.deviceId);
-      const entry = await sealOwnUpdate(a, head, update, (_device, revision) => a.ownAuthor(revision));
+      const entry = await sealOwnUpdate(a, head, update, (_device, revision) =>
+        a.ownAuthor(revision),
+      );
       requireValue(c.active && !this.#closed);
       return entry;
     });

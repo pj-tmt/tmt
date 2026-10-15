@@ -45,8 +45,14 @@ export function ReaderApp({
 }) {
   const [files, setFiles] = useState(false);
   const [sourceOpen, setSourceOpen] = useState(false);
-  const mode =
-    role === 'commenter' ? 'Can comment' : canEdit ? text.readerCanEdit : text.readerOnly;
+  const [writerBlocked, setWriterBlocked] = useState(false);
+  const mode = writerBlocked
+    ? text.readerOnly
+    : role === 'commenter'
+      ? 'Can comment'
+      : canEdit
+        ? text.readerCanEdit
+        : text.readerOnly;
   const descriptors = state.kind === 'ready' ? (state.view.attachments ?? []) : [];
   const source = state.kind === 'ready' ? state.view.source : null;
   const title = state.kind === 'ready' ? state.view.title : '';
@@ -219,6 +225,8 @@ export function ReaderApp({
           edit={edit}
           open={sourceOpen}
           onDismiss={() => setSourceOpen(false)}
+          writerBlocked={writerBlocked}
+          onWriterInUse={() => setWriterBlocked(true)}
         />
       )}
       {state.kind === 'ready' && (

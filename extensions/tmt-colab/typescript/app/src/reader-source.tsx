@@ -1,5 +1,5 @@
 import { BrowserAction, BrowserDrawer, BrowserNotice } from '@tmt/browser-ui/react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import './source-editor.css';
 import type { EditOutcome } from './link-edit.js';
 import { saveMessage } from './save.js';
@@ -8,13 +8,14 @@ import { text } from './strings.js';
 import { Circle, Diamond, X } from 'lucide-react';
 
 export type EditRequestOutcome = 'sent' | 'refused' | 'unconfirmed' | 'writer-in-use';
-/** Replaced only by the Colab-routed, UX-approved fourth-outcome copy before review. */
-export const HOSTED_WRITER_IN_USE_COPY_PENDING = {
-  label: '[Pending writer-in-use label]',
-  message: '[Pending Colab/UX writer-in-use copy]',
-};
 /** Provider uncertainty never becomes a refusal or an automatic resend. */
-export function EditRequestNotice({ outcome }: { outcome: EditRequestOutcome }) {
+export function EditRequestNotice({
+  outcome,
+  actions,
+}: {
+  outcome: EditRequestOutcome;
+  actions?: ReactNode;
+}) {
   return (
     <div className="source-notice">
       <BrowserNotice
@@ -28,7 +29,7 @@ export function EditRequestNotice({ outcome }: { outcome: EditRequestOutcome }) 
         announcement={outcome === 'refused' || outcome === 'writer-in-use' ? 'alert' : 'status'}
         stateLabel={
           outcome === 'writer-in-use'
-            ? HOSTED_WRITER_IN_USE_COPY_PENDING.label
+            ? 'Link in use'
             : outcome === 'unconfirmed'
               ? 'Unconfirmed'
               : outcome === 'refused'
@@ -46,7 +47,7 @@ export function EditRequestNotice({ outcome }: { outcome: EditRequestOutcome }) 
         }
         title={
           outcome === 'writer-in-use'
-            ? HOSTED_WRITER_IN_USE_COPY_PENDING.message
+            ? 'Another browser is already sending edits through this link, so this one can only read. Ask the owner for an editor link of your own.'
             : outcome === 'unconfirmed'
               ? "Couldn't confirm the edit request. It may still reach the owner; check the page before sending it again."
               : outcome === 'refused'
@@ -54,6 +55,7 @@ export function EditRequestNotice({ outcome }: { outcome: EditRequestOutcome }) 
                 : "Edit request sent. It appears on the page when the owner's Colab applies it."
         }
         body={null}
+        actions={actions}
       />
     </div>
   );
@@ -75,12 +77,16 @@ export function ReaderSource({
   edit,
   open,
   onDismiss,
+  writerBlocked,
+  onWriterInUse,
 }: {
   /** The text of the page as the reader last admitted it. */
   source: string;
   edit: ReaderEdit;
   open: boolean;
   onDismiss: () => void;
+  writerBlocked: boolean;
+  onWriterInUse(): void;
 }) {
   const dirty = useRef(false),
     base = useRef(source);
@@ -89,8 +95,7 @@ export function ReaderSource({
     [problem, setProblem] = useState<SaveProblem | null>(null),
     [copied, setCopied] = useState<'copied' | 'failed' | null>(null),
     [request, setRequest] = useState<EditRequestOutcome | null>(null),
-    [sentDraft, setSentDraft] = useState<string | null>(null),
-    [writerBlocked, setWriterBlocked] = useState(false);
+    [sentDraft, setSentDraft] = useState<string | null>(null);
   const latestDraft = useRef(draft);
   latestDraft.current = draft;
   // The page moved elsewhere while nothing is being edited: show it, and edit from it.
@@ -101,7 +106,7 @@ export function ReaderSource({
     setDraft(source);
   }, [source]);
   async function save() {
-    if (saving) return;
+    if (saving || writerBlocked) return;
     setSaving(true);
     setProblem(null);
     setCopied(null);
@@ -113,7 +118,7 @@ export function ReaderSource({
       if ('request' in answer) {
         setRequest(answer.request);
         if (answer.request === 'sent') setSentDraft(draft);
-        if (answer.request === 'writer-in-use') setWriterBlocked(true);
+        if (answer.request === 'writer-in-use') onWriterInUse();
         return;
       }
       if (answer.kind === 'applied') {
@@ -130,6 +135,27 @@ export function ReaderSource({
       setSaving(false);
     }
   }
+  const copyDraft = (
+    <>
+      <BrowserAction
+        type="button"
+        label={text.saveCopyDraft}
+        variant="text"
+        onActivate={(event) => {
+          if (event.isTrusted)
+            void navigator.clipboard.writeText(draft).then(
+              () => setCopied('copied'),
+              () => setCopied('failed'),
+            );
+        }}
+      />
+      {copied && (
+        <span role="status">
+          {copied === 'copied' ? text.saveDraftCopied : text.saveDraftNotCopied}
+        </span>
+      )}
+    </>
+  );
   return (
     <BrowserDrawer
       focusFallback={() => document.querySelector<HTMLButtonElement>('.tmt-ui-header button')}
@@ -142,38 +168,21 @@ export function ReaderSource({
       <div className="source">
         <span>
           <label htmlFor="source-edit">{text.source}</label>
-          <button disabled={saving || writerBlocked || draft === base.current || draft === sentDraft} onClick={() => void save()}>
+          <button
+            disabled={saving || writerBlocked || draft === base.current || draft === sentDraft}
+            onClick={() => void save()}
+          >
             {saving && !problem ? text.saving : text.save}
           </button>
         </span>
-        {request && <EditRequestNotice outcome={request} />}
-        {problem && (
-          <SaveNotice
-            problem={problem}
-            actions={
-              problem.conflict ? (
-                <>
-                  <BrowserAction
-                    type="button"
-                    label={text.saveCopyDraft}
-                    variant="text"
-                    onActivate={(event) => {
-                      if (event.isTrusted)
-                        void navigator.clipboard.writeText(draft).then(
-                          () => setCopied('copied'),
-                          () => setCopied('failed'),
-                        );
-                    }}
-                  />
-                  {copied && (
-                    <span role="status">
-                      {copied === 'copied' ? text.saveDraftCopied : text.saveDraftNotCopied}
-                    </span>
-                  )}
-                </>
-              ) : undefined
-            }
+        {request && (
+          <EditRequestNotice
+            outcome={request}
+            actions={request === 'writer-in-use' ? copyDraft : undefined}
           />
+        )}
+        {problem && (
+          <SaveNotice problem={problem} actions={problem.conflict ? copyDraft : undefined} />
         )}
         <textarea
           id="source-edit"

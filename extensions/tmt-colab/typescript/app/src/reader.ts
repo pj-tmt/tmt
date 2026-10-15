@@ -80,7 +80,7 @@ export class ReaderSession {
     publish: (view: PageView) => void,
     ended: (error: Error) => void,
   ): Promise<ReaderSession> {
-    const { link, device, chain } = await deriveReaderKeys(target);
+    const { link, device, chain } = await deriveReaderKeys(target, 'door');
     const session = new ReaderSession(target, mount, link, device, chain, publish, ended);
     const { dropped } = await session.#establish();
     void session.#supervise(dropped);

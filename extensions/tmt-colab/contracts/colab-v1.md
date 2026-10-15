@@ -3546,7 +3546,8 @@ bounds and the four publication outcomes follow Remote's
 [hosted guard](../../../contracts/remote-channel-v1.md#hosted-own-record-publication-guard-3122),
 including exactly one same-ID readback and no reseal/resend. The Source drawer keeps an
 unconfirmed draft for a deliberate user decision and does not substitute requested text for
-admitted content; a definitive writer loss cannot retry from that drawer. Listener starts reserve
+admitted content. A definitive writer loss keeps the draft and Copy draft, disables Save for the
+session, and changes the header mark to Read-only. Listener starts reserve
 no guessed tail: the SDK reports every complete
 initial server snapshot and later document-change batch, including own changes, and the guard
 counts those raw documents before exposing a notice. A delivered batch that crosses refusal

@@ -1,4 +1,4 @@
-import { certificate, editRequest, encodeBinary, requireValue } from '@tmt/colab-client';
+import { certificate, requireValue } from '@tmt/colab-client';
 import type { SyncCall } from '../../../../tmt-remote/typescript/remote-client/src/sealed-sync.js';
 import { Admission } from './admission.js';
 import { HostedAdmission } from './hosted-admission.js';
@@ -12,8 +12,7 @@ import type { ReaderLink } from './reader-link.js';
 import type { Registration } from './registration.js';
 import type { PageView } from './transport.js';
 import type { ReaderEdit } from './reader-source.js';
-import type { OwnAuthor } from './own-seal.js';
-import { hunksOf } from './save-hunks.js';
+import { sendEditRequest } from './link-edit.js';
 
 type Usage = Awaited<ReturnType<HostedBudget['snapshot']>>;
 export type HostedEntryState =
@@ -25,8 +24,6 @@ interface Options {
   state(value: HostedEntryState): void;
   bootstrap?(call: SyncCall): Promise<HostedBootstrap>;
   visible?: boolean;
-  /** Fresh admission belongs to Colab, independently of historical read admission. */
-  ownAuthor?(admission: Admission): OwnAuthor;
 }
 interface Page {
   target: ReaderLink;
@@ -58,7 +55,11 @@ export class HostedEntry {
     this.options.state({ phase: 'loading' });
     const prepare = async (target?: ReaderLink): Promise<Page | undefined> =>
       target
-        ? { target, keys: await deriveReaderKeys(target), admission: new HostedAdmission() }
+        ? {
+            target,
+            keys: await deriveReaderKeys(target, 'hosted'),
+            admission: new HostedAdmission(),
+          }
         : undefined;
     // Direct parsed inputs consume their seed synchronously; queued parsing failures are handled now.
     const preparing = (
@@ -174,7 +175,6 @@ export class HostedEntry {
     if (this.session) return;
     const { target, keys } = page;
     let reader: HostedPageReader | undefined;
-    let writable = false;
     const registration: Registration = {
       deviceId: keys.device.id,
       chain: certificate.Chain.fromJson(keys.chain),
@@ -221,9 +221,14 @@ export class HostedEntry {
                 expiresAt: hints.expiresAtMs,
               },
             );
-            const author = this.options.ownAuthor?.(admission);
-            reader = new HostedPageReader(port, admission, target, boot.limits, undefined, author);
-            writable = author !== undefined;
+            reader = new HostedPageReader(
+              port,
+              admission,
+              target,
+              boot.limits,
+              undefined,
+              (_device, revision) => admission.ownAuthor(revision),
+            );
             const scope = {
               space: { stringValue: target.space },
               page: { stringValue: target.page },
@@ -259,7 +264,7 @@ export class HostedEntry {
               view,
               budget,
               role: target.role,
-              ...(writable && target.role === 'editor' && reader
+              ...(target.role === 'editor' && reader
                 ? {
                     edit: (source, base) =>
                       this.edit(reader!, generation, call.signal, source, base),
@@ -292,24 +297,24 @@ export class HostedEntry {
       return { request: 'refused' };
     let submitted = false;
     try {
-      const operationId = crypto.randomUUID(),
-        hunks = hunksOf(base, source);
-      const value = await editRequest.verifiedEditRequest({
-        version: 1,
-        kind: 'edit-request',
-        operationId,
-        baseSha256: encodeBinary(await editRequest.sourceDigest(base)),
-        sourceSha256: encodeBinary(await editRequest.sourceDigest(source)),
+      let outcome: 'sent' | 'refused' | 'unconfirmed' | 'writer-in-use' = 'refused';
+      await sendEditRequest(
+        {
+          submitOwnRecords: async (records, fits) => {
+            if (!this.current(generation) || signal.aborted) return;
+            submitted = true;
+            const result = await reader.submitOwn(
+              records,
+              { signal, deadlineAtMs: Date.now() + 30_000 },
+              fits,
+            );
+            outcome = result.outcome;
+          },
+        },
+        base,
         source,
-        ...(hunks ? { hunks } : {}),
-      });
-      if (!this.current(generation) || signal.aborted) return { request: 'refused' };
-      submitted = true;
-      const result = await reader.submitOwn(
-        [{ root: 'intents', key: operationId, value: JSON.parse(JSON.stringify(value)) }],
-        { signal, deadlineAtMs: Date.now() + 30_000 },
       );
-      return { request: result.outcome };
+      return { request: outcome };
     } catch (failure) {
       const code =
         typeof failure === 'object' && failure !== null && 'code' in failure
