@@ -104,7 +104,12 @@ pub(in crate::board) fn render(
                     ),
                 );
             }
-            Panel::Digest => text(frame, rect, scene.summary.digest_line(), app),
+            Panel::Digest => text(
+                frame,
+                rect,
+                scene.summary.digest_line(usize::from(rect.width)),
+                app,
+            ),
             Panel::Quota => {
                 text(
                     frame,

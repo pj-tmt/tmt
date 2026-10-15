@@ -729,6 +729,34 @@ fn selected_squad_summary_shows_the_same_supplied_estimate() {
 }
 
 #[test]
+fn overview_digest_line_shows_the_estimate_and_follows_the_window_without_reading() {
+    use crate::config::DigestWindow;
+    let _no_commands = crate::runner::forbid_commands();
+    let mut app = savings_board();
+    app.shell.tab = crate::board::shell::OpsTab::Overview;
+    let shown = paint(&mut app, 160, 44);
+    assert!(
+        shown.contains("Off · Est. ctx avoided 24h: 18.2k"),
+        "{shown}"
+    );
+    // The held Overview scene must not outlive the window it summed.
+    let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    workspace.preferences.digest_window = DigestWindow::Week;
+    let shown = paint(&mut app, 160, 44);
+    assert!(
+        shown.contains("Off · Est. ctx avoided 7d: — (0 of 1)"),
+        "{shown}"
+    );
+    // Without Digest evidence the line says so and carries no estimate.
+    // A received label set clears the held scene, as the board's event loop does.
+    app.overview_rows.borrow_mut().clear();
+    app.labels = crate::labels::Supplied::default();
+    let shown = paint(&mut app, 160, 44);
+    assert!(shown.contains("Digest status unavailable"), "{shown}");
+    assert!(!shown.contains("Digest status unavailable · "), "{shown}");
+}
+
+#[test]
 fn member_savings_remain_visible_at_each_supported_width() {
     for width in [60, 80, 100, 160] {
         let mut app = savings_board();

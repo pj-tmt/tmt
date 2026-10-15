@@ -104,6 +104,7 @@ struct Key {
     filter: Filter,
     pins: std::collections::BTreeSet<String>,
     hidden: std::collections::BTreeSet<String>,
+    digest_window: crate::config::DigestWindow,
     visibility: crate::board::workspace::OpsVisibility,
 }
 impl Cache {
@@ -123,6 +124,7 @@ pub(in crate::board) fn scene(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<
         filter: app.overview_filter,
         pins: snapshot.preferences.agent_pins.clone(),
         hidden: snapshot.preferences.hidden.clone(),
+        digest_window: snapshot.preferences.digest_window,
         visibility: app.workspace.visibility.clone(),
     };
     let mut cache = app.overview_rows.borrow_mut();
