@@ -7,16 +7,20 @@ import type {
 } from '../../../../tmt-remote/typescript/remote-client/src/sealed-sync.js';
 
 const NEXT_MS = 30_000;
+export type HostedRefresh = (call: SyncCall, resources: ReadonlySet<string>) => Promise<void>;
+/** Verified Colab application refusals remain distinct from the transport's recovery states. */
+export type HostedFailure = SyncFailure | Error;
 interface Group {
   controller: AbortController;
   signal: AbortSignal;
   subscriptions: SyncSubscription[];
   watchers: Promise<void>[];
-  refresh: (call: SyncCall) => Promise<void>;
+  refresh: HostedRefresh;
   refreshing?: Promise<void>;
   joining?: Promise<void>;
-  dirty: boolean;
-  failure?: SyncFailure;
+  changed: Set<string>;
+  started: boolean;
+  failure?: HostedFailure;
   initialDeadlineAtMs?: number;
   aborted: () => void;
 }
@@ -29,11 +33,11 @@ export class HostedInterests {
   constructor(
     private readonly port: SealedSyncPort,
     private readonly drain: () => Promise<void>,
-    private readonly failed: (failure: SyncFailure) => void,
+    private readonly failed: (failure: HostedFailure) => void,
   ) {}
   replace(
     interests: readonly SyncInterest[],
-    refresh: (call: SyncCall) => Promise<void>,
+    refresh: HostedRefresh,
     call: SyncCall,
   ): Promise<void> {
     if (interests.length < 1 || interests.length > 3)
@@ -52,7 +56,8 @@ export class HostedInterests {
         subscriptions: [],
         watchers: [],
         refresh,
-        dirty: false,
+        changed: new Set(),
+        started: false,
         initialDeadlineAtMs: call.deadlineAtMs,
         aborted: () => this.fence(group),
       };
@@ -69,9 +74,10 @@ export class HostedInterests {
             throw cancelled();
           }
           group.subscriptions.push(subscription);
-          group.watchers.push(this.watch(group, subscription));
+          group.watchers.push(this.watch(group, subscription, interest.resource));
         }
-        this.dirty(group);
+        group.started = true;
+        this.dirty(group, ...selected.map((interest) => interest.resource));
         await group.refreshing;
         if (group.failure) throw group.failure;
         if (group.signal.aborted) throw cancelled();
@@ -98,12 +104,21 @@ export class HostedInterests {
     );
     return close;
   }
-  private async watch(group: Group, subscription: SyncSubscription): Promise<void> {
+  private async watch(
+    group: Group,
+    subscription: SyncSubscription,
+    resource: string,
+  ): Promise<void> {
     while (!group.signal.aborted) {
       const call = { signal: group.signal, deadlineAtMs: Date.now() + NEXT_MS };
       try {
-        await subscription.next(call);
-        if (!group.signal.aborted) this.dirty(group);
+        const change = await subscription.next(call);
+        if (group.signal.aborted) return;
+        if (change.kind === 'catch-up-required') {
+          this.end(group, { code: 'REMOTE_STATE_UNAVAILABLE', state: 'catch-up-required' });
+          return;
+        }
+        this.dirty(group, resource);
       } catch (error) {
         if (group.signal.aborted) return;
         // Only an elapsed idle waiter may continue on the same interest. An early
@@ -114,32 +129,36 @@ export class HostedInterests {
       }
     }
   }
-  private dirty(group: Group): void {
+  private dirty(group: Group, ...resources: string[]): void {
     if (group.signal.aborted) return;
-    group.dirty = true;
-    if (group.refreshing) return;
-    const work = (async () => {
-      while (group.dirty && !group.signal.aborted) {
-        group.dirty = false;
-        await group.refresh({
-          signal: group.signal,
-          deadlineAtMs: Math.min(group.initialDeadlineAtMs ?? Infinity, Date.now() + NEXT_MS),
-        });
+    resources.forEach((resource) => group.changed.add(resource));
+    if (!group.started || group.refreshing) return;
+    const work = Promise.resolve().then(async () => {
+      while (group.changed.size && !group.signal.aborted) {
+        const changed = new Set(group.changed);
+        group.changed.clear();
+        await group.refresh(
+          {
+            signal: group.signal,
+            deadlineAtMs: Math.min(group.initialDeadlineAtMs ?? Infinity, Date.now() + NEXT_MS),
+          },
+          changed,
+        );
       }
-    })();
+    });
     group.refreshing = work;
     const complete = () => {
       group.refreshing = undefined;
-      if (group.dirty && !group.signal.aborted) this.dirty(group);
+      if (group.changed.size && !group.signal.aborted) this.dirty(group);
     };
     void work.then(complete, (error) => {
-      if (!group.signal.aborted) this.end(group, error);
+      if (!group.signal.aborted) this.end(group, error, true);
       complete();
     });
   }
-  private end(group: Group, error: unknown): void {
+  private end(group: Group, error: unknown, application = false): void {
     if (group.failure || group.signal.aborted) return;
-    group.failure = refusal(error);
+    group.failure = application && error instanceof Error ? error : refusal(error);
     this.fence(group);
     this.failed(group.failure);
   }

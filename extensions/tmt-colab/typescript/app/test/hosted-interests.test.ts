@@ -7,6 +7,7 @@ import type {
   SyncSubscription,
 } from '../../../../tmt-remote/typescript/remote-client/src/sealed-sync.js';
 import { HostedInterests } from '../src/hosted-interests.js';
+import { HostedReshareRequired } from '../src/hosted-authority.js';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -26,17 +27,21 @@ const interests = (page: string): SyncInterest[] =>
     resource,
     scope: { page: { stringValue: page } },
   }));
-function fixture(drain: () => Promise<void> = async () => {}) {
+function fixture(
+  drain: () => Promise<void> = async () => {},
+  installing?: (count: number) => Promise<void>,
+) {
   const events: string[] = [],
     failures: unknown[] = [];
   const terminal = deferred<void>();
   let active = 0,
     peak = 0;
   const listeners: {
-    changed(): void;
+    changed(kind?: SyncChange['kind']): void;
     error(error: unknown): void;
     calls: number;
     stopped: boolean;
+    again: Promise<void>;
   }[] = [];
   const port = {
     async subscribe(interest: SyncInterest) {
@@ -46,16 +51,19 @@ function fixture(drain: () => Promise<void> = async () => {}) {
       peak = Math.max(peak, active);
       let pending: ReturnType<typeof deferred<SyncChange>> | undefined;
       let timer: ReturnType<typeof setTimeout> | undefined;
+      const again = deferred<void>();
       const listener = {
-        changed: () => pending?.resolve({ kind: 'changed' }),
+        changed: (kind: SyncChange['kind'] = 'changed') => pending?.resolve({ kind }),
         error: (error: unknown) => pending?.reject(error),
         calls: 0,
         stopped: false,
+        again: again.promise,
       };
       listeners.push(listener);
       const subscription: SyncSubscription = {
         async next(budget) {
           listener.calls++;
+          if (listener.calls === 2) again.resolve();
           pending = deferred<SyncChange>();
           const abort = () =>
             pending?.reject({ code: 'REMOTE_STATE_UNAVAILABLE', state: 'cancelled' });
@@ -80,6 +88,7 @@ function fixture(drain: () => Promise<void> = async () => {}) {
           pending?.reject({ code: 'REMOTE_STATE_UNAVAILABLE' });
         },
       };
+      await installing?.(listeners.length);
       return subscription;
     },
   } as unknown as SealedSyncPort;
@@ -244,4 +253,109 @@ it.each([
   expect(f.events.filter((event) => event.startsWith('subscribe:'))).toHaveLength(3);
   f.listeners.forEach((listener) => listener.changed());
   expect(f.failures).toHaveLength(1);
+});
+
+it('passes coalesced resource hints so records never force an unrelated authority reload', async () => {
+  const f = fixture(),
+    refreshed = deferred<void>();
+  const seen: string[][] = [];
+  try {
+    await f.group.replace(
+      interests('page'),
+      async (_call, changed?: ReadonlySet<string>) => {
+        seen.push([...(changed ?? [])].sort());
+        if (seen.length === 2) refreshed.resolve();
+      },
+      call(),
+    );
+    expect(seen).toEqual([['authority', 'checkpoints', 'log']]);
+    f.listeners[0].changed();
+    f.listeners[1].changed();
+    await refreshed.promise;
+    expect(seen[1]).toEqual(['checkpoints', 'log']);
+  } finally {
+    await f.group.close();
+  }
+});
+
+it('catch-up-required retires the entire group for fresh verification instead of rendering a normal refresh', async () => {
+  const f = fixture(),
+    refreshed = deferred<void>();
+  let reads = 0;
+  try {
+    await f.group.replace(
+      interests('page'),
+      async () => {
+        if (++reads > 1) refreshed.resolve();
+      },
+      call(),
+    );
+    f.listeners[0].changed('catch-up-required');
+    expect(
+      await Promise.race([
+        f.terminal.then(() => 'terminal'),
+        refreshed.promise.then(() => 'refresh'),
+      ]),
+    ).toBe('terminal');
+    expect(f.failures).toEqual([{ code: 'REMOTE_STATE_UNAVAILABLE', state: 'catch-up-required' }]);
+    expect(reads).toBe(1);
+    expect(f.active()).toBe(0);
+  } finally {
+    await f.group.close();
+  }
+});
+
+it('retains an early listener wake until all three subscriptions are installed', async () => {
+  const installing = deferred<void>(),
+    release = deferred<void>();
+  const f = fixture(
+    async () => {},
+    async (count) => {
+      if (count === 3) {
+        installing.resolve();
+        await release.promise;
+      }
+    },
+  );
+  let reads = 0;
+  const start = f.group.replace(
+    interests('page'),
+    async () => {
+      reads++;
+    },
+    call(),
+  );
+  try {
+    await installing.promise;
+    f.listeners[0].changed();
+    await f.listeners[0].again;
+    expect(reads).toBe(0);
+    release.resolve();
+    await start;
+    expect(reads).toBe(1);
+  } finally {
+    release.resolve();
+    await start.catch(() => {});
+    await f.group.close();
+  }
+});
+
+it('preserves a verified application refusal instead of turning it into transport recovery', async () => {
+  const f = fixture(),
+    error = new HostedReshareRequired();
+  try {
+    await expect(
+      f.group.replace(
+        interests('page'),
+        async () => {
+          throw error;
+        },
+        call(),
+      ),
+    ).rejects.toBe(error);
+    expect(f.failures).toEqual([error]);
+    expect(f.active()).toBe(0);
+  } finally {
+    await f.group.close();
+  }
 });
