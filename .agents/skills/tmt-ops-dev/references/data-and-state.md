@@ -47,6 +47,10 @@ skill (`extensions/tmt-ops/skills/tmt-ops/SKILL.md`).
   or inactive does the name decide and its UUID get recorded. An edited `me` naming a
   different identity is reported with a warning, never followed. A failed write never
   fails the command; the board's refresh (`me::current`) neither writes nor prints.
+- The board's sender is `me`, else the saved identity bound to the calling pane
+  (`tmt whoami`). A pane that is not bound is no sender; a `whoami` failure (a host
+  that cannot name the pane) is kept as `App.caller_failure` and the sender prompt says
+  `Could not identify this pane: <core's message>`, never the unbound-pane wording.
 - With hooks enabled, `tmt-ops __tmt-hooks 1 observe` applies an `identity.renamed`
   observation for `me_id` at once; the hooks are optional and the next command that
   reads `me` makes the same repair.

@@ -99,9 +99,13 @@ impl Worker {
             let startup = trace.as_ref().map(timing::Trace::startup);
             let caller = timing::measure(startup.as_ref(), "worker.caller", || {
                 crate::me::caller(&initial)
-            })
-            .ok()
-            .flatten();
+            });
+            // An unbound pane is `Ok(None)`; an error means the host could not
+            // name the pane, which the sender prompt must not hide.
+            if let Err(error) = &caller {
+                let _ = events.send(super::BoardEvent::CallerFailed(caller_failure_text(error)));
+            }
+            let caller = caller.ok().flatten();
             let mut changes = Changes::new(
                 timing::measure(startup.as_ref(), "worker.Config::locate", || {
                     Config::locate(&initial)
@@ -796,6 +800,20 @@ fn serve(
             break;
         }
     }
+}
+
+/// Core's `whoami` failure as one bounded line that ends in a full stop. The
+/// text comes from the host, so control characters never reach the screen.
+fn caller_failure_text(error: &crate::core::SquadError) -> String {
+    const LIMIT: usize = 160;
+    let text = crate::board::notes::sanitize(&error.message).replace('\n', " ");
+    let text = text.trim().trim_end_matches('.');
+    let mut line: String = text.chars().take(LIMIT).collect();
+    if text.chars().count() > LIMIT {
+        line.push('…');
+    }
+    line.push('.');
+    line
 }
 
 #[allow(clippy::too_many_arguments)] // Acquisition inputs and diagnostics.
@@ -3203,5 +3221,23 @@ esac
             |_, _| panic!("no deferred work"),
         );
         assert_eq!(openings, [true, false, true, true]);
+    }
+
+    #[test]
+    fn a_caller_failure_is_one_bounded_sanitized_sentence() {
+        let failure = |message: &str| {
+            caller_failure_text(&crate::core::SquadError::new("SQUAD_CORE_FAILED", message))
+        };
+        assert_eq!(
+            failure("Herdr reported an invalid pane."),
+            "Herdr reported an invalid pane."
+        );
+        assert_eq!(failure("no full stop"), "no full stop.");
+        assert_eq!(failure("two lines\nof text..."), "two lines of text.");
+        let raw = failure("bell\u{7}\u{1b}[31m red\u{1b}[0m");
+        assert!(!raw.chars().any(char::is_control), "{raw:?}");
+        let long = failure(&"x".repeat(500));
+        assert_eq!(long.chars().count(), 160 + "….".chars().count());
+        assert!(long.ends_with("…."));
     }
 }
