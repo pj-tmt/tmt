@@ -180,7 +180,7 @@ it('consumes Colab parsed keys before bootstrap, then one Rules admission and re
   const selected = f.entry.select(input);
   expect(input.seed.some(Boolean)).toBe(false);
   await selected;
-  expect(f.states.at(-1)).toEqual({ phase: 'sign-in', hasLink: true });
+  expect(f.states.at(-1)).toEqual({ phase: 'sign-in', hasLink: true, role: 'editor' });
   await f.entry.signIn();
   expect(f.active()).toBe(3);
   expect(f.creates).toHaveLength(1);

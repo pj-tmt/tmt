@@ -2233,7 +2233,10 @@ Browser document data uses fixed-project default-database REST get/runQuery/sing
 with redirects refused and no mutation retry or offline queue. An acknowledged create collision
 reads only the same target to distinguish identical bytes from conflict; this is not a preparation
 read. Before every REST attempt and listener start, the caller-supplied `guard.admit(cost)` reserves
-cost or refuses with `REMOTE_BUDGET_EXHAUSTED {resetAtMs,retryAfterMs}`. The caller owns the shipped
+cost or refuses with `REMOTE_BUDGET_EXHAUSTED {resetAtMs,retryAfterMs}` or a sanitized
+`REMOTE_SCOPE_DENIED`. Each commit cost carries frozen, SDK-validated
+`mutation:{mode,resource,target}` metadata; `target` is the declared document ID. It contains no
+extension role or record kind. The caller owns the shipped
 [budget model](#free-plan-budget-guard) and durable reservations; this client adds no quota ledger.
 Cost metadata bounds REST reads, uses the budget model's writer lookups for commits and three Rules lookups per delivered document, and marks the
 listener's full matching initial tail, all deliveries including the writer's own, and additional
@@ -2285,7 +2288,9 @@ a possibly applied effect is unknown, including cancellation. Recovery reads the
 and put compare frozen desired fields, delete checks absence, without claiming which writer applied
 it. No hidden retry, replacement ID or resealing is permitted. Admission refusal uses
 `REMOTE_SCOPE_DENIED`; provider exhaustion follows the [budget guard](#free-plan-budget-guard),
-including unknown writes.
+including unknown writes. A complete commit HTTP 403 with `error.code:403` and
+`error.status:PERMISSION_DENIED` proves an admission refusal. A malformed or ambiguous error,
+transport loss or possibly applied resource-exhausted commit stays unknown; none is resent.
 
 Catch-up cursors are declared per-stream sequence positions (`{stream,seq}`), with stream
 identifying the extension's writer stream (not the Auth uid), and seq the last observed contiguous nonnegative integer

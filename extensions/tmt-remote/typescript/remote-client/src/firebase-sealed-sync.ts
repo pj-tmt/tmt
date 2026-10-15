@@ -188,8 +188,28 @@ export function createSealedSync(
                 ...(desired.mode === 'create' ? { currentDocument: { exists: false } } : {}),
               };
         return await invoke(call, async (bound) => {
-          const response = await http('commit', '', JSON.stringify({ writes: [write] }), bound, 0);
+          const response = await http(
+            'commit',
+            '',
+            JSON.stringify({ writes: [write] }),
+            bound,
+            0,
+            Object.freeze({ mode: desired.mode, resource: target.resource, target: target.id }),
+          );
           if (response.kind === 'unknown') return response;
+          if (
+            response.status === 403 &&
+            typeof response.value === 'object' &&
+            response.value !== null &&
+            'error' in response.value &&
+            typeof response.value.error === 'object' &&
+            response.value.error !== null &&
+            'code' in response.value.error &&
+            response.value.error.code === 403 &&
+            'status' in response.value.error &&
+            response.value.error.status === 'PERMISSION_DENIED'
+          )
+            throw { code: 'REMOTE_SCOPE_DENIED' };
           if (
             response.status === 409 &&
             desired.mode === 'create' &&

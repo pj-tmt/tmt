@@ -15,7 +15,7 @@ import type { PageView } from './transport.js';
 type Usage = Awaited<ReturnType<HostedBudget['snapshot']>>;
 export type HostedEntryState =
   | { phase: 'loading' | 'link-needed' | 'recovering' | 'paused' }
-  | { phase: 'sign-in'; hasLink: boolean }
+  | { phase: 'sign-in'; hasLink: boolean; role?: ReaderLink['role'] }
   | { phase: 'ready'; view: PageView; budget: Usage }
   | { phase: 'failed'; failure: unknown };
 interface Options {
@@ -154,7 +154,11 @@ export class HostedEntry {
       return;
     }
     if (!this.signedIn) {
-      this.options.state({ phase: 'sign-in', hasLink: this.page !== undefined });
+      this.options.state({
+        phase: 'sign-in',
+        hasLink: this.page !== undefined,
+        ...(this.page ? { role: this.page.target.role } : {}),
+      });
       return;
     }
     const page = this.page;

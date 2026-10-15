@@ -3,11 +3,14 @@ import 'virtual:tokens.css';
 import '@tmt/browser-ui/static.css';
 import '../src/style.css';
 import { createRoot } from 'react-dom/client';
-import { HostedApp } from '../src/hosted-app.js';
+import { HostedApp, HostedRequestNotice } from '../src/hosted-app.js';
 import type { HostedEntryState } from '../src/hosted-entry.js';
 
 const states: Record<string, HostedEntryState> = {
   'sign-in': { phase: 'sign-in', hasLink: true },
+  'sign-in-viewer': { phase: 'sign-in', hasLink: true, role: 'viewer' },
+  'sign-in-commenter': { phase: 'sign-in', hasLink: true, role: 'commenter' },
+  'sign-in-editor': { phase: 'sign-in', hasLink: true, role: 'editor' },
   verifying: { phase: 'loading' },
   recovering: { phase: 'recovering' },
   paused: { phase: 'paused' },
@@ -31,5 +34,21 @@ const states: Record<string, HostedEntryState> = {
 };
 const selected = new URL(location.href).searchParams.get('state') ?? 'sign-in';
 createRoot(document.getElementById('root')!).render(
-  <HostedApp state={states[selected] ?? states['sign-in']} signIn={() => {}} />,
+  selected === 'request-sent' ||
+    selected === 'request-refused' ||
+    selected === 'request-unconfirmed' ? (
+    <main>
+      <HostedRequestNotice
+        outcome={
+          selected === 'request-sent'
+            ? 'sent'
+            : selected === 'request-refused'
+              ? 'refused'
+              : 'unconfirmed'
+        }
+      />
+    </main>
+  ) : (
+    <HostedApp state={states[selected] ?? states['sign-in']} signIn={() => {}} />
+  ),
 );

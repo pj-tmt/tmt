@@ -1,10 +1,52 @@
-import { BrowserAction } from '@tmt/browser-ui/react';
+import { BrowserAction, BrowserNotice } from '@tmt/browser-ui/react';
+import { Circle, Diamond, X } from 'lucide-react';
 import { ColabHeader } from './colab-header.js';
 import { NoticeCard } from './notice-card.js';
 import { ReaderApp } from './reader-app.js';
 import type { HostedEntryState } from './hosted-entry.js';
 import { text } from './strings.js';
 import './hosted-app.css';
+
+export type HostedRequestOutcome = 'sent' | 'refused' | 'unconfirmed';
+/** Provider uncertainty never becomes a refusal or an automatic resend. */
+export function HostedRequestNotice({ outcome }: { outcome: HostedRequestOutcome }) {
+  return (
+    <div className="source-notice">
+      <BrowserNotice
+        tone={outcome === 'unconfirmed' ? 'waiting' : outcome === 'refused' ? 'blocked' : 'muted'}
+        announcement={outcome === 'refused' ? 'alert' : 'status'}
+        stateLabel={
+          outcome === 'unconfirmed' ? 'Unconfirmed' : outcome === 'refused' ? 'Not sent' : 'Sent'
+        }
+        mark={
+          outcome === 'unconfirmed' ? (
+            <Diamond fill="currentColor" />
+          ) : outcome === 'refused' ? (
+            <X />
+          ) : (
+            <Circle />
+          )
+        }
+        title={
+          outcome === 'unconfirmed'
+            ? "Couldn't confirm the edit request. It may still reach the owner; check the page before sending it again."
+            : outcome === 'refused'
+              ? 'Edit request not sent. Ask the owner for a current link.'
+              : "Edit request sent. It appears on the page when the owner's Colab applies it."
+        }
+        body={null}
+      />
+    </div>
+  );
+}
+
+const signInCopy = {
+  viewer:
+    'Sign in to read the shared page. Signing in gives read access only; you cannot edit the page.',
+  commenter: 'Sign in to read this page and send comments.',
+  editor:
+    'Sign in to read this page and send comments or edit requests. The owner applies edits while Colab is running.',
+};
 
 /** Fixed copy only: raw provider/crypto diagnostics, keys and tokens never reach presentation. */
 export function hostedFailureCopy(
@@ -144,7 +186,13 @@ export function HostedApp({ state, signIn }: { state: HostedEntryState; signIn()
                 ? 'Share link needed'
                 : undefined)
           }
-          eyebrow="Read-only"
+          eyebrow={
+            state.phase === 'sign-in' && state.role === 'editor'
+              ? 'Can edit'
+              : state.phase === 'sign-in' && state.role === 'commenter'
+                ? 'Can comment'
+                : 'Read-only'
+          }
           title={title}
           testId="hosted-entry"
           actions={
@@ -160,12 +208,7 @@ export function HostedApp({ state, signIn }: { state: HostedEntryState; signIn()
             ) : undefined
           }
         >
-          {state.phase === 'sign-in' && (
-            <p>
-              Sign in to read the shared page. Signing in gives read access only; you cannot edit
-              the page.
-            </p>
-          )}
+          {state.phase === 'sign-in' && <p>{signInCopy[state.role ?? 'viewer']}</p>}
           {(state.phase === 'link-needed' || (state.phase === 'sign-in' && !state.hasLink)) && (
             <p>Open a share link from Colab to read a page here.</p>
           )}

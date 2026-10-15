@@ -225,7 +225,13 @@ it('charges both bootstrap gets and the sole members commit through the caller g
     return read(target, budget);
   };
   f.port.publish = async (mutation, budget) => {
-    await guard.admit({ operation: 'commit', reads: 0, writes: 1, rulesLookupsPerDocument: 4 });
+    await guard.admit({
+      operation: 'commit',
+      reads: 0,
+      writes: 1,
+      rulesLookupsPerDocument: 4,
+      mutation: { mode: 'create', resource: 'members', target: member.id },
+    });
     return publish(mutation, budget);
   };
   await f.admission.open(f.port, input, call());

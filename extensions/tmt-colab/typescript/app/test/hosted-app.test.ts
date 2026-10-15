@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, it } from 'vite-plus/test';
-import { HostedApp, hostedFailureCopy } from '../src/hosted-app.js';
+import { HostedApp, hostedFailureCopy, HostedRequestNotice } from '../src/hosted-app.js';
 import type { HostedEntryState } from '../src/hosted-entry.js';
 
 const markup = (state: HostedEntryState) =>
@@ -98,3 +98,46 @@ it.each(['REMOTE_SCOPE_DENIED', 'REMOTE_STATE_UNAVAILABLE'])(
     expect(html).toContain('role="alert"');
   },
 );
+
+it.each([
+  [
+    'viewer',
+    'Read-only',
+    'Sign in to read the shared page. Signing in gives read access only; you cannot edit the page.',
+  ],
+  ['commenter', 'Can comment', 'Sign in to read this page and send comments.'],
+  [
+    'editor',
+    'Can edit',
+    'Sign in to read this page and send comments or edit requests. The owner applies edits while Colab is running.',
+  ],
+] as const)('uses the %s hint only for sign-in presentation', (role, mark, copy) => {
+  const html = markup({ phase: 'sign-in', hasLink: true, role });
+  expect(html).toContain(mark);
+  expect(html).toContain(copy);
+  expect(html).not.toContain('source-toggle');
+  if (role !== 'viewer') expect(html).not.toContain('you cannot edit the page');
+});
+
+it.each([
+  [
+    'sent',
+    'Edit request sent. It appears on the page when the owner&#x27;s Colab applies it.',
+    'muted',
+  ],
+  ['refused', 'Edit request not sent. Ask the owner for a current link.', 'blocked'],
+  [
+    'unconfirmed',
+    'Couldn&#x27;t confirm the edit request. It may still reach the owner; check the page before sending it again.',
+    'waiting',
+  ],
+] as const)('keeps the %s request verdict distinct', (outcome, message, tone) => {
+  const html = renderToStaticMarkup(createElement(HostedRequestNotice, { outcome }));
+  expect(html).toContain(message);
+  expect(html).toContain(`data-tone="${tone}"`);
+  if (outcome === 'unconfirmed') {
+    expect(html).toContain('Unconfirmed');
+    expect(html).not.toContain('not sent');
+    expect(html).not.toContain('Edit request sent');
+  }
+});

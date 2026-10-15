@@ -94,3 +94,57 @@ for (const width of [390, 1280]) {
     expect(outside).toEqual([]);
   });
 }
+
+for (const width of [390, 1280]) {
+  for (const colorScheme of ['light', 'dark'] as const) {
+    test(`hosted role and outcome copy at ${width}px ${colorScheme}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 844 });
+      await page.emulateMedia({ colorScheme });
+      await page.clock.setFixedTime(new Date('2026-11-02T00:00:00Z'));
+      const errors: string[] = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+      for (const state of [
+        'sign-in-viewer',
+        'sign-in-commenter',
+        'sign-in-editor',
+        'request-sent',
+        'request-refused',
+        'request-unconfirmed',
+        'budget',
+      ]) {
+        await page.goto(`/test/hosted-browser.html?state=${state}`);
+        if (state === 'request-unconfirmed') {
+          await expect(page.getByText('Unconfirmed', { exact: true })).toBeVisible();
+          await expect(
+            page.getByText(
+              "Couldn't confirm the edit request. It may still reach the owner; check the page before sending it again.",
+              { exact: true },
+            ),
+          ).toBeVisible();
+          await expect(page.locator('[data-tone="waiting"]')).toBeVisible();
+          await expect(page.getByText('Not sent', { exact: true })).toHaveCount(0);
+        } else if (state.startsWith('sign-in-')) {
+          await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
+          await expect(
+            page.getByText(
+              state === 'sign-in-editor'
+                ? 'Can edit'
+                : state === 'sign-in-commenter'
+                  ? 'Can comment'
+                  : 'Read-only',
+              { exact: true },
+            ),
+          ).toBeVisible();
+        }
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+          width,
+        );
+        await page.screenshot({
+          path: capturePath(`hosted-${state}-${width}-${colorScheme}.png`),
+          fullPage: true,
+        });
+      }
+      expect(errors).toEqual([]);
+    });
+  }
+}

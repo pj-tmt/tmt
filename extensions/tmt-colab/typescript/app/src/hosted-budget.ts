@@ -16,10 +16,10 @@ export interface HostedBudgetStore {
 }
 export type HostedBudgetMath = Pick<
   typeof budget,
-  'READS_PER_DAY' | 'WARN_PERCENT' | 'REFUSE_PERCENT' | 'pacificDay'
+  'READS_PER_DAY' | 'WARN_PERCENT' | 'REFUSE_PERCENT' | 'pacificDay' | 'BudgetModel'
 >;
 
-/** Hosted link reads share ten percent of the free daily reads on this browser origin. */
+/** Hosted activity shares ten percent of free daily reads; writes are tracked, not refused. */
 export class HostedBudget implements SyncAdmissionGuard {
   private readonly pending = new Set<Promise<unknown>>();
   constructor(
@@ -29,14 +29,31 @@ export class HostedBudget implements SyncAdmissionGuard {
   ) {}
   admit(cost: SyncAdmissionCost): Promise<void> {
     return this.track(async () => {
-      const { operation, reads, writes, rulesLookupsPerDocument: lookups } = cost;
+      const { operation, reads, writes, rulesLookupsPerDocument: lookups, mutation } = cost;
+      if (operation !== 'commit' && mutation !== undefined) throw scopeDenied();
       if (operation === 'listen') {
         if (reads !== null || writes !== 0) throw unavailable();
         await this.charge(0, 0, false);
       } else if (operation === 'commit') {
-        // The sole hosted mutation is one members create, with four admission lookups.
-        if (reads !== 0 || writes !== 1 || lookups !== 4) throw unavailable();
-        await this.charge(lookups, 1, false);
+        if (
+          reads !== 0 ||
+          writes !== 1 ||
+          lookups !== 4 ||
+          !mutation ||
+          mutation.mode !== 'create' ||
+          (mutation.resource !== 'members' && mutation.resource !== 'log') ||
+          typeof mutation.target !== 'string' ||
+          mutation.target.length === 0
+        )
+          throw scopeDenied();
+        // Unknown membership uses the same four-person, all-writers assumption as native.
+        await this.charge(
+          mutation.resource === 'log'
+            ? this.math.BudgetModel.create(4, 4).readsPerAppend()
+            : lookups,
+          1,
+          false,
+        );
       } else {
         if (
           (operation !== 'read' && operation !== 'query') ||
@@ -126,7 +143,7 @@ export class HostedBudget implements SyncAdmissionGuard {
           typeof error === 'object' &&
           error !== null &&
           'code' in error &&
-          error.code === 'REMOTE_BUDGET_EXHAUSTED'
+          (error.code === 'REMOTE_BUDGET_EXHAUSTED' || error.code === 'REMOTE_SCOPE_DENIED')
         )
           throw error;
         throw unavailable();
@@ -141,6 +158,7 @@ export class HostedBudget implements SyncAdmissionGuard {
 }
 
 const unavailable = () => ({ code: 'REMOTE_STATE_UNAVAILABLE' as const });
+const scopeDenied = () => ({ code: 'REMOTE_SCOPE_DENIED' as const });
 function whole(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }

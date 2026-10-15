@@ -8,6 +8,12 @@ export interface SyncAdmissionCost {
   readonly reads: number | null;
   readonly writes: 0 | 1;
   readonly rulesLookupsPerDocument: 3 | 4;
+  /** SDK-validated mutation identity; extension policy remains in the caller's guard. */
+  readonly mutation?: {
+    readonly mode: 'create' | 'put' | 'delete';
+    readonly resource: string;
+    readonly target: string;
+  };
   /** Listen charges its full matching initial tail and every delivery, including this writer. */
   readonly listener?: {
     readonly initialTail: 'all-matching-documents';
@@ -63,6 +69,13 @@ export function syncGuardFailure(error: unknown): SyncFailure {
     typeof error === 'object' &&
     error !== null &&
     'code' in error &&
+    error.code === 'REMOTE_SCOPE_DENIED'
+  )
+    return { code: 'REMOTE_SCOPE_DENIED' };
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
     error.code === 'REMOTE_BUDGET_EXHAUSTED' &&
     'resetAtMs' in error &&
     typeof error.resetAtMs === 'number' &&
@@ -95,6 +108,7 @@ export function syncHttp(
     body: string | undefined,
     call: SyncCall,
     reads: number,
+    mutation?: SyncAdmissionCost['mutation'],
   ): Promise<{ kind: 'response'; status: number; value: unknown } | { kind: 'unknown' }> => {
     const check = () => {
       live();
@@ -110,6 +124,7 @@ export function syncHttp(
         reads,
         writes: operation === 'commit' ? 1 : 0,
         rulesLookupsPerDocument: operation === 'commit' ? WRITE_LOOKUPS : 3,
+        ...(mutation ? { mutation } : {}),
       },
       call,
     );
