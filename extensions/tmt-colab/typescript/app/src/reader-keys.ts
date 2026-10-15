@@ -2,7 +2,10 @@ import { copy, deriveSpaceId, link as linkKeys, requireValue } from '@tmt/colab-
 import type { ReaderLink } from './reader-link.js';
 
 /** One key/proof owner for native and hosted readers. Consume the seed before any request. */
-export async function deriveReaderKeys(target: ReaderLink): Promise<{
+export async function deriveReaderKeys(
+  target: ReaderLink,
+  transport: 'door' | 'hosted',
+): Promise<{
   link: linkKeys.LinkKeys;
   device: linkKeys.DerivedDevice;
   chain: Uint8Array;
@@ -17,7 +20,7 @@ export async function deriveReaderKeys(target: ReaderLink): Promise<{
   try {
     requireValue((await deriveSpaceId(copy(selected.root, 32))) === selected.space);
     const link = await linkKeys.deriveLink(seed, selected.space, selected.link),
-      device = await linkKeys.deriveDevice(seed, selected.space, selected.link, 'door');
+      device = await linkKeys.deriveDevice(seed, selected.space, selected.link, transport);
     // Every open presents byte-identical proof; the bearer token comes from the same model.
     const chain = await linkKeys.certifyDevice(link, {
       deviceId: device.id,

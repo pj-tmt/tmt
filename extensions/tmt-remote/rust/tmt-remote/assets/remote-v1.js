@@ -2389,6 +2389,7 @@ async function admitSync(guard, cost, call) {
 }
 /** Preserve only the frozen guard refusal, never caller exception text. */
 function syncGuardFailure(error) {
+	if (typeof error === "object" && error !== null && "code" in error && error.code === "REMOTE_SCOPE_DENIED") return { code: "REMOTE_SCOPE_DENIED" };
 	if (typeof error === "object" && error !== null && "code" in error && error.code === "REMOTE_BUDGET_EXHAUSTED" && "resetAtMs" in error && typeof error.resetAtMs === "number" && Number.isFinite(error.resetAtMs) && error.resetAtMs >= 0 && "retryAfterMs" in error && typeof error.retryAfterMs === "number" && Number.isFinite(error.retryAfterMs) && error.retryAfterMs >= 0) return {
 		code: "REMOTE_BUDGET_EXHAUSTED",
 		resetAtMs: error.resetAtMs,
@@ -2399,7 +2400,7 @@ function syncGuardFailure(error) {
 /** The owner fence checks its uid/project/generation after every asynchronous boundary. */
 function syncHttp(context, guard, fetcher, live) {
 	const base = `https://firestore.googleapis.com/v1/projects/${context.config.projectId}/databases/(default)/documents`;
-	return async (operation, path, body, call, reads) => {
+	return async (operation, path, body, call, reads, mutation) => {
 		const check = () => {
 			live();
 			syncCallLive(call);
@@ -2410,7 +2411,8 @@ function syncHttp(context, guard, fetcher, live) {
 			operation,
 			reads,
 			writes: operation === "commit" ? 1 : 0,
-			rulesLookupsPerDocument: operation === "commit" ? 4 : 3
+			rulesLookupsPerDocument: operation === "commit" ? 4 : 3,
+			...mutation ? { mutation } : {}
 		}, call);
 		check();
 		const credential = await syncWait(call, () => context.auth.token(call));
@@ -2772,8 +2774,13 @@ function createSealedSync(context, guard, fetcher, wake, ownerLive, page = { lis
 					...desired.mode === "create" ? { currentDocument: { exists: false } } : {}
 				};
 				return await invoke(call, async (bound) => {
-					const response = await http("commit", "", JSON.stringify({ writes: [write] }), bound, 0);
+					const response = await http("commit", "", JSON.stringify({ writes: [write] }), bound, 0, Object.freeze({
+						mode: desired.mode,
+						resource: target.resource,
+						target: target.id
+					}));
 					if (response.kind === "unknown") return response;
+					if (response.status === 403 && typeof response.value === "object" && response.value !== null && "error" in response.value && typeof response.value.error === "object" && response.value.error !== null && "code" in response.value.error && response.value.error.code === 403 && "status" in response.value.error && response.value.error.status === "PERMISSION_DENIED") throw { code: "REMOTE_SCOPE_DENIED" };
 					if (response.status === 409 && desired.mode === "create" && typeof response.value === "object" && response.value !== null && "error" in response.value && typeof response.value.error === "object" && response.value.error !== null && "status" in response.value.error && response.value.error.status === "ALREADY_EXISTS") {
 						const existing = await http("read", syncDocumentPath(context, target), void 0, bound, 1);
 						if (existing.kind === "unknown" || existing.status !== 200) return { kind: "unknown" };

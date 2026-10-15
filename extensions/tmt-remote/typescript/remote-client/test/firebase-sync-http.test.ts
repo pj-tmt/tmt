@@ -222,3 +222,27 @@ test('oversized REST input refuses before guard, credentials or provider', async
   expect(f.costs).toHaveLength(0);
   expect(f.attempts).toHaveLength(0);
 });
+
+test('a typed scope refusal from the admission guard reaches the caller before any token or request', async () => {
+  const f = fixture();
+  let tokens = 0;
+  f.context.auth.token = async () => {
+    tokens++;
+    throw new Error('Unexpected token acquisition');
+  };
+  const http = syncHttp(
+    f.context,
+    {
+      async admit() {
+        throw { code: 'REMOTE_SCOPE_DENIED', message: 'PRIVATE_GUARD_CANARY' };
+      },
+    },
+    f.fetcher,
+    () => {},
+  );
+  await expect(http('commit', '', '{"writes":[]}', f.call(), 0)).rejects.toEqual({
+    code: 'REMOTE_SCOPE_DENIED',
+  });
+  expect(tokens).toBe(0);
+  expect(f.attempts).toEqual([]);
+});

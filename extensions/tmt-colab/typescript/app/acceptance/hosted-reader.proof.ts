@@ -1,4 +1,6 @@
+import { text } from '../src/strings.js';
 import { chromium, expect, test } from '@playwright/test';
+import { Envelope, decodeHeader } from '@tmt/colab-client';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -30,7 +32,7 @@ function remoteLink() {
 }
 
 test.afterEach(disposeActiveWorlds);
-test('a hosted link holder verifies native content and a later save without a local door', async () => {
+test('a hosted editor verifies native content, publishes one own edit request and observes owner application without a local door', async () => {
   if (process.env.GCLOUD_PROJECT !== project)
     throw new Error('the demo emulator harness is required');
   const auth = host('FIREBASE_AUTH_EMULATOR_HOST'),
@@ -72,7 +74,16 @@ test('a hosted link holder verifies native content and a later save without a lo
     // Sharing activity after serve startup selects this page, as in Colab's reviewed B3c-2 proof.
     await startDoor(world);
     const added = JSON.parse(
-      run(world, world.binaries.colab, ['share', 'link', 'add', created.pageId, '--yes', '--json']),
+      run(world, world.binaries.colab, [
+        'share',
+        'link',
+        'add',
+        created.pageId,
+        '--role',
+        'editor',
+        '--yes',
+        '--json',
+      ]),
     ) as { linkId: string; readerPath: string };
     const fragment = added.readerPath.slice(added.readerPath.indexOf('#'));
     // The test only routes the link Colab actually printed; it never manufactures a root or role.
@@ -131,14 +142,15 @@ test('a hosted link holder verifies native content and a later save without a lo
     const unexpected: string[] = [],
       paths: string[] = [],
       writes: string[] = [];
-    let phase: 'open' | 'wake' = 'open';
+    let phase: 'open' | 'wake' | 'edit' = 'open';
     const queries: Array<{ phase: string; collection: string; limit?: number; documents: number }> =
       [];
-    const gets: Array<{ phase: string; collection: string; status: number }> = [];
+    const gets: Array<{ phase: string; collection: string; target: string; status: number }> = [];
     const listens: Array<{ phase: string; documentChangeMarkers: number }> = [];
     const boundaries: Record<string, unknown> = {};
     let openConverged = false,
-      wakeConverged = false;
+      wakeConverged = false,
+      editConverged = false;
     let pageGets = 0;
     let holderToken = '';
     await context.addInitScript(() => {
@@ -184,6 +196,7 @@ test('a hosted link holder verifies native content and a later save without a lo
           gets.push({
             phase: requestedPhase,
             collection: url.pathname.split('/').at(-2)!,
+            target: url.pathname.split('/').at(-1)!,
             status: response.status(),
           });
         if (url.pathname.includes('Listen/channel'))
@@ -246,13 +259,19 @@ test('a hosted link holder verifies native content and a later save without a lo
           initialLogDocuments,
           openConverged,
           wakeConverged,
+          editConverged,
           boundaries,
           pageGets,
           queries,
           gets,
           listens,
-          admissionWrites: writes.length,
-          note: 'REST phases identify request start; Listen markers identify response delivery and are not unique documents. Ledger totals are advisory reservations, not billed reads. Admin oracles excluded. Open/wake boundaries are verified rendered headings.',
+          admissionWrites: writes.filter((body) =>
+            JSON.parse(body).writes[0].update.name.includes('/members/'),
+          ).length,
+          ownLogCreates: writes.filter((body) =>
+            JSON.parse(body).writes[0].update.name.includes('/log/'),
+          ).length,
+          note: 'REST phases identify request start; Listen markers identify response delivery and are not unique documents. Ledger totals are advisory reservations, not billed reads. Admin oracles excluded. Open/wake/edit boundaries are verified rendered headings. The edit phase includes fresh authority/catch-up, one own create and one same-ID readback; owner-native writes are not browser commits.',
         },
         null,
         2,
@@ -310,6 +329,52 @@ test('a hosted link holder verifies native content and a later save without a lo
     ]);
     expect(mutation[0].update.fields.seq).toEqual({ integerValue: '1' });
     expect(mutation[0].update.name).toContain('/members/');
+    phase = 'edit';
+    boundaries.beforeEdit = await budget();
+    await page.getByTestId('source-toggle').click();
+    const source = page.locator('#source-edit');
+    await expect(source).toBeVisible();
+    await source.fill('<main><h1>Hosted editor requested version</h1></main>');
+    await page.getByRole('button', { name: text.save, exact: true }).click();
+    await expect(page.getByText('Sent', { exact: true })).toBeVisible({ timeout: 30000 });
+    expect(writes).toHaveLength(2);
+    const ownMutation = JSON.parse(writes[1]).writes;
+    expect(ownMutation).toHaveLength(1);
+    expect(ownMutation[0].currentDocument).toEqual({ exists: false });
+    expect(ownMutation[0].update.name).toContain('/log/');
+    const ownFields = ownMutation[0].update.fields;
+    expect(Object.keys(ownFields).sort()).toEqual([
+      'envelope',
+      'epoch',
+      'expiresAt',
+      'hash',
+      'page',
+      'seq',
+      'space',
+      'stream',
+      'uid',
+    ]);
+    const ownOriginal = Envelope.fromJson(new TextEncoder().encode(ownFields.envelope.stringValue));
+    expect(decodeHeader(ownOriginal.header()).context.namespace).toBe('own');
+    const originalId = ownMutation[0].update.name.split('/').at(-1);
+    const readbacks = gets.filter(
+      (get) => get.phase === 'edit' && get.collection === 'log' && get.target === originalId,
+    );
+    expect(readbacks).toHaveLength(1);
+    expect(readbacks[0].status).toBe(200);
+    boundaries.requestSent = await budget();
+    // Sent is not an optimistic content save: only the owner's new sealed content can render it.
+    await expect(page.frameLocator('iframe').locator('h1')).toHaveText(
+      'Hosted editor requested version',
+      { timeout: 60000 },
+    );
+    editConverged = true;
+    boundaries.edit = await budget();
+    expect(
+      gets.filter(
+        (get) => get.phase === 'edit' && get.collection === 'log' && get.target === originalId,
+      ),
+    ).toHaveLength(1);
     expect(holderToken.length).toBeGreaterThan(0);
     await page.screenshot({ path: test.info().outputPath('hosted-live.png'), fullPage: true });
     // A holder gets neither enrollment secrets nor the owner's wrap, and cannot escalate itself.
@@ -339,7 +404,7 @@ test('a hosted link holder verifies native content and a later save without a lo
             {
               update: {
                 ...mutation[0].update,
-                fields: { ...mutation[0].update.fields, role: { stringValue: 'editor' } },
+                fields: { ...mutation[0].update.fields, role: { stringValue: 'bridge' } },
               },
             },
           ],
@@ -348,7 +413,7 @@ test('a hosted link holder verifies native content and a later save without a lo
       },
     );
     expect(escalation.status).toBe(403);
-    expect(writes).toHaveLength(1);
+    expect(writes).toHaveLength(2);
     expect(paths.some((path) => path.includes('/api/serve-release'))).toBe(false);
     expect(unexpected).toEqual([]);
     expect(crashes).toEqual([]);

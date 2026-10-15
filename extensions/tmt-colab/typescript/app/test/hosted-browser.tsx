@@ -8,6 +8,9 @@ import type { HostedEntryState } from '../src/hosted-entry.js';
 
 const states: Record<string, HostedEntryState> = {
   'sign-in': { phase: 'sign-in', hasLink: true },
+  'sign-in-viewer': { phase: 'sign-in', hasLink: true, role: 'viewer' },
+  'sign-in-commenter': { phase: 'sign-in', hasLink: true, role: 'commenter' },
+  'sign-in-editor': { phase: 'sign-in', hasLink: true, role: 'editor' },
   verifying: { phase: 'loading' },
   recovering: { phase: 'recovering' },
   paused: { phase: 'paused' },
@@ -29,6 +32,28 @@ const states: Record<string, HostedEntryState> = {
   denied: { phase: 'failed', failure: { code: 'REMOTE_SCOPE_DENIED' } },
   missing: { phase: 'failed', failure: { code: 'COLAB_HOSTED_NOT_IN_CLOUD' } },
 };
+states.editor = {
+  ...states.ready,
+  phase: 'ready',
+  view: {
+    title: 'Shared design notes',
+    source:
+      '<main><h1>Verified shared page</h1><p>The owner applies edits while Colab is running.</p></main>',
+  },
+  budget: { reads: 100, writes: 1, day: 1, state: 'ok' },
+  role: 'editor',
+  edit: async () => ({ request: 'sent' }),
+};
+for (const outcome of ['sent', 'refused', 'unconfirmed'] as const) {
+  states[`request-${outcome}`] = {
+    ...states.editor,
+    phase: 'ready',
+    view: { title: 'Shared design notes', source: '<main><h1>Verified shared page</h1></main>' },
+    budget: { reads: 100, writes: 1, day: 1, state: 'ok' },
+    role: 'editor',
+    edit: async () => ({ request: outcome }),
+  };
+}
 const selected = new URL(location.href).searchParams.get('state') ?? 'sign-in';
 createRoot(document.getElementById('root')!).render(
   <HostedApp state={states[selected] ?? states['sign-in']} signIn={() => {}} />,

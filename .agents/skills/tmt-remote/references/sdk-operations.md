@@ -92,7 +92,8 @@ retains every verification check. The local path never imports Firebase implicit
 owns context, injected Auth, sequence catch-up, uncertainty and the cloud object
 profile. The browser transport shares hosted App/Auth, uses REST for data and one memory-only
 Web SDK listener per page interest for coalesced wake hints. The caller supplies admission
-reservations before REST attempts/listener starts; listener delivery and REST catch-up are
+reservations before REST attempts/listener starts; validated neutral mutation identity lets the
+caller refuse an unsupported commit shape before Auth/HTTP. Listener delivery and REST catch-up are
 separate modeled read costs, including the writer's own listener. Optional `guard.received`
 reports the full initial server tail and every later batch; its terminal budget refusal
 closes the listener, and the caller joins its ledger jobs. Native transport and

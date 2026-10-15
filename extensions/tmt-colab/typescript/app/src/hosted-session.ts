@@ -11,7 +11,7 @@ import { ReadmitBudget, READMIT_DELAYS_MS, waitReadmitDelay } from './readmit.js
 export interface HostedBinding {
   port: SealedSyncPort;
   interests: readonly SyncInterest[];
-  reader: Pick<HostedPageReader, 'refresh' | 'close'>;
+  reader: Pick<HostedPageReader, 'refresh'> & { close(): void | Promise<void> };
 }
 interface Options {
   /** Each attempt constructs fresh verification and subscriptions, never a dead interest. */
@@ -88,7 +88,7 @@ export class HostedSession {
             } finally {
               this.signal.removeEventListener('abort', abort);
               try {
-                binding.reader.close();
+                await binding.reader.close();
               } finally {
                 binding.port.close();
               }

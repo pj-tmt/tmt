@@ -28,6 +28,7 @@ export function ReaderApp({
   attachments,
   notice,
   canEdit = false,
+  accessNote,
   edit,
 }: {
   state: ReaderState;
@@ -36,12 +37,14 @@ export function ReaderApp({
   notice?: ReactNode;
   /** The link says it may edit. The serve decides; this only changes what the page offers. */
   canEdit?: boolean;
+  accessNote?: string;
   /** Saves page text; absent until the session is open. */
   edit?: ReaderEdit;
 }) {
   const [files, setFiles] = useState(false);
   const [sourceOpen, setSourceOpen] = useState(false);
-  const mode = canEdit ? text.readerCanEdit : text.readerOnly;
+  const [writerBlocked, setWriterBlocked] = useState(false);
+  const mode = writerBlocked ? text.readerOnly : canEdit ? text.readerCanEdit : text.readerOnly;
   const descriptors = state.kind === 'ready' ? (state.view.attachments ?? []) : [];
   const source = state.kind === 'ready' ? state.view.source : null;
   const title = state.kind === 'ready' ? state.view.title : '';
@@ -160,7 +163,7 @@ export function ReaderApp({
                     publisherAgent={state.view.publisherAgent}
                   />
                 )}
-                <p>{canEdit ? text.readerNoteEditor : text.readerNote}</p>
+                <p>{accessNote ?? (canEdit ? text.readerNoteEditor : text.readerNote)}</p>
                 <p>{text.warning}</p>
               </div>
             </details>
@@ -212,6 +215,8 @@ export function ReaderApp({
           edit={edit}
           open={sourceOpen}
           onDismiss={() => setSourceOpen(false)}
+          writerBlocked={writerBlocked}
+          onWriterInUse={() => setWriterBlocked(true)}
         />
       )}
       {state.kind === 'ready' && (

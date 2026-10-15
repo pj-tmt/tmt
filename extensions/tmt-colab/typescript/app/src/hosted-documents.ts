@@ -14,6 +14,7 @@ import {
 } from '@tmt/colab-client';
 import type { SealedDocument } from '../../../../tmt-remote/typescript/remote-client/src/sealed-sync.js';
 import { hex } from './export.js';
+import type { ObjectEntry } from './objects.js';
 
 export interface HostedScope {
   readonly space: string;
@@ -26,6 +27,42 @@ export interface HostedOriginal {
   envelope: Envelope;
   header: ReturnType<typeof decodeHeader>;
   hash: Uint8Array;
+}
+
+/** Project one existing own envelope into the same native log mapping; never seal content here. */
+export async function hostedOwnLog(
+  entry: ObjectEntry,
+  scope: HostedScope,
+  uid: string,
+  expiresAtMs: number,
+): Promise<SealedDocument> {
+  const envelope = binary(entry.envelope, 354304),
+    header = decodeHeader(Envelope.fromJson(envelope).header());
+  requireValue(header.context.namespace === 'own');
+  const expiresAt = new Date(expiresAtMs).toISOString().replace('.000Z', 'Z');
+  const row = {
+    envelope: { stringValue: new TextDecoder('utf-8', { fatal: true }).decode(envelope) },
+    epoch: { integerValue: scope.epoch },
+    expiresAt: { timestampValue: expiresAt },
+    hash: { stringValue: entry.envelopeHash },
+    page: { stringValue: scope.page },
+    seq: { integerValue: entry.seq },
+    space: { stringValue: scope.space },
+    stream: { stringValue: header.context.authorDevice },
+    uid: { stringValue: uid },
+  };
+  const bytes = text(JSON.stringify(row)),
+    document = {
+      target: {
+        resource: 'log',
+        id: `${scope.space}_${scope.page}_${scope.epoch}_${header.context.authorDevice}_${entry.seq}`,
+      },
+      bytes,
+      digest: hex(await digest(bytes)),
+    };
+  // Reuse the reviewed original mapping, not a second field/envelope validator.
+  await hostedLog(document, scope);
+  return document;
 }
 
 type Fields = Record<string, unknown>;
@@ -41,7 +78,7 @@ const KEYS = {
 export async function hostedLog(
   document: SealedDocument,
   scope: HostedScope,
-): Promise<HostedOriginal> {
+): Promise<HostedOriginal & { publisherUid: string }> {
   const row = await fields(document, 'log', scope);
   const raw = string(row, 'envelope');
   const bytes = text(raw);
@@ -52,7 +89,7 @@ export async function hostedLog(
       result.header.context.streamSeq === number(row, 'seq').toString(),
   );
   requireValue(equal(result.hash, binary(string(row, 'hash'), 32, 32)));
-  return result;
+  return { ...result, publisherUid: string(row, 'uid') };
 }
 
 /** One complete ordered object query; partial chunks cannot become an admitted checkpoint. */

@@ -2233,7 +2233,10 @@ Browser document data uses fixed-project default-database REST get/runQuery/sing
 with redirects refused and no mutation retry or offline queue. An acknowledged create collision
 reads only the same target to distinguish identical bytes from conflict; this is not a preparation
 read. Before every REST attempt and listener start, the caller-supplied `guard.admit(cost)` reserves
-cost or refuses with `REMOTE_BUDGET_EXHAUSTED {resetAtMs,retryAfterMs}`. The caller owns the shipped
+cost or refuses with `REMOTE_BUDGET_EXHAUSTED {resetAtMs,retryAfterMs}` or a sanitized
+`REMOTE_SCOPE_DENIED`. Each commit cost carries frozen, SDK-validated
+`mutation:{mode,resource,target}` metadata; `target` is the declared document ID. It contains no
+extension role or record kind. The caller owns the shipped
 [budget model](#free-plan-budget-guard) and durable reservations; this client adds no quota ledger.
 Cost metadata bounds REST reads, uses the budget model's writer lookups for commits and three Rules lookups per delivered document, and marks the
 listener's full matching initial tail, all deliveries including the writer's own, and additional
@@ -2285,7 +2288,9 @@ a possibly applied effect is unknown, including cancellation. Recovery reads the
 and put compare frozen desired fields, delete checks absence, without claiming which writer applied
 it. No hidden retry, replacement ID or resealing is permitted. Admission refusal uses
 `REMOTE_SCOPE_DENIED`; provider exhaustion follows the [budget guard](#free-plan-budget-guard),
-including unknown writes.
+including unknown writes. A complete commit HTTP 403 with `error.code:403` and
+`error.status:PERMISSION_DENIED` proves an admission refusal. A malformed or ambiguous error,
+transport loss or possibly applied resource-exhausted commit stays unknown; none is resent.
 
 Catch-up cursors are declared per-stream sequence positions (`{stream,seq}`), with stream
 identifying the extension's writer stream (not the Auth uid), and seq the last observed contiguous nonnegative integer
@@ -2360,6 +2365,37 @@ There is no physical TTL setting or cleanup runner on Spark; rows remain until o
 Remote-authored frozen vectors qualify pure grammar/validation only, not Colab admission or
 provider acceptance. Cloud adapter conformance distinguishes these every-backend guarantees from
 local-only guarantees rather than silently skipping the latter.
+
+### Hosted own-record publication guard (#3122)
+
+Colab's hosted caller admits exactly `members` create and prepared `own`-namespace `log`
+create. This is caller policy over the SDK's validated neutral mutation metadata, never a
+Remote role/record validator. Every other mode/resource shape refuses with
+`REMOTE_SCOPE_DENIED` before Auth or provider I/O. Colab owns fresh signed author admission,
+own-record preparation and sealing; the browser never seals content or checkpoints.
+
+The durable cross-tab origin ledger shares 10% of `READS_PER_DAY`: 5,000 modeled reads,
+warning at 3,500 and refusal before a reservation reaches 4,500, with the SDK's Pacific reset.
+Writes are tracked, not separately refused. Members-create reserves four lookup reads and one
+write. Each own-log create reserves `BudgetModel.create(4,4).readsPerAppend()` reads and one
+write: 13 + 1 under the four-person/all-writers assumption, pinned to the native vector.
+A prepared batch is at most four documents (52 reads + 4 tracked writes); the Colab edit
+request transport prepares one document. REST catch-up/readback and listener deliveries add
+their ordinary costs. A refused reservation spends nothing; uncertainty is never refunded.
+These are advisory reservations, not measured project usage or a provider billing claim.
+
+The sender freezes exact IDs/bytes before any create and serializes each own stream across
+tabs through creation and readback. It sends each original once. A commit acknowledgment or
+unknown gets one bounded exact-ID readback; `already-present` already includes the SDK's
+comparison and gets no second read. Only matching canonical bytes and digest are sent.
+Missing/unreadable observation stays unconfirmed; an occupied immutable ID with different
+bytes is a definitive loss. A partial batch never reports full success. Neither uncertainty,
+Rules/budget/rate refusal nor definitive loss triggers resealing, a new ID or another create.
+The distinct `writer-in-use` result covers definitive stream/ID occupancy; another hosted uid
+cannot continue a stream whose predecessor uid differs. Colab owns the device derivation and
+one-hosted-writer-per-editor-link rule. Publication confirmation is not owner application:
+the owner applies edit requests while Colab is running. Page change/close cancels and joins
+sender, reader and guard work before releasing keys or opening a successor.
 
 ### Proposal: authorized deploy
 

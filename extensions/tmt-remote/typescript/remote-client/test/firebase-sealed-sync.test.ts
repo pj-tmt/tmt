@@ -700,3 +700,79 @@ test.each(['expired', 'sign-in-needed', 'cancelled'] as const)(
     f.port.close();
   },
 );
+
+test('commit cost carries only neutral validated mutation identity, frozen before caller guard access', async () => {
+  const f = await fixture();
+  f.setResponse({ writeResults: [{}], commitTime: '2026-10-13T01:02:03Z' });
+  await f.port.publish(
+    {
+      mode: 'create',
+      document: {
+        target: { resource: 'rows', id: 'id+1' },
+        bytes: new TextEncoder().encode(vector.document),
+        digest: vector.documentDigest,
+      },
+    },
+    call(),
+  );
+  const cost = f.costs.find((cost) => cost.operation === 'commit');
+  expect(cost).toMatchObject({ mutation: { mode: 'create', resource: 'rows', target: 'id+1' } });
+  const mutation = (cost as unknown as { mutation: object }).mutation;
+  expect(Object.keys(mutation).sort()).toEqual(['mode', 'resource', 'target']);
+  expect(Object.isFrozen(mutation)).toBe(true);
+  f.port.close();
+});
+
+test('a complete provider permission-denied commit response is a typed refusal, never an automatic resend', async () => {
+  const f = await fixture();
+  f.setResponse(() => ({
+    status: 403,
+    body: { error: { code: 403, status: 'PERMISSION_DENIED', message: 'PRIVATE_PROVIDER_CANARY' } },
+  }));
+  try {
+    await expect(
+      f.port.publish(
+        {
+          mode: 'create',
+          document: {
+            target: { resource: 'rows', id: 'id+1' },
+            bytes: new TextEncoder().encode(vector.document),
+            digest: vector.documentDigest,
+          },
+        },
+        call(),
+      ),
+    ).rejects.toEqual({ code: 'REMOTE_SCOPE_DENIED' });
+    expect(f.requests).toHaveLength(1);
+  } finally {
+    f.port.close();
+  }
+});
+
+test.each([
+  [403, { error: { code: 403, status: 'UNKNOWN' } }],
+  [403, { error: { status: 'PERMISSION_DENIED' } }],
+  [429, { error: { code: 429, status: 'RESOURCE_EXHAUSTED' } }],
+  [503, { error: { code: 503, status: 'UNAVAILABLE' } }],
+])('an ambiguous commit response stays unknown with no resend (%s)', async (status, body) => {
+  const f = await fixture();
+  f.setResponse(() => ({ status, body }));
+  try {
+    await expect(
+      f.port.publish(
+        {
+          mode: 'create',
+          document: {
+            target: { resource: 'rows', id: 'id+1' },
+            bytes: new TextEncoder().encode(vector.document),
+            digest: vector.documentDigest,
+          },
+        },
+        call(),
+      ),
+    ).resolves.toEqual({ kind: 'unknown' });
+    expect(f.requests).toHaveLength(1);
+  } finally {
+    f.port.close();
+  }
+});

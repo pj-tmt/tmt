@@ -1,4 +1,6 @@
+import { readFileSync } from 'node:fs';
 import { expect, it } from 'vite-plus/test';
+import type { SyncAdmissionCost } from '../../../../tmt-remote/typescript/remote-client/src/firebase-sync-http.js';
 import * as math from '../../../../tmt-remote/typescript/remote-client/src/budget.js';
 import { HostedBudget, type HostedBudgetStore, type HostedUsage } from '../src/hosted-budget.js';
 
@@ -52,7 +54,7 @@ it('precharges REST upper bounds plus Rules lookups and only the admission write
   const f = fixture();
   await f.guard.admit(read);
   await f.guard.admit({ operation: 'query', reads: 256, writes: 0, rulesLookupsPerDocument: 3 });
-  await f.guard.admit({ operation: 'commit', reads: 0, writes: 1, rulesLookupsPerDocument: 4 });
+  await f.guard.admit(commit('members'));
   expect(f.usage()).toEqual({ day: today.day, reads: 1032, writes: 1 });
 });
 
@@ -147,4 +149,83 @@ it('joins pending charges before the page owner releases its group', async () =>
   release();
   await Promise.all([charge, join]);
   expect(f.usage().reads).toBe(1024);
+});
+
+const commit = (
+  resource: string,
+  mode: 'create' | 'put' | 'delete' = 'create',
+  target = 'fixture-document',
+) =>
+  ({
+    operation: 'commit',
+    reads: 0,
+    writes: 1,
+    rulesLookupsPerDocument: 4,
+    mutation: { mode, resource, target },
+  }) as const;
+
+it('derives the 13-read own-log reservation and 52-read request from the independent native vector', async () => {
+  const vectors = JSON.parse(
+    readFileSync(
+      new URL(
+        '../../../../tmt-remote/rust/tmt-remote/tests/fixtures/firestore_budget/vectors.json',
+        import.meta.url,
+      ),
+      'utf8',
+    ),
+  );
+  const row = vectors.append.find(
+    (value: { members: number; writers: number }) => value.members === 4 && value.writers === 4,
+  );
+  expect(row.readsPerAppend).toBe(13);
+  expect(math.BudgetModel.create(4, 4).readsPerAppend()).toBe(row.readsPerAppend);
+  const f = fixture();
+  for (let index = 0; index < 4; index++)
+    await f.guard.admit(commit('log', 'create', `log-${index}`));
+  expect(f.usage()).toEqual({ day: today.day, reads: 4 * row.readsPerAppend, writes: 4 });
+  expect(f.usage().reads).toBe(52);
+  await f.guard.admit(read);
+  expect(f.usage().reads).toBe(56);
+});
+
+it.each([
+  undefined,
+  { mode: 'put', resource: 'members', target: 'm' },
+  { mode: 'delete', resource: 'log', target: 'l' },
+  { mode: 'create', resource: 'checkpoints', target: 'c' },
+  { mode: 'create', resource: 'authority', target: 'a' },
+  { mode: 'create', resource: 'log', target: '' },
+])(
+  'refuses an unrecognized commit shape before spending the origin ledger: %j',
+  async (mutation) => {
+    const f = fixture();
+    const cost = { ...commit('log'), mutation } as SyncAdmissionCost;
+    await expect(f.guard.admit(cost)).rejects.toEqual({ code: 'REMOTE_SCOPE_DENIED' });
+    expect(f.usage()).toBeUndefined();
+  },
+);
+
+it('preserves the members-create cost and never treats it as an own-log reservation', async () => {
+  const f = fixture();
+  await f.guard.admit(commit('members'));
+  expect(f.usage()).toEqual({ day: today.day, reads: 4, writes: 1 });
+});
+
+it('shares the refusal boundary between read and own-log reservations without counting a refused write', async () => {
+  const f = fixture({ day: today.day, reads: 4483, writes: 20000 });
+  await f.guard.admit(commit('log'));
+  expect(f.usage()).toEqual({ day: today.day, reads: 4496, writes: 20001 });
+  await expect(f.guard.admit(read)).rejects.toMatchObject({ code: 'REMOTE_BUDGET_EXHAUSTED' });
+  await expect(f.guard.admit(commit('log'))).rejects.toMatchObject({
+    code: 'REMOTE_BUDGET_EXHAUSTED',
+  });
+  expect(f.usage()).toEqual({ day: today.day, reads: 4496, writes: 20001 });
+});
+
+it('rejects mutation metadata on a read before touching the ledger', async () => {
+  const f = fixture();
+  await expect(f.guard.admit({ ...read, mutation: commit('log').mutation })).rejects.toEqual({
+    code: 'REMOTE_SCOPE_DENIED',
+  });
+  expect(f.usage()).toBeUndefined();
 });

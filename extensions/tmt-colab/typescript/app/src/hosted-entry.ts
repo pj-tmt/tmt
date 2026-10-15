@@ -11,12 +11,14 @@ import { deriveReaderKeys } from './reader-keys.js';
 import type { ReaderLink } from './reader-link.js';
 import type { Registration } from './registration.js';
 import type { PageView } from './transport.js';
+import type { ReaderEdit } from './reader-source.js';
+import { sendEditRequest } from './link-edit.js';
 
 type Usage = Awaited<ReturnType<HostedBudget['snapshot']>>;
 export type HostedEntryState =
   | { phase: 'loading' | 'link-needed' | 'recovering' | 'paused' }
-  | { phase: 'sign-in'; hasLink: boolean }
-  | { phase: 'ready'; view: PageView; budget: Usage }
+  | { phase: 'sign-in'; hasLink: boolean; role?: ReaderLink['role'] }
+  | { phase: 'ready'; view: PageView; budget: Usage; role?: ReaderLink['role']; edit?: ReaderEdit }
   | { phase: 'failed'; failure: unknown };
 interface Options {
   state(value: HostedEntryState): void;
@@ -29,7 +31,7 @@ interface Page {
   admission: HostedAdmission;
 }
 
-/** One origin/auth/declaration owner with one selected read-only page. No native door fallback. */
+/** One origin/auth/declaration owner with one selected page. No native door fallback. */
 export class HostedEntry {
   private readonly controller = new AbortController();
   private boot?: Promise<HostedBootstrap>;
@@ -53,7 +55,11 @@ export class HostedEntry {
     this.options.state({ phase: 'loading' });
     const prepare = async (target?: ReaderLink): Promise<Page | undefined> =>
       target
-        ? { target, keys: await deriveReaderKeys(target), admission: new HostedAdmission() }
+        ? {
+            target,
+            keys: await deriveReaderKeys(target, 'hosted'),
+            admission: new HostedAdmission(),
+          }
         : undefined;
     // Direct parsed inputs consume their seed synchronously; queued parsing failures are handled now.
     const preparing = (
@@ -154,7 +160,11 @@ export class HostedEntry {
       return;
     }
     if (!this.signedIn) {
-      this.options.state({ phase: 'sign-in', hasLink: this.page !== undefined });
+      this.options.state({
+        phase: 'sign-in',
+        hasLink: this.page !== undefined,
+        ...(this.page ? { role: this.page.target.role } : {}),
+      });
       return;
     }
     const page = this.page;
@@ -164,6 +174,7 @@ export class HostedEntry {
     }
     if (this.session) return;
     const { target, keys } = page;
+    let reader: HostedPageReader | undefined;
     const registration: Registration = {
       deviceId: keys.device.id,
       chain: certificate.Chain.fromJson(keys.chain),
@@ -210,7 +221,14 @@ export class HostedEntry {
                 expiresAt: hints.expiresAtMs,
               },
             );
-            const reader = new HostedPageReader(port, admission, target, boot.limits);
+            reader = new HostedPageReader(
+              port,
+              admission,
+              target,
+              boot.limits,
+              undefined,
+              (_device, revision) => admission.ownAuthor(revision),
+            );
             const scope = {
               space: { stringValue: target.space },
               page: { stringValue: target.page },
@@ -241,7 +259,18 @@ export class HostedEntry {
         publish: async (view, call) => {
           const budget = await boot.budget.snapshot();
           if (this.current(generation) && this.shown && !call.signal.aborted)
-            this.options.state({ phase: 'ready', view, budget });
+            this.options.state({
+              phase: 'ready',
+              view,
+              budget,
+              role: target.role,
+              ...(target.role === 'editor' && reader
+                ? {
+                    edit: (source, base) =>
+                      this.edit(reader!, generation, call.signal, source, base),
+                  }
+                : {}),
+            });
         },
         recovering: () => {
           if (this.current(generation) && this.shown) this.options.state({ phase: 'recovering' });
@@ -256,5 +285,51 @@ export class HostedEntry {
     );
     this.session = session;
     await session.ready.catch(() => {});
+  }
+  private async edit(
+    reader: HostedPageReader,
+    generation: number,
+    signal: AbortSignal,
+    source: string,
+    base: string,
+  ): ReturnType<ReaderEdit> {
+    if (!this.current(generation) || !this.shown || this.terminal || signal.aborted)
+      return { request: 'refused' };
+    let submitted = false;
+    try {
+      let outcome: 'sent' | 'refused' | 'unconfirmed' | 'writer-in-use' = 'refused';
+      await sendEditRequest(
+        {
+          submitOwnRecords: async (records, fits) => {
+            if (!this.current(generation) || signal.aborted) return;
+            submitted = true;
+            const result = await reader.submitOwn(
+              records,
+              { signal, deadlineAtMs: Date.now() + 30_000 },
+              fits,
+            );
+            outcome = result.outcome;
+          },
+        },
+        base,
+        source,
+      );
+      return { request: outcome };
+    } catch (failure) {
+      const code =
+        typeof failure === 'object' && failure !== null && 'code' in failure
+          ? failure.code
+          : undefined;
+      return {
+        request:
+          !submitted ||
+          code === 'REMOTE_SCOPE_DENIED' ||
+          code === 'REMOTE_BUDGET_EXHAUSTED' ||
+          code === 'REMOTE_RATE_LIMITED' ||
+          code === 'REMOTE_INPUT_INVALID'
+            ? 'refused'
+            : 'unconfirmed',
+      };
+    }
   }
 }

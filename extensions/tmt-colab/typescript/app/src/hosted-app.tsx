@@ -6,6 +6,18 @@ import type { HostedEntryState } from './hosted-entry.js';
 import { text } from './strings.js';
 import './hosted-app.css';
 
+export { EditRequestNotice as HostedRequestNotice } from './reader-source.js';
+export type { EditRequestOutcome as HostedRequestOutcome } from './reader-source.js';
+
+const signInCopy = {
+  viewer:
+    'Sign in to read the shared page. Signing in gives read access only; you cannot edit the page.',
+  commenter:
+    'Sign in to read the shared page. Signing in gives read access only; you cannot edit the page.',
+  editor:
+    'Sign in to read this page and send edit requests. The owner applies edits while Colab is running.',
+};
+
 /** Fixed copy only: raw provider/crypto diagnostics, keys and tokens never reach presentation. */
 export function hostedFailureCopy(
   failure: unknown,
@@ -100,6 +112,11 @@ export function HostedApp({ state, signIn }: { state: HostedEntryState; signIn()
       <div className="hosted-reader">
         <ReaderApp
           state={{ kind: 'ready', view: state.view }}
+          canEdit={state.role === 'editor'}
+          edit={state.role === 'editor' ? state.edit : undefined}
+          accessNote={
+            state.role === 'editor' ? 'The owner applies edits while Colab is running.' : undefined
+          }
           notice={
             state.budget.state === 'warn' ? (
               <p className="hosted-reading-warning" role="status">
@@ -144,7 +161,7 @@ export function HostedApp({ state, signIn }: { state: HostedEntryState; signIn()
                 ? 'Share link needed'
                 : undefined)
           }
-          eyebrow="Read-only"
+          eyebrow={state.phase === 'sign-in' && state.role === 'editor' ? 'Can edit' : 'Read-only'}
           title={title}
           testId="hosted-entry"
           actions={
@@ -160,12 +177,7 @@ export function HostedApp({ state, signIn }: { state: HostedEntryState; signIn()
             ) : undefined
           }
         >
-          {state.phase === 'sign-in' && (
-            <p>
-              Sign in to read the shared page. Signing in gives read access only; you cannot edit
-              the page.
-            </p>
-          )}
+          {state.phase === 'sign-in' && <p>{signInCopy[state.role ?? 'viewer']}</p>}
           {(state.phase === 'link-needed' || (state.phase === 'sign-in' && !state.hasLink)) && (
             <p>Open a share link from Colab to read a page here.</p>
           )}

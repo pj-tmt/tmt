@@ -1,8 +1,9 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, it } from 'vite-plus/test';
-import { HostedApp, hostedFailureCopy } from '../src/hosted-app.js';
+import { HostedApp, hostedFailureCopy, HostedRequestNotice } from '../src/hosted-app.js';
 import type { HostedEntryState } from '../src/hosted-entry.js';
+import { text } from '../src/strings.js';
 
 const markup = (state: HostedEntryState) =>
   renderToStaticMarkup(createElement(HostedApp, { state, signIn() {} }));
@@ -98,3 +99,89 @@ it.each(['REMOTE_SCOPE_DENIED', 'REMOTE_STATE_UNAVAILABLE'])(
     expect(html).toContain('role="alert"');
   },
 );
+
+it.each([
+  [
+    'viewer',
+    'Read-only',
+    'Sign in to read the shared page. Signing in gives read access only; you cannot edit the page.',
+  ],
+  [
+    'commenter',
+    'Read-only',
+    'Sign in to read the shared page. Signing in gives read access only; you cannot edit the page.',
+  ],
+  [
+    'editor',
+    'Can edit',
+    'Sign in to read this page and send edit requests. The owner applies edits while Colab is running.',
+  ],
+] as const)('uses the %s hint only for sign-in presentation', (role, mark, copy) => {
+  const html = markup({ phase: 'sign-in', hasLink: true, role });
+  expect(html).toContain(mark);
+  expect(html).toContain(copy);
+  expect(html).not.toContain('source-toggle');
+  if (role === 'editor') expect(html).not.toContain('you cannot edit the page');
+  expect(html).not.toContain('send comments');
+  expect(html).not.toContain('Can comment');
+});
+
+it.each([
+  [
+    'sent',
+    'Edit request sent. It appears on the page when the owner&#x27;s Colab applies it.',
+    'muted',
+  ],
+  ['refused', 'Edit request not sent. Ask the owner for a current link.', 'blocked'],
+  [
+    'unconfirmed',
+    'Couldn&#x27;t confirm the edit request. It may still reach the owner; check the page before sending it again.',
+    'waiting',
+  ],
+] as const)('keeps the %s request verdict distinct', (outcome, message, tone) => {
+  const html = renderToStaticMarkup(createElement(HostedRequestNotice, { outcome }));
+  expect(html).toContain(message);
+  expect(html).toContain(`data-tone="${tone}"`);
+  if (outcome === 'unconfirmed') {
+    expect(html).toContain('Unconfirmed');
+    expect(html).not.toContain('not sent');
+    expect(html).not.toContain('Edit request sent');
+  }
+});
+
+it.each(['viewer', 'commenter', 'editor'] as const)(
+  'keeps the ready %s role mark separate from author admission',
+  (role) => {
+    const html = markup({
+      phase: 'ready',
+      role,
+      edit: async () => ({ request: 'sent' }),
+      view: { source: '<main>admitted</main>', title: 'Page' },
+      budget: { day: 1, reads: 10, writes: 0, state: 'ok' },
+    });
+    expect(html).toContain(role === 'editor' ? 'Can edit' : 'Read-only');
+    expect(html).not.toContain('Can comment');
+    expect(html.includes('source-toggle')).toBe(role === 'editor');
+    expect(html).not.toContain('>Ask<');
+    if (role === 'commenter') {
+      expect(html).toContain(text.readerNote);
+      expect(html).not.toContain(
+        renderToStaticMarkup(createElement('p', null, text.readerNoteEditor)),
+      );
+    }
+  },
+);
+
+it('never labels definitive writer occupancy sent, refused-before-effect or unknown', () => {
+  const html = renderToStaticMarkup(
+    createElement(HostedRequestNotice, { outcome: 'writer-in-use' }),
+  );
+  expect(html).toContain('data-tone="blocked"');
+  expect(html).not.toContain('>Sent<');
+  expect(html).not.toContain('>Not sent<');
+  expect(html).not.toContain('>Unconfirmed<');
+  expect(html).toContain('Link in use');
+  expect(html).toContain(
+    'Another browser is already sending edits through this link, so this one can only read. Ask the owner for an editor link of your own.',
+  );
+});
