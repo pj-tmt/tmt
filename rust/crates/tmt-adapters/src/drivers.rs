@@ -525,4 +525,20 @@ mod tests {
             descriptor::ALL.map(|descriptor| descriptor.name)
         );
     }
+
+    #[test]
+    fn a_full_level_is_exactly_hooks_plus_a_runtime() {
+        for module in MODULES {
+            let capable = module.descriptor.hooks.is_some() && module.runtime.is_some();
+            assert_eq!(
+                module.descriptor.support == descriptor::Support::Full,
+                capable,
+                "{} declares {:?} but hooks={} runtime={}",
+                module.name(),
+                module.descriptor.support,
+                module.descriptor.hooks.is_some(),
+                module.runtime.is_some()
+            );
+        }
+    }
 }

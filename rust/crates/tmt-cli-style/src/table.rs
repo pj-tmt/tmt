@@ -130,6 +130,23 @@ impl Table {
         self
     }
 
+    /// A row with a trailing note, a state worth reading beside the row where no
+    /// action is possible: dimmed, in the action's slot after every column, and
+    /// never truncated. A row carries an action or a note, not both.
+    ///
+    /// # Panics
+    /// When the row does not have one cell per column: a caller bug.
+    pub fn row_with_note<C: Into<Cell>>(
+        &mut self,
+        cells: impl IntoIterator<Item = C>,
+        note: &str,
+    ) -> &mut Self {
+        self.row(cells);
+        *self.actions.last_mut().expect("the row was just added") =
+            Some(Cell::styled(note, Token::Dim));
+        self
+    }
+
     pub fn is_empty(&self) -> bool {
         self.rows.is_empty()
     }

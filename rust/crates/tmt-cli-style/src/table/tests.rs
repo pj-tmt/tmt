@@ -123,6 +123,37 @@ fn actions_trail_only_their_rows_and_are_never_truncated() {
 }
 
 #[test]
+fn a_note_trails_its_row_dimmed_in_the_action_slot_and_is_never_truncated() {
+    let mut table = Table::new(&[Column::Fixed, Column::Name, Column::Detail]);
+    table
+        .row(["●", "astra", "~/dev/tmt-local"])
+        .row_with_note(["●", "pi-1", "~/dev/tmt-local"], "basic")
+        .row_with_action(["○", "sol", "~/dev/tmt-local"], "↻ tmt resume sol");
+    assert_eq!(
+        render(&table, Terminal::PLAIN),
+        "  ●  astra  ~/dev/tmt-local\n  ●  pi-1   ~/dev/tmt-local  basic\n  ○  sol    ~/dev/tmt-local  ↻ tmt resume sol\n"
+    );
+    // The detail gives way; the note keeps every character.
+    assert_eq!(
+        render(&table, width(36)),
+        "  ●  astra  ~/dev…\n  ●  pi-1   ~/dev…  basic\n  ○  sol    ~/dev…  ↻ tmt resume sol\n"
+    );
+    let colored = render(
+        &table,
+        Terminal {
+            color: true,
+            width: None,
+            theme: None,
+        },
+    );
+    assert!(colored.contains("\u{1b}[2mbasic"), "{colored:?}");
+    assert!(
+        !colored.contains("\u{1b}[38;5;4mbasic"),
+        "a note is not accent-colored: {colored:?}"
+    );
+}
+
+#[test]
 fn colored_rows_end_without_padding() {
     assert_eq!(
         without_trailing_padding("a  \u{1b}[34mshell   \u{1b}[39m\u{1b}[0m  "),

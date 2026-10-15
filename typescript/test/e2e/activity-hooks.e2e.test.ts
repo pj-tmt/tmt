@@ -75,6 +75,8 @@ it.each(['claude', 'codex'] as const)(
           lastActivityMs: null,
           providers: {},
         });
+        // The remembered harness names a full driver; the level is additive and advisory.
+        expect(row(results[2].stdout).driverSupport).toBe('full');
         expect(activity(4)).toEqual({
           state: 'working',
           sinceMs: expect.any(Number),
@@ -102,6 +104,7 @@ it.each(['claude', 'codex'] as const)(
         expect(current.code).toBe(0);
         const ended = row(current.stdout).session.activity;
         expect(ended.state).toBe('ended');
+        expect(row(current.stdout).driverSupport).toBe('full');
         expect(ended.sinceMs).toBeNull();
         expect(ended.lastActivityMs).toBe(activity(12).lastActivityMs);
       },
