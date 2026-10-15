@@ -335,7 +335,11 @@ fn restart_registered_page_interest_does_not_defer_or_cancel_it() {
     assert!(
         service
             .readiness()
-            .while_idle(&stopped, || stopped.store(true, Ordering::Release))
+            .while_idle(
+                Instant::now() + crate::limits::RESTART_IDLE_WAIT,
+                &stopped,
+                || stopped.store(true, Ordering::Release)
+            )
             .unwrap()
     );
     assert!(stopped.load(Ordering::Acquire));
@@ -363,7 +367,11 @@ fn restart_read_awaiting_disclosure_defers_and_the_request_can_complete() {
     assert_eq!(disclose.boundary, Checkpoint::Disclose);
     let stopped = AtomicBool::new(false);
     let admitted = view
-        .while_idle(&stopped, || stopped.store(true, Ordering::Release))
+        .while_idle(
+            Instant::now() + crate::limits::RESTART_IDLE_WAIT,
+            &stopped,
+            || stopped.store(true, Ordering::Release),
+        )
         .unwrap();
     // Finish the pending callback before asserting, including on the red path.
     decide(&peer, disclose.callback_id.get(), 1, Decision::Allow);
@@ -410,7 +418,11 @@ fn restart_in_flight_committed_read_defers_and_the_read_still_completes() {
     entered.recv_timeout(Duration::from_secs(5)).unwrap();
     let stopped = AtomicBool::new(false);
     let admitted = view
-        .while_idle(&stopped, || stopped.store(true, Ordering::Release))
+        .while_idle(
+            Instant::now() + crate::limits::RESTART_IDLE_WAIT,
+            &stopped,
+            || stopped.store(true, Ordering::Release),
+        )
         .unwrap();
     // Release the named milestone even when the assertion below will fail.
     release.send(()).unwrap();
@@ -425,8 +437,12 @@ fn restart_in_flight_committed_read_defers_and_the_read_still_completes() {
     assert!(!stopped.load(Ordering::Acquire));
     assert_eq!(service.storage.installation_usage(&io()).unwrap(), before);
     assert!(
-        view.while_idle(&stopped, || stopped.store(true, Ordering::Release))
-            .unwrap()
+        view.while_idle(
+            Instant::now() + crate::limits::RESTART_IDLE_WAIT,
+            &stopped,
+            || stopped.store(true, Ordering::Release)
+        )
+        .unwrap()
     );
     service.shutdown();
 }
@@ -713,4 +729,26 @@ fn observation_callback_spent_before_write_is_unavailable_and_channel_lives() {
         Outcome::Success(Success::State(WireState::NotObserved))
     );
     assert_eq!(service.ended("alpha"), None);
+}
+
+#[test]
+fn restart_active_activation_still_defers_without_stopping_it() {
+    let env = Env::new();
+    let service = env.service(&ALPHA, bounds()).unwrap();
+    service.locked().slots[0].setup = true;
+    let stopped = AtomicBool::new(false);
+    assert!(
+        !service
+            .readiness()
+            .while_idle(
+                Instant::now() + crate::limits::RESTART_IDLE_WAIT,
+                &stopped,
+                || stopped.store(true, Ordering::Release)
+            )
+            .unwrap()
+    );
+    assert!(!stopped.load(Ordering::Acquire));
+    assert!(service.locked().slots[0].setup);
+    service.locked().slots[0].setup = false;
+    service.shutdown();
 }

@@ -220,12 +220,11 @@ impl Pairing {
     /// Hold the offer owner briefly while lifecycle admission checks the other owners.
     pub(crate) fn while_idle(
         &self,
+        deadline: std::time::Instant,
         action: impl FnOnce() -> Result<bool, RemoteError>,
     ) -> Result<bool, RemoteError> {
-        let mut slot = match self.offer.try_lock() {
-            Ok(slot) => slot,
-            Err(std::sync::TryLockError::WouldBlock) => return Ok(false),
-            Err(error) => return Err(crate::store::database(error)),
+        let Some(mut slot) = crate::control::idle_lock(&self.offer, deadline)? else {
+            return Ok(false);
         };
         self.expire_locked(&mut slot);
         if slot
@@ -597,4 +596,136 @@ pub fn now_ms() -> Result<u64, RemoteError> {
         .ok()
         .and_then(|d| u64::try_from(d.as_millis()).ok())
         .ok_or_else(|| RemoteError::new("REMOTE_CLOCK", "System clock is before 1970."))
+}
+
+#[cfg(test)]
+mod restart_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    struct Scratch(std::path::PathBuf);
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            std::fs::remove_dir_all(&self.0).unwrap();
+        }
+    }
+    fn with_pairing(test: impl FnOnce(&Pairing, &crate::state::Layout)) {
+        let root =
+            Scratch(std::env::temp_dir().join(format!("tmt-restart-pair-{}", uuid_v4().unwrap())));
+        let layout = crate::state::Layout::open(&root.0).unwrap();
+        let serving = layout.serve_lock().unwrap();
+        let mut store = Store::open(&serving).unwrap();
+        let machine = store.machine().unwrap();
+        let pairing = Pairing::new(
+            machine.id,
+            uuid_v4().unwrap(),
+            [1; 32],
+            "http://127.0.0.1:12345".into(),
+            Arc::new(Mutex::new(store)),
+            Timing::CONTRACT,
+        );
+        test(&pairing, &layout);
+    }
+
+    #[test]
+    fn restart_open_and_unconfirmed_offers_still_defer_without_changes() {
+        with_pairing(|pairing, _layout| {
+            let (offered, _events) = pairing.open().unwrap();
+            for pinned in [false, true] {
+                if pinned {
+                    pairing.offer.lock().unwrap().as_mut().unwrap().phase =
+                        Phase::Pinned(Candidate {
+                            enrollment: vec![1],
+                            mac: [2; 32],
+                            signature: [3; 64],
+                            public_key: [4; 32],
+                            kind: "browser".into(),
+                            origin: pairing.door_origin.clone(),
+                            name: "pending device".into(),
+                        });
+                }
+                assert!(
+                    !pairing
+                        .while_idle(
+                            Instant::now() + crate::limits::RESTART_IDLE_WAIT,
+                            || panic!("busy offer must not stop the door")
+                        )
+                        .unwrap()
+                );
+                let slot = pairing.offer.lock().unwrap();
+                let offer = slot.as_ref().unwrap();
+                assert_eq!(offer.id, offered.offer_id);
+                assert_eq!(offer.code, offered.code);
+                assert!(if pinned {
+                    matches!(offer.phase, Phase::Pinned(_))
+                } else {
+                    matches!(offer.phase, Phase::Open)
+                });
+            }
+        });
+    }
+    #[test]
+    fn restart_waits_for_store_in_offer_live_store_order_and_holds_the_fences() {
+        with_pairing(|pairing, layout| {
+            let sessions = crate::session::DoorSessions::new(
+                pairing.machine_id.clone(),
+                pairing.window_id.clone(),
+                pairing.door_origin.clone(),
+                "/r/test/".into(),
+                crate::state::MachineKey::open(layout).unwrap(),
+                pairing.store.clone(),
+                crate::session::IDLE,
+            );
+            let (held, ready) = mpsc::channel();
+            let (finished, result) = mpsc::channel();
+            std::thread::scope(|scope| {
+                scope.spawn(move || {
+                    let _store = pairing.store.lock().unwrap();
+                    held.send(()).unwrap();
+                    let _ = result.recv_timeout(Duration::from_millis(50));
+                });
+                ready.recv_timeout(Duration::from_secs(5)).unwrap();
+                let deadline = Instant::now() + crate::limits::RESTART_IDLE_WAIT;
+                let admitted = pairing
+                    .while_idle(deadline, || {
+                        sessions.while_idle(deadline, || {
+                            // Real owners stay held at the stop decision, not just at a snapshot.
+                            assert!(pairing.offer.try_lock().is_err());
+                            assert!(pairing.store.try_lock().is_err());
+                            Ok(true)
+                        })
+                    })
+                    .unwrap();
+                finished.send(()).ok();
+                assert!(admitted);
+            });
+        });
+    }
+    #[test]
+    fn restart_empty_offer_contention_is_not_pairing_activity() {
+        with_pairing(|pairing, _layout| {
+            let stopped = AtomicBool::new(false);
+            let (held, ready) = mpsc::channel();
+            let (finished, result) = mpsc::channel();
+            std::thread::scope(|scope| {
+                scope.spawn(move || {
+                    let _offer = pairing.offer.lock().unwrap();
+                    held.send(()).unwrap();
+                    // A completed admission must not mistake this empty slot for activity.
+                    // Otherwise release the brief observation lock so admission can finish.
+                    let _ = result.recv_timeout(Duration::from_millis(50));
+                });
+                ready.recv_timeout(Duration::from_secs(5)).unwrap();
+                let admitted = pairing
+                    .while_idle(Instant::now() + crate::limits::RESTART_IDLE_WAIT, || {
+                        stopped.store(true, Ordering::Release);
+                        Ok(true)
+                    })
+                    .unwrap();
+                finished.send(()).ok();
+                assert!(admitted, "an empty offer mutex is not a busy pairing offer");
+                assert!(stopped.load(Ordering::Acquire));
+            });
+        });
+    }
 }

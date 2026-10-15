@@ -40,6 +40,7 @@ impl ObjectReadiness {
     /// Failure cannot admit a restart. No channel is activated or reconciled.
     pub(crate) fn while_idle(
         &self,
+        deadline: std::time::Instant,
         stop: &std::sync::atomic::AtomicBool,
         action: impl FnOnce(),
     ) -> Result<bool, crate::error::RemoteError> {
@@ -52,17 +53,20 @@ impl ObjectReadiness {
         if self.budget.as_ref().is_some_and(|budget| !budget.is_idle()) {
             return Ok(false);
         }
-        let state = self
-            .state
-            .as_ref()
-            .map(|state| state.try_lock())
-            .transpose()
-            .map_err(|_| {
-                crate::error::RemoteError::new(
-                    "REMOTE_OBJECTS_UNAVAILABLE",
-                    "Object lifecycle observation is unavailable.",
-                )
-            })?;
+        let unavailable = || {
+            crate::error::RemoteError::new(
+                "REMOTE_OBJECTS_UNAVAILABLE",
+                "Object lifecycle observation is unavailable.",
+            )
+        };
+        let state = match &self.state {
+            Some(state) => Some(
+                crate::control::idle_lock(state, deadline)
+                    .map_err(|_| unavailable())?
+                    .ok_or_else(unavailable)?,
+            ),
+            None => None,
+        };
         if state
             .as_ref()
             .is_some_and(|state| state.stopped || state.slots.iter().any(|slot| slot.setup))
@@ -74,7 +78,7 @@ impl ObjectReadiness {
             .and_then(|state| state.restart_reader.clone());
         drop(state); // Service state is never held across ledger I/O.
         let io = crate::objects::IoBudget {
-            deadline: std::time::Instant::now() + crate::limits::OBJECT_REACTIVATION,
+            deadline: deadline.min(std::time::Instant::now() + crate::limits::OBJECT_REACTIVATION),
             cancelled: stop,
         };
         if let Some(reader) = reader
@@ -154,4 +158,48 @@ struct ObjectChannelStatus {
     state: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     reason: Option<String>,
+}
+
+#[cfg(test)]
+mod restart_tests {
+    use super::*;
+    use std::{
+        sync::{
+            atomic::{AtomicBool, Ordering},
+            mpsc,
+        },
+        time::Duration,
+    };
+
+    #[test]
+    fn restart_empty_object_observation_contention_is_not_unavailable() {
+        let state = Arc::new(Mutex::new(State {
+            stopped: false,
+            slots: Vec::new(),
+            restart_reader: None,
+        }));
+        let view = ObjectReadiness {
+            state: Some(state.clone()),
+            ..Default::default()
+        };
+        let stopped = AtomicBool::new(false);
+        let (held, ready) = mpsc::channel();
+        let (finished, result) = mpsc::channel();
+        std::thread::scope(|scope| {
+            scope.spawn(move || {
+                let _owner = state.lock().unwrap();
+                held.send(()).unwrap();
+                let _ = result.recv_timeout(Duration::from_millis(50));
+            });
+            ready.recv_timeout(Duration::from_secs(5)).unwrap();
+            let admitted = view.while_idle(
+                std::time::Instant::now() + crate::limits::RESTART_IDLE_WAIT,
+                &stopped,
+                || stopped.store(true, Ordering::Release),
+            );
+            finished.send(()).ok();
+            assert!(admitted.unwrap());
+            assert!(stopped.load(Ordering::Acquire));
+        });
+    }
 }
