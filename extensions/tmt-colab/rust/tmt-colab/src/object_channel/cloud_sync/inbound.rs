@@ -57,6 +57,9 @@ pub(crate) trait Inbound {
     /// The sequence of the stream's latest stored receipt; zero when it has none.
     fn head(&mut self, page: &PageRef, stream: &str) -> Result<u64, Fault>;
     fn admit(&mut self, page: &PageRef, original: &[u8]) -> Result<Applied, Reject>;
+    /// The pass has read all it could: act on what it stored, such as the edit requests a link
+    /// device left. Nothing to do for an inbound with no such follow-up.
+    fn settle(&mut self, _: &PageRef) {}
 }
 
 pub(crate) struct Puller {
@@ -168,6 +171,7 @@ impl Puller {
                 }
             }
         }
+        inbound.settle(page);
         Ok(more)
     }
 }

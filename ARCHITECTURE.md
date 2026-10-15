@@ -577,48 +577,39 @@ admission; later epochs require a new share link.
   `/r/<prefix>/x/colab/`, owns Host/Origin, cookies, pairing and grants, forwards the
   verified device as `tmt-device-context`, and never forwards the reserved `/.tmt/` subtree
   from a browser. Remote forwards public short entries without device context; Colab redirects only
-  to validated `tmt-mount`, resolving page prefixes from its verified catalog (ambiguity by parent chrome).
+  to validated `tmt-mount`, resolving page prefixes from its verified catalog.
   It stores ciphertext, never decodes Yjs; creation opening ignores TTY/JSON.
 - **Dependency direction.** `tmt-colab` depends on `tmt-colab-model` (pure codecs and fixed
   crypto), `tmt-extension-state`, `-objects`, `-serve` and `tmt-invoke`/`tmt-cli-style`; the browser
   depends on Remote's served SDK (`/sdk/remote-v1.js`). Never `tmt-core`, `tmt-adapters`,
   `tmt-remote`; core is reached through `$TMT_EXECUTABLE api` and the fixed,
-  bounded `identity show --json` command at CLI page create/write and proposal operations. Its optional caller
-  name is publisher-asserted display metadata, never a creator binding or routing authority.
-  The architecture guard enforces the dependency set, that only `tmt-colab` consumes the model and `html5ever`,
+  bounded `identity show --json` command at CLI page create/write and proposal operations.
+  The architecture guard enforces this set, that only `tmt-colab` consumes the model and `html5ever`,
   and that only `decoder/child.rs` imports `yrs`.
-  [Colab discussion](.agents/skills/tmt-colab/references/discussion.md) defines trusted cards, provenance and shared inline slots.
 - **Seams.** With Remote: the mount socket, `tmt-device-context`, the device-events callback
   and the browser SDK; the Ask agent sends through Remote's SDK operations helper as the
-  paired owner device, with no native bridge, ledger or migration. The read-only Agents view
-  reuses that current context and directory owner without admitting Ask destinations or
-  invoking session recovery; [Ask modules](.agents/skills/tmt-colab/references/ask-agent.md)
-  define the observation boundary. After a Remote restart,
-  Colab's public recovery entry reopens the paired device's session once, through the same
-  tab claim; all other app assets stay owner-gated. With core: `Product::Colab` registers
+  paired owner device, with no native bridge, ledger or migration, and the read-only Agents view
+  stays within the [observation boundary](.agents/skills/tmt-colab/references/ask-agent.md).
+  After a Remote restart, Colab's public recovery entry reopens the paired device's session once,
+  through the same tab claim; all other app assets stay owner-gated. With core: `Product::Colab` registers
   the executable with the installer, and the app is served from `serve --app-dir`, else
   bytes embedded from `TMT_COLAB_APP_DIR`, else the checkout's Vite output.
-  Shared chrome serves native `/assets/chrome.css` even without an app build; Colab owns layout, routing, state words, trusted recovery, archived reads and bounded missing-title folds. See the [browser contract](extensions/tmt-colab/contracts/colab-v1.md#implemented-mounted-browser-assets-1253).
-  One `tmt colab serve` is enough for a browser: it attaches to a running door through
-  `tmt remote status --json`, else starts `tmt remote serve --json` as a supervised child
-  in its own process group, reading pairing from `tmt remote devices --json`. This
-  edge (Colab → Remote) uses the public CLI only: no Remote state files and no crate
-  dependency. Colab stops only its own door group before reaping, after closing its own
-  socket. `tmt colab stop` reaches the serving process through a root-local route on that same owner-only socket (no signals). Serves follow verified current releases; [cutoff and door ownership](.agents/skills/tmt-colab/references/architecture-state.md) stay Colab-owned.
-- **Message editing.** The Colab-local shared Lexical 0.52.0 rich input owns plaintext/history and an optional presentation slot; its MessageComposer wrapper owns mentions and send policy, following the [editing boundary](.agents/skills/tmt-colab/references/architecture-state.md#message-editing-boundary). The parent records one comment and an Ask per distinct visible mention (up to 8); Ask again keeps the comment and uses a fresh operation after pair-marker/own-ledger checks. The editor grants no dispatch authority.
+  Colab owns layout, routing, state words, trusted recovery, archived reads and bounded missing-title folds ([browser contract](extensions/tmt-colab/contracts/colab-v1.md#implemented-mounted-browser-assets-1253)).
+  One `tmt colab serve` is enough for a browser: it attaches to a running door, else starts
+  one as a supervised child it alone stops.
+  This edge (Colab → Remote) uses the public CLI only: no Remote state files and no crate
+  dependency. Serves follow verified current releases ([cutoff and door ownership](.agents/skills/tmt-colab/references/architecture-state.md)).
+- **Message editing.** The shared rich input and its MessageComposer follow the [editing boundary](.agents/skills/tmt-colab/references/architecture-state.md#message-editing-boundary): the editor grants no dispatch authority, and one Send records one comment and one Ask per distinct visible mention.
 - **Renderer invariant.** Parent chrome allows only self-hosted scripts and styles (no
   `unsafe-inline`). Author HTML runs only in `renderer.html` inside an opaque
   `sandbox allow-scripts` frame whose own policy permits inline scripts and styles but no
-  network. Bound selections/rectangles, height/anchor-offset reports, quote-selector
-  highlights, thread clicks and closed-set key requests are cosmetic claims; only parent
-  controls admit discussion or sends. The bootstrap bounds DOM resolution before
-  author HTML without application capability. Group slots retain inactive quote context. Parent highlights carry only
-  IDs, quote selectors and bounded paint ordinals; no bodies or labels reach author code.
-  This contains author code; page self-navigation can still leak a request. The parent projects the effective light/dark theme as root `data-theme` over the render-bound cosmetic port; details in [page-chrome](.agents/skills/tmt-colab/references/page-chrome.md).
+  network. Everything the frame reports is a cosmetic claim; only parent controls admit
+  discussion or sends, and highlights carry only IDs, quote selectors and bounded paint ordinals, never bodies or labels.
+  This contains author code; page self-navigation can still leak a request. Theme projection and the cosmetic port are in [page-chrome](.agents/skills/tmt-colab/references/page-chrome.md).
 - **Attachments.** [Grammar](extensions/tmt-colab/contracts/attachment-v1.md) and [staging](extensions/tmt-colab/contracts/colab-v1.md#native-attach-command-2291) use crypto, authenticated cuts, fold metadata and Saves.
   The mount-owned object adapter joins generation-scoped callbacks, original uploads, committed reads and detached history; root-local reads need an established channel.
   Remote owns backend/quota/origin; Colab owns crypto/admission. Remote declares Colab Local; snapshot/retained-reference persistence (#2299) remains planned in the [storage proposal](extensions/tmt-colab/contracts/storage-v1-proposal.md).
-- **Firestore admission.** Hidden `tmt colab deploy-declaration --json`; the [declaration subsection](extensions/tmt-colab/contracts/colab-v1.md#firestore-deployment-declaration) owns admission and codecs. The serve's `object_channel::cloud_sync` worker publishes the active page's rows, signed authority and local originals once Remote activates, and applies the verified originals of other writers it reads back through the serve's append path ([architecture-state](.agents/skills/tmt-colab/references/architecture-state.md)).
+- **Firestore admission.** Hidden `tmt colab deploy-declaration --json`; the [declaration subsection](extensions/tmt-colab/contracts/colab-v1.md#firestore-deployment-declaration) owns admission and codecs. The serve's `object_channel::cloud_sync` worker publishes the active page's rows, signed authority and local originals once Remote activates, and applies other writers' verified originals through the serve's append path ([architecture-state](.agents/skills/tmt-colab/references/architecture-state.md)).
 - **Plaintext.** Whole/ranged source, discussion reads and export are root-local: only the isolated decoder
   child decodes Yjs, no browser route serves plaintext, and the Worker is resource
-  containment, not a security sandbox. Private causal preparation returns deltas; pure [publication codecs](extensions/tmt-colab/contracts/colab-v1.md#content-publication-1908-1928-1934) validate sealed intent. An authenticated snapshot supplies a frozen signed packet and chain; native code atomically stores content or a `kind:"own"` status action with its scoped terminal outcome in the Store. Dormant metadata bounds compaction; `tmt colab page write`, `threads resolve|reopen` and proposal record/placement operations publish through it (offline or the local `page-publish` route), browser Save uses the owner sync socket (colab-v1 Browser Save), signed by the root-local writer.
+  containment, not a security sandbox. Pure [publication codecs](extensions/tmt-colab/contracts/colab-v1.md#content-publication-1908-1928-1934) validate sealed intent; native code atomically stores content or a `kind:"own"` status action with its scoped terminal outcome in the Store. `tmt colab page write`, `threads resolve|reopen` and proposal record/placement operations publish through it (offline or the local `page-publish` route), browser Save uses the owner sync socket, signed by the root-local writer.

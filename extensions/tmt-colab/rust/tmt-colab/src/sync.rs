@@ -1,5 +1,6 @@
 //! Externally driven WebSocket sync. The caller authenticates the principal and
 //! upgrades the socket; this module never owns HTTP, cookies, keys or Yjs state.
+mod edit_requests;
 pub(crate) mod wire;
 use crate::{
     cloud_sync::{ActivePage, PageRef},
@@ -120,6 +121,13 @@ pub trait Admission: Send {
         access: Access<'_>,
     ) -> Result<[u8; 32], Code>;
 
+    /// Whether the serve may save page text for the link device `device` now, for a request the
+    /// device left in its stream rather than a session it holds. `Denied` or `Expired` is the
+    /// link's own answer: it is gone, revoked, expired, not an editor or does not cover the page.
+    /// Any other error means no answer could be had now, and decides nothing.
+    fn authorize_link_save(&self, _device: &str, _scope: &SyncScope) -> Result<(), Code> {
+        Err(Code::Denied)
+    }
     /// Where a browser Save prepares from, outside every lock. `None`: this admission has no
     /// native writer, so a save is denied.
     fn save_source(&self) -> Option<crate::page::save::SourceOpener> {
@@ -402,7 +410,11 @@ impl Checked {
 pub(crate) struct SaveJob {
     open: crate::page::save::SourceOpener,
     scope: SyncScope,
+    /// The session that asked, or for an edit request the link device that wrote it.
     principal: String,
+    /// The save carries a link device's edit request, not a session's frame: it is authorized
+    /// from the owner log and answers no peer.
+    for_request: bool,
     save: crate::page::save::Save,
     /// The editor's change as anchored hunks, evaluated when the page moved since its base.
     hunks: Option<Vec<crate::page::patch::Hunk>>,
@@ -410,7 +422,7 @@ pub(crate) struct SaveJob {
 /// Whether a save's turn under the lock replied, or its hunks are to be evaluated once more on
 /// a page that moved after they were.
 enum SaveFinish {
-    Replied,
+    Replied(crate::page::save::SaveResult),
     Retry,
 }
 /// Hunks as the editor sent them. The list type bounds their number and the frame limit bounds
@@ -537,6 +549,9 @@ struct State<A> {
     /// Tells the cloud-sync worker which page was last opened or written. Nothing waits on it
     /// unless the serve runs the worker.
     activity: ActivePage,
+    /// Pages where a link session stored its own original, which may carry an edit request: the
+    /// connection that polls next settles them all once it is outside the lock.
+    requests_due: edit_requests::Due,
 }
 /// Shared queue/admission/store owner. No worker threads; dropping a Connection
 /// removes its subscriber. Mutate authority only through update_admission.
@@ -699,6 +714,43 @@ impl Server<crate::registration::OwnerAdmission> {
     }
 }
 impl<A: Admission> Server<A> {
+    /// A save's native preparation can take seconds: it runs here, holding no lock, so other
+    /// connections keep appending. The commit takes the lock again and every fence rechecks, so
+    /// an edit that landed meanwhile turns this save into a stale-base reply. `reply_to` is the
+    /// peer that asked, if any; the result is also returned, for a caller with no peer.
+    pub(crate) fn run_save_job(
+        &self,
+        reply_to: Option<u64>,
+        job: &SaveJob,
+    ) -> Result<crate::page::save::SaveResult, Code> {
+        let clock = || crate::registration::now_ms().map_err(|_| Code::Denied);
+        let mut evaluations = 0;
+        loop {
+            let read_clock = || clock().map_err(|_| crate::page::Fault::Unavailable.into());
+            let prepared = match &job.hunks {
+                Some(hunks) => {
+                    crate::page::save::prepare_merging(&job.open, &job.save, hunks, &read_clock)
+                }
+                None => crate::page::save::prepare(&job.open, &job.save, &read_clock)
+                    .map(|prepared| (prepared, None)),
+            };
+            let now = clock();
+            let mut state = self.0.lock().map_err(|_| Code::Denied)?;
+            match now {
+                Ok(now) => {
+                    let may_retry = job.hunks.is_some() && evaluations < limits::SAVE_EVALUATIONS;
+                    match state.finish_save(reply_to, job, prepared, now, may_retry)? {
+                        SaveFinish::Replied(result) => return Ok(result),
+                        SaveFinish::Retry => evaluations += 1,
+                    }
+                }
+                Err(code) => {
+                    state.unsave(job);
+                    return Err(code);
+                }
+            }
+        }
+    }
     pub fn new(store: Store, admission: A) -> Self {
         Self(Arc::new(Mutex::new(State {
             store,
@@ -708,6 +760,7 @@ impl<A: Admission> Server<A> {
             saving: HashMap::new(),
             draining: false,
             activity: ActivePage::default(),
+            requests_due: edit_requests::Due::default(),
         })))
     }
     /// Apply one original read from the cloud. The caller has already admitted its author and
@@ -849,6 +902,7 @@ impl<A: Admission> DetachedCatchup<A> {
             saving: HashMap::new(),
             draining: false,
             activity: ActivePage::default(),
+            requests_due: edit_requests::Due::default(),
         };
         // The consumer already admitted current membership and eligible opaque
         // historical keys on its live connection. Name that exact head without
@@ -1329,6 +1383,7 @@ impl<A: Admission> State<A> {
             open,
             scope: scope.clone(),
             principal,
+            for_request: false,
             save: crate::page::save::Save {
                 page: scope.page.clone(),
                 operation_id,
@@ -1389,7 +1444,7 @@ impl<A: Admission> State<A> {
     /// gets one reply while every subscriber gets the same broadcasts as for any write.
     fn finish_save(
         &mut self,
-        id: u64,
+        id: Option<u64>,
         job: &SaveJob,
         prepared: crate::Result<(crate::page::save::Prepared, Option<[u8; 32]>)>,
         now_ms: u64,
@@ -1409,9 +1464,20 @@ impl<A: Admission> State<A> {
             } else {
                 Access::Save
             };
-            self.admission
-                .authorize(&job.principal, &job.scope, access)
-                .map_err(|_| crate::page::Fault::Denied)?;
+            if job.for_request {
+                self.admission
+                    .authorize_link_save(&job.principal, &job.scope)
+                    .map_err(|code| match code {
+                        Code::Denied | Code::Expired => crate::page::Fault::Denied,
+                        // No answer is not a refusal: the request stays undecided.
+                        _ => crate::page::Fault::Unavailable,
+                    })
+            } else {
+                self.admission
+                    .authorize(&job.principal, &job.scope, access)
+                    .map(|_| ())
+                    .map_err(|_| crate::page::Fault::Denied)
+            }?;
             let author = self.admission.save_author()?;
             let outputs = broadcasts(
                 write.job(),
@@ -1463,7 +1529,9 @@ impl<A: Admission> State<A> {
         };
         // Under this lock hold the commit and the removal are one step for a status request.
         self.unsave(job);
-        self.reply_save(id, &job.scope, &reply)?;
+        if let Some(id) = id {
+            self.reply_save(id, &job.scope, &reply)?;
+        }
         if let Some(((scope, delivery), combined)) = outputs {
             self.fanout_delivery(&scope, delivery);
             if let Some(combined) = &combined {
@@ -1471,7 +1539,7 @@ impl<A: Admission> State<A> {
             }
             self.touch(&scope);
         }
-        Ok(SaveFinish::Replied)
+        Ok(SaveFinish::Replied(reply))
     }
     /// Tell the page's subscribers that a stream holds a checkpoint for `namespace`, if it holds a
     /// stored and paired one covering `through`. The notice carries the checkpoint's identity and
@@ -1818,8 +1886,16 @@ impl<A: Admission> State<A> {
         let key =
             self.admission
                 .authorize(principal, scope, Access::Append(&checked.header.context))?;
-        self.apply(Some(id), scope, &device, &checked, &key)
-            .map(|_| ())
+        let accepted = self.apply(Some(id), scope, &device, &checked, &key)?;
+        // A link session's own original may be an edit request; one read from the cloud is
+        // settled by the pass that read it.
+        if accepted == Accepted::New
+            && checked.header.context.namespace == "own"
+            && device != principal
+        {
+            self.requests_due.mark(scope);
+        }
+        Ok(())
     }
     /// Verify the author's signature with a key the caller admitted, store the original and
     /// tell whoever follows the page. `peer` receives the receipt; an ingested original has none.
@@ -1968,37 +2044,8 @@ impl<S: Read + Write, A: Admission> Connection<S, A> {
             .push(text);
         Ok(())
     }
-    /// A save's native preparation can take seconds: it runs here, holding no lock, so other
-    /// connections keep appending. The commit takes the lock again and every fence rechecks, so
-    /// an edit that landed meanwhile turns this save into a stale-base reply.
     fn run_save(&self, job: SaveJob) -> Result<(), Code> {
-        let clock = || crate::registration::now_ms().map_err(|_| Code::Denied);
-        let mut evaluations = 0;
-        loop {
-            let read_clock = || clock().map_err(|_| crate::page::Fault::Unavailable.into());
-            let prepared = match &job.hunks {
-                Some(hunks) => {
-                    crate::page::save::prepare_merging(&job.open, &job.save, hunks, &read_clock)
-                }
-                None => crate::page::save::prepare(&job.open, &job.save, &read_clock)
-                    .map(|prepared| (prepared, None)),
-            };
-            let now = clock();
-            let mut state = self.server.0.lock().map_err(|_| Code::Denied)?;
-            match now {
-                Ok(now) => {
-                    let may_retry = job.hunks.is_some() && evaluations < limits::SAVE_EVALUATIONS;
-                    match state.finish_save(self.id, &job, prepared, now, may_retry)? {
-                        SaveFinish::Replied => return Ok(()),
-                        SaveFinish::Retry => evaluations += 1,
-                    }
-                }
-                Err(code) => {
-                    state.unsave(&job);
-                    return Err(code);
-                }
-            }
-        }
+        self.server.run_save_job(Some(self.id), &job).map(|_| ())
     }
     fn close(&mut self, code: Code) -> Progress {
         self.objects.take();
@@ -2128,6 +2175,16 @@ impl<S: Read + Write, A: Admission> Connection<S, A> {
                     Ok(None) => Ok(()),
                     Err(code) => Err(code),
                 };
+                // The preparation that follows can take seconds and holds no lock.
+                let due = self
+                    .server
+                    .0
+                    .lock()
+                    .map(|mut state| state.requests_due.take())
+                    .unwrap_or_default();
+                for due in due {
+                    let _ = self.server.apply_edit_requests(&due);
+                }
                 if let Err(code) = result {
                     let message = wire::output(&scope, "error", serde_json::json!({"code":code}));
                     if let (Ok(text), Ok(mut state)) = (message, self.server.0.lock())

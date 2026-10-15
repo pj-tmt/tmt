@@ -96,6 +96,14 @@ const MIGRATIONS: &[&str] = &[
         expires_at_ms INTEGER NOT NULL CHECK(expires_at_ms>=0),
         FOREIGN KEY(page) REFERENCES pages(page)) WITHOUT ROWID;
     "#,
+    // Schema 12: what the owner's serve decided about each edit request a link device wrote, so a
+    // request is applied at most once and a refused one is never evaluated again. Not signed, not
+    // in the owner log; rows go with the page.
+    r#"
+    CREATE TABLE edit_decisions(page TEXT NOT NULL, epoch TEXT NOT NULL, writer TEXT NOT NULL,
+        operation TEXT NOT NULL, state TEXT NOT NULL CHECK(state IN ('applied','conflict','refused')),
+        PRIMARY KEY(page,epoch,writer,operation), FOREIGN KEY(page) REFERENCES pages(page)) WITHOUT ROWID;
+    "#,
 ];
 pub(super) const CURRENT_VERSION: u32 = MIGRATIONS.len() as u32;
 

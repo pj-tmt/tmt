@@ -317,28 +317,7 @@ impl Sessions {
         if !matches!(reader.phase, Phase::Active) || scope != &reader.scope {
             return Err(Code::Denied);
         }
-        let chain = certificate::Chain::from_json(reader.chain.as_deref().ok_or(Code::Denied)?)?;
-        let cert = chain.certificate()?;
-        let (device, signing_key) = (cert.device_id.to_owned(), *cert.signing_key);
-        store
-            .owner_read(&key.space_id, &key.owner_public(), |tx| {
-                reader.check_tx(tx, now)?;
-                let head = tx.head().ok_or(Code::Denied)?;
-                if tx
-                    .page_policy_at(&reader.scope.page, head.revision)?
-                    .archived
-                {
-                    return Err(Code::Denied.into());
-                }
-                let link = tx.recipient("link", cert.issuer_id)?.ok_or(Code::Denied)?;
-                Ok(Writer {
-                    device: device.clone(),
-                    key: signing_key,
-                    role: link.role.unwrap_or_default(),
-                    revision: head.revision,
-                })
-            })
-            .map_err(error)
+        reader.writer(store, key, now)
     }
     pub(crate) fn check(
         &self,
@@ -384,7 +363,54 @@ impl Sessions {
         self.0.remove(id);
     }
 }
+/// What the link device `device` may store right now, for a request it left behind rather than a
+/// session it holds: the same live-link checks as a session's, read from the owner log.
+pub(crate) fn device_writer(
+    store: &Store,
+    key: &Keyring,
+    scope: &SyncScope,
+    device: &str,
+    now: u64,
+) -> Result<Writer, Code> {
+    let chain = store
+        .owner_read(&key.space_id, &key.owner_public(), |tx| {
+            Ok(tx.device(device)?.map(|device| device.chain))
+        })
+        .map_err(error)?
+        .ok_or(Code::Denied)?;
+    let cert = certificate::Chain::from_json(&chain)?;
+    let reader = Reader {
+        scope: scope.clone(),
+        expires: cert.certificate()?.expires_at,
+        chain: Some(chain),
+        phase: Phase::Active,
+    };
+    reader.writer(store, key, now)
+}
 impl Reader {
+    /// What this link reader may store right now, read from the live owner log: the link must
+    /// still exist for this page and epoch, and the page must not be archived.
+    fn writer(&self, store: &Store, key: &Keyring, now: u64) -> Result<Writer, Code> {
+        let chain = certificate::Chain::from_json(self.chain.as_deref().ok_or(Code::Denied)?)?;
+        let cert = chain.certificate()?;
+        let (device, signing_key) = (cert.device_id.to_owned(), *cert.signing_key);
+        store
+            .owner_read(&key.space_id, &key.owner_public(), |tx| {
+                self.check_tx(tx, now)?;
+                let head = tx.head().ok_or(Code::Denied)?;
+                if tx.page_policy_at(&self.scope.page, head.revision)?.archived {
+                    return Err(Code::Denied.into());
+                }
+                let link = tx.recipient("link", cert.issuer_id)?.ok_or(Code::Denied)?;
+                Ok(Writer {
+                    device: device.clone(),
+                    key: signing_key,
+                    role: link.role.unwrap_or_default(),
+                    revision: head.revision,
+                })
+            })
+            .map_err(error)
+    }
     fn check(&self, store: &Store, key: &Keyring, now: u64) -> Result<(), Code> {
         store
             .owner_read(&key.space_id, &key.owner_public(), |tx| {

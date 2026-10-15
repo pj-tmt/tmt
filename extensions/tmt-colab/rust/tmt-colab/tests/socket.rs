@@ -9,7 +9,7 @@ use std::{
     path::PathBuf,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering},
     },
     thread::JoinHandle,
     time::{Duration, Instant},
@@ -74,6 +74,8 @@ struct Running {
     /// Parks a save after its snapshot is taken, so the page can move under the snapshot.
     snapshot_gate: SaveGate,
     replacement: Arc<AtomicBool>,
+    /// Reads of the serve's reader clock still to succeed before one fails; `-1`: none fails.
+    clock_fault: Arc<AtomicI32>,
     registration: Arc<Mutex<Registration>>,
     root: PathBuf,
     path: PathBuf,
@@ -131,6 +133,8 @@ impl Running {
         let snapshot_gate: SaveGate = Arc::default();
         let after_snapshot = Arc::clone(&snapshot_gate);
         let save_root = root.clone();
+        let clock_fault = Arc::new(AtomicI32::new(-1));
+        let faulty_clock = Arc::clone(&clock_fault);
         let observes_rekey = rekey_probe.is_some();
         let mut registration = Registration::with_decoder_config(
             store,
@@ -157,7 +161,18 @@ impl Running {
                 release.recv_timeout(Duration::from_secs(30)).unwrap();
             }
             source
-        }));
+        }))
+        .with_reader_clock(move || match faulty_clock.load(Ordering::SeqCst) {
+            0 => {
+                faulty_clock.store(-1, Ordering::SeqCst);
+                Err(tmt_colab::registration::Code::Unavailable)
+            }
+            reads if reads > 0 => {
+                faulty_clock.store(reads - 1, Ordering::SeqCst);
+                Ok(now())
+            }
+            _ => Ok(now()),
+        });
         for id in [DEVICE, OTHER] {
             registration
                 .register(Some(&context(id)), &registration_body(id), now())
@@ -200,6 +215,7 @@ impl Running {
             save_gate,
             snapshot_gate,
             replacement,
+            clock_fault,
             registration,
             root,
             path,
@@ -5361,4 +5377,354 @@ fn the_serve_runs_cloud_sync_once_listening_asks_remote_once_and_joins_it_at_sto
     assert!(reports.lock().unwrap().is_empty());
     // Dropping the server stops the serve, which joins the worker before returning.
     drop(server);
+}
+
+const REQUEST_LINK: &str = "20000000-0000-4000-8000-000000000001";
+const REQUEST_DEVICE: &str = "30000000-0000-4000-8000-000000000001";
+fn request_op(n: u64) -> String {
+    format!("60000000-0000-4000-8000-{n:012x}")
+}
+/// The link device's own stream as a holder writes it: each request is a delta of its `own`
+/// document, sealed as that device and appended in sequence.
+struct RequestStream {
+    updates: Vec<Vec<u8>>,
+    previous: [u8; 32],
+}
+impl RequestStream {
+    fn new() -> Self {
+        Self {
+            updates: Vec::new(),
+            previous: [0; 32],
+        }
+    }
+    /// The `append` frame carrying one edit request, which the session's connection stores.
+    fn request(
+        &mut self,
+        server: &Running,
+        session: &Value,
+        operation: &str,
+        base: &str,
+        source: &str,
+        hunks: Option<Value>,
+    ) -> Value {
+        use tmt_colab::decoder::{Decoder, Namespace, OwnRecord, UpdateBatch};
+        let mut record = json!({"version":1,"kind":"edit-request","operationId":operation,
+            "baseSha256":sha(base.as_bytes()),"sourceSha256":sha(source.as_bytes()),"source":source});
+        if let Some(hunks) = hunks {
+            record["hunks"] = hunks;
+        }
+        let mut decoder = Decoder::with_config(support::decoder_config(
+            env!("CARGO_BIN_EXE_tmt-colab").into(),
+        ))
+        .unwrap();
+        let prior: Vec<&[u8]> = self.updates.iter().map(Vec::as_slice).collect();
+        let update = decoder
+            .prepare_own(
+                UpdateBatch {
+                    namespace: Namespace::Own,
+                    baseline: &[],
+                    updates: &prior,
+                },
+                &[OwnRecord {
+                    root: "intents".into(),
+                    key: operation.into(),
+                    value: record,
+                }],
+                None,
+            )
+            .unwrap()
+            .merged;
+        let layout = Layout::existing(&server.root).unwrap().unwrap();
+        let store = Store::read(&layout).unwrap();
+        let head = store
+            .owner_head(
+                &server.space,
+                &Keyring::read(&layout).unwrap().owner_public(),
+            )
+            .unwrap()
+            .unwrap()
+            .revision;
+        let seq = self.updates.len() as u64 + 1;
+        let envelope = object::seal(
+            &object::Context {
+                space: server.space.clone(),
+                page: PAGE.into(),
+                epoch: "1".into(),
+                kind: "update".into(),
+                namespace: "own".into(),
+                author_device: REQUEST_DEVICE.into(),
+                membership_revision: head.to_string(),
+                stream_seq: seq.to_string(),
+                prev_hash: self.previous,
+            },
+            &[8; 32],
+            &SigningKey::from_bytes(&[19; 32]),
+            &update,
+        )
+        .unwrap();
+        self.previous = envelope.hash().unwrap();
+        self.updates.push(update);
+        server.reader_frame(
+            session,
+            "append",
+            json!({"streamId":REQUEST_DEVICE,"seq":seq.to_string(),
+                "envelopeHash":values::encode_binary(&self.previous),
+                "envelope":values::encode_binary(&envelope.to_json().unwrap())}),
+        )
+    }
+}
+impl Running {
+    /// The state the serve recorded for an edit request, once it has.
+    fn decision(&self, operation: &str) -> String {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            let state: Option<String> = self
+                .oracle()
+                .query_row(
+                    "SELECT state FROM edit_decisions WHERE operation=?",
+                    [operation],
+                    |row| row.get(0),
+                )
+                .ok();
+            if let Some(state) = state {
+                return state;
+            }
+            assert!(Instant::now() < deadline, "no decision for {operation}");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+}
+
+#[test]
+fn an_editor_links_edit_requests_are_saved_through_the_save_merge_and_decided_once() {
+    let server = Running::start(Tunnels::PRODUCT);
+    let session = server.link_session("editor");
+    let mut link = server.reader_peer(&session);
+    let layout = Layout::existing(&server.root).unwrap().unwrap();
+    let key = Keyring::read(&layout).unwrap();
+    let mut stream = RequestStream::new();
+    let mut ask = |n: u64, base: &str, source: &str, hunks: Option<Value>| {
+        let frame = stream.request(&server, &session, &request_op(n), base, source, hunks);
+        send(&mut link, frame);
+        assert_eq!(receive_until(&mut link, "receipt").0["type"], "receipt");
+        server.decision(&request_op(n))
+    };
+    // A request from the page it was edited from is applied, signed by no link.
+    assert_eq!(ask(1, "", FIVE, None), "applied");
+    assert_eq!(native_source(&layout, &key), FIVE);
+    let upper = "ONE\ntwo\nthree\nfour\nfive\n";
+    assert_eq!(
+        ask(2, FIVE, upper, Some(json!([hunk(1, "one\n", "ONE\n")]))),
+        "applied"
+    );
+    assert_eq!(native_source(&layout, &key), upper);
+    // From the older page, a change that does not overlap merges into the page as it is now...
+    let last = "one\ntwo\nthree\nfour\nFIVE\n";
+    assert_eq!(
+        ask(3, FIVE, last, Some(json!([hunk(5, "five\n", "FIVE\n")]))),
+        "applied"
+    );
+    let merged = "ONE\ntwo\nthree\nfour\nFIVE\n";
+    assert_eq!(native_source(&layout, &key), merged);
+    // ...and one whose text has moved is a conflict, as is a request with no hunks at all. Neither
+    // writes anything.
+    let moved = "uno\ntwo\nthree\nfour\nfive\n";
+    assert_eq!(
+        ask(4, FIVE, moved, Some(json!([hunk(1, "one\n", "uno\n")]))),
+        "conflict"
+    );
+    assert_eq!(ask(5, FIVE, moved, None), "conflict");
+    assert_eq!(native_source(&layout, &key), merged);
+    let decided: i64 = server
+        .oracle()
+        .query_row("SELECT count(*) FROM edit_decisions", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(decided, 5);
+}
+
+#[test]
+fn a_commenter_links_edit_request_is_refused_and_writes_nothing() {
+    let server = Running::start(Tunnels::PRODUCT);
+    let session = server.link_session("commenter");
+    let mut link = server.reader_peer(&session);
+    let layout = Layout::existing(&server.root).unwrap().unwrap();
+    let key = Keyring::read(&layout).unwrap();
+    let frame = RequestStream::new().request(
+        &server,
+        &session,
+        &request_op(1),
+        "",
+        "<p>Asked by a commenter</p>\n",
+        None,
+    );
+    send(&mut link, frame);
+    assert_eq!(receive_until(&mut link, "receipt").0["type"], "receipt");
+    assert_eq!(server.decision(&request_op(1)), "refused");
+    assert_eq!(native_source(&layout, &key), "");
+}
+
+#[test]
+fn a_request_whose_link_ends_before_it_is_decided_writes_nothing_and_ends_the_holders_session() {
+    use tmt_colab::transitions::{Engine, LinkAction, OwnerAction, OwnerRequest};
+    let server = Running::start(Tunnels::PRODUCT);
+    let session = server.link_session("editor");
+    let mut link = server.reader_peer(&session);
+    let layout = Layout::existing(&server.root).unwrap().unwrap();
+    let key = Keyring::read(&layout).unwrap();
+    // Park the serve just as it starts to read the page for the request...
+    let (entered, parked) = std::sync::mpsc::channel();
+    let (release, wait) = std::sync::mpsc::channel();
+    *server.save_gate.lock().unwrap() = Some((entered, wait));
+    let frame = RequestStream::new().request(
+        &server,
+        &session,
+        &request_op(1),
+        "",
+        "<p>Asked just before the link ended</p>\n",
+        None,
+    );
+    send(&mut link, frame);
+    parked.recv_timeout(Duration::from_secs(30)).unwrap();
+    // ...end the link meanwhile...
+    let mut store = Store::open(&layout).unwrap();
+    let expected_revision = store
+        .owner_head(&server.space, &key.owner_public())
+        .unwrap()
+        .unwrap()
+        .revision;
+    Engine::with_decoder_config(support::decoder_config(
+        env!("CARGO_BIN_EXE_tmt-colab").into(),
+    ))
+    .unwrap()
+    .apply(
+        &mut store,
+        &key,
+        OwnerRequest {
+            operation_id: "40000000-0000-4000-8000-000000000009",
+            expected_revision,
+            action: OwnerAction::Link(LinkAction::Remove {
+                link_id: REQUEST_LINK,
+            }),
+            transport_digest: None,
+            scope: None,
+        },
+        now(),
+    )
+    .unwrap();
+    // ...and let it go on. The holder's session ends rather than waiting for an answer, and
+    // the page keeps the text it had.
+    release.send(()).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        match link.read() {
+            Ok(Message::Close(_)) | Err(_) => break,
+            Ok(_) => assert!(Instant::now() < deadline, "the session did not end"),
+        }
+    }
+    assert_eq!(native_source(&layout, &key), "");
+    let applied: i64 = server
+        .oracle()
+        .query_row(
+            "SELECT count(*) FROM edit_decisions WHERE state='applied'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(applied, 0);
+}
+
+#[test]
+fn a_request_the_serve_could_get_no_answer_for_stays_undecided_until_a_later_try_settles_it() {
+    // The clock fails at the first read of the request's link (before the save is prepared) and
+    // at the second (when the prepared save is about to commit): neither is a refusal of the link.
+    for reads_before_failure in [0, 1] {
+        let server = Running::start(Tunnels::PRODUCT);
+        let session = server.link_session("editor");
+        let mut link = server.reader_peer(&session);
+        let layout = Layout::existing(&server.root).unwrap().unwrap();
+        let key = Keyring::read(&layout).unwrap();
+        let mut stream = RequestStream::new();
+        // Park the serve just as it starts to read the page for the request, so the failure
+        // is armed after the append that carried the request was admitted.
+        let (entered, parked) = std::sync::mpsc::channel();
+        let (release, wait) = std::sync::mpsc::channel();
+        *server.save_gate.lock().unwrap() = Some((entered, wait));
+        let frame = stream.request(&server, &session, &request_op(1), "", FIVE, None);
+        send(&mut link, frame);
+        parked.recv_timeout(Duration::from_secs(30)).unwrap();
+        server
+            .clock_fault
+            .store(reads_before_failure, Ordering::SeqCst);
+        release.send(()).unwrap();
+        assert_eq!(receive_until(&mut link, "receipt").0["type"], "receipt");
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while server.clock_fault.load(Ordering::SeqCst) != -1 {
+            assert!(
+                Instant::now() < deadline,
+                "the serve never failed its clock"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        std::thread::sleep(Duration::from_millis(500));
+        let decided: i64 = server
+            .oracle()
+            .query_row("SELECT count(*) FROM edit_decisions", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(decided, 0, "a failed clock decided the request");
+        assert_eq!(native_source(&layout, &key), "");
+        // The next request on the page settles both, the first one applied rather than refused.
+        let upper = "ONE\ntwo\nthree\nfour\nfive\n";
+        let frame = stream.request(
+            &server,
+            &session,
+            &request_op(2),
+            FIVE,
+            upper,
+            Some(json!([hunk(1, "one\n", "ONE\n")])),
+        );
+        send(&mut link, frame);
+        assert_eq!(receive_until(&mut link, "receipt").0["type"], "receipt");
+        assert_eq!(server.decision(&request_op(1)), "applied");
+        assert_eq!(server.decision(&request_op(2)), "applied");
+        assert_eq!(native_source(&layout, &key), upper);
+    }
+}
+
+#[test]
+fn a_page_with_a_full_epoch_of_decisions_saves_no_further_request() {
+    let server = Running::start(Tunnels::PRODUCT);
+    let session = server.link_session("editor");
+    let mut link = server.reader_peer(&session);
+    let layout = Layout::existing(&server.root).unwrap().unwrap();
+    let key = Keyring::read(&layout).unwrap();
+    // The epoch already holds its most decisions.
+    let mut oracle = server.oracle();
+    oracle.busy_timeout(Duration::from_secs(10)).unwrap();
+    let tx = oracle.transaction().unwrap();
+    for n in 0..tmt_colab::store::EDIT_DECISIONS as u64 {
+        tx.execute(
+            "INSERT INTO edit_decisions VALUES (?,?,?,?,?)",
+            rusqlite::params![PAGE, "1", REQUEST_DEVICE, request_op(1000 + n), "applied"],
+        )
+        .unwrap();
+    }
+    tx.commit().unwrap();
+    // A further request is neither saved nor decided, whatever the number of triggers.
+    let mut stream = RequestStream::new();
+    for n in 1..=2 {
+        let frame = stream.request(&server, &session, &request_op(n), "", FIVE, None);
+        send(&mut link, frame);
+        assert_eq!(receive_until(&mut link, "receipt").0["type"], "receipt");
+    }
+    std::thread::sleep(Duration::from_millis(500));
+    let held: i64 = server
+        .oracle()
+        .query_row(
+            "SELECT count(*) FROM edit_decisions WHERE operation IN (?,?)",
+            [request_op(1), request_op(2)],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(held, 0);
+    assert_eq!(native_source(&layout, &key), "", "a request was saved");
 }

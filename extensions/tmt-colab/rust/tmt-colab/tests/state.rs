@@ -940,7 +940,7 @@ fn schema_four_migration_does_not_backfill_or_let_replay_establish_a_time() {
     db.execute_batch("ALTER TABLE owner_operations RENAME TO current_owner_operations;
         CREATE TABLE owner_operations(id TEXT PRIMARY KEY, digest BLOB NOT NULL, outcome BLOB NOT NULL);
         INSERT INTO owner_operations(id,digest,outcome) SELECT id,digest,outcome FROM current_owner_operations;
-        DROP TABLE current_owner_operations; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_labels;
+        DROP TABLE current_owner_operations; DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_labels;
         ALTER TABLE pages DROP COLUMN last_update_at_ms; PRAGMA user_version=4")
         .unwrap();
     let raw = fs::read(layout.directory.join("space.db")).unwrap();
@@ -1202,4 +1202,58 @@ fn a_stream_head_is_its_latest_receipt_and_survives_pruning() {
         ..scope()
     };
     assert!(matches!(store.stream_head(stale), Err(Fault::StaleEpoch)));
+}
+
+#[test]
+fn an_edit_decision_is_final_is_kept_per_epoch_and_is_bounded() {
+    use tmt_colab::store::EditState;
+    const PAGE: &str = "10000000-0000-4000-8000-000000000001";
+    let operation = |n: usize| format!("60000000-0000-4000-8000-{n:012x}");
+    let writer = "30000000-0000-4000-8000-000000000001";
+    let fixture = Fixture::new();
+    let layout = fixture.layout();
+    let mut store = Store::open(&layout).unwrap();
+    store.create_page(PAGE).unwrap();
+    store
+        .decide_edit(PAGE, 1, writer, &operation(1), EditState::Applied)
+        .unwrap();
+    // The first decision stands; a later one for the same request changes nothing.
+    store
+        .decide_edit(PAGE, 1, writer, &operation(1), EditState::Refused)
+        .unwrap();
+    let state: String = rusqlite::Connection::open(layout.directory.join("space.db"))
+        .unwrap()
+        .query_row("SELECT state FROM edit_decisions", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(state, "applied");
+    assert_eq!(
+        store.edit_decisions(PAGE, 1).unwrap(),
+        [(writer.to_owned(), operation(1))].into()
+    );
+    // A new epoch forgets the old one's decisions, which can never matter again.
+    store
+        .decide_edit(PAGE, 2, writer, &operation(2), EditState::Conflict)
+        .unwrap();
+    assert!(store.edit_decisions(PAGE, 1).unwrap().is_empty());
+    assert_eq!(store.edit_decisions(PAGE, 2).unwrap().len(), 1);
+    // An epoch holds a bounded number; a request beyond it waits undecided.
+    for n in 3..=tmt_colab::store::EDIT_DECISIONS + 1 {
+        store
+            .decide_edit(PAGE, 2, writer, &operation(n), EditState::Refused)
+            .unwrap();
+    }
+    assert!(matches!(
+        store.decide_edit(
+            PAGE,
+            2,
+            writer,
+            &operation(tmt_colab::store::EDIT_DECISIONS + 2),
+            EditState::Refused
+        ),
+        Err(Fault::Capacity)
+    ));
+    assert_eq!(
+        store.edit_decisions(PAGE, 2).unwrap().len(),
+        tmt_colab::store::EDIT_DECISIONS
+    );
 }
