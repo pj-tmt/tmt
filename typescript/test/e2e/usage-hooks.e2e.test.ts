@@ -288,6 +288,17 @@ for (const provider of providers) {
       const appendReady = path.join(fixture.root, 'append-ready');
       const stopReady = path.join(fixture.root, 'stop-ready');
       const report = path.join(fixture.root, 'sample-report.json');
+      const trace = path.join(fixture.root, 'sample-trace.jsonl');
+      const observations: Array<Record<string, unknown>> = [];
+      const started = performance.now();
+      const observe = (event: string, state?: unknown) => {
+        observations.push({
+          event,
+          atMs: Date.now(),
+          elapsedMs: performance.now() - started,
+          state,
+        });
+      };
       const scenario = path.join(fixture.root, 'sample-scenario.json');
       const hook = (event: string) => ({
         args: ['__hook', provider.name],
@@ -318,6 +329,7 @@ for (const provider of providers) {
         'env',
         `HOME=${home}`,
         `TMT_HOME=${fixture.globalDir}`,
+        `TMT_TEST_HOOK_TRACE=${trace}`,
         fixture.executables.cli.executable,
         ...fixture.executables.cli.args,
         'run',
@@ -339,6 +351,7 @@ for (const provider of providers) {
         `${command}; printf '%s' "$?" > ${quote(status)}`,
       ]);
       fixture.tmux(['send-keys', '-t', pane, 'Enter']);
+      observe('launch submitted');
       await fixture.waitFor(
         () => fs.existsSync(appendReady),
         10000,
@@ -349,15 +362,25 @@ for (const provider of providers) {
       });
       try {
         expect(fs.existsSync(report)).toBe(false);
+        observe('before append', database.prepare('SELECT * FROM consumption_sources').all());
         fs.appendFileSync(transcript, provider.appended);
-        const latest = () =>
-          database
+        observe('transcript appended', { bytes: fs.statSync(transcript).size });
+        let previous: string | undefined;
+        const latest = () => {
+          const row = database
             .prepare(
               'SELECT s.identity_id,s.sampled_at_ms,s.latest FROM consumption_sources s JOIN identities i ON i.id=s.identity_id WHERE i.name=?'
             )
             .get('Sample Reader') as
             | { identity_id: string; sampled_at_ms: number; latest: string }
             | undefined;
+          const current = JSON.stringify(row) ?? 'absent';
+          if (current !== previous) {
+            observe('foreground source changed', row);
+            previous = current;
+          }
+          return row;
+        };
         await fixture.waitFor(
           () => {
             const row = latest();
@@ -382,6 +405,7 @@ for (const provider of providers) {
         expect(live.resume?.consumption).toMatchObject(provider.updated);
         expect(live.session.activity.state).toBe('working');
         expect(fs.existsSync(report), 'Stop has not run').toBe(false);
+        observe('foreground counter observed', observed);
         fs.writeFileSync(appendReady, 'continue');
         await fixture.waitFor(() => fs.existsSync(stopReady), 2000, 'held Stop checkpoint');
         await fixture.waitFor(
@@ -432,6 +456,7 @@ for (const provider of providers) {
           provider.updated.outputTokens - provider.consumption.outputTokens
         );
         expect(buckets.reduce((sum, row) => sum + row.coveredMs, 0)).toBeGreaterThan(0);
+        observe('history seeded; releasing Stop');
         fs.writeFileSync(stopReady, 'continue');
         await fixture.waitFor(
           () => fs.existsSync(status),
@@ -469,6 +494,34 @@ for (const provider of providers) {
           input: provider.updated.inputTokens - provider.consumption.inputTokens,
           output: provider.updated.outputTokens - provider.consumption.outputTokens,
         });
+      } catch (error) {
+        // Capture before fixture cleanup, without invoking any state-changing CLI read.
+        // Successful runs stay silent; a capture failure must not replace the assertion.
+        try {
+          const read = (file: string) =>
+            fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
+          console.error(
+            'Foreground consumption failure evidence:',
+            JSON.stringify({
+              provider: provider.name,
+              observations,
+              capturedAtMs: Date.now(),
+              elapsedMs: performance.now() - started,
+              checkpoints: { append: read(appendReady), stop: read(stopReady) },
+              childStatus: read(status),
+              scenarioReport: read(report),
+              hookTrace: read(trace),
+              pane: fixture.tmux(['capture-pane', '-p', '-t', pane, '-S', '-200']),
+              bindings: database.prepare('SELECT * FROM bindings').all(),
+              preferences: database.prepare('SELECT * FROM identity_session_preferences').all(),
+              sources: database.prepare('SELECT * FROM consumption_sources').all(),
+              buckets: database.prepare('SELECT * FROM consumption_buckets').all(),
+            })
+          );
+        } catch (captureError) {
+          console.error('Could not capture foreground consumption failure evidence:', captureError);
+        }
+        throw error;
       } finally {
         database.close();
       }
