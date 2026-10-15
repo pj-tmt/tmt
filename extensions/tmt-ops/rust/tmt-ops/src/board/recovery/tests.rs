@@ -154,6 +154,73 @@ fn recovery_confirmation_keeps_escape_hint_whole_at_low_height() {
     }
 }
 #[test]
+fn short_recovery_review_keeps_its_subject_and_current_action_visible() {
+    for (screen, subject) in [
+        (Screen::Confirm, "Restore snapshot: saved"),
+        (Screen::Delete, "Delete snapshot: saved"),
+    ] {
+        let mut c = controller();
+        c.screen = screen;
+        c.confirmation = c.selection();
+        let mut app = crate::board::app::workspace::tests::board();
+        app.recovery = Some(c);
+        let mut terminal = Terminal::new(TestBackend::new(60, 8)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        let c = app.recovery.as_ref().unwrap();
+        let state = c.panel.borrow();
+        let map = state.frame.as_ref().unwrap();
+        assert_eq!(map.areas.outer, ratatui::layout::Rect::new(0, 0, 60, 8));
+        assert!(map.areas.content.height > 0);
+        let text: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(text.contains(subject), "{subject}: {text}");
+        assert!(
+            map.hits
+                .iter()
+                .any(|hit| hit.row_id.as_deref() == Some("cancel") && hit.rect.height > 0)
+        );
+        assert!(
+            !c.readable.get(),
+            "clipped required review must not authorize a write"
+        );
+        drop(state);
+        assert!(
+            app.recovery
+                .as_mut()
+                .unwrap()
+                .input(&Event::Key(KeyEvent::new(
+                    KeyCode::Down,
+                    KeyModifiers::NONE
+                )))
+                .is_none()
+        );
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        let text: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(text.contains(if screen == Screen::Delete {
+            "Delete snapshot"
+        } else {
+            "Restore"
+        }));
+        assert!(text.contains(subject));
+        assert!(!app.recovery.as_ref().unwrap().readable.get());
+    }
+}
+#[test]
 fn cancel_selection_and_preview_have_no_restore_authority() {
     let mut c = controller();
     let task = c.select("snapshot:saved").unwrap();

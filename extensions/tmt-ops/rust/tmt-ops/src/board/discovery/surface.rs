@@ -314,7 +314,19 @@ impl Controller {
     pub fn render(&self, frame: &mut Frame, look: Look, body: Rect) {
         static TEMPLATE: OnceLock<surface::Template<()>> = OnceLock::new();
         static REVIEW_TEMPLATE: OnceLock<surface::Template<()>> = OnceLock::new();
-        let template = if self.screen == Screen::Confirm {
+        static SHEET_TEMPLATE: OnceLock<surface::Template<()>> = OnceLock::new();
+        let short = self.screen == Screen::Confirm && body.height < 8;
+        let template = if short {
+            SHEET_TEMPLATE.get_or_init(|| {
+                picker_surface::compile(
+                    FILE,
+                    &MARKUP
+                        .replace(" h-38", "")
+                        .replace("placement=\"center\"", "placement=\"body\""),
+                    picker_surface::schema(&["label", "cursor"]),
+                )
+            })
+        } else if self.screen == Screen::Confirm {
             REVIEW_TEMPLATE.get_or_init(|| {
                 picker_surface::compile(
                     FILE,
@@ -348,9 +360,19 @@ impl Controller {
         // The shared modal reserves one field row; the shared editor owns its
         // escaped cells, wrapping, cursor and pointer-to-source projection.
         let query = if self.screen == Screen::Form {
-            "▏"
+            "▏".to_owned()
+        } else if short {
+            self.confirmation
+                .as_ref()
+                .map_or_else(String::new, |selection| {
+                    format!(
+                        "Bind {} · {}",
+                        safe(&selection.key.pane),
+                        selector(selection)
+                    )
+                })
         } else {
-            ""
+            String::new()
         };
         let status = if let Some(task) = &self.pending {
             if task.job.writes() {
@@ -373,9 +395,18 @@ impl Controller {
         let footer = if self.screen == Screen::Confirm {
             let width = Modal {
                 title: String::new(),
-                placement: Placement::Center,
+                placement: if short {
+                    Placement::Body
+                } else {
+                    Placement::Center
+                },
             }
-            .areas(body, [120, 38], true, false)
+            .areas(
+                if short { frame.area() } else { body },
+                [120, 38],
+                true,
+                false,
+            )
             .footer
             .width;
             let hints = [
@@ -392,7 +423,9 @@ impl Controller {
         } else {
             footer.to_owned()
         };
-        let body = if self.screen == Screen::Confirm {
+        let body = if short {
+            frame.area()
+        } else if self.screen == Screen::Confirm {
             // Keep the existing 38-row modal cap while allowing intrinsic fit.
             let height = body.height.min(48);
             Rect::new(

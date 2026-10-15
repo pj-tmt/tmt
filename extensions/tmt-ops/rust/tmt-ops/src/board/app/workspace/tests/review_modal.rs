@@ -144,6 +144,30 @@ fn frozen_operation_names_the_whole_confirm_and_survives_changed_selection() {
     }
 }
 #[test]
+fn management_review_renders_the_frame_title_once() {
+    let app = review(
+        Kind::Remove,
+        Change::Membership(Operation::Remove {
+            room: RoomTarget {
+                id: ROOM.into(),
+                name: "product".into(),
+                revision: 2,
+            },
+            member: MEMBER.into(),
+        }),
+    );
+    for (width, height) in [(160, 36), (100, 24), (60, 8)] {
+        let buffer = draw(&app, width, height);
+        let text: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
+        assert_eq!(
+            text.matches("Remove membership · product").count(),
+            1,
+            "{width}x{height}: {text}"
+        );
+        assert!(text.contains("Remove membership: worker"));
+    }
+}
+#[test]
 fn short_review_fits_while_overflow_keeps_its_scroll_and_height_cap() {
     let app = review(Kind::RenameMember, rename_operation("worker"));
     draw(&app, 160, 36);
