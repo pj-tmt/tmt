@@ -23,6 +23,7 @@ it.each([
   ['threads', 'thread'],
   ['intents', 'ask'],
   ['intents', 'attachment-publication'],
+  ['intents', 'edit-request'],
   ['messages', 'comment'],
   ['messages', 'ask-state'],
   ['messages', 'thread-status'],

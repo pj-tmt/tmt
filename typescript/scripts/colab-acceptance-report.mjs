@@ -32,7 +32,7 @@ function ownPublication(attachment) {
     const fields = ['root', 'kind', 'streamId', 'submittedSeq', 'admittedSeq', 'leaderReceipt'];
     const kinds = {
       threads: ['thread'],
-      intents: ['ask', 'attachment-publication'],
+      intents: ['ask', 'attachment-publication', 'edit-request'],
       messages: [
         'comment',
         'ask-state',

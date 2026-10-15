@@ -97,13 +97,16 @@ describe('public Colab acceptance evidence', () => {
     expect(report.tests[0].results[0].ownPublications).toEqual([diagnostic]);
   });
 
-  it('retains the attachment-publication kind only under its intents root', () => {
-    const row = { ...diagnostic, root: 'intents', kind: 'attachment-publication' };
-    const { report } = runReport((result) => {
-      result.attachments.push(attachment(row), attachment({ ...row, root: 'messages' }));
-    });
-    expect(report.tests[0].results[0].ownPublications).toEqual([row]);
-  });
+  it.each(['attachment-publication', 'edit-request'])(
+    'retains %s only under its intents root',
+    (kind) => {
+      const row = { ...diagnostic, root: 'intents', kind };
+      const { report } = runReport((result) => {
+        result.attachments.push(attachment(row), attachment({ ...row, root: 'messages' }));
+      });
+      expect(report.tests[0].results[0].ownPublications).toEqual([row]);
+    }
+  );
 
   it.each([
     { key: secret },
