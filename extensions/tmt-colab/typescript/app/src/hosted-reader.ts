@@ -102,14 +102,10 @@ export class HostedPageReader {
       // A new writer's log/checkpoint wakes the page even when membership has not changed.
       // Fetch its owner-issued certificate through the same bounded discovery, without a timer.
       if ([...writers].some((writer) => !this.knownWriters.has(writer))) {
-        // Discovery also carries nonwriting link-device proofs. Only observed authors enter
-        // the existing strict member-chain verifier; never discard a referenced writer's chain.
-        const chains = (await this.authority('chain', '', call))
-          .map((bytes) => {
-            const chain = certificate.Chain.fromJson(bytes);
-            return { deviceId: chain.certificate().deviceId, chain: encodeBinary(bytes) };
-          })
-          .filter((chain) => writers.has(chain.deviceId));
+        const chains = (await this.authority('chain', '', call)).map((bytes) => {
+          const chain = certificate.Chain.fromJson(bytes);
+          return { deviceId: chain.certificate().deviceId, chain: encodeBinary(bytes) };
+        });
         for (let index = 0; index < chains.length; index += 64)
           await a.chains(chains.slice(index, index + 64));
       }
