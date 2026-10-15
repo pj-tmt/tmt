@@ -215,6 +215,7 @@ pub(super) enum ActionOutcome {
     Workspace(Box<Result<crate::membership::Outcome, crate::core::SquadError>>),
     RenameMember(Box<workspace::rename_member::Completed>),
     Message(String),
+    WorkspacePreferences(Box<(crate::config::OpsPreferences, String)>),
     Send(Box<conversation::outgoing::Completed>),
     Status(Box<crate::membership::status_update::Outcome>),
     /// Core agreed that the person at the board may change a member's digest.
@@ -340,10 +341,15 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
             expected,
             next,
             saved,
-        } => Config::load(core)
-            .and_then(|mut config| config.save_workspace_preferences(&expected, &next))
-            .map(|()| saved.unwrap_or_else(|| "Workspace preferences saved.".to_owned()))
-            .map_err(|error| error.message),
+        } => {
+            Config::load(core)
+                .and_then(|mut config| config.save_workspace_preferences(&expected, &next))
+                .map_err(|error| error.message)?;
+            return Ok(ActionOutcome::WorkspacePreferences(Box::new((
+                next,
+                saved.unwrap_or_else(|| "Workspace preferences saved.".to_owned()),
+            ))));
+        }
         Request::Cron(request) => cronboard::act(core, request),
         Request::Reply {
             me,
@@ -649,6 +655,10 @@ fn session(
                     }
                     Ok(ActionOutcome::Status(outcome)) => app.finished_status(*outcome),
                     Ok(ActionOutcome::Message(message)) => app.finished(Ok(message)),
+                    Ok(ActionOutcome::WorkspacePreferences(completed)) => {
+                        let (preferences, message) = *completed;
+                        app.finished_workspace_preferences(preferences, message);
+                    }
                     Ok(ActionOutcome::Send(completed)) => app.finished_send(*completed),
                     Ok(ActionOutcome::Digest(granted)) => app.open_digest(*granted),
                     Err(error) => app.finished(Err(error)),
@@ -869,25 +879,65 @@ fn session(
     }
 }
 
-/// Resolve the initial board selection before terminal admission. Reads only public Squad/core ports.
-pub(super) fn selection(
+/// Resolve every explicit launch name before the terminal is admitted. Order
+/// retains the first requested squad; repeated aliases of one room collapse.
+pub(super) fn launch_scope(
     core: &Core,
-    _config: &Config,
-    input: Option<&str>,
-    initial: Option<&str>,
-) -> Result<Option<String>, SquadError> {
+    names: &[String],
+    resumed: bool,
+) -> Result<Vec<crate::squad::Squad>, SquadError> {
+    use crate::squad::Squad;
+    // A carried UUID scope (including an explicit clear) supersedes argv.
+    // A renamed/deleted launch name must not prevent the session from reloading.
+    if resumed {
+        return Ok(Vec::new());
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    let mut squads = Vec::new();
+    for name in names {
+        let squad = Squad::resolve(core, Some(name)).map_err(|error| {
+            if error.code != "SQUAD_NOT_FOUND" {
+                return error;
+            }
+            let Ok(mut valid) = Squad::list(core) else {
+                return error;
+            };
+            valid.sort_by(|a, b| a.name.cmp(&b.name));
+            SquadError::new(
+                &error.code,
+                format!(
+                    "{} Valid squads: {}.",
+                    error.message,
+                    if valid.is_empty() {
+                        "(none)".into()
+                    } else {
+                        valid
+                            .iter()
+                            .map(|squad| squad.name.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    }
+                ),
+            )
+        })?;
+        if seen.insert(squad.room_id.clone()) {
+            squads.push(squad);
+        }
+    }
+    Ok(squads)
+}
+
+/// Retired tab selection fails before terminal admission in every UI route.
+pub(super) fn reject_retired_tabs(input: Option<&str>) -> Result<(), SquadError> {
     if input.is_some() {
         return Err(SquadError::hinted(
             "SQUAD_UI_TABS_RETIRED",
             "ui --tabs belongs to the retired squad-tab layout",
             "; use ",
-            "the workspace search and squad pins, with 1/2/3 for the shell tabs.",
+            "Hide squad or ui --squad NAME (repeatable), with 1/2/3 for the shell tabs.",
         ));
     }
-    if let Some(name) = initial.filter(|name| *name != ALL) {
-        crate::squad::Squad::resolve(core, Some(name))?;
-    }
-    Ok(Some(ALL.into()))
+    Ok(())
 }
 
 /// `ui --reload-all`: every board that started before now reloads once it is idle.
@@ -898,8 +948,7 @@ pub fn request_reload_all(now_ms: u64) -> Result<(), SquadError> {
 /// Returns the signal that ended the board; a popup closes after a successful jump.
 pub fn run(
     core: Core,
-    squad: Option<String>,
-    picks: Option<String>,
+    names: Vec<String>,
     popup: bool,
     interaction: tmt_cli_style::Interaction,
 ) -> Result<Option<i32>, SquadError> {
@@ -908,10 +957,15 @@ pub fn run(
     terminal::restore_before_panic_reports();
     let stop = terminal::stop_requested().map_err(failed)?;
     core.paths.use_board_notices();
-    // The screen is ours before any command runs: a placeholder is painted at once,
-    // and the config read, the worker's setup reads and the terminal's background
-    // query all follow it. A failure below drops the guard, which restores the
-    // terminal before the error is reported.
+    // The state a reload left for this pid, consumed whether or not it is used.
+    let now_ms = crate::status::now_ms();
+    let resume = resume::directory()
+        .and_then(|directory| resume::Resume::take(&directory, std::process::id(), now_ms));
+    let scope = launch_scope(&core, &names, resume.is_some())?;
+    // Cold launch names resolve before admission; a reload uses carried UUIDs.
+    // Once admitted, paint the placeholder before configuration, worker setup
+    // and the terminal background query. A later failure drops the guard and
+    // restores the terminal before the error is reported.
     let mut guard = terminal::Guard::enter(terminal::Crossterm).map_err(failed)?;
     let mut screen = Terminal::new(CrosstermBackend::new(io::stdout())).map_err(failed)?;
     timing::measure(startup.as_ref(), "startup.placeholder", || {
@@ -928,10 +982,6 @@ pub fn run(
         })
     })
     .map_err(failed)?;
-    // The state a reload left for this pid, consumed whether or not it is used.
-    let now_ms = crate::status::now_ms();
-    let resume = resume::directory()
-        .and_then(|directory| resume::Resume::take(&directory, std::process::id(), now_ms));
     // Resolve this disposable path only at the interactive entry, after the
     // placeholder. App/oracle constructors never resolve or read user state.
     let mut view_state = timing::measure(startup.as_ref(), "startup.view_state", || {
@@ -939,7 +989,7 @@ pub fn run(
             view_state::Session::load(
                 directory.join("view.json"),
                 resume.is_some(),
-                squad.is_some(),
+                !scope.is_empty(),
             )
         }))
     })?;
@@ -952,8 +1002,7 @@ pub fn run(
     let config = timing::measure(startup.as_ref(), "startup.Config::load", || {
         Config::load(&core)
     })?;
-    let startup_squad = squad.clone();
-    let squad = selection(&core, &config, picks.as_deref(), squad.as_deref())?;
+    let squad = Some(ALL.to_owned());
     // The labels read in the background; nothing waits for it, and a source that
     // does not answer simply never shows. Dropping it ends the thread.
     let labels = crate::labels::Reader::spawn(
@@ -983,7 +1032,8 @@ pub fn run(
         .map(|reply| terminal::background::ReplyFilter::seed(&reply.received, Instant::now()));
     let mut app = App::new(squad);
     app.invoker_tmux = invoker_tmux;
-    app.workspace_startup = startup_squad;
+    app.workspace_startup = scope.first().map(|squad| squad.room_id.clone());
+    app.workspace.visibility.scope = scope.into_iter().map(|squad| squad.room_id).collect();
     app.timing = trace.map(timing::Ui::new);
     app.migration_notice = core.paths.board_notice();
     app.notice = crate::migration::paths(&core, None)?
@@ -1063,6 +1113,14 @@ pub fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_reload_never_resolves_original_scope_names_again() {
+        let core = Core::at(std::path::PathBuf::from("/dev/null/no-core-for-resume"));
+        let original = vec!["renamed-or-deleted".to_owned()];
+        assert!(launch_scope(&core, &original, true).unwrap().is_empty());
+        assert!(launch_scope(&core, &original, false).is_err());
+    }
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use std::sync::{atomic::Ordering, mpsc::channel};
 

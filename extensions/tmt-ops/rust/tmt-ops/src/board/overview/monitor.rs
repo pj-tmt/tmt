@@ -103,6 +103,8 @@ struct Key {
     query: String,
     filter: Filter,
     pins: std::collections::BTreeSet<String>,
+    hidden: std::collections::BTreeSet<String>,
+    visibility: crate::board::workspace::OpsVisibility,
 }
 impl Cache {
     pub fn clear(&mut self) {
@@ -120,6 +122,8 @@ pub(in crate::board) fn scene(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<
         query: app.workspace.query.clone(),
         filter: app.overview_filter,
         pins: snapshot.preferences.agent_pins.clone(),
+        hidden: snapshot.preferences.hidden.clone(),
+        visibility: app.workspace.visibility.clone(),
     };
     let mut cache = app.overview_rows.borrow_mut();
     if let Some((old, scene)) = &cache.held
@@ -130,9 +134,14 @@ pub(in crate::board) fn scene(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<
     // Choose a deterministic admitted membership occurrence for each UUID.
     // Cursor movement must not change row facts, ordering or rebuild this scene.
     // The existing projection owns pool/partial-roster admission.
-    let rows = crate::board::digest_dashboard::rows(snapshot, &app.workspace.query, None)
-        .into_iter()
-        .filter(|row| key.filter == Filter::All || sort::needs_attention(row.state.as_deref()));
+    let rows = crate::board::workspace::identity_rows(
+        snapshot,
+        &app.workspace.query,
+        None,
+        &key.visibility,
+    )
+    .into_iter()
+    .filter(|row| key.filter == Filter::All || sort::needs_attention(row.state.as_deref()));
     let mut projected: Vec<_> = rows
         .map(|row| {
             let v = values(app, snapshot, &row);
@@ -155,7 +164,7 @@ pub(in crate::board) fn scene(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<
         .into();
     let scene = Rc::new(Scene {
         rows,
-        summary: super::summary::project(snapshot, &app.labels),
+        summary: super::summary::project(snapshot, &app.labels, &key.visibility),
         recent: super::events::project(&app.home_leads),
     });
     cache.held = Some((key, Rc::clone(&scene)));

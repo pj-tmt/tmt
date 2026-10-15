@@ -28,6 +28,10 @@ pub enum OpsUiAction {
     WorkspaceSnapshots,
     DiscoverAgents,
     Pin,
+    HideSquad,
+    ShowSquad,
+    RevealHidden,
+    ClearScope,
     Manage,
     CreateSquad,
     RemoveMembership,
@@ -189,6 +193,34 @@ const SPECS: &[OpsUiSpec] = &[
         "timers",
         "timers",
         "show the selected scope's timers",
+        12
+    ),
+    spec!(
+        HideSquad,
+        "hide-squad",
+        "hide squad",
+        "hide the selected squad in Agents and Overview",
+        6
+    ),
+    spec!(
+        ShowSquad,
+        "show-squad",
+        "show squad",
+        "remove the selected squad from saved hidden squads",
+        6
+    ),
+    spec!(
+        RevealHidden,
+        "reveal-hidden",
+        "show",
+        "reveal hidden squads for this session",
+        12
+    ),
+    spec!(
+        ClearScope,
+        "clear-scope",
+        "clears",
+        "clear this session's launch scope",
         12
     ),
     spec!(Pin, "pin", "pin", "pin or unpin the selected squad", 5),

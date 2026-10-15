@@ -460,9 +460,35 @@ o = "run touch ${marker}"
         expect(refused.status).toBe(1);
         expect(refused.body.error.code).toBe('SQUAD_UI_TABS_RETIRED');
         expect(refused.body.error.message).toContain('retired squad-tab layout');
-        expect(refused.body.error.message).toContain('workspace search and squad pins');
+        expect(refused.body.error.message).toContain('Hide squad or ui --squad NAME (repeatable)');
       }
       expect((await ops(sandbox, ['ui', '--squad', 'product'])).body).toEqual(listed.body);
+      expect((await ops(sandbox, ['ui', '--squad=product', '--squad', 'product'])).body).toEqual(
+        listed.body
+      );
+      const infra = await squad(sandbox, ['ls', '--squad', 'infra']);
+      const scoped = await ops(sandbox, [
+        'ui',
+        '--squad',
+        'product',
+        '--squad=infra',
+        '--squad',
+        'product',
+      ]);
+      expect(scoped.status).toBe(0);
+      const { you, ...productDocument } = listed.body;
+      const { you: infraYou, ...infraDocument } = infra.body;
+      expect(infraYou).toEqual(you);
+      expect(scoped.body).toEqual({ squads: [productDocument, infraDocument], you });
+      const missing = await ops(sandbox, ['ui', '--squad', 'missing']);
+      expect(missing.status).toBe(1);
+      expect(missing.body.error.code).toBe('SQUAD_NOT_FOUND');
+      expect(missing.body.error.message).toContain('Valid squads: infra, product, quiet.');
+      // "all" is an ordinary requested name, never the global workspace alias.
+      const absentAll = await ops(sandbox, ['ui', '--squad=all']);
+      expect(absentAll.status).toBe(1);
+      expect(absentAll.body.error.code).toBe('SQUAD_NOT_FOUND');
+
       const excluded = await squad(sandbox, [
         'board',
         '--squad',
@@ -5219,7 +5245,7 @@ describe('large board responsiveness', () => {
     tabSwitch: 10_000,
   };
 
-  it('paints a placeholder before any command and switches tabs off the input thread', async () => {
+  it('paints a placeholder before configuration and switches tabs off the input thread', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
       const found = spawnSync('/usr/bin/which', ['tmux'], { encoding: 'utf8' });
@@ -5301,7 +5327,8 @@ describe('large board responsiveness', () => {
         );
         const first = records();
         const stage = (name: string) => first.find((r) => r.stage === name);
-        // The screen is ours and painted before the config read or any other command.
+        // Cold launch scope is resolved before terminal admission. The admitted
+        // placeholder still precedes configuration and workspace acquisition.
         const placeholder = stage('startup.placeholder')!;
         expect(first[0]).toBe(placeholder);
         expect(

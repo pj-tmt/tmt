@@ -15,7 +15,10 @@ configuration and effects belong to [config-and-effects.md](config-and-effects.m
 
 `board::terminal` owns raw mode, mouse capture and the alternate screen through
 `Screen` and `Guard`. Partial entry is undone; restoration runs on return, error,
-panic and TERM/HUP. Worker shutdown follows terminal restoration.
+panic and TERM/HUP. Worker shutdown follows terminal restoration. Cold launch
+scope names resolve before terminal admission; a valid ephemeral reload handoff
+uses its carried UUID scope and does not resolve the original argv names again.
+Configuration and worker setup follow the admitted placeholder.
 The admitted board selects structured migration notices before entry: the shared
 migration decision feeds the App footer rather than writing untracked stderr
 cells. CLI invocations retain their once-per-invocation warning stream.
@@ -79,7 +82,10 @@ so the pid is kept; a failed `exec` discards the snapshot and returns
 `SQUAD_RELOAD_FAILED`. A failed `exec` also resets SIGPIPE to its default for the
 whole process, so tests drive `restart_with` with an injected failure, never a real `exec`. The new process takes the snapshot once at start and
 `App::carry` applies it on the first fresh workspace view (`carry.rs`): shell,
-tree expansion, exact UUID selection, Reader focus and scroll state. A missing
+tree expansion, exact UUID selection, Reader focus and scroll state, plus session
+scope and hidden-room reveal. Carried visibility overrides original launch argv,
+including a scope cleared before reload. Cold retained view hints cannot set
+visibility; reload triggers and admission remain unchanged. A missing
 workspace target remains explicit and grants no adjacent recipient authority;
 a failed view drops the pending handoff. Version 3 carries no named-tab picks or pane folds;
 old versions are consumed as normal-start misses. The snapshot holds session

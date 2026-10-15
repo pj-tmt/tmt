@@ -35,6 +35,103 @@ fn roster() -> OpsRoster {
 }
 
 #[test]
+fn hidden_squads_do_not_leak_members_into_pool_or_search_and_keep_global_attention() {
+    let mut roster = roster();
+    roster.members.get_mut("one").unwrap().waiting = true;
+    roster.members.get_mut("lead").unwrap().state = Some("blocked".into());
+    let counts = roster.shell_counts();
+    let preferences = OpsPreferences {
+        hidden: ["room".into(), "deleted-room".into()].into(),
+        pinned: ["room".into()].into(),
+        ..Default::default()
+    };
+    let mut workspace = OpsWorkspace {
+        expanded: ["room".into()].into(),
+        pool_expanded: true,
+        ..Default::default()
+    };
+    let rows = workspace.rows(&roster, &preferences);
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].target, OpsTarget::Pool);
+    assert_eq!(rows[0].count, Some(1));
+    assert!(
+        matches!(&rows[1].target, OpsTarget::Member { room_id: None, identity_id } if identity_id == "free")
+    );
+    workspace.query = "Alice".into();
+    assert_eq!(workspace.rows(&roster, &preferences).len(), 1);
+    assert_eq!(roster.shell_counts(), counts);
+    assert_eq!(counts.waiting, 1);
+    assert_eq!(counts.blocked, 1);
+    assert!(preferences.pinned.contains("room"));
+}
+
+#[test]
+fn session_scope_overrides_hidden_squads_and_excludes_unscoped_pool_and_rooms() {
+    let mut roster = roster();
+    roster.squads.push(OpsSquad {
+        room_id: "other".into(),
+        name: "other".into(),
+        members: vec!["one".into()],
+        lead: None,
+        member_states: BTreeMap::new(),
+        observation: OpsObservation::Complete,
+    });
+    let preferences = OpsPreferences {
+        hidden: ["room".into()].into(),
+        ..Default::default()
+    };
+    let mut workspace = OpsWorkspace {
+        expanded: ["room".into(), "other".into()].into(),
+        pool_expanded: true,
+        visibility: OpsVisibility {
+            scope: vec!["room".into()],
+            reveal_hidden: false,
+        },
+        ..Default::default()
+    };
+    let rows = workspace.rows(&roster, &preferences);
+    assert_eq!(rows.len(), 3);
+    assert_eq!(rows[0].target, OpsTarget::Squad("room".into()));
+    assert!(rows.iter().all(|row| match &row.target {
+        OpsTarget::Squad(id)
+        | OpsTarget::Member {
+            room_id: Some(id), ..
+        } => id == "room",
+        _ => false,
+    }));
+    workspace.visibility.scope.clear();
+    let rows = workspace.rows(&roster, &preferences);
+    assert!(rows.iter().any(|row| row.target == OpsTarget::Pool));
+    assert!(
+        rows.iter()
+            .any(|row| row.target == OpsTarget::Squad("other".into()))
+    );
+    assert!(
+        !rows
+            .iter()
+            .any(|row| row.target == OpsTarget::Squad("room".into()))
+    );
+    assert!(rows.iter().any(|row| matches!(&row.target, OpsTarget::Member { room_id: Some(id), identity_id } if id == "other" && identity_id == "one")));
+}
+
+#[test]
+fn revealing_hidden_squads_is_session_only_and_unknown_saved_ids_change_no_rows() {
+    let roster = roster();
+    let mut preferences = OpsPreferences::default();
+    let mut workspace = OpsWorkspace::default();
+    let original = workspace.rows(&roster, &preferences);
+    preferences.hidden.insert("deleted-room".into());
+    assert_eq!(workspace.rows(&roster, &preferences), original);
+    preferences.hidden.insert("room".into());
+    assert_eq!(workspace.rows(&roster, &preferences).len(), 1);
+    workspace.visibility.reveal_hidden = true;
+    assert_eq!(workspace.rows(&roster, &preferences), original);
+    assert_eq!(preferences.hidden.len(), 2);
+    workspace.visibility = OpsVisibility::default();
+    assert_eq!(workspace.rows(&roster, &preferences).len(), 1);
+}
+
+#[test]
 fn shell_counts_deduplicate_memberships_and_keep_attention_independent_of_state() {
     let mut roster = roster();
     let one = roster.members.get_mut("one").unwrap();

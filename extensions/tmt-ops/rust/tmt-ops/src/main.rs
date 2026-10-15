@@ -215,9 +215,11 @@ fn grammar() -> Command {
         .subcommand(board_switch::grammar())
         .subcommand(
             build(specs::UI)
-                .arg(squad_option())
+                .arg(Arg::new("squad").long("squad").value_name("NAME")
+                    .action(ArgAction::Append)
+                    .help("Show only this squad for this session; repeat for several squads; Esc clears"))
                 .arg(Arg::new("tabs").long("tabs").value_name("NAMES")
-                    .help("Retired squad-tab selector; use workspace search and pins with shell keys 1/2/3"))
+                    .help("Retired squad-tab selector; use Hide squad or repeatable --squad"))
                 .arg(
                     Arg::new("popup")
                         .long("popup")
@@ -951,10 +953,13 @@ fn run(
         {
             return ls_tab_document(&core, &mut config, tab);
         }
-        if command == "ui"
-            && let Some(picks) = text("tabs")
-        {
-            board::selection(&core, &config, Some(picks), text("squad"))?;
+        if command == "ui" {
+            board::reject_retired_tabs(text("tabs"))?;
+            let squads = board::launch_scope(&core, &many("squad"), false)?;
+            if !squads.is_empty() {
+                let single = squads.len() == 1;
+                return squads_document(&core, &mut config, squads, single, false);
+            }
         }
         return ls_document(&core, &mut config, text("squad"), refresh_fields);
     }
@@ -1036,6 +1041,17 @@ fn ls_document(
             squads
         }
     };
+    squads_document(core, config, squads, explicit.is_some(), refresh_fields)
+}
+
+/// Existing listing projection shared by ls and the UI's noninteractive scope.
+fn squads_document(
+    core: &Core,
+    config: &mut Config,
+    squads: Vec<Squad>,
+    single: bool,
+    refresh_fields: bool,
+) -> Result<Outcome, SquadError> {
     let you = me::resolve_you(core, config)?;
     let mut documents = Vec::with_capacity(squads.len());
     let mut active_ids = std::collections::BTreeSet::new();
@@ -1090,8 +1106,8 @@ fn ls_document(
         }
         documents.push(document);
     }
-    let mut document = match (explicit, <[Value; 1]>::try_from(documents)) {
-        (Some(_), Ok([one])) => one,
+    let mut document = match (single, <[Value; 1]>::try_from(documents)) {
+        (true, Ok([one])) => one,
         (_, Ok([one])) => json!({"squads": [one]}),
         (_, Err(all)) => json!({"squads": all}),
     };
@@ -1185,12 +1201,18 @@ fn main() -> ExitCode {
     }
     // The board needs a person at a terminal; otherwise it is `ls`.
     if command == "ui" && interaction.view() == Mode::Interactive {
-        let squad = sub.get_one::<String>("squad").cloned();
+        let squads: Vec<String> = sub
+            .get_many::<String>("squad")
+            .into_iter()
+            .flatten()
+            .cloned()
+            .collect();
         let popup = sub.get_flag("popup");
         let picks = sub.get_one::<String>("tabs").cloned();
-        return match Core::discover()
-            .and_then(|core| board::run(core, squad, picks, popup, interaction))
-        {
+        return match Core::discover().and_then(|core| {
+            board::reject_retired_tabs(picks.as_deref())?;
+            board::run(core, squads, popup, interaction)
+        }) {
             Ok(signal) => ExitCode::from(board::exit_status(signal)),
             Err(failure) => {
                 report(&failure);

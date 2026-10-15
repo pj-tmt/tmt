@@ -72,6 +72,7 @@ impl App {
     pub(in crate::board) fn resume(&self) -> Option<Resume> {
         let tab = self.current.clone()?;
         Some(Resume {
+            visibility: self.workspace.visibility.clone(),
             shell: self.shell.tab,
             squads_expanded: self.workspace.expanded.iter().cloned().collect(),
             pool_expanded: self.workspace.pool_expanded,
@@ -92,6 +93,10 @@ impl App {
     /// Takes a reload's state in at startup; it applies when the first fresh view of
     /// its tab (the one `App::new` was given) lands.
     pub(in crate::board) fn carry(&mut self, resume: Resume) {
+        // A reload's carried scope, including an explicitly cleared scope,
+        // supersedes the original argv selection before the first projection.
+        self.workspace_startup = None;
+        self.workspace.visibility = resume.visibility.clone();
         self.pending_resume = Some(resume);
     }
 
@@ -271,6 +276,7 @@ mod tests {
             }),
             ("carried state not yet applied", |app| {
                 app.carry(Resume {
+                    visibility: Default::default(),
                     shell: crate::board::shell::OpsTab::Overview,
                     squads_expanded: vec![],
                     pool_expanded: false,

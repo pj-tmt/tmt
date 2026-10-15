@@ -27,8 +27,8 @@ fn supplied(held: serde_json::Value, stale: bool) -> crate::labels::Supplied {
 #[test]
 fn null_stats_keep_the_inherited_idle_setting_without_a_zero_count() {
     let supplied = supplied(serde_json::Value::Null, false);
-    assert!(model::summary(&supplied).contains("held unavailable"));
-    assert!(!model::summary(&supplied).contains("0 held"));
+    assert!(model::summary(&supplied, None).contains("held unavailable"));
+    assert!(!model::summary(&supplied, None).contains("0 held"));
     let details = model::details(&supplied, MEMBER);
     assert!(details.iter().any(|s| s.contains("inherited default")));
     assert!(details.iter().any(|s| s == "Auto: when idle"));
@@ -38,9 +38,9 @@ fn null_stats_keep_the_inherited_idle_setting_without_a_zero_count() {
 #[test]
 fn known_zero_and_retained_stale_statistics_stay_distinct() {
     let zero = supplied(serde_json::json!(0), false);
-    assert!(model::summary(&zero).contains("0 held"));
+    assert!(model::summary(&zero, None).contains("0 held"));
     let stale = supplied(serde_json::json!(3), true);
-    assert!(model::summary(&stale).contains("3 held · stale observation"));
+    assert!(model::summary(&stale, None).contains("3 held · stale observation"));
     assert!(
         model::details(&stale, MEMBER)
             .iter()
@@ -51,7 +51,7 @@ fn known_zero_and_retained_stale_statistics_stay_distinct() {
 #[test]
 fn unavailable_statistics_never_become_zero() {
     assert_eq!(
-        model::summary(&Default::default()),
+        model::summary(&Default::default(), None),
         "Digest status unavailable"
     );
     assert!(
@@ -99,23 +99,39 @@ fn duplicate_memberships_have_one_row_and_keep_a_management_context() {
             serde_json::json!({"id":"id","name":"Agent"}),
         );
     }
-    let rows = model::rows(&snapshot, "agent", None);
+    let rows =
+        crate::board::workspace::identity_rows(&snapshot, "agent", None, &Default::default());
     assert_eq!(rows.len(), 1);
     assert!(
         matches!(&rows[0].target, OpsTarget::Member { room_id: Some(room), .. } if room == "a")
     );
-    assert!(model::rows(&snapshot, "absent", None).is_empty());
+    assert!(
+        crate::board::workspace::identity_rows(&snapshot, "absent", None, &Default::default())
+            .is_empty()
+    );
     let preferred = OpsTarget::Member {
         room_id: Some("b".into()),
         identity_id: "id".into(),
     };
     assert_eq!(
-        model::rows(&snapshot, "agent", Some(&preferred))[0].target,
+        crate::board::workspace::identity_rows(
+            &snapshot,
+            "agent",
+            Some(&preferred),
+            &Default::default()
+        )[0]
+        .target,
         preferred
     );
     snapshot.roster.squads[1].members.clear();
     assert_ne!(
-        model::rows(&snapshot, "agent", Some(&preferred))[0].target,
+        crate::board::workspace::identity_rows(
+            &snapshot,
+            "agent",
+            Some(&preferred),
+            &Default::default()
+        )[0]
+        .target,
         preferred
     );
     snapshot.roster.squads[0].members.clear();
@@ -124,7 +140,8 @@ fn duplicate_memberships_have_one_row_and_keep_a_management_context() {
         identity_id: "id".into(),
     });
     assert!(
-        model::rows(&snapshot, "agent", None).is_empty(),
+        crate::board::workspace::identity_rows(&snapshot, "agent", None, &Default::default())
+            .is_empty(),
         "stale row documents do not establish membership"
     );
 }
@@ -471,3 +488,120 @@ fn disabled_subscription_sampling_never_promises_an_in_flight_read() {
 }
 
 mod performance;
+
+#[test]
+fn scoped_held_counts_exclude_other_identities_and_keep_missing_stats_unknown() {
+    let source = supplied(serde_json::json!(3), false);
+    let only = [MEMBER].into();
+    assert_eq!(model::summary(&source, Some(&only)), "Digest · 3 held");
+    let missing = ["33333333-3333-4333-8333-333333333333"].into();
+    assert_eq!(
+        model::summary(&source, Some(&missing)),
+        "Digest · held unavailable · 1 unknown"
+    );
+    let partial = [MEMBER, "33333333-3333-4333-8333-333333333333"].into();
+    assert_eq!(
+        model::summary(&source, Some(&partial)),
+        "Digest · ≥3 observed held · 1 unknown"
+    );
+    assert_eq!(
+        model::summary(&source, Some(&Default::default())),
+        "Digest · 0 held"
+    );
+}
+
+#[test]
+fn scoped_digest_summary_follows_its_rows_and_saved_hiding_stays_outside_digest() {
+    use crate::board::{
+        shell::OpsTab,
+        workspace::{OpsSquad, OpsTarget},
+    };
+    const OUTSIDE: &str = "77777777-7777-4777-8777-777777777777";
+    const OTHER: &str = "88888888-8888-4888-8888-888888888888";
+    let mut app = board();
+    app.labels = supplied(serde_json::json!(3), false);
+    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    let room = snapshot.roster.squads[0].room_id.clone();
+    snapshot.roster.members.insert(
+        OUTSIDE.into(),
+        OpsMember {
+            id: OUTSIDE.into(),
+            name: "outside".into(),
+            state: Some("working".into()),
+            waiting: false,
+            presence: Some(true),
+            usage: None,
+        },
+    );
+    snapshot.roster.squads.push(OpsSquad {
+        room_id: OTHER.into(),
+        name: "other".into(),
+        members: vec![OUTSIDE.into()],
+        lead: None,
+        member_states: Default::default(),
+        observation: OpsObservation::Complete,
+    });
+    snapshot.rows.insert(
+        OpsTarget::Member {
+            room_id: Some(OTHER.into()),
+            identity_id: OUTSIDE.into(),
+        },
+        serde_json::json!({"id":OUTSIDE,"name":"outside"}),
+    );
+    let mut preferences = snapshot.preferences.clone();
+    preferences.hidden.insert(room.clone());
+    snapshot.set_preferences(preferences);
+    app.shell.tab = OpsTab::Digest;
+    app.workspace.visibility.scope = vec![room];
+    app.workspace_reconcile();
+    assert_eq!(app.workspace_rows().len(), 1);
+    assert_eq!(super::summary(&app), "Digest · 3 held");
+    let mut captures = Vec::new();
+    for (base, depth) in [
+        (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::TrueColor),
+        (
+            tmt_cli_style::Base::TmtLight,
+            tmt_cli_style::Depth::TrueColor,
+        ),
+        (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::None),
+    ] {
+        let view = app.view.as_mut().unwrap();
+        view.look = crate::look::Look {
+            theme: tmt_cli_style::Theme::new(base),
+            depth,
+        };
+        view.home.as_mut().unwrap().workspace.squad_looks.clear();
+        for (width, height) in [(160, 44), (100, 24), (60, 24)] {
+            let mut terminal =
+                ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, height)).unwrap();
+            terminal
+                .draw(|frame| crate::board::view::render(frame, &app))
+                .unwrap();
+            let buffer = terminal.backend().buffer();
+            let lines: Vec<String> = (0..height)
+                .map(|y| (0..width).map(|x| buffer[(x, y)].symbol()).collect())
+                .collect();
+            let text = lines.join("\n");
+            assert!(
+                text.contains("Digest · 3 held"),
+                "the scoped summary must actually paint"
+            );
+            assert!(text.contains("Usage · global identities"));
+            assert!(text.contains("Scope:"));
+            captures.push(serde_json::json!({"width":width,"height":height,"base":format!("{base:?}"),"depth":format!("{depth:?}"),"tab":"Digest","mode":"scoped","lines":lines,
+                "cells":buffer.content.iter().map(|cell|serde_json::json!({"symbol":cell.symbol(),"fg":format!("{:?}",cell.fg),"bg":format!("{:?}",cell.bg),"modifier":format!("{:?}",cell.modifier)})).collect::<Vec<_>>() }));
+        }
+    }
+    if let Some(output) = std::env::var_os("TMT_DIGEST_SCOPE_CAPTURE") {
+        std::fs::write(output, serde_json::to_vec(&captures).unwrap()).unwrap();
+    }
+    app.search = "outside".into();
+    app.workspace_reconcile();
+    assert!(app.workspace_rows().is_empty());
+    assert_eq!(super::summary(&app), "Digest · 0 held");
+    app.search.clear();
+    app.workspace.visibility.scope.clear();
+    app.workspace_reconcile();
+    assert_eq!(app.workspace_rows().len(), 2, "Digest ignores saved hiding");
+    assert_eq!(super::summary(&app), "Digest · 3 held");
+}

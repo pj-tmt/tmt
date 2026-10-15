@@ -185,6 +185,62 @@ fn conversation_frame_timing() {
                 app.input.as_ref().unwrap().draft_key.as_ref().unwrap().1,
                 member
             );
+            app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+            assert!(app.input.is_none());
+            let OpsTarget::Member {
+                room_id: Some(room),
+                ..
+            } = &target
+            else {
+                unreachable!("measured member has a room");
+            };
+            report(
+                rows,
+                "launch-scope-projection",
+                (0..100)
+                    .map(|index| {
+                        measure(&mut app, &mut terminal, |app, _| {
+                            if index % 2 == 0 {
+                                app.workspace.visibility.scope = vec![room.clone()];
+                                app.workspace_reconcile();
+                                app.invalidate_frame_geometry();
+                            } else {
+                                app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+                                assert!(app.workspace.visibility.scope.is_empty());
+                            }
+                        })
+                    })
+                    .collect(),
+            );
+            let hidden: std::collections::BTreeSet<_> = app
+                .workspace_snapshot()
+                .unwrap()
+                .roster
+                .squads
+                .iter()
+                .filter(|squad| &squad.room_id != room)
+                .map(|squad| squad.room_id.clone())
+                .collect();
+            report(
+                rows,
+                "saved-hidden-projection",
+                (0..100)
+                    .map(|index| {
+                        measure(&mut app, &mut terminal, |app, _| {
+                            let mut preferences =
+                                app.workspace_snapshot().unwrap().preferences.clone();
+                            preferences.hidden = if index % 2 == 0 {
+                                hidden.clone()
+                            } else {
+                                Default::default()
+                            };
+                            // The confirmed CAS result is the input port; the probe does
+                            // no Config/Core I/O and includes its real reconciliation.
+                            app.finished_workspace_preferences(preferences, "Saved".into());
+                        })
+                    })
+                    .collect(),
+            );
             assert_eq!(app.workspace.selected, Some(target));
         }
     });

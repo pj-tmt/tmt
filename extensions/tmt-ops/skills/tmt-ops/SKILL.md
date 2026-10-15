@@ -208,7 +208,7 @@ Boards started before this behavior shipped need one manual restart.
 ## Board appearance
 
 The board opens one `OPS / UI` shell: `1 Overview`, `2 Agents`, `3 Digest`.
-Overview contains global attention, usage and provider limits. Agents contains the
+Overview contains visible-agent attention, global usage and provider limits; the shell attention bar stays global. Agents contains the
 squad workspace and the selected agent's conversation. Digest keeps the same
 identity context and existing Core-owned policy controls. A squad's theme applies
 to Agents/Digest; Overview uses the shared board theme.
@@ -235,7 +235,14 @@ narrower tables drop whole optional columns. Only state glyphs/words carry state
 colour, and selection uses a background or the existing NO_COLOR reverse cue.
 All keeps Common pool first, then pinned squads and the selected sort order.
 `f` cycles the session-local All / Needs you / Pinned filter; explicit bindings win.
-Search reveals matching children temporarily without changing saved expansion.
+Search reveals matching children of visible squads temporarily without changing
+saved expansion. Select a squad and use `H` Hide squad (or its Actions entry) to
+hide it from Agents and Overview. The `Hidden: N` header's show control (`h` by
+default) reveals hidden squads only for this session; select a revealed squad and
+use `S` Show squad to remove its saved hide. Common pool cannot be hidden. Pins
+are retained independently, and hidden squads still contribute to global shell
+attention. Explicit Hide moves the selection only after the save succeeds;
+search and missing targets retain their UUID anchors.
 Expand a squad to see its members; the lead is marked and included once in
 its count. A collapsed squad retains its worst observed member state. An identity
 in several squads keeps each squad's state and one conversation/draft by UUID.
@@ -272,7 +279,9 @@ host overrides, then section overrides. Compatible explicit bindings keep their
 meaning, including an explicit `f5 = "refresh"` binding. Whole optional hints drop
 when space is short; help remains available.
 Menus, completion and editors own their keys and consume close without replay.
-Esc steps back one level and cannot be rebound; it stays at the base list.
+Their Esc back action cannot be rebound. At the base list, Esc clears an active
+launch scope through the effective `clear-scope` binding; otherwise it stays put.
+An explicit base-list `esc` binding overrides that default.
 Default `q` quits the board body, closes or backs out of an overlay, and types in
 an editor; Ctrl-C quits globally. In Member and conversation focus, default `v`
 opens the full response reader; compatible explicit bindings still win.
@@ -326,8 +335,19 @@ snapshot view, pending command or retained Unknown result defers board reload.
 
 Old squad tabs, Left/Right tab navigation, tab reorder/pick/hide, factory views and
 custom pane geometry do not select a legacy UI. The board reports located
-migration notices and preserves authored TOML. `--tabs` is refused; `--squad`
-selects that squad in Agents. Independent `ls --tab` projections remain available.
+migration notices and preserves authored TOML. `--tabs` is refused. Launch with
+`tmt ops ui --squad product` or repeat the option, for example
+`tmt ops ui --squad product --squad infra`, to show only those squads for this
+session, opening Agents on the first named squad. Scope overrides saved hides,
+excludes Common pool, and appears as `Scope: product,infra · Esc clears` with
+whole names fitted to the width. Escape clears scope outside an editor, search
+or overlay; explicit bindings win. Duplicate room IDs collapse and an unknown
+name fails before terminal admission with valid squad names. `all` is an ordinary
+squad name. Neither scope nor session reveal changes the saved hidden list;
+in-place reload carries both, including a cleared scope. Noninteractive `ui`
+reuses the existing listing documents: one unique requested squad gives its
+single document, several give `{squads:[...],you}`. Independent `ls --tab`
+projections remain available.
 See [the migration table](../../docs/ui-migration.md) for old-to-new controls.
 
 Ordinary canvas, content and chrome inherit the terminal background. The board
@@ -447,8 +467,9 @@ or a changed target sends nothing.
 
 ## Home dashboard
 
-Overview is the shell's global dashboard. Waiting and blocked observations remain
-visible; a complete read can say `Nothing needs you`, but a partial/stale read
+Overview is the shell's dashboard. Its agent rows and Summary/Digest counts follow
+saved hiding and launch scope; shell attention remains global. A complete read
+can say `Nothing needs you`, but a partial/stale read
 shows observed counts and says totals are unknown. The shell keeps online/waiting/
 blocked observations visible across tabs; missing evidence is qualified rather
 than presented as zero. Search, pinning, sorting, expansion,
@@ -739,6 +760,11 @@ placement, alongside Actions, Theme and Token window. These per-user Ops
 preferences persist through Config's compare-and-set writer; stale-file refusal
 keeps current state and preserves comments and unrelated values. They change
 presentation only, not workflow state, membership, provider or sampling policy.
+Saved squad hiding uses optional `workspace.hidden`, a unique array of at most
+1,024 canonical lowercase room UUIDs. Empty saves remove the key; missing means
+none. Unknown/deleted IDs remain stored without pruning and count nowhere in the
+UI. Scope and reveal are session state, separate from these preferences and from
+retained cold-start view hints.
 
 Factory `sq view` configuration and custom pane keys no longer choose the UI.
 Their authored bytes remain intact and located migration notices identify them.

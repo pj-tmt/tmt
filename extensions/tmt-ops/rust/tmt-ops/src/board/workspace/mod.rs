@@ -78,6 +78,54 @@ pub enum OpsTarget {
 
 pub use crate::config::{OpsPreferences, OpsSort};
 
+/// Display scope and explicit hidden-room reveal belong to this UI session,
+/// never the acquired roster or retained view preferences.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct OpsVisibility {
+    pub scope: Vec<String>,
+    pub reveal_hidden: bool,
+}
+
+impl OpsVisibility {
+    /// Admission for view totals uses the same room visibility as the tree.
+    /// Unassigned identities remain visible only outside an explicit scope;
+    /// a hidden membership never turns its agent into a Common pool member.
+    pub(super) fn member_ids<'a>(
+        &self,
+        roster: &'a OpsRoster,
+        preferences: &OpsPreferences,
+    ) -> Option<BTreeSet<&'a String>> {
+        if self.scope.is_empty()
+            && (self.reveal_hidden
+                || !roster
+                    .squads
+                    .iter()
+                    .any(|squad| preferences.hidden.contains(&squad.room_id)))
+        {
+            return None;
+        }
+        let mut visible: BTreeSet<_> = roster
+            .squads
+            .iter()
+            .filter(|squad| self.shows_squad(&squad.room_id, preferences))
+            .flat_map(|squad| squad.members.iter())
+            .filter(|id| roster.members.contains_key(*id))
+            .collect();
+        if self.scope.is_empty() {
+            visible.extend(roster.pool().map(|member| &member.id));
+        }
+        Some(visible)
+    }
+
+    pub fn shows_squad(&self, id: &str, preferences: &OpsPreferences) -> bool {
+        if self.scope.is_empty() {
+            self.reveal_hidden || !preferences.hidden.contains(id)
+        } else {
+            self.scope.iter().any(|scoped| scoped == id)
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct OpsWorkspace {
     pub selected: Option<OpsTarget>,
@@ -85,6 +133,7 @@ pub struct OpsWorkspace {
     pub pool_expanded: bool,
     pub query: String,
     pub filter: AgentsFilter,
+    pub visibility: OpsVisibility,
 }
 
 /// Session-local tree scope; it never changes membership or saved preferences.
@@ -254,6 +303,59 @@ impl OpsRoster {
     }
 }
 
+/// One row per identity, independent of squad expansion and duplicate membership.
+/// Retain a real squad occurrence for the existing management admission lane.
+pub(in crate::board) fn identity_rows(
+    snapshot: &observe::OpsWorkspaceSnapshot,
+    query: &str,
+    preferred: Option<&OpsTarget>,
+    visibility: &OpsVisibility,
+) -> Vec<OpsTreeRow> {
+    let query = query.to_lowercase();
+    // Canonical roster projection owns membership and unknown-pool admission.
+    // Deduplicate its occurrences once; stale row documents grant no authority.
+    let workspace = OpsWorkspace {
+        expanded: snapshot
+            .roster
+            .squads
+            .iter()
+            .map(|squad| squad.room_id.clone())
+            .collect(),
+        pool_expanded: true,
+        visibility: visibility.clone(),
+        ..Default::default()
+    };
+    let mut identities: std::collections::BTreeMap<String, OpsTreeRow> = Default::default();
+    for mut row in workspace.rows(&snapshot.roster, &snapshot.preferences) {
+        let OpsTarget::Member { identity_id, .. } = &row.target else {
+            continue;
+        };
+        if !snapshot.rows.contains_key(&row.target) || !row.title.to_lowercase().contains(&query) {
+            continue;
+        }
+        let id = identity_id.clone();
+        let replace = identities.get(&id).is_none_or(|current| {
+            Some(&row.target) == preferred
+                || (Some(&current.target) != preferred && row.target < current.target)
+        });
+        if replace {
+            row.depth = 0;
+            identities.insert(id, row);
+        }
+    }
+    let mut rows: Vec<_> = identities.into_values().collect();
+    rows.sort_by(|a, b| {
+        a.title
+            .to_lowercase()
+            .cmp(&b.title.to_lowercase())
+            .then(a.target.cmp(&b.target))
+    });
+    if snapshot.preferences.reversed {
+        rows.reverse();
+    }
+    rows
+}
+
 impl OpsWorkspace {
     /// Pin is a Config preference; virtual pool and member rows cannot be pinned.
     pub fn toggle_pin(&self, preferences: &mut OpsPreferences) -> bool {
@@ -300,16 +402,17 @@ impl OpsWorkspace {
         let pool: Vec<_> = roster.pool().collect();
         // All keeps the virtual pool first, including unknown/empty observations.
         // Attention filtering retains incomplete evidence instead of proving no match.
-        let show_pool = match self.filter {
-            AgentsFilter::All => true,
-            AgentsFilter::NeedsYou => {
-                !roster.complete()
-                    || pool
-                        .iter()
-                        .any(|member| member.waiting || member.state.as_deref() == Some("blocked"))
-            }
-            AgentsFilter::Pinned => false,
-        };
+        let show_pool = self.visibility.scope.is_empty()
+            && match self.filter {
+                AgentsFilter::All => true,
+                AgentsFilter::NeedsYou => {
+                    !roster.complete()
+                        || pool.iter().any(|member| {
+                            member.waiting || member.state.as_deref() == Some("blocked")
+                        })
+                }
+                AgentsFilter::Pinned => false,
+            };
         let mut rows = Vec::new();
         if show_pool {
             rows.push(OpsTreeRow {
@@ -337,7 +440,11 @@ impl OpsWorkspace {
                 rows.push(member_row(member, None, false, roster.observation, None));
             }
         }
-        let mut squads: Vec<_> = roster.squads.iter().collect();
+        let mut squads: Vec<_> = roster
+            .squads
+            .iter()
+            .filter(|squad| self.visibility.shows_squad(&squad.room_id, preferences))
+            .collect();
         squads.sort_by(|a, b| {
             let pinned = preferences
                 .pinned

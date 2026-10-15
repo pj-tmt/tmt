@@ -58,6 +58,108 @@ pub(super) fn render_shell(frame: &mut Frame, app: &App, area: Rect) {
     }
 }
 
+/// Scope and hidden-room reveal share the shell's existing boundary band.
+/// Names are admitted whole; shrinking the terminal never paints a partial name.
+pub(super) fn render_visibility(frame: &mut Frame, app: &App, area: Rect) {
+    use crate::{
+        action::{Action, OpsUiAction, Verb},
+        board::app::Choice,
+    };
+    if area.is_empty() {
+        return;
+    }
+    let Some(snapshot) = app.workspace_snapshot() else {
+        return;
+    };
+    let scope = &app.workspace.visibility.scope;
+    let action = if !scope.is_empty() {
+        OpsUiAction::ClearScope
+    } else {
+        if snapshot.hidden_count == 0 {
+            return;
+        }
+        OpsUiAction::RevealHidden
+    };
+    let action = Action::parse(action.spec().name).expect("visibility action");
+    let key = app
+        .workspace_bindings()
+        .into_iter()
+        .find(|(_, bound)| bound.verb == action.verb)
+        .map(|(key, _)| key);
+    let hint = key.as_deref().map(|key| {
+        format!(
+            "{} {}",
+            super::footer::key_label(key),
+            super::footer::hint_word(app, &action)
+        )
+    });
+    let suffix = if matches!(action.verb, Verb::Ui(OpsUiAction::ClearScope)) {
+        hint.map_or_else(|| " · clear".into(), |hint| format!(" · {hint}"))
+    } else if app.workspace.visibility.reveal_hidden {
+        " · shown".into()
+    } else {
+        " · show".into()
+    };
+    let width = usize::from(area.width.saturating_sub(2));
+    let text = if scope.is_empty() {
+        format!("Hidden: {}{suffix}", snapshot.hidden_count)
+    } else {
+        let mut names = Vec::new();
+        for (index, id) in scope.iter().enumerate() {
+            let name = snapshot
+                .roster
+                .squads
+                .iter()
+                .find(|squad| &squad.room_id == id)
+                .map_or_else(
+                    || "(unavailable)".to_owned(),
+                    |squad| crate::board::workspace::render::safe(&squad.name),
+                );
+            let mut candidate = names.clone();
+            candidate.push(name);
+            let rest = scope.len() - index - 1;
+            let extra = if rest == 0 {
+                String::new()
+            } else {
+                format!(" +{rest}")
+            };
+            let text = format!("Scope: {}{extra}{suffix}", candidate.join(","));
+            if unicode_width::UnicodeWidthStr::width(text.as_str()) > width {
+                break;
+            }
+            names = candidate;
+        }
+        let remaining = scope.len() - names.len();
+        let extra = if remaining == 0 {
+            String::new()
+        } else {
+            format!(" +{remaining}")
+        };
+        format!("Scope: {}{extra}{suffix}", names.join(","))
+    };
+    if unicode_width::UnicodeWidthStr::width(text.as_str()) > width {
+        return;
+    }
+    let rect = Rect::new(
+        area.x + 1,
+        area.y,
+        unicode_width::UnicodeWidthStr::width(text.as_str()) as u16,
+        1,
+    );
+    strip::paint_left(
+        frame.buffer_mut(),
+        rect,
+        Line::styled(text, app.look().role(Role::Muted)),
+    );
+    if matches!(action.verb, Verb::Ui(OpsUiAction::ClearScope))
+        || !app.workspace.visibility.reveal_hidden
+    {
+        app.workspace_strip_hits
+            .borrow_mut()
+            .push((rect, Choice::Action(action)));
+    }
+}
+
 /// Shown only when a switch takes long enough to notice.
 pub(in crate::board) const SPINNER_DELAY: std::time::Duration =
     std::time::Duration::from_millis(100);

@@ -1,6 +1,6 @@
 //! Frame orchestration; surface painters retain their existing owners.
 
-pub(super) mod footer;
+pub(in crate::board) mod footer;
 mod header;
 mod overlays;
 mod panes;
@@ -106,7 +106,7 @@ pub(in crate::board) fn render_frame(
     app.workspace_action_hits.borrow_mut().clear();
     app.overview_sort_hits.borrow_mut().clear();
     app.cron_scope_hits.borrow_mut().clear();
-    app.agents_strip_hits.borrow_mut().clear();
+    app.workspace_strip_hits.borrow_mut().clear();
     app.workspace_state_cells.borrow_mut().clear();
     app.row_starts.borrow_mut().clear();
     app.tab_hits.borrow_mut().clear();
@@ -147,6 +147,7 @@ pub(in crate::board) fn render_frame(
     app.conversation.borrow_mut().area = body;
     if workspace {
         header::render_shell(frame, app, tabs);
+        header::render_visibility(frame, app, boundary);
         strip::paint_left(frame.buffer_mut(), summary, tabs::paint(app, summary));
     } else {
         strip::paint_left(frame.buffer_mut(), tabs, tabs::paint(app, tabs));

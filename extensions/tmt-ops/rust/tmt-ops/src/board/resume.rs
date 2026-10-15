@@ -23,6 +23,7 @@ pub(super) struct Resume {
     pub shell: super::shell::OpsTab,
     pub squads_expanded: Vec<String>,
     pub pool_expanded: bool,
+    pub visibility: super::workspace::OpsVisibility,
     pub selected: Option<RowTarget>,
     pub focus: usize,
     pub follow: bool,
@@ -51,6 +52,8 @@ impl Resume {
             "shell": shell_json(self.shell),
             "squadsExpanded": self.squads_expanded,
             "poolExpanded": self.pool_expanded,
+            "scope": self.visibility.scope,
+            "revealHidden": self.visibility.reveal_hidden,
             "selected": self.selected.as_ref().map(row_json),
             "focus": self.focus,
             "follow": self.follow,
@@ -96,6 +99,16 @@ impl Resume {
             shell: shell_from(&document["shell"])?,
             squads_expanded: room_ids(&document["squadsExpanded"])?,
             pool_expanded: document["poolExpanded"].as_bool()?,
+            visibility: super::workspace::OpsVisibility {
+                scope: match document.get("scope") {
+                    None => Vec::new(),
+                    Some(value) => room_ids(value)?,
+                },
+                reveal_hidden: match document.get("revealHidden") {
+                    None => false,
+                    Some(value) => value.as_bool()?,
+                },
+            },
             selected: match &document["selected"] {
                 Value::Null => None,
                 value => Some(row_from(value)?),
@@ -225,6 +238,7 @@ mod tests {
 
     fn sample() -> Resume {
         Resume {
+            visibility: Default::default(),
             shell: super::super::shell::OpsTab::Overview,
             squads_expanded: vec![],
             pool_expanded: false,
@@ -253,6 +267,28 @@ mod tests {
             ],
             search: "auth".into(),
         }
+    }
+
+    #[test]
+    fn reload_visibility_round_trips_and_old_snapshots_default_to_unrestricted() {
+        let root = scratch("visibility");
+        let mut resume = sample();
+        resume.visibility.scope = vec!["44444444-4444-4444-8444-444444444444".into()];
+        resume.visibility.reveal_hidden = true;
+        resume.write(&root, 73, 1_000).unwrap();
+        assert_eq!(Resume::take(&root, 73, 1_001), Some(resume.clone()));
+        resume.write(&root, 73, 1_000).unwrap();
+        let mut document: Value =
+            serde_json::from_slice(&std::fs::read(path(&root, 73)).unwrap()).unwrap();
+        document.as_object_mut().unwrap().remove("scope");
+        document.as_object_mut().unwrap().remove("revealHidden");
+        assert_eq!(
+            Resume::decode(&document, 73, 1_001).unwrap().visibility,
+            Default::default()
+        );
+        document["scope"] = json!(["not-a-room-id"]);
+        assert!(Resume::decode(&document, 73, 1_001).is_none());
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     fn scratch(name: &str) -> PathBuf {
