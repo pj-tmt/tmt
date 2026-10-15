@@ -2,6 +2,7 @@ import { AttachmentService, disclosureScope } from './attachment-service.js';
 import {
   binary,
   certificate,
+  digest,
   encodeBinary,
   equal,
   exactKeys,
@@ -9,11 +10,15 @@ import {
   link as linkKeys,
   requireValue,
   sign,
+  text as bytesOf,
 } from '@tmt/colab-client';
 import { Admission } from './admission.js';
 import { Connection } from './connection.js';
 import { jsonResponse, type Registration } from './registration.js';
 import type { ReaderLink } from './reader-link.js';
+import { SAVE_REOPEN_MS, SaveOutcomeUnknown, SaveTooLarge, settledAgainst } from './save.js';
+import type { SaveResult } from './save.js';
+import { hunksOf } from './save-hunks.js';
 import type { PageView } from './transport.js';
 
 /** The link no longer grants access: reset, removed, narrowed or the page is gone. */
@@ -54,6 +59,8 @@ export class ReaderSession {
   });
   #closed = false;
   #failures = 0;
+  /** The source of the latest page the connection admitted, which a save waits to see. */
+  #shown = '';
   private constructor(
     readonly target: ReaderLink,
     readonly mount: URL,
@@ -171,6 +178,7 @@ export class ReaderSession {
         this.mount,
         SHARING,
         (view) => {
+          this.#shown = view.source;
           if (!this.#closed) this.publish(view);
         },
         resolve,
@@ -206,6 +214,51 @@ export class ReaderSession {
         error = next instanceof Error ? next : new Error('Reader unavailable');
       }
     }
+  }
+  /** Save page text as the owner's editor does: the serve prepares it from the anchored hunks and
+   * signs it, and admits it only for an editor link. A save whose reply was lost is settled by one
+   * status request on the reconnected session and is never sent again. Resolves once the admitted
+   * page shows the saved text. */
+  async edit(source: string, base: string): Promise<{ merged: boolean; source: string }> {
+    const connection = this.#connection;
+    if (this.#closed || !connection) throw new Error('Page editing unavailable');
+    const hunks = hunksOf(base, source);
+    const operationId = crypto.randomUUID();
+    let result: SaveResult;
+    try {
+      result = await connection.save(operationId, base, source, undefined, hunks);
+    } catch (error) {
+      if (!(error instanceof Error) || error instanceof SaveTooLarge || connection.active)
+        throw error;
+      result = await this.#settleLost(connection, operationId);
+    }
+    settledAgainst(result, hunks);
+    await this.#shows(source, result.merged ? result.sourceSha256 : undefined);
+    return { merged: result.merged === true, source: this.#shown };
+  }
+  async #settleLost(lost: Connection, operationId: string): Promise<SaveResult> {
+    const deadline = Date.now() + SAVE_REOPEN_MS;
+    try {
+      while (!this.#closed && Date.now() < deadline) {
+        const next = this.#connection;
+        if (next && next !== lost && next.active) return await next.saveStatus(operationId);
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    } catch {
+      // The status could not be read either: the outcome stays unknown.
+    }
+    throw new SaveOutcomeUnknown(operationId);
+  }
+  /** The saved text is on the page the editor now holds. A merged save is a source the editor never
+   * had: it is shown once the page holds the digest the serve named. */
+  async #shows(source: string, mergedDigest?: string) {
+    const deadline = Date.now() + SAVE_REOPEN_MS;
+    const shown = async () =>
+      mergedDigest !== undefined
+        ? encodeBinary(await digest(bytesOf(this.#shown))) === mergedDigest
+        : this.#shown === source;
+    while (!(await shown()) && !this.#closed && Date.now() < deadline)
+      await new Promise((resolve) => setTimeout(resolve, 25));
   }
   close() {
     this.#closed = true;

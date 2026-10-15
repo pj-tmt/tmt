@@ -1,5 +1,12 @@
 import { expect, it } from 'vite-plus/test';
-import { conflictAt, saveMessage, saveResult, SaveConflict, SaveRefused } from '../src/save.js';
+import {
+  conflictAt,
+  saveMessage,
+  saveResult,
+  SaveConflict,
+  SaveRefused,
+  settledAgainst,
+} from '../src/save.js';
 import { text } from '../src/strings.js';
 
 const frame = (fields: Record<string, unknown>) => ({
@@ -103,4 +110,34 @@ it('the conflict sentence names one edit or several, quoting the first', () => {
 it('a page that kept moving while its hunks were evaluated is still the stale-base sentence', () => {
   expect(saveMessage(new SaveRefused('COLAB_STALE_BASE', 'Moved.'))).toBe(text.saveStale);
   expect(saveMessage(new SaveRefused('COLAB_PATCH_CONFLICT', 'No match.'))).toBe('No match.');
+});
+
+it('a refusal that names hunks which no longer fit is the conflict the first one anchors', () => {
+  const hunks = [
+    { oldStart: 3, old: 'a\n', new: 'b\n' },
+    { oldStart: 9, old: 'Total: 4\n', new: 'Total: 5\n' },
+  ];
+  const refused = (conflicts?: number[]) =>
+    saveResult(
+      frame({
+        state: 'rejected',
+        code: conflicts ? 'COLAB_PATCH_CONFLICT' : 'COLAB_STALE_BASE',
+        message: 'The page changed.',
+        ...(conflicts ? { conflicts } : {}),
+      }),
+      'o',
+    );
+  expect(() => settledAgainst(refused([1]), hunks)).toThrow(SaveConflict);
+  try {
+    settledAgainst(refused([1]), hunks);
+  } catch (error) {
+    expect((error as SaveConflict).count).toBe(1);
+    expect((error as SaveConflict).first).toEqual(conflictAt(hunks[1]));
+  }
+  // Without conflicts named, or when the save sent no hunks, the refusal is the refusal.
+  expect(() => settledAgainst(refused(), hunks)).toThrow(SaveRefused);
+  expect(() => settledAgainst(refused([1]))).toThrow(SaveRefused);
+  // A commit passes through untouched.
+  const committed = saveResult(frame({ state: 'committed', revision: '7' }), 'o');
+  expect(settledAgainst(committed, hunks)).toBe(committed);
 });

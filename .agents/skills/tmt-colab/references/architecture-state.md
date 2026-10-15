@@ -205,8 +205,10 @@ mechanism or CSP changes are required; no inline-style/eval relaxation is permit
 (`link.deriveLink`, `link.deriveDevice`, `link.certifyDevice`; byte-identical chain on every open), runs challenge, session and sync, and reconnects until access ends.
 It reuses `Admission` through its `ReaderSeat` option (link-addressed wraps, owner-log
 verification, nothing persisted) and `Connection` with the ticket subprotocol. `src/reader-main.tsx`
-removes the fragment first; `src/reader-app.tsx` renders read-only with the sandboxed renderer. The
-owner router, writer, Ask and export modules are not part of this bundle.
+removes the fragment first; `src/reader-app.tsx` renders read-only with the sandboxed renderer, and for a link
+whose `role` is `editor` also offers the shared Source drawer (`src/reader-source.tsx`, `source-editor.css`), which
+saves through `ReaderSession.edit` (`save.ts` maps the result as the owner editor does). The owner router, writer,
+Ask and export modules are not part of this bundle.
 
 ## Restart recovery
 

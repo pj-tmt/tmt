@@ -595,6 +595,7 @@ export const text = {
     'Page scripts run inside an isolated frame. A page can navigate its own frame; complete exfiltration prevention is not guaranteed.',
   adapter: 'This preview uses local sample pages. It is not connected to a remote space.',
   readerOnly: 'Read-only',
+  readerCanEdit: 'Can edit',
   readerLive: 'Live',
   readerLoading: 'Opening',
   readerStopped: 'Stopped',
@@ -609,4 +610,6 @@ export const text = {
   readerFailed: 'Could not open this page. Open the full link again.',
   readerNote:
     'You are reading a shared page. You cannot edit it or ask agents. Anyone who holds this link and can reach this address can read the page.',
+  readerNoteEditor:
+    "You are editing a shared page through a link. Saves change the owner's page for everyone who can read it. You cannot ask agents.",
 } as const;
