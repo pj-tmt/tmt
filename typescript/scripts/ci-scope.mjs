@@ -582,12 +582,16 @@ const HOSTED_READER_EMULATOR_INPUTS = new Set([
   'extensions/tmt-colab/typescript/app/src/fold.ts',
   'extensions/tmt-colab/typescript/app/src/fold-protocol.ts',
   'extensions/tmt-colab/typescript/app/src/reader-link.ts',
+  'extensions/tmt-colab/typescript/app/src/objects.ts',
+  'extensions/tmt-colab/typescript/app/src/catchup.ts',
+  'extensions/tmt-colab/typescript/app/src/reader-keys.ts',
   'extensions/tmt-colab/rust/tmt-colab/build/hosting.rs',
   'extensions/tmt-remote/rust/tmt-remote/examples/compose_hosting.rs',
   'extensions/tmt-remote/typescript/remote-client/firebase-build-pin.json',
 ]);
 const HOSTED_READER_EMULATOR_ROOTS = [
   '.github/actions/hosted-reader-emulator',
+  'extensions/tmt-colab/typescript/colab-client/src',
   'extensions/tmt-remote/rust/tmt-remote/src',
   'extensions/tmt-remote/rust/tmt-remote/assets',
   'extensions/tmt-remote/typescript/remote-client/src',

@@ -1387,6 +1387,10 @@ describe('hosted reader emulator selection', () => {
     'extensions/tmt-colab/typescript/app/src/fold.ts',
     'extensions/tmt-colab/typescript/app/src/fold-protocol.ts',
     'extensions/tmt-colab/typescript/app/src/reader-link.ts',
+    'extensions/tmt-colab/typescript/app/src/objects.ts',
+    'extensions/tmt-colab/typescript/app/src/catchup.ts',
+    'extensions/tmt-colab/typescript/app/src/reader-keys.ts',
+    'extensions/tmt-colab/typescript/colab-client/src/link.ts',
     'extensions/tmt-colab/typescript/app/acceptance/hosted-reader.proof.ts',
     'extensions/tmt-colab/typescript/app/playwright.hosted.config.ts',
     'extensions/tmt-colab/scripts/hosted-reader-emulator.mjs',
@@ -1426,6 +1430,7 @@ describe('hosted reader emulator selection', () => {
     'extensions/tmt-colab/typescript/app/src/hosted.ts',
     'extensions/tmt-colab/typescript/app/acceptance/hosted-bundle.spec.ts',
     'extensions/tmt-colab/typescript/app/acceptance/ask.spec.ts',
+    'extensions/tmt-colab/typescript/colab-client/test/link.test.ts',
     '.github/actions/hosted-reader-emulator-other/action.yml',
   ])('does not expand the qualifier to unrelated/test-only input %s', (file) => {
     expect(selectHostedReaderEmulator([file])).toBe(false);

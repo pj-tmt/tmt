@@ -149,8 +149,9 @@ advisory like the rest of the workflow.
 
 The advisory `colab-hosted` PR job runs the hosted bundle spec when `colab_hosted` or
 `colab_hosted_emulator` selects it. `selectHostedReaderEmulator` in `ci-scope.mjs` owns the
-latter: hosted-reader inputs, native producer/composer inputs and Remote's production Rust,
-assets and SDK source; Remote test/docs trees and the test-only Colab source pin stay out.
+latter: hosted-reader inputs (including Objects, Catchup and reader keys), Colab's signed-proof
+client source, native producer/composer inputs and Remote's production Rust, assets and SDK
+source; client tests, Remote test/docs trees and the test-only Colab source pin stay out.
 Its selected qualifier uses `.github/actions/hosted-reader-emulator`: runner Java 21,
 `firebase-tools@15.29.0`, a populated Firestore emulator cache and the unchanged owner wrapper,
 with private state, loopback demo Auth/Firestore and Chromium. It runs after the ordinary spec
