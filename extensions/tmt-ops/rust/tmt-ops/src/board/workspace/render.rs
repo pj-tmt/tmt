@@ -17,7 +17,7 @@ use ratatui::{
 use tmt_cli_style::Role;
 use tmt_tui::components::{Modal, Placement, strip};
 
-pub(super) fn safe(text: &str) -> String {
+pub(in crate::board) fn safe(text: &str) -> String {
     tmt_cli_style::table::escape(&crate::board::notes::sanitize(text))
 }
 fn member_noun(count: Option<usize>) -> &'static str {
@@ -68,12 +68,6 @@ pub(in crate::board) fn summary(app: &App, width: u16) -> Line<'static> {
     };
     if app.loading() {
         return Line::styled("Loading workspace…", app.look().role(Role::Muted));
-    }
-    if app.shell.tab == OpsTab::Digest {
-        return Line::styled(
-            crate::board::digest_dashboard::summary(&app.labels),
-            app.look().role(Role::Text),
-        );
     }
     if !snapshot.notices.is_empty() {
         return Line::styled(
@@ -140,13 +134,29 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     };
     if let Some(bands) = placement.agents {
         let snapshot = app.workspace_snapshot().unwrap();
+        let count = snapshot
+            .roster
+            .squads
+            .iter()
+            .filter(|squad| {
+                app.workspace
+                    .visibility
+                    .shows_squad(&squad.room_id, &snapshot.preferences)
+            })
+            .count();
         let title = format!(
-            "Agents · {}{} squads + Common pool",
-            snapshot.roster.squads.len(),
+            "Agents · {}{} {}{}",
+            count,
             if snapshot.roster.complete() {
                 ""
             } else {
                 " observed"
+            },
+            if count == 1 { "squad" } else { "squads" },
+            if app.workspace.visibility.scope.is_empty() {
+                " + Common pool"
+            } else {
+                ""
             }
         );
         strip::paint_left(
@@ -554,7 +564,7 @@ fn agents_controls(
                     },
                 ),
             );
-            app.agents_strip_hits
+            app.workspace_strip_hits
                 .borrow_mut()
                 .push((area, Choice::AgentsFilter(filter)));
         }
@@ -577,7 +587,7 @@ fn agents_controls(
             Line::styled(safe(&label), look.role(Role::Dim)),
         );
         if area.width == text_width {
-            app.agents_strip_hits.borrow_mut().push((
+            app.workspace_strip_hits.borrow_mut().push((
                 area,
                 Choice::Action(crate::action::Action::parse("search").unwrap()),
             ));
@@ -633,7 +643,7 @@ fn agents_controls(
             } else {
                 Choice::Action(crate::action::Action::parse(action.spec().name).unwrap())
             };
-            app.agents_strip_hits.borrow_mut().push((area, choice));
+            app.workspace_strip_hits.borrow_mut().push((area, choice));
         }
     }
 }
@@ -724,6 +734,18 @@ fn squad_detail(frame: &mut Frame, app: &App, area: Rect) {
         } else {
             vec![]
         };
+        if let OpsTarget::Squad(id) = target {
+            let verb = if snapshot.preferences.hidden.contains(id) {
+                OpsUiAction::ShowSquad
+            } else {
+                OpsUiAction::HideSquad
+            };
+            let action = Action::parse(verb.spec().name).unwrap();
+            actions.push((
+                crate::board::view::footer::hint_word(app, &action),
+                Choice::Action(action),
+            ));
+        }
         if matches!(target, OpsTarget::Pool)
             && let Some(action) = app
                 .workspace_bindings()

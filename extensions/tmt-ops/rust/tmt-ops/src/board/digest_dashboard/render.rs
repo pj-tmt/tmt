@@ -20,7 +20,11 @@ use unicode_width::UnicodeWidthStr;
 pub(in crate::board) fn render(frame: &mut Frame, app: &App, mut area: Rect) {
     let look = app.look();
     let mut summary = vec![Line::styled(
-        "Usage · unique identities",
+        if app.workspace.visibility.scope.is_empty() {
+            "Usage · unique identities"
+        } else {
+            "Usage · global identities"
+        },
         look.role(Role::Muted),
     )];
     if let Some(usage) = app.home_header_usage(std::time::Instant::now()) {
@@ -49,6 +53,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, mut area: Rect) {
     } else {
         summary.push(Line::styled("Usage unavailable", look.role(Role::Muted)));
     }
+    summary.push(Line::styled(super::summary(app), look.role(Role::Text)));
     let quota = crate::board::home::limits_of(app, area.width, look);
     let quota_start = summary.len() + 1;
     let quota_count = quota.len();

@@ -96,21 +96,7 @@ impl Squad {
             if !valid_name(name) {
                 return Err(name_invalid(name));
             }
-            return match core.json(&["room", "show", &room_name(name)]) {
-                Ok(shown) => Ok(Self {
-                    name: name.into(),
-                    room_id: room_id(&shown["room"])?,
-                }),
-                Err(error) if error.code == "ROOM_NOT_FOUND" => Err(not_found(Some(name))),
-                Err(error) if error.code == "ROOM_AMBIGUOUS" => Err(SquadError::new(
-                    "SQUAD_AMBIGUOUS",
-                    format!(
-                        "More than one room is named {}; rename one with tmt room.",
-                        room_name(name)
-                    ),
-                )),
-                Err(error) => Err(error),
-            };
+            return Self::named_room(name, core.json(&["room", "show", &room_name(name)]));
         }
         let mut squads = Self::list(core)?;
         match squads.len() {
@@ -127,6 +113,39 @@ impl Squad {
                         .join(", ")
                 ),
             )),
+        }
+    }
+
+    /// UI launch scopes admit active rooms through the snapshot port. Unlike a
+    /// public room command, this read does not refresh the caller's workspace.
+    pub fn resolve_launch(core: &Core, name: &str) -> Result<Self, SquadError> {
+        if !valid_name(name) {
+            return Err(name_invalid(name));
+        }
+        Self::named_room(
+            name,
+            core.api(
+                "rooms.roster",
+                json!({"room": room_name(name), "metadataPrefix": format!("squad.{name}.")}),
+            ),
+        )
+    }
+
+    fn named_room(name: &str, shown: Result<Value, SquadError>) -> Result<Self, SquadError> {
+        match shown {
+            Ok(shown) => Ok(Self {
+                name: name.into(),
+                room_id: room_id(&shown["room"])?,
+            }),
+            Err(error) if error.code == "ROOM_NOT_FOUND" => Err(not_found(Some(name))),
+            Err(error) if error.code == "ROOM_AMBIGUOUS" => Err(SquadError::new(
+                "SQUAD_AMBIGUOUS",
+                format!(
+                    "More than one room is named {}; rename one with tmt room.",
+                    room_name(name)
+                ),
+            )),
+            Err(error) => Err(error),
         }
     }
 
@@ -379,6 +398,87 @@ case \"$1\" in\n\
             ),
         );
         (Core::at(fake), dir)
+    }
+
+    #[test]
+    fn active_launch_uses_the_snapshot_port_and_keeps_general_resolution_on_room_show() {
+        let (core, dir) = roster_core("launch-port");
+        crate::test_support::write_ready_executable(
+            &dir.join("tmt"),
+            r#"#!/bin/sh
+root=${0%/*}
+printf '%s\n' "$@" > "$root/argv"
+case "$1" in
+  api) cat > "$root/request" ;;
+esac
+cat "$root/response"
+exit "$(cat "$root/code")"
+"#,
+        );
+        std::fs::write(dir.join("code"), "0").unwrap();
+        std::fs::write(
+            dir.join("response"),
+            r#"{"room":{"id":"11111111-1111-4111-8111-111111111111"},"members":[]}"#,
+        )
+        .unwrap();
+        let active = Squad::resolve_launch(&core, "product").unwrap();
+        assert_eq!(active.name, "product");
+        assert_eq!(active.room_id, "11111111-1111-4111-8111-111111111111");
+        let request: Value =
+            serde_json::from_slice(&std::fs::read(dir.join("request")).unwrap()).unwrap();
+        assert_eq!(
+            request,
+            json!({"version":1,"operation":"rooms.roster","input":{"room":"squad-product","metadataPrefix":"squad.product."}})
+        );
+        assert_eq!(std::fs::read_to_string(dir.join("argv")).unwrap(), "api\n");
+
+        // The historical/public resolver retains its original command and mapping.
+        std::fs::write(
+            dir.join("response"),
+            r#"{"room":{"id":"retired-id","retired":true}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            Squad::resolve(&core, Some("product")).unwrap().room_id,
+            "retired-id"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.join("argv")).unwrap(),
+            "room\nshow\nsquad-product\n--json\n"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn active_launch_preserves_named_errors_and_rejects_invalid_names_before_io() {
+        let core = Core::at(std::path::PathBuf::from(
+            "/dev/null/no-core-for-invalid-name",
+        ));
+        assert_eq!(
+            Squad::resolve_launch(&core, "../product").unwrap_err().code,
+            "SQUAD_NAME_INVALID"
+        );
+        for (code, expected) in [
+            ("ROOM_NOT_FOUND", "SQUAD_NOT_FOUND"),
+            ("ROOM_AMBIGUOUS", "SQUAD_AMBIGUOUS"),
+            ("STORAGE_UNAVAILABLE", "STORAGE_UNAVAILABLE"),
+        ] {
+            let result = Squad::named_room("product", Err(SquadError::new(code, "source failure")))
+                .unwrap_err();
+            assert_eq!(result.code, expected);
+            if code == "ROOM_NOT_FOUND" {
+                assert_eq!(result.to_json(), not_found(Some("product")).to_json());
+            }
+            if code == "STORAGE_UNAVAILABLE" {
+                assert_eq!(result.message, "source failure");
+            }
+        }
+        assert_eq!(
+            Squad::named_room("product", Ok(json!({"room":{}})))
+                .unwrap_err()
+                .code,
+            "SQUAD_CORE_UNAVAILABLE"
+        );
     }
 
     #[test]

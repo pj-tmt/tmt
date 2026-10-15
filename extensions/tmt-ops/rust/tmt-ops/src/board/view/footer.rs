@@ -13,7 +13,7 @@ use unicode_width::UnicodeWidthStr;
 
 /// The word a hint shows for an action: its verb name, except where the name
 /// is an internal spelling (`next-pane`) or the target matters.
-fn hint_word(app: &App, action: &crate::action::Action) -> &'static str {
+pub(in crate::board) fn hint_word(app: &App, action: &crate::action::Action) -> &'static str {
     use crate::action::Verb;
     let lead = action.args.first().and_then(|arg| arg.literal()) == Some("lead");
     match action.verb {
@@ -37,15 +37,17 @@ fn hint_word(app: &App, action: &crate::action::Action) -> &'static str {
             "pin agent"
         }
         Verb::Ui(crate::action::OpsUiAction::Pin) => "pin squad",
+        Verb::Ui(crate::action::OpsUiAction::RevealHidden) => "show hidden",
         Verb::Ui(action) => action.spec().label,
         verb => verb.name(),
     }
 }
 
 /// The key a hint shows for an event.
-fn key_label(event: &str) -> &str {
+pub(in crate::board) fn key_label(event: &str) -> &str {
     match event {
         "enter" => "⏎",
+        "esc" => "Esc",
         "backspace" => "⌫",
         "left" => "←",
         "right" => "→",
@@ -207,6 +209,17 @@ fn workspace_legend(
         if let Some(key) = find(verb, preferred) {
             first.push(format!("{} {word}", key_label(&key)));
             seen.push(verb);
+        }
+    }
+    for (verb, preferred) in [
+        (Ui::HideSquad, "H"),
+        (Ui::ShowSquad, "S"),
+        (Ui::RevealHidden, "h"),
+    ] {
+        if let Some(key) = find(Verb::Ui(verb), preferred)
+            && let Some(action) = bindings.get(&key)
+        {
+            first.push(format!("{} {}", key_label(&key), hint_word(app, action)));
         }
     }
     let mut second = Vec::new();

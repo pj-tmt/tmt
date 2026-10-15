@@ -1,67 +1,23 @@
-use crate::{
-    board::workspace::{OpsTarget, OpsTreeRow, observe::OpsWorkspaceSnapshot},
-    labels::{Supplied, digest::SettingSource},
-};
+use crate::labels::{Supplied, digest::SettingSource};
 
-/// One row per identity, independent of squad expansion and duplicate membership.
-/// Retain a real squad occurrence for the existing management admission lane.
-pub(in crate::board) fn rows(
-    snapshot: &OpsWorkspaceSnapshot,
-    query: &str,
-    preferred: Option<&OpsTarget>,
-) -> Vec<OpsTreeRow> {
-    let query = query.to_lowercase();
-    // Canonical roster projection owns membership and unknown-pool admission.
-    // Deduplicate its occurrences once; stale row documents grant no authority.
-    let workspace = crate::board::workspace::OpsWorkspace {
-        expanded: snapshot
-            .roster
-            .squads
-            .iter()
-            .map(|squad| squad.room_id.clone())
-            .collect(),
-        pool_expanded: true,
-        ..Default::default()
-    };
-    let mut identities: std::collections::BTreeMap<String, OpsTreeRow> = Default::default();
-    for mut row in workspace.rows(&snapshot.roster, &snapshot.preferences) {
-        let OpsTarget::Member { identity_id, .. } = &row.target else {
-            continue;
-        };
-        if !snapshot.rows.contains_key(&row.target) || !row.title.to_lowercase().contains(&query) {
-            continue;
-        }
-        let id = identity_id.clone();
-        let replace = identities.get(&id).is_none_or(|current| {
-            Some(&row.target) == preferred
-                || (Some(&current.target) != preferred && row.target < current.target)
-        });
-        if replace {
-            row.depth = 0;
-            identities.insert(id, row);
-        }
-    }
-    let mut rows: Vec<_> = identities.into_values().collect();
-    rows.sort_by(|a, b| {
-        a.title
-            .to_lowercase()
-            .cmp(&b.title.to_lowercase())
-            .then(a.target.cmp(&b.target))
-    });
-    if snapshot.preferences.reversed {
-        rows.reverse();
-    }
-    rows
-}
-
-pub(in crate::board) fn summary(supplied: &Supplied) -> String {
+pub(in crate::board) fn summary(
+    supplied: &Supplied,
+    identities: Option<&std::collections::BTreeSet<&str>>,
+) -> String {
     let Some((status, stale)) = supplied.digest() else {
         return "Digest status unavailable".into();
     };
     let mut held = 0u64;
-    let mut unknown = 0;
+    let mut unknown = identities.map_or(0, |ids| {
+        ids.iter()
+            .filter(|id| !status.members.contains_key(**id))
+            .count()
+    });
     let mut known = 0;
-    for member in status.members.values() {
+    for (id, member) in &status.members {
+        if identities.is_some_and(|ids| !ids.contains(id.as_str())) {
+            continue;
+        }
         match member.held_count {
             Some(count) => {
                 held = held.saturating_add(count);

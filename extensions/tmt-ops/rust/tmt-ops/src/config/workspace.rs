@@ -106,12 +106,17 @@ impl OverviewSort {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct OpsPreferences {
     pub pinned: BTreeSet<String>,
+    pub hidden: BTreeSet<String>,
     pub agent_pins: BTreeSet<String>,
     pub sort: OpsSort,
     pub reversed: bool,
     /// None retains the monitor's needs-you ordering until an explicit sort.
     pub overview_sort: Option<OverviewSort>,
     pub layout: OpsLayout,
+}
+
+fn canonical_room_id(value: &str) -> bool {
+    uuid_like(value) && !value.bytes().any(|byte| byte.is_ascii_uppercase())
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -189,6 +194,8 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("c", "timers"),
             ("n", "create-squad"),
             ("u", "usage-controls"),
+            ("esc", "clear-scope"),
+            ("h", "reveal-hidden"),
         ]
     };
     match scope {
@@ -204,9 +211,13 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("x", "remove-membership"),
             ("D", "digest"),
         ]),
-        OpsKeyScope::Squad => {
-            entries.extend([("p", "pin"), ("m", "manage"), ("n", "create-squad")])
-        }
+        OpsKeyScope::Squad => entries.extend([
+            ("p", "pin"),
+            ("m", "manage"),
+            ("n", "create-squad"),
+            ("H", "hide-squad"),
+            ("S", "show-squad"),
+        ]),
         OpsKeyScope::Member => entries.extend([
             ("v", "view-reply"),
             ("e", "monitor-details"),
@@ -365,6 +376,27 @@ impl Config {
                         }
                     }
                 }
+                "hidden" => {
+                    let hidden = item.as_array().ok_or_else(|| {
+                        invalid("`workspace.hidden` must be an array of room UUIDs.")
+                    })?;
+                    if hidden.len() > 1024 {
+                        return Err(invalid("`workspace.hidden` allows at most 1024 squads."));
+                    }
+                    for value in hidden {
+                        let id = value
+                            .as_str()
+                            .filter(|id| canonical_room_id(id))
+                            .ok_or_else(|| {
+                                invalid("`workspace.hidden` requires canonical room UUIDs.")
+                            })?;
+                        if !result.hidden.insert(id.into()) {
+                            return Err(invalid(
+                                "`workspace.hidden` contains a repeated room UUID.",
+                            ));
+                        }
+                    }
+                }
                 "agent_pins" => {
                     let pins = item.as_array().ok_or_else(|| {
                         invalid("`workspace.agent_pins` must be an array of identity UUIDs.")
@@ -466,6 +498,11 @@ impl Config {
         if next.pinned.iter().any(|id| !uuid_like(id)) {
             return Err(invalid("Workspace pins must be room UUIDs."));
         }
+        if next.hidden.len() > 1024 || next.hidden.iter().any(|id| !canonical_room_id(id)) {
+            return Err(invalid(
+                "Hidden squads require canonical room UUIDs, at most 1024.",
+            ));
+        }
         if next.agent_pins.len() > 1024 || next.agent_pins.iter().any(|id| !uuid_like(id)) {
             return Err(invalid(
                 "Agent pins require canonical identity UUIDs, at most 1024.",
@@ -480,6 +517,15 @@ impl Config {
                 pins.push(id.as_str());
             }
             document["workspace"]["pinned"] = value(pins);
+            if !next.hidden.is_empty() {
+                let mut hidden = toml_edit::Array::new();
+                for id in &next.hidden {
+                    hidden.push(id.as_str());
+                }
+                document["workspace"]["hidden"] = value(hidden);
+            } else if let Some(table) = document["workspace"].as_table_like_mut() {
+                table.remove("hidden");
+            }
             if !next.agent_pins.is_empty() {
                 let mut pins = toml_edit::Array::new();
                 for id in &next.agent_pins {
@@ -1045,6 +1091,7 @@ mod tests {
         let expected = config.workspace_preferences().unwrap();
         let next = OpsPreferences {
             pinned: ["11111111-1111-4111-8111-111111111111".into()].into(),
+            hidden: BTreeSet::new(),
             agent_pins: BTreeSet::new(),
             sort: OpsSort::Attention,
             reversed: true,
@@ -1169,6 +1216,138 @@ mod tests {
         );
         assert_eq!(fs::read(first.path()).unwrap(), before);
     }
+    #[test]
+    fn hidden_squads_round_trip_unknown_ids_and_clear_without_removing_pins() {
+        let fixture = FileFixture::new();
+        let mut cfg = fixture.config();
+        let untouched = fs::read(cfg.path()).unwrap();
+        let original = cfg.workspace_preferences().unwrap();
+        assert!(original.hidden.is_empty());
+        assert_eq!(fs::read(cfg.path()).unwrap(), untouched);
+
+        // Canonical room IDs do not require a live room to remain saved.
+        let id = "11111111-1111-4111-8111-111111111111";
+        let unknown = "22222222-2222-4222-8222-222222222222";
+        let mut next = original.clone();
+        next.pinned.insert(id.into());
+        next.hidden.extend([id.into(), unknown.into()]);
+        cfg.save_workspace_preferences(&original, &next).unwrap();
+        assert_eq!(fixture.config().workspace_preferences().unwrap(), next);
+        let bytes = fs::read_to_string(cfg.path()).unwrap();
+        assert!(bytes.contains("# preserve user text"));
+        assert!(bytes.contains("[bind]\nj='copy'"));
+        assert!(bytes.contains("[squad.other]\nlayout='crew'"));
+
+        let hidden = next.clone();
+        next.reversed = true;
+        cfg.save_workspace_preferences(&hidden, &next).unwrap();
+        assert_eq!(fixture.config().workspace_preferences().unwrap(), next);
+        let hidden = next.clone();
+        next.hidden.clear();
+        cfg.save_workspace_preferences(&hidden, &next).unwrap();
+        let cfg = fixture.config();
+        assert_eq!(cfg.workspace_preferences().unwrap(), next);
+        assert!(cfg.document["workspace"].get("hidden").is_none());
+        assert!(next.pinned.contains(id));
+    }
+
+    #[test]
+    fn hidden_squads_validate_canonical_unique_bounded_room_ids_before_writing() {
+        let id = "11111111-1111-4111-8111-111111111111";
+        let ids = |count| {
+            (0..count)
+                .map(|n| format!("'{n:08x}-1111-4111-8111-111111111111'"))
+                .collect::<Vec<_>>()
+                .join(",")
+        };
+        assert_eq!(
+            config(&format!("[workspace]\nhidden=[{}]", ids(1024)))
+                .workspace_preferences()
+                .unwrap()
+                .hidden
+                .len(),
+            1024
+        );
+        for hidden in [
+            "'not-an-array'".to_owned(),
+            "[42]".into(),
+            "['not-an-id']".into(),
+            "['AAAAAAAA-1111-4111-8111-111111111111']".into(),
+            format!("['{id}', '{id}']"),
+            format!("[{}]", ids(1025)),
+        ] {
+            assert!(
+                config(&format!("[workspace]\nhidden={hidden}"))
+                    .workspace_preferences()
+                    .is_err(),
+                "{hidden}"
+            );
+        }
+
+        let fixture = FileFixture::new();
+        let mut cfg = fixture.config();
+        let original = cfg.workspace_preferences().unwrap();
+        let before = fs::read(cfg.path()).unwrap();
+        for hidden in [
+            ["not-an-id".into()].into(),
+            (0..1025)
+                .map(|n| format!("{n:08x}-1111-4111-8111-111111111111"))
+                .collect(),
+        ] {
+            let next = OpsPreferences {
+                hidden,
+                ..original.clone()
+            };
+            assert!(cfg.save_workspace_preferences(&original, &next).is_err());
+            assert_eq!(fs::read(cfg.path()).unwrap(), before);
+        }
+    }
+
+    #[test]
+    fn hidden_squad_writes_refuse_stale_preferences_and_external_file_edits() {
+        let fixture = FileFixture::new();
+        let mut first = fixture.config();
+        let mut stale = fixture.config();
+        let original = first.workspace_preferences().unwrap();
+        let next = OpsPreferences {
+            hidden: ["11111111-1111-4111-8111-111111111111".into()].into(),
+            ..original.clone()
+        };
+        first.save_workspace_preferences(&original, &next).unwrap();
+        let published = fs::read(first.path()).unwrap();
+        assert_eq!(
+            stale
+                .save_workspace_preferences(&original, &next)
+                .unwrap_err()
+                .code,
+            "SQUAD_CONFIG_CHANGED"
+        );
+        assert_eq!(fs::read(first.path()).unwrap(), published);
+        let mut reloaded = fixture.config();
+        assert!(
+            reloaded
+                .save_workspace_preferences(&original, &next)
+                .is_err()
+        );
+        assert_eq!(fs::read(first.path()).unwrap(), published);
+
+        let mut cleared = next.clone();
+        cleared.hidden.clear();
+        let edited = format!(
+            "{}\n# external edit\n",
+            String::from_utf8(published).unwrap()
+        );
+        fs::write(first.path(), &edited).unwrap();
+        assert_eq!(
+            reloaded
+                .save_workspace_preferences(&next, &cleared)
+                .unwrap_err()
+                .code,
+            "SQUAD_CONFIG_CHANGED"
+        );
+        assert_eq!(fs::read_to_string(first.path()).unwrap(), edited);
+    }
+
     #[test]
     fn agent_pins_round_trip_clear_and_leave_unrelated_content() {
         let fixture = FileFixture::new();

@@ -3,7 +3,24 @@
 mod model;
 mod render;
 
-pub(super) use model::{rows, summary};
+/// Session scope uses exactly the admitted Digest identities, including its
+/// current search, while saved hiding remains an Agents/Overview preference.
+pub(super) fn summary(app: &crate::board::app::App) -> String {
+    if app.workspace.visibility.scope.is_empty() {
+        return model::summary(&app.labels, None);
+    }
+    let rows = app.workspace_rows();
+    let identities = rows
+        .iter()
+        .filter_map(|row| match &row.target {
+            crate::board::workspace::OpsTarget::Member { identity_id, .. } => {
+                Some(identity_id.as_str())
+            }
+            _ => None,
+        })
+        .collect();
+    model::summary(&app.labels, Some(&identities))
+}
 pub(super) use render::render;
 
 #[cfg(test)]

@@ -42,10 +42,14 @@ impl App {
         self.workspace_snapshot()
             .map(|snapshot| {
                 if self.shell.tab == OpsTab::Digest {
-                    crate::board::digest_dashboard::rows(
+                    crate::board::workspace::identity_rows(
                         snapshot,
                         &self.workspace.query,
                         self.workspace.selected.as_ref(),
+                        &crate::board::workspace::OpsVisibility {
+                            scope: self.workspace.visibility.scope.clone(),
+                            reveal_hidden: true,
+                        },
                     )
                 } else {
                     self.workspace.rows(&snapshot.roster, &snapshot.preferences)
@@ -170,6 +174,43 @@ impl App {
         if !self.workspace_selection_visible() || self.workspace_scope() != OpsKeyScope::Member {
             keys.retain(|_, action| action.verb != Verb::Ui(OpsUiAction::RenameMember));
         }
+        let squad = self
+            .workspace
+            .selected
+            .as_ref()
+            .and_then(|target| {
+                if let OpsTarget::Squad(id) = target {
+                    Some(id)
+                } else {
+                    None
+                }
+            })
+            .filter(|_| self.workspace_selection_visible());
+        keys.retain(|_, action| match action.verb {
+            Verb::Ui(OpsUiAction::HideSquad) => {
+                self.shell.tab == OpsTab::Agents
+                    && squad.is_some_and(|id| {
+                        self.workspace_snapshot()
+                            .is_some_and(|snapshot| !snapshot.preferences.hidden.contains(id))
+                    })
+            }
+            Verb::Ui(OpsUiAction::ShowSquad) => {
+                self.shell.tab == OpsTab::Agents
+                    && squad.is_some_and(|id| {
+                        self.workspace_snapshot()
+                            .is_some_and(|snapshot| snapshot.preferences.hidden.contains(id))
+                    })
+            }
+            Verb::Ui(OpsUiAction::RevealHidden) => {
+                self.workspace.visibility.scope.is_empty()
+                    && !self.workspace.visibility.reveal_hidden
+                    && self
+                        .workspace_snapshot()
+                        .is_some_and(|snapshot| snapshot.hidden_count > 0)
+            }
+            Verb::Ui(OpsUiAction::ClearScope) => !self.workspace.visibility.scope.is_empty(),
+            _ => true,
+        });
         keys
     }
     pub(in crate::board) fn workspace_binding_sources(
@@ -233,19 +274,19 @@ impl App {
     }
     pub(in crate::board) fn workspace_reconcile(&mut self) {
         self.workspace.query = self.search.clone();
-        if let Some(name) = self.workspace_startup.take() {
+        if let Some(id) = self.workspace_startup.take() {
             if let Some(squad) = self.workspace_snapshot().and_then(|snapshot| {
                 snapshot
                     .roster
                     .squads
                     .iter()
-                    .find(|squad| squad.name == name)
+                    .find(|squad| squad.room_id == id)
             }) {
                 self.workspace.selected = Some(OpsTarget::Squad(squad.room_id.clone()));
                 self.shell.tab = OpsTab::Agents;
             } else {
                 self.notice = Some(format!(
-                    "Squad '{name}' is unavailable; choose a visible target explicitly."
+                    "Scoped squad '{id}' is unavailable; choose a visible target explicitly."
                 ));
             }
         }
@@ -304,6 +345,43 @@ impl App {
             saved: None,
         })
     }
+    pub(in crate::board) fn finished_workspace_preferences(
+        &mut self,
+        preferences: OpsPreferences,
+        message: String,
+    ) {
+        // Only a confirmed explicit Hide of the current visible squad moves
+        // selection. Other saves retain missing/filter-hidden UUID anchors.
+        let move_from = self.workspace.selected.as_ref().and_then(|target| {
+            let OpsTarget::Squad(id) = target else {
+                return None;
+            };
+            let snapshot = self.workspace_snapshot()?;
+            (!snapshot.preferences.hidden.contains(id)
+                && preferences.hidden.contains(id)
+                && !self.workspace.visibility.shows_squad(id, &preferences))
+            .then(|| {
+                self.workspace_rows()
+                    .iter()
+                    .position(|row| &row.target == target)
+            })
+            .flatten()
+        });
+        if let Some(snapshot) = self.view.as_mut().and_then(|view| view.home.as_mut()) {
+            snapshot.workspace.set_preferences(preferences);
+        }
+        self.overview_rows.borrow_mut().clear();
+        if let Some(index) = move_from {
+            let rows = self.workspace_rows();
+            self.workspace.selected = rows
+                .get(index.min(rows.len().saturating_sub(1)))
+                .map(|row| row.target.clone());
+        }
+        self.workspace_reconcile();
+        self.invalidate_frame_geometry();
+        self.finished(Ok(message));
+    }
+
     pub(in crate::board) fn workspace_owner_timers(
         &mut self,
         room: Option<String>,
@@ -394,6 +472,43 @@ impl App {
             return self.say("Loading the workspace…");
         }
         match action {
+            ClearScope => {
+                self.workspace.visibility.scope.clear();
+                self.workspace_startup = None;
+                self.overview_rows.borrow_mut().clear();
+                self.workspace_reconcile();
+                self.invalidate_frame_geometry();
+            }
+            RevealHidden => {
+                if !self.workspace.visibility.scope.is_empty() {
+                    return Effect::None;
+                }
+                self.workspace.visibility.reveal_hidden = true;
+                self.overview_rows.borrow_mut().clear();
+                self.workspace_reconcile();
+                self.invalidate_frame_geometry();
+            }
+            HideSquad | ShowSquad => {
+                if self.shell.tab != OpsTab::Agents || !self.workspace_selection_visible() {
+                    return self.say("Select a visible squad explicitly.");
+                }
+                let Some(OpsTarget::Squad(id)) = self.workspace.selected.as_ref() else {
+                    return self.say("Common pool cannot be hidden. Select a squad explicitly.");
+                };
+                let Some(snapshot) = self.workspace_snapshot() else {
+                    return Effect::None;
+                };
+                let mut next = snapshot.preferences.clone();
+                if action == HideSquad {
+                    if next.hidden.len() >= 1024 && !next.hidden.contains(id) {
+                        return self.say("Hidden squad limit reached (1024); show a squad first.");
+                    }
+                    next.hidden.insert(id.clone());
+                } else {
+                    next.hidden.remove(id);
+                }
+                return self.workspace_save(next);
+            }
             AgentsFilter if self.shell.tab == OpsTab::Agents => {
                 return self.agents_filter(self.workspace.filter.next());
             }
@@ -670,6 +785,24 @@ impl App {
                     .to_owned();
                 let mut entries = Vec::new();
                 if matches!(self.workspace.selected, Some(OpsTarget::Squad(_))) {
+                    let action = if self.workspace_squad().is_some_and(|squad| {
+                        self.workspace_snapshot().is_some_and(|snapshot| {
+                            snapshot.preferences.hidden.contains(&squad.room_id)
+                        })
+                    }) {
+                        OpsUiAction::ShowSquad
+                    } else {
+                        OpsUiAction::HideSquad
+                    };
+                    entries.push(MenuEntry {
+                        key: String::new(),
+                        label: crate::board::view::footer::hint_word(
+                            self,
+                            &Action::parse(action.spec().name).unwrap(),
+                        )
+                        .into(),
+                        choice: Choice::Action(Action::parse(action.spec().name).unwrap()),
+                    });
                     for (label, kind) in [
                         ("Add member", Kind::Add),
                         ("Set/clear lead", Kind::Lead),

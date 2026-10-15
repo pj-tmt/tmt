@@ -23,10 +23,19 @@ distinct. Per-squad rank/state never becomes a global identity state.
 
 `workspace::OpsWorkspace` owns expansion, filtering and the exact selected
 `OpsTarget`: pool, room UUID, or room/identity UUID pair. It derives the tree from
-one snapshot. Pool remains first; pinned squads precede the selected sort order.
+one snapshot. Pool remains first outside a launch scope; pinned squads precede the
+selected sort order. Session visibility holds resolved launch room UUIDs and the
+explicit hidden-room reveal. Scope wins saved hiding. Hidden memberships never
+become Common pool members, and search never reveals hidden squads. Saved hiding
+filters Agents and Overview; launch scope applies across destinations. The hidden band reports UUID-deduplicated waiting/blocked evidence from hidden
+rooms in the existing state roles, cached when preferences configure the snapshot;
+it omits absent attention and drops these counts after session reveal. The
+acquired roster and global shell attention remain unchanged.
 A collapsed squad keeps its worst observed child state, prioritizing attention.
 Refresh, sorting, pinning and search preserve the anchor; a hidden or removed
-anchor disables actions rather than selecting its neighbour. The session-local
+anchor disables actions rather than selecting its neighbour. A confirmed explicit
+Hide of the currently visible squad intentionally selects the next visible row;
+a failed save or unrelated preference change cannot transfer that authority. The session-local
 Agents filter selects All, Needs you or Pinned without saving
 preferences. All keeps Common pool first; Needs you retains qualifying groups and
 incomplete evidence; Pinned selects real pinned squads. Search keeps matching
@@ -38,7 +47,15 @@ non-interactive; retained hidden targets grant no action authority.
 
 `board::shell` owns Overview, Agents and Digest selection. `overview::monitor`
 projects one identity row through the admitted workspace roster. Its single cache
-also holds roster-intersected typed Digest counts and admitted recent exchanges;
+also holds visible-roster-intersected typed Digest counts and admitted recent exchanges;
+its existing key includes saved hidden IDs and session visibility. General UUID
+row admission/deduplication belongs to `workspace::identity_rows`, shared with Digest;
+Digest keeps its own labels, counts and details. Its held summary intersects the
+scoped list identities, including search, while saved hiding is not applied to
+Digest. Its Usage panel labels provider usage as global under scope; provider
+usage/quota and shell attention remain global. Unknown saved hidden room IDs do
+not affect rows or the live hidden count. Search/attention filters do not change
+the visible-roster totals;
 acquisition, labels, meter/job updates and admitted exchange reads invalidate it.
 `workspace::columns` owns shared full values and TUI-solved tracks; Overview
 captions Digest as MODE, while `sort` orders known values with missing observations

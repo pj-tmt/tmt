@@ -803,6 +803,7 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
       expectJsonResult(await fixture.runJsonCli(['add', docs, 'docs-fix']));
       expectJsonResult(await squadCli(fixture, ['add', 'docs-fix']));
 
+      // UI --squad is a session scope: these launches intentionally exclude Common pool.
       // A managed-looking install: PATH link -> current -> release. Each release records
       // its launch, then runs the built board under the PATH name, as the real one is run.
       const built = fs.realpathSync(path.join(fixture.wrapperDir, 'tmt-ops'));
@@ -927,6 +928,43 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
         },
         15_000,
         'the filter survives every reload'
+      );
+      expect(screen(shell.pane)).toContain('Scope: product');
+      // Clearing argv scope is ephemeral session state. The same reload seam
+      // must carry an empty scope instead of reapplying the launch option.
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
+      await fixture.waitFor(
+        () => !screen(shell.pane).includes('Scope:') && screen(shell.pane).includes('Common pool'),
+        5_000,
+        'explicit scope clear'
+      );
+      fixture.tmux([
+        'send-keys',
+        '-t',
+        asker.pane,
+        `XDG_CACHE_HOME='${cache}' tmt ops ui --reload-all; echo CLEAR_RELOAD_EXIT=$?`,
+        'Enter',
+      ]);
+      await fixture.waitForCapture((text) => text.includes('CLEAR_RELOAD_EXIT=0'), asker.pane);
+      await fixture.waitFor(
+        () => launched() === 'one,two,one,one,one',
+        15_000,
+        'reload after scope clear'
+      );
+      await fixture.waitFor(
+        () => {
+          const now = screen(shell.pane);
+          const rows = agentRows(now);
+          return (
+            now.includes('Board reloaded · tmt-ops') &&
+            !now.includes('Scope:') &&
+            now.includes('Common pool') &&
+            rows.includes('docs-fix') &&
+            !rows.includes('auth-fix')
+          );
+        },
+        15_000,
+        'cleared scope and the independent search survive reload'
       );
       fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
       await fixture.waitForCapture((text) => text.includes('BOARD_EXIT=0'), shell.pane);

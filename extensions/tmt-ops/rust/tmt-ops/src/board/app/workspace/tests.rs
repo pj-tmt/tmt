@@ -2826,12 +2826,12 @@ fn agents_filter_uses_the_effective_key_and_painted_controls_without_retargeting
     assert_eq!(app.workspace.selected, selected);
     assert_eq!(app.workspace.expanded, expansion);
     assert!(
-        app.agents_strip_hits.borrow().is_empty(),
+        app.workspace_strip_hits.borrow().is_empty(),
         "filter invalidates stale controls"
     );
     paint(&app, 160, 44);
     let all = app
-        .agents_strip_hits
+        .workspace_strip_hits
         .borrow()
         .iter()
         .find(|(_, choice)| *choice == Choice::AgentsFilter(AgentsFilter::All))
@@ -2855,7 +2855,7 @@ fn agents_filter_uses_the_effective_key_and_painted_controls_without_retargeting
     assert_eq!(app.workspace_snapshot().unwrap().preferences, preferences);
     app.shell.tab = OpsTab::Overview;
     paint(&app, 160, 44);
-    assert!(app.agents_strip_hits.borrow().is_empty());
+    assert!(app.workspace_strip_hits.borrow().is_empty());
     assert_eq!(key(&mut app, KeyCode::Char('f')), Effect::None);
     assert_eq!(
         app.workspace.filter,
@@ -3054,4 +3054,403 @@ fn default_attention_colors_stay_in_the_painted_state_word_while_other_states_ar
             }
         }
     }
+}
+
+#[test]
+fn confirmed_hide_moves_only_its_visible_squad_and_keeps_global_attention() {
+    let mut app = board();
+    app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
+    app.workspace_reconcile();
+    let old = app.workspace_snapshot().unwrap().preferences.clone();
+    let global = app.workspace_snapshot().unwrap().shell_counts.clone();
+    let effect = app.workspace_action(OpsUiAction::HideSquad);
+    let Effect::Act(Request::WorkspacePreferences { expected, next, .. }) = effect else {
+        panic!("Hide must use the existing preference effect");
+    };
+    assert_eq!(expected, old);
+    assert_eq!(
+        app.workspace_snapshot().unwrap().preferences,
+        old,
+        "no optimistic save"
+    );
+    assert_eq!(app.workspace.selected, Some(OpsTarget::Squad(ROOM.into())));
+    app.finished(Err("stale file".into()));
+    assert_eq!(app.workspace_snapshot().unwrap().preferences, old);
+    assert_eq!(app.workspace.selected, Some(OpsTarget::Squad(ROOM.into())));
+    app.finished_workspace_preferences(next, "Saved".into());
+    assert_eq!(app.workspace.selected, Some(OpsTarget::Pool));
+    assert_eq!(app.workspace_snapshot().unwrap().hidden_count, 1);
+    assert_eq!(app.workspace_snapshot().unwrap().shell_counts, global);
+    assert_eq!(app.workspace_rows().len(), 1);
+    app.shell.tab = OpsTab::Overview;
+    app.workspace_reconcile();
+    assert!(app.workspace_rows().is_empty());
+    assert_eq!(
+        crate::board::overview::monitor::scene(&app, app.workspace_snapshot().unwrap())
+            .summary
+            .total,
+        0
+    );
+    app.workspace_action(OpsUiAction::RevealHidden);
+    assert_eq!(app.workspace_rows().len(), 1);
+    assert_eq!(
+        crate::board::overview::monitor::scene(&app, app.workspace_snapshot().unwrap())
+            .summary
+            .total,
+        1
+    );
+    assert!(
+        app.workspace_snapshot()
+            .unwrap()
+            .preferences
+            .hidden
+            .contains(ROOM)
+    );
+}
+
+#[test]
+fn scoped_hidden_squad_is_visible_and_escape_clear_is_carried_across_reload() {
+    let mut app = board();
+    let mut preferences = app.workspace_snapshot().unwrap().preferences.clone();
+    preferences.hidden.insert(ROOM.into());
+    app.finished_workspace_preferences(preferences, "Saved".into());
+    app.workspace.visibility.scope = vec![ROOM.into()];
+    app.workspace_startup = Some(ROOM.into());
+    app.workspace_reconcile();
+    assert_eq!(app.workspace.selected, Some(OpsTarget::Squad(ROOM.into())));
+    assert!(
+        !app.workspace_rows()
+            .iter()
+            .any(|row| row.target == OpsTarget::Pool)
+    );
+    let scope = app.resume().unwrap();
+    assert_eq!(scope.visibility.scope, vec![ROOM.to_owned()]);
+    app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(app.workspace.visibility.scope.is_empty());
+    assert_eq!(
+        app.workspace.selected,
+        Some(OpsTarget::Squad(ROOM.into())),
+        "clear has no neighbor recipient authority"
+    );
+    assert!(!app.workspace_selection_visible());
+    let cleared = app.resume().unwrap();
+    let mut reloaded = board();
+    reloaded.workspace_startup = Some(ROOM.into());
+    reloaded.workspace.visibility.scope = vec![ROOM.into()];
+    reloaded.carry(cleared);
+    reloaded.restore_pending();
+    reloaded.workspace_reconcile();
+    assert!(reloaded.workspace.visibility.scope.is_empty());
+    assert!(reloaded.workspace_startup.is_none());
+}
+
+#[test]
+fn scope_escape_respects_search_overlay_editor_and_authored_binding() {
+    let mut app = board();
+    app.workspace.visibility.scope = vec![ROOM.into()];
+    app.searching = true;
+    app.search = "worker".into();
+    app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(!app.searching);
+    assert_eq!(app.workspace.visibility.scope, vec![ROOM.to_owned()]);
+    app.help = true;
+    app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(!app.help);
+    assert_eq!(app.workspace.visibility.scope, vec![ROOM.to_owned()]);
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(app.input.is_some());
+    app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(app.input.is_none());
+    assert_eq!(app.workspace.visibility.scope, vec![ROOM.to_owned()]);
+    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    snapshot
+        .keys
+        .get_mut(&OpsKeyScope::Member)
+        .unwrap()
+        .insert("esc".into(), Action::parse("help").unwrap());
+    app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(app.help);
+    assert_eq!(app.workspace.visibility.scope, vec![ROOM.to_owned()]);
+}
+
+#[test]
+fn show_is_a_saved_removal_and_common_pool_has_no_hide_action() {
+    let mut app = board();
+    app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
+    app.workspace.visibility.reveal_hidden = true;
+    let mut preferences = app.workspace_snapshot().unwrap().preferences.clone();
+    preferences.hidden.insert(ROOM.into());
+    preferences.pinned.insert(ROOM.into());
+    app.finished_workspace_preferences(preferences, "Saved".into());
+    let Effect::Act(Request::WorkspacePreferences { next, .. }) =
+        app.workspace_action(OpsUiAction::ShowSquad)
+    else {
+        panic!("Show must save");
+    };
+    assert!(next.hidden.is_empty());
+    assert!(next.pinned.contains(ROOM));
+    app.workspace.selected = Some(OpsTarget::Pool);
+    app.workspace_reconcile();
+    assert!(!app.workspace_bindings().values().any(|action| matches!(
+        action.verb,
+        Verb::Ui(OpsUiAction::HideSquad | OpsUiAction::ShowSquad)
+    )));
+    assert_eq!(app.workspace_action(OpsUiAction::HideSquad), Effect::None);
+    assert!(
+        app.notice
+            .as_deref()
+            .unwrap()
+            .contains("Common pool cannot be hidden")
+    );
+}
+
+#[test]
+fn visibility_capture_matrix_keeps_shell_global_and_views_scoped() {
+    let output = std::env::var("TMT_VISIBILITY_CAPTURE").ok();
+    let mut captures = Vec::new();
+    for (width, height) in [(160, 44), (100, 24), (60, 24)] {
+        for (base, depth) in [
+            (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::TrueColor),
+            (
+                tmt_cli_style::Base::TmtLight,
+                tmt_cli_style::Depth::TrueColor,
+            ),
+            (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::None),
+        ] {
+            for tab in [OpsTab::Agents, OpsTab::Overview] {
+                for mode in ["hidden", "scoped", "revealed"] {
+                    let mut app = populated_board(2, 4);
+                    let view = app.view.as_mut().unwrap();
+                    view.look = crate::look::Look {
+                        theme: tmt_cli_style::Theme::new(base),
+                        depth,
+                    };
+                    let snapshot = &mut view.home.as_mut().unwrap().workspace;
+                    snapshot.squad_looks.clear();
+                    let hidden = snapshot.roster.squads[0].room_id.clone();
+                    let other = snapshot.roster.squads[1].room_id.clone();
+                    let mut preferences = snapshot.preferences.clone();
+                    preferences.hidden.insert(hidden.clone());
+                    // Deleted rooms remain in config but never inflate Hidden:N.
+                    preferences
+                        .hidden
+                        .insert("99999999-9999-4999-8999-999999999999".into());
+                    snapshot.set_preferences(preferences);
+                    snapshot.shell_counts = snapshot.roster.shell_counts();
+                    let global = snapshot.shell_counts.clone();
+                    assert_eq!(global.blocked, 1);
+                    app.workspace.visibility.scope = if mode == "scoped" {
+                        vec![hidden.clone()]
+                    } else {
+                        vec![]
+                    };
+                    app.workspace.visibility.reveal_hidden = mode == "revealed";
+                    app.workspace.selected = Some(OpsTarget::Squad(if mode == "scoped" {
+                        hidden
+                    } else {
+                        other
+                    }));
+                    app.shell.tab = tab;
+                    app.workspace_reconcile();
+                    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+                    terminal
+                        .draw(|frame| crate::board::view::render(frame, &app))
+                        .unwrap();
+                    let buffer = terminal.backend().buffer();
+                    let lines = buffer
+                        .content
+                        .chunks(usize::from(width))
+                        .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+                        .collect::<Vec<_>>();
+                    let text = lines.join("\n");
+                    assert!(
+                        text.contains(if mode == "scoped" {
+                            "Scope: squad-00"
+                        } else {
+                            "Hidden: 1"
+                        }),
+                        "{width} {mode} {text}"
+                    );
+                    if mode == "hidden" {
+                        assert!(text.contains("Hidden: 1 · ✗ 1 blocked · show"));
+                        let x = lines[1].chars().position(|c| c == '✗').unwrap() as u16;
+                        assert_eq!(
+                            buffer[(x, 1)].fg,
+                            app.look()
+                                .role(tmt_cli_style::Role::Blocked)
+                                .fg
+                                .unwrap_or(ratatui::style::Color::Reset)
+                        );
+                    }
+                    if mode == "scoped" {
+                        assert!(text.contains("Esc clears"));
+                        assert!(!text.contains("Hidden:"));
+                    }
+                    let rows = app.workspace_rows();
+                    if mode == "hidden" {
+                        assert!(rows.iter().all(|row| !matches!(&row.target,OpsTarget::Squad(id) if id.ends_with("000000000000"))));
+                    }
+                    if tab == OpsTab::Agents {
+                        assert!(text.contains(if mode == "revealed" {
+                            "Agents · 2 squads"
+                        } else {
+                            "Agents · 1 squad"
+                        }));
+                        if mode == "scoped" {
+                            assert!(!text.contains("+ Common pool"));
+                        }
+                    }
+                    if tab == OpsTab::Overview {
+                        let scene = crate::board::overview::monitor::scene(
+                            &app,
+                            app.workspace_snapshot().unwrap(),
+                        );
+                        assert_eq!(scene.rows.len(), if mode == "revealed" { 4 } else { 2 });
+                        assert_eq!(scene.summary.total, scene.rows.len());
+                        assert_eq!(scene.summary.needs_you, usize::from(mode != "hidden"));
+                    }
+                    assert_eq!(app.workspace_snapshot().unwrap().shell_counts, global);
+                    let before = app.workspace.selected.clone();
+                    let control = app.workspace_strip_hits.borrow().iter().find(|(_,choice)| matches!(choice,Choice::Action(action) if matches!(action.verb,Verb::Ui(OpsUiAction::ClearScope | OpsUiAction::RevealHidden)))).cloned();
+                    if mode != "revealed" {
+                        assert!(control.is_some());
+                    }
+                    captures.push(json!({"width":width,"height":height,"base":format!("{base:?}"),"depth":format!("{depth:?}"),"tab":format!("{tab:?}"),"mode":mode,"lines":lines,
+                        "cells":buffer.content.iter().map(|cell|json!({"symbol":cell.symbol(),"fg":format!("{:?}",cell.fg),"bg":format!("{:?}",cell.bg),"modifier":format!("{:?}",cell.modifier)})).collect::<Vec<_>>(),
+                        "selected":format!("{before:?}"),"hits":format!("{:?}",app.hits.borrow())}));
+                    if let Some((area, choice)) = control {
+                        let _ = choice;
+                        app.mouse(
+                            MouseEvent {
+                                kind: MouseEventKind::Down(MouseButton::Left),
+                                column: area.x,
+                                row: area.y,
+                                modifiers: KeyModifiers::NONE,
+                            },
+                            std::time::Instant::now(),
+                        );
+                        assert_eq!(app.workspace.selected, before);
+                        assert!(
+                            app.workspace_strip_hits.borrow().is_empty(),
+                            "old geometry invalidated"
+                        );
+                        terminal
+                            .draw(|frame| crate::board::view::render(frame, &app))
+                            .unwrap();
+                        assert!(!area.is_empty());
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(captures.len(), 54);
+    if let Some(output) = output {
+        std::fs::write(output, serde_json::to_vec(&captures).unwrap()).unwrap();
+    }
+}
+
+#[test]
+fn scope_header_fits_whole_names_and_neutralizes_untrusted_roster_names() {
+    let mut app = populated_board(3, 3);
+    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    let names = [
+        "alpha-long-squad-name-one",
+        "bravo-long-squad-name-two",
+        "charlie-long-squad-three",
+    ];
+    for (squad, name) in snapshot.roster.squads.iter_mut().zip(names) {
+        squad.name = name.into();
+    }
+    let ids: Vec<_> = snapshot
+        .roster
+        .squads
+        .iter()
+        .map(|squad| squad.room_id.clone())
+        .collect();
+    app.workspace.visibility.scope = vec![ids[2].clone(), ids[0].clone(), ids[1].clone()];
+    let mut terminal = Terminal::new(TestBackend::new(60, 24)).unwrap();
+    terminal
+        .draw(|frame| crate::board::view::render(frame, &app))
+        .unwrap();
+    let line = (0..60)
+        .map(|x| terminal.backend().buffer()[(x, 1)].symbol())
+        .collect::<String>();
+    assert!(line.contains(names[2]));
+    assert!(line.contains("+2 · Esc clears"));
+    assert!(!line.contains("alpha"));
+    assert!(!line.contains("bravo"));
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .roster
+        .squads[2]
+        .name = "safe\u{1b}]52;c;secret\u{7}\u{202e}name".into();
+    terminal
+        .draw(|frame| crate::board::view::render(frame, &app))
+        .unwrap();
+    let line = (0..60)
+        .map(|x| terminal.backend().buffer()[(x, 1)].symbol())
+        .collect::<String>();
+    assert!(line.contains("Scope: safename"));
+    assert!(!line.contains("secret"));
+    assert!(!line.contains('\u{1b}'));
+    assert!(!line.contains('\u{202e}'));
+}
+
+#[test]
+fn cold_view_hints_cannot_set_or_clear_session_visibility() {
+    let hint = crate::board::view_state::ViewState {
+        shell: OpsTab::Digest,
+        expanded: Default::default(),
+        pool_expanded: true,
+        selected: Some(OpsTarget::Pool),
+    };
+    for explicit in [false, true] {
+        let mut app = board();
+        app.workspace.visibility.scope = vec![ROOM.into()];
+        app.workspace.visibility.reveal_hidden = true;
+        let visibility = app.workspace.visibility.clone();
+        app.carry_view_hint(&hint, explicit);
+        assert_eq!(app.workspace.visibility, visibility);
+    }
+}
+
+#[test]
+fn hidden_line_reports_both_attention_kinds_but_omits_absent_and_revealed_attention() {
+    let mut app = board();
+    app.shell.tab = OpsTab::Agents;
+    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    snapshot.roster.members.get_mut(MEMBER).unwrap().waiting = true;
+    snapshot.roster.members.get_mut(MEMBER).unwrap().state = Some("blocked".into());
+    let mut preferences = snapshot.preferences.clone();
+    preferences.hidden.insert(ROOM.into());
+    snapshot.set_preferences(preferences.clone());
+    let paint = |app: &App| {
+        let mut terminal = Terminal::new(TestBackend::new(60, 24)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, app))
+            .unwrap();
+        (0..60)
+            .map(|x| terminal.backend().buffer()[(x, 1)].symbol())
+            .collect::<String>()
+    };
+    assert!(paint(&app).contains("Hidden: 1 · ◆ 1 waiting · ✗ 1 blocked · show"));
+    app.workspace.visibility.reveal_hidden = true;
+    let line = paint(&app);
+    assert!(line.contains("Hidden: 1 · shown"));
+    assert!(!line.contains("blocked"));
+    assert!(!line.contains("waiting"));
+    app.workspace.visibility.reveal_hidden = false;
+    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    snapshot.roster.members.get_mut(MEMBER).unwrap().waiting = false;
+    snapshot.roster.members.get_mut(MEMBER).unwrap().state = Some("working".into());
+    snapshot.set_preferences(preferences);
+    let line = paint(&app);
+    assert!(line.contains("Hidden: 1 · show"));
+    assert!(!line.contains("blocked"));
+    assert!(!line.contains("waiting"));
 }

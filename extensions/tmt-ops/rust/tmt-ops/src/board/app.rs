@@ -619,7 +619,7 @@ pub struct App {
     pub(in crate::board) overview_rows: RefCell<super::overview::monitor::Cache>,
     pub(in crate::board) overview_layout: RefCell<super::overview::columns::Layout>,
     pub(in crate::board) agents_layout: RefCell<super::workspace::columns::AgentsLayout>,
-    pub(in crate::board) agents_strip_hits: RefCell<Vec<(ratatui::layout::Rect, Choice)>>,
+    pub(in crate::board) workspace_strip_hits: RefCell<Vec<(ratatui::layout::Rect, Choice)>>,
     pub(in crate::board) workspace_state_cells: RefCell<Vec<ratatui::layout::Rect>>,
     pub(in crate::board) overview_sort_hits:
         RefCell<Vec<(ratatui::layout::Rect, crate::config::OverviewColumn)>>,
@@ -759,6 +759,7 @@ pub fn event_name(key: KeyEvent) -> Option<String> {
         KeyCode::Tab if key.modifiers.contains(KeyModifiers::SHIFT) => "backtab".into(),
         KeyCode::Tab => "tab".into(),
         KeyCode::Delete => "delete".into(),
+        KeyCode::Esc => "esc".into(),
         KeyCode::Home => "home".into(),
         KeyCode::End => "end".into(),
         KeyCode::PageUp => "pageup".into(),
@@ -3438,7 +3439,7 @@ impl App {
         self.overview_sort_hits.borrow_mut().clear();
         self.workspace_header_hover.set(None);
         self.cron_scope_hits.borrow_mut().clear();
-        self.agents_strip_hits.borrow_mut().clear();
+        self.workspace_strip_hits.borrow_mut().clear();
         self.workspace_state_cells.borrow_mut().clear();
         if let Some(details) = &self.monitor_details {
             details.invalidate();
@@ -3764,13 +3765,16 @@ impl App {
         }
         if !self.loading() && event.kind == MouseEventKind::Down(MouseButton::Left) {
             let strip = self
-                .agents_strip_hits
+                .workspace_strip_hits
                 .borrow()
                 .iter()
                 .find(|(area, _)| area.contains((event.column, event.row).into()))
                 .map(|(_, choice)| choice.clone());
             if let Some(choice) = strip {
-                if self.shell.tab == super::shell::OpsTab::Agents && !self.searching {
+                let visibility = matches!(&choice, Choice::Action(action) if matches!(action.verb,
+                    Verb::Ui(crate::action::OpsUiAction::ClearScope | crate::action::OpsUiAction::RevealHidden)));
+                if !self.searching && (self.shell.tab == super::shell::OpsTab::Agents || visibility)
+                {
                     self.focus = 0;
                     return self.choose(choice);
                 }

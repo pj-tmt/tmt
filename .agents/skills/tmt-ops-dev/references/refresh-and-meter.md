@@ -20,8 +20,12 @@
   `board::changes` also watches.
 - Providers: the board hands each load's members to one fetcher thread that runs due provider
   work off the paint path and again at the shortest `every`.
-- Startup: `board::run` enters the terminal and paints a placeholder (`startup.placeholder`)
-  before it runs any command. It then spawns the worker, so its setup reads
+- Startup: `board::run` consumes an ephemeral reload handoff and resolves cold launch
+  active scope names through `rooms.roster` before terminal admission
+  (`startup.launch_scope`); a valid handoff
+  skips the original argv lookup. It then enters the terminal and paints a
+  placeholder (`startup.placeholder`) before configuration and workspace acquisition.
+  It spawns the worker, so its setup reads
   (`worker.caller`, `worker.Config::locate`) overlap the config read and the
   background-colour query. The first tab is requested only after
   `look::configure_background`, because loads build looks from that process-wide signal.
@@ -126,7 +130,8 @@ means existing enrichment, attention, history, cron or HOME exchanges remain sch
 
 | Event         | Stage names / boundary                                                                                             |
 | ------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `stage`       | `startup.placeholder`: the placeholder frame, drawn before any command                                             |
+| `stage`       | `startup.launch_scope`: cold launch name resolution before terminal admission; a reload skips argv resolution      |
+| `stage`       | `startup.placeholder`: the placeholder frame, before configuration and workspace acquisition                       |
 | `stage`       | `startup.Config::load`: initial config in `board::run`                                                             |
 | `stage`       | `worker.caller`, `worker.Config::locate`: refresh-worker setup, overlapping terminal entry                         |
 | `stage`       | `Squad::list`, `Config::load`, `load`: `board::refresh::load` acquisition and total                                |

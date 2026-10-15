@@ -429,6 +429,7 @@ mod tests {
         let root = scratch("restart");
         let state = root.join("state");
         let resume = Resume {
+            visibility: Default::default(),
             shell: crate::board::shell::OpsTab::Overview,
             squads_expanded: vec![],
             pool_expanded: false,

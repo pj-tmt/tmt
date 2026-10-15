@@ -20,15 +20,25 @@ pub(in crate::board) struct Summary {
     pub unknown_held: usize,
 }
 
-pub(super) fn project(snapshot: &OpsWorkspaceSnapshot, labels: &Supplied) -> Summary {
+pub(super) fn project(
+    snapshot: &OpsWorkspaceSnapshot,
+    labels: &Supplied,
+    visibility: &crate::board::workspace::OpsVisibility,
+) -> Summary {
     let roster = &snapshot.roster;
+    // Visibility affects this view's counts, never the acquired global roster
+    // or shell attention. Search and the needs-you filter do not affect totals.
+    let visible = visibility.member_ids(roster, &snapshot.preferences);
     let mut summary = Summary {
-        total: roster.members.len(),
+        total: visible
+            .as_ref()
+            .map_or(roster.members.len(), |ids| ids.len()),
         complete: roster.observation == OpsObservation::Complete
             && roster.membership_complete
             && roster
                 .squads
                 .iter()
+                .filter(|squad| visibility.shows_squad(&squad.room_id, &snapshot.preferences))
                 .all(|squad| squad.observation == OpsObservation::Complete),
         ..Default::default()
     };
@@ -38,6 +48,9 @@ pub(super) fn project(snapshot: &OpsWorkspaceSnapshot, labels: &Supplied) -> Sum
         .map(|(status, _)| status);
     summary.digest_available = digest.is_some();
     for (id, member) in &roster.members {
+        if visible.as_ref().is_some_and(|ids| !ids.contains(id)) {
+            continue;
+        }
         if member.state.as_deref() == Some("working") {
             summary.working += 1;
         }
@@ -150,6 +163,10 @@ impl Summary {
 mod tests {
     use super::*;
     use crate::board::workspace::OpsMember;
+
+    fn project(snapshot: &OpsWorkspaceSnapshot, labels: &Supplied) -> Summary {
+        super::project(snapshot, labels, &Default::default())
+    }
 
     #[test]
     fn digest_intersects_the_roster_and_stale_counts_are_unknown() {

@@ -117,3 +117,44 @@ fn every_command_follows_the_help_style_or_is_still_migrating() {
         report.join("\n")
     );
 }
+
+#[test]
+fn ui_scope_repeats_without_changing_single_squad_commands_or_reload_conflicts() {
+    let argv = [
+        "tmt-ops",
+        "ui",
+        "--squad",
+        "product",
+        "--squad=infra",
+        "--squad",
+        "product",
+    ];
+    let matches = super::grammar().try_get_matches_from(argv).unwrap();
+    let ui = matches.subcommand_matches("ui").unwrap();
+    assert_eq!(
+        ui.get_many::<String>("squad")
+            .unwrap()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        ["product", "infra", "product"]
+    );
+    for tail in [
+        vec!["--squad", "product"],
+        vec!["--squad=product"],
+        vec!["--tabs", "product"],
+        vec!["--popup"],
+    ] {
+        let words = [vec!["tmt-ops", "ui", "--reload-all"], tail].concat();
+        assert!(super::grammar().try_get_matches_from(words).is_err());
+    }
+    assert!(
+        super::grammar()
+            .try_get_matches_from([
+                "tmt-ops", "squad", "ls", "--squad", "product", "--squad", "infra"
+            ])
+            .is_err()
+    );
+    let ui_help = help(&["help".into(), "ui".into()]).unwrap();
+    assert!(ui_help.contains("repeat for several squads"));
+    assert!(ui_help.contains("tmt ops ui --squad product --squad infra"));
+}
