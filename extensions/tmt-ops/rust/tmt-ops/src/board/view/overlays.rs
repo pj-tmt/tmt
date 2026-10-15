@@ -32,10 +32,25 @@ pub(super) fn render(frame: &mut Frame, app: &App, body: Rect, look: crate::look
         crate::board::help::render(frame, app, body);
     }
     if let Some(menu) = &app.menu {
+        let anchor = menu.anchor;
+        let body = if let Some(anchor) = anchor {
+            let Some(area) =
+                crate::board::member_links::menu_area(body, anchor, menu.entries.len() as u16 + 4)
+            else {
+                return;
+            };
+            area
+        } else {
+            body
+        };
         menu.surface
             .borrow_mut()
             .get_or_insert_with(|| {
-                crate::board::menu_surface::MenuSurface::new(&menu.title, &menu.entries)
+                crate::board::menu_surface::MenuSurface::with_anchor(
+                    &menu.title,
+                    &menu.entries,
+                    anchor.is_some(),
+                )
             })
             .render(&menu.entries, menu.selected, frame, look, body);
     }

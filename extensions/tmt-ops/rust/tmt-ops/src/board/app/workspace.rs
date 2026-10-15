@@ -363,22 +363,32 @@ impl App {
         snapshot.binding_sources.get(&key)
     }
     fn workspace_effective_bindings(&self) -> Bindings {
+        let host = self
+            .selected_row()
+            .and_then(|row| row["pane"]["location"]["host"].as_str());
+        self.workspace_context_bindings(
+            self.workspace.selected.as_ref(),
+            self.workspace_scope(),
+            host,
+        )
+    }
+    /// A displayed mention has an explicit member context; ordinary bindings
+    /// use the selected context through the same section/host/global owner.
+    pub(in crate::board) fn workspace_context_bindings(
+        &self,
+        target: Option<&OpsTarget>,
+        scope: OpsKeyScope,
+        host: Option<&str>,
+    ) -> Bindings {
         let Some(snapshot) = self.workspace_snapshot() else {
-            return crate::config::workspace_defaults(self.workspace_scope());
+            return crate::config::workspace_defaults(scope);
         };
-        let scope = self.workspace_scope();
-        if let Some(keys) = self
-            .workspace
-            .selected
-            .as_ref()
+        if let Some(keys) = target
             .and_then(|target| snapshot.sections.get(target))
             .and_then(|tables| tables.get(&scope))
         {
             return keys.clone();
         }
-        let host = self
-            .selected_row()
-            .and_then(|row| row["pane"]["location"]["host"].as_str());
         host.and_then(|host| snapshot.hosts.get(host))
             .and_then(|tables| tables.get(&scope))
             .or_else(|| snapshot.keys.get(&scope))
@@ -976,6 +986,7 @@ impl App {
                     title,
                     entries,
                     selected: 0,
+                    anchor: None,
                     surface: Default::default(),
                 });
                 Effect::None
@@ -1049,6 +1060,7 @@ impl App {
             title: "Workspace settings · minimum usable size governs placement".into(),
             entries,
             selected: 0,
+            anchor: None,
             surface: Default::default(),
         });
         Effect::None

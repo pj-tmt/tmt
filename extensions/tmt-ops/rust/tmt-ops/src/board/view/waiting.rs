@@ -294,17 +294,24 @@ pub(in crate::board) fn inline_prompt(
             if projection.focused {
                 editor(frame, app, editor_area);
             } else if let Some(text) = projection.text.filter(|text| !text.is_empty()) {
-                let layout = text.layout(editor_area.width);
-                let skip = layout.reveal(0, editor_area.height);
-                layout.paint(
-                    frame.buffer_mut(),
-                    editor_area,
-                    skip,
-                    0..0,
-                    look.role(Role::Text),
-                    look.role(Role::Text),
-                );
-                app.input_viewport.set(Some((editor_area, skip)));
+                if super::super::member_links::paint_preview(frame, app, editor_area, text.as_str())
+                {
+                    // Display names have different widths from the exact raw editor.
+                    // Clicking the preview focuses editing without fabricating a caret.
+                    app.input_viewport.set(None);
+                } else {
+                    let layout = text.layout(editor_area.width);
+                    let skip = layout.reveal(0, editor_area.height);
+                    layout.paint(
+                        frame.buffer_mut(),
+                        editor_area,
+                        skip,
+                        0..0,
+                        look.role(Role::Text),
+                        look.role(Role::Text),
+                    );
+                    app.input_viewport.set(Some((editor_area, skip)));
+                }
             } else {
                 app.input_viewport.set(Some((editor_area, 0)));
             }

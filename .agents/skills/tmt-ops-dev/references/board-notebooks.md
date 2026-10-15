@@ -25,8 +25,18 @@ as source. The retained `NotesCursor` anchors response source lines and wrapped
 continuations; it reconciles nearest duplicates and clamps deleted lines.
 Conversation Scrolls owns the viewport, independently of that source anchor.
 
-Markdown keeps styled text and source-line mapping; it retains no link destinations
-or activation hits. Built-in destination recognition grants only a text style;
+Markdown keeps styled text and source-line mapping; it retains no URL destinations
+or URL activation hits. `member_links` resolves explicit `#tmt:` references against
+worker-acquired global identity UUIDs and canonical names. Markdown wrapping carries
+those tags into clipped current-frame rectangles; plain composer/Recent previews use
+the same projection. Conversation source and annotation byte ranges remain unchanged.
+A single existing menu surface anchors above/below the painted reference. Its actions
+recheck the acquired UUID/membership and effective configured host action; explicit
+Agents navigation preserves drafts and changes only session visibility/search.
+Unknown references and failed inventory observations remain literal. Keyboard traversal
+uses visible conversation references only; frame invalidation discards pointer hits.
+The inventory generation invalidates mention-bearing render caches off refresh,
+without scanning all identities on ordinary frames. Built-in destination recognition grants only a text style;
 custom handlers remain authored Config data with migration notices. The selected
 agent's attached URL uses existing Open/opener effects and global argv settings;
 a compatible explicit binding defines its own action. The removed notebook

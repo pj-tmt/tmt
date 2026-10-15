@@ -48,6 +48,7 @@ pub(super) struct State {
 struct Rendered {
     width: usize,
     look: Look,
+    identities: Option<std::sync::Arc<()>>,
     mapped: Mapped,
 }
 
@@ -153,16 +154,37 @@ impl Session {
         self.rendered = None;
     }
 
-    fn prepare(&mut self, width: usize, look: Look) -> bool {
-        let changed = self
-            .rendered
-            .as_ref()
-            .is_none_or(|rendered| rendered.width != width || rendered.look != look);
+    fn prepare(
+        &mut self,
+        width: usize,
+        look: Look,
+        inventory: &super::inventory::Inventory,
+    ) -> bool {
+        let identities = self
+            .text
+            .contains("#tmt:")
+            .then(|| std::sync::Arc::clone(&inventory.generation));
+        let changed = self.rendered.as_ref().is_none_or(|rendered| {
+            rendered.width != width
+                || rendered.look != look
+                || match (&rendered.identities, &identities) {
+                    (None, None) => false,
+                    (Some(old), Some(new)) => !std::sync::Arc::ptr_eq(old, new),
+                    _ => true,
+                }
+        });
         if changed {
-            let mut mapped = markdown::render_mapped(&self.text, width, look);
+            let mut mapped =
+                markdown::render_with_members(&self.text, width, look, Some(inventory));
             let mut lines = Vec::with_capacity(mapped.lines.len());
             let mut sources = Vec::with_capacity(mapped.sources.len());
-            for (mut line, source) in mapped.lines.into_iter().zip(mapped.sources) {
+            let mut mentions = Vec::with_capacity(mapped.mentions.len());
+            for ((mut line, source), links) in mapped
+                .lines
+                .into_iter()
+                .zip(mapped.sources)
+                .zip(mapped.mentions)
+            {
                 if line.width() == 0 && self.compact_separators.contains(&source) {
                     continue;
                 }
@@ -175,11 +197,17 @@ impl Session {
                 }
                 lines.push(line);
                 sources.push(source);
+                mentions.push(links);
             }
-            mapped = Mapped { lines, sources };
+            mapped = Mapped {
+                lines,
+                sources,
+                mentions,
+            };
             self.rendered = Some(Rendered {
                 width,
                 look,
+                identities,
                 mapped,
             });
         }
@@ -780,7 +808,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
         height: body.height - u16::from(position.is_some()),
         ..body
     };
-    let rebuilt = session.prepare(usize::from(body.width), look);
+    let rebuilt = session.prepare(usize::from(body.width), look, &app.references);
     let mapped = &session.rendered.as_ref().unwrap().mapped;
     let previous = app.scrolls.offset(Pane::Replies);
     if session.follow {
@@ -794,6 +822,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
     let (offset, shown) = app
         .scrolls
         .show(frame, Pane::Replies, body, &mapped.lines, look);
+    super::member_links::paint_hits(frame, app, body, offset, shown, &mapped.mentions, true);
     if let Some(position) = position {
         let visible = shown.min(mapped.lines.len().saturating_sub(offset));
         strip::paint_left(
