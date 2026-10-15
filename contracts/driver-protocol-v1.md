@@ -70,14 +70,11 @@ Error codes:
 | `no_agent` | `prompt` and `name-agent` only: the host recognizes no agent in the pane. No text was written and no agent name was set. |
 | `blocked` | `prompt` only: the agent waits on its user, for an approval or an answer. Nothing was written. |
 | `not_ready` | `prompt` and `name-agent` only: the agent can't take a prompt or a name now, for example because it isn't in the foreground or is still starting. No text was written and no agent name was set. |
-| `invalid_name` | `name-agent` only: the host does not accept this agent name. Nothing was changed. |
-| `name_taken` | `name-agent` only: another agent on the server has this agent name. Nothing was changed. |
-| `foreign_name` | `name-agent` only: the driver observed an agent name that TMT did not set. Nothing was changed. |
+| `refused` | `name-agent` only: the host refused the agent name, for example by its rule for names or because another agent has it. Nothing was changed. |
 
 `no_agent` and `not_ready` are answers of `prompt` and `name-agent` alone,
-`blocked` of `prompt` alone, and `invalid_name`, `name_taken` and
-`foreign_name` of `name-agent` alone. From any other operation they are a
-failure.
+`blocked` of `prompt` alone, and `refused` of `name-agent` alone. From any
+other operation they are a failure.
 
 - `message` is at most 512 bytes and contains no control characters. Core shows
   it as untrusted text.
@@ -341,102 +338,53 @@ again until a new request.
 
 | Operation | Request | Answer |
 |---|---|---|
-| `name-agent` | `{"socket", "paneId", "panePid", "bindingId", "name"}` | `{}` |
+| `name-agent` | `{"socket", "paneId", "panePid", "bindingId", "name", "expected"?}` | `{}` |
 
 `name-agent` is optional. Core calls it only when `capabilities.ops` lists it.
 A host without agent names does not list it.
 
 - **What it does:** with a `name`, the driver gives that agent name to the
-  agent the host recognizes in the pane. With `name: null`, it takes TMT's
-  agent name away. It changes the host's agent name only. A host may also
-  have a label for the pane itself; a driver never reads or writes that label
-  for this operation.
+  agent the host recognizes in the pane, over any agent name it has. With
+  `name: null`, it takes the agent name away only when it equals `expected`;
+  a different name, or none, stays and the answer is `{}`. `expected` is
+  required with `name: null` and absent with a `name`; any other request is
+  `bad_request`, never a clear. It changes the host's agent name only, never
+  a label of the pane.
 - **Fence:** the driver refuses with `not_found` unless the pane still exists,
-  runs `panePid` and carries a marker with `bindingId`. Core publishes the
-  marker first and takes the name away before it clears the marker.
+  runs `panePid` and carries a marker with `bindingId`. It compares names
+  from a fresh read of the host, not from an earlier snapshot. A list that
+  does not say exactly what the pane hosts answers `failed`, and nothing is
+  changed.
 - **When core calls it:** with the identity's name after a committed explicit
-  bind (`tmt name`, `this`, `add`, `marked`) and after `tmt mv`; with `null`
-  just before `clear`. `tmt run`, `tmt resume`, read commands and provider
-  hooks never call it. Every answer leaves the binding as it is: after a bind or
-  rename core shows a refusal in human output as one warning with its fix, and before
-  `clear` it goes on with the clear whatever the answer, except when the
-  driver process could not be cleaned up, which stops the clear. The call
-  before `clear` gets at most half of the time left in the command's budget.
-- **Ownership:** the driver keeps a record on the pane of the agent name the
-  host confirmed for this `bindingId`, and treats only that name as TMT's. A
-  record of another binding is no record. When the driver observes an agent
-  name that differs from the record, someone else set it: the driver answers
-  `foreign_name` and does not change it. This holds for `name: null` too;
-  core then leaves that name and goes on with its own work, such as `clear`.
-  When the agent already has the requested name, the answer is `{}` and
-  nothing is written; without a record that name stays someone else's, so a
-  later `name: null` answers `foreign_name`. `clear` removes the record with
-  the marker and leaves the agent name.
-- **Order:** the driver reads the agents first and the fence last, then
-  renames, and writes the record only after the host confirmed the rename.
-  A refused name therefore leaves no record, and a request's intent never
-  becomes ownership. To replace TMT's own name, the driver renames the old
-  name to the new one in one step, so a refusal leaves the old name and its
-  record. To take the name away, it removes the name first and the record
-  after it. When the record fails after a confirmed rename, the answer tells
-  where it failed. If the write or the read-back itself fails, the answer is
-  the code the host's error maps to (such as `failed`, or `not_found` for a
-  pane that is gone), and the record's state is unknown, because the host may
-  have stored it. If the read-back shows the pane bound again to another
-  binding, the answer is `not_found`. If the read-back shows no record of
-  this binding, the answer is `failed`: the record is confirmed missing, so
-  the name is set but not TMT's, and TMT does not change it again. In all
-  cases the next request decides ownership from a fresh read of the pane.
-- **Evidence:** the driver changes a name only when the host's list says
-  exactly what the pane hosts. A list that it cannot read, that has more than
-  one agent for the pane, or whose name for the pane is not a valid agent
-  name answers `failed`, and nothing is written. At the record's read-back
-  the driver checks again that the marker carries `bindingId`; a pane bound
-  again meanwhile answers `not_found`.
-- **Repeat:** after a successful request, the same request with unchanged
-  evidence changes nothing and answers `{}`. Core may repeat a request after
-  any answer; a request that was refused may be refused again.
-- **`name: null`:** `{}` means the agent has no TMT agent name now: it was
-  removed, the agent had none, or the host recognizes no agent in the pane.
-- **Limits (best effort):** these guards use what the driver observes, and a
-  host may give it less than a guarantee needs.
-  - A host may have no compare-and-set for agent names. The driver reads the
-    agents, then the pane and its shell, then renames: a rename by someone
-    else after the agent list was read (two host calls before the rename) is
-    not seen, and the driver's rename replaces it. The driver never widens
-    that window with a retry.
-  - A host may give no stable identity for one agent's lifetime. When an
-    agent exits and another starts in the same pane under the same binding,
-    and someone gives that agent the name in the record, the driver takes
-    the name as TMT's. The same holds when a name was taken away but its
-    record could not be removed.
-
-Answers with a `name`:
+  bind (`tmt name`, `this`, `add`, `marked`) and after a changed `tmt mv`;
+  with `null` and the identity's name as `expected` just before `clear`.
+  `tmt run`, `tmt resume`, read commands and provider hooks never call it.
+  Every answer leaves the binding as it is. Before `clear` the call gets at
+  most half of the time left in the command's budget, and core goes on with
+  the clear whatever the answer, except when the driver process could not be
+  cleaned up.
+- **Limits (best effort):** the guards use what the driver observes. Equality
+  is not provenance: a clear also takes away an equal name that someone else
+  gave. After a `tmt mv` the host refused, the agent keeps the earlier name,
+  and a later clear with the new name leaves it. A host without
+  compare-and-set does not show the driver a rename, rebind or new agent
+  between its reads and its rename. `tmt this <name>` repairs a name.
 
 | Answer | Meaning |
 |---|---|
-| `{}` | The agent has this agent name. |
-| `invalid_name` | The host's rule for agent names refuses it. |
-| `name_taken` | Another agent on the server has it. |
-| `no_agent` | The host recognizes no agent in the pane, so there is nothing to name. |
-| `not_ready` | The agent is still starting. |
-| `foreign_name` | The agent has another agent name that TMT did not set. |
-| `not_found` | The fence failed, or the pane was bound again before the record was read back. |
-| `failed` | The driver could not read exact evidence, or the host set the name but did not keep the record. |
-
-With `name: null` the answers are `{}`, `foreign_name`, `no_agent` (the
-agent went away between the read and the rename `--clear`), `not_ready`,
-`not_found` and `failed`.
+| `{}` | The agent has the name, or the clear was done or had nothing to do. |
+| `refused` | The host refused the name. The agent keeps its earlier name. |
+| `no_agent` / `not_ready` | The host recognizes no agent in the pane, or it is still starting. |
+| `not_found` | The fence failed. |
+| `failed` | The driver could not read exact evidence, or the call failed; the name may or may not have changed. |
 
 The Herdr driver runs `herdr agent rename <target> <name>` or `--clear`, and
-reads names with `herdr agent list`. A Herdr agent name matches
-`[a-z][a-z0-9_-]{0,31}`; the driver checks that rule before any call. Herdr
-removes an agent name itself when the agent exits or is replaced. The record
-is the pane token `tmt_agent_name` under the marker's source, with the value
-`<bindingId>:<name>`. Herdr 0.9.3 has no compare-and-set for agent names and
-lists no stable identity for an agent's lifetime, so both limits above apply.
-The calls are: `agent list`, `pane list`, `pane process-info`, then
-`agent rename`, then `pane report-metadata` and a `pane list` read-back.
+reads names with `herdr agent list` before its fence (`pane list`,
+`pane process-info`). A Herdr agent name matches `[a-z][a-z0-9_-]{0,31}`; the
+driver answers `refused` to another name before any call, and to Herdr's
+`invalid_agent_name` and `agent_name_taken`. Herdr removes an agent name
+itself when the agent exits or is replaced. Herdr 0.9.3 has no
+compare-and-set for agent names.
 
 ## Runtime drivers
 
@@ -557,8 +505,7 @@ for the built-in drivers' hooks.
 
 A driver answers `unsupported` to any operation it doesn't list, including
 every host operation. The agent and name codes (`no_agent`, `blocked`,
-`not_ready`, `invalid_name`, `name_taken` and `foreign_name`) are a failure
-from these operations.
+`not_ready` and `refused`) are a failure from these operations.
 
 #### `locations`
 

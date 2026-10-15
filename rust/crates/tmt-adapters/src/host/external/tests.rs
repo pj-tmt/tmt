@@ -627,7 +627,7 @@ mod through_the_driver {
         let binding = binding(server(pid, &start), pid);
 
         driver.publish(&binding, &identity()).unwrap();
-        assert!(driver.clear(&binding).unwrap());
+        assert!(driver.clear(&binding, &identity()).unwrap());
         // No input until 3b-2b: core uses the inbox.
         assert!(!driver.has_input());
         assert_eq!(
@@ -683,7 +683,7 @@ mod through_the_driver {
         let bound = binding(server(pid, &start), pid);
         let before = old.calls().len();
         assert_eq!(
-            driver.name_agent(&bound, Some("worker")).unwrap(),
+            driver.name_agent(&bound, "worker").unwrap(),
             AgentNaming::NotLinked
         );
         assert_eq!(old.calls().len(), before);
@@ -695,27 +695,25 @@ mod through_the_driver {
         session.begin_coordination();
         let driver = session.driver(fake());
         assert_eq!(
-            driver.name_agent(&bound, Some("worker")).unwrap(),
+            driver.name_agent(&bound, "worker").unwrap(),
             AgentNaming::Done
         );
         assert_eq!(installed.calls().last().unwrap(), "name-agent 1");
         for (code, class) in [
-            ("invalid_name", AgentNameRefusal::Rejected),
-            ("name_taken", AgentNameRefusal::Rejected),
+            ("refused", AgentNameRefusal::Rejected),
             ("no_agent", AgentNameRefusal::NoAgent),
             ("not_ready", AgentNameRefusal::NoAgent),
-            ("foreign_name", AgentNameRefusal::Foreign),
             ("not_found", AgentNameRefusal::Uncertain),
             ("failed", AgentNameRefusal::Uncertain),
         ] {
             installed.answer("name-agent", &refusal(code));
-            let error = driver.name_agent(&bound, Some("worker")).unwrap_err();
+            let error = driver.name_agent(&bound, "worker").unwrap_err();
             assert!(matches!(error, HostError::Refused { .. }), "{error:?}");
             assert_eq!(AgentNameRefusal::of(&error), class, "{code}");
         }
         // A code that answers only `prompt` breaks the protocol here.
         installed.answer("name-agent", &refusal("blocked"));
-        let error = driver.name_agent(&bound, Some("worker")).unwrap_err();
+        let error = driver.name_agent(&bound, "worker").unwrap_err();
         assert!(matches!(error, HostError::Driver(_)), "{error:?}");
     }
 
@@ -735,9 +733,8 @@ mod through_the_driver {
         }
     }
 
-    /// `tmt run` names its agent inside the wait loop, so a caller's
-    /// deadline caps the whole call, the driver's start included: a slow
-    /// driver ends at that deadline, not at the operation's own 2 s.
+    /// A caller's deadline caps the whole call, the driver's start included:
+    /// a slow driver ends at that deadline, not at the operation's own 2 s.
     #[test]
     fn a_callers_deadline_caps_naming_an_agent() {
         let (pid, start) = live();
@@ -776,7 +773,8 @@ mod through_the_driver {
     }
 
     /// The exact `name-agent` request: the binding's socket, pane, pane
-    /// process and binding ID, with the name, or `null` before a clear.
+    /// process and binding ID, with the name; before a clear, `null` and the
+    /// identity's current name as `expected`, also after a rename.
     #[test]
     fn name_agent_sends_the_bindings_exact_request() {
         let (pid, start) = live();
@@ -787,15 +785,19 @@ mod through_the_driver {
         let bound = binding(server(pid, &start), pid);
         let mut session = crate::host::external::Session::new(&drivers);
         session.begin_coordination();
-        session
-            .driver(fake())
-            .name_agent(&bound, Some("worker"))
-            .unwrap();
-        assert!(session.driver(fake()).clear(&bound).unwrap());
-        let expected = |name: Value| {
+        session.driver(fake()).name_agent(&bound, "worker").unwrap();
+        let renamed = Identity {
+            name: "lead".into(),
+            canonical_name: "lead".into(),
+            ..identity()
+        };
+        assert!(session.driver(fake()).clear(&bound, &renamed).unwrap());
+        let request = |name: Value| {
             json!({"socket": bound.server.socket_path, "paneId": bound.pane_id,
                    "panePid": pid, "bindingId": bound.id, "name": name})
         };
+        let mut clear = request(Value::Null);
+        clear["expected"] = json!("lead");
         let mut sent = requests(&installed, "name-agent");
         // The envelope's deadline: the operation's own 2 s for a set, at
         // most half of the 3 s session budget before a clear.
@@ -808,7 +810,7 @@ mod through_the_driver {
             deadlines[0] <= 2000 && deadlines[1] <= 1500,
             "{deadlines:?}"
         );
-        assert_eq!(sent, [expected(json!("worker")), expected(Value::Null)]);
+        assert_eq!(sent, [request(json!("worker")), clear]);
     }
 
     /// A slow `name-agent` before a clear ends at half of the budget left,
@@ -826,7 +828,7 @@ mod through_the_driver {
         let driver = session.driver(fake());
         fs::write(installed.beside("name-agent.sleep"), "5").unwrap();
         let started = Instant::now();
-        assert!(driver.clear(&bound).unwrap());
+        assert!(driver.clear(&bound, &identity()).unwrap());
         let took = started.elapsed();
         assert!(took < Duration::from_secs(3), "{took:?}");
         assert!(
@@ -864,7 +866,10 @@ mod through_the_driver {
         let bound = binding(server(pid, &start), pid);
         let mut session = crate::host::external::Session::new(&drivers);
         session.begin_coordination();
-        let error = session.driver(fake()).clear(&bound).unwrap_err();
+        let error = session
+            .driver(fake())
+            .clear(&bound, &identity())
+            .unwrap_err();
         assert!(error.cleanup_failed(), "{error:?}");
         assert!(
             !installed
@@ -876,8 +881,8 @@ mod through_the_driver {
         );
     }
 
-    /// Unbind: TMT's agent name goes before the marker, because the driver
-    /// names an agent only on a pane that carries the binding. Its answer,
+    /// Unbind: the agent name goes before the marker, because the driver acts
+    /// only on a pane that carries the binding. Its answer,
     /// whatever it is, never stops the clear; a driver process that could not
     /// be cleaned up does, which this test does not cover.
     #[test]
@@ -886,7 +891,7 @@ mod through_the_driver {
         let bound = binding(server(pid, &start), pid);
         for answer in [
             r#"{"ok": {}}"#.to_owned(),
-            refusal("foreign_name"),
+            refusal("refused"),
             refusal("not_found"),
             "not json".to_owned(),
         ] {
@@ -896,7 +901,10 @@ mod through_the_driver {
             let drivers = drivers(&installed);
             let mut session = crate::host::external::Session::new(&drivers);
             session.begin_coordination();
-            assert!(session.driver(fake()).clear(&bound).unwrap(), "{answer}");
+            assert!(
+                session.driver(fake()).clear(&bound, &identity()).unwrap(),
+                "{answer}"
+            );
             assert!(
                 installed
                     .calls()
@@ -911,7 +919,7 @@ mod through_the_driver {
         let drivers = drivers(&installed);
         let mut session = crate::host::external::Session::new(&drivers);
         session.begin_coordination();
-        assert!(session.driver(fake()).clear(&bound).unwrap());
+        assert!(session.driver(fake()).clear(&bound, &identity()).unwrap());
         assert!(
             !installed
                 .calls()

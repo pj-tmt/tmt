@@ -58,8 +58,8 @@ impl BindingEndpoint for GuardedEndpoint {
     fn publish(&mut self, b: &Binding, i: &Identity) -> Result<(), Self::Error> {
         self.inner.publish(b, i)
     }
-    fn clear(&mut self, b: &Binding) -> Result<bool, Self::Error> {
-        self.inner.clear(b)
+    fn clear(&mut self, b: &Binding, i: &Identity) -> Result<bool, Self::Error> {
+        self.inner.clear(b, i)
     }
     fn pane_incarnation(
         &mut self,

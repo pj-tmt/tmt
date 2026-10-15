@@ -345,10 +345,8 @@ impl<R: Runner> Handler for HerdrDriver<R> {
         if marker::binding_id(pane.tokens.as_ref()) != Some(request.body.binding_id.as_str()) {
             return Ok(ClearResponse { cleared: false });
         }
-        // The agent name record goes with the marker it belongs to.
         let present: Vec<String> = marker::keys()
             .into_iter()
-            .chain([agents::RECORD.to_owned()])
             .filter(|key| {
                 pane.tokens
                     .as_ref()
@@ -496,13 +494,11 @@ impl<R: Runner> Handler for HerdrDriver<R> {
             })
     }
 
-    /// Herdr's `agent rename`, on a name this driver owns. The record token
-    /// holds the agent name Herdr confirmed for this binding, written only
-    /// after a rename succeeded: an agent name that differs from it is
-    /// someone else's and stays, and an intent that Herdr refused leaves no
-    /// trace. The pane fence is the last read before the rename. Herdr has no
-    /// compare-and-set, so a rename by someone else after the agent list was
-    /// read is not seen.
+    /// Herdr's `agent rename`. A name replaces whatever agent name the agent
+    /// has. With no name, the driver takes the agent name away only when it
+    /// equals `expected`, so a name someone else gave stays. The pane fence
+    /// is the last read before the rename. Herdr has no compare-and-set, so a
+    /// rename by someone else after the agent list was read is not seen.
     fn name_agent(&mut self, request: Request<NameAgentRequest>) -> Result<(), DriverError> {
         let deadline = deadline(request.deadline_ms);
         let NameAgentRequest {
@@ -511,19 +507,28 @@ impl<R: Runner> Handler for HerdrDriver<R> {
             pane_pid,
             binding_id,
             name,
+            expected,
         } = &request.body;
         let socket = self.socket(socket)?;
         let pane_id = self.pane_id(pane_id)?;
         if !valid_pid(*pane_pid) {
             return Err(bad_request("the pane pid is invalid"));
         }
-        let name = name.as_deref();
-        if name.is_some_and(|name| !agents::valid_name(name)) {
-            return Err(DriverError::new(
-                ErrorCode::InvalidName,
-                "a Herdr agent name starts with a lowercase letter and holds only lowercase \
-                 letters, digits, '-' or '_' (1-32 characters)",
-            ));
+        match (name.as_deref(), expected.as_deref()) {
+            (Some(_), Some(_)) => {
+                return Err(bad_request("expected goes only with name null"));
+            }
+            (None, None | Some("")) => {
+                return Err(bad_request("name null needs the expected agent name"));
+            }
+            (Some(name), None) if !agents::valid_name(name) => {
+                return Err(DriverError::new(
+                    ErrorCode::Refused,
+                    "a Herdr agent name starts with a lowercase letter and holds only lowercase \
+                     letters, digits, '-' or '_' (1-32 characters)",
+                ));
+            }
+            _ => {}
         }
         // A change needs exact evidence: a list that does not say what this
         // terminal hosts changes nothing.
@@ -533,36 +538,21 @@ impl<R: Runner> Handler for HerdrDriver<R> {
             .and_then(|rows| agents::agent_of(&rows, pane_id))
             .map_err(HerdrError::into_driver)?;
         let pane = self.fenced(socket, pane_id, *pane_pid, binding_id, deadline)?;
-        let recorded = agents::recorded(pane.tokens.as_ref(), binding_id);
-        let Some(current) = agent else {
-            return match name {
-                Some(_) => Err(DriverError::new(
-                    ErrorCode::NoAgent,
-                    "Herdr recognizes no agent in the pane",
-                )),
-                // Herdr took the name away with the agent.
-                None => self.record(socket, &pane, binding_id, None, deadline),
-            };
-        };
-        let current = current.as_deref();
-        if current == name {
-            // Nothing to rename. An equal name without this binding's record
-            // is someone else's and gets no record.
-            return match name {
-                Some(_) => Ok(()),
-                None => self.record(socket, &pane, binding_id, None, deadline),
-            };
+        let current = agent.as_ref().map(Option::as_deref);
+        match (name.as_deref(), current) {
+            (Some(_), None) => Err(DriverError::new(
+                ErrorCode::NoAgent,
+                "Herdr recognizes no agent in the pane",
+            )),
+            (Some(name), Some(current)) if current == Some(name) => Ok(()),
+            // Herdr renames in one step, so a refused new name leaves the old.
+            (Some(name), Some(_)) => self.rename(socket, &pane.target, Some(name), deadline),
+            (None, Some(current)) if current.is_some() && current == expected.as_deref() => {
+                self.rename(socket, &pane.target, None, deadline)
+            }
+            // No agent, no name, or another name: nothing of this identity's.
+            (None, _) => Ok(()),
         }
-        if current.is_some() && current != recorded {
-            return Err(DriverError::new(
-                ErrorCode::ForeignName,
-                "the agent has a Herdr agent name TMT did not set",
-            ));
-        }
-        // The agent has no name or TMT's own. Herdr renames in one step, so
-        // a refused new name leaves the old one and its record as they were.
-        self.rename(socket, &pane.target, name, deadline)?;
-        self.record(socket, &pane, binding_id, name, deadline)
     }
 }
 
@@ -614,8 +604,7 @@ impl<R: Runner> HerdrDriver<R> {
                 // These codes are rename answers (the protocol's agent and
                 // name codes), so only this call maps them.
                 let code = match error.code() {
-                    Some("invalid_agent_name") => Some(ErrorCode::InvalidName),
-                    Some("agent_name_taken") => Some(ErrorCode::NameTaken),
+                    Some("invalid_agent_name" | "agent_name_taken") => Some(ErrorCode::Refused),
                     Some("agent_not_found") => Some(ErrorCode::NoAgent),
                     Some("agent_launch_pending") => Some(ErrorCode::NotReady),
                     _ => None,
@@ -626,96 +615,6 @@ impl<R: Runner> HerdrDriver<R> {
                 }
                 error
             })
-    }
-
-    /// Writes this binding's agent name record, or removes whatever record
-    /// the pane holds, and reads the pane back, because Herdr drops a report
-    /// it considers stale without an error. Called after the rename it
-    /// confirms, or with no name when there is nothing to rename: Herdr took
-    /// the name away with the agent, or the agent has no name already.
-    fn record(
-        &self,
-        socket: &str,
-        pane: &Listed,
-        binding_id: &str,
-        name: Option<&str>,
-        deadline: std::time::Instant,
-    ) -> Result<(), DriverError> {
-        let tokens = pane.tokens.as_ref();
-        let settled = match name {
-            Some(name) => agents::recorded(tokens, binding_id) == Some(name),
-            None => !agents::has_record(tokens),
-        };
-        if settled {
-            return Ok(());
-        }
-        let token = name.map(|name| agents::record_token(binding_id, name));
-        let change = match &token {
-            Some(token) => ["--token", token.as_str()],
-            None => ["--clear-token", agents::RECORD],
-        };
-        let mut args = vec![
-            "pane",
-            "report-metadata",
-            pane.target.as_str(),
-            "--source",
-            marker::SOURCE,
-        ];
-        args.extend(change);
-        // A write or read-back that fails proves nothing about the record:
-        // Herdr may have stored it. The next request reads it again.
-        let unknown = |error: HerdrError| {
-            let mut error = error.into_driver();
-            if name.is_some() {
-                error.message = format!(
-                    "Herdr set the agent name, but TMT could not confirm its record of it; \
-                     the next request reads the pane again to decide whether that name is \
-                     TMT's: {}",
-                    error.message
-                );
-            }
-            error
-        };
-        let missing = |code, message: &str| {
-            DriverError::new(
-                code,
-                match name {
-                    Some(_) => format!(
-                        "Herdr set the agent name, but {message}, so the name is not TMT's \
-                         and TMT will not change it again"
-                    ),
-                    None => message.to_owned(),
-                },
-            )
-        };
-        self.herdr.act(socket, &args, deadline).map_err(unknown)?;
-        let kept = self.find(socket, &pane.id, deadline).map_err(unknown)?;
-        // The pane may have been bound again meanwhile: a record is this
-        // binding's only while the marker still is.
-        if kept
-            .as_ref()
-            .is_some_and(|kept| marker::binding_id(kept.tokens.as_ref()) != Some(binding_id))
-        {
-            return Err(missing(
-                ErrorCode::NotFound,
-                "the pane no longer holds that binding",
-            ));
-        }
-        let kept = kept.as_ref().map(|pane| pane.tokens.as_ref());
-        let written = match (name, kept) {
-            (Some(name), Some(tokens)) => agents::recorded(tokens, binding_id) == Some(name),
-            (None, Some(tokens)) => !agents::has_record(tokens),
-            // A pane that closed has no name left to own.
-            (None, None) => true,
-            (Some(_), None) => false,
-        };
-        match written {
-            true => Ok(()),
-            false => Err(missing(
-                ErrorCode::Failed,
-                "Herdr did not keep the TMT agent name record",
-            )),
-        }
     }
 }
 

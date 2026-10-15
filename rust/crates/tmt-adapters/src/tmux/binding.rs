@@ -149,7 +149,8 @@ impl<R: CommandRunner> BindingEndpoint for BindingSession<'_, R> {
         self.observe_pane_start(pane_pid)
     }
 
-    fn clear(&mut self, binding: &Binding) -> Result<bool, Self::Error> {
+    /// tmux has no agent names, so the identity is not needed.
+    fn clear(&mut self, binding: &Binding, _: &Identity) -> Result<bool, Self::Error> {
         self.tmux.clear_marker_on(
             Some(&binding.server.socket_path),
             &binding.pane_id,

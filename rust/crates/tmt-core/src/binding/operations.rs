@@ -532,7 +532,10 @@ fn clear_observed<R, O: BindingEndpoint>(
         (BindingEvidence::Unknown, Some(_)) => Err(BindingError::Unverified),
         (BindingEvidence::Active(_), Some(binding)) => {
             // Clear under the SQL write lock to serialize replacement binds (publication-race.e2e.test.ts).
-            if endpoint.clear(binding).map_err(BindingError::Endpoint)? {
+            if endpoint
+                .clear(binding, &entry.identity)
+                .map_err(BindingError::Endpoint)?
+            {
                 Ok(())
             } else {
                 Err(BindingError::Unverified)

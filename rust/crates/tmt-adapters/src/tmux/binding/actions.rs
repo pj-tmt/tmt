@@ -41,8 +41,8 @@ impl<R: CommandRunner> HostDriver for BindingSession<'_, R> {
         Ok(BindingEndpoint::publish(self, binding, identity)?)
     }
 
-    fn clear(&mut self, binding: &Binding) -> Result<bool, HostError> {
-        Ok(BindingEndpoint::clear(self, binding)?)
+    fn clear(&mut self, binding: &Binding, identity: &Identity) -> Result<bool, HostError> {
+        Ok(BindingEndpoint::clear(self, binding, identity)?)
     }
 
     /// Uses the current coordination deadline, without another pane query.
@@ -134,7 +134,7 @@ impl<R: CommandRunner> HostDriver for BindingSession<'_, R> {
     }
 
     /// tmux recognizes no agents, so it has no agent names.
-    fn name_agent(&mut self, _: &Binding, _: Option<&str>) -> Result<AgentNaming, HostError> {
+    fn name_agent(&mut self, _: &Binding, _: &str) -> Result<AgentNaming, HostError> {
         Ok(AgentNaming::NotLinked)
     }
 }
@@ -874,8 +874,8 @@ mod tests {
         fn publish(&mut self, binding: &Binding, identity: &Identity) -> Result<(), HostError> {
             HostDriver::publish(&mut self.tmux, binding, identity)
         }
-        fn clear(&mut self, binding: &Binding) -> Result<bool, HostError> {
-            HostDriver::clear(&mut self.tmux, binding)
+        fn clear(&mut self, binding: &Binding, identity: &Identity) -> Result<bool, HostError> {
+            HostDriver::clear(&mut self.tmux, binding, identity)
         }
         fn observed_runtime(&self, binding: &Binding) -> Result<RuntimeState, CommandError> {
             self.tmux.observed_runtime(binding)
@@ -909,11 +909,7 @@ mod tests {
         fn focus(&mut self, binding: &Binding) -> Result<Focused, ActionError> {
             HostDriver::focus(&mut self.tmux, binding)
         }
-        fn name_agent(
-            &mut self,
-            binding: &Binding,
-            name: Option<&str>,
-        ) -> Result<AgentNaming, HostError> {
+        fn name_agent(&mut self, binding: &Binding, name: &str) -> Result<AgentNaming, HostError> {
             HostDriver::name_agent(&mut self.tmux, binding, name)
         }
     }

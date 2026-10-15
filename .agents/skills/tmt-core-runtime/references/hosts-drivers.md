@@ -71,10 +71,11 @@ channels and the driver protocol. The owner map is in
   its pane label), through `Host::name_agent` and the optional `name-agent` operation; a driver
   that does not declare it is `AgentNaming::NotLinked`. Callers: post-commit in
   `binding_command` after an explicit bind or a changed `tmt mv` (JSON `agentName` member,
-  one human warning on stderr), and `name: null` inside the external `clear`, before the
-  marker, with half the budget left. `AgentNameRefusal` separates definite refusals
-  (`Rejected`, `NoAgent`, `Foreign`), which keep the agent's earlier name, from `Uncertain`,
-  where the host may have set it. `tmt run`, `tmt resume`, read commands and provider hooks
+  one human warning on stderr), and `name: null` with the identity's name as `expected`
+  inside the external `clear` (`BindingEndpoint::clear(binding, identity)`, reached only through
+  core's `clear_observed`), before the marker, with half the budget left. `AgentNameRefusal`
+  separates definite refusals (`Rejected`, `NoAgent`), which keep the agent's earlier name, from
+  `Uncertain`, where the host may have set it. `tmt run`, `tmt resume`, read commands and provider hooks
   never set a name; `tmt ls` shows the snapshot's `agentName` and its advice. The
   [contract](../../../../contracts/driver-protocol-v1.md#name-agent) owns the driver's guards.
 - Cosmetics: tmux badge and marker refresh (names sanitized before markup); `pane_badge` is

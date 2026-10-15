@@ -65,14 +65,13 @@ case "$3" in
     # One answer per call from the queue; an empty queue sets the name.
     a=$(head -n 1 "$d/naming" 2>/dev/null)
     if [ -f "$d/naming" ]; then tail -n +2 "$d/naming" > "$d/naming.next"; mv "$d/naming.next" "$d/naming"; fi
-    # Like a host driver, a host name TMT did not record is not changed, and
-    # a name the agent already has is not adopted: no record is written.
+    # Like a host driver, a name replaces any agent name, and `name: null`
+    # takes the agent name away only when it equals `expected`.
     n=$(printf '%s' "$input" | sed -n 's/.*"name":"\([^"]*\)".*/\1/p')
-    h=$(cat "$d/agentname" 2>/dev/null); r=$(cat "$d/recorded" 2>/dev/null)
-    if [ -z "$a" ] && [ -n "$h" ] && [ "$h" != "$n" ] && [ "$h" != "$r" ]; then a=foreign_name; fi
-    if [ -z "$a" ] && [ -n "$n" ] && [ "$h" = "$n" ]; then a=ok; fi
+    e=$(printf '%s' "$input" | sed -n 's/.*"expected":"\([^"]*\)".*/\1/p')
+    h=$(cat "$d/agentname" 2>/dev/null)
     case "$a" in
-      '') if [ -n "$n" ]; then printf '%s' "$n" > "$d/agentname"; printf '%s' "$n" > "$d/recorded"; else rm -f "$d/agentname" "$d/recorded"; fi
+      '') if [ -n "$n" ]; then printf '%s' "$n" > "$d/agentname"; elif [ -n "$e" ] && [ "$h" = "$e" ]; then rm -f "$d/agentname"; fi
           printf '{"ok":{}}' ;;
       ok) printf '{"ok":{}}' ;;
       *) printf '{"error":{"code":"%s","message":"host says %s"}}' "$a" "$a" ;;
@@ -797,19 +796,9 @@ fn an_explicit_bind_sets_the_agent_name_and_a_repeat_sets_it_again() {
 fn a_refused_or_uncertain_agent_name_keeps_the_binding_and_says_which() {
     register();
     for (code, status, said) in [
-        (
-            "invalid_name",
-            "refused",
-            "The agent name worker was not set",
-        ),
-        ("name_taken", "refused", "The agent name worker was not set"),
+        ("refused", "refused", "The agent name worker was not set"),
         ("no_agent", "refused", "No agent to name yet"),
         ("not_ready", "refused", "No agent to name yet"),
-        (
-            "foreign_name",
-            "refused",
-            "keeps an agent name TMT did not set",
-        ),
         (
             "failed",
             "uncertain",
@@ -892,13 +881,14 @@ fn a_rename_sets_the_new_agent_name_and_the_same_name_asks_nothing() {
     assert_eq!(names, ["worker", "boss"]);
 }
 
-/// Unbind takes TMT's agent name away (`name: null`) before it clears the
-/// marker, and clears whatever the driver answers, a foreign name included.
+/// Unbind takes the agent name away (`name: null`, `expected` the
+/// identity's name) before it clears the marker, and clears whatever the
+/// driver answers. A name that differs from the identity's stays.
 #[test]
 fn unbind_takes_the_agent_name_away_first_and_clears_whatever_it_answers() {
     register();
-    for answer in ["ok", "foreign_name", "failed"] {
-        let fixture = naming(&format!("unbind-{answer}"), &["ok", answer]);
+    for answer in ["", "refused", "failed"] {
+        let fixture = naming(&format!("unbind-{answer}"), &["", answer]);
         fixture.approve();
         assert!(
             fixture
@@ -917,12 +907,41 @@ fn unbind_takes_the_agent_name_away_first_and_clears_whatever_it_answers() {
             "{answer}: {calls:?}"
         );
         let requests = fixture.requests("named");
-        assert!(requests.last().unwrap()["name"].is_null(), "{answer}");
+        let last = requests.last().unwrap();
+        assert!(last["name"].is_null(), "{answer}");
+        assert_eq!(last["expected"], "worker", "{answer}");
         assert!(
             !fixture.root.join("driver/marker").exists(),
             "{answer}: marker cleared"
         );
+        // Only the answer `{}` from a host that did it took the name away.
+        assert_eq!(
+            fixture.root.join("driver/agentname").exists(),
+            !answer.is_empty(),
+            "{answer}"
+        );
     }
+    // Another agent name than the identity's stays through the unbind.
+    let fixture = naming("unbind-other", &["", ""]);
+    fixture.approve();
+    assert!(
+        fixture
+            .tmt_in(Some("f1"), &["name", "worker", "--save"])
+            .status
+            .success()
+    );
+    fs::write(fixture.root.join("driver/agentname"), "ann").unwrap();
+    let output = fixture.tmt_in(Some("f1"), &["unbind", "--json"]);
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(
+        fixture.requests("named").last().unwrap()["expected"],
+        "worker"
+    );
+    assert!(!fixture.root.join("driver/marker").exists());
+    assert_eq!(
+        fs::read_to_string(fixture.root.join("driver/agentname")).unwrap(),
+        "ann"
+    );
 }
 
 /// `tmt ls` shows the host's agent name in JSON, and in human output says
@@ -948,8 +967,8 @@ fn ls_shows_the_agent_name_and_advises_on_a_mismatch_or_a_kind_label() {
     let text = String::from_utf8_lossy(&human.stdout);
     assert!(!text.contains("agent name"), "{text}");
 
-    // Someone renamed the agent in the host: the row shows the mismatch, the
-    // repair, and the clear for when the repair is refused.
+    // Someone renamed the agent in the host: the row shows the mismatch and
+    // the repair.
     fs::write(&agent_name, "ann").unwrap();
     let human = fixture.tmt(&["ls"]);
     let text = String::from_utf8_lossy(&human.stdout);
@@ -957,30 +976,16 @@ fn ls_shows_the_agent_name_and_advises_on_a_mismatch_or_a_kind_label() {
         text.contains("worker's agent has the fake agent name ann, not worker"),
         "{text}"
     );
-    assert!(text.contains("clear it in the host first"), "{text}");
     assert!(
         text.contains("In worker's pane run: tmt this worker"),
         "{text}"
     );
     assert!(!text.contains("label"), "{text}");
 
-    // The repair is refused for a name TMT did not set, and the host keeps it.
-    let this = |fixture: &Fixture| {
-        let output = fixture.tmt_in(Some("f1"), &["this", "worker", "--json"]);
-        assert!(output.status.success(), "{output:?}");
-        serde_json::from_slice::<Value>(&output.stdout).unwrap()
-    };
-    let refused = this(&fixture);
-    assert_eq!(agent_name_of(&refused)["status"], "refused", "{refused:#}");
-    assert_eq!(
-        agent_name_of(&refused)["code"],
-        "foreign_name",
-        "{refused:#}"
-    );
-    assert_eq!(fs::read_to_string(&agent_name).unwrap(), "ann");
-    // The host clears its name, and the advised command then sets TMT's.
-    fs::remove_file(&agent_name).unwrap();
-    let set = this(&fixture);
+    // The advised command replaces the host's name with TMT's.
+    let output = fixture.tmt_in(Some("f1"), &["this", "worker", "--json"]);
+    assert!(output.status.success(), "{output:?}");
+    let set: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(
         agent_name_of(&set),
         &serde_json::json!({"status": "set", "name": "worker"})
@@ -1007,14 +1012,14 @@ fn ls_shows_the_agent_name_and_advises_on_a_mismatch_or_a_kind_label() {
     assert!(text.contains("tmt mv claude <name>"), "{text}");
 }
 
-/// TMT's own older name: a `tmt mv` the host refused leaves the agent with
-/// the name TMT set before. `tmt ls` shows the mismatch neutrally, and the
-/// advised `tmt this` sets the new name with no clear in the host.
+/// A `tmt mv` the host refused leaves the agent with the name TMT set
+/// before. `tmt ls` shows the mismatch, and the advised `tmt this` sets the
+/// new name.
 #[test]
 fn ls_advice_repairs_tmts_own_older_name_without_a_clear() {
     register();
-    // The bind sets and records `worker`; the host refuses `boss` for the mv.
-    let fixture = naming("ls-owned-name", &["", "name_taken"]);
+    // The bind sets `worker`; the host refuses `boss` for the mv.
+    let fixture = naming("ls-owned-name", &["", "refused"]);
     fixture.approve();
     assert!(
         fixture
@@ -1034,7 +1039,6 @@ fn ls_advice_repairs_tmts_own_older_name_without_a_clear() {
         text.contains("boss's agent has the fake agent name worker, not boss"),
         "{text}"
     );
-    assert!(!text.contains("which TMT did not set"), "{text}");
     assert!(text.contains("In boss's pane run: tmt this boss"), "{text}");
 
     let output = fixture.tmt_in(Some("f1"), &["this", "boss", "--json"]);

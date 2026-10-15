@@ -475,15 +475,17 @@ mod tests {
             ("no_agent", true, true),
             ("not_ready", true, true),
             ("blocked", true, false),
-            ("invalid_name", false, true),
-            ("name_taken", false, true),
-            ("foreign_name", false, true),
+            ("refused", false, true),
         ] {
             assert_eq!(accepted(Op::Prompt, code), prompt, "{code}");
             assert_eq!(accepted(Op::NameAgent, code), name_agent, "{code}");
             for op in [Op::Input, Op::Publish, Op::Clear, Op::Snapshot] {
                 assert!(!accepted(op, code), "{code} on {op:?}");
             }
+        }
+        // The codes of the earlier agent name draft are no codes.
+        for code in ["invalid_name", "name_taken", "foreign_name"] {
+            assert!(!accepted(Op::NameAgent, code), "{code}");
         }
         let failed = bytes(json!({"error": {"code": "failed", "message": "x"}}));
         assert!(decode_done(Op::Input, &failed).unwrap().is_err());

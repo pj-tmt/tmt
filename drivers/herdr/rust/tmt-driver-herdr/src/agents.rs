@@ -7,15 +7,8 @@ use crate::{
     herdr::{Herdr, HerdrError},
     run::Runner,
 };
-use serde_json::{Map, Value};
+use serde_json::Value;
 use std::time::Instant;
-
-/// The token that records the agent name Herdr confirmed for a binding,
-/// under the marker's source, as `<bindingId>:<name>`. It is written only
-/// after a successful rename, so it never holds a mere intent. It is no part
-/// of the marker: `publish` leaves it, and `clear` removes it with the
-/// marker. A record of another binding is not this binding's record.
-pub const RECORD: &str = "tmt_agent_name";
 
 /// The most characters Herdr allows in an agent name.
 const NAME_MAX: usize = 32;
@@ -31,22 +24,6 @@ pub fn valid_name(name: &str) -> bool {
         && bytes.all(|byte| {
             byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'-' | b'_')
         })
-}
-
-/// The `KEY=VALUE` token that records `name` for `binding_id`.
-pub fn record_token(binding_id: &str, name: &str) -> String {
-    format!("{RECORD}={binding_id}:{name}")
-}
-
-/// The agent name this driver recorded on a pane for `binding_id`, if any.
-pub fn recorded<'t>(tokens: Option<&'t Map<String, Value>>, binding_id: &str) -> Option<&'t str> {
-    let (binding, name) = tokens?.get(RECORD)?.as_str()?.split_once(':')?;
-    (binding == binding_id && valid_name(name)).then_some(name)
-}
-
-/// Whether a pane holds a record at all, this binding's or a stale one.
-pub fn has_record(tokens: Option<&Map<String, Value>>) -> bool {
-    tokens.is_some_and(|tokens| tokens.contains_key(RECORD))
 }
 
 /// The agent name of the terminal for display, where a wrong guess must not

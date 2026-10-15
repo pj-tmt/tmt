@@ -318,12 +318,10 @@ fn action(row: &IdentityPresence, remembered: Option<&RememberedSession>) -> Opt
 }
 
 /// Advice on live rows of a host with agent names. TMT sets the agent name
-/// and never imports it into the identity. A host's name that differs may be
-/// TMT's older name or one someone else set; only the driver can tell, so the
-/// advice runs the repair first and clears the name in the host only when the
-/// driver refuses a name TMT did not set. It never names the pane label. A
-/// name that is only an agent kind gets a warning: agents address one another
-/// by that name.
+/// and never imports it into the identity, so a host's name that differs is
+/// repaired by an explicit `tmt this`, which replaces it. It never names the
+/// pane label. A name that is only an agent kind gets a warning: agents
+/// address one another by that name.
 fn agent_name_advice(rows: &[ListedRow]) -> Vec<(String, String)> {
     let kinds = tmt_adapters::runtime::RuntimeRegistry::first_party();
     let mut advice = Vec::new();
@@ -341,13 +339,10 @@ fn agent_name_advice(rows: &[ListedRow]) -> Vec<(String, String)> {
         let name = &presence.identity.name;
         let word = crate::output::shell_word(name);
         if let Some(agent_name) = pane.agent_name.as_ref().filter(|agent| *agent != name) {
-            let host = host.as_str();
-            let clear = host_clear(host, pane.target.as_deref());
             advice.push((
                 format!(
-                    "{name}'s agent has the {host} agent name {agent_name}, not {name}. If the \
-                     command below is refused because TMT did not set that agent name, clear it \
-                     in the host first{clear}"
+                    "{name}'s agent has the {} agent name {agent_name}, not {name}",
+                    host.as_str()
                 ),
                 format!("In {word}'s pane run: tmt this {word}"),
             ));
@@ -726,10 +721,6 @@ fn agent_name_text(name: &str, error: &tmt_adapters::host::HostError) -> (String
             format!("No agent to name yet: {error}. The binding stays."),
             format!("When the agent runs, in its pane run: tmt this {name}"),
         ),
-        AgentNameRefusal::Foreign => (
-            format!("The agent keeps an agent name TMT did not set: {error}. The binding stays."),
-            format!("Clear that agent name in the host, then in its pane run: tmt this {name}"),
-        ),
         AgentNameRefusal::Uncertain => (
             format!(
                 "TMT could not confirm the agent name {name}: {error}. The host may or may not \
@@ -737,18 +728,6 @@ fn agent_name_text(name: &str, error: &tmt_adapters::host::HostError) -> (String
             ),
             format!("To retry setting the agent name, in the agent's pane run: tmt this {name}"),
         ),
-    }
-}
-
-/// The host's own command that clears an agent name, in parentheses after a
-/// space, or nothing. Only Herdr's is known; another host names its own way.
-fn host_clear(host: &str, target: Option<&str>) -> String {
-    match (host, target) {
-        ("herdr", Some(target)) => format!(
-            " (herdr agent rename {} --clear)",
-            crate::output::shell_word(target)
-        ),
-        _ => String::new(),
     }
 }
 
@@ -762,11 +741,6 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
     ),
     crate::cli_style_tests::HintSpec::core(
         "When the agent runs, in its pane run: tmt this {name}",
-        &[""],
-        &[],
-    ),
-    crate::cli_style_tests::HintSpec::core(
-        "Clear that agent name in the host, then in its pane run: tmt this {name}",
         &[""],
         &[],
     ),

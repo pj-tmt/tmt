@@ -825,7 +825,7 @@ impl<R: CommandRunner> Host<R> {
                 let mut session = external::Session::new(&self.external);
                 session.begin_coordination();
                 session.limit(deadline);
-                driver::HostDriver::name_agent(session.driver(host), binding, Some(&identity.name))
+                driver::HostDriver::name_agent(session.driver(host), binding, &identity.name)
             }
         }
     }
@@ -932,8 +932,8 @@ impl<R: CommandRunner> BindingEndpoint for BindingSession<'_, R> {
         self.driver(binding.server.host).publish(binding, identity)
     }
 
-    fn clear(&mut self, binding: &Binding) -> Result<bool, Self::Error> {
-        self.driver(binding.server.host).clear(binding)
+    fn clear(&mut self, binding: &Binding, identity: &Identity) -> Result<bool, Self::Error> {
+        self.driver(binding.server.host).clear(binding, identity)
     }
 
     fn pane_incarnation(

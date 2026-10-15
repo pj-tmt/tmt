@@ -235,12 +235,10 @@ pub struct FocusRequest {
     pub pane_id: String,
 }
 
-/// Gives the agent the host recognizes in the pane the agent name `name`, or
-/// takes TMT's agent name away when `name` is `None`. Best effort: the
-/// driver does not change a name it observes as not TMT's, but a host
-/// without compare-and-set does not show it a rename between its read and
-/// its write. After a successful call, the same call with unchanged evidence
-/// changes nothing and succeeds.
+/// Gives the agent the host recognizes in the pane the agent name `name`,
+/// over any name it has. With `name: None` it takes the agent name away only
+/// when it equals `expected`, the identity's name: a different or missing
+/// name stays. `expected` is required with `None` and absent with a name.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NameAgentRequest {
@@ -251,6 +249,9 @@ pub struct NameAgentRequest {
     /// Refuse with `not_found` unless the pane's marker carries this binding.
     pub binding_id: String,
     pub name: Option<String>,
+    /// With `name: None`: the agent name to take away, and only that one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected: Option<String>,
 }
 
 /// What a runtime driver answers to `capabilities`: what core applies itself
@@ -436,12 +437,9 @@ pub enum ErrorCode {
     /// `prompt` and `name-agent` only: the agent can't take a prompt or a
     /// name now.
     NotReady,
-    /// `name-agent` only: the host does not accept this agent name.
-    InvalidName,
-    /// `name-agent` only: another agent on the server has this agent name.
-    NameTaken,
-    /// `name-agent` only: the driver observed an agent name TMT did not set.
-    ForeignName,
+    /// `name-agent` only: the host refused the agent name, for example by
+    /// its rule for names or because another agent has it. Nothing changed.
+    Refused,
 }
 
 impl ErrorCode {
@@ -452,9 +450,7 @@ impl ErrorCode {
         match self {
             Self::NoAgent | Self::NotReady => matches!(op, Op::Prompt | Op::NameAgent),
             Self::Blocked => matches!(op, Op::Prompt),
-            Self::InvalidName | Self::NameTaken | Self::ForeignName => {
-                matches!(op, Op::NameAgent)
-            }
+            Self::Refused => matches!(op, Op::NameAgent),
             Self::Unsupported
             | Self::BadRequest
             | Self::Unavailable
@@ -527,20 +523,30 @@ mod tests {
             "cwd": null, "command": "sh", "panePid": 7, "suggestedName": null, "marker": null}))
         .unwrap();
         assert_eq!(pane.agent_name, None);
-        let request = Request {
+        let request = |name: Option<&str>, expected: Option<&str>| Request {
             deadline_ms: 250,
             body: NameAgentRequest {
                 socket: "/s".into(),
                 pane_id: "term_1".into(),
                 pane_pid: 7,
                 binding_id: "b".into(),
-                name: None,
+                name: name.map(str::to_owned),
+                expected: expected.map(str::to_owned),
             },
         };
+        // A set carries no `expected`; a clear carries the name it may take away.
         assert_eq!(
-            serde_json::to_value(&request).unwrap(),
+            serde_json::to_value(request(Some("ann"), None)).unwrap(),
             json!({"deadlineMs": 250, "socket": "/s", "paneId": "term_1", "panePid": 7,
-                   "bindingId": "b", "name": null})
+                   "bindingId": "b", "name": "ann"})
         );
+        let clear = json!({"deadlineMs": 250, "socket": "/s", "paneId": "term_1", "panePid": 7,
+                           "bindingId": "b", "name": null, "expected": "ann"});
+        assert_eq!(
+            serde_json::to_value(request(None, Some("ann"))).unwrap(),
+            clear
+        );
+        let read: Request<NameAgentRequest> = serde_json::from_value(clear).unwrap();
+        assert_eq!(read, request(None, Some("ann")));
     }
 }

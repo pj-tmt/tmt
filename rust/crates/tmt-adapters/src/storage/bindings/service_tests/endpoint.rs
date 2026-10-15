@@ -176,7 +176,7 @@ impl BindingEndpoint for FakeEndpoint {
         Ok(())
     }
 
-    fn clear(&mut self, binding: &Binding) -> Result<bool, Self::Error> {
+    fn clear(&mut self, binding: &Binding, _: &Identity) -> Result<bool, Self::Error> {
         self.clear_calls += 1;
         if self.clear_failure {
             return Err(EndpointFailure("clear failed"));
