@@ -171,6 +171,8 @@ fn published_savings_keep_the_supplied_window_coverage_and_known_zero() {
                 tokens: Some(tokens),
                 complete: true,
                 gap: None,
+                cost: None,
+                percent: None,
             })
         );
     }
@@ -260,7 +262,8 @@ fn independently_dated_estimates_sum_once_with_explicit_unavailable_members() {
             included: 2,
             total: 4,
             earliest_from_ms: Some(100),
-            latest_from_ms: Some(200)
+            latest_from_ms: Some(200),
+            ..Default::default()
         }
     );
     for evidence in [None, Some((&status, true))] {
@@ -382,5 +385,349 @@ fn source_window_argv_is_supplier_owned_and_other_sources_remain_generic() {
             status_arguments("other-supplier", window),
             ["other-supplier", "status"]
         );
+    }
+}
+
+fn valuation_vectors() -> Value {
+    serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../tmt-digest/contracts/vectors/valuation-v1.json"
+    )))
+    .unwrap()
+}
+
+/// Savings for one member row with the given valuations attached.
+fn valued(window: &str, tokens: u64, cost: Value, percent: Value) -> Value {
+    json!({"method":"context-input-avoided-v1", "window":window, "fromMs":0, "throughMs":600_000,
+        "estimatedInputTokensAvoided":tokens, "complete":true, "gap":null,
+        "cost":cost, "percent":percent})
+}
+
+fn with_valuations(window: &str, rows: &[(u64, Value, Value)]) -> Value {
+    let mut document = document();
+    let members = document["members"].as_array_mut().unwrap();
+    members.truncate(rows.len());
+    for (row, (tokens, cost, percent)) in members.iter_mut().zip(rows) {
+        row["savings"] = valued(window, *tokens, cost.clone(), percent.clone());
+    }
+    document
+}
+
+fn quote(version: &str, micros: u64) -> Value {
+    json!({"usdMicros":micros, "modelId":"gpt-6-sol", "modelObservedAtMs":1000,
+        "pricingVersion":version, "usdMicrosPerMillionInputTokens":2_000_000,
+        "assumption":"uncached-input"})
+}
+
+fn share(avoided: u64, observed: u64, from: u64, through: u64) -> Value {
+    let total = u128::from(avoided + observed);
+    let bp = (u128::from(avoided) * 20_000 + total) / (total * 2);
+    json!({"basisPoints":bp, "estimatedInputTokensAvoided":avoided, "observedInputTokens":observed,
+        "fromMs":from, "throughMs":through})
+}
+
+fn summarize(document: &Value, window: DigestWindow) -> SavingsSummary {
+    let status = parse(document).unwrap();
+    let ids: Vec<_> = document["members"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["identityId"].as_str().unwrap())
+        .collect();
+    summarize_savings(Some((&status, false)), ids, window)
+}
+
+#[test]
+fn valuation_vectors_parse_to_the_supplied_quotes_and_ratios() {
+    let vectors = valuation_vectors();
+    for case in vectors["quotes"].as_array().unwrap() {
+        let Some(expected) = case["expected"].as_object() else {
+            continue;
+        };
+        let tokens = case["tokens"].as_u64().unwrap();
+        let document = with_valuations(
+            "24h",
+            &[(tokens, Value::Object(expected.clone()), Value::Null)],
+        );
+        let cost = parse(&document).unwrap().members
+            [document["members"][0]["identityId"].as_str().unwrap()]
+        .savings
+        .clone()
+        .unwrap()
+        .cost
+        .unwrap_or_else(|| panic!("quote {} parses", case["name"]));
+        assert_eq!(cost.usd_micros, expected["usdMicros"].as_u64().unwrap());
+        assert_eq!(cost.model_id, expected["modelId"].as_str().unwrap());
+        assert_eq!(cost.pricing_version, "2026-10-14");
+    }
+    for case in vectors["ratios"].as_array().unwrap() {
+        let Some(expected) = case["expected"].as_object() else {
+            continue;
+        };
+        let document = with_valuations(
+            "24h",
+            &[(
+                case["avoided"].as_u64().unwrap(),
+                Value::Null,
+                Value::Object(expected.clone()),
+            )],
+        );
+        let percent = parse(&document).unwrap().members
+            [document["members"][0]["identityId"].as_str().unwrap()]
+        .savings
+        .clone()
+        .unwrap()
+        .percent
+        .unwrap_or_else(|| panic!("ratio {} parses", case["name"]));
+        assert_eq!(
+            u64::from(percent.basis_points),
+            expected["basisPoints"].as_u64().unwrap(),
+            "{}",
+            case["name"]
+        );
+    }
+}
+
+#[test]
+fn each_valuation_fails_alone_and_never_removes_the_token_figure() {
+    let valid_cost = quote("2026-10-14", 5400);
+    let valid_percent = share(2700, 7300, 60_000, 120_000);
+    let mut wrong_assumption = valid_cost.clone();
+    wrong_assumption["assumption"] = json!("cached-input");
+    let mut unsafe_cost = valid_cost.clone();
+    unsafe_cost["usdMicros"] = json!(9_007_199_254_740_992u64);
+    let mut disagrees = valid_percent.clone();
+    disagrees["basisPoints"] = json!(2800);
+    let mut empty_interval = valid_percent.clone();
+    empty_interval["throughMs"] = empty_interval["fromMs"].clone();
+    let mut control = valid_cost.clone();
+    control["modelId"] = json!("gpt\u{1b}[2J");
+    for (name, cost, percent, kept_cost, kept_percent) in [
+        ("both valid", &valid_cost, &valid_percent, true, true),
+        (
+            "wrong assumption",
+            &wrong_assumption,
+            &valid_percent,
+            false,
+            true,
+        ),
+        ("unsafe usd", &unsafe_cost, &valid_percent, false, true),
+        ("control in model id", &control, &valid_percent, false, true),
+        (
+            "ratio disagrees with numerators",
+            &valid_cost,
+            &disagrees,
+            true,
+            false,
+        ),
+        ("empty interval", &valid_cost, &empty_interval, true, false),
+        ("both null", &Value::Null, &Value::Null, false, false),
+    ] {
+        let document = with_valuations("24h", &[(2700, cost.clone(), percent.clone())]);
+        let status = parse(&document).unwrap_or_else(|| panic!("{name}: status parses"));
+        let savings = status.members[document["members"][0]["identityId"].as_str().unwrap()]
+            .savings
+            .clone()
+            .unwrap_or_else(|| panic!("{name}: savings survive"));
+        assert_eq!(savings.tokens, Some(2700), "{name}");
+        assert_eq!(savings.cost.is_some(), kept_cost, "{name}");
+        assert_eq!(savings.percent.is_some(), kept_percent, "{name}");
+    }
+    // Older producers omit the keys entirely.
+    let mut older = with_savings("24h", &[(0, 1000, 20)]);
+    older["members"][0]["savings"]["extra"] = json!({"unknown": true});
+    let savings = parse(&older).unwrap().members
+        [older["members"][0]["identityId"].as_str().unwrap()]
+    .savings
+    .clone()
+    .unwrap();
+    assert_eq!((savings.cost, savings.percent), (None, None));
+}
+
+#[test]
+fn valuations_need_their_parent_evidence_and_lifetime_has_no_percent() {
+    let cost = quote("2026-10-14", 5400);
+    let percent = share(2700, 7300, 60_000, 120_000);
+    // Lifetime percent is always null, even if a supplier sends one.
+    let document = with_valuations("lifetime", &[(2700, cost.clone(), percent.clone())]);
+    let id = document["members"][0]["identityId"].as_str().unwrap();
+    let savings = parse(&document).unwrap().members[id]
+        .savings
+        .clone()
+        .unwrap();
+    assert_eq!(
+        (savings.cost.is_some(), savings.percent.is_some()),
+        (true, false)
+    );
+    // A gap nulls the token figure, so nothing can be quoted or compared.
+    let mut gap = with_valuations("24h", &[(2700, cost, percent)]);
+    gap["members"][0]["savings"]["estimatedInputTokensAvoided"] = Value::Null;
+    gap["members"][0]["savings"]["complete"] = json!(false);
+    gap["members"][0]["savings"]["gap"] = json!("missing_context");
+    let id = gap["members"][0]["identityId"].as_str().unwrap();
+    let savings = parse(&gap).unwrap().members[id].savings.clone().unwrap();
+    assert_eq!(
+        (savings.tokens, savings.cost, savings.percent),
+        (None, None, None)
+    );
+}
+
+#[test]
+fn costs_sum_only_within_one_price_table_and_missing_members_are_not_zero() {
+    let document = with_valuations(
+        "24h",
+        &[
+            (2700, quote("2026-10-14", 5400), Value::Null),
+            (5400, quote("2026-10-14", 10_800), Value::Null),
+            (100, Value::Null, Value::Null),
+        ],
+    );
+    let summary = summarize(&document, DigestWindow::Day);
+    assert_eq!(
+        summary.cost,
+        Valuation {
+            value: Some(16_200),
+            included: 2,
+            conflict: false
+        }
+    );
+    // Tokens keep their own, larger coverage.
+    assert_eq!(
+        (summary.tokens, summary.included, summary.total),
+        (Some(8200), 3, 3)
+    );
+    let mixed = with_valuations(
+        "24h",
+        &[
+            (2700, quote("2026-10-14", 5400), Value::Null),
+            (2700, quote("2026-11-01", 5400), Value::Null),
+        ],
+    );
+    let summary = summarize(&mixed, DigestWindow::Day);
+    assert_eq!(
+        summary.cost,
+        Valuation {
+            value: None,
+            included: 2,
+            conflict: true
+        }
+    );
+    assert_eq!(summary.tokens, Some(5400));
+    let big = with_valuations(
+        "24h",
+        &[
+            (1, quote("2026-10-14", 9_007_199_254_740_991), Value::Null),
+            (1, quote("2026-10-14", 1), Value::Null),
+        ],
+    );
+    assert_eq!(
+        summarize(&big, DigestWindow::Day).cost,
+        Valuation {
+            value: None,
+            included: 2,
+            conflict: false
+        },
+        "an unsafe sum is unavailable, not a conflict and never wrapped"
+    );
+}
+
+#[test]
+fn percents_combine_numerators_over_one_exact_interval_and_never_average() {
+    // 100 of 200 (50%) and 100 of 1000 (10%): the weighted ratio is 200 of
+    // 1200, not 30%.
+    let same = with_valuations(
+        "24h",
+        &[
+            (100, Value::Null, share(100, 100, 60_000, 120_000)),
+            (100, Value::Null, share(100, 900, 60_000, 120_000)),
+        ],
+    );
+    assert_eq!(
+        summarize(&same, DigestWindow::Day).percent,
+        Valuation {
+            value: Some(1667),
+            included: 2,
+            conflict: false
+        }
+    );
+    let different = with_valuations(
+        "7d",
+        &[
+            (100, Value::Null, share(100, 100, 60_000, 120_000)),
+            (100, Value::Null, share(100, 900, 60_000, 180_000)),
+        ],
+    );
+    assert_eq!(
+        summarize(&different, DigestWindow::Week).percent,
+        Valuation {
+            value: None,
+            included: 2,
+            conflict: true
+        },
+        "members measured over different intervals do not combine"
+    );
+    let one = with_valuations(
+        "24h",
+        &[
+            (100, Value::Null, share(100, 100, 60_000, 120_000)),
+            (100, Value::Null, Value::Null),
+        ],
+    );
+    assert_eq!(
+        summarize(&one, DigestWindow::Day).percent,
+        Valuation {
+            value: Some(5000),
+            included: 1,
+            conflict: false
+        },
+        "a member without a percent is excluded, and coverage says so"
+    );
+    let lifetime = with_valuations(
+        "lifetime",
+        &[(100, Value::Null, share(100, 100, 60_000, 120_000))],
+    );
+    assert_eq!(
+        summarize(&lifetime, DigestWindow::AllTime).percent,
+        Valuation::default()
+    );
+}
+
+#[test]
+fn pricing_is_a_bounded_unique_table_and_an_unknown_shape_is_absent() {
+    let table = json!({"version":"2026-10-14", "asOf":"2026-10-14", "basis":"standard-base-input",
+        "models":[
+            {"modelId":"claude-opus-5-5", "usdMicrosPerMillionInputTokens":4_000_000, "source":"https://example.test/a"},
+            {"modelId":"gpt-6-sol", "usdMicrosPerMillionInputTokens":2_000_000, "source":"https://example.test/b"}]});
+    let mut with = document();
+    with["pricing"] = table.clone();
+    let pricing = parse(&with).unwrap().pricing.expect("valid pricing");
+    assert_eq!(pricing.version, "2026-10-14");
+    assert_eq!(pricing.basis, "standard-base-input");
+    assert_eq!(pricing.models.len(), 2);
+    assert_eq!(
+        pricing.models[1].usd_micros_per_million_input_tokens,
+        2_000_000
+    );
+    assert!(parse(&document()).unwrap().pricing.is_none());
+    let mut bad: Vec<Value> = Vec::new();
+    let mut duplicate = table.clone();
+    duplicate["models"][1]["modelId"] = json!("claude-opus-5-5");
+    bad.push(duplicate);
+    let mut empty = table.clone();
+    empty["models"] = json!([]);
+    bad.push(empty);
+    let mut control = table.clone();
+    control["models"][0]["source"] = json!("https://example.test/\u{7}");
+    bad.push(control);
+    let mut unsafe_rate = table.clone();
+    unsafe_rate["models"][0]["usdMicrosPerMillionInputTokens"] = json!(9_007_199_254_740_992u64);
+    bad.push(unsafe_rate);
+    bad.push(json!("a string"));
+    bad.push(json!({"version":"x"}));
+    for pricing in bad {
+        let mut document = document();
+        document["pricing"] = pricing;
+        let status = parse(&document).expect("members stay valid beside bad pricing");
+        assert!(status.pricing.is_none());
     }
 }

@@ -661,6 +661,7 @@ fn lifetime_detail_uses_individual_source_starts_in_local_dates() {
         total: 1,
         earliest_from_ms: Some(ms("2026-10-01T16:00:00Z")),
         latest_from_ms: Some(ms("2026-10-08T16:00:00Z")),
+        ..Default::default()
     };
     assert_eq!(
         model::savings_start(&value, DigestWindow::AllTime, &zone, 160).as_deref(),
