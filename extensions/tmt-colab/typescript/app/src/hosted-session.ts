@@ -6,7 +6,7 @@ import type {
 import { HostedInterests, type HostedFailure } from './hosted-interests.js';
 import type { HostedPageReader } from './hosted-reader.js';
 import type { PageView } from './transport.js';
-import { ReadmitBudget } from './readmit.js';
+import { ReadmitBudget, READMIT_DELAYS_MS, waitReadmitDelay } from './readmit.js';
 
 export interface HostedBinding {
   port: SealedSyncPort;
@@ -17,9 +17,10 @@ interface Options {
   /** Each attempt constructs fresh verification and subscriptions, never a dead interest. */
   open(call: SyncCall): Promise<HostedBinding>;
   drain(): Promise<void>;
-  publish(view: PageView): void;
+  publish(view: PageView, call: SyncCall): void | Promise<void>;
   failed(failure: HostedFailure): void;
   recovering?(): void;
+  wait?: typeof waitReadmitDelay;
 }
 const RECOVERY_MS = 30_000;
 
@@ -71,7 +72,8 @@ export class HostedSession {
               binding.interests,
               async (call, resources) => {
                 const view = await binding.reader.refresh(call, resources);
-                if (!call.signal.aborted && !this.signal.aborted) this.options.publish(view);
+                if (!call.signal.aborted && !this.signal.aborted)
+                  await this.options.publish(view, call);
               },
               call,
             );
@@ -96,6 +98,7 @@ export class HostedSession {
           await this.options.drain();
           failure = error as HostedFailure;
         }
+        if (!recoverable(failure) && !isCancellation(failure)) throw failure;
         if (this.signal.aborted) throw cancelled();
         if (
           !recoverable(failure) ||
@@ -105,10 +108,16 @@ export class HostedSession {
         )
           throw failure;
         this.options.recovering?.();
+        await (this.options.wait ?? waitReadmitDelay)(
+          Math.min(READMIT_DELAYS_MS[attempts - 1] ?? 3000, Math.max(deadlineAtMs - Date.now(), 0)),
+          this.signal,
+        );
       }
     } catch (error) {
       this.rejectReady(error);
-      if (!this.signal.aborted) this.options.failed(error as HostedFailure);
+      // A terminal refusal observed before a hidden/close event cannot become a fresh retry.
+      if (!this.signal.aborted || (!recoverable(error as HostedFailure) && !isCancellation(error)))
+        this.options.failed(error as HostedFailure);
     }
   }
   private live(deadlineAtMs: number): void {
@@ -128,3 +137,13 @@ function recoverable(failure: HostedFailure): boolean {
   );
 }
 const cancelled = (): HostedFailure => ({ code: 'REMOTE_STATE_UNAVAILABLE', state: 'cancelled' });
+function isCancellation(failure: unknown): boolean {
+  return (
+    typeof failure === 'object' &&
+    failure !== null &&
+    'code' in failure &&
+    failure.code === 'REMOTE_STATE_UNAVAILABLE' &&
+    'state' in failure &&
+    failure.state === 'cancelled'
+  );
+}

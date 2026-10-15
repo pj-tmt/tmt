@@ -26,6 +26,13 @@ export interface HostedPageHints {
   epoch: string;
   expiresAtMs: number;
 }
+/** No current cloud copy was recorded; this is a routing/lifetime hint, never page content. */
+export class HostedPageNotInCloud extends Error {
+  readonly code = 'COLAB_HOSTED_NOT_IN_CLOUD';
+  constructor() {
+    super('This page is not currently available in the cloud.');
+  }
+}
 export class HostedAdmission {
   private attempt?: Promise<void>;
   private identity?: string;
@@ -76,11 +83,8 @@ export class HostedAdmission {
     const target = { resource: 'pages', id: `${space}_${page}` };
     const document = await port.read(target, call);
     live(call);
-    if (
-      !document ||
-      document.target.resource !== target.resource ||
-      document.target.id !== target.id
-    )
+    if (!document) throw new HostedPageNotInCloud();
+    if (document.target.resource !== target.resource || document.target.id !== target.id)
       throw unavailable();
     try {
       const fields = strictJson(document.bytes, 4096);
@@ -109,12 +113,13 @@ export class HostedAdmission {
       const expiresAtMs = Date.parse(timestamp);
       if (
         !Number.isSafeInteger(expiresAtMs) ||
-        expiresAtMs <= Date.now() ||
         new Date(expiresAtMs).toISOString().slice(0, 19) !== timestamp.slice(0, 19)
       )
         throw unavailable();
+      if (expiresAtMs <= Date.now()) throw new HostedPageNotInCloud();
       return { epoch, expiresAtMs };
-    } catch {
+    } catch (error) {
+      if (error instanceof HostedPageNotInCloud) throw error;
       throw unavailable();
     }
   }

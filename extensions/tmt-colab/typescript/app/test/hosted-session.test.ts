@@ -26,6 +26,7 @@ function fixture(
     refuse?: unknown;
     refresh?: (call: SyncCall) => Promise<void>;
     drain?: () => Promise<void>;
+    wait?: (ms: number, signal: AbortSignal) => Promise<void>;
   } = {},
 ) {
   const events: string[] = [],
@@ -40,6 +41,7 @@ function fixture(
   let opened = 0;
   const session = new HostedSession(
     {
+      wait: options.wait ?? (async () => {}),
       async open(call) {
         calls.push(call);
         const name = String(++opened);
@@ -221,5 +223,53 @@ it('close fences an in-flight refresh and waits for both it and durable charging
   await close;
   expect(f.views).toHaveLength(1);
   expect(f.failures).toEqual([]);
+  expect(f.calls).toHaveLength(1);
+});
+
+it('recovery backoff is cancellation-aware and shares the finite overall attempt bound', async () => {
+  const waiting = deferred<void>();
+  const f = fixture({
+    refuse: { code: 'REMOTE_STATE_UNAVAILABLE' },
+    wait: async (_ms, signal) => {
+      waiting.resolve();
+      await new Promise<void>((resolve) =>
+        signal.addEventListener('abort', () => resolve(), { once: true }),
+      );
+    },
+  });
+  const ready = f.session.ready.catch((error) => error);
+  try {
+    await Promise.race([
+      waiting.promise,
+      f.terminal.then(() => {
+        throw new Error('Recovery skipped its backoff');
+      }),
+    ]);
+    expect(f.calls).toHaveLength(1);
+  } finally {
+    await f.session.close();
+  }
+  expect(await ready).toMatchObject({ state: 'cancelled' });
+  expect(f.calls).toHaveLength(1);
+  expect(f.failures).toEqual([]);
+});
+
+it('a terminal budget refusal observed before cancellation stays terminal through joined teardown', async () => {
+  const entered = deferred<void>(),
+    release = deferred<void>(),
+    refusal = { code: 'REMOTE_BUDGET_EXHAUSTED', resetAtMs: 9999, retryAfterMs: 1000 };
+  const f = fixture({
+    drain: async () => {
+      entered.resolve();
+      await release.promise;
+    },
+  });
+  await f.session.ready;
+  f.watchers[0].fail(refusal);
+  await entered.promise;
+  const close = f.session.close();
+  release.resolve();
+  await close;
+  expect(f.failures).toEqual([refusal]);
   expect(f.calls).toHaveLength(1);
 });

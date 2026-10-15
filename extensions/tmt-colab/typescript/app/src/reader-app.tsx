@@ -6,10 +6,11 @@ import { BrowserDrawer } from '@tmt/browser-ui/react';
 import { ColabHeader } from './colab-header.js';
 import { PageAttribution } from './page-attribution.js';
 import { NoticeCard } from './notice-card.js';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { mountRenderer, type RenderState } from './renderer.js';
 import { text } from './strings.js';
 import type { PageView } from './transport.js';
+import './reader-app.css';
 
 export type ReaderState =
   | { kind: 'opening' }
@@ -23,10 +24,12 @@ export type ReaderState =
 export function ReaderApp({
   state,
   attachments,
+  notice,
 }: {
   state: ReaderState;
   /** Authorized reads of the page's files; absent until the session is open. */
   attachments?: AttachmentBinding;
+  notice?: ReactNode;
 }) {
   const [files, setFiles] = useState(false);
   const descriptors = state.kind === 'ready' ? (state.view.attachments ?? []) : [];
@@ -142,6 +145,7 @@ export function ReaderApp({
         }
       />
       <main>
+        {notice}
         {state.kind === 'ready' ? (
           <section className="page">
             <div className="workspace">

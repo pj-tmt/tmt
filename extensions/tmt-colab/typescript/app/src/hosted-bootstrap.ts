@@ -26,6 +26,7 @@ interface Options {
   store?: HostedBudgetStore;
 }
 export interface HostedBootstrap {
+  origin: string;
   auth: HostedAuth;
   declaration: HostedDeclaration;
   budget: HostedBudget;
@@ -88,6 +89,7 @@ export async function bootstrapHosted(
       ]),
     );
     return {
+      origin: new URL(link).origin,
       auth,
       declaration,
       limits,

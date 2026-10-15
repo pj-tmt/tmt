@@ -9,9 +9,15 @@ import './style.css';
 import { MountedApp } from './mounted-app.js';
 import { probeCapabilities } from '@tmt/colab-client';
 import { UnsupportedBrowserNotice } from './notice-card.js';
+import { isHostedOrigin } from './hosted-location.js';
+import { startHosted } from './hosted-main.js';
 
 const root = createRoot(document.getElementById('root')!);
 async function start() {
+  if (isHostedOrigin(location.origin)) {
+    await startHosted(root);
+    return;
+  }
   try {
     await probeCapabilities();
   } catch {

@@ -14,6 +14,7 @@ import { Admission } from './admission.js';
 import { Connection } from './connection.js';
 import { jsonResponse, type Registration } from './registration.js';
 import type { ReaderLink } from './reader-link.js';
+import { deriveReaderKeys } from './reader-keys.js';
 import type { PageView } from './transport.js';
 
 /** The link no longer grants access: reset, removed, narrowed or the page is gone. */
@@ -71,20 +72,7 @@ export class ReaderSession {
     publish: (view: PageView) => void,
     ended: (error: Error) => void,
   ): Promise<ReaderSession> {
-    const link = await linkKeys.deriveLink(target.seed, target.space, target.link),
-      device = await linkKeys.deriveDevice(target.seed, target.space, target.link);
-    target.seed.fill(0);
-    // Everything in the chain is derived from the link, so each open presents byte-identical
-    // bytes and the server keeps one device row per link, however often the page is reloaded.
-    const chain = await linkKeys.certifyDevice(link, {
-      deviceId: device.id,
-      signingPublic: device.signingPublic,
-      encryptionPublic: link.encryption.publicKey(),
-      membershipRevision: target.revision,
-      issuerStatement: target.statement,
-      issuedAt: linkKeys.DEVICE_ISSUED_AT,
-      expiresAt: linkKeys.DEVICE_EXPIRES_AT,
-    });
+    const { link, device, chain } = await deriveReaderKeys(target);
     const session = new ReaderSession(target, mount, link, device, chain, publish, ended);
     const { dropped } = await session.#establish();
     void session.#supervise(dropped);

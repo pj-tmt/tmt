@@ -287,3 +287,23 @@ it('never retries a refused or unknown admission create on a replacement port', 
   expect(next.events).toEqual([]);
   expect(first.events.filter((event) => (event as unknown[])[0] === 'publish')).toHaveLength(1);
 });
+
+it('an absent or expired cloud page is a typed stopped hint, not empty signed page content', async () => {
+  for (const present of [false, true]) {
+    const f = await fixture(true);
+    f.read(async (target) =>
+      target.resource === 'members'
+        ? document(member, memberFields())
+        : present
+          ? document(page, {
+              ...pageFields(),
+              expiresAt: { timestampValue: '2000-01-01T00:00:00Z' },
+            })
+          : undefined,
+    );
+    await expect(f.admission.open(f.port, input, call())).rejects.toMatchObject({
+      code: 'COLAB_HOSTED_NOT_IN_CLOUD',
+    });
+    expect(f.events.filter((event) => (event as unknown[])[0] === 'publish')).toEqual([]);
+  }
+});
