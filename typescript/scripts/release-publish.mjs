@@ -44,6 +44,7 @@ import {
 import { parseComponentMap } from './ci-scope.mjs';
 import { BUNDLE_ASSET, FAILURE_ASSET, HOLD_ASSET } from './plan-release-builds.mjs';
 import { ghApi } from './release-draft-assets.mjs';
+import { retryReleaseRead } from './release-read-retry.mjs';
 import { isAlphaVersion, publishedReleases, versionOfTag } from './release-versions.mjs';
 
 const COMMIT = /^[0-9a-f]{40}$/;
@@ -100,7 +101,32 @@ export function convergeCliLatest({ api, tag, attempts = 3, wait = () => {} }) {
 
 /** Publishes the draft with the product's flags. Returns the flags it applied. */
 export function publishDraft({ api, product, tag, released = true, wait = () => {} }) {
-  const release = api.listReleases().find(({ tag_name: name }) => name === tag);
+  const missing = `there is no release ${tag}`;
+  let absenceFailure;
+  const release = retryReleaseRead(
+    () => {
+      const listing = api.listReleases();
+      const found = listing.find(({ tag_name: name }) => name === tag);
+      // Retry only a valid publication request whose successful listing omitted the tag.
+      if (!found && publishBlocker({ release: found, product, tag, released }) === missing) {
+        const newestDrafts = listing
+          .filter(({ draft }) => draft)
+          .sort(
+            (left, right) =>
+              String(right.created_at ?? '').localeCompare(String(left.created_at ?? '')) ||
+              left.tag_name.localeCompare(right.tag_name)
+          )
+          .slice(0, 5)
+          .map(({ tag_name }) => tag_name);
+        absenceFailure = new Error(
+          `Not publishing: ${missing}. The last listing contained ${listing.length} releases; newest draft tags: ${newestDrafts.join(', ') || 'none'}.`
+        );
+        throw absenceFailure;
+      }
+      return found;
+    },
+    { label: 'Publication draft discovery', retryIf: (failure) => failure === absenceFailure }
+  );
   const blocker = publishBlocker({ release, product, tag, released });
   if (blocker) throw new Error(`Not publishing: ${blocker}.`);
   const flags = publishFlags(product).map((flag) =>
