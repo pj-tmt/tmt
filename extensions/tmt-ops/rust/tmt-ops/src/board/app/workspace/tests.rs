@@ -2390,6 +2390,13 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
     match scene {
         "overview" => app.shell.tab = OpsTab::Overview,
         "named-layer" => app.view_layer = crate::board::ViewLayer::parse("popup").unwrap(),
+        "named-layer-long" => {
+            app.view_layer = crate::board::ViewLayer::parse(&"x".repeat(32)).unwrap()
+        }
+        "named-layer-long-partial" => {
+            app.view_layer = crate::board::ViewLayer::parse(&"x".repeat(32)).unwrap();
+            home.workspace.roster.observation = OpsObservation::Partial;
+        }
         "digest" => app.shell.tab = OpsTab::Digest,
         "empty" => {
             home.summary = Default::default();
@@ -2499,6 +2506,8 @@ fn capture_workspace_packet() {
     let output = std::env::var("TMT_WORKSPACE_CAPTURE").expect("task-owned evidence path");
     let mut captures = Vec::new();
     for scene in [
+        "named-layer-long",
+        "named-layer-long-partial",
         "named-layer",
         "overview",
         "agents",
@@ -2546,7 +2555,7 @@ fn capture_workspace_packet() {
             }
         }
     }
-    assert_eq!(captures.len(), 480);
+    assert_eq!(captures.len(), 544);
     std::fs::write(output, serde_json::to_vec(&captures).unwrap()).unwrap();
 }
 
@@ -3488,7 +3497,17 @@ fn nondefault_layer_caption_changes_only_the_header_and_never_overlaps_attention
                         .map(|cell| cell.symbol())
                         .collect::<String>()
                 };
-                assert!(line(&popup).contains("OPS / UI · popup"));
+                let shown = line(&popup);
+                assert!(shown.contains(if width == 60 {
+                    "OPS / UI · p…"
+                } else {
+                    "OPS / UI · popup"
+                }));
+                assert!(
+                    shown.contains("online")
+                        && shown.contains("waiting")
+                        && shown.contains("blocked")
+                );
                 assert!(!line(&ordinary).contains("· popup"));
                 assert_eq!(
                     &ordinary.content[usize::from(width)..],
@@ -3496,11 +3515,31 @@ fn nondefault_layer_caption_changes_only_the_header_and_never_overlaps_attention
                 );
                 named.view_layer = crate::board::ViewLayer::parse(&"x".repeat(32)).unwrap();
                 let long = line(&draw(&named));
-                assert!(long.contains(&"x".repeat(32)));
-                if width == 60 {
-                    assert!(!long.contains("online"));
+                assert!(
+                    long.contains("online") && long.contains("waiting") && long.contains("blocked")
+                );
+                if width >= 100 {
+                    assert!(long.contains(&"x".repeat(32)));
+                } else {
+                    assert!(long.contains('…'));
+                    assert!(!long.contains(&"x".repeat(32)));
                 }
             }
+        }
+    }
+}
+
+#[test]
+fn named_header_keeps_unknown_attention_before_the_long_layer_caption() {
+    let app = capture_case("named-layer-long-partial", crate::look::Look::default());
+    for width in [60, 100] {
+        let line = paint(&app, width, 36)[0].clone();
+        assert!(line.contains("online") && line.contains("waiting") && line.contains("blocked"));
+        assert!(line.contains("totals unknown"));
+        if width == 100 {
+            assert!(line.contains("OPS / UI · ") && line.contains('…'));
+        } else {
+            assert!(!line.contains(" · x"));
         }
     }
 }

@@ -201,7 +201,9 @@ or use `--view default` to share the everyday board's layer. Names are 1–32
 lowercase ASCII letters, digits or hyphens. Boards with the same name share their
 last saved view; different names keep independent destination, UUID selection,
 expanded squads, Overview/Agents sort and filters, committed search and pane scroll.
-Only nondefault names appear in the header: `OPS / UI · popup`.
+Only nondefault names appear in the header: `OPS / UI · popup`. Global attention
+counts take priority: the layer name shortens with an ellipsis and disappears
+when there is no room.
 
 `tmt ops ui --view popup --reset-view` clears that layer before opening cold.
 Reset requires an interactive terminal and cannot be combined with `--reload-all`;

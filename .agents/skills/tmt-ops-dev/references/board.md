@@ -225,7 +225,9 @@ Reads create nothing; first publication creates the layer. Same-name boards use
 last-writer-wins publication; different layer files never affect one another.
 Interactive `--reset-view` removes only the selected hint and opens cold; it is
 refused without a terminal and with `--reload-all`. Exec carry wins and does not
-repeat a reset from original argv. Nondefault layers appear in the shell header.
+repeat a reset from original argv. Nondefault layers appear in the shell header. Global attention wins over the
+optional layer caption, which ellipsizes first and disappears only when no name
+cell fits.
 For destination/selection, exec Resume wins, then an explicit startup squad,
 then the hint; an explicit squad still restores compatible expansion hints.
 The first fresh Complete roster applies it; partial/failed views neither apply

@@ -5366,9 +5366,10 @@ describe('large board responsiveness', () => {
       const pane = tmux(['display-message', '-p', '#{pane_id}']);
       const quoted = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
       let sequence = 0;
-      const captures: { named: boolean; width: number; text: string }[] = [];
+      const captures: { named: boolean; layer?: string; width: number; text: string }[] = [];
       const screen = () => tmux(['capture-pane', '-p', '-t', pane]);
-      const launch = async (args: string[], named: boolean) => {
+      const launch = async (args: string[], layer?: string) => {
+        const named = layer !== undefined;
         const trace = path.join(sandbox.root, `view-${sequence++}.jsonl`);
         tmux([
           'send-keys',
@@ -5383,7 +5384,7 @@ describe('large board responsiveness', () => {
             expect(existsSync(trace)).toBe(true);
             expect(readFileSync(trace, 'utf8')).toContain('fresh_board');
             const header = screen().split('\n')[0];
-            expect(header).toContain(named ? 'OPS / UI · popup' : 'OPS / UI');
+            expect(header).toContain(named ? `OPS / UI · ${layer}` : 'OPS / UI');
             if (!named) expect(header).not.toContain('· popup');
           },
           { timeout: 30_000, interval: 50 }
@@ -5396,13 +5397,14 @@ describe('large board responsiveness', () => {
                 String(width)
               );
               const header = screen().split('\n')[0];
-              expect(header).toContain(named ? 'OPS / UI · popup' : 'OPS / UI');
-              if (width >= 100) expect(header).toContain('online');
-              else expect(header).not.toContain('online');
+              if (width >= 100) expect(header).toContain('OPS / UI');
+              if (named || width >= 100) expect(header).toContain('online');
+              if (named) expect(header).toContain('waiting');
+              if (named) expect(header).toContain('blocked');
             },
             { timeout: 10_000, interval: 25 }
           );
-          captures.push({ named, width, text: screen() });
+          captures.push({ named, layer, width, text: screen() });
         }
         tmux(['resize-window', '-t', 'views', '-x', '160', '-y', '36']);
       };
@@ -5417,7 +5419,7 @@ describe('large board responsiveness', () => {
         );
       };
       try {
-        await launch(['--view', 'popup', '--popup'], true);
+        await launch(['--view', 'popup', '--popup'], 'popup');
         await quit();
         expect(JSON.parse(readFileSync(popupFile, 'utf8')).controls).toMatchObject({
           query: 'old-popup-search',
@@ -5426,7 +5428,7 @@ describe('large board responsiveness', () => {
           agentsFilter: 'pinned',
         });
         expect(readFileSync(defaultFile, 'utf8')).toBe(defaultBytes);
-        await launch(['--view', 'popup', '--reset-view'], true);
+        await launch(['--view', 'popup', '--reset-view'], 'popup');
         tmux(['send-keys', '-t', pane, '/', 'B', 'e', 'n', 'Enter']);
         expect((await ops(sandbox, ['ui', '--reload-all'])).status).toBe(0);
         await vi.waitFor(() => expect(screen()).toContain('Board reloaded'), {
@@ -5446,10 +5448,13 @@ describe('large board responsiveness', () => {
         expect(retained).not.toHaveProperty('scope');
         expect(retained).not.toHaveProperty('revealHidden');
         expect(readFileSync(defaultFile, 'utf8')).toBe(defaultBytes);
-        await launch([], false);
+        await launch([]);
         await quit();
         expect(JSON.parse(readFileSync(defaultFile, 'utf8')).shell).toBe('agents');
         expect(JSON.parse(readFileSync(popupFile, 'utf8'))).toEqual(retained);
+        const longName = 'x'.repeat(32);
+        await launch(['--view', longName], longName);
+        await quit();
         expect(readFileSync(config, 'utf8')).toBe(configBefore);
         if (process.env.TMT_VIEW_LAYER_CAPTURES) {
           writeFileSync(process.env.TMT_VIEW_LAYER_CAPTURES, JSON.stringify(captures));
