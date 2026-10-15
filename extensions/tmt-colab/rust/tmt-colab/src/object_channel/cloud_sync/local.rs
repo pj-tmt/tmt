@@ -180,6 +180,8 @@ impl Local for StoreLocal {
             chains: Vec<Vec<u8>>,
             wraps: Vec<Vec<u8>>,
             links: Vec<LiveLink>,
+            /// The epoch's exact signed baseline; none at the first epoch, which has none.
+            baseline: Option<Vec<u8>>,
         }
         let snapshot = self
             .store
@@ -223,6 +225,11 @@ impl Local for StoreLocal {
                     chains,
                     wraps: tx.owner_member_wraps(&page.page, page.epoch, &head)?,
                     links,
+                    baseline: if page.epoch > 1 {
+                        tx.baseline(&page.page, page.epoch)?.map(|b| b.envelope)
+                    } else {
+                        None
+                    },
                 }))
             })
             .map_err(|error| read_fault(error.as_ref()))?
@@ -299,7 +306,6 @@ impl Local for StoreLocal {
         for (kind, recipient, originals) in [
             (Authority::Membership, "", &snapshot.statements),
             (Authority::Chain, "", &snapshot.chains),
-            (Authority::Wrap, uid.as_str(), &snapshot.wraps),
         ] {
             for bytes in originals {
                 for document in mapping(originals::authority_documents(
@@ -307,6 +313,23 @@ impl Local for StoreLocal {
                 ))? {
                     rows.push(Row::Create(document));
                 }
+            }
+        }
+        // The epoch's baseline precedes its wraps: whoever can read a wrap can read the baseline
+        // that wrap's key opens.
+        if let Some(bytes) = &snapshot.baseline {
+            for document in mapping(originals::baseline_documents(&routing, bytes))? {
+                rows.push(Row::Create(document));
+            }
+        }
+        for bytes in &snapshot.wraps {
+            for document in mapping(originals::authority_documents(
+                &routing,
+                Authority::Wrap,
+                uid,
+                bytes,
+            ))? {
+                rows.push(Row::Create(document));
             }
         }
         for link in &snapshot.links {
