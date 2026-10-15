@@ -172,9 +172,14 @@ test('a hosted link holder verifies native content and a later save without a lo
       } else if (url.origin === 'https://firestore.googleapis.com') {
         if (url.pathname.endsWith(':commit')) writes.push(request.postData() ?? '');
         const requestedPhase = phase;
-        const response = await route.fetch({
-          url: `http://${firestore}${url.pathname}${url.search}`,
-        });
+        const response = await route
+          .fetch({ url: `http://${firestore}${url.pathname}${url.search}` })
+          .catch(async (error: unknown) => {
+            if (!(error instanceof Error) || !error.message.includes('socket hang up')) throw error;
+            // An aborted long-poll must not replace the product assertion with proxy noise.
+            await route.abort();
+          });
+        if (!response) return;
         if (request.method() === 'GET' && url.pathname.includes('/documents/'))
           gets.push({
             phase: requestedPhase,
