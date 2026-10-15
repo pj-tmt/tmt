@@ -210,6 +210,32 @@ mod tests {
     }
 
     #[test]
+    fn focus_into_directions_are_in_every_generated_completion() {
+        let root = grammar::grammar();
+        let focus = root.find_subcommand("focus").unwrap();
+        let into = focus
+            .get_arguments()
+            .find(|arg| arg.get_id() == "into")
+            .unwrap();
+        let values: Vec<_> = into
+            .get_possible_values()
+            .iter()
+            .map(|value| value.get_name().to_owned())
+            .collect();
+        assert_eq!(values, ["left", "right", "up", "down"]);
+        for shell in ["bash", "zsh", "fish"] {
+            let mut bytes = Vec::new();
+            generate(shell, &mut bytes).unwrap();
+            let script = String::from_utf8(bytes).unwrap();
+            let flag = if shell == "fish" { "-l into" } else { "--into" };
+            assert!(script.contains(flag), "{shell}: missing {flag}");
+            for direction in ["left", "right", "up", "down"] {
+                assert!(script.contains(direction), "{shell}: {direction}");
+            }
+        }
+    }
+
+    #[test]
     fn generated_scripts_keep_the_static_grammar_and_dynamic_entry() {
         for shell in ["bash", "zsh", "fish"] {
             let mut bytes = Vec::new();

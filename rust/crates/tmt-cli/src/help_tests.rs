@@ -305,3 +305,17 @@ fn talk_help_distinguishes_recipient_pull_from_live_notification() {
     assert!(text.contains("For a bound recipient, plain talk attempts live notification"));
     assert!(text.contains("--inbox suppresses that notification and requires inbox pull"));
 }
+
+#[test]
+fn focus_help_describes_directional_swap_and_preserved_focus() {
+    let text = grammar::help_command(&["focus".into()])
+        .unwrap()
+        .render_long_help()
+        .to_string();
+    assert!(text.contains("--into"));
+    for direction in ["left", "right", "up", "down"] {
+        assert!(text.contains(direction));
+    }
+    assert!(text.contains("keep focus"));
+    assert!(text.contains("tmt focus worker --into left"));
+}

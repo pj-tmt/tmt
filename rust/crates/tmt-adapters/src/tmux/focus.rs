@@ -57,6 +57,7 @@ pub enum FocusError {
     HostUnsupported,
     /// The requested pane does not exist on the invoker's server.
     PaneNotFound,
+    NoNeighbour,
     Evidence(TmuxError),
 }
 
@@ -67,6 +68,7 @@ impl std::fmt::Display for FocusError {
                 formatter.write_str("No tmux client for this invocation can be focused.")
             }
             Self::PaneNotFound => formatter.write_str("The pane was not found."),
+            Self::NoNeighbour => formatter.write_str("No visible neighbour in that direction."),
             Self::Evidence(error) => error.fmt(formatter),
         }
     }
@@ -209,6 +211,176 @@ impl<R: CommandRunner> Tmux<R> {
     }
 }
 
+#[derive(Debug)]
+struct PaneGeometry {
+    pane: String,
+    left: u32,
+    top: u32,
+    width: u32,
+    height: u32,
+    zoomed: bool,
+}
+
+fn neighbour<'a>(
+    panes: &'a [PaneGeometry],
+    caller: &PaneGeometry,
+    direction: crate::host::SwapDirection,
+) -> Option<&'a PaneGeometry> {
+    use crate::host::SwapDirection;
+    if caller.zoomed {
+        return None;
+    }
+    let horizontal = matches!(direction, SwapDirection::Left | SwapDirection::Right);
+    let (start, length) = if horizontal {
+        (caller.top, caller.height)
+    } else {
+        (caller.left, caller.width)
+    };
+    let end = start + length;
+    // Twice the midpoint avoids rounding an odd span before choosing a neighbour.
+    let midpoint = u64::from(start) * 2 + u64::from(length);
+    panes
+        .iter()
+        .filter_map(|other| {
+            let touches = match direction {
+                SwapDirection::Left => other.left + other.width + 1 == caller.left,
+                SwapDirection::Right => caller.left + caller.width + 1 == other.left,
+                SwapDirection::Up => other.top + other.height + 1 == caller.top,
+                SwapDirection::Down => caller.top + caller.height + 1 == other.top,
+            };
+            if other.pane == caller.pane || !touches {
+                return None;
+            }
+            let (other_start, other_length) = if horizontal {
+                (other.top, other.height)
+            } else {
+                (other.left, other.width)
+            };
+            let other_end = other_start + other_length;
+            let overlap = end.min(other_end).saturating_sub(start.max(other_start));
+            if overlap == 0 {
+                return None;
+            }
+            let contains =
+                midpoint >= u64::from(other_start) * 2 && midpoint < u64::from(other_end) * 2;
+            Some((
+                (
+                    std::cmp::Reverse(contains),
+                    std::cmp::Reverse(overlap),
+                    other.left,
+                    other.top,
+                    &other.pane,
+                ),
+                other,
+            ))
+        })
+        .min_by(|(a, _), (b, _)| a.cmp(b))
+        .map(|(_, pane)| pane)
+}
+
+impl<R: CommandRunner> Tmux<R> {
+    /// Resolve the caller's visible neighbour without touching any selection.
+    pub fn swap_pane(
+        &self,
+        invoker: &Invoker,
+        target: &str,
+        direction: crate::host::SwapDirection,
+        options: OperationOptions<'_>,
+    ) -> Result<crate::host::PaneSwap, FocusError> {
+        let caller = invoker
+            .pane
+            .as_deref()
+            .filter(|pane| valid_pane_id(pane))
+            .ok_or(FocusError::HostUnsupported)?;
+        if caller == target {
+            return Err(FocusError::HostUnsupported);
+        }
+        if !valid_pane_id(target) {
+            return Err(FocusError::PaneNotFound);
+        }
+        let target_id = self
+            .query(
+                &invoker.socket,
+                &["display-message", "-p", "-t", target, "#{pane_id}"],
+                options,
+            )
+            .map_err(|error| absent_or(error, FocusError::PaneNotFound))?;
+        if target_id.trim() != target {
+            return Err(FocusError::PaneNotFound);
+        }
+        let format = [
+            "#{pane_id}",
+            "#{pane_left}",
+            "#{pane_top}",
+            "#{pane_width}",
+            "#{pane_height}",
+            "#{window_zoomed_flag}",
+        ]
+        .join(FIELD);
+        let rows = self
+            .query(
+                &invoker.socket,
+                &["list-panes", "-t", caller, "-F", &format],
+                options,
+            )
+            .map_err(|error| absent_or(error, FocusError::HostUnsupported))?;
+        let mut panes = Vec::new();
+        for line in rows.lines() {
+            let fields: Vec<_> = line.split(FIELD).collect();
+            let [pane, left, top, width, height, zoomed] = fields.as_slice() else {
+                return Err(FocusError::Evidence(TmuxError::evidence(
+                    "Invalid pane geometry",
+                )));
+            };
+            let number = |value: &str| value.parse::<u32>().ok().filter(|n| *n < u32::MAX / 4);
+            let (Some(left), Some(top), Some(width), Some(height)) =
+                (number(left), number(top), number(width), number(height))
+            else {
+                return Err(FocusError::Evidence(TmuxError::evidence(
+                    "Invalid pane geometry",
+                )));
+            };
+            if !valid_pane_id(pane)
+                || width == 0
+                || height == 0
+                || !["0", "1"].contains(zoomed)
+                || panes.iter().any(|other: &PaneGeometry| other.pane == *pane)
+            {
+                return Err(FocusError::Evidence(TmuxError::evidence(
+                    "Invalid pane geometry",
+                )));
+            }
+            panes.push(PaneGeometry {
+                pane: (*pane).into(),
+                left,
+                top,
+                width,
+                height,
+                zoomed: *zoomed == "1",
+            });
+        }
+        let caller = panes
+            .iter()
+            .find(|pane| pane.pane == caller)
+            .ok_or(FocusError::HostUnsupported)?;
+        let neighbour = neighbour(&panes, caller, direction).ok_or(FocusError::NoNeighbour)?;
+        let already = target == neighbour.pane;
+        if !already {
+            self.query(
+                &invoker.socket,
+                &["swap-pane", "-d", "-s", target, "-t", &neighbour.pane],
+                options,
+            )
+            .map_err(|error| absent_or(error, FocusError::PaneNotFound))?;
+        }
+        Ok(crate::host::PaneSwap {
+            target: target.into(),
+            neighbour: neighbour.pane.clone(),
+            already,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -216,6 +388,175 @@ mod tests {
         process::CommandFailure,
         scripted_runner::{ScriptedRunner, failure_with_kind},
     };
+
+    fn geometry(pane: &str, left: u32, top: u32, width: u32, height: u32) -> PaneGeometry {
+        PaneGeometry {
+            pane: pane.into(),
+            left,
+            top,
+            width,
+            height,
+            zoomed: false,
+        }
+    }
+
+    #[test]
+    fn swap_neighbour_geometry_is_directional_visible_and_deterministic() {
+        use crate::host::SwapDirection::*;
+        let mut caller = geometry("%0", 11, 11, 10, 10);
+        let panes = vec![
+            geometry("%1", 0, 11, 10, 10),
+            geometry("%2", 22, 11, 10, 10),
+            geometry("%3", 11, 0, 10, 10),
+            geometry("%4", 11, 22, 10, 10),
+        ];
+        for (direction, expected) in [(Left, "%1"), (Right, "%2"), (Up, "%3"), (Down, "%4")] {
+            assert_eq!(
+                neighbour(&panes, &caller, direction).unwrap().pane,
+                expected
+            );
+        }
+        caller.zoomed = true;
+        assert!(neighbour(&panes, &caller, Left).is_none());
+        caller.zoomed = false;
+        assert!(
+            neighbour(&[geometry("%5", 1, 11, 8, 10)], &caller, Left).is_none(),
+            "must touch across one border"
+        );
+        assert!(
+            neighbour(&[geometry("%5", 0, 21, 10, 10)], &caller, Left).is_none(),
+            "perpendicular spans must overlap"
+        );
+
+        let uneven = vec![geometry("%6", 0, 11, 10, 2), geometry("%7", 0, 14, 10, 7)];
+        assert_eq!(
+            neighbour(&uneven, &caller, Left).unwrap().pane,
+            "%7",
+            "midpoint beats a smaller span"
+        );
+        let no_midpoint = vec![geometry("%8", 0, 11, 10, 4), geometry("%9", 0, 17, 10, 4)];
+        assert_eq!(
+            neighbour(&no_midpoint, &caller, Left).unwrap().pane,
+            "%8",
+            "equal overlap takes smallest top"
+        );
+        let midpoint_border = vec![geometry("%8", 0, 11, 10, 5), geometry("%9", 0, 16, 10, 5)];
+        assert_eq!(
+            neighbour(&midpoint_border, &caller, Left).unwrap().pane,
+            "%9",
+            "half-open midpoint tie is stable"
+        );
+        let more_overlap = vec![geometry("%8", 0, 11, 10, 3), geometry("%9", 0, 17, 10, 4)];
+        assert_eq!(
+            neighbour(&more_overlap, &caller, Left).unwrap().pane,
+            "%9",
+            "largest overlap when midpoint is in a border"
+        );
+    }
+
+    fn layout() -> Vec<u8> {
+        [
+            ["%2", "0", "0", "10", "10", "0"],
+            ["%3", "11", "0", "10", "10", "0"],
+        ]
+        .iter()
+        .map(|row| row.join(FIELD))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .into_bytes()
+    }
+
+    #[test]
+    fn swap_uses_exact_ids_and_detaches_without_selecting_or_killing() {
+        let runner = ScriptedRunner::default();
+        runner.push_output(b"%9\n".to_vec(), Vec::new());
+        runner.push_output(layout(), Vec::new());
+        runner.push_output(Vec::new(), Vec::new());
+        let tmux = Tmux::new(runner);
+        let swap = tmux
+            .swap_pane(
+                &invoker(),
+                "%9",
+                crate::host::SwapDirection::Right,
+                OperationOptions::default(),
+            )
+            .unwrap();
+        assert_eq!(
+            swap,
+            crate::host::PaneSwap {
+                target: "%9".into(),
+                neighbour: "%3".into(),
+                already: false
+            }
+        );
+        let calls = tmux.runner.calls.borrow();
+        assert_eq!(calls.len(), 3);
+        assert_eq!(
+            calls[2].args[3..],
+            ["swap-pane", "-d", "-s", "%9", "-t", "%3"]
+        );
+        assert!(
+            calls
+                .iter()
+                .all(|call| call.args[..3] == ["-u", "-S", "/tmp/tmt-focus.sock"])
+        );
+    }
+
+    #[test]
+    fn swap_already_beside_and_refusals_have_no_mutating_call() {
+        let runner = ScriptedRunner::default();
+        runner.push_output(b"%3\n".to_vec(), Vec::new());
+        runner.push_output(layout(), Vec::new());
+        let tmux = Tmux::new(runner);
+        assert!(
+            tmux.swap_pane(
+                &invoker(),
+                "%3",
+                crate::host::SwapDirection::Right,
+                OperationOptions::default()
+            )
+            .unwrap()
+            .already
+        );
+        assert_eq!(tmux.runner.calls.borrow().len(), 2);
+        assert!(matches!(
+            tmux.swap_pane(
+                &invoker(),
+                "%2",
+                crate::host::SwapDirection::Right,
+                OperationOptions::default()
+            ),
+            Err(FocusError::HostUnsupported)
+        ));
+        let no_pane = Invoker {
+            pane: None,
+            ..invoker()
+        };
+        assert!(matches!(
+            tmux.swap_pane(
+                &no_pane,
+                "%9",
+                crate::host::SwapDirection::Right,
+                OperationOptions::default()
+            ),
+            Err(FocusError::HostUnsupported)
+        ));
+        assert_eq!(tmux.runner.calls.borrow().len(), 2);
+        let runner = ScriptedRunner::default();
+        runner.push_output(b"%9\n".to_vec(), Vec::new());
+        runner.push_output(layout(), Vec::new());
+        let tmux = Tmux::new(runner);
+        assert!(matches!(
+            tmux.swap_pane(
+                &invoker(),
+                "%9",
+                crate::host::SwapDirection::Left,
+                OperationOptions::default()
+            ),
+            Err(FocusError::NoNeighbour)
+        ));
+        assert_eq!(tmux.runner.calls.borrow().len(), 2);
+    }
 
     fn invoker() -> Invoker {
         Invoker {

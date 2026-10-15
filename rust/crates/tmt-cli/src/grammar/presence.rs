@@ -128,11 +128,18 @@ pub(in crate::grammar) fn focus() -> Command {
         details = "Pane focus changes what your client shows. For recurring message batching, see tmt digest --help and tmt digest skill (the optional Digest extension).",
         [
             "Show an agent's pane in your tmux client" => "tmt focus worker",
-            "Focus the same identity after a rename" => "tmt focus 6c57fcc9-96b1-4022-b071-870b81288814",
             "Name your client and the pane it shows" => "tmt focus --client",
+            "Swap an agent beside this pane without moving focus" => "tmt focus worker --into left",
         ]
     ))
     .arg(operand("target", false).required_unless_present("client"))
+    .arg(
+        Arg::new("into")
+            .long("into")
+            .value_parser(["left", "right", "up", "down"])
+            .conflicts_with("client")
+            .help("Swap the target beside this pane in the given direction; keep focus"),
+    )
     .arg(
         Arg::new("client")
             .long("client")

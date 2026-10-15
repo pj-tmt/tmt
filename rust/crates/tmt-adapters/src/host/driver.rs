@@ -18,8 +18,16 @@ use tmt_core::{
         ActionResult, DeliveryAcceptance, Focused, InterfacePresence, InterfaceStatus, SendFailure,
     },
     endpoint::{EndpointProbe, EndpointSnapshot, ServerEvidence},
+    host::SwapDirection,
     identity::Identity,
 };
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PaneSwap {
+    pub target: String,
+    pub neighbour: String,
+    pub already: bool,
+}
 
 pub trait HostDriver {
     /// Starts one coordination budget for the operations that follow.
@@ -80,6 +88,15 @@ pub trait HostDriver {
 
     /// Focuses a pane whose binding was verified present.
     fn focus(&mut self, binding: &Binding) -> Result<Focused, ActionError>;
+
+    /// Unsupported hosts never invent a swap operation or a wire call.
+    fn swap_into(
+        &mut self,
+        _binding: &Binding,
+        _direction: SwapDirection,
+    ) -> Result<PaneSwap, ActionError> {
+        Err(ActionError::HostUnsupported)
+    }
 }
 
 /// After a committed rename, rewrites this binding's own marker so the pane
@@ -254,6 +271,25 @@ pub fn focus(
         Ok(focused) => ActionResult::Completed(focused),
         Err(error) => ActionResult::Failed(error),
     }
+}
+
+/// Swap uses the same verified-binding admission as focus; only the host owns layout.
+pub fn swap_into(
+    driver: &mut dyn HostDriver,
+    entry: &BindingEntry,
+    direction: SwapDirection,
+) -> Result<PaneSwap, ActionError> {
+    driver.focus_preflight(entry.binding.as_ref())?;
+    let binding = entry.binding.as_ref().ok_or(ActionError::Unverified)?;
+    match status(driver, entry) {
+        ActionResult::Completed(InterfaceStatus {
+            presence: InterfacePresence::Present,
+            ..
+        }) => {}
+        ActionResult::Failed(error) => return Err(error),
+        _ => return Err(ActionError::Unverified),
+    }
+    driver.swap_into(binding, direction)
 }
 
 /// A host no driver serves in this process, such as a stored binding's host

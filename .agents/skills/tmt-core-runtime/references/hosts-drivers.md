@@ -33,11 +33,17 @@ channels and the driver protocol. The owner map is in
 
 - Extensions never reach a host: the guard rejects extension code, tests included, that names
   the host port, the tmux module or core's `binding`, `endpoint` or `host` model.
-- `host::driver::{status, send, focus}` hold the one binding policy over each `HostDriver`. A
+- `host::driver::{status, send, focus, swap_into}` hold the one binding policy over each `HostDriver`. A
   host without input is `Unsupported` before evidence is read. A send first offers the message
   to the agent the host recognizes in the pane (`prompt`); only `Unsupported` falls back to raw
   `input`, any other answer is final. tmux recognizes no agents. `DeliveryError` is the
   host-neutral failure: stage, whether text may have reached the pane, and the host's cause.
+- `tmt_core::host::SwapDirection` is pure command data. Directional focus reuses
+  focus target/binding admission; `HostDriver::swap_into`
+  defaults to Unsupported with no new external-driver wire operation. The tmux
+  adapter owns one caller-window geometry read and the detached swap. It never
+  changes caller selection, wraps neighbours or kills panes; zoom refuses.
+  Public JSON and selection rules belong to the [host contract](../../../../contracts/driver-protocol-v1.md#capture-input-and-focus).
 - A handle has a primary host; a session probes, marks and clears each stored binding on that
   binding's own host. A `Host` states why it was chosen (`for_caller`, `for_server`,
   `for_target`) and takes endpoints, never loose socket or pane strings.

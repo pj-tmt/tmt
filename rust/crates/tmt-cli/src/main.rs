@@ -382,8 +382,8 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         } => {
             return check_command::execute(target, lines, capture_only, parsed.mode);
         }
-        Invocation::Focus { target } => {
-            return focus_command::execute(target, parsed.mode);
+        Invocation::Focus { target, into } => {
+            return focus_command::execute(target, into, parsed.mode);
         }
         Invocation::FocusClient => {
             return focus_command::client(parsed.mode);

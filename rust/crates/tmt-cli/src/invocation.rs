@@ -143,6 +143,7 @@ pub enum Invocation {
     /// An identity name, or a pane target (for example a previous `from`).
     Focus {
         target: String,
+        into: Option<tmt_core::host::SwapDirection>,
     },
     /// Read-only: the invoker's tmux client and the pane it shows.
     FocusClient,
