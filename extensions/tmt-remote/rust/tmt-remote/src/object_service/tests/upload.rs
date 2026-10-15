@@ -115,7 +115,11 @@ fn pending_upload_defers_restart_without_changing_its_accounting() {
     let before = service.storage.installation_usage(&io()).unwrap();
     assert!(
         !view
-            .while_idle(&stopped, || stopped.store(true, Ordering::Release))
+            .while_idle(
+                Instant::now() + crate::limits::RESTART_IDLE_WAIT,
+                &stopped,
+                || stopped.store(true, Ordering::Release)
+            )
             .unwrap()
     );
     assert!(!stopped.load(Ordering::Acquire));
@@ -125,8 +129,12 @@ fn pending_upload_defers_restart_without_changing_its_accounting() {
         Outcome::Success(Success::State(State::Discarded))
     );
     assert!(
-        view.while_idle(&stopped, || stopped.store(true, Ordering::Release))
-            .unwrap()
+        view.while_idle(
+            Instant::now() + crate::limits::RESTART_IDLE_WAIT,
+            &stopped,
+            || stopped.store(true, Ordering::Release)
+        )
+        .unwrap()
     );
     assert!(stopped.load(Ordering::Acquire));
     service.shutdown();

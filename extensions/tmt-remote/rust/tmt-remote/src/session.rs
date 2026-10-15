@@ -744,16 +744,15 @@ impl DoorSessions {
             self.ready.notify_all();
         }
     }
-    /// Lifecycle observation uses the existing live -> Store ordering and never waits
-    /// for an effect to finish. The caller sets the ordinary stop flag while held.
+    /// Lifecycle observation keeps live -> Store order and waits only until its caller
+    /// bound for a brief observation, never for a full effect to finish. The caller sets the ordinary stop flag while held.
     pub(crate) fn while_idle(
         &self,
+        deadline: std::time::Instant,
         action: impl FnOnce() -> Result<bool, RemoteError>,
     ) -> Result<bool, RemoteError> {
-        let live = match self.live.try_lock() {
-            Ok(live) => live,
-            Err(std::sync::TryLockError::WouldBlock) => return Ok(false),
-            Err(error) => return Err(crate::store::database(error)),
+        let Some(live) = crate::control::idle_lock(&self.live, deadline)? else {
+            return Ok(false);
         };
         if live.stopped
             || live
@@ -763,10 +762,8 @@ impl DoorSessions {
         {
             return Ok(false);
         }
-        let store = match self.store.try_lock() {
-            Ok(store) => store,
-            Err(std::sync::TryLockError::WouldBlock) => return Ok(false),
-            Err(error) => return Err(crate::store::database(error)),
+        let Some(store) = crate::control::idle_lock(&self.store, deadline)? else {
+            return Ok(false);
         };
         let held: bool = store
             .connection
@@ -1178,5 +1175,194 @@ mod cookie_tests {
         assert!(!live.by_token.contains_key(&[2; 32]));
         assert!(!live.by_token.contains_key(&[4; 32]));
         assert_eq!(live.by_token.len(), 2);
+    }
+}
+
+#[cfg(test)]
+mod restart_tests {
+    use super::*;
+    use std::sync::mpsc;
+
+    struct Scratch(std::path::PathBuf);
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            std::fs::remove_dir_all(&self.0).unwrap();
+        }
+    }
+    fn with_sessions(test: impl FnOnce(&DoorSessions)) {
+        let root =
+            Scratch(std::env::temp_dir().join(format!("tmt-restart-live-{}", uuid_v4().unwrap())));
+        let layout = crate::state::Layout::open(&root.0).unwrap();
+        let serving = layout.serve_lock().unwrap();
+        let store = Arc::new(Mutex::new(Store::open(&serving).unwrap()));
+        let sessions = DoorSessions::new(
+            uuid_v4().unwrap(),
+            uuid_v4().unwrap(),
+            "http://127.0.0.1:12345".into(),
+            "/r/test/".into(),
+            MachineKey::open(&layout).unwrap(),
+            store,
+            IDLE,
+        );
+        test(&sessions);
+    }
+    fn contended<T: Send>(mutex: &Mutex<T>, admission: impl FnOnce() -> bool) {
+        let (held, ready) = mpsc::channel();
+        let (finished, result) = mpsc::channel();
+        std::thread::scope(|scope| {
+            scope.spawn(move || {
+                let _owner = mutex.lock().unwrap();
+                held.send(()).unwrap();
+                let _ = result.recv_timeout(Duration::from_millis(50));
+            });
+            ready.recv_timeout(Duration::from_secs(5)).unwrap();
+            let admitted = admission();
+            finished.send(()).ok();
+            assert!(
+                admitted,
+                "observation lock contention is not session activity"
+            );
+        });
+    }
+    #[test]
+    fn restart_held_approval_still_defers_and_preserves_the_row() {
+        with_sessions(|sessions| {
+            let id = uuid_v4().unwrap();
+            let grant = Grant {
+                client_id: uuid_v4().unwrap(),
+                public_key: [7; 32],
+                kind: "cli".into(),
+                origin: "cli".into(),
+                name: "Held device".into(),
+                agents: "all".into(),
+                scopes: vec!["talk".into()],
+                mode: "hold".into(),
+                issued_at_ms: 1,
+                expires_at_ms: None,
+                revision: 1,
+                disabled: false,
+            };
+            let frozen = serde_json::to_vec(&json!({
+                "version":1,"operation":"dispatch.create","originator":"anonymous",
+                "input":{"operationId":id,"recipientIds":[uuid_v4().unwrap()],"message":"Retain this held request","kind":"request"}
+            })).unwrap();
+            crate::operations::held_intent(&grant, &id, &frozen).unwrap();
+            let receipt = json!({"state":"held","operationId":id}).to_string();
+            {
+                let mut store = sessions.store.lock().unwrap();
+                store.insert_grant(&grant).unwrap();
+                store.connection.execute(
+                    "INSERT INTO operations(id,client_id,operation,digest,frozen,phase,receipt,updated_ms,grant_revision) VALUES(?1,?2,'dispatch.create',?3,?4,'held',?5,1,1)",
+                    rusqlite::params![id, grant.client_id, Sha256::digest(&frozen).as_slice(), frozen, receipt],
+                ).unwrap();
+            }
+            let snapshot = || {
+                sessions
+                    .store
+                    .lock()
+                    .unwrap()
+                    .connection
+                    .query_row(
+                        "SELECT phase,frozen,receipt,updated_ms FROM operations WHERE id=?1",
+                        [&id],
+                        |row| {
+                            Ok((
+                                row.get::<_, String>(0)?,
+                                row.get::<_, Vec<u8>>(1)?,
+                                row.get::<_, String>(2)?,
+                                row.get::<_, i64>(3)?,
+                            ))
+                        },
+                    )
+                    .unwrap()
+            };
+            let before = snapshot();
+            assert!(
+                !sessions
+                    .while_idle(
+                        Instant::now() + crate::limits::RESTART_IDLE_WAIT,
+                        || panic!("a held approval must not stop")
+                    )
+                    .unwrap()
+            );
+            assert_eq!(snapshot(), before);
+            assert_eq!(
+                sessions
+                    .store
+                    .lock()
+                    .unwrap()
+                    .grant(&grant.client_id)
+                    .unwrap()
+                    .as_ref(),
+                Some(&grant)
+            );
+            sessions
+                .store
+                .lock()
+                .unwrap()
+                .connection
+                .execute("DELETE FROM operations WHERE id=?1", [&id])
+                .unwrap();
+            assert!(
+                sessions
+                    .while_idle(Instant::now() + crate::limits::RESTART_IDLE_WAIT, || Ok(
+                        true
+                    ))
+                    .unwrap()
+            );
+        });
+    }
+    #[test]
+    fn restart_active_session_effect_still_defers() {
+        with_sessions(|sessions| {
+            sessions.live.lock().unwrap().by_session.insert(
+                "effect".into(),
+                Session {
+                    id: "effect".into(),
+                    client_id: "device".into(),
+                    busy: Arc::new(AtomicBool::new(true)),
+                    token: None,
+                    grant_revision: 1,
+                    state: Arc::new(SessionState::default()),
+                },
+            );
+            assert!(
+                !sessions
+                    .while_idle(
+                        Instant::now() + crate::limits::RESTART_IDLE_WAIT,
+                        || panic!("an effect must not stop")
+                    )
+                    .unwrap()
+            );
+            assert!(
+                sessions.live.lock().unwrap().by_session["effect"]
+                    .busy
+                    .load(Ordering::Acquire)
+            );
+        });
+    }
+    #[test]
+    fn restart_empty_live_contention_is_not_session_activity() {
+        with_sessions(|sessions| {
+            contended(&sessions.live, || {
+                sessions
+                    .while_idle(Instant::now() + crate::limits::RESTART_IDLE_WAIT, || {
+                        Ok(true)
+                    })
+                    .unwrap()
+            });
+        });
+    }
+    #[test]
+    fn restart_store_observation_contention_is_not_held_approval() {
+        with_sessions(|sessions| {
+            contended(&sessions.store, || {
+                sessions
+                    .while_idle(Instant::now() + crate::limits::RESTART_IDLE_WAIT, || {
+                        Ok(true)
+                    })
+                    .unwrap()
+            });
+        });
     }
 }

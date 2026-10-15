@@ -65,6 +65,9 @@ pub const RUNNING_DRIVER_BYTES: usize = 32;
 /// cleanup budget. Authority writes wait beyond both calls with eight seconds' margin.
 pub const AUTHORITY_WAIT: Duration = Duration::from_secs(40);
 
+/// Total wait for restart admission to observe its existing in-run owners.
+pub const RESTART_IDLE_WAIT: Duration = Duration::from_millis(250);
+
 /// Bounded graceful-stop confirmation after the control acknowledgment.
 pub const STOP_WAIT: Duration = Duration::from_secs(40);
 

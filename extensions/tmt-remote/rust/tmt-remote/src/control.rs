@@ -26,7 +26,7 @@ use std::{
     },
     path::{Path, PathBuf},
     sync::{
-        Arc,
+        Arc, Mutex, MutexGuard, TryLockError,
         atomic::{AtomicBool, Ordering},
         mpsc,
     },
@@ -39,8 +39,70 @@ pub const SOCKET: &str = "control.sock";
 const LINE_BYTES: usize = 4096;
 const REQUEST_WAIT: Duration = Duration::from_secs(5);
 
+/// Contention is not activity: allow brief observations to finish, under one caller bound.
+/// Callers preserve offer -> live -> Store ordering and retain their own busy checks.
+pub(crate) fn idle_lock<T>(
+    owner: &Mutex<T>,
+    deadline: Instant,
+) -> Result<Option<MutexGuard<'_, T>>, RemoteError> {
+    loop {
+        let Some(remaining) = deadline
+            .checked_duration_since(Instant::now())
+            .filter(|remaining| !remaining.is_zero())
+        else {
+            return Ok(None);
+        };
+        match owner.try_lock() {
+            Ok(guard) => return Ok(Some(guard)),
+            Err(TryLockError::WouldBlock) => {
+                thread::sleep(remaining.min(Duration::from_millis(1)));
+            }
+            Err(error) => return Err(crate::store::database(error)),
+        }
+    }
+}
+
 #[cfg(test)]
 mod restart_budget_tests {
+    #[test]
+    fn spent_admission_deadline_cannot_be_refreshed_by_the_next_owner() {
+        let owner = std::sync::Mutex::new(());
+        assert!(
+            super::idle_lock(&owner, std::time::Instant::now())
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            super::idle_lock(
+                &owner,
+                std::time::Instant::now() + crate::limits::RESTART_IDLE_WAIT
+            )
+            .unwrap()
+            .is_some()
+        );
+    }
+    #[test]
+    fn poisoned_observation_never_admits_restart() {
+        let owner = std::sync::Arc::new(std::sync::Mutex::new(()));
+        let other = owner.clone();
+        assert!(
+            std::thread::spawn(move || {
+                let _held = other.lock().unwrap();
+                panic!("poison the observation owner");
+            })
+            .join()
+            .is_err()
+        );
+        assert_eq!(
+            super::idle_lock(
+                &owner,
+                std::time::Instant::now() + crate::limits::RESTART_IDLE_WAIT
+            )
+            .unwrap_err()
+            .code,
+            "REMOTE_STATE_UNAVAILABLE"
+        );
+    }
     #[test]
     fn named_restart_phases_match_the_adapter_bound() {
         use crate::limits::{CORE_CALL, SERVE_STARTUP, STOP_WAIT};
@@ -288,9 +350,10 @@ fn session(
             }
             let approval =
                 approval.ok_or_else(|| io_error("restart activity observation unavailable"))?;
-            let stopped = pairing.while_idle(|| {
-                approval.while_idle(|| {
-                    door.views.objects.while_idle(serve_stop, || {
+            let deadline = Instant::now() + crate::limits::RESTART_IDLE_WAIT;
+            let stopped = pairing.while_idle(deadline, || {
+                approval.while_idle(deadline, || {
+                    door.views.objects.while_idle(deadline, serve_stop, || {
                         // Serving still owns the lifecycle lease; the existing in-run
                         // locks are held briefly in offer -> live -> Store order.
                         serve_stop.store(true, Ordering::Release);

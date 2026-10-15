@@ -95,9 +95,10 @@ impl Approval {
     }
     pub(crate) fn while_idle(
         &self,
+        deadline: std::time::Instant,
         action: impl FnOnce() -> Result<bool, RemoteError>,
     ) -> Result<bool, RemoteError> {
-        self.sessions.while_idle(action)
+        self.sessions.while_idle(deadline, action)
     }
 }
 impl Store {
