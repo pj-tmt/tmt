@@ -113,7 +113,10 @@ function LayerGallery() {
     </>
   );
   return (
-    <section aria-label="Layer qualification fixture" className="tmt:grid tmt:gap-4 tmt:p-4">
+    <section
+      aria-label="Layer qualification fixture"
+      className="tmt:font-body tmt:text-(length:--tmt-foundation-command-size) tmt:grid tmt:gap-4 tmt:p-4"
+    >
       <h2>Layers: private host state, no product operations</h2>
       <p>
         Controlled close admission is mandatory for these actionable stories. Raw state/unmount
@@ -130,7 +133,11 @@ function LayerGallery() {
       >
         Restore layer fixture
       </Button>
-      <output data-layer-state="" aria-live="polite">
+      <output
+        data-layer-state=""
+        aria-live="polite"
+        className="tmt:break-all tmt:text-(length:--tmt-foundation-caption-size)"
+      >
         {JSON.stringify({
           dialogOpen,
           sheetOpen,
@@ -155,6 +162,7 @@ function LayerGallery() {
               </DropdownMenuTrigger>
             )}
             <DropdownMenuContent
+              returnFocus={() => menuTrigger.current}
               focusFallback={persistentFallback}
               onCloseAutoFocus={(event) => {
                 dialogHandoff.onCloseAutoFocus(event);

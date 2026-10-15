@@ -108,6 +108,8 @@ export interface LayerFocusOptions {
 export function focusLayerTarget(target: HTMLElement | null | undefined): boolean {
   if (
     !target?.isConnected ||
+    target === target.ownerDocument.body ||
+    target === target.ownerDocument.documentElement ||
     !target.getClientRects().length ||
     target.closest('[inert]') ||
     target.matches(':disabled')
@@ -122,7 +124,13 @@ export function useLayerFocus(options: LayerFocusOptions, titleEntry = false) {
   const captureOrigin = useCallback((surface: HTMLElement) => {
     const active = surface.ownerDocument.activeElement;
     // Ref replay must not replace a persistent origin with focus already inside.
-    if (active instanceof HTMLElement && !surface.contains(active)) origin.current = active;
+    if (
+      active instanceof HTMLElement &&
+      active !== surface.ownerDocument.body &&
+      active !== surface.ownerDocument.documentElement &&
+      !surface.contains(active)
+    )
+      origin.current = active;
   }, []);
   return {
     captureOrigin,
@@ -138,6 +146,9 @@ export function useLayerFocus(options: LayerFocusOptions, titleEntry = false) {
     },
     onCloseAutoFocus(event: Event) {
       if (event.defaultPrevented) return;
+      // A pointer-opened menu can have no focused opener. Leave its trigger return
+      // to Radix unless the host supplied an explicit persistent target.
+      if (!options.returnFocus && !origin.current) return;
       if (
         focusLayerTarget(options.returnFocus?.() ?? origin.current) ||
         focusLayerTarget(options.focusFallback?.())

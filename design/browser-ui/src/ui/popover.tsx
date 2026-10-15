@@ -66,7 +66,7 @@ export function PopoverContent({
         align={align}
         sideOffset={sideOffset}
         className={cn(
-          'tmt:box-border tmt:z-(--tmt-foundation-z-layer) tmt:w-72 tmt:max-w-(--tmt-layer-available-width) tmt:max-h-[min(var(--radix-popover-content-available-height),var(--tmt-layer-available-height))] tmt:overflow-y-auto tmt:overscroll-contain tmt:border-solid tmt:border-border tmt:border-(length:--tmt-foundation-rule-width) tmt:bg-popover tmt:text-popover-foreground tmt:p-4 tmt:outline-none',
+          'tmt:box-border tmt:font-body tmt:text-(length:--tmt-foundation-command-size) tmt:z-(--tmt-foundation-z-layer) tmt:w-72 tmt:max-w-(--tmt-layer-available-width) tmt:max-h-[min(var(--radix-popover-content-available-height),var(--tmt-layer-available-height))] tmt:overflow-y-auto tmt:overscroll-contain tmt:border-solid tmt:border-border tmt:border-(length:--tmt-foundation-rule-width) tmt:bg-popover tmt:text-popover-foreground tmt:p-4 tmt:outline-none',
           className,
         )}
         style={{ ...style, ...surface.viewportStyle }}
@@ -100,13 +100,22 @@ export function PopoverHeader({ className, ...props }: ComponentProps<'div'>) {
   );
 }
 export function PopoverTitle({ className, ...props }: ComponentProps<'h2'>) {
-  return <h2 data-slot="popover-title" className={cn('tmt:font-medium', className)} {...props} />;
+  return (
+    <h2
+      data-slot="popover-title"
+      className={cn(
+        'tmt:m-0 tmt:text-(length:--tmt-foundation-command-size) tmt:font-(weight:--tmt-foundation-eyebrow-weight)',
+        className,
+      )}
+      {...props}
+    />
+  );
 }
 export function PopoverDescription({ className, ...props }: ComponentProps<'p'>) {
   return (
     <p
       data-slot="popover-description"
-      className={cn('tmt:text-muted-foreground', className)}
+      className={cn('tmt:m-0 tmt:text-muted-foreground', className)}
       {...props}
     />
   );

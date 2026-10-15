@@ -35,7 +35,7 @@ export function TooltipContent({
         ref={surface.ref}
         sideOffset={sideOffset}
         className={cn(
-          'tmt:box-border tmt:z-(--tmt-foundation-z-tooltip) tmt:w-fit tmt:max-w-(--tmt-layer-available-width) tmt:bg-foreground tmt:text-background tmt:px-3 tmt:py-1.5 tmt:text-balance',
+          'tmt:box-border tmt:font-body tmt:text-(length:--tmt-foundation-command-size) tmt:z-(--tmt-foundation-z-tooltip) tmt:w-fit tmt:max-w-(--tmt-layer-available-width) tmt:bg-foreground tmt:text-background tmt:px-3 tmt:py-1.5 tmt:text-balance',
           className,
         )}
         style={{ ...style, ...surface.viewportStyle }}

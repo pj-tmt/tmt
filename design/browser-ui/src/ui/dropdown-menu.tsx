@@ -57,7 +57,10 @@ export function DropdownMenuContent({
 }: ComponentProps<typeof Primitive.Content> & Omit<LayerFocusOptions, 'initialFocus'>) {
   const controller = useLayerAdmission();
   const focus = useLayerFocus({ returnFocus, focusFallback });
-  const surface = useLayerSurface(ref, focus.captureOrigin);
+  // Radix owns the menu trigger, including pointer opens that leave a previously
+  // focused unrelated control active until entry. Only explicit host targets
+  // override its normal return.
+  const surface = useLayerSurface(ref);
   return (
     <DropdownMenuPortal>
       <Primitive.Content
@@ -66,7 +69,7 @@ export function DropdownMenuContent({
         ref={surface.ref}
         sideOffset={sideOffset}
         className={cn(
-          'tmt:box-border tmt:z-(--tmt-foundation-z-layer) tmt:min-w-32 tmt:max-w-(--tmt-layer-available-width) tmt:max-h-[min(var(--radix-dropdown-menu-content-available-height),var(--tmt-layer-available-height))] tmt:overflow-x-hidden tmt:overflow-y-auto tmt:overscroll-contain tmt:border-solid tmt:border-border tmt:border-(length:--tmt-foundation-rule-width) tmt:bg-popover tmt:text-popover-foreground tmt:p-1 tmt:outline-none',
+          'tmt:box-border tmt:font-body tmt:text-(length:--tmt-foundation-command-size) tmt:z-(--tmt-foundation-z-layer) tmt:min-w-32 tmt:max-w-(--tmt-layer-available-width) tmt:max-h-[min(var(--radix-dropdown-menu-content-available-height),var(--tmt-layer-available-height))] tmt:overflow-x-hidden tmt:overflow-y-auto tmt:overscroll-contain tmt:border-solid tmt:border-border tmt:border-(length:--tmt-foundation-rule-width) tmt:bg-popover tmt:text-popover-foreground tmt:p-1 tmt:outline-none',
           className,
         )}
         style={{ ...style, ...surface.viewportStyle }}
@@ -245,7 +248,7 @@ export function DropdownMenuSubContent({
         {...props}
         ref={surface.ref}
         className={cn(
-          'tmt:box-border tmt:z-(--tmt-foundation-z-layer) tmt:min-w-32 tmt:max-w-(--tmt-layer-available-width) tmt:max-h-[min(var(--radix-dropdown-menu-content-available-height),var(--tmt-layer-available-height))] tmt:overflow-y-auto tmt:border-solid tmt:border-border tmt:border-(length:--tmt-foundation-rule-width) tmt:bg-popover tmt:text-popover-foreground tmt:p-1 tmt:outline-none',
+          'tmt:box-border tmt:font-body tmt:text-(length:--tmt-foundation-command-size) tmt:z-(--tmt-foundation-z-layer) tmt:min-w-32 tmt:max-w-(--tmt-layer-available-width) tmt:max-h-[min(var(--radix-dropdown-menu-content-available-height),var(--tmt-layer-available-height))] tmt:overflow-y-auto tmt:border-solid tmt:border-border tmt:border-(length:--tmt-foundation-rule-width) tmt:bg-popover tmt:text-popover-foreground tmt:p-1 tmt:outline-none',
           className,
         )}
         style={{ ...style, ...surface.viewportStyle }}

@@ -192,6 +192,27 @@ it('never focuses disconnected, invisible, inert or disabled return targets', ()
     expect(document.activeElement).toBeNull();
   }
 });
+it('leaves pointer-opened menu return to Radix instead of focusing the body or fallback', () => {
+  vi.stubGlobal('HTMLElement', FocusTarget);
+  const document = {
+    activeElement: null as FocusTarget | null,
+    body: null as FocusTarget | null,
+    documentElement: null as FocusTarget | null,
+  };
+  document.body = new FocusTarget(document);
+  document.documentElement = new FocusTarget(document);
+  document.activeElement = document.body;
+  const surface = new FocusTarget(document);
+  const fallback = new FocusTarget(document);
+  const focus = useLayerFocus({ focusFallback: () => fallback as unknown as HTMLElement });
+  focus.captureOrigin(surface as unknown as HTMLElement);
+  expect(focusLayerTarget(document.body as unknown as HTMLElement)).toBe(false);
+  expect(focusLayerTarget(document.documentElement as unknown as HTMLElement)).toBe(false);
+  const close = cancelable('autofocus');
+  focus.onCloseAutoFocus(close);
+  expect(document.activeElement).toBe(document.body);
+  expect(close.defaultPrevented).toBe(false);
+});
 
 describe('mounted surface viewport lifetime', () => {
   it('cleans up replay/unmount/repeated-open listeners and updates offset soft-keyboard bounds', () => {

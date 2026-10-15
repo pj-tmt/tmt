@@ -1,7 +1,6 @@
 import { test, expect, type Page, type Locator, type TestInfo } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 
-// Preparation only until real Slice2 imports and reviewed shared CSS are on this head.
 // Every scenario mounts the existing private foundation HTML; no product controllers.
 const tokens = JSON.parse(
   readFileSync(new URL('../../../../../design/tokens/tokens.json', import.meta.url), 'utf8'),
@@ -278,6 +277,15 @@ for (const width of [320, 390, 1440])
               node.getByRole('heading', { name: `Fixture ${kind} title`, exact: true }),
             ).toBeFocused();
             await assertTokens(node, theme);
+            const scrimColor = await page.evaluate((token) => {
+              const style = document.createElement('span').style;
+              style.backgroundColor = token;
+              return style.backgroundColor;
+            }, tokens.browser.surface.scrim[theme]);
+            await expect(page.locator(`[data-slot="${kind.toLowerCase()}-overlay"]`)).toHaveCSS(
+              'background-color',
+              scrimColor,
+            );
             await assertBounds(node, { left: 0, top: 0, width, height: 900 });
             await expectState(page, {
               [kind === 'Dialog' ? 'dialogEntries' : 'sheetEntries']:
@@ -420,6 +428,18 @@ for (const width of [320, 390, 1440])
             });
             await expect(page.getByRole('dialog')).toHaveCount(0);
           }
+          for (const key of ['Escape', 'Tab']) {
+            const before = await state(page);
+            await page.keyboard.press(key);
+            await expectState(page, { denied: before.denied + 1, menuOpen: true });
+          }
+          const beforeOutside = await state(page);
+          await scrim(page);
+          await expectState(page, {
+            denied: beforeOutside.denied + 1,
+            menuOpen: true,
+            outsideActions: 0,
+          });
           await capture(
             page,
             info,
@@ -434,7 +454,7 @@ for (const width of [320, 390, 1440])
           fixture(page).getByRole('button', { name: 'Persistent menu trigger', exact: true }),
         ).toBeFocused();
       });
-      test('menu keyboard, disabled items, innermost submenu Escape and first outside press', async ({
+      test('menu keyboard, disabled items, stock submenu keys and first outside press', async ({
         page,
       }, info) => {
         await prepare(page, width, theme);
@@ -452,6 +472,9 @@ for (const width of [320, 390, 1440])
           page.getByRole('menuitem', { name: 'Open Sheet from menu', exact: true }),
         ).toBeFocused();
         await page.keyboard.press('ArrowDown');
+        await expect(
+          page.getByRole('menuitem', { name: 'Admitted fixture action', exact: true }),
+        ).toBeFocused();
         await page.keyboard.press('ArrowDown');
         await expect(
           page.getByRole('menuitem', { name: 'Unavailable action', exact: true }),
@@ -465,16 +488,33 @@ for (const width of [320, 390, 1440])
         await expect(
           page.getByRole('menuitem', { name: 'Nested item', exact: true }),
         ).toBeFocused();
-        await page.keyboard.press('Escape');
+        await page.keyboard.press('ArrowLeft');
         await expect(page.getByRole('menuitem', { name: 'Nested item', exact: true })).toHaveCount(
           0,
         );
         await expectState(page, { menuOpen: true });
         await expect(sub).toBeFocused();
-        await capture(page, info, 'menu-disabled-and-nested');
-        await page.keyboard.press('Tab');
-        await expectState(page, { menuOpen: false, lastClose: 'tab' });
+        await page.keyboard.press('ArrowRight');
+        await expect(
+          page.getByRole('menuitem', { name: 'Nested item', exact: true }),
+        ).toBeFocused();
+        await page.keyboard.press('Escape');
+        await expectState(page, { menuOpen: false });
+        await expect(menuTrigger).toBeFocused();
         await menuTrigger.click();
+        await capture(page, info, 'menu-disabled-and-nested');
+        const beforeTabClose = await state(page);
+        await page.keyboard.press('Tab');
+        await expectState(page, {
+          menuOpen: false,
+          lastClose: 'tab',
+          menuCloseFocusEvents: beforeTabClose.menuCloseFocusEvents + 1,
+        });
+        await expect(menuTrigger).toBeFocused();
+        await menuTrigger.click();
+        await expectState(page, { menuOpen: true });
+        await expect(page.getByRole('menu')).toBeVisible();
+        await expect(page.locator('body')).toHaveCSS('pointer-events', 'none');
         const underlying = fixture(page).getByRole('button', {
           name: 'Underlying host action',
           exact: true,
@@ -486,7 +526,7 @@ for (const width of [320, 390, 1440])
         await underlying.click();
         await expectState(page, { outsideActions: 1 });
       });
-      test('nested nonmodal Popover permits Tab departure and consumes innermost Escape only', async ({
+      test('nested stock nonmodal Popover loops Tab, permits outside focus and consumes inner Escape', async ({
         page,
       }, info) => {
         await prepare(page, width, theme);
@@ -504,11 +544,71 @@ for (const width of [320, 390, 1440])
         await expect(opener).toBeFocused();
         await opener.click();
         await expect(popover).toBeVisible();
+        const inside = popover.getByRole('button', {
+          name: 'Programmatic Popover close',
+          exact: true,
+        });
+        await expect(inside).toBeFocused();
         await page.keyboard.press('Tab');
+        await expect(inside).toBeFocused();
+        await page.keyboard.press('Shift+Tab');
+        await expect(inside).toBeFocused();
+        // Pinned Radix nonmodal Content loops Tab, but permits actual focus outside.
+        await parent.getByRole('button', { name: 'Remove persistent opener', exact: true }).focus();
         await expectState(page, { popoverOpen: false, dialogOpen: true });
         expect(await parent.evaluate((element) => element.contains(document.activeElement))).toBe(
           true,
         );
+        await closeAndReturn(page, 'Dialog', 'Escape', trigger(page, 'Dialog'));
+      });
+      test('nonmodal Popover host veto holds Escape, pointer/focus outside and programmatic close', async ({
+        page,
+      }, info) => {
+        await prepare(page, width, theme);
+        await trigger(page, 'Dialog').click();
+        const parent = surface(page, 'Dialog');
+        const opener = parent.getByRole('button', { name: 'Nested fixture Popover', exact: true });
+        for (const held of ['Busy close veto', 'Uncertain close veto']) {
+          await parent.getByLabel(held, { exact: true }).check();
+          await opener.click();
+          const popup = page.locator('[data-slot="popover-content"]');
+          await expect(popup).toBeVisible();
+          const close = popup.getByRole('button', {
+            name: 'Programmatic Popover close',
+            exact: true,
+          });
+          for (const mode of ['escape', 'programmatic', 'pointer', 'focus']) {
+            await close.focus();
+            const before = await state(page);
+            if (mode === 'escape') await page.keyboard.press('Escape');
+            else if (mode === 'programmatic') await close.click();
+            else if (mode === 'pointer')
+              await parent
+                .getByRole('heading', { name: 'Fixture Dialog title', exact: true })
+                .click();
+            else
+              await parent
+                .getByRole('button', { name: 'Remove persistent opener', exact: true })
+                .focus();
+            await expectState(page, {
+              denied: before.denied + 1,
+              dialogOpen: true,
+              popoverOpen: true,
+              outsideActions: 0,
+              menuActions: 0,
+            });
+            await expect(popup).toBeVisible();
+          }
+          await capture(
+            page,
+            info,
+            held.startsWith('Busy') ? 'popover-busy-veto' : 'popover-uncertain-veto',
+          );
+          await parent.getByLabel(held, { exact: true }).uncheck();
+          await close.click();
+          await expectState(page, { popoverOpen: false, dialogOpen: true });
+          await expect(opener).toBeFocused();
+        }
         await closeAndReturn(page, 'Dialog', 'Escape', trigger(page, 'Dialog'));
       });
       test('StrictMode repeated-open/unmount restores fallback and releases surface listeners/guards', async ({

@@ -78,7 +78,7 @@
   "license": "MIT",
   "adaptation": {
     "helper": "src/ui/utils.ts; typed/formatting change and fixed tmt prefix via extendTailwindMerge",
-    "components": "Slice2 adapts Button, Input, Textarea, Checkbox, Switch, Separator, Badge, Alert and Tabs. Select is excluded pending qualification in #3057; its pinned source remains a reference only, like layers and selection.",
+    "components": "Slice2 adapts Button, Input, Textarea, Checkbox, Switch, Separator, Badge, Alert and Tabs. Slice3 adapts Dialog, Sheet, DropdownMenu, Tooltip and Popover, with local token classes, originating-island portals, shared surface viewport observation and optional host-owned controlled close admission/menu handoff. Tooltip retains stock Radix behavior without busy veto. Select remains excluded pending #3057; selection sources remain references only.",
     "combobox": "Pinned Radix Popover plus Command/cmdk; CommandDialog depends on Dialog; do not use current Base UI combobox registry"
   },
   "dependencies": {

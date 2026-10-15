@@ -44,15 +44,26 @@ export function DialogPortal(props: Omit<ComponentProps<typeof Primitive.Portal>
   const container = useUiPortalContainer();
   return container ? <Primitive.Portal {...props} container={container} /> : null;
 }
-export function DialogOverlay({ className, ...props }: ComponentProps<typeof Primitive.Overlay>) {
+export function DialogOverlay({
+  className,
+  onPointerDown,
+  ...props
+}: ComponentProps<typeof Primitive.Overlay>) {
+  const controller = useLayerAdmission();
   return (
     <Primitive.Overlay
       data-slot="dialog-overlay"
       className={cn(
-        'tmt:box-border tmt:fixed tmt:inset-0 tmt:z-(--tmt-foundation-z-layer) tmt:bg-(--tmt-foundation-scrim)',
+        'tmt:box-border tmt:font-body tmt:text-(length:--tmt-foundation-command-size) tmt:fixed tmt:inset-0 tmt:z-(--tmt-foundation-z-layer) tmt:bg-(--tmt-foundation-scrim)',
         className,
       )}
       {...props}
+      onPointerDown={(event) => {
+        onPointerDown?.(event);
+        // Radix defers outside admission until click. Keep focus on the modal
+        // while the host decides whether that dismissal is allowed.
+        if (!event.defaultPrevented && controller) event.preventDefault();
+      }}
     />
   );
 }
@@ -82,7 +93,7 @@ export function DialogContent({
         {...props}
         ref={surface.ref}
         className={cn(
-          'tmt:box-border tmt:fixed tmt:left-[calc(var(--tmt-layer-left,0px)+var(--tmt-layer-width,100vw)/2)] tmt:top-[calc(var(--tmt-layer-top,0px)+var(--tmt-layer-height,100dvh)/2)] tmt:-translate-x-1/2 tmt:-translate-y-1/2 tmt:z-(--tmt-foundation-z-layer) tmt:grid tmt:gap-4 tmt:w-full tmt:max-w-[min(var(--tmt-layer-available-width,100vw),calc(var(--tmt-foundation-spacing-unit)*128))] tmt:max-h-(--tmt-layer-available-height) tmt:overflow-y-auto tmt:overscroll-contain tmt:border-solid tmt:border-border tmt:border-(length:--tmt-foundation-rule-width) tmt:bg-background tmt:text-foreground tmt:p-6 tmt:outline-none',
+          'tmt:box-border tmt:font-body tmt:text-(length:--tmt-foundation-command-size) tmt:fixed tmt:left-[calc(var(--tmt-layer-left,0px)+var(--tmt-layer-width,100vw)/2)] tmt:top-[calc(var(--tmt-layer-top,0px)+var(--tmt-layer-height,100dvh)/2)] tmt:-translate-x-1/2 tmt:-translate-y-1/2 tmt:z-(--tmt-foundation-z-layer) tmt:grid tmt:gap-4 tmt:w-full tmt:max-w-[min(var(--tmt-layer-available-width,100vw),calc(var(--tmt-foundation-spacing-unit)*128))] tmt:max-h-(--tmt-layer-available-height) tmt:overflow-y-auto tmt:overscroll-contain tmt:border-solid tmt:border-border tmt:border-(length:--tmt-foundation-rule-width) tmt:bg-background tmt:text-foreground tmt:p-6 tmt:outline-none',
           className,
         )}
         style={{ ...style, ...surface.viewportStyle }}
@@ -157,7 +168,7 @@ export function DialogTitle({ className, ...props }: ComponentProps<typeof Primi
       data-layer-title=""
       tabIndex={-1}
       className={cn(
-        'tmt:font-semibold tmt:outline-ring tmt:focus:outline-solid tmt:focus:outline-(length:--tmt-foundation-focus-width)',
+        'tmt:m-0 tmt:text-(length:--tmt-foundation-command-size) tmt:font-(weight:--tmt-foundation-eyebrow-weight) tmt:outline-ring tmt:focus:outline-solid tmt:focus:outline-(length:--tmt-foundation-focus-width)',
         className,
       )}
       {...props}
@@ -171,7 +182,7 @@ export function DialogDescription({
   return (
     <Primitive.Description
       data-slot="dialog-description"
-      className={cn('tmt:text-muted-foreground', className)}
+      className={cn('tmt:m-0 tmt:text-muted-foreground', className)}
       {...props}
     />
   );
