@@ -52,6 +52,8 @@ pub(crate) struct Bound {
 pub(crate) struct StoreLocal {
     store: Store,
     owner: [u8; 32],
+    /// The root-local writer this machine's keyring names.
+    writer: String,
     space: String,
     bound: Bound,
     now: Arc<dyn Fn() -> u64 + Send + Sync>,
@@ -88,6 +90,7 @@ impl StoreLocal {
     pub(crate) fn new(
         store: Store,
         owner: [u8; 32],
+        writer: String,
         space: String,
         bound: Bound,
         now: Arc<dyn Fn() -> u64 + Send + Sync>,
@@ -95,6 +98,7 @@ impl StoreLocal {
         Self {
             store,
             owner,
+            writer,
             space,
             bound,
             now,
@@ -112,7 +116,8 @@ impl StoreLocal {
     fn entry_expiry(&self) -> Result<Field, Fault> {
         mapping(Field::timestamp((self.now)() + ENTRY_DAYS * DAY_MS))
     }
-    /// The streams of this page that this machine registered a device for, in a stable order.
+    /// The streams of this page that this machine writes (its root-local writer and the devices
+    /// it registered), in a stable order.
     fn local_streams(&self, page: &PageRef) -> Result<Vec<String>, Fault> {
         let mut streams: Vec<String> = self
             .store
@@ -126,7 +131,7 @@ impl StoreLocal {
             .owner_read(&self.space, &self.owner, |tx| {
                 let mut local = Vec::new();
                 for stream in streams {
-                    if tx.is_local_device(&stream)? {
+                    if tx.is_local_device(&self.writer, &stream)? {
                         local.push(stream);
                     }
                 }

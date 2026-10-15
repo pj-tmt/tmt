@@ -35,6 +35,7 @@ impl Fixture {
         let local = StoreLocal::new(
             Store::open(&home.layout).unwrap(),
             home.key.owner_public(),
+            home.key.local_writer().unwrap().0,
             home.key.space_id.clone(),
             Bound {
                 project: "fixture".into(),
@@ -244,6 +245,43 @@ fn a_stream_this_machine_did_not_register_is_never_published() {
     fixture.append(DEVICE);
     let data = fixture.local.next(&page).ok().unwrap().unwrap();
     assert!(matches!(&data.confirm, Confirm::Update { stream, .. } if stream == DEVICE));
+}
+
+#[test]
+fn the_root_local_writer_is_this_machines_stream_though_it_has_no_registration() {
+    let mut fixture = Fixture::new();
+    let page = fixture.page(1);
+    let writer = fixture.key.local_writer().unwrap().0;
+    // What the CLI and every browser save write: the keyring's writer, a chain, no registration.
+    fixture.append_as_local_writer();
+    fixture.append(FOREIGN);
+    let rows = fixture.local.preamble(&page).ok().unwrap();
+    let chains: Vec<_> = documents(&rows, "authority")
+        .into_iter()
+        .filter_map(|document| originals::authority(&[document]).ok())
+        .filter(|(kind, _)| *kind == originals::Authority::Chain)
+        .map(|(_, bytes)| bytes)
+        .collect();
+    assert!(
+        chains.contains(&fixture.chain(&writer)),
+        "the writer's chain is published"
+    );
+    assert!(
+        !chains.contains(&fixture.chain(FOREIGN)),
+        "a retained foreign chain is not"
+    );
+    let data = fixture.local.next(&page).ok().unwrap().unwrap();
+    assert!(matches!(&data.confirm, Confirm::Update { stream, .. } if *stream == writer));
+    // Once it is confirmed nothing else is due: the foreign stream still is not published.
+    let Confirm::Update { stream, seq, hash } = data.confirm else {
+        unreachable!()
+    };
+    fixture
+        .local
+        .confirm(&page, &Confirm::Update { stream, seq, hash })
+        .ok()
+        .unwrap();
+    assert!(fixture.local.next(&page).ok().unwrap().is_none());
 }
 
 #[test]

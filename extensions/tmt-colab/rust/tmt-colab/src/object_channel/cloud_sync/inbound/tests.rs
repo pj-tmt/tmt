@@ -186,6 +186,7 @@ fn what_arrives_from_the_cloud_is_never_queued_for_publication() {
     let mut local = StoreLocal::new(
         Store::open(&rig.reader.layout).unwrap(),
         rig.reader.key.owner_public(),
+        rig.reader.key.local_writer().unwrap().0,
         rig.reader.key.space_id.clone(),
         Bound {
             project: "fixture".into(),
@@ -318,12 +319,13 @@ fn admission_refuses_another_epoch_or_key_and_a_good_original_applies_once() {
     assert_eq!(rig.head(A), None);
     let good = seal(9, "1");
     let known = |rig: &Rig| {
+        let writer = rig.reader.key.local_writer().unwrap().0;
         rig.reader
             .store
             .owner_read(
                 &rig.reader.key.space_id,
                 &rig.reader.key.owner_public(),
-                |tx| Ok((tx.device(A)?.is_some(), tx.is_local_device(A)?)),
+                |tx| Ok((tx.device(A)?.is_some(), tx.is_local_device(&writer, A)?)),
             )
             .unwrap()
     };
