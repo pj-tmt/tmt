@@ -1274,8 +1274,8 @@ impl<A: Admission> State<A> {
                 self.reply_save(id, &scope, &reply)?;
             }
         }
-        // Only foreground subscriptions select a page; Hello also serves bounded title reads.
-        // Writes select it only after their store path above has succeeded.
+        // Foreground subscriptions select a page; Hello also serves bounded title reads.
+        // Retain write wakes, including the wake after each successful store above.
         if writes || subscribing {
             self.touch(&scope);
         }

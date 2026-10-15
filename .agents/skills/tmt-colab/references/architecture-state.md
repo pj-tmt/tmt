@@ -626,8 +626,9 @@ result that arrives after a close, a reopen or a change of transport or space.
   per Home generation). `mounted.ts::readTitle` uses the existing Admission/Connection/Fold
   path without Live, Ask, an editor or Subscribe. It serializes canceled generations until
   their read work joins; `TitleCache.fillMissing` cannot replace a foreground/cached hint.
-- Paired Live and the shared reader explicitly Subscribe after catch-up. Only a valid
-  Subscribe or a post-store write selects the cloud active page; a Home Hello/ACK does not.
+- Paired Live and the shared reader explicitly Subscribe after catch-up. A valid
+  Subscribe selects the cloud active page, as does every successful store; existing early
+  write wakes are unchanged. A Home Hello/ACK does not select it.
 - `router.tsx` and `share-dialog.tsx` use them as display labels, with UUIDs under Details and the
   explicit unopened fallback; the parent tab title follows the live page. A later
   foreground fold replaces stale hints; cached titles changed elsewhere remain stale until

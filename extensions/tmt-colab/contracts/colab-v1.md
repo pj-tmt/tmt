@@ -4684,8 +4684,9 @@ Ask or a write. Each connection closes and joins before its successor; leaving H
 replacing the mounted session cancels its reads. A failure or exhausted budget keeps
 the existing fallback; no plaintext title endpoint or native title store is introduced.
 Only foreground page views (paired and shared-reader) send explicit `subscribe` after
-catch-up. The sync owner selects the active cloud page only on a valid Subscribe or a
-post-store write; Hello and ACK, including Home title reads, leave that page unchanged.
+catch-up. A valid Subscribe selects the active cloud page, and every successful store still
+selects it. Existing early write wakes are unchanged; Hello and ACK, including Home title
+reads, leave that page unchanged.
 
 These are browser-local display hints, not membership, policy or access evidence.
 The Colab keyring owns a non-extractable AES-GCM-256 key per device in its existing
