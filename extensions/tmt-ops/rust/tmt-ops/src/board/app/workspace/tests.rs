@@ -2866,7 +2866,13 @@ fn agents_filter_uses_the_effective_key_and_painted_controls_without_retargeting
     assert_eq!(app.workspace_snapshot().unwrap().preferences, preferences);
     app.shell.tab = OpsTab::Overview;
     paint(&app, 160, 44);
-    assert!(app.workspace_strip_hits.borrow().is_empty());
+    assert!(
+        app.workspace_strip_hits
+            .borrow()
+            .iter()
+            .all(|(_, choice)| *choice == Choice::SavingsUnit),
+        "Overview has no Agents controls; only a painted estimate is clickable"
+    );
     assert_eq!(key(&mut app, KeyCode::Char('f')), Effect::None);
     assert_eq!(
         app.workspace.filter,

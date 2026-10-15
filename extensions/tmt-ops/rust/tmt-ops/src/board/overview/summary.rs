@@ -1,7 +1,7 @@
 //! Counts intersect the held roster and typed observations; missing is not zero.
 use crate::{
     board::workspace::{OpsObservation, observe::OpsWorkspaceSnapshot},
-    config::DigestWindow,
+    config::{DigestWindow, SavingsUnit},
     labels::{
         Supplied,
         digest::{Mode, SavingsSummary},
@@ -26,6 +26,7 @@ pub(in crate::board) struct Summary {
     /// The shared estimate over the same members as the counts above.
     pub savings: SavingsSummary,
     pub window: DigestWindow,
+    pub unit: SavingsUnit,
 }
 
 pub(super) fn project(
@@ -49,6 +50,7 @@ pub(super) fn project(
                 .filter(|squad| visibility.shows_squad(&squad.room_id, &snapshot.preferences))
                 .all(|squad| squad.observation == OpsObservation::Complete),
         window: snapshot.preferences.digest_window,
+        unit: snapshot.preferences.savings_unit,
         ..Default::default()
     };
     let digest = labels
@@ -179,8 +181,12 @@ impl Summary {
             }
         );
         let room = width.saturating_sub(counts.width() + SEPARATOR.width());
-        let savings =
-            crate::board::digest_dashboard::savings_caption(&self.savings, self.window, room);
+        let savings = crate::board::digest_dashboard::savings_caption(
+            &self.savings,
+            self.window,
+            self.unit,
+            room,
+        );
         let estimate = (savings.width() <= room).then(|| format!("{SEPARATOR}{savings}"));
         (counts, estimate)
     }

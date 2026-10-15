@@ -616,7 +616,10 @@ fn scoped_digest_summary_follows_its_rows_and_saved_hiding_stays_outside_digest(
 
 #[test]
 fn savings_captions_keep_estimate_window_and_partial_coverage() {
-    use crate::{config::DigestWindow, labels::digest::SavingsSummary};
+    use crate::{
+        config::{DigestWindow, SavingsUnit},
+        labels::digest::SavingsSummary,
+    };
     let mut value = SavingsSummary {
         tokens: Some(18_200),
         included: 3,
@@ -624,29 +627,142 @@ fn savings_captions_keep_estimate_window_and_partial_coverage() {
         ..Default::default()
     };
     assert_eq!(
-        model::savings_caption(&value, DigestWindow::Day, 100),
+        model::savings_caption(&value, DigestWindow::Day, SavingsUnit::Tokens, 100),
         "Est. ctx avoided 24h: 18.2k (3 of 5)"
     );
     assert_eq!(
-        model::savings_caption(&value, DigestWindow::Day, 30),
+        model::savings_caption(&value, DigestWindow::Day, SavingsUnit::Tokens, 30),
         "Est. avoided 24h: 18.2k (3 of 5)"
     );
     value.tokens = Some(1_400_000);
     assert_eq!(
-        model::savings_caption(&value, DigestWindow::AllTime, 100),
+        model::savings_caption(&value, DigestWindow::AllTime, SavingsUnit::Tokens, 100),
         "Est. ctx avoided all time: 1.4M (3 of 5)"
     );
     value.tokens = Some(0);
     value.included = 5;
     assert_eq!(
-        model::savings_caption(&value, DigestWindow::Week, 100),
+        model::savings_caption(&value, DigestWindow::Week, SavingsUnit::Tokens, 100),
         "Est. ctx avoided 7d: 0"
     );
     value.tokens = None;
     value.included = 0;
     assert_eq!(
-        model::savings_caption(&value, DigestWindow::Day, 100),
+        model::savings_caption(&value, DigestWindow::Day, SavingsUnit::Tokens, 100),
         "Est. ctx avoided 24h: — (0 of 5)"
+    );
+}
+
+#[test]
+fn every_unit_keeps_one_label_and_changes_only_the_value() {
+    use crate::{
+        config::{DigestWindow, SavingsUnit},
+        labels::digest::{SavingsSummary, Valuation},
+    };
+    let mut value = SavingsSummary {
+        tokens: Some(18_200),
+        included: 3,
+        total: 3,
+        percent: Valuation {
+            value: Some(1_204),
+            included: 3,
+            conflict: false,
+        },
+        cost: Valuation {
+            value: Some(12_398_600),
+            included: 2,
+            conflict: false,
+        },
+        ..Default::default()
+    };
+    let caption = |value: &SavingsSummary, window, unit, width| {
+        model::savings_caption(value, window, unit, width)
+    };
+    assert_eq!(
+        caption(&value, DigestWindow::Day, SavingsUnit::Tokens, 100),
+        "Est. ctx avoided 24h: 18.2k"
+    );
+    assert_eq!(
+        caption(&value, DigestWindow::Day, SavingsUnit::Percent, 100),
+        "Est. ctx avoided 24h: 12% of input"
+    );
+    // Each unit has its own coverage.
+    assert_eq!(
+        caption(&value, DigestWindow::Day, SavingsUnit::Cost, 100),
+        "Est. ctx avoided 24h: ≈ $12.40 at list price (2 of 3)"
+    );
+    // Lifetime has no percent: the saved choice reads as tokens.
+    assert_eq!(
+        caption(&value, DigestWindow::AllTime, SavingsUnit::Percent, 100),
+        "Est. ctx avoided all time: 18.2k"
+    );
+    // The qualifier that stops cost reading as money saved never narrows away.
+    assert!(
+        caption(&value, DigestWindow::Day, SavingsUnit::Cost, 20)
+            .ends_with("at list price (2 of 3)")
+    );
+    for (points, shown) in [
+        (0, "0%"),
+        (1, "<1%"),
+        (49, "<1%"),
+        (50, "1%"),
+        (1_667, "17%"),
+        (10_000, "100%"),
+    ] {
+        value.percent.value = Some(points);
+        assert_eq!(
+            caption(&value, DigestWindow::Week, SavingsUnit::Percent, 100),
+            format!("Est. ctx avoided 7d: {shown} of input")
+        );
+    }
+    for (micros, shown) in [
+        (0, "$0.00"),
+        (4_999, "< $0.01"),
+        (5_000, "≈ $0.01"),
+        (12_395_000, "≈ $12.40"),
+        (1_234_567_890, "≈ $1,234.57"),
+        (9_007_199_254_740_991, "≈ $9,007,199,254.74"),
+    ] {
+        value.cost.value = Some(micros);
+        value.cost.included = 3;
+        assert_eq!(
+            caption(&value, DigestWindow::Day, SavingsUnit::Cost, 100),
+            format!("Est. ctx avoided 24h: {shown} at list price")
+        );
+    }
+    // Values that could not be combined are unavailable, named, and the note
+    // yields to width before the segment does.
+    value.percent = Valuation {
+        value: None,
+        included: 2,
+        conflict: true,
+    };
+    value.cost = Valuation {
+        value: None,
+        included: 2,
+        conflict: true,
+    };
+    assert_eq!(
+        caption(&value, DigestWindow::Day, SavingsUnit::Percent, 100),
+        "Est. ctx avoided 24h: — (intervals differ)"
+    );
+    assert_eq!(
+        caption(&value, DigestWindow::Day, SavingsUnit::Percent, 38),
+        "Est. avoided 24h: — (intervals differ)"
+    );
+    assert_eq!(
+        caption(&value, DigestWindow::Day, SavingsUnit::Percent, 37),
+        "Est. avoided 24h: —"
+    );
+    assert_eq!(
+        caption(&value, DigestWindow::Day, SavingsUnit::Cost, 100),
+        "Est. ctx avoided 24h: — (prices differ)"
+    );
+    // Nobody has the valuation: unavailable with its own coverage, not zero.
+    value.percent = Valuation::default();
+    assert_eq!(
+        caption(&value, DigestWindow::Day, SavingsUnit::Percent, 100),
+        "Est. ctx avoided 24h: — (0 of 3)"
     );
 }
 
@@ -727,6 +843,252 @@ fn selected_squad_summary_shows_the_same_supplied_estimate() {
     app.workspace_reconcile();
     let shown = paint(&mut app, 160, 36);
     assert!(shown.contains("Est. ctx avoided 24h: 18.2k"), "{shown}");
+}
+
+fn valued_document() -> serde_json::Value {
+    let mut document = savings_document();
+    document["members"][0]["savings"]["cost"] = serde_json::json!({
+        "usdMicros": 12_398_600, "modelId": "gpt-6-sol", "modelObservedAtMs": 1000,
+        "pricingVersion": "2026-10-14", "usdMicrosPerMillionInputTokens": 2_000_000,
+        "assumption": "uncached-input"});
+    document["members"][0]["savings"]["percent"] = serde_json::json!({
+        "basisPoints": 1820, "estimatedInputTokensAvoided": 18_200,
+        "observedInputTokens": 81_800, "fromMs": 60_000, "throughMs": 120_000});
+    document["pricing"] = serde_json::json!({
+        "version": "2026-10-14", "asOf": "2026-10-14", "basis": "standard-base-input",
+        "models": [
+            {"modelId": "claude-opus-5-5", "usdMicrosPerMillionInputTokens": 4_000_000,
+             "source": "https://example.test/anthropic-pricing"},
+            {"modelId": "gpt-6-sol", "usdMicrosPerMillionInputTokens": 2_000_000,
+             "source": "https://example.test/openai-pricing"}]});
+    document
+}
+
+fn valued_board() -> crate::board::app::App {
+    let mut app = board();
+    app.labels = crate::labels::Supplied::from_document("digest", &valued_document(), false);
+    bind_unit_key(&mut app);
+    app
+}
+
+/// The action has no default key: a user binds one, as here.
+fn bind_unit_key(app: &mut crate::board::app::App) {
+    let action = crate::action::Action::parse("savings-unit").unwrap();
+    let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    for table in workspace.keys.values_mut() {
+        table.insert("$".into(), action.clone());
+    }
+}
+
+/// Applies a requested preference write, as the board's event loop does after
+/// Config accepts the compare-and-swap.
+fn save(app: &mut crate::board::app::App, effect: crate::board::app::Effect) {
+    let crate::board::app::Effect::Act(crate::board::app::Request::WorkspacePreferences {
+        next,
+        ..
+    }) = effect
+    else {
+        panic!("a savings choice must use the existing Config CAS");
+    };
+    app.finished_workspace_preferences(next, "saved".into());
+}
+
+fn click_estimate(app: &mut crate::board::app::App) -> crate::board::app::Effect {
+    use ratatui::crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    let hits: Vec<_> = app
+        .workspace_strip_hits
+        .borrow()
+        .iter()
+        .filter(|(_, choice)| *choice == crate::board::app::Choice::SavingsUnit)
+        .map(|(area, _)| *area)
+        .collect();
+    assert!(!hits.is_empty(), "the painted estimate is clickable");
+    app.mouse(
+        MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: hits[0].x,
+            row: hits[0].y,
+            modifiers: KeyModifiers::NONE,
+        },
+        std::time::Instant::now(),
+    )
+}
+
+#[test]
+fn a_click_or_the_key_moves_every_surface_to_the_next_unit() {
+    use crate::{board::workspace::OpsTarget, config::DigestWindow};
+    let _no_commands = crate::runner::forbid_commands();
+    for surface in ["member", "squad", "digest", "overview"] {
+        let mut app = valued_board();
+        match surface {
+            "squad" => {
+                app.workspace.selected = Some(OpsTarget::Squad(
+                    super::super::app::workspace::tests::ROOM.into(),
+                ));
+                app.workspace_reconcile();
+            }
+            "digest" => {
+                press(&mut app, '3');
+            }
+            "overview" => app.shell.tab = crate::board::shell::OpsTab::Overview,
+            _ => {}
+        }
+        let shown = paint(&mut app, 160, 36);
+        assert!(
+            shown.contains("Est. ctx avoided 24h: 18.2k"),
+            "{surface}: {shown}"
+        );
+        // Click: tokens -> percent.
+        let effect = click_estimate(&mut app);
+        save(&mut app, effect);
+        let shown = paint(&mut app, 160, 36);
+        assert!(
+            shown.contains("Est. ctx avoided 24h: 18% of input"),
+            "{surface}: {shown}"
+        );
+        // Key: percent -> cost, one label and only the value changing.
+        let effect = press(&mut app, '$');
+        save(&mut app, effect);
+        let shown = paint(&mut app, 160, 36);
+        assert!(
+            shown.contains("Est. ctx avoided 24h: ≈ $12.40 at list price"),
+            "{surface}: {shown}"
+        );
+        assert!(!shown.contains("saved $"), "{surface}");
+        // Key: cost -> tokens again.
+        let effect = press(&mut app, '$');
+        save(&mut app, effect);
+        assert!(paint(&mut app, 160, 36).contains("Est. ctx avoided 24h: 18.2k"));
+        // Lifetime has no percent: a saved percent reads as tokens and the
+        // next step skips to cost.
+        let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+        workspace.preferences.digest_window = DigestWindow::AllTime;
+        workspace.preferences.savings_unit = crate::config::SavingsUnit::Percent;
+        assert_eq!(app.savings_unit(), crate::config::SavingsUnit::Tokens);
+        let effect = press(&mut app, '$');
+        let crate::board::app::Effect::Act(crate::board::app::Request::WorkspacePreferences {
+            next,
+            ..
+        }) = effect
+        else {
+            panic!("expected a preference write");
+        };
+        assert_eq!(next.savings_unit, crate::config::SavingsUnit::Cost);
+    }
+}
+
+#[test]
+fn details_carry_the_price_table_and_the_quote_behind_each_figure() {
+    let _no_commands = crate::runner::forbid_commands();
+    let mut app = valued_board();
+    press(&mut app, '3');
+    let shown = paint(&mut app, 200, 60);
+    for expected in [
+        "Prices as of 2026-10-14 · table 2026-10-14 · standard-base-input",
+        "claude-opus-5-5: $4.00 per 1M input tokens · https://example.test/anthropic-pricing",
+        "gpt-6-sol: $2.00 per 1M input tokens",
+        "Cost quote: $12.40 at list price · gpt-6-sol at $2.00 per 1M input tokens · price table 2026-10-14",
+        "Share of input: 18.20% (18200 avoided of 100000 input tokens)",
+    ] {
+        assert!(
+            shown
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+                .contains(expected),
+            "{expected}\n{shown}"
+        );
+    }
+    // Without a price table or valuations the details say nothing about them.
+    let mut plain = savings_board();
+    press(&mut plain, '3');
+    let shown = paint(&mut plain, 200, 60);
+    assert!(!shown.contains("Prices as of"), "{shown}");
+    assert!(!shown.contains("Cost quote"), "{shown}");
+}
+
+#[test]
+fn the_unit_hint_appears_only_beside_a_painted_estimate() {
+    let _no_commands = crate::runner::forbid_commands();
+    let mut app = valued_board();
+    app.shell.tab = crate::board::shell::OpsTab::Overview;
+    let shown = paint(&mut app, 160, 44);
+    assert!(shown.contains("$ unit"), "{shown}");
+    // Narrow enough that the Digest line drops the estimate and no pane paints
+    // one: the key still works, but nothing advertises it.
+    let mut narrow = valued_board();
+    narrow.shell.tab = crate::board::shell::OpsTab::Overview;
+    let shown = paint(&mut narrow, 60, 44);
+    assert!(!shown.contains("Est."), "{shown}");
+    assert!(!shown.contains("$ unit"), "{shown}");
+}
+
+#[test]
+fn the_action_has_no_default_key_and_the_actions_menu_offers_it_beside_a_figure() {
+    use crate::board::app::Choice;
+    let _no_commands = crate::runner::forbid_commands();
+    for scope in [
+        crate::config::OpsKeyScope::Overview,
+        crate::config::OpsKeyScope::Squad,
+        crate::config::OpsKeyScope::Member,
+        crate::config::OpsKeyScope::Pool,
+        crate::config::OpsKeyScope::Reader,
+    ] {
+        assert!(
+            crate::config::workspace_defaults(scope)
+                .values()
+                .all(|action| action.text != "savings-unit"),
+            "{scope:?}: an authored binding is the only key"
+        );
+    }
+    let mut app = savings_board();
+    paint(&mut app, 160, 36);
+    app.context_menu();
+    let menu = app.menu.as_ref().expect("the Actions menu opens");
+    assert!(
+        menu.entries.iter().any(|entry| {
+            entry.label == "Savings unit"
+                && matches!(&entry.choice, Choice::Action(action) if action.text == "savings-unit")
+        }),
+        "{:?}",
+        menu.entries
+            .iter()
+            .map(|entry| &entry.label)
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn a_clipped_or_absent_estimate_has_no_hit() {
+    let _no_commands = crate::runner::forbid_commands();
+    let mut app = valued_board();
+    press(&mut app, '3');
+    paint(&mut app, 160, 36);
+    let hit = |app: &crate::board::app::App| {
+        app.workspace_strip_hits
+            .borrow()
+            .iter()
+            .filter(|(_, choice)| *choice == crate::board::app::Choice::SavingsUnit)
+            .map(|(area, _)| *area)
+            .collect::<Vec<_>>()
+    };
+    let painted = hit(&app);
+    assert_eq!(painted.len(), 1);
+    // The hit is the caption's own cells, never the whole row.
+    assert_eq!(
+        painted[0].width as usize,
+        "Est. ctx avoided 24h: 18.2k".len()
+    );
+    // No hit ever extends past the cells that were painted.
+    for width in [24u16, 40, 60, 100, 160] {
+        let mut narrow = valued_board();
+        press(&mut narrow, '3');
+        paint(&mut narrow, width, 36);
+        for area in hit(&narrow) {
+            assert!(area.right() <= width, "width {width}: {area:?}");
+            assert_eq!(area.height, 1);
+        }
+    }
 }
 
 #[test]

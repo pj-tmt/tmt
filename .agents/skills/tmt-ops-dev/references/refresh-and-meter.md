@@ -53,6 +53,11 @@
   malformed or stale estimates stay unavailable. `labels::digest::summarize_savings`
   deduplicates the requested roster UUIDs and sums compatible supplied token estimates,
   retaining their independent collection starts and an explicit included/total count.
+  Cost and percent are separate optional valuations of that figure: each failing
+  validation drops only itself. Costs sum only within one `pricingVersion`; percents
+  combine summed numerators over one exact interval and are recomputed once, never added or
+  averaged; each unit keeps its own coverage and a `conflict` flag. The root `pricing`
+  table is read-only metadata for the Digest Details; the board never opens its sources.
   The Overview Digest panel (`overview/summary.rs`) calls it over the visible roster, so
   its `(N of M)` agrees with the line's agent counts; the held Overview scene is keyed by
   the Digest window and appends the shared `savings_caption` only when it fits whole.

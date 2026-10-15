@@ -828,6 +828,7 @@ fn roster_preview(frame: &mut Frame, app: &App, mut area: Rect, target: &OpsTarg
     });
     members.dedup_by(|a, b| a.id == b.id);
     let observation = squad.map_or(snapshot.roster.observation, |s| s.observation);
+    let mut savings_lines = 0..0;
     let facts: Vec<Line<'static>> = squad.map_or_else(Vec::new, |squad| {
         let usage = app.home_usage(&squad.name, std::time::Instant::now());
         let mut facts: Vec<_> = squad_usage(usage.as_ref(), app.home_lead_model(&squad.name))
@@ -836,16 +837,14 @@ fn roster_preview(frame: &mut Frame, app: &App, mut area: Rect, target: &OpsTarg
             .map(|text| Line::styled(text, look.role(Role::Muted)))
             .collect();
         let savings = app.digest_savings(squad.members.iter().map(String::as_str));
-        let caption = crate::board::digest_dashboard::savings_caption(
-            &savings,
-            app.digest_window(),
-            usize::from(area.width),
-        );
+        let caption = app.savings_caption(&savings, usize::from(area.width));
+        let start = facts.len();
         facts.extend(
             crate::board::notes::wrap(&caption, usize::from(area.width))
                 .into_iter()
                 .map(|text| Line::styled(text, look.role(Role::Dim))),
         );
+        savings_lines = start..facts.len();
         if let Some(start) = app.digest_savings_start(&savings, usize::from(area.width)) {
             facts.extend(
                 crate::board::notes::wrap(&start, usize::from(area.width))
@@ -985,6 +984,14 @@ fn roster_preview(frame: &mut Frame, app: &App, mut area: Rect, target: &OpsTarg
             for (index, fact) in facts.iter().enumerate() {
                 let line = member_rows + index;
                 if line >= offset && line < offset + usize::from(viewport.height) {
+                    if savings_lines.contains(&index) {
+                        app.savings_hit(
+                            viewport.x,
+                            viewport.y + (line - offset) as u16,
+                            fact.width(),
+                            viewport.width,
+                        );
+                    }
                     strip::paint_left(
                         frame.buffer_mut(),
                         Rect::new(

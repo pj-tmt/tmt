@@ -6,6 +6,7 @@ pub enum OpsUiAction {
     Agents,
     DigestDashboard,
     QuotaDetails,
+    SavingsUnit,
     UsageControls,
     Inspect,
     MonitorDetails,
@@ -134,6 +135,13 @@ const SPECS: &[OpsUiSpec] = &[
         "usage-controls",
         "usage chart",
         "focus interval, range and usage buckets",
+        12
+    ),
+    spec!(
+        SavingsUnit,
+        "savings-unit",
+        "unit",
+        "cycle the Digest estimate between tokens, percent and list-price cost",
         12
     ),
     spec!(

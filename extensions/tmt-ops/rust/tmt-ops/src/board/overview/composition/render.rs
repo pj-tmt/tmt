@@ -111,7 +111,19 @@ pub(in crate::board) fn render(
                     // Counts are measured state; the estimate keeps the dim role every
                     // other savings surface gives it. Both fit whole by construction.
                     Some(estimate) => {
+                        use unicode_width::UnicodeWidthStr;
                         let look = app.look();
+                        // Only the caption answers a click, not the separator before it.
+                        let caption = estimate.trim_start_matches(" · ");
+                        let offset = counts.width() + estimate.width() - caption.width();
+                        if offset < usize::from(rect.width) {
+                            app.savings_hit(
+                                rect.x + offset as u16,
+                                rect.y,
+                                caption.width(),
+                                rect.width - offset as u16,
+                            );
+                        }
                         tmt_tui::components::strip::paint_left(
                             frame.buffer_mut(),
                             rect,

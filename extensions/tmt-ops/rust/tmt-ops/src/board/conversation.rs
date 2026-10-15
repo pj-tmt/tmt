@@ -526,6 +526,8 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
     }
     let savings = app.digest_savings(row["id"].as_str());
     let mut savings_inline = false;
+    // (header row, x, width) of each painted caption line, for clicks.
+    let mut savings_rows: Vec<(usize, usize, usize)> = Vec::new();
     let chip_row = (full || !chips.is_empty()).then_some(header.len());
     if full || !chips.is_empty() {
         let mut spans = vec![Span::styled(prefix.clone(), look.role(Role::Muted))];
@@ -540,9 +542,9 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
             }
             let used: usize = spans.iter().map(Span::width).sum();
             let room = usize::from(area.width).saturating_sub(used + timer_text.width() + 3);
-            let caption =
-                super::digest_dashboard::savings_caption(&savings, app.digest_window(), room);
+            let caption = app.savings_caption(&savings, room);
             if caption.width() <= room {
+                savings_rows.push((header.len(), used + " · ".width(), caption.width()));
                 spans.push(Span::styled(format!(" · {caption}"), look.role(Role::Dim)));
                 savings_inline = true;
             }
@@ -613,16 +615,11 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
         header.push(link);
     }
     if !savings_inline {
-        let caption = super::digest_dashboard::savings_caption(
-            &savings,
-            app.digest_window(),
-            usize::from(area.width),
-        );
-        header.extend(
-            super::notes::wrap(&caption, usize::from(area.width))
-                .into_iter()
-                .map(|line| Line::styled(line, look.role(Role::Dim))),
-        );
+        let caption = app.savings_caption(&savings, usize::from(area.width));
+        for line in super::notes::wrap(&caption, usize::from(area.width)) {
+            savings_rows.push((header.len(), 0, line.width()));
+            header.push(Line::styled(line, look.role(Role::Dim)));
+        }
     }
     if let Some(start) = app.digest_savings_start(&savings, usize::from(area.width)) {
         header.extend(
@@ -682,6 +679,18 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
         .take(usize::from(header_height))
         .enumerate()
     {
+        if index < retained_prefix {
+            for &(_, x, width) in savings_rows.iter().filter(|(row, ..)| *row == index) {
+                if x < usize::from(area.width) {
+                    app.savings_hit(
+                        area.x + x as u16,
+                        area.y + index as u16,
+                        width,
+                        area.width - x as u16,
+                    );
+                }
+            }
+        }
         if retained_chip && Some(index) == chip_row {
             if super::row_chips::clock(&app.labels, row, crate::status::now_ms()).is_some() {
                 app.frame_clocks

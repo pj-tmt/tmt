@@ -257,6 +257,8 @@ pub enum Choice {
     },
     WorkspaceLayout(crate::config::OpsLayout),
     DigestWindow(crate::config::DigestWindow),
+    /// A click on a painted Digest estimate: the next unit.
+    SavingsUnit,
     Checklist,
     Action(Action),
     /// Confirms a cron control picked from a menu.
@@ -2020,6 +2022,20 @@ impl App {
                 choice: Choice::Action(Action::parse("quota-details").expect("quota action")),
             });
         }
+        // The estimate answers a click and an authored key; the menu is the
+        // discoverable path for everyone else, only beside a painted figure.
+        if self.savings_visible()
+            && !entries.iter().any(|entry| {
+                matches!(&entry.choice, Choice::Action(action)
+                    if action.verb == Verb::Ui(crate::action::OpsUiAction::SavingsUnit))
+            })
+        {
+            entries.push(MenuEntry {
+                key: String::new(),
+                label: "Savings unit".into(),
+                choice: Choice::Action(Action::parse("savings-unit").expect("savings unit action")),
+            });
+        }
         if self.usage_chart_available()
             && !entries.iter().any(|entry| {
                 matches!(&entry.choice, Choice::Action(action)
@@ -2473,6 +2489,7 @@ impl App {
             } => self.workspace_choose_room(kind, &identity_id, &room_id),
             Choice::WorkspaceLayout(layout) => self.workspace_layout(layout),
             Choice::DigestWindow(window) => self.select_digest_window(window),
+            Choice::SavingsUnit => self.cycle_savings_unit(),
             Choice::Checklist => self.open_checklist(),
             Choice::Action(action) => self.perform(&action),
             Choice::Cron(request) => Effect::Act(Request::Cron(request)),
@@ -3777,7 +3794,9 @@ impl App {
                 .find(|(area, _)| area.contains((event.column, event.row).into()))
                 .map(|(_, choice)| choice.clone());
             if let Some(choice) = strip {
-                let visibility = matches!(&choice, Choice::Action(action) if matches!(action.verb,
+                // Scope controls and the savings figure work on every tab that paints them.
+                let visibility = choice == Choice::SavingsUnit
+                    || matches!(&choice, Choice::Action(action) if matches!(action.verb,
                     Verb::Ui(crate::action::OpsUiAction::ClearScope | crate::action::OpsUiAction::RevealHidden)));
                 if !self.searching && (self.shell.tab == super::shell::OpsTab::Agents || visibility)
                 {

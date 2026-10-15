@@ -245,12 +245,13 @@ fn workspace_legend(
         (Verb::Ui(Ui::Search), "/", "search"),
         (Verb::Ui(Ui::Timers), "c", "timers"),
         (Verb::Ui(filter_verb), "f", filter),
+        (Verb::Ui(Ui::SavingsUnit), "$", "unit"),
         (Verb::Ui(Ui::UsageControls), "u", "chart"),
         (Verb::Settings, ",", "settings"),
         (Verb::Ui(Ui::Help), "?", "help"),
         (Verb::Ui(Ui::Quit), "q", "quit"),
     ] {
-        if seen.contains(&verb) {
+        if seen.contains(&verb) || (verb == Verb::Ui(Ui::SavingsUnit) && !app.savings_visible()) {
             continue;
         }
         if let Some(key) = find(verb, preferred) {
@@ -339,6 +340,7 @@ fn workspace_hints(app: &App, width: usize) -> String {
                             | OpsUiAction::ScrollPageDown
                     )
                 )
+                && (action.verb != Verb::Ui(OpsUiAction::SavingsUnit) || app.savings_visible())
                 && row_allows(app, action)
         })
         .collect();
