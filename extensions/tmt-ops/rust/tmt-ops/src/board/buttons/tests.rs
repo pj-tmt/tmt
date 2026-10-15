@@ -128,3 +128,139 @@ fn keyboard_and_frame_invalidation_clear_hover_without_retaining_stale_regions()
         "an invalidated frame cannot invent hover"
     );
 }
+
+#[test]
+fn chip_cells_use_the_shared_style_at_each_depth_without_relayout_on_hover() {
+    use tmt_cli_style::{Base, Depth, Theme};
+    for (base, depth) in [
+        (Base::Tmt, Depth::TrueColor),
+        (Base::TmtLight, Depth::TrueColor),
+        (Base::Terminal, Depth::Ansi16),
+        (Base::Tmt, Depth::None),
+    ] {
+        let mut app = App::default();
+        app.initial_look = Some(crate::look::Look {
+            theme: Theme::new(base),
+            depth,
+        });
+        let look = app.look();
+        let area = Rect::new(0, 0, 18, 1);
+        let mut buffer = Buffer::empty(area);
+        let buttons = [
+            Button::primary("Send"),
+            Button::secondary("Cancel").enabled(false),
+        ];
+        let before = paint(&app, &mut buffer, area, &buttons, Align::Right, None);
+        let send = before[0].unwrap();
+        let disabled = before[1].unwrap();
+        assert!(moved(&mut app, send.right() - 1, send.y));
+        app.buttons.begin_frame();
+        assert_eq!(
+            paint(&app, &mut buffer, area, &buttons, Align::Right, None),
+            before
+        );
+        for (rect, kind, state) in [
+            (send, ChipKind::Primary, ChipState::Hot),
+            (disabled, ChipKind::Secondary, ChipState::Disabled),
+        ] {
+            let expected = screen::chip(&look.theme, kind, state, depth);
+            for x in rect.x..rect.right() {
+                let cell = &buffer[(x, rect.y)];
+                assert_eq!(
+                    cell.bg,
+                    expected.bg.unwrap_or_default(),
+                    "{base:?}/{depth:?}"
+                );
+                assert_eq!(
+                    cell.fg,
+                    expected.fg.unwrap_or_default(),
+                    "{base:?}/{depth:?}"
+                );
+                assert_eq!(cell.modifier, expected.add_modifier, "{base:?}/{depth:?}");
+            }
+        }
+        assert!(moved(&mut app, disabled.x, disabled.y));
+        assert!(
+            app.buttons.hovered.get().is_none(),
+            "disabled padding cannot hover"
+        );
+    }
+}
+
+#[test]
+#[ignore = "explicit real-App chip look packet; writes only to a task-owned evidence directory"]
+fn capture_chip_controls() {
+    use ratatui::{Terminal, backend::TestBackend};
+    use serde_json::json;
+    use tmt_cli_style::{Base, Depth, Theme};
+    let root = std::path::PathBuf::from(
+        std::env::var_os("TMT_OPS_CHIP_CAPTURE").expect("task-owned evidence path"),
+    );
+    std::fs::create_dir_all(&root).unwrap();
+    let draw = |app: &mut App, width| {
+        let mut terminal = Terminal::new(TestBackend::new(width, 24)).unwrap();
+        terminal
+            .draw(|frame| {
+                crate::board::view::prepare(app, frame.area());
+                crate::board::view::render(frame, app);
+            })
+            .unwrap();
+        terminal.backend().buffer().clone()
+    };
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        let _no_commands = crate::runner::forbid_commands();
+        for (base, depth) in [
+            (Base::Tmt, Depth::TrueColor),
+            (Base::TmtLight, Depth::TrueColor),
+            (Base::Tmt, Depth::None),
+        ] {
+            for width in [160, 60] {
+                for state in ["idle", "hover", "focused", "busy", "squad"] {
+                    let look = crate::look::Look {
+                        theme: Theme::new(base),
+                        depth,
+                    };
+                    let mut app = crate::board::app::workspace::tests::capture_case("agents", look);
+                    if state == "squad" {
+                        let index = app
+                            .workspace_rows()
+                            .iter()
+                            .position(|row| {
+                                matches!(row.target, crate::board::workspace::OpsTarget::Squad(_))
+                            })
+                            .unwrap();
+                        app.select(index);
+                    }
+                    draw(&mut app, width);
+                    if state == "hover" {
+                        let hit = app.composer.send_hit.borrow().clone().unwrap();
+                        assert!(moved(&mut app, hit.area.x, hit.area.y));
+                    } else if state == "focused" || state == "busy" {
+                        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+                        assert!(app.input.is_some());
+                        app.paste("A retained message draft");
+                        if state == "busy" {
+                            app.in_flight = 1;
+                        }
+                    }
+                    let buffer = draw(&mut app, width);
+                    if state == "busy" {
+                        assert!(app.composer.send_hit.borrow().is_none());
+                    }
+                    let cells: Vec<_> = buffer.content.iter().map(|cell| json!({"symbol":cell.symbol(),"fg":format!("{:?}",cell.fg),"bg":format!("{:?}",cell.bg),"modifier":format!("{:?}",cell.modifier)})).collect();
+                    let lines: Vec<_> = buffer
+                        .content
+                        .chunks(usize::from(width))
+                        .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+                        .collect();
+                    let value = json!({"width":width,"height":24,"theme":if base == Base::TmtLight {"tmt-light"} else {"tmt"},"depth":format!("{depth:?}"),"state":state,"cells":cells,"lines":lines,"send":format!("{:?}",app.composer.send_hit.borrow().as_ref().map(|hit|hit.area)),"controls":format!("{:?}",app.buttons.regions.borrow())});
+                    std::fs::write(
+                        root.join(format!("{state}-{base:?}-{depth:?}-{width}.json")),
+                        serde_json::to_vec(&value).unwrap(),
+                    )
+                    .unwrap();
+                }
+            }
+        }
+    });
+}

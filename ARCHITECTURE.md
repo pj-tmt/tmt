@@ -413,6 +413,7 @@ own module/drawing boundaries and verification.
   data enters `config.json` or Core's database.
 - **Workspace.** Overview/Agents/Digest share one acquired roster; Overview caches selectable squad and canonical all-agent projections, while tree projections are frame-scoped.
   UUID squad anchors and virtual Common pool define selection; paint/input do no Core reads. WP1 owns conversation/editor/drafts.
+  `board::buttons` owns disposable chip hover geometry; each surface keeps its activation authority, using neutral Strip paint and shared screen styles.
   The existing quiet cache lane publishes per-name view hints (default keeps its
   original path): destination/UUID anchors, expansion, committed filters/sort/search
   and pane scroll. Shared Config preferences stay separate; exec carries the layer

@@ -148,8 +148,11 @@ fn narrow_annotation_caption_keeps_excerpt_and_whole_removal_control_and_hint() 
         .borrow()
         .clone()
         .expect("whole painted removal control");
-    assert_eq!(hit.area.width, 1);
-    assert_eq!(buffer[(hit.area.x, hit.area.y)].symbol(), "✕");
+    assert_eq!(hit.area.width, 3);
+    let control: String = (hit.area.x..hit.area.right())
+        .map(|x| buffer[(x, hit.area.y)].symbol())
+        .collect();
+    assert_eq!(control, " ✕ ");
     assert_eq!(hit.source.request, request);
 }
 

@@ -290,7 +290,7 @@ pub(super) fn paint(
             source.target == Target::Row(target.clone())
                 && app.response_quote_current(&source.target, quote)
         });
-        let control = quote.and_then(|quote| {
+        let control = if quote.is_some() {
             super::super::buttons::paint(
                 app,
                 frame.buffer_mut(),
@@ -299,9 +299,10 @@ pub(super) fn paint(
                 tmt_cli_style::grid::Align::Left,
                 None,
             )[0]
-            .map(|rect| (rect, quote))
-        });
-        if let Some(control) = control {
+        } else {
+            None
+        };
+        if let Some(control) = control.zip(quote) {
             source.annotate = Some(control);
         } else {
             strip::paint_left(
