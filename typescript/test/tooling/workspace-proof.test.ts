@@ -1,4 +1,5 @@
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { tmpdir } from 'node:os';
@@ -1858,9 +1859,11 @@ describe('bounded frozen transport', () => {
 it('keeps the required worker bytes and ordinary PR selection outside the manual proof', () => {
   const ci = readFileSync(path.join(root, '.github/workflows/ci.yml'), 'utf8');
   const reusable = readFileSync(path.join(root, '.github/workflows/workspace-proof.yml'), 'utf8');
-  expect(ci).toContain("if: github.event_name == 'workflow_dispatch' && inputs.workspace_proof");
   expect(ci).toContain(
-    "if: steps.event.outputs.verify != 'true' && github.event_name != 'push' && !inputs.workspace_proof"
+    "if: github.event_name == 'workflow_dispatch' && (inputs.workspace_proof || inputs.workspace_capability)"
+  );
+  expect(ci).toContain(
+    "if: steps.event.outputs.verify != 'true' && github.event_name != 'push' && !inputs.workspace_proof && !inputs.workspace_capability"
   );
   expect(ci).toContain('native_scope=none');
   expect(reusable).toContain('workflow_call:');
@@ -1871,4 +1874,61 @@ it('keeps the required worker bytes and ordinary PR selection outside the manual
   expect(reusable).not.toMatch(/continue-on-error|retry|rust-cache|matrix:/);
   expect(ci).toContain('name: Native Rust workspace tests');
   expect(ci).toContain('remote_tests="$(cargo test --locked -p tmt-remote -- --list)"');
+});
+
+it('keeps capability controls isolated from every heavy role and preserves refusal outcomes', () => {
+  const workflow = readFileSync(path.join(root, '.github/workflows/workspace-proof.yml'), 'utf8');
+  expect(workflow).toContain('if: inputs.capability_only');
+  expect(workflow.match(/if: \$\{\{ !inputs.capability_only \}\}/g)).toHaveLength(4);
+  expect(workflow).toContain('if: ${{ always() && !inputs.capability_only }}');
+  expect(workflow).toContain('timeout-minutes: 5');
+  expect(workflow).toContain('test "$PROOF_HEAD" = "$GITHUB_SHA"');
+  const supervisor = path.join(root, 'scripts/workspace-proof-domain.py');
+  const result = spawnSync(
+    'python3',
+    [
+      '-c',
+      `
+import json, runpy, sys
+admit = runpy.run_path(sys.argv[1], run_name='unit')['admit']
+base = dict(empty=True, reaped=True, cancelled=False, unknown=False, residents=[])
+records = {
+ 'normal': dict(base, exit=0, payload_exit=0),
+ 'nonzero': dict(base, exit=1, payload_exit=7),
+ 'survivor': dict(base, exit=1, payload_exit=0, residents=[3]),
+ 'cancel': dict(base, exit=-15, payload_exit=None, cancelled=True),
+ 'unknown': dict(base, exit=1, payload_exit=0, unknown=True),
+}
+accepted = {name: admit(name, value) for name, value in records.items()}
+refused = []
+for name, value in records.items():
+ for patch in [dict(empty=False), dict(reaped=False), dict(unknown=not value['unknown'])]:
+  try: admit(name, dict(value, **patch))
+  except RuntimeError: refused.append(True)
+  else: refused.append(False)
+for name in ['nonzero', 'survivor', 'unknown']:
+ try: admit(name, dict(records[name], exit=0))
+ except RuntimeError: refused.append(True)
+ else: refused.append(False)
+print(json.dumps(dict(accepted=accepted, refused=refused)))
+`,
+      supervisor,
+    ],
+    { encoding: 'utf8' }
+  );
+  expect(result.status, result.stderr).toBe(0);
+  const report = JSON.parse(result.stdout);
+  expect(Object.keys(report.accepted)).toEqual([
+    'normal',
+    'nonzero',
+    'survivor',
+    'cancel',
+    'unknown',
+  ]);
+  expect(report.accepted.normal.payload_admitted).toBe(true);
+  for (const name of ['nonzero', 'survivor', 'cancel', 'unknown']) {
+    expect(report.accepted[name]).toEqual({ control_passed: true, payload_admitted: false });
+  }
+  expect(report.refused).toHaveLength(18);
+  expect(report.refused.every((value: boolean) => value)).toBe(true);
 });

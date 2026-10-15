@@ -346,7 +346,7 @@ describe('complete trusted-main verification', () => {
       ].sort()
     );
     expect(job('workspace-proof')).toContain(
-      "if: github.event_name == 'workflow_dispatch' && inputs.workspace_proof"
+      "if: github.event_name == 'workflow_dispatch' && (inputs.workspace_proof || inputs.workspace_capability)"
     );
     const complete = job('complete-main');
     const needs = complete.split('    needs:\n')[1].split('    if:')[0];
@@ -2696,10 +2696,10 @@ describe('required CI gate', () => {
     }
     // Main-full and ordinary seed dispatches retain full scope; only opt-in proof selects none.
     expect(changes).toContain(
-      "if: steps.event.outputs.verify != 'true' && github.event_name != 'push' && !inputs.workspace_proof"
+      "if: steps.event.outputs.verify != 'true' && github.event_name != 'push' && !inputs.workspace_proof && !inputs.workspace_capability"
     );
     expect(changes).toContain(
-      "if: github.event_name == 'workflow_dispatch' && inputs.workspace_proof"
+      "if: github.event_name == 'workflow_dispatch' && (inputs.workspace_proof || inputs.workspace_capability)"
     );
     expect(changes).toContain('native_scope=none');
     expect(changes).toContain(

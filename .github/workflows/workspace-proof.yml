@@ -6,13 +6,45 @@ on:
       proof_head:
         required: true
         type: string
+      capability_only:
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
   group: workspace-proof-${{ github.run_id }}
   cancel-in-progress: false
 jobs:
+  capability:
+    name: PID-domain capability controls (no compilation)
+    if: inputs.capability_only
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      CAPABILITY_OUTPUT: /home/runner/work/_temp/tmt-workspace-capability-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Admit exact reviewed capability source
+        env:
+          PROOF_HEAD: ${{ inputs.proof_head }}
+        run: |
+          [[ "$PROOF_HEAD" =~ ^[0-9a-f]{40}$ ]]
+          test "$PROOF_HEAD" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$PROOF_HEAD"
+      - name: Qualify the owned PID namespace and teardown
+        run: sudo /usr/bin/python3 scripts/workspace-proof-domain.py qualify "$CAPABILITY_OUTPUT" "$(id -u)" "$(id -g)"
+      - name: Retain original capability evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workspace-capability-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.CAPABILITY_OUTPUT }}
+          if-no-files-found: error
+          retention-days: 7
   producer:
+    if: ${{ !inputs.capability_only }}
     outputs:
       report_artifact_id: ${{ steps.report.outputs.artifact-id }}
       closure_artifact_id: ${{ steps.closure.outputs.artifact-id }}
@@ -56,6 +88,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
   baseline:
+    if: ${{ !inputs.capability_only }}
     outputs:
       report_artifact_id: ${{ steps.report.outputs.artifact-id }}
     name: N1 default Cargo baseline
@@ -88,6 +121,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
   consumer:
+    if: ${{ !inputs.capability_only }}
     outputs:
       report_artifact_id: ${{ steps.report.outputs.artifact-id }}
     name: N1 restored whole-harness consumer
@@ -133,6 +167,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
   doctest:
+    if: ${{ !inputs.capability_only }}
     outputs:
       report_artifact_id: ${{ steps.report.outputs.artifact-id }}
     name: N1 separate rustdoc obligations
@@ -174,7 +209,7 @@ jobs:
   aggregate:
     name: N1 equivalence admission (experimental)
     needs: [producer, baseline, consumer, doctest]
-    if: always()
+    if: ${{ always() && !inputs.capability_only }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:

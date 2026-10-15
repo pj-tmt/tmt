@@ -16,6 +16,10 @@ on:
         description: 'N=1 experiment only; requires Infra immutable-head launch approval'
         type: boolean
         default: false
+      workspace_capability:
+        description: 'PID-domain capability controls only; requires Infra and Core exact-head approval'
+        type: boolean
+        default: false
       proof_head:
         description: 'Reviewed exact 40-character source SHA (must equal dispatched ref)'
         type: string
@@ -62,7 +66,7 @@ jobs:
           MACOS: ${{ github.event_name != 'merge_group' }}
         run: printf 'verify=%s\nmacos=%s\n' "$VERIFY" "$MACOS" >> "$GITHUB_OUTPUT"
       - name: Isolate the manual N=1 proof from ordinary workers
-        if: github.event_name == 'workflow_dispatch' && inputs.workspace_proof
+        if: github.event_name == 'workflow_dispatch' && (inputs.workspace_proof || inputs.workspace_capability)
         id: proof
         run: echo 'native_scope=none' >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
@@ -83,7 +87,7 @@ jobs:
         id: mainfull
         run: node typescript/scripts/ci-scope.mjs main-full >> "$GITHUB_OUTPUT"
       - name: Select the cache-seeding jobs
-        if: steps.event.outputs.verify != 'true' && github.event_name != 'push' && !inputs.workspace_proof
+        if: steps.event.outputs.verify != 'true' && github.event_name != 'push' && !inputs.workspace_proof && !inputs.workspace_capability
         id: seed
         env:
           SEED_SCOPE: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'full' || 'seed' }}
@@ -1010,7 +1014,8 @@ jobs:
 
   workspace-proof:
     name: Experimental N=1 workspace proof
-    if: github.event_name == 'workflow_dispatch' && inputs.workspace_proof
+    if: github.event_name == 'workflow_dispatch' && (inputs.workspace_proof || inputs.workspace_capability)
     uses: ./.github/workflows/workspace-proof.yml
     with:
       proof_head: ${{ inputs.proof_head }}
+      capability_only: ${{ inputs.workspace_capability }}

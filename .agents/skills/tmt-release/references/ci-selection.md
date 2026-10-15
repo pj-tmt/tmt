@@ -62,6 +62,15 @@ immutable-head launch plan require primary acceptance before any heavy proof. Pr
 is not an exclusive descendant/listener domain; global observer uncertainty retains runtime roots
 and cannot prove cleanup. N=1 removes zero required-gate wall seconds while the current worker
 remains; N=2/3 need separately authorized matched measurements after equivalent N=1 evidence.
+`workspace_capability=true` selects only the five-minute PID-domain qualification on Ubuntu
+24.04; every compilation role is skipped. `scripts/workspace-proof-domain.py` supervises tiny
+controls under `sudo unshare --pid --fork --kill-child --mount-proc`, drops payload privileges,
+binds the namespace before launch, and externally reaps/checks that owned domain. Normal exit,
+nonzero exit, a double-fork/setsid listener, cancellation and observation failure retain their
+original outcomes. Expected refusal controls never admit the payload. No cgroup or private network
+namespace is introduced. The first capability run needs Infra and Core exact-head approval;
+capability source is not capability evidence, and the heavy hold remains.
+
 Role reports retain command/phase UTC and monotonic timings plus free-disk boundary samples
 (null when unavailable, not a continuous peak). Queue, setup, upload/download and runner-minutes
 come from the same original jobs/steps; timings never substitute for coverage or cleanup admission.
