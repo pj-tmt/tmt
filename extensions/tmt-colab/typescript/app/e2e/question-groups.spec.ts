@@ -339,9 +339,23 @@ for (const width of [1440, 390])
           'color',
           darkPage ? 'rgb(238, 238, 238)' : 'rgb(34, 34, 34)',
         );
+        const background = theme === 'dark' ? 'rgb(16, 16, 16)' : 'rgb(255, 255, 255)';
+        const ink = theme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)';
+        const question = page
+          .frameLocator('#ask-page-fixture iframe')
+          .locator('[data-colab-question-active="true"]');
+        for (const surface of [
+          question,
+          activeCard(page).locator('.question-controls'),
+          group.locator('.tmt-ui-tabs-header'),
+          group.locator('.question-group-footer'),
+        ])
+          await expect(surface).toHaveCSS('background-color', background);
+        await expect(question).toHaveCSS('color', ink);
+        await expect(activeCard(page).locator('.question-controls')).toHaveCSS('color', ink);
         await expect(activeCard(page).locator('.question-controls')).toHaveCSS(
-          'background-color',
-          'rgb(255, 255, 255)',
+          'color-scheme',
+          theme,
         );
         const captures = process.env.COLAB_QUESTION_CAPTURE_DIR;
         const capture = async (state: string) => {
@@ -380,7 +394,10 @@ for (const width of [1440, 390])
         await activeCard(page).getByLabel('Keep it', { exact: true }).check();
         await expect(
           group.getByRole('button', { name: /^Send (?:answer|\d+ answers?)/ }),
-        ).toHaveCSS('background-color', 'rgb(0, 107, 143)');
+        ).toHaveCSS(
+          'background-color',
+          theme === 'dark' ? 'rgb(125, 207, 255)' : 'rgb(0, 107, 143)',
+        );
         await group.getByRole('button', { name: /^Send (?:answer|\d+ answers?)/ }).click();
         await expect(group.getByRole('tab').nth(0)).toHaveAttribute('aria-selected', 'true');
         await expect(

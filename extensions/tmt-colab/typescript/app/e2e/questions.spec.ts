@@ -318,16 +318,49 @@ for (const width of [1440, 390])
           await (await pageAction(page.locator('#ask-page-fixture'), 'Theme: Dark')).click();
         const proposal = page.locator('[data-inline-proposal]');
         await expect(proposal).not.toHaveAttribute('data-detached');
-        // Both trusted overlays use the light leaf palette even when chrome/author differ.
+        const frame = page.frameLocator('#ask-page-fixture iframe');
+        await expect(frame.locator('html')).toHaveAttribute('data-theme', theme);
+        const question = frame.locator('[data-colab-question]');
+        await expect(question).toHaveCSS(
+          'background-color',
+          theme === 'dark' ? 'rgb(16, 16, 16)' : 'rgb(255, 255, 255)',
+        );
+        await expect(question).toHaveCSS(
+          'color',
+          theme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)',
+        );
+        // The frame question and parent-drawn controls form one themed card.
         for (const surface of [
           card.locator('.question-controls'),
-          proposal.locator('.proposal-card'),
+          card.locator('.question-group-footer'),
         ]) {
-          await expect(surface).toHaveCSS('background-color', 'rgb(255, 255, 255)');
-          await expect(surface).toHaveCSS('color', 'rgb(52, 52, 52)');
-          await expect(surface).toHaveCSS('color-scheme', 'light');
+          await expect(surface).toHaveCSS(
+            'background-color',
+            theme === 'dark' ? 'rgb(16, 16, 16)' : 'rgb(255, 255, 255)',
+          );
+          await expect(surface).toHaveCSS(
+            'color',
+            theme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)',
+          );
+          await expect(surface).toHaveCSS('color-scheme', theme);
           await expect(surface).toHaveCSS('box-shadow', 'none');
         }
+        await expect(card.locator('.question-state')).toHaveCSS(
+          'background-color',
+          theme === 'dark' ? 'rgb(16, 16, 16)' : 'rgb(255, 255, 255)',
+        );
+        await expect(card.locator('.question-group-footer')).toHaveCSS(
+          'border-top-color',
+          theme === 'dark' ? 'rgb(48, 48, 48)' : 'rgb(208, 208, 208)',
+        );
+        // Proposal cards retain their separately ruled neutral light palette.
+        await expect(proposal.locator('.proposal-card')).toHaveCSS(
+          'background-color',
+          'rgb(255, 255, 255)',
+        );
+        await expect(proposal.locator('.proposal-card')).toHaveCSS('color', 'rgb(52, 52, 52)');
+        await expect(proposal.locator('.proposal-card')).toHaveCSS('color-scheme', 'light');
+        await expect(proposal.locator('.proposal-card')).toHaveCSS('box-shadow', 'none');
         await expect(proposal.locator('.proposal-author')).toHaveCSS('color', 'rgb(98, 98, 98)');
         await expect(proposal.getByRole('button', { name: 'Approve', exact: true })).toHaveCSS(
           'background-color',
@@ -335,7 +368,7 @@ for (const width of [1440, 390])
         );
         await expect(card.getByRole('button', { name: /^Send answer/ })).toHaveCSS(
           'color',
-          'rgb(98, 98, 98)',
+          theme === 'dark' ? 'rgb(133, 133, 133)' : 'rgb(98, 98, 98)',
         );
         const after = page.frameLocator('#ask-page-fixture iframe').locator('#after-question');
         const proposalSpacer = page
@@ -371,8 +404,9 @@ for (const width of [1440, 390])
         const captures = process.env.COLAB_QUESTION_CAPTURE_DIR;
         if (captures) {
           mkdirSync(captures, { recursive: true });
+          await expect(page.locator('[data-inline-question]')).not.toHaveAttribute('data-detached');
           await page.screenshot({
-            fullPage: true,
+            fullPage: false,
             path: `${captures}/question-open-${width}-${theme}-page-${darkPage ? 'dark' : 'light'}.png`,
           });
         }
@@ -380,29 +414,40 @@ for (const width of [1440, 390])
         await card.getByLabel('Other answer', { exact: true }).fill('Try a clearer heading.');
         const sendButton = card.getByRole('button', { name: /^Send answer/ });
         await expect(sendButton).toBeEnabled();
-        await expect(sendButton).toHaveCSS('background-color', 'rgb(0, 107, 143)');
-        await expect(sendButton).toHaveCSS('color', 'rgb(255, 255, 255)');
+        await expect(sendButton).toHaveCSS(
+          'background-color',
+          theme === 'dark' ? 'rgb(125, 207, 255)' : 'rgb(0, 107, 143)',
+        );
+        await expect(sendButton).toHaveCSS(
+          'color',
+          theme === 'dark' ? 'rgb(16, 16, 16)' : 'rgb(255, 255, 255)',
+        );
         await sendButton.press('Tab');
         await page.keyboard.press('Shift+Tab');
         await expect(sendButton).toBeFocused();
-        await expect(sendButton).toHaveCSS('outline-color', 'rgb(98, 98, 98)');
+        await expect(sendButton).toHaveCSS(
+          'outline-color',
+          theme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(98, 98, 98)',
+        );
         await expect(sendButton).toHaveCSS('outline-width', '2px');
         await send(page);
         await expect(card.locator('.question-controls')).toHaveCSS(
           'background-color',
-          'rgb(255, 255, 255)',
+          theme === 'dark' ? 'rgb(16, 16, 16)' : 'rgb(255, 255, 255)',
         );
         await expect(card.getByRole('button', { name: 'Change answer', exact: true })).toHaveCSS(
           'color',
-          'rgb(52, 52, 52)',
+          theme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)',
         );
         await expect(proposal).not.toHaveAttribute('data-detached');
         await settledSlots();
-        if (captures)
+        if (captures) {
+          await expect(page.locator('[data-inline-question]')).not.toHaveAttribute('data-detached');
           await page.screenshot({
-            fullPage: true,
+            fullPage: false,
             path: `${captures}/question-answered-${width}-${theme}-page-${darkPage ? 'dark' : 'light'}.png`,
           });
+        }
       });
     }
 

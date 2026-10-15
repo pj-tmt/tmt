@@ -2195,8 +2195,9 @@ in-tab drafts. Answered/waiting marks include state words. `N of M answered` cou
 complete unsent drafts plus questions with a verified device answer; only completed
 unsent drafts enter Send. A local callback or frame claim cannot provide a verified
 current answer. The group heading inherits authored ink; its `Q:` prefix uses
-currentColor at 45%. The card, tabs and controls retain the pinned light palette;
-selected controls and primary actions use the existing link color role.
+currentColor at 45%. The whole question card, including frame text, tabs and parent
+controls, follows Colab's effective theme even on a fixed-look author page;
+selected controls and primary actions use that theme's existing link color role.
 
 The group owns one footer and visible recipient chips using BrowserChips. Asking
 agent names resolve through the existing directory: one default chip for each
