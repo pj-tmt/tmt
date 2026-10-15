@@ -10,7 +10,13 @@ use crate::board::{
 use tmt_ops::cron::ClockStatus;
 
 fn squad_tab() -> App {
-    let mut app = crate::board::app::workspace::tests::board();
+    let mut app = crate::board::app::workspace::tests::capture_case(
+        "agents",
+        crate::look::Look {
+            depth: tmt_cli_style::Depth::None,
+            ..crate::look::Look::default()
+        },
+    );
     let home = app.view.as_mut().unwrap().home.as_mut().unwrap();
     home.workspace.roster.members.get_mut(MEMBER).unwrap().name = "alpha".into();
     let target = OpsTarget::Member {

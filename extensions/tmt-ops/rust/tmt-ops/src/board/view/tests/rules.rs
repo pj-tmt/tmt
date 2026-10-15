@@ -15,7 +15,13 @@ const WIDTHS: [u16; 5] = [160, 140, 100, 80, 60];
 const HEIGHTS: [u16; 7] = [8, 12, 13, 16, 18, 24, 31];
 
 fn workspace(layout: OpsLayout, member: bool, tab: OpsTab) -> App {
-    let mut app = workspace_board();
+    let mut app = crate::board::app::workspace::tests::capture_case(
+        "agents",
+        crate::look::Look {
+            depth: tmt_cli_style::Depth::None,
+            ..crate::look::Look::default()
+        },
+    );
     app.view
         .as_mut()
         .unwrap()
