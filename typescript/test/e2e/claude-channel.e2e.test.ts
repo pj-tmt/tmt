@@ -260,6 +260,9 @@ async function withCompletedSession<T>(
         'Scenario and foreground cleanup failed'
       );
     throw cleanupError;
+  } finally {
+    const warningCount = named(session, 'hook-diagnostic').length;
+    if (warningCount > 0) console.info(`Claude lifecycle-context warnings: ${warningCount}`);
   }
   if ('error' in outcome) throw outcome.error;
   return outcome.value;

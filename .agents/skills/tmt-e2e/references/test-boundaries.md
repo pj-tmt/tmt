@@ -73,6 +73,10 @@ The Claude channel fixture publishes Digest control commands through
 `test/e2e/claude-digest-step.ts`: complete a private same-directory staging write,
 then rename to the watched path. Callers await consumption before the next command;
 the mock keeps malformed published JSON a hard failure.
+Its lifecycle mock treats only the exact zero-exit context-unavailable warning as
+a counted diagnostic. Read-only committed session and Working activity checks
+gate prompt submission/readiness; other stderr, malformed output and nonzero
+exits remain failures. These checks share the existing launch deadline.
 
 ## Native sandbox lifecycle
 

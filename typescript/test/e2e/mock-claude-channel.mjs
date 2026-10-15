@@ -27,6 +27,7 @@ import { execFile, spawn } from 'node:child_process';
 import readline from 'node:readline';
 import net from 'node:net';
 import { resolveCliExecutables } from '../support/cli-executable.mjs';
+import { hookResult, waitForLifecycle } from './mock-claude-lifecycle.mjs';
 
 const args = process.argv.slice(2);
 const version = process.env.MOCK_VERSION ?? '2.1.285 (Claude Code)';
@@ -59,10 +60,18 @@ function emitHook(payload, event) {
   if (process.env.MOCK_LAUNCH_HOOKS === '1') return emitInstalledHooks(payload, event);
   return new Promise((resolve, reject) => {
     const child = execPeer(['__hook', 'claude'], (error, stdout, stderr) => {
-      if (error || stderr) reject(error ?? new Error(stderr));
-      else {
-        log({ event, stdout });
+      try {
+        const result = hookResult(error, stdout, stderr);
+        if (result.diagnostic)
+          log({
+            event: 'hook-diagnostic',
+            hookEvent: payload.hook_event_name,
+            message: result.diagnostic,
+          });
+        log({ event, stdout: result.stdout });
         resolve();
+      } catch (error) {
+        reject(error);
       }
     });
     child.stdin.end(JSON.stringify(payload));
@@ -150,8 +159,14 @@ async function emitInstalledHooks(
             partial ? ['-c', partialDigestHandoff, command] : ['-c', effectiveCommand],
             { env: process.env },
             (error, stdout, stderr) => {
-              if (error || stderr) reject(error ?? new Error(stderr));
-              else {
+              try {
+                const result = hookResult(error, stdout, stderr);
+                if (result.diagnostic)
+                  log({
+                    event: 'hook-diagnostic',
+                    hookEvent: payload.hook_event_name,
+                    message: result.diagnostic,
+                  });
                 log({
                   event: 'installed-hook',
                   hookEvent: payload.hook_event_name,
@@ -162,6 +177,8 @@ async function emitInstalledHooks(
                   log({ event: 'digest-partial-handoff', ...JSON.parse(stdout) });
                   resolve('');
                 } else resolve(stdout);
+              } catch (error) {
+                reject(error);
               }
             }
           );
@@ -382,16 +399,13 @@ log({ event: 'started', args });
 if (process.env.MOCK_SESSION_ID) {
   const deadline = Date.now() + 10_000;
   const attach = async () => {
-    for (;;) {
-      const database = new Database(process.env.MOCK_DB, { readonly: true });
-      const bound = database
-        .prepare('SELECT runtime_state FROM bindings WHERE runtime_pid = ?')
-        .get(process.ppid);
-      database.close();
-      if (bound?.runtime_state === 'running') break;
-      if (Date.now() >= deadline) throw new Error('native fixture runtime was not admitted');
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    }
+    await waitForLifecycle(
+      process.env.MOCK_DB,
+      process.ppid,
+      process.env.MOCK_SESSION_ID,
+      'running',
+      deadline
+    );
     const payload = {
       hook_event_name: 'SessionStart',
       source: args.includes('--resume') ? 'resume' : 'startup',
@@ -402,8 +416,23 @@ if (process.env.MOCK_SESSION_ID) {
         : {}),
     };
     await emitHook(payload, 'hook-recorded');
+    await waitForLifecycle(
+      process.env.MOCK_DB,
+      process.ppid,
+      process.env.MOCK_SESSION_ID,
+      'started',
+      deadline
+    );
     if (process.env.MOCK_TURN_TRANSCRIPT || process.env.MOCK_LAUNCH_HOOKS === '1') {
-      await emitHook({ ...payload, hook_event_name: 'UserPromptSubmit' }, 'prompt-recorded');
+      await emitHook({ ...payload, hook_event_name: 'UserPromptSubmit' }, 'prompt-hook-completed');
+      await waitForLifecycle(
+        process.env.MOCK_DB,
+        process.ppid,
+        process.env.MOCK_SESSION_ID,
+        'working',
+        deadline
+      );
+      log({ event: 'prompt-recorded' });
       turnReady = true;
     }
   };
