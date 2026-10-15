@@ -409,7 +409,8 @@ own module/drawing boundaries and verification.
 - **Workspace.** Overview/Agents/Digest share one acquired roster; Overview caches monitor order, while tree projections are frame-scoped.
   UUID squad anchors and virtual Common pool define selection; paint/input do no Core reads. WP1 owns conversation/editor/drafts.
   The shell replaces named-tab/factory/switcher navigation and HOME cursors; reload carries UUID anchors.
-  Acquired summaries, rates and replies remain source data.
+  `labels::Reader` acquires Config-selected windows; `labels::digest` sums
+  [supplier estimates](extensions/tmt-digest/contracts/digest-v1.md#savings), never provider history.
   Membership removal pauses jobs before leave;
   only explicit Resume clears pause. Rename CAS keeps the room UUID, then moves
   Ops metadata/config and cron namespaces under owned locks; partial results

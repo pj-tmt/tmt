@@ -830,11 +830,30 @@ fn roster_preview(frame: &mut Frame, app: &App, mut area: Rect, target: &OpsTarg
     let observation = squad.map_or(snapshot.roster.observation, |s| s.observation);
     let facts: Vec<Line<'static>> = squad.map_or_else(Vec::new, |squad| {
         let usage = app.home_usage(&squad.name, std::time::Instant::now());
-        squad_usage(usage.as_ref(), app.home_lead_model(&squad.name))
+        let mut facts: Vec<_> = squad_usage(usage.as_ref(), app.home_lead_model(&squad.name))
             .iter()
             .flat_map(|fact| crate::board::notes::wrap(fact, usize::from(area.width)))
             .map(|text| Line::styled(text, look.role(Role::Muted)))
-            .collect()
+            .collect();
+        let savings = app.digest_savings(squad.members.iter().map(String::as_str));
+        let caption = crate::board::digest_dashboard::savings_caption(
+            &savings,
+            app.digest_window(),
+            usize::from(area.width),
+        );
+        facts.extend(
+            crate::board::notes::wrap(&caption, usize::from(area.width))
+                .into_iter()
+                .map(|text| Line::styled(text, look.role(Role::Dim))),
+        );
+        if let Some(start) = app.digest_savings_start(&savings) {
+            facts.extend(
+                crate::board::notes::wrap(&start, usize::from(area.width))
+                    .into_iter()
+                    .map(|text| Line::styled(text, look.role(Role::Dim))),
+            );
+        }
+        facts
     });
     if area.height >= 5 {
         let lead = squad

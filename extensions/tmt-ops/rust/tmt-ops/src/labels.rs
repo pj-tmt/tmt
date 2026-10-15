@@ -179,7 +179,30 @@ impl Default for Timing {
 
 enum Signal {
     Read,
+    Window(crate::config::DigestWindow),
     Stop,
+}
+
+/// Coalesce read and selection requests in the one worker that owns acquisition.
+/// A selection received during a child read fences its old-window publication.
+fn pending(
+    wake: &mpsc::Receiver<Signal>,
+    first: Option<Signal>,
+    window: &mut crate::config::DigestWindow,
+) -> Option<bool> {
+    let mut again = false;
+    for signal in first.into_iter().chain(wake.try_iter()) {
+        match signal {
+            Signal::Stop => return None,
+            Signal::Read => again = true,
+            Signal::Window(value) if value != *window => {
+                *window = value;
+                again = true;
+            }
+            Signal::Window(_) => {}
+        }
+    }
+    Some(again)
 }
 
 /// Asks the reader to read again at once, such as after the user changed what a
@@ -188,6 +211,11 @@ enum Signal {
 pub struct Refresh(mpsc::Sender<Signal>);
 
 impl Refresh {
+    /// Select a supplier window and wake this same reader.
+    pub fn window(&self, window: crate::config::DigestWindow) {
+        let _ = self.0.send(Signal::Window(window));
+    }
+
     pub fn now(&self) {
         let _ = self.0.send(Signal::Read);
     }
@@ -208,6 +236,7 @@ impl Reader {
         core: &Core,
         sources: Vec<String>,
         timing: Timing,
+        initial_window: crate::config::DigestWindow,
         mut deliver: impl FnMut(Supplied) -> bool + Send + 'static,
     ) -> Option<Self> {
         if sources.is_empty() {
@@ -220,11 +249,16 @@ impl Reader {
             let mut last: Vec<Option<(Snapshot, Instant)>> = vec![None; sources.len()];
             let mut sent = Supplied::default();
             let mut wait = timing.every;
+            let mut window = initial_window;
             loop {
+                let read_window = window;
                 let mut failed = false;
                 for (source, last) in sources.iter().zip(&mut last) {
                     let read = core
-                        .json_within(&[source, "status"], timing.deadline)
+                        .json_within(
+                            &digest::status_arguments(source, read_window),
+                            timing.deadline,
+                        )
                         .ok()
                         .and_then(|document| Snapshot::parse(source, &document));
                     match read {
@@ -242,6 +276,13 @@ impl Reader {
                             }
                         }
                     }
+                }
+                let Some(again) = pending(&wake, None, &mut window) else {
+                    return;
+                };
+                if window != read_window {
+                    wait = timing.every;
+                    continue;
                 }
                 let supplied = Supplied(
                     sources
@@ -264,18 +305,24 @@ impl Reader {
                 } else {
                     timing.every
                 };
-                match wake.recv_timeout(wait) {
-                    Err(RecvTimeoutError::Timeout) => {}
-                    Ok(Signal::Read) => {
-                        wait = timing.every;
-                        // Requests that piled up behind one read are one read.
-                        while let Ok(signal) = wake.try_recv() {
-                            if matches!(signal, Signal::Stop) {
-                                return;
+                if again {
+                    wait = timing.every;
+                    continue;
+                }
+                let deadline = Instant::now() + wait;
+                loop {
+                    match wake.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+                        Err(RecvTimeoutError::Timeout) => break,
+                        Ok(signal) => match pending(&wake, Some(signal), &mut window) {
+                            None => return,
+                            Some(false) => continue,
+                            Some(true) => {
+                                wait = timing.every;
+                                break;
                             }
-                        }
+                        },
+                        Err(RecvTimeoutError::Disconnected) => return,
                     }
-                    Ok(Signal::Stop) | Err(RecvTimeoutError::Disconnected) => return,
                 }
             }
         });

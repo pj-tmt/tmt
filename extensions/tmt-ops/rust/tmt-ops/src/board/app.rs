@@ -256,6 +256,7 @@ pub enum Choice {
         room_id: String,
     },
     WorkspaceLayout(crate::config::OpsLayout),
+    DigestWindow(crate::config::DigestWindow),
     Checklist,
     Action(Action),
     /// Confirms a cron control picked from a menu.
@@ -649,6 +650,8 @@ pub struct App {
     meters: BTreeMap<String, super::meter::Meter>,
     usage_document: Option<Value>,
     pub(super) token_window: crate::config::TokenWindow,
+    /// Acquired at startup, so formatting collection dates performs no paint I/O.
+    pub(super) local_zone: Option<jiff::tz::TimeZone>,
     pub(super) excluded_counters: Vec<String>,
     pub(super) meter_hover: Option<Option<usize>>,
     squad_keys: Vec<String>,
@@ -774,6 +777,7 @@ impl App {
         Self {
             cron_glyphs: super::overview::cron_counts::GlyphSet::from_ascii(false),
             current: squad,
+            local_zone: Some(jiff::tz::TimeZone::system()),
             loading_since: Some(Instant::now()),
             follow: true,
             ..Self::default()
@@ -2467,6 +2471,7 @@ impl App {
                 room_id,
             } => self.workspace_choose_room(kind, &identity_id, &room_id),
             Choice::WorkspaceLayout(layout) => self.workspace_layout(layout),
+            Choice::DigestWindow(window) => self.select_digest_window(window),
             Choice::Checklist => self.open_checklist(),
             Choice::Action(action) => self.perform(&action),
             Choice::Cron(request) => Effect::Act(Request::Cron(request)),

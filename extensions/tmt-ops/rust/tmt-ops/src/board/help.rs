@@ -204,6 +204,11 @@ pub(super) fn model(app: &App) -> KeyHelp {
         id: "composer-focus".into(), title: "message composer focus".into(),
         entries: vec![entry("focus-message", "", format!("{}; opening keeps the draft and sends nothing; double-click still inspects content", app.composer_focus_hint()))],
     });
+    sections.push(section("digest-estimate", "Digest estimate", &[
+        ("window", "Choose Digest estimate window in workspace settings: 24h, 7d or all time; the choice is shared by member, squad and Digest views."),
+        ("Est. ctx avoided", "Estimated context input tokens avoided by delivering messages together. Assumes each message would otherwise have been delivered on its own. Not billed tokens, not cost, not turns saved."),
+        ("coverage", "— means unavailable; known zero is 0. (N of M) counts included members. All time starts when each member's Digest began recording."),
+    ]));
     sections.push(section("editor", "message editor", &[
         ("Enter", "while typing, send to the displayed recipient; while @ completion is open, Enter/Tab insert the selected reference instead"),
         ("Shift-Enter / Ctrl-N", "insert a newline; Ctrl-N also works without extended terminal key reporting"),

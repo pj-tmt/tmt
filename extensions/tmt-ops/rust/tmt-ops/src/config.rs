@@ -68,6 +68,42 @@ impl Default for Reminders {
     }
 }
 
+/// The window requested from Digest's own retained evidence, not the token meter.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum DigestWindow {
+    #[default]
+    Day,
+    Week,
+    AllTime,
+}
+
+impl DigestWindow {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "24h" => Some(Self::Day),
+            "7d" => Some(Self::Week),
+            "lifetime" => Some(Self::AllTime),
+            _ => None,
+        }
+    }
+
+    pub fn argument(self) -> &'static str {
+        match self {
+            Self::Day => "24h",
+            Self::Week => "7d",
+            Self::AllTime => "lifetime",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Day => "24h",
+            Self::Week => "7d",
+            Self::AllTime => "all time",
+        }
+    }
+}
+
 /// A board observation window, never persisted usage history.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TokenWindow(u64);

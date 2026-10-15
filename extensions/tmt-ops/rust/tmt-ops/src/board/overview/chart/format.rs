@@ -1,20 +1,5 @@
 //! Compact chart labels; exact integer totals remain in bucket Details.
-pub(super) fn tokens(value: u128) -> String {
-    let (scale, suffix) = if value >= 1_000_000_000 {
-        (1_000_000_000, "B")
-    } else if value >= 1_000_000 {
-        (1_000_000, "M")
-    } else if value >= 1_000 {
-        (1_000, "k")
-    } else {
-        return value.to_string();
-    };
-    // Round half up using integers: source precision never depends on f64.
-    let whole = value / scale;
-    let tenths = ((value % scale) * 10 + scale / 2) / scale;
-    let rounded = whole * 10 + tenths;
-    format!("{}.{:01}{suffix}", rounded / 10, rounded % 10)
-}
+pub(super) use crate::source::compact_tokens as tokens;
 
 /// Compact the observed total in the existing owner's summary; exact Details stay unchanged.
 pub(super) fn range_label(observed: &crate::board::rate::series::Series, minutes: u8) -> String {

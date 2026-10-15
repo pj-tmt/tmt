@@ -103,6 +103,7 @@ fn glyph_guard_rejects_unregistered_ambiguous_and_emoji_decorations_and_unspaced
     for good in [
         "── squads · 0 ──",
         "↑ move ↓ · next… –",
+        "Est. ctx avoided 24h: —",
         "◆ 0 ✗ 1 ◐ 2 ● 3 ◌ 4",
         "2 other",
     ] {

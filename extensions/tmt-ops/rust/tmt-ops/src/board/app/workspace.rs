@@ -30,6 +30,43 @@ impl App {
     pub(in crate::board) fn workspace_snapshot(&self) -> Option<&OpsWorkspaceSnapshot> {
         Some(&self.view.as_ref()?.home.as_ref()?.workspace)
     }
+    pub(in crate::board) fn digest_window(&self) -> crate::config::DigestWindow {
+        self.workspace_snapshot()
+            .map_or(crate::config::DigestWindow::default(), |snapshot| {
+                snapshot.preferences.digest_window
+            })
+    }
+    pub(in crate::board) fn select_digest_window(
+        &mut self,
+        window: crate::config::DigestWindow,
+    ) -> Effect {
+        let Some(snapshot) = self.workspace_snapshot() else {
+            return self.say("The workspace has not loaded.");
+        };
+        let mut next = snapshot.preferences.clone();
+        next.digest_window = window;
+        self.workspace_save(next)
+    }
+    pub(in crate::board) fn digest_savings<'a>(
+        &self,
+        identities: impl IntoIterator<Item = &'a str>,
+    ) -> crate::labels::digest::SavingsSummary {
+        crate::labels::digest::summarize_savings(
+            self.labels.digest(),
+            identities,
+            self.digest_window(),
+        )
+    }
+    pub(in crate::board) fn digest_savings_start(
+        &self,
+        summary: &crate::labels::digest::SavingsSummary,
+    ) -> Option<String> {
+        crate::board::digest_dashboard::savings_start(
+            summary,
+            self.digest_window(),
+            self.local_zone.as_ref().unwrap_or(&jiff::tz::TimeZone::UTC),
+        )
+    }
     pub(in crate::board) fn workspace_rows(&self) -> Rc<[OpsTreeRow]> {
         if let Some(rows) = self.frame_workspace_rows.borrow().as_ref() {
             return Rc::clone(rows);
@@ -883,6 +920,25 @@ impl App {
             choice: Choice::WorkspaceLayout(layout),
         })
         .collect();
+        for window in [
+            crate::config::DigestWindow::Day,
+            crate::config::DigestWindow::Week,
+            crate::config::DigestWindow::AllTime,
+        ] {
+            entries.push(MenuEntry {
+                key: String::new(),
+                label: format!(
+                    "Digest estimate window: {}{}",
+                    window.label(),
+                    if snapshot.preferences.digest_window == window {
+                        " (current)"
+                    } else {
+                        ""
+                    }
+                ),
+                choice: Choice::DigestWindow(window),
+            });
+        }
         for (label, action) in [
             ("Theme", "theme"),
             ("Token window", "token-window"),

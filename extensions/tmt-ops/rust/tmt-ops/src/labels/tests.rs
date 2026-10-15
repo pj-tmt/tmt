@@ -88,9 +88,13 @@ fn quick() -> Timing {
 
 fn reader(core: &Core, timing: Timing) -> (Reader, mpsc::Receiver<Supplied>) {
     let (sender, received) = mpsc::channel();
-    let reader = Reader::spawn(core, vec![NAMESPACE.into()], timing, move |supplied| {
-        sender.send(supplied).is_ok()
-    })
+    let reader = Reader::spawn(
+        core,
+        vec![NAMESPACE.into()],
+        timing,
+        crate::config::DigestWindow::Day,
+        move |supplied| sender.send(supplied).is_ok(),
+    )
     .expect("a configured source");
     (reader, received)
 }
@@ -357,7 +361,16 @@ fn failures_back_off_and_the_last_good_answer_stands_in_only_briefly() {
 #[test]
 fn no_configured_source_starts_no_reader() {
     let scratch = Scratch::new();
-    assert!(Reader::spawn(&scratch.fake(""), Vec::new(), quick(), |_| true).is_none());
+    assert!(
+        Reader::spawn(
+            &scratch.fake(""),
+            Vec::new(),
+            quick(),
+            crate::config::DigestWindow::Day,
+            |_| true
+        )
+        .is_none()
+    );
     assert!(scratch.calls().is_empty());
 }
 
@@ -435,4 +448,155 @@ fn an_action_ops_will_not_offer_leaves_its_label_display_only() {
         assert_eq!(rows["a"].len(), 1, "{action}");
         assert_eq!(rows["a"][0].action, None, "{action}");
     }
+}
+
+#[test]
+fn a_savings_window_change_reuses_the_one_reader_and_its_source_argv() {
+    let scratch = Scratch::new();
+    scratch.status(&vectors()["status"][0]["response"]);
+    let timing = Timing {
+        every: Duration::from_secs(3600),
+        ..quick()
+    };
+    let mut week = vectors()["status"][0]["response"].clone();
+    week["members"][0]["savings"] = json!({"method":"context-input-avoided-v1", "window":"7d",
+        "fromMs":100, "throughMs":1000, "estimatedInputTokensAvoided":42,
+        "complete":true,"gap":null});
+    fs::write(scratch.path("week.json"), week.to_string()).unwrap();
+    let before = format!(
+        "if [ \"$*\" = 'digest status --window 7d --json' ]; then cat '{}'; exit 0; fi",
+        scratch.path("week.json").display()
+    );
+    let (reader, received) = reader(&scratch.fake(&before), timing);
+    let first = next(&received);
+    assert_eq!(scratch.calls().len(), 1);
+    reader.refresher().window(crate::config::DigestWindow::Week);
+    eventually("one read after the selected window changes", || {
+        scratch.calls().len() >= 2
+    });
+    let calls = scratch.calls();
+    assert!(calls[0].ends_with("digest status --json"));
+    assert!(
+        calls[1].ends_with("digest status --window 7d --json"),
+        "{calls:?}"
+    );
+    let second = next(&received);
+    let member = second.digest().unwrap().0.members.values().next().unwrap();
+    assert_eq!(
+        member.savings.as_ref().unwrap().window,
+        crate::config::DigestWindow::Week
+    );
+    assert_eq!(member.savings.as_ref().unwrap().tokens, Some(42));
+    // Window selection does not invent any delivered member estimate.
+    assert!(
+        first
+            .digest()
+            .unwrap()
+            .0
+            .members
+            .values()
+            .all(|member| member.savings.is_none())
+    );
+    drop(reader);
+}
+
+#[test]
+fn a_window_change_discards_the_previous_inflight_estimate_before_delivery() {
+    let scratch = Scratch::new();
+    let doc = |window: &str, tokens: u64| {
+        let mut value = vectors()["status"][0]["response"].clone();
+        value["members"][0]["savings"] = json!({"method":"context-input-avoided-v1", "window":window,
+            "fromMs":100, "throughMs":1000, "estimatedInputTokensAvoided":tokens,
+            "complete":true,"gap":null});
+        value
+    };
+    scratch.status(&doc("24h", 10));
+    fs::write(scratch.path("late.json"), doc("24h", 999).to_string()).unwrap();
+    fs::write(scratch.path("week.json"), doc("7d", 42).to_string()).unwrap();
+    let before = format!(
+        r#"
+if [ "$*" = 'digest status --window 7d --json' ]; then cat '{dir}/week.json'; exit 0; fi
+if [ -f '{dir}/block' ]; then
+  : > '{dir}/started'
+  while [ ! -f '{dir}/release' ]; do sleep 0.01; done
+  cat '{dir}/late.json'; exit 0
+fi
+"#,
+        dir = scratch.0.display()
+    );
+    let timing = Timing {
+        every: Duration::from_secs(3600),
+        ..quick()
+    };
+    let (reader, received) = reader(&scratch.fake(&before), timing);
+    let first = next(&received);
+    assert_eq!(
+        first
+            .digest()
+            .unwrap()
+            .0
+            .members
+            .values()
+            .next()
+            .unwrap()
+            .savings
+            .as_ref()
+            .unwrap()
+            .tokens,
+        Some(10)
+    );
+    fs::write(scratch.path("block"), "").unwrap();
+    reader.refresher().now();
+    eventually("old-window read reached its barrier", || {
+        scratch.path("started").exists()
+    });
+    reader.refresher().window(crate::config::DigestWindow::Week);
+    fs::write(scratch.path("release"), "").unwrap();
+    let next = next(&received);
+    let savings = next
+        .digest()
+        .unwrap()
+        .0
+        .members
+        .values()
+        .next()
+        .unwrap()
+        .savings
+        .as_ref()
+        .unwrap();
+    assert_eq!(
+        (savings.window, savings.tokens),
+        (crate::config::DigestWindow::Week, Some(42))
+    );
+    drop(reader);
+}
+
+#[test]
+fn a_restored_window_is_used_on_the_first_read_without_a_default_probe() {
+    let scratch = Scratch::new();
+    scratch.status(&vectors()["status"][0]["response"]);
+    let before = format!(
+        "if [ \"$*\" = 'digest status --window 7d --json' ]; then cat '{}'; exit 0; fi",
+        scratch.path("status.json").display()
+    );
+    let (sender, received) = mpsc::channel();
+    let reader = Reader::spawn(
+        &scratch.fake(&before),
+        vec![NAMESPACE.into()],
+        Timing {
+            every: Duration::from_secs(3600),
+            ..quick()
+        },
+        crate::config::DigestWindow::Week,
+        move |value| sender.send(value).is_ok(),
+    )
+    .unwrap();
+    next(&received);
+    let calls = scratch.calls();
+    assert_eq!(calls.len(), 1);
+    assert!(
+        calls[0].ends_with("digest status --window 7d --json"),
+        "{calls:?}"
+    );
+    drop(reader);
 }
