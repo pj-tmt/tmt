@@ -187,6 +187,9 @@ same parts.
 - A row's trailing action appears only where an action is possible, such as
   `↻ tmt resume <name>`, `stale` or `shell`. It is accent-colored, comes after
   every column, and is never truncated.
+- A row may instead carry a dimmed trailing note, such as `basic` for a running
+  agent whose driver reports no activity or model. It shares the action's slot,
+  comes after every column and is never truncated; an action takes the slot first.
 - Rows with nothing to show, such as offline identities with nothing to
   resume, may fold into one dimmed note under the section's rows
   (`offline: a · b`); a flag such as `--all` expands them.

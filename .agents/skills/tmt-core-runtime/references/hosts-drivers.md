@@ -139,6 +139,21 @@ channels and the driver protocol. The owner map is in
   skills and explicit `tmt install muse`; they declare neither lifecycle hooks nor a runtime.
   Managed skill ownership and replacement remain with the
   [installer owner](install-architecture.md#managed-skills).
+- **Support level.** Each `DriverDescriptor` carries one `Support` constant, the single
+  owner of what a driver provides; no other prose lists per-driver capabilities.
+  `drivers::tests` pins `Full` to hooks plus a runtime, so the level cannot drift from the
+  declarations. `tmt ls` publishes it as
+  [`driverSupport`](../../../../contracts/identity-status-v1.md#list-driver-support).
+
+  | Level   | Drivers                                         | Provides                                                                                                                      |
+  | ------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+  | `full`  | Claude, Codex                                   | detection, launch, skills, lifecycle hooks (working/idle, model, consumption), resume, optional message channel               |
+  | `basic` | Gemini, Antigravity (`agy`), Pi, OpenCode, Muse | detection, skills and `tmt install` only; no driver launch, activity, model, usage or resume, so those stay blank, never idle |
+
+  Herdr is not an agent driver: it is an external **host** driver (pane discovery and
+  delivery, [driver protocol](../../../../contracts/driver-protocol-v1.md)) with no level,
+  and no agent-session support beyond that is shipped.
+
 - Unsupported is distinct from accepted, queued, failed, denied, approval-blocked and
   uncertain; only unsupported falls through automatically. The `session` interface kind is
   reserved, not shipped.

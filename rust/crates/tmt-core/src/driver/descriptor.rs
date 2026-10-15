@@ -32,6 +32,27 @@ pub enum UsageHook {
     Remove,
 }
 
+/// How much of a driver's session TMT can observe. `Full` drivers declare
+/// lifecycle hooks and a runtime, so activity, model, consumption, resume and
+/// channels exist; `Basic` drivers are detected and given skills only, so those
+/// fields stay blank rather than idle. A registry test pins
+/// each level to the declared capabilities.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Support {
+    Full,
+    Basic,
+}
+
+impl Support {
+    /// The level's stable spelling in `tmt ls --json` and human output.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Full => "full",
+            Self::Basic => "basic",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DriverDescriptor {
     /// The stable driver ID: the harness ID in storage and the provider name
@@ -42,6 +63,7 @@ pub struct DriverDescriptor {
     /// Present when `tmt setup` can install lifecycle hooks for it.
     pub hooks: Option<HookFormat>,
     pub hue: Hue,
+    pub support: Support,
 }
 
 pub static CLAUDE: DriverDescriptor = DriverDescriptor {
@@ -49,6 +71,7 @@ pub static CLAUDE: DriverDescriptor = DriverDescriptor {
     executables: &["claude"],
     hooks: Some(HookFormat::SessionHooksJson),
     hue: Hue::Magenta,
+    support: Support::Full,
 };
 
 pub static CODEX: DriverDescriptor = DriverDescriptor {
@@ -56,6 +79,7 @@ pub static CODEX: DriverDescriptor = DriverDescriptor {
     executables: &["codex"],
     hooks: Some(HookFormat::SessionHooksJson),
     hue: Hue::Cyan,
+    support: Support::Full,
 };
 
 pub static GEMINI: DriverDescriptor = DriverDescriptor {
@@ -63,6 +87,7 @@ pub static GEMINI: DriverDescriptor = DriverDescriptor {
     executables: &["gemini"],
     hooks: None,
     hue: Hue::Neutral,
+    support: Support::Basic,
 };
 
 pub static AGY: DriverDescriptor = DriverDescriptor {
@@ -70,6 +95,7 @@ pub static AGY: DriverDescriptor = DriverDescriptor {
     executables: &["agy"],
     hooks: None,
     hue: Hue::Neutral,
+    support: Support::Basic,
 };
 
 pub static PI: DriverDescriptor = DriverDescriptor {
@@ -77,6 +103,7 @@ pub static PI: DriverDescriptor = DriverDescriptor {
     executables: &["pi"],
     hooks: None,
     hue: Hue::Neutral,
+    support: Support::Basic,
 };
 
 pub static OPENCODE: DriverDescriptor = DriverDescriptor {
@@ -84,6 +111,7 @@ pub static OPENCODE: DriverDescriptor = DriverDescriptor {
     executables: &["opencode"],
     hooks: None,
     hue: Hue::Neutral,
+    support: Support::Basic,
 };
 
 pub static MUSE: DriverDescriptor = DriverDescriptor {
@@ -91,6 +119,7 @@ pub static MUSE: DriverDescriptor = DriverDescriptor {
     executables: &["muse"],
     hooks: None,
     hue: Hue::Neutral,
+    support: Support::Basic,
 };
 
 /// Every built-in driver, in detection and `install all` order.
@@ -100,6 +129,15 @@ pub static ALL: [&DriverDescriptor; 7] = [&CLAUDE, &CODEX, &GEMINI, &AGY, &PI, &
 pub fn named(name: &str) -> Option<&'static DriverDescriptor> {
     ALL.into_iter()
         .find(|driver| driver.name.eq_ignore_ascii_case(name))
+}
+
+/// The built-in driver whose executable name is this foreground command,
+/// ignoring any directory. An exact match, not a word search, so `pi-calc` is
+/// not Pi.
+pub fn for_executable(command: &str) -> Option<&'static DriverDescriptor> {
+    let name = command.rsplit('/').next().unwrap_or(command);
+    ALL.into_iter()
+        .find(|driver| driver.executables.contains(&name))
 }
 
 impl DriverDescriptor {
@@ -116,7 +154,7 @@ impl DriverDescriptor {
 
 #[cfg(test)]
 mod tests {
-    use super::{ALL, DriverDescriptor, named};
+    use super::{ALL, DriverDescriptor, Support, for_executable, named};
 
     #[test]
     fn built_in_names_are_valid_unique_and_found_ignoring_case() {
@@ -143,6 +181,49 @@ mod tests {
         }
         for invalid in ["", "Claude", "a b", "a/b", &"a".repeat(65)] {
             assert!(!DriverDescriptor::is_valid_name(invalid), "{invalid}");
+        }
+    }
+
+    #[test]
+    fn levels_are_stable_spellings_and_only_hook_drivers_are_full() {
+        assert_eq!(Support::Full.as_str(), "full");
+        assert_eq!(Support::Basic.as_str(), "basic");
+        for driver in ALL {
+            assert_eq!(
+                driver.support == Support::Full,
+                driver.hooks.is_some(),
+                "{}",
+                driver.name
+            );
+        }
+        assert_eq!(named("claude").unwrap().support, Support::Full);
+        assert_eq!(named("codex").unwrap().support, Support::Full);
+        for basic in ["gemini", "agy", "pi", "opencode", "muse"] {
+            assert_eq!(named(basic).unwrap().support, Support::Basic, "{basic}");
+        }
+    }
+
+    #[test]
+    fn a_foreground_command_matches_only_a_declared_executable_exactly() {
+        for (command, expected) in [
+            ("gemini", Some("gemini")),
+            ("/usr/local/bin/codex", Some("codex")),
+            ("claude", Some("claude")),
+            ("pi", Some("pi")),
+            ("pi-calc", None),
+            ("python3", None),
+            ("node", None),
+            ("Gemini", None),
+            ("zsh", None),
+            ("-zsh", None),
+            ("", None),
+            ("gemini/", None),
+        ] {
+            assert_eq!(
+                for_executable(command).map(|driver| driver.name),
+                expected,
+                "{command:?}"
+            );
         }
     }
 }

@@ -80,6 +80,34 @@ projection and can name a remembered harness even after its process ends or
 while offline; it is not verified current runtime evidence. Named or direct-pane
 inspection and storage-only `identity ls` do not gain `runningDriver`.
 
+## List driver support
+
+Collection `tmt ls --json` identity rows optionally include `driverSupport`, a
+plain string: `"full"` or `"basic"`. It is the level of the built-in agent driver
+TMT already identifies for the row, in this order: the remembered session's
+harness, else the preferred harness, else, for a row with presence Active and a
+live pane, the driver whose declared executable name equals the pane's foreground
+command exactly (directories ignored; `pi-calc` is not Pi). The key is absent,
+never null, when no built-in driver is identified, including a harness that is not
+a built-in driver.
+
+`full` drivers declare lifecycle hooks and a runtime, so `session.activity`,
+model, consumption, resume and channels exist for them. `basic` drivers are
+detected and given skills only (`tmt run <name> <command>` still binds a pane and
+runs any command, but TMT starts no driver session): their `session.activity` stays
+`unknown` and `resume` and `runningDriver` are absent, so those fields are blank
+because TMT cannot observe them, not because the agent is idle. The level is a
+constant of the driver's descriptor, not runtime evidence. The key is advisory
+like `driver`: it does not need a fresh runtime observation, may name a
+remembered harness while offline, and does not verify that the process is still
+that driver. It adds no probe, subprocess, PID, session ID or address disclosure
+and grants no dispatch authority.
+
+The existing keys keep their meaning and order. Named or direct-pane inspection
+and storage-only `identity ls` do not gain `driverSupport`. Human `ls` shows a
+dimmed `basic` note after the row of a running agent whose identified driver is
+`basic`, where no action (`stale`, `shell`, a resume hint) takes the slot.
+
 ## List pane location
 
 Collection `tmt ls --json` identity rows with a live pane optionally include

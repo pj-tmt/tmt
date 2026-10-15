@@ -8,13 +8,14 @@ use tmt_adapters::{
     skill_installation::ProviderEnvironment,
 };
 use tmt_cli_style::{Role, Token};
-use tmt_core::driver::descriptor::{DriverDescriptor, HookFormat, Hue};
+use tmt_core::driver::descriptor::{DriverDescriptor, HookFormat, Hue, Support};
 
 static DESCRIPTOR: DriverDescriptor = DriverDescriptor {
     name: "fixture-agent",
     executables: &["fixture-agent"],
     hooks: Some(HookFormat::SessionHooksJson),
     hue: Hue::Magenta,
+    support: Support::Full,
 };
 
 static MODULE: DriverDefinition = DriverDefinition {

@@ -35,6 +35,8 @@ struct ListedRow {
     resume: Option<serde_json::Value>,
     activity: serde_json::Value,
     running_driver: Option<String>,
+    /// The identified driver's level, advisory like `driver`.
+    driver_support: Option<tmt_core::driver::descriptor::Support>,
 }
 
 struct ResolvedPane {
@@ -530,12 +532,18 @@ fn operation(
                         runtime,
                         &registry,
                     );
+                    let driver_support = presentation::driver_support(
+                        &row,
+                        preferences.remembered.as_ref(),
+                        preferences.preferred_harness.as_ref(),
+                    );
                     Ok(ListedRow {
                         presence: row,
                         remembered: preferences.remembered,
                         resume,
                         activity,
                         running_driver,
+                        driver_support,
                     })
                 })
                 .collect::<Result<Vec<_>, Failure>>()?;

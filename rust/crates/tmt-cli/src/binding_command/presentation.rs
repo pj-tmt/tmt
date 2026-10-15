@@ -19,7 +19,11 @@ use tmt_cli_style::{
     value,
 };
 use tmt_core::{
-    binding::{IdentityPresence, Presence, session::RememberedSession, session::RuntimeState},
+    binding::{
+        IdentityPresence, Presence,
+        session::{HarnessId, RememberedSession, RuntimeState},
+    },
+    driver::descriptor::{self, Support},
     endpoint::PaneObservation,
     host::HostKind,
     identity::{Identity, Lifetime},
@@ -113,6 +117,9 @@ pub(super) fn document(report: &Report) -> Value {
             if let Some(driver) = &row.running_driver {
                 value["runningDriver"] = driver.clone().into();
             }
+            if let Some(support) = row.driver_support {
+                value["driverSupport"] = support.as_str().into();
+            }
             with_address(value, address(&row.presence, row.remembered.as_ref()))
         }).collect::<Vec<_>>()}),
         Report::Named {
@@ -152,6 +159,28 @@ pub(super) fn running_driver(
     }
     registry.lifecycle(&remembered.harness)?;
     Some(remembered.harness.as_str().into())
+}
+
+/// The level of the driver TMT already identifies for a row: the remembered
+/// session's harness, else the preferred harness, else, for a live pane, the
+/// built-in driver whose executable is exactly the foreground command. Advisory
+/// like `driver`: it needs no liveness for a remembered harness, adds no probe,
+/// and a harness that is not a built-in driver has no level.
+pub(super) fn driver_support(
+    row: &IdentityPresence,
+    remembered: Option<&RememberedSession>,
+    preferred: Option<&HarnessId>,
+) -> Option<Support> {
+    let harness = remembered.map(|session| &session.harness).or(preferred);
+    let driver = match harness {
+        Some(harness) => descriptor::named(harness.as_str()),
+        None => row
+            .pane
+            .as_ref()
+            .filter(|_| row.presence == Presence::Active)
+            .and_then(|pane| descriptor::for_executable(&pane.command)),
+    };
+    driver.map(|driver| driver.support)
 }
 
 /// Additive `address`/`driver` keys, full values; existing keys keep their order.
@@ -345,6 +374,13 @@ fn write_listing(
                 // Offline with nothing to do: one line for all of them.
                 None if !all && state(&row.presence) == State::Offline => {
                     folded.push(row.presence.identity.name.as_str());
+                }
+                // A basic driver reports no activity or model; say so, so the
+                // missing detail never reads as idle.
+                None if row.driver_support == Some(Support::Basic)
+                    && state(&row.presence) == State::Running =>
+                {
+                    table.row_with_note(row_cells(row, home), Support::Basic.as_str());
                 }
                 None => {
                     table.row(row_cells(row, home));
