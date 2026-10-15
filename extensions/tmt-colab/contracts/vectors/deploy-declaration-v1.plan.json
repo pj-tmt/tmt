@@ -1,8 +1,8 @@
 {
   "version": 1,
-  "planDigest": "de3811212e737e8dd349f1610f0b7392bb0b2baa8d667f4393016ae160012157",
-  "declarationDigest": "2beafac126fa261057bb8fd36616139b3a18e6479afc04adbfc615c0f04b035b",
-  "artifactDigest": "ec2a6f45fa1afcf7fe6c452d03337bddb1e98e922d0d3190545c27e0c086acaf",
+  "planDigest": "af3179664b7d7f141deaa5ba2effce38b63a448cc22e47c212f38fb7ac7d4d83",
+  "declarationDigest": "7ad748094758497a02ad49235468e18269db4fb0fd2ebc585ef48f532d9f94d9",
+  "artifactDigest": "f02fdb76b1a8ecafc2d2f631b2a821aa065f7dd32ae8fae9c02241ae898bc946",
   "plan": {
     "version": 1,
     "profile": "sharing",
@@ -13,9 +13,9 @@
     "extensions": [
       {
         "name": "colab",
-        "declarationDigest": "2beafac126fa261057bb8fd36616139b3a18e6479afc04adbfc615c0f04b035b",
+        "declarationDigest": "7ad748094758497a02ad49235468e18269db4fb0fd2ebc585ef48f532d9f94d9",
         "admission": {
-          "artifactDigest": "ec2a6f45fa1afcf7fe6c452d03337bddb1e98e922d0d3190545c27e0c086acaf",
+          "artifactDigest": "f02fdb76b1a8ecafc2d2f631b2a821aa065f7dd32ae8fae9c02241ae898bc946",
           "entryPoint": "colabAdmitted"
         },
         "resources": [
@@ -174,7 +174,35 @@
             },
             "ttlField": null,
             "ttl": "none",
-            "indexes": []
+            "indexes": [],
+            "compositeIndexes": [
+              {
+                "collectionGroup": "members",
+                "queryScope": "COLLECTION",
+                "fields": [
+                  {
+                    "fieldPath": "link",
+                    "order": "ASCENDING"
+                  },
+                  {
+                    "fieldPath": "page",
+                    "order": "ASCENDING"
+                  },
+                  {
+                    "fieldPath": "space",
+                    "order": "ASCENDING"
+                  },
+                  {
+                    "fieldPath": "uid",
+                    "order": "ASCENDING"
+                  },
+                  {
+                    "fieldPath": "seq",
+                    "order": "ASCENDING"
+                  }
+                ]
+              }
+            ]
           },
           {
             "name": "pages",

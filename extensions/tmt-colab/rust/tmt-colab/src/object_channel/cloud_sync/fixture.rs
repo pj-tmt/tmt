@@ -249,7 +249,36 @@ impl Firestore {
                 let (kind, document) = match mutation {
                     sync::Mutation::Create { document } => ("create", document),
                     sync::Mutation::Put { document } => ("put", document),
-                    sync::Mutation::Delete { .. } => panic!("no delete"),
+                    sync::Mutation::Delete { target } => {
+                        self.log.lock().unwrap().push((
+                            "delete",
+                            target.resource.clone(),
+                            target.id.clone(),
+                        ));
+                        if let Some(error) = self.faults.lock().unwrap().refuse_next.take() {
+                            return sync::Outcome::Error { error };
+                        }
+                        // Colab's Rules read the document being deleted, so deleting one that is
+                        // not there is refused, like a get of it.
+                        return match self
+                            .docs
+                            .lock()
+                            .unwrap()
+                            .remove(&(target.resource.clone(), target.id.clone()))
+                        {
+                            Some(_) => sync::Outcome::Published {
+                                status: sync::Published::Confirmed,
+                            },
+                            None => sync::Outcome::Error {
+                                error: sync::Error {
+                                    code: sync::Code::Denied,
+                                    state: None,
+                                    reset_at_ms: None,
+                                    retry_after_ms: None,
+                                },
+                            },
+                        };
+                    }
                 };
                 self.log.lock().unwrap().push((
                     kind,
@@ -480,6 +509,15 @@ impl super::publisher::Local for OneUpdate {
         _: &super::publisher::Confirm,
     ) -> Result<(), super::publisher::Fault> {
         self.next = 0;
+        Ok(())
+    }
+    fn retirements(
+        &mut self,
+        _: &super::PageRef,
+    ) -> Result<Vec<super::publisher::Retirement>, super::publisher::Fault> {
+        Ok(Vec::new())
+    }
+    fn retired(&mut self, _: &super::PageRef, _: &str) -> Result<(), super::publisher::Fault> {
         Ok(())
     }
 }

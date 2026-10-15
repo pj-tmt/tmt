@@ -389,6 +389,36 @@ impl OwnerTransaction<'_> {
         }
         Ok(out)
     }
+    /// The signed key wraps addressed to a link for the page, exactly as stored, oldest epoch first:
+    /// what a holder of the link reads, beside the owner's own.
+    pub(crate) fn owner_link_wraps(
+        &self,
+        page: &str,
+        epoch: u64,
+        target: &statement::Head,
+        link: &str,
+    ) -> Result<Vec<Vec<u8>>> {
+        let mut query = self.tx.prepare(
+            "SELECT envelope FROM wraps WHERE page=?1 AND epoch<=?2 AND revision<=?3
+             AND kind='link' AND recipient=?4 ORDER BY epoch,revision LIMIT 65",
+        )?;
+        let rows = query.query_map(
+            params![page, sequence(epoch), sequence(target.revision), link],
+            |r| r.get::<_, Vec<u8>>(0),
+        )?;
+        let mut out = Vec::new();
+        for row in rows {
+            let bytes = row?;
+            if bytes.is_empty() || bytes.len() > 2048 {
+                return Err(OwnerFault::Capacity.into());
+            }
+            out.push(bytes);
+        }
+        if out.len() > 64 {
+            return Err(OwnerFault::Capacity.into());
+        }
+        Ok(out)
+    }
     /// Whether this machine registered the device, which is what makes its stream ours to
     /// publish. A device whose records were imported from the cloud has no such row.
     pub(crate) fn is_local_device(&self, id: &str) -> Result<bool> {

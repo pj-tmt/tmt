@@ -36,11 +36,13 @@ no admission. The public opaque SealedClient has no standalone constructor.
 and stopped after the object channel closes. Per generation it asks Remote to activate (the
 binary injects `supervisor::activate_sync`), waits for that generation's channel, binds, and
 keeps the most recently active page published: `object_channel/cloud_sync/publisher.rs` creates the page's
-admission rows, then the signed membership, chain and wrap originals of the streams this machine
-registered, then each local original in sequence, and `object_channel/cloud_sync/local.rs` reads them from the
+admission rows (including a live link's `links` row), then the signed membership, chain and wrap
+originals of the streams this machine registered (and the wraps addressed to those links), then each local
+original in sequence, and `object_channel/cloud_sync/local.rs` reads them from the
 Store and records a position only after the exact original was created or read back identical
-(`store/publication.rs` owns the positions). `sync.rs` reports the page a peer opened or wrote
-through `ActivePage`; the worker never retries a refusal Remote will not change by itself
+(`store/publication.rs` owns the positions). An ended link's cloud rows are removed by the publisher's
+retirement step (`links` row, then its `holders`), driven by `link_publications`. `sync.rs` reports the page a peer opened or wrote
+through `ActivePage`, and `socket.rs` also touches it after a management change (`Applied.touched`); the worker never retries a refusal Remote will not change by itself
 (`object_channel/cloud_sync/activation.rs`) and shows its one line once. The same worker is the reader of that page:
 `object_channel/cloud_sync/interests.rs` holds the three interests whose notices only wake it,
 `reader.rs` discovers the signed authority and one foreign stream's log tail, and
@@ -351,8 +353,9 @@ is added.
   receipts, checkpoints), 2 owner authority (membership log, recipients, devices, epoch
   secrets, wraps, `owner_operations`), 3 `device_registrations`, 4 `baselines`,
   5 nullable checked server-observed content time on `pages`, 6 nullable original content
-  publication scope on `owner_operations`, 7 page labels, 8 bounded confirmed-publication metadata, and 9 `link_admissions` (a live
-  link's cloud admission token, dropped with the link). Migration leaves legacy times null and legacy
+  publication scope on `owner_operations`, 7 page labels, 8 bounded confirmed-publication metadata, 9 `link_admissions` (a live
+  link's cloud admission token, dropped with the link), and 10 `link_publications` (links whose cloud
+  row may exist, until their removal completes). Migration leaves legacy times null and legacy
   outcomes unscoped without backfill. Epoch
   secrets are local key material, not an encrypted-at-rest guarantee.
 - `Store::open` creates and migrates. `Store::read` and `Store::write_existing` open only

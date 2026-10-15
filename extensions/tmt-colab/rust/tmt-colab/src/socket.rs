@@ -8,7 +8,7 @@ use crate::{
     Result,
     assets::{self, App},
     attachments::slots::StagingSlots,
-    cloud_sync::{self, ActivePage, CloudSync},
+    cloud_sync::{self, ActivePage, CloudSync, PageRef},
     control::{self, Control, StopReply},
     keyring::{Layout, StateFault},
     limits, management,
@@ -266,6 +266,7 @@ impl MountSocket {
             )?),
             _ => None,
         };
+        let activity = self.cloud.as_ref().map(|cloud| cloud.activity.clone());
         let cloud = match (self.cloud.take(), &self.sync) {
             (Some(cloud), Some(sync)) => Some(CloudSync::serve(
                 Arc::clone(&self.objects),
@@ -354,6 +355,7 @@ impl MountSocket {
                     let objects = Arc::clone(&self.objects);
                     let slots = self.slots.clone();
                     let rekey = rekeyer.as_ref().map(Rekeyer::nudge);
+                    let activity = activity.clone();
                     let handle =
                         thread::Builder::new()
                             .name("colab-socket".into())
@@ -370,6 +372,7 @@ impl MountSocket {
                                         objects: &objects,
                                         slots: slots.as_deref(),
                                         rekey: rekey.as_ref(),
+                                        activity: activity.as_ref(),
                                     },
                                 )
                             })?;
@@ -440,6 +443,8 @@ struct MountedServices<'a> {
     objects: &'a ChannelOwner,
     slots: Option<&'a StagingSlots>,
     rekey: Option<&'a Nudge>,
+    /// Wakes the cloud-sync worker for a page.
+    activity: Option<&'a ActivePage>,
 }
 fn serve(
     mut socket: UnixStream,
@@ -455,6 +460,7 @@ fn serve(
         objects,
         slots,
         rekey,
+        activity,
     } = services;
     let request = match acquire(&mut socket) {
         Ok(request) => request,
@@ -659,6 +665,20 @@ fn serve(
                 // A change may have advanced an epoch; the worker looks for attachments to re-seal.
                 if let Some(rekey) = rekey {
                     rekey.now();
+                }
+                // Links, members and policy decide what the cloud copy must hold or no longer hold,
+                // so the worker looks at the pages they concern without waiting for an edit.
+                if let (Some(activity), Some(registration)) = (activity, registration) {
+                    for page in &committed.touched {
+                        let epoch = registration.lock().ok().and_then(|r| r.page_epoch(page));
+                        if let Some(epoch) = epoch {
+                            activity.touch(PageRef {
+                                space: browser.space_id.clone(),
+                                page: page.clone(),
+                                epoch,
+                            });
+                        }
+                    }
                 }
                 if let Some(page) = committed.deleted_page
                     && let Some(source) =

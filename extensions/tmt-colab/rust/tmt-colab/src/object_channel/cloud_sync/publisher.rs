@@ -44,6 +44,14 @@ pub(crate) enum Row {
         refresh: Duration,
     },
 }
+/// A link that ended: its cloud `links` row goes first, so nobody can enroll again, then the
+/// member rows it enrolled, which `holders` discovery finds by link.
+#[derive(Clone)]
+pub(crate) struct Retirement {
+    pub link: String,
+    pub target: sync::Target,
+    pub scope: Map<String, Value>,
+}
 /// What a published batch confirms in the Store.
 pub(crate) enum Confirm {
     Update {
@@ -72,6 +80,10 @@ pub(crate) trait Local {
     /// The next unconfirmed original of a local stream, or none when the page is current.
     fn next(&mut self, page: &PageRef) -> Result<Option<Data>, Fault>;
     fn confirm(&mut self, page: &PageRef, confirm: &Confirm) -> Result<(), Fault>;
+    /// Links whose cloud rows may still exist although the link ended.
+    fn retirements(&mut self, page: &PageRef) -> Result<Vec<Retirement>, Fault>;
+    /// The link's cloud rows are gone for this page.
+    fn retired(&mut self, page: &PageRef, link: &str) -> Result<(), Fault>;
 }
 
 pub(crate) struct Publisher {
@@ -123,6 +135,10 @@ impl Publisher {
                     }
                 }
                 prepared = true;
+                // Authority is current, so nobody can still be admitted by an ended link.
+                if self.retire(local, page, &mut sent)? {
+                    return Ok(true);
+                }
             }
             let Some(data) = next else {
                 return Ok(false);
@@ -135,6 +151,77 @@ impl Publisher {
             if sent >= PASS_DOCUMENTS {
                 return Ok(true);
             }
+        }
+    }
+    /// Remove what ended links left in the cloud. `Ok(true)` means the pass ran out of room and
+    /// the next wake continues from the same discovery.
+    fn retire(
+        &mut self,
+        local: &mut dyn Local,
+        page: &PageRef,
+        sent: &mut usize,
+    ) -> Result<bool, Fault> {
+        for retirement in local.retirements(page)? {
+            self.delete(&retirement.target)?;
+            let mut continuation = None;
+            loop {
+                let (holders, next) = self.holders(&retirement.scope, continuation)?;
+                for holder in holders {
+                    self.delete(&holder.target)?;
+                    *sent += 1;
+                    if *sent >= PASS_DOCUMENTS {
+                        return Ok(true);
+                    }
+                }
+                // The link row is gone, so a run that ended has found every holder there is.
+                let Some(next) = next else { break };
+                continuation = Some(next);
+            }
+            local.retired(page, &retirement.link)?;
+        }
+        Ok(false)
+    }
+    /// One run of the owner's holder discovery.
+    fn holders(
+        &self,
+        scope: &Map<String, Value>,
+        continuation: Option<String>,
+    ) -> Result<(Vec<sync::Document>, Option<String>), Fault> {
+        match self.request(sync::Call::Query {
+            binding: self.binding.clone(),
+            query: sync::Query::Discovery {
+                resource: "members".into(),
+                name: "holders".into(),
+                scope: scope.clone(),
+                continuation,
+            },
+        })? {
+            sync::Outcome::Discovery {
+                documents,
+                continuation,
+            } => Ok((documents, continuation)),
+            sync::Outcome::Error { error } => Err(refusal(&error)),
+            _ => Err(Fault::Retry),
+        }
+    }
+    /// Delete a document. Rules read the document being deleted, so a delete of one that is not
+    /// there is refused like any other: a refusal reads as already gone, as it does for a get.
+    fn delete(&self, target: &sync::Target) -> Result<(), Fault> {
+        match self.request(sync::Call::Publish {
+            binding: self.binding.clone(),
+            mutation: sync::Mutation::Delete {
+                target: target.clone(),
+            },
+        })? {
+            sync::Outcome::Published {
+                status: sync::Published::Confirmed | sync::Published::AlreadyPresent,
+            } => Ok(()),
+            sync::Outcome::Published {
+                status: sync::Published::Unknown,
+            } => Err(Fault::Retry),
+            sync::Outcome::Error { error } if error.code == sync::Code::Denied => Ok(()),
+            sync::Outcome::Error { error } => Err(refusal(&error)),
+            _ => Err(Fault::Retry),
         }
     }
     fn request(&self, call: sync::Call) -> Result<sync::Outcome, Fault> {

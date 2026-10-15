@@ -3,7 +3,7 @@
 //! nothing here keeps its own copy.
 use super::{
     PageRef,
-    publisher::{Confirm, Data, Fault, Local, Row},
+    publisher::{Confirm, Data, Fault, Local, Retirement, Row},
 };
 use crate::{
     object_channel::documents::{
@@ -32,6 +32,14 @@ fn cloud_days(retention_days: Option<u64>) -> u64 {
 /// the lifetime of a short one, so the cloud expiry stays close to the last activity.
 fn row_refresh(days: u64) -> std::time::Duration {
     std::time::Duration::from_millis((days * DAY_MS / 2).min(DAY_MS))
+}
+/// A live link of the page as its cloud row and wraps need it.
+struct LiveLink {
+    id: String,
+    role: String,
+    token: String,
+    /// The signed wraps addressed to the link, exactly as stored.
+    wraps: Vec<Vec<u8>>,
 }
 /// The identity of one bound cloud client, frozen at bind.
 #[derive(Clone)]
@@ -171,6 +179,7 @@ impl Local for StoreLocal {
             statements: Vec<Vec<u8>>,
             chains: Vec<Vec<u8>>,
             wraps: Vec<Vec<u8>>,
+            links: Vec<LiveLink>,
         }
         let snapshot = self
             .store
@@ -188,12 +197,32 @@ impl Local for StoreLocal {
                 for stream in &local {
                     chains.push(tx.author_chain(stream)?);
                 }
+                let mut links = Vec::new();
+                for (id, token) in tx.link_admissions()? {
+                    let Some(link) = tx.recipient("link", &id)? else {
+                        continue;
+                    };
+                    let (false, true, Some(role)) = (
+                        link.revoked,
+                        link.pages.contains(&page.page),
+                        link.role.clone(),
+                    ) else {
+                        continue;
+                    };
+                    links.push(LiveLink {
+                        wraps: tx.owner_link_wraps(&page.page, page.epoch, &head, &id)?,
+                        id,
+                        role,
+                        token,
+                    });
+                }
                 Ok(Some(Snapshot {
                     retention_days: policy.retention_days,
                     archived: policy.archived,
                     statements: tx.membership_originals(&head)?,
                     chains,
                     wraps: tx.owner_member_wraps(&page.page, page.epoch, &head)?,
+                    links,
                 }))
             })
             .map_err(|error| read_fault(error.as_ref()))?
@@ -241,8 +270,31 @@ impl Local for StoreLocal {
                 ("role", text("editor")),
                 ("link", Field::Null(())),
                 ("token", Field::Null(())),
+                ("seq", mapping(Field::number(1))?),
             ],
         )?));
+        // A link's row opens enrollment, so its removal is recorded before the row is written.
+        let tracked = self
+            .store
+            .link_publications(&page.page)
+            .map_err(store_fault)?;
+        for link in &snapshot.links {
+            if !tracked.contains(&link.id) {
+                self.store
+                    .track_link_publication(&page.page, &link.id)
+                    .map_err(store_fault)?;
+            }
+            rows.push(Row::Create(admission(
+                Resource::Links,
+                vec![
+                    ("space", text(&self.space)),
+                    ("page", text(&page.page)),
+                    ("link", text(&link.id)),
+                    ("role", text(&link.role)),
+                    ("token", text(&link.token)),
+                ],
+            )?));
+        }
         let routing = self.routing(page, self.entry_expiry()?);
         for (kind, recipient, originals) in [
             (Authority::Membership, "", &snapshot.statements),
@@ -257,7 +309,60 @@ impl Local for StoreLocal {
                 }
             }
         }
+        for link in &snapshot.links {
+            let recipient = format!("{}{}", documents::LINK_RECIPIENT, link.id);
+            for bytes in &link.wraps {
+                for document in mapping(originals::authority_documents(
+                    &routing,
+                    Authority::Wrap,
+                    &recipient,
+                    bytes,
+                ))? {
+                    rows.push(Row::Create(document));
+                }
+            }
+        }
         Ok(rows)
+    }
+    fn retirements(&mut self, page: &PageRef) -> Result<Vec<Retirement>, Fault> {
+        let tracked = self
+            .store
+            .link_publications(&page.page)
+            .map_err(store_fault)?;
+        if tracked.is_empty() {
+            return Ok(Vec::new());
+        }
+        let live = self
+            .store
+            .owner_read(&self.space, &self.owner, |tx| {
+                let mut live = Vec::new();
+                for (id, _) in tx.link_admissions()? {
+                    if tx
+                        .recipient("link", &id)?
+                        .is_some_and(|link| !link.revoked && link.pages.contains(&page.page))
+                    {
+                        live.push(id);
+                    }
+                }
+                Ok(live)
+            })
+            .map_err(|error| read_fault(error.as_ref()))?;
+        tracked
+            .into_iter()
+            .filter(|link| !live.contains(link))
+            .map(|link| {
+                Ok(Retirement {
+                    target: mapping(documents::link_target(&self.space, &page.page, &link))?,
+                    scope: mapping(documents::holders_scope(&self.space, &page.page, &link))?,
+                    link,
+                })
+            })
+            .collect()
+    }
+    fn retired(&mut self, page: &PageRef, link: &str) -> Result<(), Fault> {
+        self.store
+            .end_link_publication(&page.page, link)
+            .map_err(store_fault)
     }
     fn next(&mut self, page: &PageRef) -> Result<Option<Data>, Fault> {
         for stream in self.local_streams(page)? {

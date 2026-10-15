@@ -146,6 +146,43 @@ impl Store {
             confirmed_seq: 0,
         })
     }
+    /// Record, before the owner writes a link's cloud row, that the row may exist: its removal
+    /// then survives a restart. Idempotent.
+    pub fn track_link_publication(&mut self, page: &str, link: &str) -> StoreResult<()> {
+        bounded_id(page)?;
+        bounded_id(link)?;
+        let count: i64 = self.connection.query_row(
+            "SELECT count(*) FROM link_publications WHERE page=?",
+            [page],
+            |r| r.get(0),
+        )?;
+        if count >= crate::limits::SYNC_NAMESPACES as i64 {
+            return Err(Fault::Capacity);
+        }
+        self.connection.execute(
+            "INSERT OR IGNORE INTO link_publications VALUES (?,?)",
+            params![page, link],
+        )?;
+        Ok(())
+    }
+    /// The links of a page whose cloud row may exist, by link ID.
+    pub fn link_publications(&self, page: &str) -> StoreResult<Vec<String>> {
+        let mut query = self
+            .connection
+            .prepare("SELECT link FROM link_publications WHERE page=? ORDER BY link")?;
+        let rows = query
+            .query_map([page], |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+    /// The link's removal from the cloud is complete for this page.
+    pub fn end_link_publication(&mut self, page: &str, link: &str) -> StoreResult<()> {
+        self.connection.execute(
+            "DELETE FROM link_publications WHERE page=? AND link=?",
+            params![page, link],
+        )?;
+        Ok(())
+    }
     pub fn publication_progress(
         &self,
         scope: StreamScope<'_>,

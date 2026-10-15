@@ -33,7 +33,7 @@ impl Resource {
             Self::Spaces => &["space", "owner"],
             Self::Pages => &["space", "page", "epoch", "state", "expiresAt"],
             Self::Links => &["space", "page", "link", "role", "token"],
-            Self::Members => &["space", "page", "uid", "role", "link", "token"],
+            Self::Members => &["space", "page", "uid", "role", "link", "token", "seq"],
             Self::Log => &[
                 "space",
                 "page",
@@ -203,7 +203,10 @@ fn id(resource: Resource, fields: &Fields) -> Result<String, Invalid> {
             let recipient = text(fields, "recipient")?;
             match kind {
                 "membership" | "chain" if recipient.is_empty() => {}
-                "wrap" => wire_name(recipient)?,
+                "wrap" => match recipient.strip_prefix(LINK_RECIPIENT) {
+                    Some(link) => values::generated_id(link).map_err(|_| Invalid)?,
+                    None => wire_name(recipient)?,
+                },
                 _ => return Err(Invalid),
             }
             let subject = text(fields, "subject")?;
@@ -217,6 +220,9 @@ fn id(resource: Resource, fields: &Fields) -> Result<String, Invalid> {
         }
     })
 }
+/// A wrap addressed to a link rather than a uid: `link:` and the link's ID. A holder enrolled by
+/// that link reads it, whatever Firebase uid it has.
+pub const LINK_RECIPIENT: &str = "link:";
 fn wire_name(value: &str) -> Result<(), Invalid> {
     if value.is_empty()
         || value.len() > 128
@@ -252,6 +258,10 @@ fn check(resource: Resource, fields: &Fields) -> Result<(), Invalid> {
         }
     }
     if resource == Resource::Members {
+        // A constant the declaration grammar needs for the per-link holder discovery.
+        if integer(fields, "seq")? != 1 {
+            return Err(Invalid);
+        }
         let null_link = matches!(fields.get("link"), Some(Field::Null(())));
         let null_token = matches!(fields.get("token"), Some(Field::Null(())));
         if null_link != null_token {
@@ -329,6 +339,27 @@ pub fn decode(resource: Resource, document: &sync::Document) -> Result<Fields, I
         return Err(Invalid);
     }
     Ok(fields)
+}
+/// A link's cloud `links` row, by the ID its fields build.
+pub fn link_target(space: &str, page: &str, link: &str) -> Result<sync::Target, Invalid> {
+    values::space_id(space).map_err(|_| Invalid)?;
+    values::generated_id(page).map_err(|_| Invalid)?;
+    values::generated_id(link).map_err(|_| Invalid)?;
+    Ok(sync::Target {
+        resource: Resource::Links.name().into(),
+        id: format!("{space}_{page}_{link}"),
+    })
+}
+/// The owner's `holders` discovery: the member rows enrolled by one link of one page.
+pub fn holders_scope(space: &str, page: &str, link: &str) -> Result<Map<String, Value>, Invalid> {
+    values::space_id(space).map_err(|_| Invalid)?;
+    values::generated_id(page).map_err(|_| Invalid)?;
+    values::generated_id(link).map_err(|_| Invalid)?;
+    Ok(Map::from_iter([
+        ("space".into(), json!({"stringValue": space})),
+        ("page".into(), json!({"stringValue": page})),
+        ("link".into(), json!({"stringValue": link})),
+    ]))
 }
 /// Page interests and discovery are equality-only scopes. Stream progress is a
 /// separate verified cursor, never inserted into an interest.

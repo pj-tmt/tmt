@@ -72,10 +72,20 @@
       "ttlField": null,
       "indexes": [],
       "sync": {
-        "fields": ["space", "page", "uid", "role", "link", "token"],
+        "fields": ["space", "page", "uid", "role", "link", "token", "seq"],
         "spaceField": "space",
         "uidField": null,
-        "query": null,
+        "query": {
+          "scopeFields": ["space", "page", "link", "uid"],
+          "streamField": "uid",
+          "seqField": "seq",
+          "order": "asc",
+          "discovery": {
+            "name": "holders",
+            "scopeFields": ["space", "page", "link"],
+            "seqEquals": null
+          }
+        },
         "writeModes": ["create", "put", "delete"]
       }
     },
@@ -204,7 +214,7 @@
   ],
   "admission": {
     "artifact": "firestore/admission.rules",
-    "digest": "ec2a6f45fa1afcf7fe6c452d03337bddb1e98e922d0d3190545c27e0c086acaf",
+    "digest": "f02fdb76b1a8ecafc2d2f631b2a821aa065f7dd32ae8fae9c02241ae898bc946",
     "entryPoint": "colabAdmitted"
   }
 }

@@ -425,6 +425,9 @@ pub struct Applied {
     pub body: Vec<u8>,
     pub archived_page: Option<String>,
     pub deleted_page: Option<String>,
+    /// Pages whose authority this change moved, for the cloud worker to look at again. Empty for
+    /// a replay and for a deletion.
+    pub touched: Vec<String>,
 }
 
 pub fn browser(
@@ -496,6 +499,7 @@ fn apply(
             body: serde_json::to_vec(&reply).map_err(|_| Code::Unavailable)?,
             archived_page: None,
             deleted_page: None,
+            touched: Vec::new(),
         });
     }
     let selected_pages = match &command.action {
@@ -618,11 +622,17 @@ fn apply(
     if matches!(command.action, Action::Delete) {
         reply["storage"] = serde_json::json!(Storage::Pending);
     }
+    let touched = if applied.replayed || matches!(command.action, Action::Delete) {
+        Vec::new()
+    } else {
+        selected_pages.to_vec()
+    };
     Ok(Applied {
         body: serde_json::to_vec(&reply).map_err(|_| Code::Unavailable)?,
         archived_page: (!applied.replayed && matches!(command.action, Action::Archive))
             .then(|| command.page.clone()),
         deleted_page: matches!(command.action, Action::Delete).then_some(command.page),
+        touched,
     })
 }
 
