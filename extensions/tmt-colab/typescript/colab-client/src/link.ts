@@ -137,7 +137,7 @@ export async function deriveDevice(
   seed: Uint8Array,
   space: string,
   linkId: string,
-  transport: LinkTransport = 'door',
+  transport: LinkTransport,
 ): Promise<DerivedDevice> {
   spaceId(space);
   generatedId(linkId);

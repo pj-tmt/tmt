@@ -67,17 +67,18 @@ describe('derived link device', () => {
       expect(other.id).not.toBe(device.id);
     },
   );
-  it('defaults to the door, and gives each transport a device of its own', async () => {
+  it('gives each transport a device of its own, and has no default transport', async () => {
     const seed = hex(v.linkSeed);
-    const [door, hosted, bare] = await Promise.all([
+    const [door, hosted] = await Promise.all([
       c.link.deriveDevice(seed, v.space, v.linkId, 'door'),
       c.link.deriveDevice(seed, v.space, v.linkId, 'hosted'),
-      c.link.deriveDevice(seed, v.space, v.linkId),
     ]);
-    expect(bare.id).toBe(door.id);
-    expect(bare.signingPublic).toEqual(door.signingPublic);
     expect(hosted.id).not.toBe(door.id);
     expect(hosted.signingPublic).not.toEqual(door.signingPublic);
+    // A caller names its transport: omitting it, or naming another, derives nothing.
+    await expect(
+      (c.link.deriveDevice as (...args: unknown[]) => Promise<unknown>)(seed, v.space, v.linkId),
+    ).rejects.toThrow();
     await expect(
       c.link.deriveDevice(seed, v.space, v.linkId, 'other' as c.link.LinkTransport),
     ).rejects.toThrow();
