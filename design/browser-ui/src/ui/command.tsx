@@ -54,7 +54,7 @@ export function CommandInput({ className, ...props }: ComponentProps<typeof Prim
   return (
     <div
       data-slot="command-input-wrapper"
-      className="tmt:flex tmt:min-w-0 tmt:items-center tmt:gap-2 tmt:border-0 tmt:border-b tmt:border-solid tmt:border-border tmt:px-3"
+      className="tmt:flex tmt:min-w-0 tmt:items-center tmt:gap-2 tmt:border-0 tmt:border-b-(length:--tmt-foundation-rule-width) tmt:border-solid tmt:border-border tmt:px-3"
     >
       <SearchIcon aria-hidden="true" className="tmt:size-4 tmt:shrink-0" />
       <Primitive.Input
@@ -108,7 +108,7 @@ export function CommandSeparator({
   return (
     <Primitive.Separator
       data-slot="command-separator"
-      className={cn('tmt:mx-0 tmt:h-px tmt:bg-border', className)}
+      className={cn('tmt:mx-0 tmt:h-(--tmt-foundation-rule-width) tmt:bg-border', className)}
       {...props}
     />
   );

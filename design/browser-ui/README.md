@@ -608,7 +608,8 @@ shield, while ordinary Combobox and Popover retain default `'through'`. The
 transparent, nonfocusable, aria-hidden shield is owned by the layer, shares its
 originating portal and lifetime, and always consumes the first pointer press,
 even when host close admission vetoes it. The persistent external input remains
-usable above the shield with token-backed stacking; it is neither hidden nor
+usable above the shield with token-backed stacking only while that popup is open;
+closed anchors retain no overlay stacking. It is neither hidden nor
 focus-trapped by a modal substitute. No document click interceptor or second
 popup owner is involved. Escape follows the
 accepted layer contract. The host supplies persistent return/fallback targets

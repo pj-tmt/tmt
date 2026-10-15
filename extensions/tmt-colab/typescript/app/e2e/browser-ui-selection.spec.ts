@@ -695,3 +695,111 @@ test('deferred popup close never steals focus from an admitted chip removal', as
     });
   }
 });
+
+for (const width of [320, 390, 1440]) {
+  for (const theme of ['light', 'dark'] as const) {
+    test(`CommandDialog family real focus navigation and tokens ${width} ${theme}`, async ({
+      page,
+    }, info) => {
+      await page.setViewportSize({ width, height: 900 });
+      await gallery(page);
+      await page.getByLabel('Outer theme').selectOption(theme);
+      const opener = page.getByRole('button', { name: 'Open command family', exact: true });
+      await opener.click();
+      const dialog = page.getByRole('dialog', { name: 'Command family dialog' });
+      const input = dialog.getByRole('combobox');
+      await expect(input).toBeFocused();
+      await input.press('Shift+Tab');
+      await expect(dialog.getByRole('button', { name: 'Close', exact: true })).toBeFocused();
+      await page.keyboard.press('Tab');
+      await expect(input).toBeFocused();
+      for (const label of ['Chips search', 'Descendant input']) {
+        const residue = await page
+          .getByRole('combobox', { name: label, exact: true, includeHidden: true })
+          .evaluate((field) => {
+            const layers: { tag: string; zIndex: string; pointerEvents: string }[] = [];
+            for (
+              let node = field.parentElement;
+              node && !node.hasAttribute('data-tmt-ui');
+              node = node.parentElement
+            ) {
+              const style = getComputedStyle(node);
+              if (style.zIndex !== 'auto')
+                layers.push({
+                  tag: node.tagName,
+                  zIndex: style.zIndex,
+                  pointerEvents: style.pointerEvents,
+                });
+            }
+            return layers;
+          });
+        await info.attach(`closed-anchor-${label}`, {
+          contentType: 'application/json',
+          body: JSON.stringify(residue),
+        });
+        expect(residue).toEqual([]);
+      }
+      // A real modal must paint above persistent controls from closed selection
+      // popups, including where an external anchor intersects its surface.
+      expect(
+        await dialog.evaluate((node) => {
+          const r = node.getBoundingClientRect();
+          return [0.2, 0.5, 0.8].every((x) =>
+            [0.2, 0.5, 0.8].every((y) => {
+              const top = document.elementFromPoint(r.left + r.width * x, r.top + r.height * y);
+              return top !== null && node.contains(top);
+            }),
+          );
+        }),
+      ).toBe(true);
+      await expect(dialog.getByText('Local commands', { exact: true })).toBeVisible();
+      await expect(dialog.getByText('Ctrl+P', { exact: true })).toBeVisible();
+      const line = dialog.locator('[data-slot=command-separator]');
+      await expect(line).toHaveCSS('height', tokens.browser.metric['rule-width']);
+      await expect(dialog.locator('[data-slot=command-input-wrapper]')).toHaveCSS(
+        'border-bottom-width',
+        tokens.browser.metric['rule-width'],
+      );
+      // Perturb only this fixture island's inherited metric to distinguish a
+      // token projection from a coincidentally equal hard-coded 1px line.
+      const variedRule = `${Number.parseFloat(tokens.browser.metric['rule-width']) * 2}px`;
+      await dialog.evaluate(
+        (node, value) => node.style.setProperty('--tmt-foundation-rule-width', value),
+        variedRule,
+      );
+      await expect(line).toHaveCSS('height', variedRule);
+      await expect(dialog.locator('[data-slot=command-input-wrapper]')).toHaveCSS(
+        'border-bottom-width',
+        variedRule,
+      );
+      await dialog.evaluate((node) => node.style.removeProperty('--tmt-foundation-rule-width'));
+      await expect(line).toHaveCSS('height', tokens.browser.metric['rule-width']);
+      await expect(dialog).toHaveCSS('background-color', rgb(tokens.browser.surface.paper[theme]));
+      await input.pressSequentially('unmatched');
+      await expect(dialog.getByText('No local commands', { exact: true })).toBeVisible();
+      await input.fill('');
+      await input.press('End');
+      await expect(dialog.getByRole('option', { name: /Open project/ })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      );
+      const bounds = await dialog.boundingBox();
+      expect(bounds!.x).toBeGreaterThanOrEqual(-1);
+      expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width + 1);
+      await page.screenshot({ path: info.outputPath('command-family.png') });
+      await input.press('Enter');
+      await expect(dialog).toHaveCount(0);
+      await expect(opener).toBeFocused();
+      await expect(page.getByLabel('Command family value')).toHaveText('project');
+      await expect(page.getByLabel('Command family calls')).toHaveText('1');
+      await opener.click();
+      await expect(
+        page.getByRole('dialog', { name: 'Command family dialog' }).getByRole('combobox'),
+      ).toBeFocused();
+      await page.keyboard.press('Escape');
+      await expect(dialog).toHaveCount(0);
+      await expect(opener).toBeFocused();
+      await expect(page.getByLabel('Command family calls')).toHaveText('1');
+    });
+  }
+}

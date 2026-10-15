@@ -118,6 +118,7 @@ function SelectionInput({
           className={cn(
             'tmt:min-w-0',
             outsidePress === 'dismiss-only' &&
+              controller.open &&
               'tmt:relative tmt:z-[calc(var(--tmt-foundation-z-layer)+1)]',
           )}
         >

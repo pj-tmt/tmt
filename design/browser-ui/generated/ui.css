@@ -287,9 +287,6 @@
   .tmt\:h-\[calc\(100\%-var\(--tmt-foundation-rule-width\)\)\] {
     height: calc(100% - var(--tmt-foundation-rule-width));
   }
-  .tmt\:h-px {
-    height: 1px;
-  }
   .tmt\:max-h-\(--tmt-layer-available-height\) {
     max-height: var(--tmt-layer-available-height);
   }
@@ -446,9 +443,9 @@
     border-style: var(--tmt-foundation-tw-border-style);
     border-width: 0px;
   }
-  .tmt\:border-b {
+  .tmt\:border-b-\(length\:--tmt-foundation-rule-width\) {
     border-bottom-style: var(--tmt-foundation-tw-border-style);
-    border-bottom-width: 1px;
+    border-bottom-width: var(--tmt-foundation-rule-width);
   }
   .tmt\:border-solid {
     --tmt-foundation-tw-border-style: solid;

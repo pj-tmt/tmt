@@ -3,6 +3,11 @@ import {
   Combobox,
   Command,
   CommandInput,
+  CommandDialog,
+  CommandEmpty,
+  CommandGroup,
+  CommandSeparator,
+  CommandShortcut,
   CommandList,
   CommandItem,
   PopoverAnchor,
@@ -127,6 +132,7 @@ export function SelectionFixtures() {
       </StrictMode>
       <NestedCase />
       <DescendantLayersCase />
+      <CommandFamilyCase />
       <output aria-label="Selection key detail">{keyDetail}</output>
       <output aria-label="Selection value">{value ?? 'None'}</output>
       <output aria-label="Selection callback count">{calls}</output>
@@ -274,7 +280,11 @@ function DescendantLayersCase() {
     <Command label="Descendant input" shouldFilter={false}>
       <Popover controller={controller}>
         <PopoverAnchor asChild>
-          <div className="tmt:relative tmt:z-[calc(var(--tmt-foundation-z-layer)+1)]">
+          <div
+            className={
+              open ? 'tmt:relative tmt:z-[calc(var(--tmt-foundation-z-layer)+1)]' : undefined
+            }
+          >
             <CommandInput asChild value={query} onValueChange={setQuery}>
               <input ref={input} aria-label="Descendant input" aria-expanded={open} />
             </CommandInput>
@@ -315,5 +325,44 @@ function DescendantLayersCase() {
         </PopoverContent>
       </Popover>
     </Command>
+  );
+}
+
+function CommandFamilyCase() {
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState('None');
+  const [calls, setCalls] = useState(0);
+  const controller = useLayerController({ open, onOpenChange: setOpen });
+  const select = (next: string) => {
+    if (controller.requestClose('selection')) {
+      setValue(next);
+      setCalls((count) => count + 1);
+    }
+  };
+  return (
+    <>
+      <Button onClick={() => controller.requestOpen()}>Open command family</Button>
+      <CommandDialog
+        controller={controller}
+        title="Command family dialog"
+        description="Local presentation commands only."
+      >
+        <CommandInput placeholder="Find a local command" />
+        <CommandList>
+          <CommandEmpty>No local commands</CommandEmpty>
+          <CommandGroup heading="Local commands">
+            <CommandItem value="file" onSelect={select}>
+              Open file<CommandShortcut>Ctrl+F</CommandShortcut>
+            </CommandItem>
+            <CommandItem value="project" onSelect={select}>
+              Open project<CommandShortcut>Ctrl+P</CommandShortcut>
+            </CommandItem>
+          </CommandGroup>
+          <CommandSeparator />
+        </CommandList>
+      </CommandDialog>
+      <output aria-label="Command family value">{value}</output>
+      <output aria-label="Command family calls">{calls}</output>
+    </>
   );
 }
