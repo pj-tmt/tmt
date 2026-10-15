@@ -97,28 +97,57 @@ pub(super) enum Attempt<E> {
     Skipped,
 }
 
-/// The identity of the run's binding while it is still current, or `None`.
-fn current(paths: &ConfigPaths, binding: &Binding) -> Result<Option<Identity>, ()> {
-    let mut storage = Storage::open_hook(&paths.database, Instant::now() + READ).map_err(|_| ())?;
-    let entry = storage.binding_entry(&binding.identity_id);
-    let _ = storage.close();
-    Ok(entry.map_err(|_| ())?.and_then(|entry| {
-        entry
-            .binding
-            .is_some_and(|current| current.id == binding.id)
-            .then_some(entry.identity)
-    }))
+/// The storage reads and the host call of one attempt. The run passes
+/// [`Live`]; the tests pass a store and a host that they change at exact
+/// points of the attempt.
+pub(super) trait Ports {
+    type Error;
+    /// The identity of the run's binding while that binding is still
+    /// current, `None` when it ended or moved, or `Err` when storage could
+    /// not be read in time.
+    fn current(&mut self) -> Result<Option<Identity>, ()>;
+    /// Asks the host to give the agent `identity`'s name.
+    fn name_agent(&mut self, identity: &Identity) -> Result<AgentNaming, Self::Error>;
+}
+
+/// The run's own storage and host.
+pub(super) struct Live<'a> {
+    pub(super) paths: &'a ConfigPaths,
+    pub(super) host: &'a Host,
+    pub(super) binding: &'a Binding,
+}
+
+impl Ports for Live<'_> {
+    type Error = HostError;
+
+    fn current(&mut self) -> Result<Option<Identity>, ()> {
+        let mut storage =
+            Storage::open_hook(&self.paths.database, Instant::now() + READ).map_err(|_| ())?;
+        let entry = storage.binding_entry(&self.binding.identity_id);
+        let _ = storage.close();
+        Ok(entry.map_err(|_| ())?.and_then(|entry| {
+            entry
+                .binding
+                .is_some_and(|current| current.id == self.binding.id)
+                .then_some(entry.identity)
+        }))
+    }
+
+    fn name_agent(&mut self, identity: &Identity) -> Result<AgentNaming, HostError> {
+        self.host
+            .name_agent(self.binding, identity, Some(Instant::now() + CALL))
+    }
 }
 
 /// One attempt: a read, the host call with no transaction open, a read.
-pub(super) fn attempt(paths: &ConfigPaths, host: &Host, binding: &Binding) -> Attempt<HostError> {
-    let identity = match current(paths, binding) {
+pub(super) fn attempt<P: Ports>(ports: &mut P) -> Attempt<P::Error> {
+    let identity = match ports.current() {
         Ok(Some(identity)) => identity,
         Ok(None) => return Attempt::Moved,
         Err(()) => return Attempt::Skipped,
     };
-    let answer = host.name_agent(binding, &identity, Some(Instant::now() + CALL));
-    let after = match current(paths, binding) {
+    let answer = ports.name_agent(&identity);
+    let after = match ports.current() {
         Ok(Some(now)) if now.name == identity.name => After::Current,
         Ok(Some(now)) => After::Renamed(now.name),
         Ok(None) => After::Ended,
@@ -128,6 +157,29 @@ pub(super) fn attempt(paths: &ConfigPaths, host: &Host, binding: &Binding) -> At
         name: identity.name,
         answer,
         after,
+    }
+}
+
+/// The warning for `issue`, and its hint. `host` and `target` are the
+/// binding's, for the host command that clears a name.
+pub(super) fn warning(
+    issue: Issue<HostError>,
+    host: &str,
+    target: Option<&str>,
+) -> (String, Option<String>) {
+    match issue {
+        Issue::Host { name, error } => {
+            let (what, fix) = crate::binding_command::agent_name_text(&name, &error);
+            (what, Some(fix))
+        }
+        Issue::Renamed(name) => {
+            let (what, fix) = crate::binding_command::agent_name_renamed_text(&name);
+            (what, Some(fix))
+        }
+        Issue::Ended(name) => (
+            crate::binding_command::agent_name_ended_text(&name, host, target),
+            None,
+        ),
     }
 }
 
@@ -461,5 +513,171 @@ mod tests {
     #[test]
     fn a_command_that_exits_before_the_first_tick_gets_no_warning() {
         assert_eq!(issue(AgentNamer::<Refused>::default()), None);
+    }
+
+    /// One other command's effect: its commit and its own naming.
+    type Move = fn(&mut World);
+
+    /// The store and the host of a race, with the other commands' moves at
+    /// exact points of each run call: before the call lands (between the
+    /// run's first read and its call) or after it (between the call and the
+    /// second read). No clock or thread decides the order.
+    struct World {
+        /// The identity's name in storage.
+        name: String,
+        bound: bool,
+        /// The host's agent name.
+        agent: Option<String>,
+        /// The names the run asked for, in order.
+        calls: Vec<String>,
+        /// Per run call: the moves before and after it lands.
+        moves: std::collections::VecDeque<(Option<Move>, Option<Move>)>,
+    }
+
+    impl World {
+        fn new(moves: Vec<(Option<Move>, Option<Move>)>) -> Self {
+            Self {
+                name: "worker".into(),
+                bound: true,
+                agent: None,
+                calls: Vec::new(),
+                moves: moves.into(),
+            }
+        }
+
+        /// `tmt mv`: the new name is committed, then the mv names the agent.
+        fn mv(&mut self, name: &str) {
+            self.name = name.into();
+            self.agent = Some(name.into());
+        }
+
+        /// `tmt unbind`: the unbind takes the agent name away, then the
+        /// binding ends.
+        fn unbind(&mut self) {
+            self.agent = None;
+            self.bound = false;
+        }
+
+        /// The run's naming at each of `ticks` wait ticks.
+        fn run(&mut self, ticks: u32) -> AgentNamer<Refused> {
+            let mut namer = AgentNamer::<Refused>::default();
+            for _ in 0..ticks {
+                namer.attempt(|| attempt(self));
+            }
+            namer
+        }
+    }
+
+    impl Ports for World {
+        type Error = Refused;
+
+        fn current(&mut self) -> Result<Option<Identity>, ()> {
+            Ok(self.bound.then(|| Identity {
+                id: "identity".into(),
+                name: self.name.clone(),
+                canonical_name: self.name.clone(),
+                lifetime: tmt_core::identity::Lifetime::Saved,
+                created_at: String::new(),
+                updated_at: String::new(),
+            }))
+        }
+
+        fn name_agent(&mut self, identity: &Identity) -> Result<AgentNaming, Refused> {
+            let (before, after) = self.moves.pop_front().unwrap_or_default();
+            if let Some(other) = before {
+                other(self);
+            }
+            self.calls.push(identity.name.clone());
+            self.agent = Some(identity.name.clone());
+            if let Some(other) = after {
+                other(self);
+            }
+            Ok(AgentNaming::Done)
+        }
+    }
+
+    /// A mv that commits and names the agent between the run's read and its
+    /// call: the run's call lands last with the older name, the read after
+    /// it sees the new name, and the next tick sets that.
+    #[test]
+    fn a_rename_between_the_read_and_the_call_is_set_at_the_next_tick() {
+        let mut world = World::new(vec![(Some(|world| world.mv("boss")), None)]);
+        let mut namer = world.run(1);
+        assert_eq!(
+            world.agent.as_deref(),
+            Some("worker"),
+            "the older name landed last"
+        );
+        for _ in 0..5 {
+            namer.attempt(|| attempt(&mut world));
+        }
+        assert_eq!(world.calls, ["worker", "boss"]);
+        assert_eq!(world.agent.as_deref(), Some("boss"));
+        assert_eq!(issue(namer), None);
+    }
+
+    /// Two renames, each inside a run call, end with the newest name; so
+    /// does a rename between the call and the second read.
+    #[test]
+    fn two_renames_during_the_runs_calls_end_with_the_newest_name() {
+        let mut world = World::new(vec![
+            (Some(|world| world.mv("boss")), None),
+            (Some(|world| world.mv("chief")), None),
+        ]);
+        let namer = world.run(10);
+        assert_eq!(world.calls, ["worker", "boss", "chief"]);
+        assert_eq!(world.agent.as_deref(), Some("chief"));
+        assert_eq!(issue(namer), None);
+
+        let mut world = World::new(vec![(None, Some(|world| world.mv("boss")))]);
+        let namer = world.run(10);
+        assert_eq!(world.calls, ["worker", "boss"]);
+        assert_eq!(world.agent.as_deref(), Some("boss"));
+        assert_eq!(issue(namer), None);
+    }
+
+    /// A binding that ends while a run call is in flight: the run makes no
+    /// later call, does not clear the name, and warns once. That holds
+    /// whether the unbind's own clear came before the run's call landed
+    /// (the name stays) or after it.
+    #[test]
+    fn a_binding_that_ends_during_the_runs_call_gets_one_warning() {
+        let mut world = World::new(vec![(Some(World::unbind), None)]);
+        let namer = world.run(10);
+        assert_eq!(world.calls, ["worker"]);
+        assert_eq!(world.agent.as_deref(), Some("worker"), "the run left it");
+        assert_eq!(issue(namer).as_deref(), Some("ended:worker"));
+
+        let mut world = World::new(vec![(None, Some(World::unbind))]);
+        let namer = world.run(10);
+        assert_eq!(world.calls, ["worker"]);
+        assert_eq!(world.agent, None);
+        assert_eq!(issue(namer).as_deref(), Some("ended:worker"));
+    }
+
+    /// The rename and ended warnings, after the command: the ended one
+    /// names the Herdr clear command only for a Herdr pane with a target.
+    #[test]
+    fn the_rename_and_ended_warnings_say_how_to_repair() {
+        let (what, fix) = warning(Issue::Renamed("chief".into()), "herdr", Some("w1:p2"));
+        assert!(
+            what.starts_with(
+                "TMT could not confirm the agent name chief: the identity was renamed"
+            ),
+            "{what}"
+        );
+        assert_eq!(
+            fix.as_deref(),
+            Some("To retry setting the agent name, in the agent's pane run: tmt this chief")
+        );
+        let (what, fix) = warning(Issue::Ended("worker".into()), "herdr", Some("w1:p2"));
+        assert_eq!(
+            what,
+            "The binding ended while TMT set the agent name worker. If the herdr agent still \
+             has that agent name, clear it in the host (herdr agent rename 'w1:p2' --clear)."
+        );
+        assert_eq!(fix, None);
+        let (what, _) = warning(Issue::Ended("worker".into()), "fake", Some("f1"));
+        assert!(what.ends_with("clear it in the host."), "{what}");
     }
 }

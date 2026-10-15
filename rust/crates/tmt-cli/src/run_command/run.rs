@@ -645,9 +645,18 @@ pub(super) fn run_bound(
             crate::consumption_sample_command::tick(&binding.identity_id, &binding.id, owner);
         }
     };
+    // Only a driver host has agent names: a tmux binding skips the step.
+    let names_agents = matches!(binding.server.host, tmt_core::host::HostKind::External(_));
+    let mut live = super::agent_name::Live {
+        paths,
+        host,
+        binding,
+    };
     let mut naming_step = || {
-        namer.attempt(|| super::agent_name::attempt(paths, host, binding));
-        leaked.set(namer.leaked());
+        if names_agents {
+            namer.attempt(|| super::agent_name::attempt(&mut live));
+            leaked.set(namer.leaked());
+        }
     };
     let waited = if already_exited {
         child.wait(on_degraded)
@@ -673,29 +682,15 @@ pub(super) fn run_bound(
     let leaked = match namer.into_outcome() {
         super::agent_name::Outcome::Quiet => None,
         super::agent_name::Outcome::Warning(issue) => {
-            use super::agent_name::Issue;
-            let (what, fix) = match issue {
-                Issue::Host { name, error } => {
-                    let (what, fix) = crate::binding_command::agent_name_text(&name, &error);
-                    (what, Some(fix))
-                }
-                Issue::Renamed(name) => {
-                    let (what, fix) = crate::binding_command::agent_name_renamed_text(&name);
-                    (what, Some(fix))
-                }
-                Issue::Ended(name) => (
-                    crate::binding_command::agent_name_ended_text(
-                        &name,
-                        binding.server.host.as_str(),
-                        bound
-                            .presence
-                            .pane
-                            .as_ref()
-                            .and_then(|pane| pane.target.as_deref()),
-                    ),
-                    None,
-                ),
-            };
+            let (what, fix) = super::agent_name::warning(
+                issue,
+                binding.server.host.as_str(),
+                bound
+                    .presence
+                    .pane
+                    .as_ref()
+                    .and_then(|pane| pane.target.as_deref()),
+            );
             super::warn(&what, fix.as_deref());
             None
         }

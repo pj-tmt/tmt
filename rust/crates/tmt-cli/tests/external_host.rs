@@ -66,16 +66,6 @@ case "$3" in
     # One answer per call from the queue; an empty queue sets the name.
     a=$(head -n 1 "$d/naming" 2>/dev/null)
     if [ -f "$d/naming" ]; then tail -n +2 "$d/naming" > "$d/naming.next"; mv "$d/naming.next" "$d/naming"; fi
-    # `hold` keeps the call in flight until the next other name-agent call
-    # has answered (the barrier), then answers like an empty queue. The run
-    # kills its call at 1 s, so the safety timeout is 0.9 s; a lapse is
-    # logged for the test to fail on.
-    if [ "$a" = hold ]; then
-      : > "$d/holding"; i=0
-      while [ ! -f "$d/release" ] && [ $i -lt 18 ]; do sleep 0.05; i=$((i+1)); done
-      if [ -f "$d/release" ]; then echo released >> "$d/held"; else echo lapsed >> "$d/held"; fi
-      rm -f "$d/holding" "$d/release"; a=
-    fi
     # Like a host driver, a host name TMT did not record is not changed, and
     # a name the agent already has is not adopted: no record is written.
     n=$(printf '%s' "$input" | sed -n 's/.*"name":"\([^"]*\)".*/\1/p')
@@ -86,10 +76,9 @@ case "$3" in
       '') if [ -n "$n" ]; then printf '%s' "$n" > "$d/agentname"; printf '%s' "$n" > "$d/recorded"; else rm -f "$d/agentname" "$d/recorded"; fi
           printf '{"ok":{}}' ;;
       ok) printf '{"ok":{}}' ;;
-      slow) sleep 3; printf '{"ok":{}}' ;;
+      slow) sleep 3; echo answered >> "$d/slow-answered"; printf '{"ok":{}}' ;;
       *) printf '{"error":{"code":"%s","message":"host says %s"}}' "$a" "$a" ;;
-    esac
-    if [ -f "$d/holding" ]; then : > "$d/release"; fi ;;
+    esac ;;
   resolve-target)
     printf '%s\n' "$input" >> "$d/resolved"
     if [ -f "$d/slow" ]; then sleep 3; fi
@@ -836,140 +825,31 @@ fn run_does_not_repeat_an_uncertain_answer_and_says_it_is_uncertain() {
     assert!(!after.contains("was not set"), "{after}");
 }
 
-/// A `tmt run` this test owns: dropped before it finishes, as when an
-/// assertion fails, it is killed and reaped, so no process outlives the test.
-struct Running(Option<std::process::Child>);
-
-impl Running {
-    fn finish(mut self) -> Output {
-        self.0.take().unwrap().wait_with_output().unwrap()
-    }
-}
-
-impl Drop for Running {
-    fn drop(&mut self) {
-        if let Some(mut child) = self.0.take() {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
-    }
-}
-
-/// `tmt run` in the driver's pane for a command of `seconds`, still running.
-fn spawn_run(fixture: &Fixture, seconds: u32) -> Running {
-    let script = format!("sleep {seconds}; echo child-end >&2");
-    Running(Some(
-        fixture
-            .command_in(Some("f1"), &["run", "worker", "/bin/sh", "-c", &script])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap(),
-    ))
-}
-
-/// Runs `args` while the run's next `hold` call is in flight. The fake
-/// driver releases that call when the command's own name-agent call has
-/// answered, so the command's commit and naming land between the run's two
-/// reads. The run's 1 s call cap bounds the barrier; a lapse fails here.
-fn during_the_call(fixture: &Fixture, args: &[&str]) {
-    let holding = fixture.root.join("driver/holding");
-    let held = || fs::read_to_string(fixture.root.join("driver/held")).unwrap_or_default();
-    let before = held().lines().count();
-    // Bounded: the run's attempts come at its 5 s ticks.
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    while !holding.exists() {
-        assert!(std::time::Instant::now() < deadline, "no held call");
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
-    let output = fixture.tmt_in(Some("f1"), args);
-    assert!(output.status.success(), "tmt {args:?}: {output:?}");
-    while held().lines().count() == before {
-        assert!(
-            std::time::Instant::now() < deadline,
-            "the held call did not end"
-        );
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
-    assert_eq!(
-        held().lines().nth(before),
-        Some("released"),
-        "tmt {args:?} did not name the agent inside the run's 1 s call (lapsed)"
-    );
-}
-
-/// The names the driver was asked to set, in order.
-fn named_names(fixture: &Fixture) -> Vec<Value> {
-    fixture
-        .requests("named")
-        .iter()
-        .map(|request| request["name"].clone())
-        .collect()
-}
-
-/// Two `tmt mv`s, each committed and naming the agent while a call of the
-/// run is in flight: the run's call lands last with the older name, its read
-/// after the call sees the newer one, and its next tick sets that. The run
-/// ends with the newest name.
+/// A host call longer than the run's 1 s cap is stopped at the cap, its
+/// driver process with it, and the uncertain answer is not repeated: the run
+/// warns once after the command.
 #[test]
-fn run_ends_with_the_newest_name_after_renames_during_its_calls() {
+fn run_stops_a_naming_call_at_its_1_s_cap() {
     register();
-    let fixture = naming("run-renamed", &["hold", "", "hold", "", ""]);
+    let fixture = naming("run-slow", &["slow", "ok"]);
     fixture.approve();
-    let run = spawn_run(&fixture, 18);
-    during_the_call(&fixture, &["mv", "worker", "boss"]);
-    during_the_call(&fixture, &["mv", "boss", "chief"]);
-    let output = run.finish();
-    assert!(output.status.success(), "{output:?}");
-    // The run, the first mv, the run's correction (held), the second mv,
-    // the run's correction.
-    assert_eq!(
-        named_names(&fixture),
-        ["worker", "boss", "boss", "chief", "chief"]
-    );
-    assert_eq!(
-        fs::read_to_string(fixture.root.join("driver/agentname")).unwrap(),
-        "chief"
-    );
-    assert_eq!(after_the_command(&output), (String::new(), String::new()));
-}
-
-/// A binding that ends while the run's call is in flight: the call sets the
-/// name of a binding that is gone. The run does not clear it, and says once,
-/// after the command, how to clear it.
-#[test]
-fn a_binding_that_ends_during_the_runs_call_gets_one_warning() {
-    register();
-    let fixture = naming("run-ended", &["hold", ""]);
-    fixture.approve();
-    let run = spawn_run(&fixture, 8);
-    during_the_call(&fixture, &["unbind"]);
-    let output = run.finish();
-    assert!(output.status.success(), "{output:?}");
-    // The run, then the unbind's clear; the run made no later call.
-    assert_eq!(
-        named_names(&fixture),
-        [serde_json::json!("worker"), Value::Null]
-    );
-    assert_eq!(
-        fs::read_to_string(fixture.root.join("driver/agentname")).unwrap(),
-        "worker",
-        "the run's call landed last and the run left it"
+    // The call starts at the 5 s tick; the command ends 4 s later, after
+    // the slow driver would have answered had it not been stopped.
+    let (output, _) = run_in_pane(&fixture, 9);
+    assert_eq!(fixture.requests("named").len(), 1);
+    assert!(
+        !fixture.root.join("driver/slow-answered").exists(),
+        "the driver outlived the cap"
     );
     let (during, after) = after_the_command(&output);
     assert_eq!(during, "");
     assert!(
         after.contains(
-            "The binding ended while TMT set the agent name worker. If the fake agent still \
-             has that agent name, clear it in the host"
+            "could not confirm the agent name worker: Driver fake: External command failed: Timeout"
         ),
         "{after}"
     );
-    assert_eq!(
-        after.matches("agent name").count(),
-        2,
-        "one warning: {after}"
-    );
+    assert_eq!(after.matches("warning:").count(), 1, "{after}");
 }
 
 /// The `agentName` member of a JSON bind or rename.
