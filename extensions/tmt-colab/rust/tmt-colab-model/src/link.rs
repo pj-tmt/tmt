@@ -9,6 +9,7 @@ pub struct Keys {
     signer: SigningKey,
     recipient: RecipientKey,
     join_proof: [u8; 32],
+    rules_token: [u8; 32],
 }
 impl Keys {
     pub fn derive(seed: &[u8; 32], space: &str, id: &str) -> Result<Self> {
@@ -44,6 +45,15 @@ impl Keys {
                 seed,
                 &frame(&[b"tmt-colab-join-v1", space.as_bytes(), id.as_bytes()])?,
             ),
+            rules_token: crypto::derive_key(
+                seed,
+                &[],
+                &frame(&[
+                    b"tmt-colab-link-rules-token-v1",
+                    space.as_bytes(),
+                    id.as_bytes(),
+                ])?,
+            ),
         })
     }
     pub fn signing_public(&self) -> [u8; 32] {
@@ -54,6 +64,12 @@ impl Keys {
     }
     pub fn join_proof(&self) -> &[u8; 32] {
         &self.join_proof
+    }
+    /// The bearer token of the link's cloud `links` row, which a holder presents once to
+    /// self-admit. It is derived apart from every other key, so the cloud never sees more
+    /// than this one value of the seed.
+    pub fn rules_token(&self) -> String {
+        values::encode_binary(&self.rules_token)
     }
     /// Certification has no page/agent authority until the current owner log admits this issuer.
     pub fn certify(&self, device: &certificate::Certificate<'_>) -> Result<[u8; 64]> {

@@ -126,7 +126,7 @@ fn help_mouse_only_scrolls_its_content_and_never_activates_base_hits() {
 fn help_pages_by_the_painted_viewport_after_resizing_an_editor() {
     let mut app = workspace_board();
     let selected = app.workspace.selected.clone();
-    key(&mut app, KeyCode::Char('t'));
+    key(&mut app, KeyCode::Enter);
     assert!(app.input.is_some());
     app.paste("kept draft 界 e\u{301}");
     for (width, height) in [(160, 36), (100, 36), (80, 18), (60, 8)] {

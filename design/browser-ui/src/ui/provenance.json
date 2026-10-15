@@ -78,7 +78,7 @@
   "license": "MIT",
   "adaptation": {
     "helper": "src/ui/utils.ts; typed/formatting change and fixed tmt prefix via extendTailwindMerge",
-    "components": "Source pins only; no component implementation in Slice1",
+    "components": "Slice2 adapts Button, Input, Textarea, Checkbox, Switch, Separator, Badge, Alert and Tabs. Select is excluded pending qualification in #3057; its pinned source remains a reference only, like layers and selection.",
     "combobox": "Pinned Radix Popover plus Command/cmdk; CommandDialog depends on Dialog; do not use current Base UI combobox registry"
   },
   "dependencies": {
@@ -123,15 +123,6 @@
         "directory": "packages/tailwindcss"
       }
     },
-    "@tailwindcss/cli": {
-      "version": "4.3.3",
-      "license": "MIT",
-      "source": {
-        "type": "git",
-        "url": "https://github.com/tailwindlabs/tailwindcss.git",
-        "directory": "packages/@tailwindcss-cli"
-      }
-    },
     "react": {
       "version": "19.2.8",
       "license": "MIT",
@@ -149,14 +140,76 @@
         "url": "https://github.com/react/react.git",
         "directory": "packages/react-dom"
       }
-    }
-  },
-  "deferredDependencies": {
+    },
     "class-variance-authority": {
       "version": "0.7.1",
       "license": "Apache-2.0",
       "source": "https://github.com/joe-bell/cva.git",
-      "status": "Deferred: Apache-2.0 contradicts approved MIT-only premise; no Slice1 consumer. Slice2 requires lead license/dependency acceptance."
+      "packageSha256": "f487885eb010b36aec829ab8fb5fc845918006c4633e3c88c750e73bd35c6381",
+      "licenseFile": "src/ui/LICENSE.cva",
+      "licenseSha256": "0ccbf956cffc8dcf515809433cb5242ee67c94513d46e48c261d68d0880de406"
+    }
+  },
+  "resolvedPrimitiveDependencies": {
+    "@radix-ui/react-slot": {
+      "version": "1.5.0",
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/radix-ui/primitives.git",
+        "directory": "packages/react/slot"
+      },
+      "module": "dist/index.mjs",
+      "moduleSha256": "de9e52b78cdb8c5e5d5e79ccbe97ddbb44f875e17114c6db1ac48201a4527850",
+      "packageSha256": "904847542040d15d407ef35e21e782c0082453b504ac25c209c18164042f5dc6"
+    },
+    "@radix-ui/react-checkbox": {
+      "version": "1.4.1",
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/radix-ui/primitives.git",
+        "directory": "packages/react/checkbox"
+      },
+      "module": "dist/index.mjs",
+      "moduleSha256": "4ab463270ae7972dab91f3c4a7325e9bb51cd7cf9d61a59bad700adc7ccfb7f6",
+      "packageSha256": "1a79523d4a6f0cd9e38cef75daa11a6fb31e976eb1f88079a6e41085b9d0ec16"
+    },
+    "@radix-ui/react-switch": {
+      "version": "1.4.1",
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/radix-ui/primitives.git",
+        "directory": "packages/react/switch"
+      },
+      "module": "dist/index.mjs",
+      "moduleSha256": "418cb2c63597399884addbbfb4974188702632584b3a84033ff4079ac3de50df",
+      "packageSha256": "0fd95ff3e5f85cde184d0fef3abe5937a58df30730730308a4023b3b3b264b7a"
+    },
+    "@radix-ui/react-separator": {
+      "version": "1.2.0",
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/radix-ui/primitives.git",
+        "directory": "packages/react/separator"
+      },
+      "module": "dist/index.mjs",
+      "moduleSha256": "5eb380e1fc094a1303ebbaa3769937f593fe41485722b06d14e6c5893b23c569",
+      "packageSha256": "cc21efde40ffc535ed7413b6681a962326d843051eea9933837d760f52216f35"
+    },
+    "@radix-ui/react-tabs": {
+      "version": "1.2.1",
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/radix-ui/primitives.git",
+        "directory": "packages/react/tabs"
+      },
+      "module": "dist/index.mjs",
+      "moduleSha256": "add042d623442590b3b54de2a5ed9840a8461314a193737414498860e0c49ac8",
+      "packageSha256": "47de7d36fb608935e8ab43ccb2bb356472f8b753ed10a20c2b241d1e841ebce4"
     }
   }
 }

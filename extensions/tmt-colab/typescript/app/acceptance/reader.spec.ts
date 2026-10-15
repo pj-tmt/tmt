@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createPrivateKey, createPublicKey, randomBytes, randomUUID } from 'node:crypto';
 import { request } from 'node:http';
 import {
   binary,
@@ -14,6 +14,7 @@ import {
   text,
 } from '@tmt/colab-client';
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
@@ -43,6 +44,14 @@ const deviceRows = (world: AcceptanceWorld) =>
     ).trim(),
   );
 
+/** The owner's root public key, which a reader link carries as `root` (the key derives the space). */
+const ownerRoot = (world: AcceptanceWorld) => {
+  const seed = readFileSync(path.join(world.dataRoot, 'colab', 'owner.key'));
+  const pkcs8 = Buffer.concat([Buffer.from('302e020100300506032b657004220420', 'hex'), seed]);
+  const key = createPrivateKey({ key: pkcs8, format: 'der', type: 'pkcs8' });
+  return createPublicKey(key).export({ format: 'jwk' }).x!;
+};
+
 /** The seed is the one secret in a reader link; it lives in the fragment only. */
 const seedOf = (readerPath: string) => new URLSearchParams(readerPath.split('#')[1]).get('seed')!;
 
@@ -63,6 +72,12 @@ test('reader link: opens unpaired, shows live edits read-only, and ends on Reset
     const added = colab(world, ['share', 'link', 'add', created.pageId, '--yes']);
     const readerPath = added.readerPath as string;
     expect(readerPath.startsWith('x/colab/read#v=1&')).toBe(true);
+    const printed = new URLSearchParams(readerPath.split('#')[1]);
+    expect([...printed.keys()].sort()).toEqual(
+      ['link', 'page', 'rev', 'role', 'root', 'seed', 'space', 'st', 'v'].sort(),
+    );
+    expect(printed.get('root')).toBe(ownerRoot(world));
+    expect(printed.get('role')).toBe('viewer');
 
     // An unpaired profile gets the reader entry but no owner file.
     const owner = await fetch(`${door.address}/x/colab/index.html`);
@@ -177,6 +192,21 @@ test('reader link: opens unpaired, shows live edits read-only, and ends on Reset
       reader.requests.filter((r) => r.url.includes(seed) || (r.body ?? '').includes(seed)),
     ).toEqual([]);
 
+    // A link printed before `root` and `role` existed says so, and tells the viewer what to ask for.
+    const older = await openReaderLink(
+      world,
+      door,
+      readerPath.replace(/&root=[^&]*&role=viewer$/, ''),
+      'reader-older',
+    );
+    await expect(
+      older.page.getByRole('heading', { name: 'Link out of date', level: 2 }),
+    ).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(older.page.getByText('tmt colab share link reset')).toBeVisible();
+    expect(older.requests.filter((r) => r.url.includes('/api/'))).toEqual([]);
+
     // Reset ends the old link, live, and the replacement opens in another profile.
     const reset = colab(world, [
       'share',
@@ -260,7 +290,7 @@ async function twoPageLink(world: AcceptanceWorld, pages: string[]) {
   expect(ack.operationId).toBe(operationId);
   return {
     linkId,
-    readerPath: `x/colab/read#v=1&space=${current.spaceId}&page=${pages[0]}&link=${linkId}&rev=${ack.membershipHead.revision}&st=${ack.membershipHead.statementHash}&seed=${seed}`,
+    readerPath: `x/colab/read#v=1&space=${current.spaceId}&page=${pages[0]}&link=${linkId}&rev=${ack.membershipHead.revision}&st=${ack.membershipHead.statementHash}&seed=${seed}&root=${ownerRoot(world)}&role=viewer`,
   };
 }
 

@@ -118,7 +118,11 @@ export function useQuestionLayer({
               className="proposal-inline question-inline"
               data-detached={!attached || undefined}
               data-tab-placement={slot?.beforeTop !== undefined || undefined}
-              style={{ top: slot?.beforeTop ?? slot?.top ?? 0 }}
+              style={{
+                top: slot?.beforeTop ?? slot?.top ?? 0,
+                left: slot?.left,
+                width: slot?.width,
+              }}
               onKeyDown={(event) => {
                 if (
                   !event.isTrusted ||

@@ -61,14 +61,14 @@ impl DerefMut for Fixture {
 fn resources(rows: &[Row]) -> Vec<&str> {
     rows.iter()
         .map(|row| match row {
-            Row::Create(document) | Row::Put(document) => document.target.resource.as_str(),
+            Row::Create(document) | Row::Put { document, .. } => document.target.resource.as_str(),
         })
         .collect()
 }
 fn documents(rows: &[Row], resource: &str) -> Vec<sync::Document> {
     rows.iter()
         .map(|row| match row {
-            Row::Create(document) | Row::Put(document) => document,
+            Row::Create(document) | Row::Put { document, .. } => document,
         })
         .filter(|document| document.target.resource == resource)
         .cloned()
@@ -104,7 +104,7 @@ fn the_preamble_is_the_owner_rows_then_each_signed_original_exactly() {
         ]
     );
     assert!(matches!(rows[0], Row::Create(_)));
-    assert!(matches!(rows[1], Row::Put(_)));
+    assert!(matches!(rows[1], Row::Put { .. }));
     assert!(matches!(rows[2], Row::Create(_)));
     // Each original is split and reassembled to the exact stored bytes: one statement, the
     // chain of the one device registered here (never FOREIGN's), and the owner member's wrap.
@@ -244,4 +244,56 @@ fn a_stream_this_machine_did_not_register_is_never_published() {
     fixture.append(DEVICE);
     let data = fixture.local.next(&page).ok().unwrap().unwrap();
     assert!(matches!(&data.confirm, Confirm::Update { stream, .. } if stream == DEVICE));
+}
+
+#[test]
+fn the_cloud_lifetime_follows_the_retention_within_the_declared_maximum_and_forever_takes_it() {
+    for (retention, days) in [
+        (Some(0), 1),
+        (Some(1), 1),
+        (Some(30), 30),
+        (Some(364), 364),
+        (Some(365), 365),
+        (Some(366), 365),
+        (Some(100_000), 365),
+        (None, 365),
+    ] {
+        assert_eq!(cloud_days(retention), days, "{retention:?}");
+    }
+    // The row is written again on activity after at most a day, and after half of a short life.
+    let day = std::time::Duration::from_secs(24 * 3600);
+    assert_eq!(row_refresh(365), day);
+    assert_eq!(row_refresh(30), day);
+    assert_eq!(row_refresh(2), day);
+    assert_eq!(row_refresh(1), day / 2);
+}
+
+#[test]
+fn a_retention_override_moves_the_page_rows_expiry_and_it_is_the_rows_own_refresh() {
+    let mut fixture = Fixture::new();
+    let page = fixture.page(1);
+    fixture.append(DEVICE);
+    let page_row = |rows: Vec<Row>| {
+        rows.into_iter()
+            .find_map(|row| match row {
+                Row::Put {
+                    document, refresh, ..
+                } => Some((document, refresh)),
+                Row::Create(_) => None,
+            })
+            .unwrap()
+    };
+    let expiry =
+        |days: u64| serde_json::to_value(Field::timestamp(NOW + days * DAY_MS).unwrap()).unwrap();
+    // The policy's own default is 30 days.
+    let (document, refresh) = page_row(fixture.local.preamble(&page).ok().unwrap());
+    assert_eq!(document.fields["expiresAt"], expiry(30));
+    assert_eq!(refresh, row_refresh(30));
+    // An owner override changes both the expiry and, with the policy, what is rewritten.
+    fixture.retention(90, "40000000-0000-4000-8000-000000000002");
+    let (document, _) = page_row(fixture.local.preamble(&page).ok().unwrap());
+    assert_eq!(document.fields["expiresAt"], expiry(90));
+    fixture.retention(1000, "40000000-0000-4000-8000-000000000003");
+    let (document, _) = page_row(fixture.local.preamble(&page).ok().unwrap());
+    assert_eq!(document.fields["expiresAt"], expiry(365));
 }

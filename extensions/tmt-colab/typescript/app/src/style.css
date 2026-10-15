@@ -1415,6 +1415,9 @@ footer {
   padding: 0;
 }
 .question-inline {
+  right: auto;
+  padding: 0;
+  min-width: 0;
   pointer-events: none;
 }
 .question-inline .tmt-ui-tabs,

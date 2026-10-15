@@ -526,6 +526,36 @@ impl OwnerTransaction<'_> {
         )?;
         Ok(())
     }
+    /// A live link's cloud admission token (`link::Keys::rules_token`). The seed exists only
+    /// while the link is created, so the token is kept to publish the link's `links` row later.
+    /// It is not part of the signed recipient record and ends with the link.
+    pub fn put_link_admission(&mut self, link: &str, token: &str) -> Result<()> {
+        values::generated_id(link)?;
+        if values::binary(token, 32)?.len() != 32 {
+            return Err(OwnerFault::Invalid.into());
+        }
+        self.tx.execute(
+            "INSERT INTO link_admissions VALUES (?,?)
+            ON CONFLICT(link) DO UPDATE SET token=excluded.token",
+            params![link, token],
+        )?;
+        Ok(())
+    }
+    pub fn drop_link_admission(&mut self, link: &str) -> Result<()> {
+        self.tx
+            .execute("DELETE FROM link_admissions WHERE link=?", [link])?;
+        Ok(())
+    }
+    /// Live links with a token, by link ID. A link created before tokens existed has none.
+    pub fn link_admissions(&self) -> Result<Vec<(String, String)>> {
+        let mut query = self
+            .tx
+            .prepare("SELECT link,token FROM link_admissions ORDER BY link")?;
+        let rows = query
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<std::result::Result<_, _>>()?;
+        Ok(rows)
+    }
     pub fn recipient(&self, kind: &str, id: &str) -> Result<Option<Recipient>> {
         let bytes: Option<Vec<u8>> = self
             .tx

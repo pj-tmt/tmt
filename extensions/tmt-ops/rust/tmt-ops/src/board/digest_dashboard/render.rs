@@ -14,7 +14,7 @@ use ratatui::{
     text::{Line, Span},
 };
 use tmt_cli_style::Role;
-use tmt_tui::components::{Outline, strip};
+use tmt_tui::components::strip;
 use unicode_width::UnicodeWidthStr;
 
 pub(in crate::board) fn render(frame: &mut Frame, app: &App, mut area: Rect) {
@@ -115,13 +115,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, mut area: Rect) {
 
 fn members(frame: &mut Frame, app: &App, area: Rect) {
     let look = app.look();
-    let outline = Outline {
-        title: Line::from("Digest"),
-        border: look.role(Role::Dim),
-        title_style: look.role(Role::Muted),
-    };
-    outline.paint_flat(area, frame.buffer_mut());
-    let mut inside = outline.inner(area);
+    let mut inside = crate::board::pane_chrome::paint(frame, app, area, Pane::Rows, "Digest");
     if inside.height == 0 {
         return;
     }
@@ -235,13 +229,7 @@ fn members(frame: &mut Frame, app: &App, area: Rect) {
 
 fn details(frame: &mut Frame, app: &App, area: Rect) {
     let look = app.look();
-    let outline = Outline {
-        title: Line::from("Details"),
-        border: look.role(Role::Dim),
-        title_style: look.role(Role::Muted),
-    };
-    outline.paint_flat(area, frame.buffer_mut());
-    let inside = outline.inner(area);
+    let inside = crate::board::pane_chrome::paint(frame, app, area, Pane::Replies, "Details");
     let mut text = Vec::new();
     if let Some(row) = app.selected_row() {
         text.push(crate::board::notes::sanitize(

@@ -344,7 +344,7 @@ pub enum RowTarget {
 /// The observed note recipient, including its identity when the source supplies it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct NoteRecipient {
-    id: Option<String>,
+    pub(super) id: Option<String>,
     name: String,
 }
 
@@ -409,6 +409,7 @@ impl RowSend {
 }
 
 /// Shared message editor; the application owns submission and recipient fences.
+#[derive(Clone)]
 pub struct Input {
     pub(super) draft_key: Option<(String, String)>,
     pub(super) row_send: Option<RowSend>,
@@ -746,6 +747,8 @@ pub fn event_name(key: KeyEvent) -> Option<String> {
         KeyCode::Left => "left".into(),
         KeyCode::Right => "right".into(),
         KeyCode::Backspace => "backspace".into(),
+        KeyCode::BackTab => "backtab".into(),
+        KeyCode::Tab if key.modifiers.contains(KeyModifiers::SHIFT) => "backtab".into(),
         KeyCode::Tab => "tab".into(),
         KeyCode::Delete => "delete".into(),
         KeyCode::Home => "home".into(),
@@ -1730,6 +1733,27 @@ impl App {
         &[Pane::Rows, Pane::Replies]
     }
 
+    pub(in crate::board) fn workspace_placement(
+        &self,
+        area: ratatui::layout::Rect,
+    ) -> Option<super::conversation::layout::Placement> {
+        use super::conversation::layout::{self, Preference};
+        let snapshot = self.workspace_snapshot()?;
+        Some(if self.shell.tab == super::shell::OpsTab::Overview {
+            layout::overview(area)
+        } else {
+            layout::agents(
+                area,
+                match snapshot.preferences.layout {
+                    crate::config::OpsLayout::Auto => Preference::Auto,
+                    crate::config::OpsLayout::Side => Preference::Side,
+                    crate::config::OpsLayout::Stack => Preference::Stack,
+                },
+                self.focused() == Pane::Replies,
+            )
+        })
+    }
+
     pub fn focused_pane(&self) -> Option<Pane> {
         self.focus_panes()
             .get(self.focus)
@@ -1795,8 +1819,10 @@ impl App {
         if let Some(next) = (1..=count)
             .map(|step| (self.focus + step) % count)
             .find(|index| !collapsed.contains(&panes[*index]))
+            && self.focus != next
         {
             self.focus = next;
+            self.invalidate_frame_geometry();
         }
     }
 
@@ -2074,8 +2100,13 @@ impl App {
             squad,
             hint: None,
         });
-        self.bind_draft();
-        self.restore_draft();
+        if matches!(
+            self.input.as_ref().unwrap().compose,
+            Compose::AskLead { .. }
+        ) {
+            self.bind_draft();
+            self.restore_draft();
+        }
         Effect::None
     }
 
@@ -2261,6 +2292,9 @@ impl App {
         let open = self.request_entries(&send);
         if verb != Verb::Talk && !(verb == Verb::Annotate && send.note_member) && !open.is_empty() {
             if open.len() > 1 {
+                self.remember_draft();
+                self.input = None;
+                self.mentions = Default::default();
                 self.menu = Some(Menu {
                     row_send: Some(send.clone()),
                     link: None,
@@ -2462,6 +2496,8 @@ impl App {
             input.row_send = Some(send);
             input.prompt = input.header();
         }
+        self.bind_draft();
+        self.restore_draft();
         self.workspace_focus_conversation();
         self.follow = true;
     }
@@ -2636,6 +2672,18 @@ impl App {
     }
 
     pub(in crate::board) fn input_key(&mut self, key: KeyEvent) -> Effect {
+        // Enhanced terminal reporting distinguishes a held Enter from a new
+        // submit press. Opening a retained message never arms a repeat send.
+        if key.code == KeyCode::Enter
+            && key.modifiers.is_empty()
+            && key.kind != ratatui::crossterm::event::KeyEventKind::Press
+            && self
+                .input
+                .as_ref()
+                .is_some_and(|input| input.draft_key.is_some())
+        {
+            return Effect::None;
+        }
         if matches!(key.code, KeyCode::Esc | KeyCode::Enter) {
             self.remember_draft();
         }
@@ -2660,8 +2708,13 @@ impl App {
                 }
                 let cron = matches!(input.compose, Compose::Cron);
                 let digest = matches!(input.compose, Compose::Digest(_));
+                let conversation = input.draft_key.is_some();
                 self.input = None;
                 self.status_draft = None;
+                if conversation {
+                    self.focus = 0;
+                    self.invalidate_frame_geometry();
+                }
                 if cron {
                     self.cron_draft = None;
                     return self.say("Cancelled; nothing changed.");
@@ -2708,7 +2761,15 @@ impl App {
             return self
                 .say("Still working on the previous request; press Enter again in a moment.");
         }
-        let input = self.input.take().expect("composing");
+        let persistent = self
+            .input
+            .as_ref()
+            .is_some_and(|input| input.draft_key.is_some());
+        let input = if persistent {
+            self.input.as_ref().unwrap().clone()
+        } else {
+            self.input.take().expect("composing")
+        };
         if input.compose == Compose::Workspace {
             return self.workspace_submit_field(input.text.into_string());
         }
@@ -2737,7 +2798,8 @@ impl App {
             && (self.loading()
                 || self.current.as_deref() != Some(&input.squad)
                 || self.lead().as_ref() != Ok(to)
-                || self.view.as_ref().and_then(|view| view.me.as_ref()) != Some(sender))
+                || self.view.as_ref().and_then(|view| view.me.as_ref()) != Some(sender)
+                || input.draft_key.as_ref() != self.draft_identity(&input).as_ref())
         {
             return self.say("The squad, sender or lead changed; nothing sent.");
         }
@@ -2779,7 +2841,15 @@ impl App {
             return self
                 .say("Message including quotes exceeds 1 MiB; nothing sent. Draft retained.");
         }
+        self.begin_outgoing(&input, &text);
         self.sending_draft(&input);
+        if persistent {
+            self.input = Some(Input {
+                text: Default::default(),
+                response_quotes: Vec::new(),
+                ..input.clone()
+            });
+        }
         let direct = input.row_send.as_ref().and_then(|send| match &send.target {
             RowTarget::Workspace(super::workspace::OpsTarget::Member {
                 room_id: None,
@@ -3282,6 +3352,12 @@ impl App {
         if let Some(effect) = super::overview::chart::host::key(self, key) {
             return effect;
         }
+        if key.code == KeyCode::Esc
+            && key.kind != ratatui::crossterm::event::KeyEventKind::Release
+            && self.conversation_source_escape()
+        {
+            return Effect::None;
+        }
         self.workspace_key(key)
     }
 
@@ -3293,6 +3369,7 @@ impl App {
         {
             surface.invalidate();
         }
+        self.composer.invalidate();
         self.usage_chart.borrow_mut().invalidate_geometry();
         if let Some(details) = &self.usage_details {
             details.borrow_mut().invalidate();
@@ -3321,6 +3398,8 @@ impl App {
             draft.invalidate();
         }
         self.conversation.borrow_mut().pane = None;
+        self.conversation.borrow_mut().header_hits.clear();
+        self.conversation.borrow_mut().invalidate_source_geometry();
         self.scrolls.begin_frame();
         self.mentions.invalidate();
         if let Some(reader) = &self.row_details.reader {
@@ -3423,6 +3502,20 @@ impl App {
     }
 
     fn pointer_pane(&self, column: u16, row: u16) -> Option<Pane> {
+        // Only the current paint can authorize its outer title/padding. The
+        // same placement feeds paint; invalidation clears both visible owners.
+        if (self.scrolls.visible(Pane::Rows) || self.conversation.borrow().pane.is_some())
+            && let Some(placement) = self.workspace_placement(self.conversation.borrow().area)
+        {
+            for (pane, area) in [
+                (Pane::Rows, placement.list),
+                (Pane::Replies, placement.conversation),
+            ] {
+                if area.is_some_and(|area| area.contains((column, row).into())) {
+                    return Some(pane);
+                }
+            }
+        }
         if self
             .conversation
             .borrow()
@@ -3477,6 +3570,86 @@ impl App {
         }
         if self.mention_mouse(event) {
             return Effect::None;
+        }
+        if event.kind == MouseEventKind::Down(MouseButton::Left) {
+            let quote = self
+                .composer
+                .quote_hit
+                .borrow()
+                .clone()
+                .filter(|hit| hit.area.contains((event.column, event.row).into()));
+            if let Some(hit) = quote {
+                self.remove_painted_quote(&hit);
+                return Effect::None;
+            }
+            let send = self
+                .composer
+                .send_hit
+                .borrow()
+                .clone()
+                .filter(|hit| hit.area.contains((event.column, event.row).into()));
+            if let Some(hit) = send {
+                if self
+                    .composer_projection()
+                    .and_then(|projection| projection.key)
+                    .as_ref()
+                    != Some(&hit.key)
+                {
+                    return self
+                        .say("The painted message recipient changed; repaint before sending.");
+                }
+                if self.input.is_none() {
+                    self.perform(&Action::parse("talk").expect("built-in Talk action"));
+                }
+                if self
+                    .input
+                    .as_ref()
+                    .and_then(|input| input.draft_key.as_ref())
+                    == Some(&hit.key)
+                {
+                    let effect = self.input_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+                    self.update_mentions();
+                    return effect;
+                }
+                return Effect::None;
+            }
+            let in_composer = self
+                .input_band
+                .get()
+                .is_some_and(|area| area.contains((event.column, event.row).into()));
+            if self.input.is_none() && in_composer && self.composer_projection().is_some() {
+                let viewport = self.input_viewport.get();
+                let effect = self.perform(&Action::parse("talk").expect("built-in Talk action"));
+                if let Some((area, skip)) = viewport
+                    && area.contains((event.column, event.row).into())
+                    && let Some(input) = self
+                        .input
+                        .as_mut()
+                        .filter(|input| input.draft_key.is_some())
+                {
+                    input.text.place(
+                        area.width,
+                        skip + usize::from(event.row - area.y),
+                        usize::from(event.column - area.x),
+                        false,
+                    );
+                }
+                return effect;
+            }
+            if !in_composer
+                && self
+                    .input
+                    .as_ref()
+                    .is_some_and(|input| input.draft_key.is_some())
+            {
+                self.remember_draft();
+                self.input = None;
+                self.mentions = Default::default();
+                self.focus = 0;
+            }
+        }
+        if let Some(effect) = self.conversation_source_mouse(event) {
+            return effect;
         }
         if self.input.is_some() {
             if self
@@ -3584,6 +3757,27 @@ impl App {
             }
         }
 
+        if event.kind == MouseEventKind::Down(MouseButton::Left) && !self.loading() {
+            let control = self
+                .conversation
+                .borrow()
+                .header_hits
+                .iter()
+                .find(|hit| hit.area.contains((event.column, event.row).into()))
+                .cloned();
+            if let Some(hit) = control {
+                if self.conversation_target().as_ref() == Some(&hit.target)
+                    && self
+                        .conversation
+                        .borrow()
+                        .pane
+                        .is_some_and(|pane| hit.area.intersection(pane) == hit.area)
+                {
+                    return self.overview_details();
+                }
+                return Effect::None;
+            }
+        }
         if event.kind == MouseEventKind::Down(MouseButton::Left)
             && !self.loading()
             && self
@@ -4038,7 +4232,7 @@ pub(crate) mod tests {
                 json!([{"requestId": "q9", "preview": "ok to merge?"}]);
         }
         app.workspace_reconcile();
-        press(&mut app, KeyCode::Char('t'));
+        press(&mut app, KeyCode::Enter);
         assert_eq!(
             app.input.as_ref().unwrap().prompt,
             "→ auth-fix (product) · talk"
@@ -4054,15 +4248,16 @@ pub(crate) mod tests {
                 text: "q j -rf; $(x)".into()
             })
         );
-        assert!(app.input.is_none());
+        assert!(app.input.as_ref().unwrap().text.is_empty());
         app.finish_draft(true);
         app.finished(Ok("sent".into()));
 
-        press(&mut app, KeyCode::Char('t'));
+        // Send leaves the empty editor ready; no reopening key is required.
         typed(&mut app, "   ");
         assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
         assert_eq!(app.notice.as_deref(), Some("Nothing sent."));
-        press(&mut app, KeyCode::Char('t'));
+        press(&mut app, KeyCode::Esc);
+        press(&mut app, KeyCode::Enter);
         typed(&mut app, "draft");
         assert_eq!(press(&mut app, KeyCode::Esc), Effect::None);
         assert!(app.input.is_none() && app.notice.as_deref() == Some("Nothing sent."));
@@ -4118,8 +4313,9 @@ pub(crate) mod tests {
                 text: "postgres".into()
             })
         );
-        // Return from the conversation to the tree before choosing the next agent.
-        press(&mut app, KeyCode::Tab);
+        // The editor remains ready after Send; Escape returns to the tree.
+        press(&mut app, KeyCode::Esc);
+        assert_eq!(app.focused(), Pane::Rows);
         press(&mut app, KeyCode::Down);
         app.perform(&Action::parse("reply").unwrap());
         assert!(app.menu.is_none());
@@ -4255,11 +4451,11 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn t_opens_talk_on_a_squad_tab_and_user_bindings_still_override_it() {
+    fn enter_focuses_talk_and_an_authored_t_keeps_its_override() {
         let mut app = workspace_composer();
         app.view.as_mut().unwrap().me = Some("Ben".into());
         app.workspace_reconcile();
-        assert_eq!(press(&mut app, KeyCode::Char('t')), Effect::None);
+        assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
         assert_eq!(
             app.input.as_ref().unwrap().header(),
             "→ auth-fix (product) · talk"

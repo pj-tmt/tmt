@@ -33,8 +33,20 @@ invalidation clears this registry, and painting sets the next comparison base.
 its scope restores nested paints and unwinding. Input and snapshot updates
 retain no row cache, so changed membership/filtering always resolves fresh.
 
-Workspace tree/detail uses shared Outline/Strip/Scrolls. Conversation and inline
-input retain their WP1 owner and opaque covered-hit mask. Review/Result uses a
+Workspace tree/detail and conversation chrome use shared Strip/Scrolls.
+`pane_chrome` projects App focus into an accent heavy top rule and bold title; other titles/rules are
+Muted. A retained list selection keeps its cursor but loses the active highlight
+and dims while content has focus. NO_COLOR adds a title marker (`▶`, or `>` with
+the board's ASCII glyph switch), independently of the rule and bold title.
+Pane titles consume one rule row with one-cell side padding, without a bottom
+frame or decorative blank row. App's effective table owns Tab/backtab pane
+switching; text and modal owners handle their raw events first. The same
+workspace Placement feeds paint and frame-title pointer focus; invalidation
+revokes its authority until a new paint. Conversation reserves its WP1 composer
+band before insetting the response; the shared title replaces its former header
+row and is the single stacked separator. Header actions retain complete-visibility
+and UUID/scope guards over painted coordinates. Conversation and inline input
+retain their WP1 owner and opaque covered-hit mask. Review/Result uses a
 square shared modal. Incidental frame cells remain Dim; receiving focus and
 selection stay distinct. Frozen row/HOME provenance and decoded fixture approval
 are owned by the verification reference.
@@ -212,16 +224,28 @@ retains its richer session carry and explicit hidden/missing action refusal.
   ranks, independently of menu ordering. `row_allows` rejects unavailable member
   actions; `hint_word` names compatible custom actions. Whole hints drop from the
   end, retaining the effective Help/quit tail or Help alone at narrow widths.
-  Input and modals use their own legend; the base footer does not duplicate it.
+  Active input and modals use their own legend; an idle persistent composer keeps
+  the effective list/reader hints.
   `board::glyph_guard` checks authored HOME/cron typography.
-- `App::input` is the shared Talk/Reply/Annotate/Status composer.
-  `RowSend` freezes the occurrence and opening sender. `composer` retains session-only
-  drafts, folded paste and response quotes by saved sender/recipient UUID across
-  view and membership changes. Successful delivery clears only the submitted
-  revision; failed or uncertain delivery retains it. Restart persistence is not
-  promised. Submission revalidates sender, occurrence, actual lead or chosen open
-  request before invoking existing public send effects. Several open requests use
-  an explicit picker; empty submission and cancellation send nothing.
+- `App::input` means active typing in the shared Talk/Reply/Annotate/Status
+  composer. `composer` projects the idle boxed editor at the conversation bottom
+  without claiming input focus. Default Enter focuses a selected agent's editor;
+  active Enter submits, and Esc returns to the list with the draft kept. Group
+  Enter still inspects, and explicit compatible bindings retain their meaning.
+  `RowSend` freezes the occurrence and opening sender. `composer` retains
+  session-only drafts, folded paste and response quotes by saved sender/actual
+  recipient UUID across view and membership changes. Acceptance of a request
+  clears only the submitted revision, including an uncertain delivery or an
+  error carrying a retained request ID; neither permits automatic resend. A
+  refusal without a request restores that draft without replacing newer edits.
+  The composer stays after Send; a blocking owner masks its passive band without
+  losing the draft. Restart persistence is not promised. Submission
+  revalidates sender, occurrence, actual lead or chosen open request before
+  invoking existing public send effects. Several open requests use an explicit
+  picker; empty submission and cancellation send nothing. `conversation` holds
+  bounded session-only outgoing turns, truthful typed delivery labels and replies
+  correlated by exact sender/recipient/request identity. Acquired agent state and
+  freshness remain independent of delivery; delivered means written to the pane.
 - Message fields use `tmt_tui::components::Editor` for grapheme-safe multiline
   editing, source-preserving bracketed paste and cached cell geometry. Enter
   submits, distinct Shift+Enter or portable Ctrl+N inserts a newline, and Escape

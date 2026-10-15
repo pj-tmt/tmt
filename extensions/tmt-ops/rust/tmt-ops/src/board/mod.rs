@@ -25,6 +25,7 @@ mod menu_surface;
 mod meter;
 pub(crate) mod notes;
 mod overview;
+mod pane_chrome;
 mod picker_surface;
 mod rate;
 mod recovery;
@@ -211,6 +212,7 @@ pub(super) enum ActionOutcome {
     Workspace(Box<Result<crate::membership::Outcome, crate::core::SquadError>>),
     RenameMember(Box<workspace::rename_member::Completed>),
     Message(String),
+    Send(Box<conversation::outgoing::Completed>),
     Status(Box<crate::membership::status_update::Outcome>),
     /// Core agreed that the person at the board may change a member's digest.
     Digest(Box<digest::Granted>),
@@ -292,18 +294,28 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
             to,
             text,
         } => {
-            return send::talk(core, &squad, &me, &to, &text)
-                .map(|accepted| ActionOutcome::Message(accepted.describe("Message", &to)))
-                .map_err(|error| error.message);
+            return Ok(ActionOutcome::Send(Box::new(
+                conversation::outgoing::Completed {
+                    ticket: None,
+                    outcome: send::talk(core, &squad, &me, &to, &text),
+                    what: "Message".into(),
+                    to,
+                },
+            )));
         }
         Request::DirectTalk {
             sender,
             recipient,
             text,
         } => {
-            return send::talk_direct(core, &sender, &recipient, &text)
-                .map(|accepted| ActionOutcome::Message(accepted.describe("Message", &recipient)))
-                .map_err(|error| error.message);
+            return Ok(ActionOutcome::Send(Box::new(
+                conversation::outgoing::Completed {
+                    ticket: None,
+                    outcome: send::talk_direct(core, &sender, &recipient, &text),
+                    what: "Message".into(),
+                    to: recipient,
+                },
+            )));
         }
         Request::Annotate {
             me,
@@ -312,11 +324,14 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
             row,
             text,
         } => {
-            return send::annotate(core, &squad, &me, &to, &row, &text)
-                .map(|accepted| {
-                    ActionOutcome::Message(accepted.describe(&format!("Note on {row}"), &to))
-                })
-                .map_err(|error| error.message);
+            return Ok(ActionOutcome::Send(Box::new(
+                conversation::outgoing::Completed {
+                    ticket: None,
+                    outcome: send::annotate(core, &squad, &me, &to, &row, &text),
+                    what: format!("Note on {row}"),
+                    to,
+                },
+            )));
         }
         Request::WorkspacePreferences {
             expected,
@@ -372,7 +387,11 @@ fn session(
     // Hands a job to the lane and says so at once; the event that comes back says how it ended.
     let submit = |app: &mut App, job: lane::Job| {
         // An overlay opens once: a second request for one waits for the first.
-        if !matches!(job, lane::Job::Act(_) | lane::Job::Recovery(_)) && app.in_flight > 0 {
+        if !matches!(
+            job,
+            lane::Job::Act(_) | lane::Job::Send { .. } | lane::Job::Recovery(_)
+        ) && app.in_flight > 0
+        {
             app.notice = Some("Still working on the previous request.".to_owned());
             return;
         }
@@ -609,7 +628,7 @@ fn session(
                 app.in_flight = app.in_flight.saturating_sub(1);
                 dirty = true;
                 let jumped = jump && outcome.is_ok();
-                if sends {
+                if sends && !matches!(&outcome, Ok(ActionOutcome::Send(_))) {
                     app.finish_draft(outcome.is_ok());
                 }
                 match outcome {
@@ -623,6 +642,7 @@ fn session(
                     }
                     Ok(ActionOutcome::Status(outcome)) => app.finished_status(*outcome),
                     Ok(ActionOutcome::Message(message)) => app.finished(Ok(message)),
+                    Ok(ActionOutcome::Send(completed)) => app.finished_send(*completed),
                     Ok(ActionOutcome::Digest(granted)) => app.open_digest(*granted),
                     Err(error) => app.finished(Err(error)),
                 }
@@ -819,7 +839,17 @@ fn session(
                     }
                 }
             }
-            Effect::Act(action) => submit(app, lane::Job::Act(action)),
+            Effect::Act(action) => {
+                let job = if let Some(ticket) = app.outgoing_ticket(&action) {
+                    lane::Job::Send {
+                        request: action,
+                        ticket,
+                    }
+                } else {
+                    lane::Job::Act(action)
+                };
+                submit(app, job);
+            }
             Effect::None => {}
         }
         // A snapshot may change the interval, including turning reload off.
@@ -1502,7 +1532,7 @@ mod tests {
         );
         let mut app = app::workspace::tests::board();
         let (events, input) = channel();
-        events.send(key(KeyCode::Char('t'))).unwrap();
+        events.send(key(KeyCode::Enter)).unwrap();
         events
             .send(BoardEvent::Input(Event::Paste("hello".into())))
             .unwrap();
@@ -1523,8 +1553,9 @@ mod tests {
                 if app
                     .notice
                     .as_deref()
-                    .is_some_and(|notice| notice.starts_with("Message sent to worker"))
+                    .is_some_and(|notice| notice == "Sent to worker")
                 {
+                    events.send(key(KeyCode::Esc)).unwrap();
                     events.send(key(KeyCode::Char('q'))).unwrap();
                 }
                 Ok(())
@@ -1541,8 +1572,11 @@ mod tests {
             "the placeholder paints long before the 500 ms command ends: {:?}",
             placeholder.0
         );
-        let done = notices.last().unwrap();
-        assert_eq!(done.1.as_deref(), Some("Message sent to worker (req_1)."));
+        let done = notices
+            .iter()
+            .find(|(_, notice)| notice.as_deref() == Some("Sent to worker"))
+            .expect("typed completion frame");
+        assert_eq!(done.1.as_deref(), Some("Sent to worker"));
         assert!(done.0 >= Duration::from_millis(450));
         std::fs::remove_dir_all(directory).unwrap();
     }

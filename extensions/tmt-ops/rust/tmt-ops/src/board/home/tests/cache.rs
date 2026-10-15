@@ -78,7 +78,7 @@ fn current_workspace_frames_match_after_discarding_held_header_strips() {
             agrees(&app, width, base);
         }
         app.select(app.workspace_rows().len() - 1);
-        press(&mut app, KeyCode::Char('t'));
+        press(&mut app, KeyCode::Enter);
         assert!(app.input.is_some());
         agrees(&app, width, "composer");
         press(&mut app, KeyCode::Esc);

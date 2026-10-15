@@ -246,7 +246,7 @@ impl Action {
             }
             Verb::Menu => "show actions for this row".into(),
             Verb::Tab => "open the selected squad".into(),
-            Verb::Talk => "send the member a message".into(),
+            Verb::Talk => "focus the member's message composer".into(),
             Verb::AskLead => "ask the lead what waits on you".into(),
             Verb::HomeMessage => "expand or collapse the selected row details".into(),
             Verb::ViewReply => "view the selected row’s full reply".into(),
@@ -350,6 +350,7 @@ pub fn valid_event(event: &str) -> bool {
         "enter",
         "backspace",
         "tab",
+        "backtab",
         "space",
         "delete",
         "home",
@@ -416,7 +417,6 @@ pub fn preset(tmux: bool, panes: &[crate::config::Pane]) -> Bindings {
         ("enter", enter),
         ("double-click", enter),
         ("backspace", "back"),
-        ("t", "talk"),
         ("a", "annotate lead"),
         ("A", "ask-lead"),
         ("i", "digest"),
@@ -555,8 +555,13 @@ mod tests {
             for gone in [Verb::Reply, Verb::Theme, Verb::View, Verb::TokenWindow] {
                 assert!(!verbs.contains(&gone), "{gone:?} has no default key");
             }
-            assert_eq!(bindings["t"].verb, Verb::Talk, "t is one key everywhere");
             assert_eq!(bindings[","].verb, Verb::Settings);
+        }
+        for bindings in [preset(true, &[]), preset(false, &[])] {
+            assert!(
+                !bindings.contains_key("t"),
+                "flat presets no longer advertise the retired factory Talk key"
+            );
         }
         // They stay bindable, like every other action.
         for line in ["talk", "reply", "theme", "view", "token-window"] {

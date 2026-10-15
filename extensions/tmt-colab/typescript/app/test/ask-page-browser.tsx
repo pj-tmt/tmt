@@ -1315,6 +1315,8 @@ export function question(
 export function questionGroup(
   options: {
     count?: number;
+    layout?: 'centered' | 'nested';
+    multiple?: boolean;
     darkPage?: boolean;
     longLabels?: boolean;
     lone?: boolean;
@@ -1329,11 +1331,25 @@ export function questionGroup(
       : `Q${index + 1}`;
     return `<tmt-question data-id="${id(100 + index)}" data-kind="${kind}" data-agent="${options.agents?.[index] ?? 'Agent 1'}" data-label="${label}"><p data-question>${index === 0 ? 'Which heading should we use?' : index === 1 ? 'What should the introduction say?' : `What should section ${index + 1} explain?`}</p><p>Consider clarity and the intended reader.</p>${index === 0 ? '<span data-choice>Keep it</span><span data-choice>Change it</span>' : ''}</tmt-question>`;
   });
+  const second = options.multiple
+    ? `<tmt-questions data-id="${id(98)}"><p data-title>Second review</p>${questions.join('').replaceAll(id(100), id(110)).replaceAll(id(101), id(111)).replaceAll('Which heading should we use?', 'Which second heading should we use?').replaceAll('What should the introduction say?', 'What should the second introduction say?')}</tmt-questions>`
+    : '';
+  const main = `<h1>Project notes</h1><p id="container-prose">Before the question.</p><tmt-questions data-id="${id(99)}"><p data-title>Review the page</p>${questions.join('')}</tmt-questions>${second}${options.lone ? `<tmt-question data-id="${id(120)}" data-kind="long"><p data-question>Any other feedback?</p></tmt-question>` : ''}<p id="after-question">The page continues here.</p>`;
+  const content = main.replace(
+    '<tmt-questions',
+    '<div style="height:900px" aria-hidden="true"></div><tmt-questions',
+  );
+  const container =
+    options.layout === 'nested'
+      ? `<main style="max-width:1280px;margin:auto"><section id="author-container" style="max-width:620px;margin:auto">${content}</section></main><div style="height:1000px" aria-hidden="true"></div>`
+      : options.layout === 'centered'
+        ? `<main id="author-container" style="max-width:1280px;margin:auto">${content}</main><div style="height:1000px" aria-hidden="true"></div>`
+        : main;
   current = {
     ...current,
     threads: [],
     asks: [],
-    source: `<style>body{margin:24px;font:16px/1.5 sans-serif;background:${options.darkPage ? '#181818' : '#fff'};color:${options.darkPage ? '#eee' : '#222'}}</style><h1>Project notes</h1><tmt-questions data-id="${id(99)}"><p data-title>Review the page</p>${questions.join('')}</tmt-questions>${options.lone ? `<tmt-question data-id="${id(120)}" data-kind="long"><p data-question>Any other feedback?</p></tmt-question>` : ''}<p id="after-question">The page continues here.</p>`,
+    source: `<style>body{margin:24px;font:16px/1.5 sans-serif;background:${options.darkPage ? '#181818' : '#fff'};color:${options.darkPage ? '#eee' : '#222'}}</style>${container}`,
   };
   emit();
 }

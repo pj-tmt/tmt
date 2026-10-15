@@ -52,13 +52,20 @@ Unavailable/expired source is not an annotatable response.
 `board::conversation` owns one session per sender/recipient UUID and paints the
 same selected-agent response in the workspace Overview and Agents detail area. Each session
 retains the response, source anchor, follow state and Markdown render cache keyed
-by source, width and look. Reading older text pauses follow; a replacement result
-is indicated without replacing the displayed request until End resumes follow.
+by source, width and look. Bounded outgoing turns use typed acceptance and exact
+request correlation, without a transcript store. Reading older text pauses follow;
+a replacement result is indicated without replacing the displayed request until
+End or intentional downward scrolling to the bottom resumes follow. Resize and
+new output alone do not resume it; Send enables follow.
 `Scrolls` remains the sole viewport owner. Rendering and reading acknowledge
 nothing. Layout uses terminal cells and degrades side/stack preferences to one
 focused pane when dimensions cannot support a split.
-Enter focuses the named conversation; Esc returns to the originating list.
-The focused title and footer name that back path. The effective Member/Reader
+The selected agent's composer stays visible at the conversation bottom, including
+while unfocused and after Send. Default Enter focuses its retained editor; active
+Enter submits, and Esc keeps the draft and returns to the originating list.
+Group Enter still inspects. The focused title and footer name the back path;
+effective custom bindings retain their meaning. Compact composer titles explain
+when the actual layout cannot keep the preferred split. The effective Member/Reader
 `view-reply` binding (default `v`) opens the full response reader without changing
 its exact-source admission; a missing response is explained in the status line.
 
@@ -70,9 +77,17 @@ producing an effect; a matching name cannot authorize a replacement UUID.
 Retained row text alone grants no authority after its membership disappears.
 
 `board::response` keeps exact raw source and request identity separate from the
-sanitized Markdown display. Source selection/copy and annotations preserve raw
-byte ranges. Attachment revalidation refuses changed requests, changed bodies or
-vanished recipients. Native terminal selection remains available with the
+sanitized Markdown display. Dragging a rendered response opens a labelled exact
+source view without guessing a byte range; selection on its freshly painted raw
+editor provides the exact range. The full response Reader remains a keyboard
+fallback. Source selection/copy and annotations preserve raw byte ranges.
+Attachment revalidation refuses changed requests, changed bodies or vanished
+recipients. The composer shows a bounded author/excerpt caption with a whole
+remove control; Alt-Backspace removes the last quote. Details freezes bounded
+quote provenance from the draft only when both recipient and source UUID match,
+including the full request/identity and exact byte range. Common pool quotations
+open a Talk follow-up to the same UUID rather than inventing squad membership.
+Native terminal selection remains available with the
 terminal's mouse-reporting override. Colab URLs use existing link effects;
 native Colab page/thread writes are not implemented.
 

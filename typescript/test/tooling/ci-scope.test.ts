@@ -2907,7 +2907,7 @@ describe('native Auth+Firestore emulator selection', () => {
     expect(runner).toContain('1 passed; 0 failed; 0 ignored;');
     expect(runner).not.toContain('docker');
   });
-  it('runs the Colab cloud sync proof after the native one, from a script that names exactly its two scenarios', () => {
+  it('runs the Colab cloud sync proof after the native one, from a script that names exactly its scenarios', () => {
     const ci = readFileSync(new URL('../../../.github/workflows/ci.yml', import.meta.url), 'utf8');
     const job = ci.split('\n  native-workspace-tests:\n')[1].split('\n  native-process-tests:')[0];
     expect(job.indexOf('native-qualify.mjs')).toBeLessThan(
@@ -2919,7 +2919,8 @@ describe('native Auth+Firestore emulator selection', () => {
     );
     expect(runner).toContain('runInPrivateWorld');
     expect(runner).toContain("'--ignored'");
-    expect(runner).toContain('2 passed; 0 failed; 0 ignored;');
+    expect(runner).toContain('const scenarios = 3;');
+    expect(runner).toContain('passed; 0 failed; 0 ignored;');
     expect(runner).toContain("host: '127.0.0.1'");
     expect(runner).not.toContain('docker');
   });

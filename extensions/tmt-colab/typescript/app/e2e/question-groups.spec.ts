@@ -463,3 +463,218 @@ for (const width of [1440, 390])
         await capture('one-member');
       });
     }
+
+// #3069: browser DOM is the independent oracle, not the slot claims used by chrome.
+for (const width of [1440, 1024, 390])
+  for (const theme of ['light', 'dark'] as const) {
+    test(`author container bounds ${width} ${theme}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 800 });
+      for (const layout of ['centered', 'nested'] as const) {
+        const group = await mount(page, { layout, darkPage: theme === 'dark' });
+        if (theme === 'dark')
+          await (await pageAction(page.locator('#ask-page-fixture'), 'Theme: Dark')).click();
+        const container = page
+          .frameLocator('#ask-page-fixture iframe')
+          .locator('#author-container');
+        await expect
+          .poll(
+            async () => {
+              const content = await container.boundingBox();
+              const card = await group.locator('.question-group-card').boundingBox();
+              return (
+                !!content &&
+                !!card &&
+                Math.abs(card.x - content.x) <= 1 &&
+                Math.abs(card.width - content.width) <= 1
+              );
+            },
+            { message: 'question card must use the real author container edges' },
+          )
+          .toBe(true);
+        expect(
+          await page.evaluate(
+            () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+          ),
+        ).toBe(true);
+        expect(
+          await container.evaluate(
+            () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+          ),
+        ).toBe(true);
+      }
+    });
+    test(`footer clears floating controls ${width} ${theme}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 800 });
+      const group = await mount(page, { layout: 'centered', darkPage: theme === 'dark' });
+      if (theme === 'dark')
+        await (await pageAction(page.locator('#ask-page-fixture'), 'Theme: Dark')).click();
+      await activeCard(page).getByLabel('Keep it', { exact: true }).check();
+      const send = group.getByRole('button', { name: /^Send 1 answer/ });
+      await expect(send).toBeEnabled();
+      await send.evaluate((node) =>
+        window.scrollBy(0, node.getBoundingClientRect().bottom - innerHeight + 30),
+      );
+      const floating = page.locator('#ask-page-fixture .selection-mode');
+      await expect(floating).toBeVisible();
+      await expect
+        .poll(
+          async () => {
+            const fab = await floating.boundingBox();
+            const controls = await group
+              .locator('.question-option, .question-group-footer button')
+              .all();
+            const boxes = await Promise.all(controls.map((control) => control.boundingBox()));
+            return (
+              !!fab &&
+              boxes.every(
+                (box) =>
+                  !box ||
+                  fab.x >= box.x + box.width ||
+                  fab.x + fab.width <= box.x ||
+                  fab.y >= box.y + box.height ||
+                  fab.y + fab.height <= box.y,
+              )
+            );
+          },
+          { message: 'FAB must not cover answers, Send or recipient controls' },
+        )
+        .toBe(true);
+      const captures = process.env.COLAB_QUESTION_CAPTURE_DIR;
+      if (captures) {
+        mkdirSync(captures, { recursive: true });
+        await page.screenshot({ path: `${captures}/container-footer-${width}-${theme}.png` });
+      }
+      // Hit the far edge that the old FAB covered, not only the radio at the left.
+      const lastOption = group.locator('.question-option').last();
+      const option = await lastOption.boundingBox();
+      expect(option).not.toBeNull();
+      await lastOption.click({ position: { x: option!.width - 2, y: option!.height - 2 } });
+      await expect(activeCard(page).getByLabel('Change it', { exact: true })).toBeChecked();
+      await activeCard(page).getByLabel('Keep it', { exact: true }).check();
+      // A trusted browser click must reach the recipient control, not chrome above it.
+      await group.getByRole('button', { name: 'Add recipient', exact: true }).click();
+      await expect(page.getByRole('combobox', { name: 'Find an agent' })).toBeVisible();
+      await page.getByRole('combobox', { name: 'Find an agent' }).press('Escape');
+      await send.click();
+      await expect(activeCard(page).locator('.question-answer')).toHaveText('Keep it');
+    });
+  }
+
+for (const width of [1440, 390])
+  test(`footer placement follows resize, size changes and group removal ${width}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 800 });
+    await mount(page, {
+      layout: 'centered',
+      multiple: true,
+      lone: true,
+      agents: ['Agent 1', 'Agent 2'],
+    });
+    const groups = page.locator('#ask-page-fixture [data-question-group]');
+    await expect(groups).toHaveCount(3);
+    const floating = page.locator('#ask-page-fixture .selection-mode');
+    const frame = page.frameLocator('#ask-page-fixture iframe');
+    const check = async () => {
+      await expect
+        .poll(async () => {
+          const fab = await floating.boundingBox();
+          if (!fab || !(await floating.isVisible())) return true;
+          const footers = await groups.locator('.question-group-footer').all();
+          for (const footer of footers) {
+            if (!(await footer.isVisible())) continue;
+            const box = await footer.locator('..').boundingBox();
+            if (
+              box &&
+              fab.x < box.x + box.width &&
+              fab.x + fab.width > box.x &&
+              fab.y < box.y + box.height &&
+              fab.y + fab.height > box.y
+            )
+              return false;
+          }
+          return true;
+        })
+        .toBe(true);
+    };
+    const place = async (index: number) => {
+      const footer = groups.nth(index).locator('.question-group-footer');
+      await footer.evaluate((node) =>
+        window.scrollBy(0, node.getBoundingClientRect().bottom - innerHeight + 30),
+      );
+      await check();
+    };
+    await expect(
+      page.locator('#ask-page-fixture [data-question-group][data-detached]'),
+    ).toHaveCount(0);
+    // Disabled Send still shares its footer with enabled recipient controls.
+    await expect(groups.nth(1).getByRole('button', { name: /^Send answers/ })).toBeDisabled();
+    await place(1);
+    await groups.nth(1).getByRole('button', { name: 'Remove @Agent 2', exact: true }).click();
+    await check();
+    await page.setViewportSize({ width: width === 390 ? 1024 : 390, height: 800 });
+    await place(0);
+    const container = await frame.locator('#author-container').boundingBox();
+    await expect
+      .poll(async () => {
+        const card = await groups.nth(0).locator('.question-group-card').boundingBox();
+        return (
+          !!card &&
+          !!container &&
+          Math.abs(card.x - container.x) <= 1 &&
+          Math.abs(card.width - container.width) <= 1
+        );
+      })
+      .toBe(true);
+    await frame
+      .locator('tmt-questions')
+      .nth(0)
+      .evaluate((node) => {
+        (node as HTMLElement).hidden = true;
+      });
+    await expect(groups.nth(0)).toHaveAttribute('data-detached', 'true');
+    await place(1);
+    await frame
+      .locator('tmt-questions')
+      .nth(1)
+      .evaluate((node) => node.remove());
+    await expect(groups.nth(1)).toHaveAttribute('data-detached', 'true');
+    await place(2);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await expect(floating).toBeVisible();
+    await check();
+  });
+
+test('question collision placement preserves the fixed header controls', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 800 });
+  const group = await mount(page, { layout: 'centered' });
+  await activeCard(page).getByLabel('Keep it', { exact: true }).check();
+  const surface = page.locator('#ask-page-fixture');
+  const floating = surface.locator('.selection-mode');
+  const header = await surface.locator('.tmt-ui-header').boundingBox();
+  const fab = await floating.boundingBox();
+  expect(header).not.toBeNull();
+  expect(fab).not.toBeNull();
+  const top = header!.y + header!.height + fab!.height - 12;
+  await group.evaluate(
+    (node, top) => window.scrollBy(0, node.getBoundingClientRect().top - top),
+    top,
+  );
+  await expect
+    .poll(async () => Math.abs((await group.boundingBox())!.y - top))
+    .toBeLessThanOrEqual(1);
+  await expect
+    .poll(
+      async () => {
+        if (!(await floating.isVisible())) return true;
+        const fab = await floating.boundingBox();
+        const header = await surface.locator('.tmt-ui-header').boundingBox();
+        return !!fab && !!header && fab.y >= header.y + header.height + 8;
+      },
+      { message: 'moving FAB above a card must not overlap fixed chrome' },
+    )
+    .toBe(true);
+  await surface.getByRole('button', { name: 'More', exact: true }).click();
+  await expect(page.getByRole('menu')).toBeVisible();
+  await page.getByRole('menu').press('Escape');
+});

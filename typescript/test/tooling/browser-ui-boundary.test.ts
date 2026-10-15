@@ -41,10 +41,28 @@ function violations(
   const failures: string[] = [];
   const uiEntry = file.startsWith(`${path.join(sourceRoot, 'ui')}/`);
   const admittedPeers = uiEntry
-    ? ['react', 'react/jsx-runtime', 'lucide-react', 'clsx', 'tailwind-merge', 'radix-ui', 'cmdk']
+    ? [
+        'react',
+        'react/jsx-runtime',
+        'lucide-react',
+        'clsx',
+        'tailwind-merge',
+        'radix-ui',
+        'cmdk',
+        'class-variance-authority',
+      ]
     : ['react', 'react/jsx-runtime', 'lucide-react'];
   const admittedPackages = uiEntry
-    ? ['react', '@types/react', 'lucide-react', 'clsx', 'tailwind-merge', 'radix-ui', 'cmdk']
+    ? [
+        'react',
+        '@types/react',
+        'lucide-react',
+        'clsx',
+        'tailwind-merge',
+        'radix-ui',
+        'cmdk',
+        'class-variance-authority',
+      ]
     : ['react', '@types/react', 'lucide-react'];
   if (forbiddenLoads(source)) failures.push('unproved runtime input');
   for (const edge of imports(source)) {
@@ -171,7 +189,7 @@ it('rejects independent product/SDK/runtime/static-peer edges while admitting lo
 it('admits foundation dependencies only inside the separate UI graph, with no aliases or static leak', () => {
   const uiFile = path.join(production, 'ui/utils.ts');
   const legacyFile = path.join(production, 'header.tsx');
-  for (const peer of ['clsx', 'tailwind-merge', 'radix-ui', 'cmdk']) {
+  for (const peer of ['clsx', 'tailwind-merge', 'radix-ui', 'cmdk', 'class-variance-authority']) {
     const source = `import value from '${peer}';`;
     expect(violations(uiFile, source, false)).toEqual([]);
     expect(violations(legacyFile, source, false)).toEqual([peer]);
@@ -185,6 +203,6 @@ it('admits foundation dependencies only inside the separate UI graph, with no al
   }
   expect(violations(legacyFile, "export * from './ui/index';", false)).toEqual(['./ui/index']);
   expect(violations(uiFile, "export * from '../react';", false)).toEqual(['../react']);
-  for (const peer of ['@base-ui/react', 'class-variance-authority'])
+  for (const peer of ['@base-ui/react'])
     expect(violations(uiFile, `export * from '${peer}';`, false)).toEqual([peer]);
 });

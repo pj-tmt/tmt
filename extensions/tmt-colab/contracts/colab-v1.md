@@ -410,7 +410,16 @@ XSeed = HKDF-SHA256(linkSeed, empty,
   LP("tmt-colab-link-encryption-seed-v1", space, linkId), 32)
 joinProof = HMAC-SHA256(linkSeed,
   LP("tmt-colab-join-v1", space, linkId))
+rulesToken = base64url(HKDF-SHA256(linkSeed, empty,
+  LP("tmt-colab-link-rules-token-v1", space, linkId), 32))
 ```
+
+`rulesToken` (43 characters, unpadded) is the bearer value of the link's cloud `links` row: a
+holder presents it once in its self-admission `members` create. It is derived apart from every
+other value, so the cloud learns nothing else of the seed. The owner derives it when it creates
+or resets the link, while the seed is borrowed, and keeps only the token in its Store until the
+link ends; a link created before this derivation existed has none and needs `share link reset`.
+`authority-v1.json` `linkRulesToken` freezes the oracle value.
 
 Import `EdSeed` as an Ed25519 seed and `XSeed` as the X25519 private input with
 standard X25519 clamping, using native/Rust library primitives. Conversion from
@@ -833,7 +842,7 @@ fences.
 `share link add` and `share link reset` print one openable link for the link they create:
 
 ```text
-<door address>/x/colab/read#v=1&space=<spaceId>&page=<pageId>&link=<linkId>&rev=<n>&st=<hash>&seed=<seed32>
+<door address>/x/colab/read#v=1&space=<spaceId>&page=<pageId>&link=<linkId>&rev=<n>&st=<hash>&seed=<seed32>&root=<ownerKey32>&role=<role>
 ```
 
 The CLI prints the relative form `x/colab/read#...` (field `readerPath`), like `page create`'s
@@ -843,10 +852,16 @@ the fragment, which a browser never sends to a server. Path and query carry noth
 seed appears nowhere else in any output. `rev` and `st` are the revision and canonical
 base64url hash of the `link.add` statement that introduced the link: the link-device chain
 must name that statement, and a wrong value only fails the server's chain check. The grammar is
-strict: `v` is `1`; each of `v`, `space`, `page`, `link`, `rev`, `st`, `seed` appears exactly
-once in any order; values are canonical (`space` and IDs as everywhere, `rev` a positive
-decimal, `st` and `seed` unpadded base64url of 32 bytes); anything else, including percent
-escapes, an unknown key or more than 512 bytes, is not a reader link.
+strict: `v` is `1`; each of `v`, `space`, `page`, `link`, `rev`, `st`, `seed`, `root`, `role`
+appears exactly once in any order; values are canonical (`space` and IDs as everywhere, `rev` a
+positive decimal, `st`, `seed` and `root` unpadded base64url of 32 bytes, `role` one of `viewer`,
+`commenter`, `editor`); anything else, including percent escapes, an unknown key, a link printed
+before `root` and `role` existed, or more than 512 bytes, is not a reader link (the longest
+form is about 300 bytes; the entry names a well-formed pre-`root` link as out of date and says to
+ask the owner for a new one, without any request). `root` is the owner's root public key: every reader rejects a link
+whose `root` does not derive `space`. `role` is only a hint for the one self-admission create of
+a hosted reader; the capability comes from the signed link statements, and the reader stays
+read-only whatever `role` says.
 
 The public `/read` entry removes the fragment from the address bar before any other work
 (a reload therefore needs the full link again). In memory only, it derives the link keys from
@@ -862,7 +877,8 @@ and the server keeps one device row per link however often the link is opened
 derivation: any seed holder may still certify a fresh random device, as the revocation rules above
 state. The entry then runs the challenge and session exchange above and opens
 `/sync` with the ticket subprotocol; hello names the session's `principal`. It checks that the
-returned owner key derives the linked `space`, verifies the owner log and link-addressed wraps
+returned owner key equals the link's `root` (a mismatch ends access) and derives the linked
+`space`, verifies the owner log and link-addressed wraps
 with the owner-browser rules, and pins and stores nothing in the owner app's records
 (IndexedDB, local or session storage, cookies). It shows the page read-only and live, with no
 editor, Ask, share, export or history control. The ten-minute session ends in a reconnect with
@@ -1052,8 +1068,16 @@ scoped to the render ID and request ID. A slot is `{id,height}` or, for an answe
 beside exactly one live `tmt-proposal[data-id]`, `tmt-question[data-id]` or
 `tmt-questions[data-id]`. A group uses its parent-selected active question for placement.
 Its before spacer reserves the trusted tabs/state band above the authored description;
-the after spacer reserves controls below it. Responses are closed `{id,top}` objects or
-`{id,top,beforeTop,descriptionHeight}` for requested answer-card geometry. Top values are
+the after spacer reserves controls below it. Responses use explicit closed key sets selected by the currently requested slot kind:
+`{id,top}` for proposals, or `{id,top,beforeTop,descriptionHeight,left,width}` for
+an admitted question group with a requested `before` height. Answer geometry is
+not admitted for a proposal or an unrequested group. `left` and `width` are finite
+iframe-viewport CSS pixels measured from the actual authored group (or standalone
+question) bounds; `left` is nonnegative and `width` is positive. Their sum must fit
+the current frame width, each value must fit the existing 1,000,000px cosmetic
+rectangle bound, and the resulting horizontal bounds must fit the parent
+viewport. Invalid claims are rejected, not normalized into admitted placement.
+Top values are
 finite and within 0–1,000,000; `beforeTop` is at most `top`, and `descriptionHeight` is
 finite within 0–2000. Unknown,
 missing or duplicate IDs receive no slot. Source replacement retires all slots;
@@ -1072,7 +1096,15 @@ fresh split geometry on the existing ordered port. Controls stay detached until 
 current response arrives; a stale description cannot be paired with newly selected
 controls. The tab strip retains its last admitted position and focus during this
 refresh. Trusted strip digits can update local draft choices, while Send requires
-current placement. The renderer aligns the description to the card's 16px page gutter.
+current placement. The renderer leaves the description within its authored group/container instead of
+moving it to a viewport gutter. The trusted card uses that group's admitted
+horizontal bounds. Viewport narrowing retires formerly admitted bounds that no
+longer fit until a current slot reply reattaches the card. Parent question footer dimensions remain measured by the same
+inline-slot owner. The floating Chat/Annotate placement owner clears visible,
+attached question cards containing those footers as well as existing chrome, using
+parent-window bounds; when no room remains above a card it temporarily hides the floating controls.
+Header entry points remain available. Neither placement nor visibility changes
+answer, recipient, draft, focus or publication admission.
 
 Approve/Decline is an explicit trusted parent activation. An in-flight fence and
 live proposal/finality admission precede decision publication. The immutable
@@ -3391,13 +3423,21 @@ expired entries and entries of expired or removed pages, preserving live entries
 of live pages and other tenants' data. Physical TTL remains eventual and is not
 required for logical expiry.
 
-Relay activity refresh, override selection, seven-day cloud warnings and the
-"not in the cloud" projection for expired reads await the Firestore relay binding.
-An activity refresh updates only the page row. Logs and checkpoint chunks have
-independent deadlines and need renewal only near their own expiry horizon, avoiding
-a rewrite of every entry on each page edit. Entries may outlive their page, but
-page expiry still denies every content read. The binding must renew needed entries
-before their own expiry and map expired-but-present cloud data to absence.
+The serve's cloud-sync worker applies the lifetime. A page's row carries `expiresAt` of
+its retention days from the write: the policy's 30 days by default, an owner override of
+1 through 365, and 365 for a page kept forever locally, since the cloud lifetime has no
+forever option. The row is written again at once when its epoch, state or lifetime
+changes (a log create is checked against the row's epoch and `open` state), and on
+activity after at most one day, or half of a one-day lifetime. An activity refresh
+updates only the page row. A row that lapsed while the owner was away is written again
+by the next pass after the page is reopened from local, and its entries, which keep their
+own deadlines, read again. Seven-day cloud warnings, the "not in the cloud" projection
+for expired reads and renewal of entries near their own expiry await their own slices.
+Logs and checkpoint chunks have independent deadlines and need renewal only near their
+own expiry horizon, avoiding a rewrite of every entry on each page edit. Entries may
+outlive their page, but page expiry still denies every content read. The binding must
+renew needed entries before their own expiry and map expired-but-present cloud data to
+absence.
 Local expiry never deletes local data: existing local warnings begin seven days
 ahead in the browser and `ls/show`, and expired local pages remain readable and
 writable unless signed archive/delete policy forbids it. Local retention accepts

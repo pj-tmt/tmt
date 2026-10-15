@@ -704,7 +704,7 @@ fn frame_rows_never_retain_old_roster_filter_or_membership_authority() {
     app.workspace_reconcile();
     paint(&app, 80, 24);
     assert_eq!(app.workspace_selection_state(), SelectionState::Hidden);
-    assert_eq!(key(&mut app, KeyCode::Char('t')), Effect::None);
+    assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
     app.search.clear();
     app.workspace.expanded.clear();
     app.workspace_reconcile();
@@ -725,7 +725,7 @@ fn frame_rows_never_retain_old_roster_filter_or_membership_authority() {
     app.workspace_reconcile();
     paint(&app, 160, 36);
     assert_eq!(app.workspace_selection_state(), SelectionState::Missing);
-    assert_eq!(key(&mut app, KeyCode::Char('t')), Effect::None);
+    assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
     assert!(app.input.is_none());
     assert_eq!(app.workspace.selected, selected);
     assert!(app.frame_workspace_rows.borrow().is_none());
@@ -1978,7 +1978,7 @@ fn a_successful_reply_refresh_keeps_the_exact_member_and_feedback_until_the_next
 fn a_composer_with_its_own_key_legend_does_not_advertise_list_shortcuts() {
     for width in [160, 100, 80, 60] {
         let mut app = board();
-        key(&mut app, KeyCode::Char('t'));
+        key(&mut app, KeyCode::Enter);
         let lines = paint(&app, width, 36);
         assert!(app.input_band.get().is_some());
         assert!(lines.iter().any(|line| line.contains("Enter send")));
@@ -1993,10 +1993,9 @@ fn a_composer_with_its_own_key_legend_does_not_advertise_list_shortcuts() {
         assert!(app.input.is_none());
         let lines = paint(&app, width, 36);
         assert!(lines.last().unwrap().contains("Nothing sent."));
-        // Escape keeps the selected conversation focused. Tab restores the
-        // list and its effective action hints, after clearing the notice.
-        assert_eq!(app.focused_pane(), Some(Pane::Replies));
-        key(&mut app, KeyCode::Tab);
+        // Escape restores list focus while the UUID draft stays in the visible
+        // passive composer. Clearing the notice reveals effective list hints.
+        app.notice = None;
         assert_eq!(app.focused_pane(), Some(Pane::Rows));
         let lines = paint(&app, width, 36);
         assert!(
@@ -2014,7 +2013,7 @@ fn compact_overview_talk_opens_agents_but_wide_overview_keeps_the_shared_convers
         app.shell.tab = OpsTab::Overview;
         paint(&app, width, 36);
         let selected = app.workspace.selected.clone();
-        key(&mut app, KeyCode::Char('t'));
+        key(&mut app, KeyCode::Enter);
         assert_eq!(app.focused_pane(), Some(Pane::Replies));
         assert_eq!(
             app.shell.tab,
@@ -2026,7 +2025,7 @@ fn compact_overview_talk_opens_agents_but_wide_overview_keeps_the_shared_convers
         );
         let lines = paint(&app, width, 36);
         assert!(app.input_band.get().is_some());
-        assert!(lines.iter().any(|line| line.contains("→ worker (product)")));
+        assert!(lines.iter().any(|line| line.contains("Message → worker")));
         assert_eq!(app.workspace.selected, selected);
         key(&mut app, KeyCode::Char('2')); // Message input owns digits.
         assert_eq!(app.input.as_ref().unwrap().text.as_str(), "2");
@@ -2146,6 +2145,42 @@ fn selected_tree_rows_keep_uniform_reverse_fallback_and_clipped_hit_bounds() {
                 }
             }
         }
+    }
+}
+
+#[test]
+fn passive_composer_preserves_footer_bindings_notice_error_modal_and_reload_precedence() {
+    for width in [160, 100, 60] {
+        let mut app = board();
+        assert!(paint(&app, width, 18).last().unwrap().contains("j host"));
+        assert!(app.input_band.get().is_some() && app.input.is_none());
+        key(&mut app, KeyCode::Enter);
+        assert!(paint(&app, width, 18).last().unwrap().trim().is_empty());
+        app.reload = crate::board::reload::Watch::due();
+        let lines = paint(&app, width, 18);
+        assert!(lines.last().unwrap().contains("reload waiting"));
+        assert!(!lines.last().unwrap().contains("j host"));
+        key(&mut app, KeyCode::Esc);
+        assert!(
+            paint(&app, width, 18)
+                .last()
+                .unwrap()
+                .contains("Nothing sent.")
+        );
+        app.reload = Default::default();
+        app.notice = None;
+        app.error = Some("Acquired source unavailable".into());
+        assert!(
+            paint(&app, width, 18)
+                .last()
+                .unwrap()
+                .contains("Acquired source unavailable")
+        );
+        app.error = None;
+        app.help = true;
+        assert!(paint(&app, width, 18).last().unwrap().trim().is_empty());
+        app.help = false;
+        assert!(paint(&app, width, 18).last().unwrap().contains("j host"));
     }
 }
 

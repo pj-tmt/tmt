@@ -61,6 +61,8 @@ export interface LinkKeys {
   signingPublic: Bytes;
   /** Opens the link-addressed epoch wraps. */
   encryption: RecipientKey;
+  /** The bearer token of the link's cloud `links` row, presented once to self-admit. */
+  rulesToken: string;
 }
 async function derive(seed: Uint8Array, label: string, space: string, id: string) {
   return hkdf(copy(seed, 32), frame(text(label), text(space), text(id)));
@@ -70,7 +72,8 @@ export async function deriveLink(seed: Uint8Array, space: string, id: string): P
   spaceId(space);
   generatedId(id);
   const signingSeed = await derive(seed, 'tmt-colab-link-signing-seed-v1', space, id),
-    encryptionSeed = await derive(seed, 'tmt-colab-link-encryption-seed-v1', space, id);
+    encryptionSeed = await derive(seed, 'tmt-colab-link-encryption-seed-v1', space, id),
+    rulesToken = await derive(seed, 'tmt-colab-link-rules-token-v1', space, id);
   try {
     const signingBytes = concat(ED25519_PKCS8, signingSeed);
     // WebCrypto derives no public key from a private one; read it from a throwaway extractable copy.
@@ -102,10 +105,12 @@ export async function deriveLink(seed: Uint8Array, space: string, id: string): P
       sign: handle,
       signingPublic,
       encryption: await RecipientKey.fromHandle(encryptionHandle, encryptionPublic),
+      rulesToken: encodeBinary(rulesToken),
     };
   } finally {
     signingSeed.fill(0);
     encryptionSeed.fill(0);
+    rulesToken.fill(0);
   }
 }
 /** A link's reader device is a pure function of its seed, so every open reuses one server row

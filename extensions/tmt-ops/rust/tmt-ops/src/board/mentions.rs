@@ -46,7 +46,11 @@ impl App {
     }
     fn accept_reference(&mut self) -> bool {
         let mut completion = std::mem::take(&mut self.mentions.completion);
-        let limit = if self.message_field() {
+        let status_reason = self
+            .input
+            .as_ref()
+            .is_some_and(|input| matches!(input.compose, Compose::Status));
+        let limit = if self.message_field() && !status_reason {
             MESSAGE_LIMIT
         } else {
             super::app::INPUT_LIMIT
@@ -159,8 +163,18 @@ pub(super) fn render(frame: &mut Frame, app: &App) {
     for row in 0..height {
         let rect = Rect::new(x, y + row, width, 1);
         let line = if row == height - 1 {
+            let recipient = app.input.as_ref().and_then(|input| match &input.compose {
+                Compose::Talk { to }
+                | Compose::AskLead { to, .. }
+                | Compose::Annotate { to, .. } => Some(to.as_str()),
+                Compose::Reply { from, .. } => Some(from.as_str()),
+                _ => None,
+            });
             Line::styled(
-                "Mentions are text only · ↑↓ choose · Enter/Tab insert · Esc close",
+                recipient.map_or_else(
+                    || "Mentions are text only".to_owned(),
+                    |recipient| format!("Mentions are text only · sent to {recipient}"),
+                ),
                 look.role(Role::Muted),
             )
         } else if let Some(candidate) = completion.matches.get(start + usize::from(row)) {

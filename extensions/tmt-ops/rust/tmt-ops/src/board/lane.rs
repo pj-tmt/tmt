@@ -22,6 +22,10 @@ pub(crate) enum Opening {
 #[derive(Debug)]
 pub(super) enum Job {
     Act(Request),
+    Send {
+        request: Request,
+        ticket: super::conversation::outgoing::Ticket,
+    },
     Recovery(super::recovery::load::Task),
     Discovery(super::discovery::load::Task),
     Open(Opening),
@@ -34,7 +38,7 @@ impl Job {
     /// What the board shows until the job's event arrives.
     pub fn progress(&self) -> &'static str {
         match self {
-            Self::Act(request) => request.progress(),
+            Self::Act(request) | Self::Send { request, .. } => request.progress(),
             Self::Recovery(_) => "Reading or applying the selected workspace snapshot…",
             Self::Discovery(_) => "Scanning or binding the selected agent…",
             Self::Open(Opening::Settings) => "Loading settings…",
@@ -54,6 +58,17 @@ pub(super) fn run(core: &Core, labels: Option<&Refresh>, job: Job) -> BoardEvent
         }
         Job::Recovery(task) => BoardEvent::Recovery(super::recovery::load::complete(core, task)),
         Job::Discovery(task) => BoardEvent::Discovery(super::discovery::load::complete(core, task)),
+        Job::Send { request, ticket } => {
+            let mut outcome = execute(core, request);
+            if let Ok(super::ActionOutcome::Send(completed)) = &mut outcome {
+                completed.ticket = Some(ticket);
+            }
+            BoardEvent::Acted {
+                jump: false,
+                sends: true,
+                outcome,
+            }
+        }
         Job::Act(request) => {
             let jump = matches!(request, Request::Jump(_));
             let sends = request.sends();

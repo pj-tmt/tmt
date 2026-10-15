@@ -380,28 +380,31 @@ provides isolated keyboard, cap, empty, status and long-name examples.
 
 ## Isolated shadcn foundation (Slice1)
 
-`@tmt/browser-ui/ui` is a separate React infrastructure entry; import its checked
-`@tmt/browser-ui/ui.css` explicitly. It currently exports only `cn`, `UiTheme`
-and `useUiPortalContainer`, with empty later-slice barrels. No shadcn components,
-consumer migration, accessibility qualification or candidate-5 replica ships in
-this slice. The existing `./react`, `./static` and `./static.css` entries stay
+`@tmt/browser-ui/ui` is a separate React presentation entry; import its checked
+`@tmt/browser-ui/ui.css` explicitly. `cn`, `UiTheme` and `useUiPortalContainer`
+provide its foundation; the allocated primitive exports are described below.
+Layers and selection barrels remain empty. No consumer migration or candidate-5
+page replica is included. The existing `./react`, `./static` and `./static.css` entries stay
 unchanged; static never loads React, Radix, cmdk or the new UI graph.
+
+The [browser component contracts](../gui-components.md) retain generation and
+consumer ownership. Component qualification does not grant product authority.
 
 ### Provenance and dependencies
 
 [`src/ui/provenance.json`](src/ui/provenance.json) records every selected source's
 upstream path and SHA-256 at shadcn/ui commit
 `8720dec73f5aebed9f649ea58636f54599fdedf1`, plus exact direct dependency versions,
-licenses and repositories. Sources are pinned for later slices, not copied or
-implemented now. The helper is adapted from that revision's
+licenses and repositories. Primitives adapt nine selected sources; layers and
+selection sources remain pins for later slices. The helper is adapted from that revision's
 `apps/v4/registry/new-york-v4/lib/utils.ts` to configure `extendTailwindMerge` with
 our `tmt` prefix. The upstream MIT notice is retained in
 [`src/ui/LICENSE.shadcn`](src/ui/LICENSE.shadcn). This revision predates upstream's
 separate `cn` dependency; adding that package is outside the accepted dependency
-set. `class-variance-authority@0.7.1` is actually Apache-2.0, contradicting the
-approved MIT-only premise. It has no foundation consumer and is recorded as
-deferred, not installed or admitted; Slice2 must obtain explicit license/dependency
-acceptance before using it. npm tarball integrity and all transitive versions live in the sole workspace
+set. `class-variance-authority@0.7.1` is Apache-2.0, explicitly accepted for the
+first slice needing variants. Button, Badge, Alert and TabsList use genuine CVA;
+its exact pin, [retained Apache license](src/ui/LICENSE.cva) and dependency guard admission are reviewed with
+the manifest and lockfile. npm tarball integrity and all transitive versions live in the sole workspace
 `typescript/pnpm-lock.yaml`; checked provenance must agree with the manifest.
 
 Combobox qualification uses the pinned Radix Popover + Command/cmdk composition.
@@ -409,8 +412,9 @@ Command imports Dialog; Layers imports Button. The current upstream Base UI
 combobox registry is deliberately not selected; no `@base-ui/react` dependency is
 admitted. Later slices must prove focus, Tab commit and IME with those real
 implementations. This foundation does not make those claims. React and
-lucide-react remain optional peers for the existing leaf entries; Tailwind and its
-CLI are development dependencies confined to this leaf. No Cargo build or native
+lucide-react remain optional peers for the existing leaf entries. The Tailwind
+compile API is a development dependency confined to this leaf; no CLI package is
+required. No Cargo build or native
 installation requires Node or generates UI CSS.
 
 ### Local theme, CSS and portal contract
@@ -455,7 +459,7 @@ plan rather than introducing a global theme synchronizer.
 
 | Owner after foundation merge | Exclusive source/barrel                                                                                          | Exclusive gallery fragment                                      |
 | ---------------------------- | ---------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| Slice2 Primitives            | `src/ui/{button,input,textarea,checkbox,switch,separator,badge,alert,tabs,select}.tsx`, `src/ui/primitives.ts`   | `test/fixtures/ui/primitives.tsx`                               |
+| Slice2 Primitives            | `src/ui/{button,input,textarea,checkbox,switch,separator,badge,alert,tabs}.tsx`, `src/ui/primitives.ts`          | `test/fixtures/ui/primitives.tsx`                               |
 | Slice3 Layers                | `src/ui/{dialog,sheet,dropdown-menu,tooltip,popover}.tsx`, `src/ui/layers.ts`                                    | `test/fixtures/ui/layers.tsx`                                   |
 | Slice4 Selection             | `src/ui/{command,combobox,chips}.tsx`, `src/ui/selection.ts`                                                     | `test/fixtures/ui/selection.tsx`                                |
 | Foundation/integrator        | `src/ui/index.ts`, `src/ui/{utils.ts,theme.tsx}`, provenance, generator/policy, package/lock, `generated/ui.css` | `test/fixtures/ui/foundation.tsx`, browser fixture wrapper/spec |
@@ -464,9 +468,10 @@ Do not edit sibling barrels or fixture fragments. One UX-designated integrator
 publishes generated UI CSS and provenance updates after integrating reviewed
 slice sources; members hand off their source/fixture changes and generation
 results. Component implementation waits for this foundation's accepted merge.
-night-2 exclusively owns lockfile publication during foundation; Office removals
-wait for an explicit merged-SHA handoff. Future staffing is assigned by the lead,
-not implied by this file map.
+Package/workspace/lock publication has one active issue owner and transfers only
+through an explicitly accepted handoff naming its delivered baseline. UI-output
+ownership likewise transfers at an accepted merged commit. Staffing is assigned
+by the lead, not implied by this file map.
 
 `pnpm --filter @tmt/browser-ui generate` regenerates both checked stylesheets;
 `check:generated` verifies exact bytes. Run workspace commands from `typescript/`
@@ -479,3 +484,34 @@ host/legacy computed styles before and after loading UI CSS, tokens, focus and
 originating portals in light/system-dark and nested themes at 320/390/1440.
 Screenshots are per-run evidence, not a replacement for observable assertions or
 qualification of the unimplemented later components.
+
+### Primitive contract (Slice2)
+
+`primitives.ts` exports Button/buttonVariants, Input, Textarea, Checkbox, Switch,
+Separator, Badge/badgeVariants, Alert/AlertTitle/AlertDescription,
+Tabs/TabsList/TabsTrigger/TabsContent/tabsListVariants. Normal native and
+Radix props, refs, default values and controlled callbacks remain with the host.
+These components contain no product store, command or request state.
+
+Button retains the upstream variants and sizes. Its native busy form requires
+`busyLabel`, renders that visible state word, sets `aria-busy`/`aria-disabled`
+and disables activation. Busy `asChild` is rejected; links retain their own owner.
+Disabled `asChild` exposes `aria-disabled` and blocks ordinary click and activation
+keys, including the slotted target's capture callbacks before Slot composition. Native fields retain readOnly/disabled/value and ARIA props; a busy host
+uses readOnly plus `aria-busy` and a visible, associated state description.
+Checkbox/Switch `readOnly` blocks value-changing activation while retaining focus.
+Hosts supply visible names/reasons for disabled, busy and read-only states.
+
+Select is excluded from Stage1 exports and its fixture. Its stock Popper and
+item-aligned modes did not satisfy the required after-open visual viewport
+containment contract. [Select qualification #3057](https://github.com/pj-tmt/tmt/issues/3057)
+requires an owner-reviewed minimal adaptation design before implementation.
+Existing product controls remain unchanged; no consumer adoption is included.
+Parking Select is not an A5 pass, and no physical mobile keyboard animation is
+qualified by this slice.
+
+The allocated primitive gallery and existing-runner
+`browser-ui-primitives.spec.ts` cover real values, activation, keyboard focus,
+tokens, width containment and state captures. The separate foundation coexistence spec and legacy
+source/static hash guards remain required. CSS adds aliases of existing
+command-size/caption-size/eyebrow-weight metrics, never a second token palette.

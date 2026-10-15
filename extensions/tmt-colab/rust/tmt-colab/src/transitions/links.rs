@@ -65,12 +65,22 @@ pub(super) fn action<'a>(key: &Keyring, action: LinkAction<'a>) -> crate::Result
             (Some(link_id), add, replacement.map(|spec| spec.seed))
         }
     };
-    Ok(Action::Link { remove, add, seed })
+    let (add, token) = match add {
+        Some((recipient, token)) => (Some(recipient), Some(token)),
+        None => (None, None),
+    };
+    Ok(Action::Link {
+        remove,
+        add,
+        seed,
+        token,
+    })
 }
 
-fn recipient(key: &Keyring, spec: &LinkSpec<'_>) -> crate::Result<Recipient> {
+/// The link's recipient record and its cloud admission token, both derived from the seed.
+fn recipient(key: &Keyring, spec: &LinkSpec<'_>) -> crate::Result<(Recipient, String)> {
     let keys = link::Keys::derive(spec.seed, &key.space_id, spec.id)?;
-    Ok(Recipient {
+    let recipient = Recipient {
         kind: "link".into(),
         id: spec.id.into(),
         role: Some(spec.role.into()),
@@ -78,5 +88,6 @@ fn recipient(key: &Keyring, spec: &LinkSpec<'_>) -> crate::Result<Recipient> {
         encryption_key: keys.recipient().public_key(),
         pages: spec.pages.clone(),
         revoked: false,
-    })
+    };
+    Ok((recipient, keys.rules_token()))
 }

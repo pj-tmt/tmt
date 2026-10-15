@@ -6,15 +6,13 @@ use super::PageRef;
 use crate::SealedClient;
 use serde_json::{Map, Value};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     time::{Duration, Instant},
 };
 use tmt_extension_objects::sync;
 
 /// The documents one pass may send before it yields; the next wake continues.
 const PASS_DOCUMENTS: usize = 64;
-/// A page row is rewritten after this long, so its expiry never lapses while serving.
-const PAGE_ROW_REFRESH: Duration = Duration::from_secs(7 * 24 * 3600);
 
 /// Why a pass stopped before the page was fully published.
 #[derive(Debug, PartialEq, Eq)]
@@ -37,8 +35,14 @@ pub(crate) enum Row {
     /// Created only when absent. An existing document with the same fields (expiry aside) is
     /// published; a different one is a conflict.
     Create(sync::Document),
-    /// The owner's admission row: written whole, again after [`PAGE_ROW_REFRESH`].
-    Put(sync::Document),
+    /// The owner's admission row: written whole, again when anything but its expiry changed
+    /// or its lifetime in `days` did (an owner override), and when `refresh` has passed since
+    /// it was last written, which is an activity refresh of the page's cloud lifetime.
+    Put {
+        document: sync::Document,
+        days: u64,
+        refresh: Duration,
+    },
 }
 /// What a published batch confirms in the Store.
 pub(crate) enum Confirm {
@@ -73,8 +77,16 @@ pub(crate) trait Local {
 pub(crate) struct Publisher {
     client: SealedClient,
     binding: String,
-    /// Rows and authority already present or created in this process.
-    present: HashMap<(String, String), Option<Instant>>,
+    /// Authority and admission rows created in this process.
+    created: HashSet<(String, String)>,
+    /// Rows written whole in this process.
+    written: HashMap<(String, String), Written>,
+}
+/// A row written whole: when, what (expiry aside) and for how many days.
+struct Written {
+    at: Instant,
+    content: Map<String, Value>,
+    days: u64,
 }
 fn comparable(fields: &Map<String, Value>) -> Map<String, Value> {
     let mut fields = fields.clone();
@@ -86,7 +98,8 @@ impl Publisher {
         Self {
             client,
             binding,
-            present: HashMap::new(),
+            created: HashSet::new(),
+            written: HashMap::new(),
         }
     }
     /// Publish what is due for the page. `Ok(true)` means more remains and the next wake
@@ -102,7 +115,11 @@ impl Publisher {
                 for row in local.preamble(page)? {
                     match row {
                         Row::Create(document) => self.create_once(document)?,
-                        Row::Put(document) => self.put_row(document)?,
+                        Row::Put {
+                            document,
+                            days,
+                            refresh,
+                        } => self.put_row(document, days, refresh)?,
                     }
                 }
                 prepared = true;
@@ -146,22 +163,24 @@ impl Publisher {
     /// once per process.
     fn create_once(&mut self, document: sync::Document) -> Result<(), Fault> {
         let key = (document.target.resource.clone(), document.target.id.clone());
-        if self.present.contains_key(&key) {
+        if self.created.contains(&key) {
             return Ok(());
         }
         self.create(&document)?;
-        self.present.insert(key, None);
+        self.created.insert(key);
         Ok(())
     }
-    fn put_row(&mut self, document: sync::Document) -> Result<(), Fault> {
+    fn put_row(
+        &mut self,
+        document: sync::Document,
+        days: u64,
+        refresh: Duration,
+    ) -> Result<(), Fault> {
         let key = (document.target.resource.clone(), document.target.id.clone());
-        if self
-            .present
-            .get(&key)
-            .copied()
-            .flatten()
-            .is_some_and(|at| at.elapsed() < PAGE_ROW_REFRESH)
-        {
+        let content = comparable(&document.fields);
+        if self.written.get(&key).is_some_and(|row| {
+            row.content == content && row.days == days && row.at.elapsed() < refresh
+        }) {
             return Ok(());
         }
         match self.request(sync::Call::Publish {
@@ -179,7 +198,14 @@ impl Publisher {
             sync::Outcome::Error { error } => return Err(refusal(&error)),
             _ => return Err(Fault::Retry),
         }
-        self.present.insert(key, Some(Instant::now()));
+        self.written.insert(
+            key,
+            Written {
+                at: Instant::now(),
+                content,
+                days,
+            },
+        );
         Ok(())
     }
     /// Create one immutable original. An acknowledged or identical result publishes it; a

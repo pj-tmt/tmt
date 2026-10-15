@@ -24,6 +24,7 @@ export type Screen =
   | 'reader'
   | 'reader-opening'
   | 'reader-invalid'
+  | 'reader-older'
   | 'reader-ended'
   | 'reader-failed';
 
@@ -42,7 +43,14 @@ export async function mount(screen: Screen) {
     const state: ReaderState =
       screen === 'reader'
         ? { kind: 'ready', view: { title: 'Release notes', source } }
-        : { kind: screen.slice('reader-'.length) as 'opening' | 'invalid' | 'ended' | 'failed' };
+        : {
+            kind: screen.slice('reader-'.length) as
+              | 'opening'
+              | 'invalid'
+              | 'older'
+              | 'ended'
+              | 'failed',
+          };
     root.render(<ReaderApp state={state} />);
   } else if (screen.startsWith('mounted-')) {
     const state = screen === 'mounted-opening' ? 'loading' : 'failed';

@@ -1357,6 +1357,24 @@ fn link_object(
     )
     .unwrap()
 }
+/// The cloud admission tokens the owner keeps, by link.
+fn admissions(f: &Fixture) -> Vec<(String, String)> {
+    let db = f.db();
+    let mut query = db
+        .prepare("SELECT link,token FROM link_admissions ORDER BY link")
+        .unwrap();
+    query
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+}
+/// The token a holder derives from the link's seed (`link::Keys::rules_token`).
+fn token_of(f: &Fixture, id: &str, seed: &[u8; 32]) -> String {
+    tmt_colab_model::link::Keys::derive(seed, &f.key.space_id, id)
+        .unwrap()
+        .rules_token()
+}
 fn link_fixture(current: bool) -> (Fixture, Vec<u8>, u64) {
     use tmt_colab::transitions::LinkAction;
     let mut f = Fixture::new();
@@ -1526,6 +1544,89 @@ fn current_link_join_wraps_only_existing_current_epoch_without_advance() {
             .unwrap(),
         0
     );
+}
+#[test]
+fn a_links_admission_token_is_kept_for_the_live_link_only() {
+    use tmt_colab::transitions::LinkAction;
+    // Add keeps the token the seed derives, and nothing of the seed itself.
+    let (mut f, _, rev) = link_fixture(false);
+    assert_eq!(
+        admissions(&f),
+        [(LINK.into(), token_of(&f, LINK, &LINK_SEED))]
+    );
+    assert_eq!(token_of(&f, LINK, &LINK_SEED).len(), 43);
+    assert_no_seed(&f, &[], &LINK_SEED);
+    // Reset swaps it: the old link's token ends with the link, the replacement's begins.
+    link_change(
+        &mut f,
+        84,
+        rev,
+        LinkAction::Reset {
+            link_id: LINK,
+            replacement: Some(link_spec(REPLACEMENT, &REPLACEMENT_SEED, vec![PAGE.into()])),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        admissions(&f),
+        [(
+            REPLACEMENT.into(),
+            token_of(&f, REPLACEMENT, &REPLACEMENT_SEED)
+        )]
+    );
+    assert_ne!(
+        token_of(&f, LINK, &REPLACEMENT_SEED),
+        token_of(&f, REPLACEMENT, &REPLACEMENT_SEED)
+    );
+    // Remove ends it.
+    let rev = revision(&f);
+    link_change(
+        &mut f,
+        85,
+        rev,
+        LinkAction::Remove {
+            link_id: REPLACEMENT,
+        },
+    )
+    .unwrap();
+    assert!(admissions(&f).is_empty());
+    // Turning sharing off removes every link and its token.
+    let (mut f, _, rev) = link_fixture(false);
+    policy(&mut f, 136, rev, share(PAGE, ShareMode::Private)).unwrap();
+    assert!(admissions(&f).is_empty());
+}
+#[test]
+fn a_failed_link_add_leaves_no_admission_token() {
+    use tmt_colab::transitions::LinkAction;
+    let mut f = Fixture::new();
+    link_policy(&mut f, &[PAGE.into()], false);
+    let rev = revision(&f);
+    f.db()
+        .execute_batch(
+            "CREATE TRIGGER add_failure BEFORE INSERT ON link_admissions
+            BEGIN SELECT RAISE(ABORT,'injected'); END;",
+        )
+        .unwrap();
+    assert!(
+        link_change(
+            &mut f,
+            81,
+            rev,
+            LinkAction::Add(link_spec(LINK, &LINK_SEED, vec![PAGE.into()]))
+        )
+        .is_err()
+    );
+    assert!(admissions(&f).is_empty());
+    assert_eq!(revision(&f), rev);
+    f.db().execute_batch("DROP TRIGGER add_failure").unwrap();
+    link_change(
+        &mut f,
+        81,
+        rev,
+        LinkAction::Add(link_spec(LINK, &LINK_SEED, vec![PAGE.into()])),
+    )
+    .unwrap();
+    assert_eq!(admissions(&f).len(), 1);
 }
 #[test]
 fn reset_link_removes_rotates_then_adds_and_never_persists_replacement_seed() {

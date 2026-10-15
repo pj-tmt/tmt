@@ -153,11 +153,12 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("home", "scroll-top"),
             ("end", "scroll-bottom"),
             ("tab", "next-pane"),
+            ("backtab", "next-pane"),
             ("?", "help"),
             ("q", "quit"),
             ("ctrl-r", "refresh"),
             (",", "settings"),
-            ("t", "talk"),
+            ("enter", "talk"),
             ("o", "open"),
             ("D", "digest"),
             ("c", "timers"),
@@ -182,6 +183,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("?", "help"),
             ("q", "quit"),
             ("tab", "next-pane"),
+            ("backtab", "next-pane"),
             ("ctrl-r", "refresh"),
             (",", "settings"),
             ("c", "timers"),
@@ -192,7 +194,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
     match scope {
         OpsKeyScope::Reader => {}
         OpsKeyScope::Overview => entries.extend([
-            ("t", "talk"),
+            ("enter", "talk"),
             ("j", "jump"),
             ("o", "open"),
             ("e", "monitor-details"),
@@ -208,7 +210,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
         OpsKeyScope::Member => entries.extend([
             ("v", "view-reply"),
             ("e", "monitor-details"),
-            ("t", "talk"),
+            ("enter", "talk"),
             ("j", "jump"),
             ("o", "open"),
             ("x", "remove-membership"),
@@ -661,10 +663,11 @@ mod tests {
             ("k", "scroll-up"),
             ("pageup", "scroll-page-up"),
             ("end", "scroll-bottom"),
+            ("enter", "talk"),
         ] {
             assert_eq!(plain.bindings[event].text, name);
         }
-        for key in ["left", "right", "enter", "s", "p", "x"] {
+        for key in ["left", "right", "t", "s", "p", "x"] {
             assert!(!plain.bindings.contains_key(key), "{key}");
         }
         let config = config("[bind]\nj='copy'\n[bind.tmux]\nj='open'\n");
@@ -751,6 +754,27 @@ mod tests {
                     .verb,
                 Verb::Talk
             );
+        }
+    }
+
+    #[test]
+    fn backtab_defaults_share_tab_action_per_scope_and_authored_bindings_win() {
+        for scope in [
+            OpsKeyScope::Overview,
+            OpsKeyScope::Squad,
+            OpsKeyScope::Member,
+            OpsKeyScope::Pool,
+            OpsKeyScope::Reader,
+        ] {
+            let base = config("").workspace_keys(scope, None, None).unwrap();
+            assert_eq!(base.bindings["tab"].verb, Verb::NextPane);
+            assert_eq!(base.bindings["backtab"].verb, Verb::NextPane);
+            let configured = config("[bind]\nbacktab='help'\n")
+                .workspace_keys(scope, None, None)
+                .unwrap();
+            assert_eq!(configured.bindings["tab"].verb, Verb::NextPane);
+            assert_eq!(configured.bindings["backtab"].text, "help");
+            assert_eq!(configured.sources["backtab"], "bind.backtab");
         }
     }
     #[test]

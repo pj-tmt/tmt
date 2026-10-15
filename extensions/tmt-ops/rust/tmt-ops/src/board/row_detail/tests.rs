@@ -218,10 +218,120 @@ fn exact_response_selection_attaches_to_a_retained_draft_without_acknowledging()
     assert_eq!(quote.text, source);
     assert_eq!(app.view.as_ref().unwrap().document, before);
     press(&mut app, KeyCode::Esc);
-    press(&mut app, KeyCode::Char('t'));
+    press(&mut app, KeyCode::Enter);
     assert_eq!(app.input.as_ref().unwrap().response_quotes[0].text, source);
     app.key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::ALT));
     assert!(app.input.as_ref().unwrap().response_quotes.is_empty());
+}
+
+#[test]
+fn scrolled_wrapped_source_drag_preserves_unicode_bytes_across_resize() {
+    use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let mut app = response_workspace();
+    let prefix = format!("{}\r\n", "0123456789".repeat(12)).repeat(30);
+    let source = format!("{prefix}漢字 e\u{301} Ω");
+    app.view.as_mut().unwrap().replies = vec![json!({
+        "recipientId":crate::board::app::workspace::tests::MEMBER,
+        "requestId":"r1", "response":source
+    })];
+    open_response(&mut app);
+    press(&mut app, KeyCode::Char('s'));
+    draw(&app, 60, 18);
+    app.key(KeyEvent::new(KeyCode::End, KeyModifiers::CONTROL));
+    let buffer = draw(&app, 60, 18);
+    let reader = app.row_details.reader.as_ref().unwrap();
+    assert!(
+        reader.scroll.borrow().offset() > 30,
+        "long source really wraps and scrolls"
+    );
+    let area = reader.source_area.get().unwrap();
+    let row = (area.y..area.bottom())
+        .find(|row| buffer[(area.x, *row)].symbol() == "漢")
+        .expect("the exact source tail is painted");
+    for (kind, column) in [
+        (MouseEventKind::Down(MouseButton::Left), area.x),
+        (MouseEventKind::Drag(MouseButton::Left), area.x + 6),
+    ] {
+        assert_eq!(
+            app.mouse(
+                MouseEvent {
+                    kind,
+                    column,
+                    row,
+                    modifiers: KeyModifiers::NONE,
+                },
+                std::time::Instant::now()
+            ),
+            Effect::None
+        );
+    }
+    app.invalidate_frame_geometry();
+    draw(&app, 160, 18);
+    let selected = "漢字 e\u{301}";
+    let quote = app
+        .row_details
+        .reader
+        .as_ref()
+        .unwrap()
+        .selection
+        .as_ref()
+        .unwrap()
+        .quote()
+        .unwrap();
+    assert_eq!(quote.range, prefix.len()..prefix.len() + selected.len());
+    assert_eq!(quote.text, selected);
+    assert_eq!(source.get(quote.range.clone()), Some(selected));
+    assert!(matches!(press(&mut app, KeyCode::Char('y')),
+        Effect::Act(app::Request::Copy { text, .. }) if text == selected));
+    assert_eq!(press(&mut app, KeyCode::Char('a')), Effect::None);
+    assert_eq!(app.input.as_ref().unwrap().response_quotes[0], quote);
+}
+
+#[test]
+fn common_pool_response_quote_opens_talk_without_a_squad_note_or_acknowledgment() {
+    use crate::board::{app::workspace::tests::MEMBER, workspace::OpsTarget};
+    let mut app = response_workspace();
+    let target = OpsTarget::Member {
+        room_id: None,
+        identity_id: MEMBER.into(),
+    };
+    let source = "A **literal** response\n漢字 e\u{301}";
+    let view = app.view.as_mut().unwrap();
+    let snapshot = &mut view.home.as_mut().unwrap().workspace;
+    snapshot.roster.squads[0].members.clear();
+    snapshot
+        .rows
+        .insert(target.clone(), json!({"id":MEMBER,"name":"worker"}));
+    view.replies = vec![json!({"recipientId":MEMBER,"requestId":"r1","response":source})];
+    let before = view.document.clone();
+    app.workspace.pool_expanded = true;
+    app.workspace.selected = Some(target);
+    app.workspace_reconcile();
+    open_response(&mut app);
+    press(&mut app, KeyCode::Char('s'));
+    app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL));
+    assert_eq!(press(&mut app, KeyCode::Char('a')), Effect::None);
+    assert!(app.row_details.reader.is_none());
+    let input = app.input.as_ref().unwrap();
+    assert!(matches!(&input.compose, app::Compose::Talk { to } if to == "worker"));
+    assert!(input.squad.is_empty());
+    assert!(
+        input
+            .others
+            .iter()
+            .all(|mode| !matches!(mode, app::Compose::Annotate { .. }))
+    );
+    let quote = &input.response_quotes[0];
+    assert_eq!(quote.key.lead, MEMBER);
+    assert_eq!(quote.range, 0..source.len());
+    assert_eq!(quote.text, source);
+    let reference = quote.reference();
+    assert_eq!(app.view.as_ref().unwrap().document, before);
+    assert!(matches!(
+        press(&mut app, KeyCode::Enter),
+        Effect::Act(app::Request::DirectTalk { recipient, text, .. })
+            if recipient == MEMBER && text == reference
+    ));
 }
 
 #[test]

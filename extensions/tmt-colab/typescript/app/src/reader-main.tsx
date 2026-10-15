@@ -1,7 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import type { AttachmentBinding } from './attachment-service.js';
 import { ReaderApp, type ReaderState } from './reader-app.js';
-import { parseReaderFragment } from './reader-link.js';
+import { isOlderReaderFragment, parseReaderFragment } from './reader-link.js';
 import { accessEnded, ReaderSession } from './reader.js';
 import '@tmt/browser-ui/static.css';
 import './reader-style.css';
@@ -33,9 +33,9 @@ async function start() {
   }
   let link;
   try {
-    link = parseReaderFragment(fragment);
+    link = await parseReaderFragment(fragment);
   } catch {
-    return show({ kind: 'invalid' });
+    return show({ kind: isOlderReaderFragment(fragment) ? 'older' : 'invalid' });
   }
   const failure = (error: Error) => show({ kind: accessEnded(error) ? 'ended' : 'failed' });
   try {

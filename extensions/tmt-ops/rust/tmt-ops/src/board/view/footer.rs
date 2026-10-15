@@ -24,13 +24,13 @@ fn hint_word(app: &App, action: &crate::action::Action) -> &'static str {
         Verb::Jump if lead => "jump lead",
         Verb::Jump => "host",
         Verb::Menu => "menu",
+        Verb::Talk => "chat",
         Verb::Annotate if action.args.first().and_then(|arg| arg.literal()) == Some("member") => {
             "note member"
         }
         Verb::Annotate => "write",
         Verb::HomeMessage => "expand",
         Verb::ViewReply => "reader",
-        Verb::Talk if app.shell.tab == crate::board::shell::OpsTab::Overview => "chat",
         Verb::Ui(crate::action::OpsUiAction::Pin)
             if app.shell.tab == crate::board::shell::OpsTab::Overview =>
         {
@@ -111,7 +111,6 @@ pub(in crate::board) fn overview_legend(app: &App, width: usize) -> Option<[Stri
         || app.usage_chart.borrow().focused()
         || app.modal_open()
         || app.input.is_some()
-        || app.input_band.get().is_some()
         || app.searching
     {
         return None;
@@ -444,7 +443,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
         Line::from(Span::styled(notice.as_str(), look.role(Role::Waiting)))
     } else if let Some(error) = &app.error {
         Line::from(Span::styled(error.as_str(), look.role(Role::Blocked)))
-    } else if app.modal_open() || app.input_band.get().is_some() {
+    } else if app.modal_open() || (app.input.is_some() && app.input_band.get().is_some()) {
         // Notices and errors above stay; the base key hints would misname the keys.
         Line::default()
     } else {

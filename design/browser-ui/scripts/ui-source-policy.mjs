@@ -1,6 +1,40 @@
+/** Validate compiler output before publishing it inside the UI island. */
+export function assertUiUtilities(css) {
+  // CSS class/variable identifiers may end in body (for example .tmt\:font-body).
+  // Reject the element selector, including compounds, rather than that identifier suffix.
+  if (
+    /@(?:property|import|theme|tailwind|layer)\b|:root|(?<![\w\\.#:-])(?:html|body)(?=[\s,[.#:>{])/.test(
+      css,
+    )
+  )
+    throw new Error('Unexpected global output from Tailwind; review generator before publishing');
+}
+
 /** Complete literal utilities only; Tailwind owns interpretation, never a second utility implementation. */
 export function uiCandidates(source) {
-  const candidates = [...new Set(source.match(/\btmt:[^\s'"`]+/g) ?? [])].sort();
+  const literals = new Set();
+  for (const match of source.matchAll(/\btmt:/g)) {
+    let end = match.index;
+    let brackets = 0;
+    let quote = null;
+    for (; end < source.length; end++) {
+      const character = source[end];
+      if (/\s/.test(character)) break;
+      if (brackets) {
+        if (quote) {
+          if (character === quote && source[end - 1] !== '\\') quote = null;
+        } else if (character === '"' || character === "'") quote = character;
+        else if (character === '[') brackets++;
+        else if (character === ']') brackets--;
+      } else if (character === '[') brackets++;
+      else if ('\'"`'.includes(character)) break;
+    }
+    const candidate = source.slice(match.index, end);
+    if (brackets || quote || candidate === 'tmt:' || candidate.includes('${'))
+      throw new Error('UI utilities require complete literal names and balanced selectors');
+    literals.add(candidate);
+  }
+  const candidates = [...literals].sort();
   for (const candidate of candidates) {
     if (
       /(?:^|:)(?:bg|text|border|outline|fill|stroke)-[[(]/.test(candidate) &&

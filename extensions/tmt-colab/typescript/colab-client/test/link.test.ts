@@ -11,6 +11,7 @@ describe('link keys', () => {
     const keys = await c.link.deriveLink(hex(v.linkSeed), v.space, v.linkId);
     expect(keys.signingPublic).toEqual(hex(v.linkSigningPublic));
     expect(keys.encryption.publicKey()).toEqual(hex(v.linkEncryptionPublic));
+    expect(keys.rulesToken).toBe(v.linkRulesToken);
     // Another space or link ID is another key, never an alias.
     const other = await c.link.deriveLink(
       hex(v.linkSeed),
@@ -18,6 +19,7 @@ describe('link keys', () => {
       '00000000-0000-4000-8000-000000000061',
     );
     expect(other.signingPublic).not.toEqual(keys.signingPublic);
+    expect(other.rulesToken).not.toBe(keys.rulesToken);
   });
   it('rejects a seed that is not 32 bytes', async () => {
     await expect(c.link.deriveLink(new Uint8Array(31), v.space, v.linkId)).rejects.toThrow();
