@@ -18,6 +18,7 @@ const screens: Screen[] = [
   'reader',
   'reader-opening',
   'reader-invalid',
+  'reader-older',
   'reader-ended',
   'reader-failed',
 ];

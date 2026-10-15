@@ -44,6 +44,8 @@ pub(super) enum Action<'a> {
         remove: Option<&'a str>,
         add: Option<Recipient>,
         seed: Option<&'a [u8; 32]>,
+        /// The added link's cloud admission token, derived while its seed is borrowed.
+        token: Option<String>,
     },
 }
 impl Action<'_> {
@@ -384,6 +386,7 @@ impl Engine {
                 if let Action::Link {
                     remove: Some(_),
                     add: Some(r),
+                    token,
                     ..
                 } = &action
                 {
@@ -408,6 +411,9 @@ impl Engine {
                         )?);
                     }
                     tx.put_recipient(r)?;
+                    if let Some(token) = token {
+                        tx.put_link_admission(&r.id, token)?;
+                    }
                     statements.push(added);
                 }
                 if matches!(&action, Action::Member(_) | Action::Link { .. }) {
@@ -423,6 +429,17 @@ impl Engine {
                         _ => {}
                     }
                     tx.put_recipient(&r)?;
+                    match &action {
+                        Action::Link {
+                            remove: None,
+                            token: Some(token),
+                            ..
+                        } => tx.put_link_admission(&r.id, token)?,
+                        Action::Link {
+                            remove: Some(id), ..
+                        } => tx.drop_link_admission(id)?,
+                        _ => {}
+                    }
                 }
                 if operation == "member.remove" || operation == "link.remove" {
                     for device in &plan.devices {
@@ -548,7 +565,9 @@ fn plan(
             }
             r
         }
-        Action::Link { remove, add, seed } => {
+        Action::Link {
+            remove, add, seed, ..
+        } => {
             if let Some(r) = add {
                 payload::decode("link.add", &serde_json::to_vec(&link_payload(r))?)?;
                 if authority

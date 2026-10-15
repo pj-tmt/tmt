@@ -410,7 +410,16 @@ XSeed = HKDF-SHA256(linkSeed, empty,
   LP("tmt-colab-link-encryption-seed-v1", space, linkId), 32)
 joinProof = HMAC-SHA256(linkSeed,
   LP("tmt-colab-join-v1", space, linkId))
+rulesToken = base64url(HKDF-SHA256(linkSeed, empty,
+  LP("tmt-colab-link-rules-token-v1", space, linkId), 32))
 ```
+
+`rulesToken` (43 characters, unpadded) is the bearer value of the link's cloud `links` row: a
+holder presents it once in its self-admission `members` create. It is derived apart from every
+other value, so the cloud learns nothing else of the seed. The owner derives it when it creates
+or resets the link, while the seed is borrowed, and keeps only the token in its Store until the
+link ends; a link created before this derivation existed has none and needs `share link reset`.
+`authority-v1.json` `linkRulesToken` freezes the oracle value.
 
 Import `EdSeed` as an Ed25519 seed and `XSeed` as the X25519 private input with
 standard X25519 clamping, using native/Rust library primitives. Conversion from
@@ -833,7 +842,7 @@ fences.
 `share link add` and `share link reset` print one openable link for the link they create:
 
 ```text
-<door address>/x/colab/read#v=1&space=<spaceId>&page=<pageId>&link=<linkId>&rev=<n>&st=<hash>&seed=<seed32>
+<door address>/x/colab/read#v=1&space=<spaceId>&page=<pageId>&link=<linkId>&rev=<n>&st=<hash>&seed=<seed32>&root=<ownerKey32>&role=<role>
 ```
 
 The CLI prints the relative form `x/colab/read#...` (field `readerPath`), like `page create`'s
@@ -843,10 +852,16 @@ the fragment, which a browser never sends to a server. Path and query carry noth
 seed appears nowhere else in any output. `rev` and `st` are the revision and canonical
 base64url hash of the `link.add` statement that introduced the link: the link-device chain
 must name that statement, and a wrong value only fails the server's chain check. The grammar is
-strict: `v` is `1`; each of `v`, `space`, `page`, `link`, `rev`, `st`, `seed` appears exactly
-once in any order; values are canonical (`space` and IDs as everywhere, `rev` a positive
-decimal, `st` and `seed` unpadded base64url of 32 bytes); anything else, including percent
-escapes, an unknown key or more than 512 bytes, is not a reader link.
+strict: `v` is `1`; each of `v`, `space`, `page`, `link`, `rev`, `st`, `seed`, `root`, `role`
+appears exactly once in any order; values are canonical (`space` and IDs as everywhere, `rev` a
+positive decimal, `st`, `seed` and `root` unpadded base64url of 32 bytes, `role` one of `viewer`,
+`commenter`, `editor`); anything else, including percent escapes, an unknown key, a link printed
+before `root` and `role` existed, or more than 512 bytes, is not a reader link (the longest
+form is about 300 bytes; the entry names a well-formed pre-`root` link as out of date and says to
+ask the owner for a new one, without any request). `root` is the owner's root public key: every reader rejects a link
+whose `root` does not derive `space`. `role` is only a hint for the one self-admission create of
+a hosted reader; the capability comes from the signed link statements, and the reader stays
+read-only whatever `role` says.
 
 The public `/read` entry removes the fragment from the address bar before any other work
 (a reload therefore needs the full link again). In memory only, it derives the link keys from
@@ -862,7 +877,8 @@ and the server keeps one device row per link however often the link is opened
 derivation: any seed holder may still certify a fresh random device, as the revocation rules above
 state. The entry then runs the challenge and session exchange above and opens
 `/sync` with the ticket subprotocol; hello names the session's `principal`. It checks that the
-returned owner key derives the linked `space`, verifies the owner log and link-addressed wraps
+returned owner key equals the link's `root` (a mismatch ends access) and derives the linked
+`space`, verifies the owner log and link-addressed wraps
 with the owner-browser rules, and pins and stores nothing in the owner app's records
 (IndexedDB, local or session storage, cookies). It shows the page read-only and live, with no
 editor, Ask, share, export or history control. The ten-minute session ends in a reconnect with

@@ -480,13 +480,16 @@ struct AcknowledgedHead {
 }
 /// The reader link grammar is owned by the colab-v1 contract. The path is relative to the
 /// Remote door address, like `page create`'s `path`; everything secret is in the fragment.
-fn reader_path(space: &str, page: &str, link: &Value, head: &AcknowledgedHead) -> String {
+fn reader_path(key: &Keyring, page: &str, link: &Value, head: &AcknowledgedHead) -> String {
     format!(
-        "x/colab/read#v=1&space={space}&page={page}&link={}&rev={}&st={}&seed={}",
+        "x/colab/read#v=1&space={}&page={page}&link={}&rev={}&st={}&seed={}&root={}&role={}",
+        key.space_id,
         link["linkId"].as_str().unwrap_or_default(),
         head.revision,
         head.statement_hash,
         link["seed"].as_str().unwrap_or_default(),
+        values::encode_binary(&key.owner_public()),
+        link["role"].as_str().unwrap_or_default(),
     )
 }
 fn remaining(deadline: Instant) -> Result<Duration> {
@@ -1074,12 +1077,7 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
             _ => None,
         };
         if let Some(created) = created {
-            value["readerPath"] = json!(reader_path(
-                &key.space_id,
-                &id,
-                created,
-                &ack.membership_head
-            ));
+            value["readerPath"] = json!(reader_path(&key, &id, created, &ack.membership_head));
         }
         Ok(value)
     })()

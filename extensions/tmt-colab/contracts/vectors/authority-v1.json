@@ -31,6 +31,7 @@
   "linkSigningPublic": "c938e3a6dddeaea3fa6d6490478aa057404f8ea3cbcc46bfef3a357107fee973",
   "linkEncryptionPublic": "d9eec57115ea2743397c18fccef6c042247cf3eb72fba8a95bcb7232bd31887e",
   "joinProof": "5699eb5ee1e3afdfe2592ed2de2b55c3d4581e159d9ddbecdaeb7dec4672c0aa",
+  "linkRulesToken": "fk4QDorxif_6Zom4VEzFDmWcAhRm5MCnMx4vg3Ocuqo",
   "linkDevice": {
     "id": "f63dd120-13dd-4c99-b9dc-c929eafa619f",
     "signingPublic": "9b5bc8d4fdaaf6604458ea8536364b69a771f219372e508adba44aa019361a34",

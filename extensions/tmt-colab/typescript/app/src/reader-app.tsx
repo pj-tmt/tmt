@@ -16,6 +16,7 @@ export type ReaderState =
   | { kind: 'ready'; view: PageView }
   | { kind: 'ended' }
   | { kind: 'invalid' }
+  | { kind: 'older' }
   | { kind: 'failed' };
 
 /** The read-only page: no editor, Ask, export or share controls exist in this entry. */
@@ -166,11 +167,14 @@ export function ReaderApp({
                 ? text.readerOpening
                 : state.kind === 'ended'
                   ? text.readerEnded
-                  : text.error
+                  : state.kind === 'older'
+                    ? text.readerOlderTitle
+                    : text.error
             }
           >
             {state.kind === 'ended' && <p>{text.readerEndedNote}</p>}
             {state.kind === 'invalid' && <p>{text.readerInvalid}</p>}
+            {state.kind === 'older' && <p>{text.readerOlder}</p>}
             {state.kind === 'failed' && <p>{text.readerFailed}</p>}
           </NoticeCard>
         )}

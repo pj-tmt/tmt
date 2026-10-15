@@ -76,6 +76,11 @@ const MIGRATIONS: &[&str] = &[
         bootstrap_seq TEXT NOT NULL, confirmed_seq TEXT NOT NULL,
         PRIMARY KEY(page,epoch,stream), FOREIGN KEY(page) REFERENCES pages(page));
     "#,
+    // Schema 9: a live link's cloud admission token. Derived from the seed at creation, the only
+    // moment the seed exists; removed with the link. Not signed and not in the owner log.
+    r#"
+    CREATE TABLE link_admissions(link TEXT PRIMARY KEY, token TEXT NOT NULL) WITHOUT ROWID;
+    "#,
 ];
 pub(super) const CURRENT_VERSION: u32 = MIGRATIONS.len() as u32;
 

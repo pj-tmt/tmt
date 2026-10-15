@@ -351,7 +351,8 @@ is added.
   receipts, checkpoints), 2 owner authority (membership log, recipients, devices, epoch
   secrets, wraps, `owner_operations`), 3 `device_registrations`, 4 `baselines`,
   5 nullable checked server-observed content time on `pages`, 6 nullable original content
-  publication scope on `owner_operations`, 7 page labels, and 8 bounded confirmed-publication metadata. Migration leaves legacy times null and legacy
+  publication scope on `owner_operations`, 7 page labels, 8 bounded confirmed-publication metadata, and 9 `link_admissions` (a live
+  link's cloud admission token, dropped with the link). Migration leaves legacy times null and legacy
   outcomes unscoped without backfill. Epoch
   secrets are local key material, not an encrypted-at-rest guarantee.
 - `Store::open` creates and migrates. `Store::read` and `Store::write_existing` open only

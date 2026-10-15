@@ -107,7 +107,7 @@ fn the_schema_adds_page_labels_and_keeps_what_was_there() {
     // A store from before labels (schema 6) gains the table on the next open; nothing else moves.
     f.oracle()
         .execute_batch(
-            "DROP TABLE cloud_publications; DROP TABLE page_labels; PRAGMA user_version=6;",
+            "DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_labels; PRAGMA user_version=6;",
         )
         .unwrap();
     f.store = Store::open(&f.layout).unwrap();

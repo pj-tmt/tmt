@@ -3,6 +3,7 @@ import {
   binary,
   certificate,
   encodeBinary,
+  equal,
   exactKeys,
   generatedId,
   link as linkKeys,
@@ -144,6 +145,8 @@ export class ReaderSession {
     );
     generatedId(granted.principal);
     const owner = binary(granted.ownerKey, 32, 32);
+    // The link names its owner: a door that presents another key is not this link's space.
+    if (!equal(owner, this.target.root)) throw new AccessEndedError();
     const registration: Registration = {
       deviceId: this.device.id,
       keys: {
