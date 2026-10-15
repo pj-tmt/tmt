@@ -36,10 +36,10 @@ const STARTUP: Duration = executable_fixture::COMPLETION_WINDOW;
 // This fixture wait models that possibility; it is not a deployment retry.
 const DEPLOY_WRITER_RELEASE_WAIT: Duration = Duration::from_secs(3);
 const DEPLOY_WRITER_RELEASE_POLL: Duration = Duration::from_millis(5);
-fn wait_for_deploy_writer(
+fn wait_for_deploy_writer<T>(
     deadline: Instant,
-    mut reopen: impl FnMut() -> Result<DeployRecordStore, RemoteError>,
-) -> Result<DeployRecordStore, RemoteError> {
+    mut reopen: impl FnMut() -> Result<T, RemoteError>,
+) -> Result<T, RemoteError> {
     let started = Instant::now();
     loop {
         match reopen() {
@@ -3394,7 +3394,7 @@ fn deploy_writer_wait_observes_a_gated_copied_lock_release_without_changing_the_
         "record": tmt_remote::deploy_run::DeployRecord::new(deploy_fixture::ID),
     }))
     .unwrap();
-    // Seed valid private bytes before any lock owner exists; no preliminary release race.
+    // Seed valid private bytes before the copied-holder scenario.
     drop(DeployRecordStore::open(&layout, "demo-remote-1").unwrap());
     std::fs::OpenOptions::new()
         .write(true)
@@ -3406,7 +3406,16 @@ fn deploy_writer_wait_observes_a_gated_copied_lock_release_without_changing_the_
         .unwrap();
     // Model a copy of the same locked open description, not an identified CI child.
     let original = layout.file("deploy.lock").unwrap();
-    original.try_lock().unwrap();
+    wait_for_deploy_writer(Instant::now() + DEPLOY_WRITER_RELEASE_WAIT, || {
+        original.try_lock().map_err(|error| match error {
+            std::fs::TryLockError::WouldBlock => RemoteError::new(
+                "REMOTE_DEPLOY_BUSY",
+                "The fixture's seed writer is still locked.",
+            ),
+            std::fs::TryLockError::Error(error) => error.into(),
+        })
+    })
+    .expect("seed writer did not release within the fixture bound");
     let copy = original.try_clone().unwrap();
     drop(original);
     std::thread::scope(|scope| {
@@ -3458,7 +3467,7 @@ fn deploy_writer_wait_propagates_non_busy_errors_after_one_attempt() {
     let mut calls = 0;
     let result = wait_for_deploy_writer(Instant::now() + DEPLOY_WRITER_RELEASE_WAIT, || {
         calls += 1;
-        Err(RemoteError::new(
+        Err::<DeployRecordStore, _>(RemoteError::new(
             "REMOTE_STATE_UNSAFE",
             "fixture unsafe state",
         ))
