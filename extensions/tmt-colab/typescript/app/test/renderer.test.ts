@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { expect, test } from 'vite-plus/test';
-import { isRenderRectangle, MAX_RENDER_SOURCE_BYTES } from '../src/renderer.js';
+import { isRenderRectangle, MAX_RENDER_SOURCE_BYTES, rendererUrl } from '../src/renderer.js';
 
 const html = readFileSync(new URL('../public/renderer.html', import.meta.url), 'utf8');
 const script = html.match(/<script>([\s\S]*?)<\/script>/)![1];
@@ -127,4 +127,15 @@ test('renderer admission bounds UTF-8 bytes rather than character count', () => 
   expect(frame.writes).toEqual([]);
   frame.send(message(frame.parent, 'x'.repeat(MAX_RENDER_SOURCE_BYTES)));
   expect(frame.writes).toHaveLength(1);
+});
+
+test('hosted short routes load the one root renderer while native mounts keep their renderer', () => {
+  for (const route of ['/', '/read/AbCd1234', '/p/AbCd1234', '/colab'])
+    expect(rendererUrl(`https://demo-example.web.app${route}`)).toBe(
+      'https://demo-example.web.app/renderer.html',
+    );
+  expect(rendererUrl('https://door.example.test/r/abcd/x/colab/read')).toBe(
+    'https://door.example.test/r/abcd/x/colab/renderer.html',
+  );
+  expect(rendererUrl('http://127.0.0.1:4179/')).toBe('http://127.0.0.1:4179/renderer.html');
 });

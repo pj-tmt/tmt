@@ -7,10 +7,11 @@ import { ColabHeader } from './colab-header.js';
 import { PageAttribution } from './page-attribution.js';
 import { ReaderSource, type ReaderEdit } from './reader-source.js';
 import { NoticeCard } from './notice-card.js';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { mountRenderer, type RenderState } from './renderer.js';
 import { text } from './strings.js';
 import type { PageView } from './transport.js';
+import './reader-app.css';
 
 export type ReaderState =
   | { kind: 'opening' }
@@ -25,12 +26,14 @@ export type ReaderState =
 export function ReaderApp({
   state,
   attachments,
+  notice,
   canEdit = false,
   edit,
 }: {
   state: ReaderState;
   /** Authorized reads of the page's files; absent until the session is open. */
   attachments?: AttachmentBinding;
+  notice?: ReactNode;
   /** The link says it may edit. The serve decides; this only changes what the page offers. */
   canEdit?: boolean;
   /** Saves page text; absent until the session is open. */
@@ -165,6 +168,7 @@ export function ReaderApp({
         }
       />
       <main>
+        {notice}
         {state.kind === 'ready' ? (
           <section className="page">
             <div className="workspace">

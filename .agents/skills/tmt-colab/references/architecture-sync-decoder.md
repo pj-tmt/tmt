@@ -44,6 +44,19 @@ and `limits.rs`; do not restate them.
   folded its records. A relay acknowledgement alone cannot authorize dependent discussion
   or Ask reads; a bounded catchup failure ends the connection without another send.
 
+## Hosted reader
+
+`hosted-main`/`hosted-entry` own origin routing, explicit sign-in and the selected parsed link;
+`reader-keys` shares native link-device derivation. `hosted-bootstrap` loads one exact release
+declaration and Remote SDK; `hosted-admission` retains the single enrollment attempt and reads
+page hints. `hosted-session` and `hosted-interests` fence, close and join one three-interest group
+before switching or bounded recovery. `hosted-budget` owns the cross-tab origin ledger.
+`hosted-discovery`/`hosted-query` bound finite reads; `hosted-documents` reconstructs the native
+mapping's exact originals. `hosted-authority` feeds the existing Admission; `hosted-reader`
+reuses Objects/Catchup/Fold before `hosted-app` presents the existing read-only ReaderApp.
+The [hosted contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#hosted-read-only-page-consumer-2452-b4)
+owns limits, refusals and the deferred baseline carrier. No hosted module owns Firebase or a writer.
+
 ## Isolated decoder
 
 - `decoder::Decoder` is one caller-owned child runner per page and the only Yjs consumer.

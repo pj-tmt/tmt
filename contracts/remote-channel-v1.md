@@ -1989,6 +1989,10 @@ entry; those fixtures are not Colab declaration or routed acceptance evidence.
 The served SDK's explicit `firebaseRemote.connect` verifies the canonical Remote link and
 checks that `projectId`, `appId` and `authDomain` equal same-origin `/__/firebase/init.json`
 before lazily loading the hosted Firebase asset.
+`firebaseRemote.originLink()` derives the canonical public pair link from the origin's bounded
+init.json response using only `apiKey`, `appId`, `authDomain` and `projectId`, validates the
+exact `https://<projectId>.web.app` origin, and refuses with `REMOTE_INPUT_INVALID`; callers
+pass it through the unchanged `connect` checks, gaining no admission or operations authority.
 The caller supplies the frozen extension declaration bytes and their SHA-256; digest or
 resource-grammar disagreement refuses before provider access. The table is data, with no
 extension-specific resource names in Remote. Configuration and authentication grant neither
@@ -2008,7 +2012,7 @@ Hosting copies `/sdk/remote-v1.js`, `/sdk/remote-firebase-v1.js` and
 build pins. Scripts stay same-origin. A hosted page that calls `connect` must allow
 `https://identitytoolkit.googleapis.com` and `https://securetoken.googleapis.com` in its
 `connect-src`; `https://firestore.googleapis.com` is required for sealed-document transport.
-Colab owns the hosted shell policy; these are requirements, not its current headers.
+Colab owns the hosted shell policy and its composed manifest headers.
 The local door's pairing and session path never implicitly loads Firebase.
 Cloud agent operations and a machine connector are not shipped. This bootstrap's Firestore
 access is the browser sealed-document transport described below.
@@ -2239,14 +2243,21 @@ the caller reserves that cost too. Listener tail size is not reported as zero or
 conservative active-hour estimates include both push delivery and REST catch-up, not plain twice
 the append model, which excludes the writer's own listener.
 
+An optional caller-owned `guard.received(documents)` receives the complete initial server
+snapshot count, then every document-change batch before its coalesced hint; the transport
+stores no counter. A guard refusal closes the listener and preserves the typed budget reset
+for pending and later `next` calls. The consumer joins its outstanding guard work at teardown.
+
 Browser wake uses one Web SDK onSnapshot per page interest, with only its declared equality scope,
 memoryLocalCache and no persistent cache. Metadata-only changes after the initial server snapshot
 are ignored. Snapshots carry coalesced hints, never document delivery or cursor progress; listeners
 cover empty pages, new writers and later writes in existing streams. Cancellation, unsubscribe,
 sign-out and close fence late callbacks. An idle `next` deadline rejects with
 `REMOTE_STATE_UNAVAILABLE {state: 'deadline'}` and keeps the interest alive; call `next` again.
-An aborted call rejects with `state: 'cancelled'`. Failed listeners and ended/closed interests
-reject with bare `REMOTE_STATE_UNAVAILABLE`, including pending and every later `next`; any
+An aborted call rejects with `state: 'cancelled'`. Provider permission/authentication refusals
+reject with `REMOTE_SCOPE_DENIED`, resource exhaustion with `REMOTE_RATE_LIMITED`, and other
+listener failures or ordinary ended/closed interests with bare `REMOTE_STATE_UNAVAILABLE`;
+pending and every later `next` retain a terminal refusal. Any
 rejection other than `state: 'deadline'` is terminal for the consumer, never a device-revocation proof. Firestore is confined to the lazy Firebase asset; the loopback door does not import it.
 
 The port offers bounded read, query, subscribe, publish and close. A document target names one

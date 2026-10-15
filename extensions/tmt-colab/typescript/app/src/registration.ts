@@ -121,7 +121,8 @@ export class AdmissionRefusedError extends Error {
     super(code ?? `Colab registration unavailable (${status})`);
   }
 }
-export async function jsonResponse(response: Response, cap: number) {
+/** Exact bounded bytes shared by JSON admission and release-declaration bootstrap. */
+export async function responseBytes(response: Response, cap: number): Promise<Uint8Array> {
   // Stream limits apply even when the server omits or lies about Content-Length.
   const reader = response.body?.getReader();
   if (!reader) {
@@ -144,27 +145,31 @@ export async function jsonResponse(response: Response, cap: number) {
       raw.set(part, offset);
       offset += part.length;
     }
-    if (!response.ok) {
-      let code: string | undefined;
-      try {
-        const refusal = strictJson(raw, cap, true);
-        if (
-          typeof refusal === 'object' &&
-          refusal !== null &&
-          !Array.isArray(refusal) &&
-          'code' in refusal &&
-          typeof refusal.code === 'string'
-        )
-          code = refusal.code;
-      } catch {
-        // An empty or unrecognized refusal is still an admission failure, not revoke proof.
-      }
-      throw new AdmissionRefusedError(response.status, new TextDecoder().decode(raw), code);
-    }
-    return strictJson(raw, cap, true);
+    return raw;
   } finally {
     await reader.cancel();
   }
+}
+export async function jsonResponse(response: Response, cap: number) {
+  const raw = await responseBytes(response, cap);
+  if (!response.ok) {
+    let code: string | undefined;
+    try {
+      const refusal = strictJson(raw, cap, true);
+      if (
+        typeof refusal === 'object' &&
+        refusal !== null &&
+        !Array.isArray(refusal) &&
+        'code' in refusal &&
+        typeof refusal.code === 'string'
+      )
+        code = refusal.code;
+    } catch {
+      // An empty or unrecognized refusal is still an admission failure, not revoke proof.
+    }
+    throw new AdmissionRefusedError(response.status, new TextDecoder().decode(raw), code);
+  }
+  return strictJson(raw, cap, true);
 }
 /** Remote alone pairs/reopens sessions. GET session is the Colab-owned echo
  * endpoint, not permission to inspect the Remote SDK's persistence schema. */

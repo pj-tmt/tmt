@@ -14,6 +14,7 @@ import {
   type SyncResource,
   type SyncSubscription,
   type SyncChange,
+  type SyncFailure,
 } from './sealed-sync.js';
 import { classifyProviderExhausted } from './budget.js';
 import { createSyncQuery } from './firebase-sync-query.js';
@@ -22,6 +23,7 @@ import {
   syncCallLive,
   syncWait,
   admitSync,
+  syncGuardFailure,
   SYNC_PROVIDER_BYTES,
   type SyncAdmissionGuard,
 } from './firebase-sync-http.js';
@@ -30,12 +32,20 @@ export interface SyncWakePort {
   listen(
     context: SyncContext,
     interest: SyncInterest,
-    changed: () => void,
-    failed: () => void,
+    changed: (documents?: number) => void,
+    failed: (failure?: SyncFailure) => void,
   ): Promise<() => void>;
 }
 const tab = { writes: 0, listeners: 0, streams: new Set<string>() };
 const unavailable = () => ({ code: 'REMOTE_STATE_UNAVAILABLE' as const });
+/** Identity fences retain only their typed scope verdict; private diagnostics never escape. */
+const ownerFailure = (error: unknown): SyncFailure =>
+  typeof error === 'object' &&
+  error !== null &&
+  'code' in error &&
+  error.code === 'REMOTE_SCOPE_DENIED'
+    ? { code: 'REMOTE_SCOPE_DENIED' }
+    : unavailable();
 const invalid = () => ({ code: 'REMOTE_INPUT_INVALID' as const });
 const canonicalFields = (value: Record<string, unknown>) =>
   JSON.stringify(
@@ -237,20 +247,20 @@ export function createSealedSync(
       if (page.listeners >= 3 || tab.listeners >= 12) throw { code: 'REMOTE_RATE_LIMITED' };
       let ended = false,
         dirty = false,
-        failed = false;
+        failure: SyncFailure | undefined;
       let pending: { resolve(change: SyncChange): void; reject(error: unknown): void } | undefined;
       let stop: (() => void) | undefined;
       const publish = () => {
         if (ended || closed) return;
         try {
           live();
-        } catch {
-          failed = true;
+        } catch (error) {
+          failure ??= ownerFailure(error);
         }
         if (pending) {
           const p = pending;
           pending = undefined;
-          if (failed) p.reject(unavailable());
+          if (failure) p.reject(failure);
           else {
             dirty = false;
             p.resolve({ kind: 'changed' });
@@ -259,11 +269,12 @@ export function createSealedSync(
       };
       const subscription: SyncSubscription = {
         async next(nextCall) {
-          if (ended || failed || closed) throw unavailable();
+          if (failure) throw failure;
+          if (ended || closed) throw unavailable();
           try {
             live();
-          } catch {
-            throw unavailable();
+          } catch (error) {
+            throw ownerFailure(error);
           }
           if (nextCall.signal.aborted)
             throw { code: 'REMOTE_STATE_UNAVAILABLE', state: 'cancelled' };
@@ -311,7 +322,7 @@ export function createSealedSync(
           subscriptions.delete(subscription);
           tab.listeners--;
           page.listeners--;
-          pending?.reject(unavailable());
+          pending?.reject(failure ?? unavailable());
           pending = undefined;
         },
       };
@@ -340,8 +351,8 @@ export function createSealedSync(
         const credential = await syncWait(call, () => context.auth.token(call));
         live();
         syncCallLive(call);
+        if ('state' in credential) throw credential;
         if (
-          'state' in credential ||
           credential.projectId !== context.config.projectId ||
           credential.uid !== context.uid ||
           !Number.isFinite(credential.expiresAtMs) ||
@@ -352,25 +363,48 @@ export function createSealedSync(
           const detach = await wake.listen(
             context,
             boundInterest,
-            () => {
-              dirty = true;
-              publish();
+            (documents) => {
+              if (ended || closed || failure) return;
+              const changed = () => {
+                if (ended || closed || failure) return;
+                dirty = true;
+                publish();
+              };
+              const refused = (error: unknown) => {
+                if (ended || closed) return;
+                failure = syncGuardFailure(error);
+                publish();
+                subscription.close();
+              };
+              if (!guard.received) return changed();
+              try {
+                if (
+                  typeof documents !== 'number' ||
+                  !Number.isSafeInteger(documents) ||
+                  documents < 0
+                )
+                  throw invalid();
+                // Charge every batch even when Changed coalesces; the caller owns its ledger.
+                void guard.received(documents).then(changed, refused);
+              } catch (error) {
+                refused(error);
+              }
             },
-            () => {
-              failed = true;
+            (error) => {
+              failure = error ?? unavailable();
               publish();
               subscription.close();
             },
           );
           if (ended || closed || call.signal.aborted || Date.now() >= call.deadlineAtMs) {
             detach();
-            throw unavailable();
+            throw failure ?? unavailable();
           }
           return detach;
         });
         live();
         syncCallLive(call);
-        if (ended) throw unavailable();
+        if (ended) throw failure ?? unavailable();
         return subscription;
       } catch (error) {
         subscription.close();

@@ -735,6 +735,46 @@ var encoder$1 = new TextEncoder();
 var decoder$1 = new TextDecoder("utf-8", { fatal: true });
 var LINK_BYTES = 8192;
 var HOSTED_BOOTSTRAP_MS = 1e4;
+/** The origin's own public descriptor grants no space or operations authority. */
+async function originLink(origin, fetcher) {
+	const controller = new AbortController();
+	let timer;
+	try {
+		valid$5(/^https:\/\/[a-z][a-z0-9-]{4,28}[a-z0-9]\.web\.app$/.test(origin));
+		const deadline = new Promise((_, reject) => {
+			timer = setTimeout(() => {
+				controller.abort();
+				reject(new RefusalError("REMOTE_INPUT_INVALID"));
+			}, HOSTED_BOOTSTRAP_MS);
+		});
+		return await Promise.race([deadline, (async () => {
+			const row = await readHostedConfig(origin, fetcher, controller.signal);
+			const config = parsePublicWebConfig({
+				apiKey: row.apiKey,
+				appId: row.appId,
+				authDomain: row.authDomain,
+				projectId: row.projectId
+			});
+			valid$5(origin === `https://${config.projectId}.web.app`);
+			const body = {
+				kind: "firestore",
+				publicWebConfig: config,
+				version: 1
+			};
+			const descriptor = canonical$1({
+				...body,
+				checksum: await checksum(body)
+			});
+			valid$5(!controller.signal.aborted);
+			return `${origin}/pair#${base64url(encoder$1.encode(descriptor))}`;
+		})()]);
+	} catch {
+		throw new RefusalError("REMOTE_INPUT_INVALID");
+	} finally {
+		clearTimeout(timer);
+		controller.abort();
+	}
+}
 function valid$5(condition) {
 	if (!condition) throw new RefusalError("REMOTE_INPUT_INVALID");
 }
@@ -761,6 +801,9 @@ function canonical$1(value) {
 	const r = value;
 	return `{${Object.keys(r).sort().map((k) => `${JSON.stringify(k)}:${canonical$1(r[k])}`).join(",")}}`;
 }
+async function checksum(value) {
+	return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", encoder$1.encode(canonical$1(value)))), (b) => b.toString(16).padStart(2, "0")).join("");
+}
 async function verifyHostedLink(link, origin) {
 	try {
 		valid$5(typeof link === "string" && encoder$1.encode(link).length <= LINK_BYTES);
@@ -779,12 +822,11 @@ async function verifyHostedLink(link, origin) {
 		valid$5(r.version === 1 && r.kind === "firestore" && typeof r.checksum === "string" && /^[a-f0-9]{64}$/.test(r.checksum));
 		const publicConfig = parsePublicWebConfig(r.publicWebConfig);
 		valid$5(origin === `https://${publicConfig.projectId}.web.app`);
-		const body = {
+		valid$5(await checksum({
 			kind: r.kind,
 			publicWebConfig: publicConfig,
 			version: r.version
-		};
-		valid$5(Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", encoder$1.encode(canonical$1(body)))), (b) => b.toString(16).padStart(2, "0")).join("") === r.checksum && text === canonical$1(r));
+		}) === r.checksum && text === canonical$1(r));
 		valid$5(link === `${origin}/pair#${base64url(bytes)}`);
 		return publicConfig;
 	} catch {
@@ -793,6 +835,15 @@ async function verifyHostedLink(link, origin) {
 }
 /** A bounded same-origin read cannot follow a redirect into another configuration source. */
 async function confirmHostedConfig(expected, origin, fetcher, signal) {
+	const r = await readHostedConfig(origin, fetcher, signal);
+	for (const key of [
+		"projectId",
+		"appId",
+		"authDomain"
+	]) if (r[key] !== expected[key]) throw new ClientError("unverifiable_response", "Hosted configuration does not match this remote link.");
+}
+/** One bounded response codec for origin-link construction and the unchanged connect check. */
+async function readHostedConfig(origin, fetcher, signal) {
 	const response = await fetcher(`${origin}/__/firebase/init.json`, {
 		signal,
 		redirect: "error",
@@ -817,12 +868,7 @@ async function confirmHostedConfig(expected, origin, fetcher, signal) {
 		text += streamDecoder.decode();
 		const actual = JSON.parse(text);
 		if (typeof actual !== "object" || actual === null || Array.isArray(actual)) throw new Error("invalid");
-		const r = actual;
-		for (const key of [
-			"projectId",
-			"appId",
-			"authDomain"
-		]) if (r[key] !== expected[key]) throw new ClientError("unverifiable_response", "Hosted configuration does not match this remote link.");
+		return actual;
 	} finally {
 		await reader.cancel();
 		reader.releaseLock();
@@ -2338,13 +2384,17 @@ async function admitSync(guard, cost, call) {
 	try {
 		await syncWait(call, () => guard.admit(Object.freeze(cost)));
 	} catch (error) {
-		if (typeof error === "object" && error !== null && "code" in error && error.code === "REMOTE_BUDGET_EXHAUSTED" && "resetAtMs" in error && typeof error.resetAtMs === "number" && Number.isFinite(error.resetAtMs) && error.resetAtMs >= 0 && "retryAfterMs" in error && typeof error.retryAfterMs === "number" && Number.isFinite(error.retryAfterMs) && error.retryAfterMs >= 0) throw {
-			code: "REMOTE_BUDGET_EXHAUSTED",
-			resetAtMs: error.resetAtMs,
-			retryAfterMs: error.retryAfterMs
-		};
-		throw unavailable$2();
+		throw syncGuardFailure(error);
 	}
+}
+/** Preserve only the frozen guard refusal, never caller exception text. */
+function syncGuardFailure(error) {
+	if (typeof error === "object" && error !== null && "code" in error && error.code === "REMOTE_BUDGET_EXHAUSTED" && "resetAtMs" in error && typeof error.resetAtMs === "number" && Number.isFinite(error.resetAtMs) && error.resetAtMs >= 0 && "retryAfterMs" in error && typeof error.retryAfterMs === "number" && Number.isFinite(error.retryAfterMs) && error.retryAfterMs >= 0) return {
+		code: "REMOTE_BUDGET_EXHAUSTED",
+		resetAtMs: error.resetAtMs,
+		retryAfterMs: error.retryAfterMs
+	};
+	return unavailable$2();
 }
 /** The owner fence checks its uid/project/generation after every asynchronous boundary. */
 function syncHttp(context, guard, fetcher, live) {
@@ -2599,6 +2649,8 @@ var tab = {
 	streams: /* @__PURE__ */ new Set()
 };
 var unavailable = () => ({ code: "REMOTE_STATE_UNAVAILABLE" });
+/** Identity fences retain only their typed scope verdict; private diagnostics never escape. */
+var ownerFailure = (error) => typeof error === "object" && error !== null && "code" in error && error.code === "REMOTE_SCOPE_DENIED" ? { code: "REMOTE_SCOPE_DENIED" } : unavailable();
 var invalid = () => ({ code: "REMOTE_INPUT_INVALID" });
 var canonicalFields = (value) => JSON.stringify(Object.fromEntries(Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)));
 var digest = async (bytes) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new Uint8Array(bytes))), (b) => b.toString(16).padStart(2, "0")).join("");
@@ -2749,20 +2801,20 @@ function createSealedSync(context, guard, fetcher, wake, ownerLive, page = { lis
 			live();
 			syncCallLive(call);
 			if (page.listeners >= 3 || tab.listeners >= 12) throw { code: "REMOTE_RATE_LIMITED" };
-			let ended = false, dirty = false, failed = false;
+			let ended = false, dirty = false, failure;
 			let pending;
 			let stop;
 			const publish = () => {
 				if (ended || closed) return;
 				try {
 					live();
-				} catch {
-					failed = true;
+				} catch (error) {
+					failure ??= ownerFailure(error);
 				}
 				if (pending) {
 					const p = pending;
 					pending = void 0;
-					if (failed) p.reject(unavailable());
+					if (failure) p.reject(failure);
 					else {
 						dirty = false;
 						p.resolve({ kind: "changed" });
@@ -2771,11 +2823,12 @@ function createSealedSync(context, guard, fetcher, wake, ownerLive, page = { lis
 			};
 			const subscription = {
 				async next(nextCall) {
-					if (ended || failed || closed) throw unavailable();
+					if (failure) throw failure;
+					if (ended || closed) throw unavailable();
 					try {
 						live();
-					} catch {
-						throw unavailable();
+					} catch (error) {
+						throw ownerFailure(error);
 					}
 					if (nextCall.signal.aborted) throw {
 						code: "REMOTE_STATE_UNAVAILABLE",
@@ -2830,7 +2883,7 @@ function createSealedSync(context, guard, fetcher, wake, ownerLive, page = { lis
 					subscriptions.delete(subscription);
 					tab.listeners--;
 					page.listeners--;
-					pending?.reject(unavailable());
+					pending?.reject(failure ?? unavailable());
 					pending = void 0;
 				}
 			};
@@ -2855,25 +2908,43 @@ function createSealedSync(context, guard, fetcher, wake, ownerLive, page = { lis
 				const credential = await syncWait(call, () => context.auth.token(call));
 				live();
 				syncCallLive(call);
-				if ("state" in credential || credential.projectId !== context.config.projectId || credential.uid !== context.uid || !Number.isFinite(credential.expiresAtMs) || credential.expiresAtMs <= Date.now()) throw unavailable();
+				if ("state" in credential) throw credential;
+				if (credential.projectId !== context.config.projectId || credential.uid !== context.uid || !Number.isFinite(credential.expiresAtMs) || credential.expiresAtMs <= Date.now()) throw unavailable();
 				stop = await syncWait(call, async () => {
-					const detach = await wake.listen(context, boundInterest, () => {
-						dirty = true;
-						publish();
-					}, () => {
-						failed = true;
+					const detach = await wake.listen(context, boundInterest, (documents) => {
+						if (ended || closed || failure) return;
+						const changed = () => {
+							if (ended || closed || failure) return;
+							dirty = true;
+							publish();
+						};
+						const refused = (error) => {
+							if (ended || closed) return;
+							failure = syncGuardFailure(error);
+							publish();
+							subscription.close();
+						};
+						if (!guard.received) return changed();
+						try {
+							if (typeof documents !== "number" || !Number.isSafeInteger(documents) || documents < 0) throw invalid();
+							guard.received(documents).then(changed, refused);
+						} catch (error) {
+							refused(error);
+						}
+					}, (error) => {
+						failure = error ?? unavailable();
 						publish();
 						subscription.close();
 					});
 					if (ended || closed || call.signal.aborted || Date.now() >= call.deadlineAtMs) {
 						detach();
-						throw unavailable();
+						throw failure ?? unavailable();
 					}
 					return detach;
 				});
 				live();
 				syncCallLive(call);
-				if (ended) throw unavailable();
+				if (ended) throw failure ?? unavailable();
 				return subscription;
 			} catch (error) {
 				subscription.close();
@@ -3693,16 +3764,21 @@ async function certify(key, value, issuedAtMs = Date.now()) {
 //#endregion
 //#region src/browser.ts
 /** Explicit hosted bootstrap; ordinary local SDK imports never load Firebase. */
-var firebaseRemote = { connect(link, declaration) {
-	return connectHosted(link, declaration, {
-		origin: location.origin,
-		fetch: globalThis.fetch.bind(globalThis),
-		load: () => import(
-			/* @vite-ignore */
-			"/sdk/remote-firebase-v1.js"
+var firebaseRemote = {
+	originLink() {
+		return originLink(location.origin, globalThis.fetch.bind(globalThis));
+	},
+	connect(link, declaration) {
+		return connectHosted(link, declaration, {
+			origin: location.origin,
+			fetch: globalThis.fetch.bind(globalThis),
+			load: () => import(
+				/* @vite-ignore */
+				"/sdk/remote-firebase-v1.js"
 )
-	});
-} };
+		});
+	}
+};
 /**
 * Browser entry of the device SDK, served by the door as `/sdk/remote-v1.js`.
 * On the pairing page it runs the ceremony; mounted extension pages import it

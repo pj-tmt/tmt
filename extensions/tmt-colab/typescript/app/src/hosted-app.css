@@ -1,0 +1,16 @@
+.hosted-reader {
+  display: contents;
+}
+.hosted-reader .status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.hosted-reading-warning {
+  margin: 0;
+  padding: 12px 24px;
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
+  background: var(--c-sheet);
+  color: var(--c-text);
+  font-size: 13px;
+}

@@ -1,11 +1,11 @@
-# Colab local page preview
+# Colab browser app
 
-A private React/Vite app for space home and HTML page views. The in-process
-preview adapter supplies detached sample snapshots. The paired
-mount uses Remote's session/key certification, Colab registration and verified
-bootstrap, with a bounded Worker and live content binding. The general discussion
-UI remains deferred; Ask operations use the verified Remote port owned by the
-browser controller.
+The React/Vite app serves paired mounted pages, a detached local sample preview and hosted
+read-only links. The mounted controller uses Remote's session/key certification and Colab's
+verified bootstrap. The hosted entry uses Remote's Firebase SDK with the reviewed Colab
+mapping and existing Admission/Objects/Catchup verification; it exposes no Writer or Ask.
+The [hosted consumer contract](../../contracts/colab-v1.md#hosted-read-only-page-consumer-2452-b4)
+owns enrollment, the origin guard, cancellation/recovery and the epoch-1 limit.
 
 The executable serves an immutable app inventory at startup. Build with
 `TMT_COLAB_APP_DIR=/absolute/path/to/dist` to embed the complete Vite output,

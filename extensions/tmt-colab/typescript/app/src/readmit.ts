@@ -40,7 +40,7 @@ export async function reopenWithBackoff<T>(
   },
 ): Promise<Reopened<T>> {
   const delays = options.delays ?? READMIT_DELAYS_MS;
-  const wait = options.wait ?? sleep;
+  const wait = options.wait ?? waitReadmitDelay;
   let last = new Error('Reopen aborted');
   for (const delay of delays) {
     if (delay > 0) await wait(delay, options.signal);
@@ -55,17 +55,17 @@ export async function reopenWithBackoff<T>(
   return { error: last };
 }
 
-function sleep(ms: number, signal: AbortSignal): Promise<void> {
+/** Shared bounded reopen delay; cancellation wakes it and removes its listener. */
+export function waitReadmitDelay(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    signal.addEventListener(
-      'abort',
-      () => {
-        clearTimeout(timer);
-        resolve();
-      },
-      { once: true },
-    );
+    if (signal.aborted) return resolve();
+    const done = () => {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal.addEventListener('abort', done, { once: true });
   });
 }
 

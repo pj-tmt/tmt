@@ -25,10 +25,11 @@ SOURCES = HERE.parent.parent / "firestore"
 VECTOR = HERE / "deploy-declaration-v1.json"
 HOSTING_MANIFEST = HERE / "deploy-declaration-v1.hosting.manifest.json"
 HOSTING_VECTOR = HERE / "deploy-declaration-v1.hosting.json"
-# The native CSP every non-renderer hosted file carries (browser_policy.rs POLICY).
+# The hosted parent CSP (browser_policy.rs HOSTED_POLICY); native and renderer policies differ.
 CSP = (
     "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; "
-    "connect-src 'self'; worker-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; "
+    "connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com "
+    "https://firestore.googleapis.com; worker-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; "
     "object-src 'none'; frame-ancestors 'none'"
 )
 # (path, contentType, bytes): a small hosted inventory, including Remote's three SDK routes.

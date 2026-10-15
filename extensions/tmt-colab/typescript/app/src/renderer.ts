@@ -1,3 +1,4 @@
+import { isHostedOrigin } from './hosted-location.js';
 import { validateSelector, type QuoteSelector } from './thread-records.js';
 import { text } from './strings.js';
 import { getTheme, subscribeTheme } from './theme.js';
@@ -81,6 +82,12 @@ export async function captureRender(source: string): Promise<RenderSnapshot> {
     sourceDigest,
     source,
   });
+}
+
+/** Short hosted routes share the root build-owned renderer; mounted routes stay mount-relative. */
+export function rendererUrl(baseUri: string): string {
+  const base = new URL(baseUri);
+  return new URL(isHostedOrigin(base.origin) ? '/renderer.html' : './renderer.html', base).href;
 }
 
 /** Only plaintext HTML and render metadata enter the opaque frame. Page scripts
@@ -848,7 +855,7 @@ export async function mountRenderer(
       [channel.port2],
     );
   };
-  frame.src = new URL('./renderer.html', document.baseURI).href;
+  frame.src = rendererUrl(document.baseURI);
   // Preserve the current offset through replacement, without replaying an older
   // offset when a later height report arrives after the person has scrolled.
   const scroll =

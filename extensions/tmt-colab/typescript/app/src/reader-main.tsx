@@ -8,11 +8,14 @@ import '@tmt/browser-ui/static.css';
 import './reader-style.css';
 import { probeCapabilities } from '@tmt/colab-client';
 import { UnsupportedBrowserNotice } from './notice-card.js';
+import { isHostedOrigin } from './hosted-location.js';
+import { startHosted } from './hosted-main.js';
 
 /** Public entry for a read-only link. The fragment holds the seed: it leaves the address bar
  * before anything else runs and is never stored, logged or sent to the server. */
-const fragment = location.hash;
-history.replaceState(history.state, '', location.pathname + location.search);
+const hosted = isHostedOrigin(location.origin);
+let fragment = hosted ? '' : location.hash;
+if (!hosted) history.replaceState(history.state, '', location.pathname + location.search);
 const root = createRoot(document.getElementById('root')!);
 let shown: ReaderState = { kind: 'opening' };
 let files: AttachmentBinding | undefined;
@@ -25,6 +28,10 @@ const show = (state: ReaderState) => {
   render();
 };
 async function start() {
+  if (hosted) {
+    await startHosted(root);
+    return;
+  }
   try {
     await probeCapabilities();
   } catch {
@@ -36,10 +43,13 @@ async function start() {
     return show({ kind: 'invalid' });
   }
   let link;
+  const older = isOlderReaderFragment(fragment);
   try {
-    link = await parseReaderFragment(fragment);
+    const parsed = parseReaderFragment(fragment);
+    fragment = '';
+    link = await parsed;
   } catch {
-    return show({ kind: isOlderReaderFragment(fragment) ? 'older' : 'invalid' });
+    return show({ kind: older ? 'older' : 'invalid' });
   }
   canEdit = link.role === 'editor';
   const failure = (error: Error) => show({ kind: accessEnded(error) ? 'ended' : 'failed' });

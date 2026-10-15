@@ -42,14 +42,18 @@ const call = (): SyncCall => ({
   signal: new AbortController().signal,
   deadlineAtMs: Date.now() + 1000,
 });
-async function fixture(modes?: readonly string[]) {
+async function fixture(
+  modes?: readonly string[],
+  received?: (documents: number) => Promise<void>,
+  ownerLive: () => void = () => {},
+) {
   const requests: { url: string; init: RequestInit }[] = [];
   const costs: SyncAdmissionCost[] = [];
   let next: unknown = {
     name: 'projects/demo-remote-1/databases/(default)/documents/x/notes/rows/id+1',
     fields: JSON.parse(vector.document),
   };
-  let changed!: () => void, failed!: () => void;
+  let changed!: (documents?: number) => void, failed!: () => void;
   let listenerCount = 0,
     detached = 0;
   const declaration = JSON.parse(vector.declaration);
@@ -102,6 +106,7 @@ async function fixture(modes?: readonly string[]) {
       async admit(cost) {
         costs.push(cost);
       },
+      received,
     },
     (async (url: string | URL | Request, init?: RequestInit) => {
       requests.push({ url: String(url), init: init! });
@@ -109,7 +114,7 @@ async function fixture(modes?: readonly string[]) {
       return new Response(JSON.stringify(value.body), { status: value.status });
     }) as typeof fetch,
     wake,
-    () => {},
+    ownerLive,
   );
   return {
     port,
@@ -119,8 +124,8 @@ async function fixture(modes?: readonly string[]) {
     setResponse(value: unknown) {
       next = value;
     },
-    changed() {
-      changed();
+    changed(documents?: number) {
+      changed(documents);
     },
     failed() {
       failed();
@@ -566,3 +571,132 @@ test('aborting a pending or pre-aborted next is cancelled, not an idle deadline'
   f.port.close();
   await expect(s.next(c)).rejects.toEqual({ code: 'REMOTE_STATE_UNAVAILABLE' });
 });
+
+test('reports every listener batch to the caller guard before exposing a coalesced change', async () => {
+  const received: number[] = [];
+  const f = await fixture(undefined, async (documents) => {
+    received.push(documents);
+  });
+  const subscription = await f.port.subscribe(
+    { resource: 'rows', scope: { tenant: { stringValue: 'fixture-space' } } },
+    call(),
+  );
+  f.changed(1024);
+  await expect(subscription.next(call())).resolves.toEqual({ kind: 'changed' });
+  expect(received).toEqual([1024]);
+  f.changed(2);
+  f.changed(0);
+  await expect(subscription.next(call())).resolves.toEqual({ kind: 'changed' });
+  expect(received).toEqual([1024, 2, 0]);
+  subscription.close();
+  f.port.close();
+});
+
+test('a listener batch budget refusal closes the provider and retains its typed reset for next', async () => {
+  const refusal = {
+    code: 'REMOTE_BUDGET_EXHAUSTED',
+    resetAtMs: Date.now() + 60_000,
+    retryAfterMs: 60_000,
+  };
+  const f = await fixture(undefined, async () => {
+    throw refusal;
+  });
+  const subscription = await f.port.subscribe(
+    { resource: 'rows', scope: { tenant: { stringValue: 'fixture-space' } } },
+    call(),
+  );
+  const next = subscription.next(call());
+  f.changed(1);
+  await expect(next).rejects.toEqual(refusal);
+  expect(f.detached()).toBe(1);
+  await expect(subscription.next(call())).rejects.toEqual(refusal);
+  expect(f.listenerCount()).toBe(1);
+  f.port.close();
+});
+
+test('late caller-charge completions cannot wake a closed interest', async () => {
+  const charged: number[] = [];
+  const finishes: (() => void)[] = [];
+  const f = await fixture(undefined, (documents) => {
+    charged.push(documents);
+    return new Promise<void>((resolve) => finishes.push(resolve));
+  });
+  const subscription = await f.port.subscribe(
+    { resource: 'rows', scope: { tenant: { stringValue: 'fixture-space' } } },
+    call(),
+  );
+  const next = subscription.next(call());
+  const ended = expect(next).rejects.toEqual({ code: 'REMOTE_STATE_UNAVAILABLE' });
+  f.changed(1024);
+  f.changed(2);
+  expect(charged).toEqual([1024, 2]);
+  subscription.close();
+  await ended;
+  finishes.forEach((finish) => finish());
+  await Promise.resolve();
+  await expect(subscription.next(call())).rejects.toEqual({ code: 'REMOTE_STATE_UNAVAILABLE' });
+  f.changed(99);
+  expect(charged).toEqual([1024, 2]);
+  expect(f.detached()).toBe(1);
+  f.port.close();
+});
+
+test('a guard exception is sanitized, closes once and never exposes its private text', async () => {
+  const f = await fixture(undefined, async () => {
+    throw new Error('PRIVATE_GUARD_CANARY');
+  });
+  const subscription = await f.port.subscribe(
+    { resource: 'rows', scope: { tenant: { stringValue: 'fixture-space' } } },
+    call(),
+  );
+  const next = subscription.next(call());
+  f.changed(1);
+  await expect(next).rejects.toEqual({ code: 'REMOTE_STATE_UNAVAILABLE' });
+  await expect(subscription.next(call())).rejects.toEqual({ code: 'REMOTE_STATE_UNAVAILABLE' });
+  expect(f.detached()).toBe(1);
+  f.port.close();
+});
+
+test.each(['before-next', 'pending-next'] as const)(
+  'identity loss at %s remains a terminal sanitized scope refusal',
+  async (phase) => {
+    let lost = false;
+    const f = await fixture(undefined, undefined, () => {
+      if (lost) throw { code: 'REMOTE_SCOPE_DENIED', message: 'PRIVATE_DIAGNOSTIC' };
+    });
+    const subscription = await f.port.subscribe(
+      { resource: 'rows', scope: { tenant: { stringValue: 'fixture-space' } } },
+      call(),
+    );
+    let answer: Promise<unknown>;
+    if (phase === 'pending-next') {
+      answer = subscription.next(call()).catch((error) => error);
+      lost = true;
+      f.changed();
+    } else {
+      lost = true;
+      answer = subscription.next(call()).catch((error) => error);
+    }
+    expect(await answer).toEqual({ code: 'REMOTE_SCOPE_DENIED' });
+    subscription.close();
+    f.port.close();
+    expect(f.listenerCount()).toBe(1);
+    expect(f.detached()).toBe(1);
+  },
+);
+
+test.each(['expired', 'sign-in-needed', 'cancelled'] as const)(
+  'a token %s refusal preserves its existing AuthPort state without starting a listener',
+  async (state) => {
+    const f = await fixture();
+    f.context.auth.token = async () => ({ code: 'REMOTE_STATE_UNAVAILABLE', state });
+    await expect(
+      f.port.subscribe(
+        { resource: 'rows', scope: { tenant: { stringValue: 'fixture-space' } } },
+        call(),
+      ),
+    ).rejects.toEqual({ code: 'REMOTE_STATE_UNAVAILABLE', state });
+    expect(f.listenerCount()).toBe(0);
+    f.port.close();
+  },
+);

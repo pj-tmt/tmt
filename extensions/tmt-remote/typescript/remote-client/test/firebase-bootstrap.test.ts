@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test, vi } from 'vite-plus/test';
 import { base64url } from '../src/canonical-bytes.js';
-import { verifyHostedLink } from '../src/firebase-bootstrap.js';
+import { originLink, verifyHostedLink } from '../src/firebase-bootstrap.js';
 import { connectHosted, type FirebaseAuthPort } from '../src/firebase-auth.js';
 import { ClientError, RefusalError } from '../src/operations.js';
 
@@ -34,6 +34,93 @@ const declaration = {
 const origin = 'https://demo-remote-1.web.app';
 const link = `${origin}/pair#${base64url(new TextEncoder().encode(descriptor))}`;
 const reply = (value: unknown = config) => new Response(JSON.stringify(value));
+
+test('origin bootstrap produces the independent canonical link and still runs every connect check', async () => {
+  const calls: string[] = [];
+  const fetcher = (async (url, options) => {
+    calls.push(String(url));
+    assert.equal(options?.method, undefined);
+    assert.equal(options?.redirect, 'error');
+    assert.equal(options?.credentials, 'omit');
+    assert.equal(options?.cache, 'no-store');
+    assert.ok(options?.signal);
+    return reply({
+      ...config,
+      messagingSenderId: '123',
+      databaseURL: 'https://PUBLIC_OTHER.example',
+      extra: { token: 'EXTRA_CANARY' },
+    });
+  }) as typeof fetch;
+  const derived = await originLink(origin, fetcher);
+  assert.equal(derived, link);
+  assert.deepEqual(await verifyHostedLink(derived, origin), config);
+  assert.deepEqual(calls, [`${origin}/__/firebase/init.json`]);
+  const f = fake();
+  await (await connectHosted(derived, declaration, f.deps)).close();
+  assert.deepEqual(f.calls, [`${origin}/__/firebase/init.json`, 'load', 'initialize', 'close']);
+});
+
+test('origin bootstrap refuses invalid public config and mismatched origins before any Firebase load', async () => {
+  for (const [at, value] of [
+    [origin, { ...config, apiKey: null }],
+    [origin, { ...config, projectId: 'other-project' }],
+    [origin, { ...config, authDomain: 'other-project.firebaseapp.com' }],
+    [origin, { ...config, appId: ['1:123:web:mine'] }],
+    [origin, []],
+    ['https://other-project.web.app', config],
+    ['http://demo-remote-1.web.app', config],
+    ['https://demo-remote-1.firebaseapp.com', config],
+  ] as const) {
+    await assert.rejects(
+      originLink(at, async () => reply(value)),
+      (error: unknown) => error instanceof RefusalError && error.code === 'REMOTE_INPUT_INVALID',
+    );
+  }
+});
+
+test('origin bootstrap refuses failed, redirected, malformed or oversized fetches with one fixed error', async () => {
+  const redirected = reply();
+  Object.defineProperty(redirected, 'url', {
+    value: 'https://other-project.web.app/__/firebase/init.json',
+  });
+  for (const fetcher of [
+    async () => {
+      throw new Error('PRIVATE_FETCH_CANARY');
+    },
+    async () => new Response('{}', { status: 503 }),
+    async () => redirected,
+    async () => new Response('{'),
+    async () => new Response(' '.repeat(8193)),
+  ]) {
+    await assert.rejects(
+      originLink(origin, fetcher),
+      (error: unknown) =>
+        error instanceof RefusalError &&
+        error.code === 'REMOTE_INPUT_INVALID' &&
+        !error.message.includes('CANARY'),
+    );
+  }
+});
+
+test('origin bootstrap bounds a fetch that ignores cancellation', async () => {
+  vi.useFakeTimers();
+  try {
+    let signal: AbortSignal | undefined;
+    const pending = originLink(origin, (async (_url, options) => {
+      signal = options?.signal as AbortSignal;
+      return new Promise<Response>(() => {});
+    }) as typeof fetch);
+    const refused = assert.rejects(
+      pending,
+      (error: unknown) => error instanceof RefusalError && error.code === 'REMOTE_INPUT_INVALID',
+    );
+    await vi.advanceTimersByTimeAsync(10_001);
+    await refused;
+    assert.equal(signal?.aborted, true);
+  } finally {
+    vi.useRealTimers();
+  }
+});
 function fake() {
   const calls: string[] = [];
   const port: FirebaseAuthPort = {

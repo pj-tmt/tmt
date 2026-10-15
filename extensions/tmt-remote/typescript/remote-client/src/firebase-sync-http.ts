@@ -19,6 +19,8 @@ export interface SyncAdmissionCost {
 /** Caller owns reservation/persistence and the existing budget model, not this transport. */
 export interface SyncAdmissionGuard {
   admit(cost: SyncAdmissionCost): Promise<void>;
+  /** Provider document count: the complete initial server tail, then each delivered batch. */
+  received?(documents: number): Promise<void>;
 }
 export const SYNC_PROVIDER_BYTES = 397312;
 const unavailable = (): SyncFailure => ({ code: 'REMOTE_STATE_UNAVAILABLE' });
@@ -52,28 +54,33 @@ export async function admitSync(
   try {
     await syncWait(call, () => guard.admit(Object.freeze(cost)));
   } catch (error) {
-    if (
-      typeof error === 'object' &&
-      error !== null &&
-      'code' in error &&
-      error.code === 'REMOTE_BUDGET_EXHAUSTED' &&
-      'resetAtMs' in error &&
-      typeof error.resetAtMs === 'number' &&
-      Number.isFinite(error.resetAtMs) &&
-      error.resetAtMs >= 0 &&
-      'retryAfterMs' in error &&
-      typeof error.retryAfterMs === 'number' &&
-      Number.isFinite(error.retryAfterMs) &&
-      error.retryAfterMs >= 0
-    )
-      throw {
-        code: 'REMOTE_BUDGET_EXHAUSTED',
-        resetAtMs: error.resetAtMs,
-        retryAfterMs: error.retryAfterMs,
-      };
-    throw unavailable();
+    throw syncGuardFailure(error);
   }
 }
+/** Preserve only the frozen guard refusal, never caller exception text. */
+export function syncGuardFailure(error: unknown): SyncFailure {
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    error.code === 'REMOTE_BUDGET_EXHAUSTED' &&
+    'resetAtMs' in error &&
+    typeof error.resetAtMs === 'number' &&
+    Number.isFinite(error.resetAtMs) &&
+    error.resetAtMs >= 0 &&
+    'retryAfterMs' in error &&
+    typeof error.retryAfterMs === 'number' &&
+    Number.isFinite(error.retryAfterMs) &&
+    error.retryAfterMs >= 0
+  )
+    return {
+      code: 'REMOTE_BUDGET_EXHAUSTED',
+      resetAtMs: error.resetAtMs,
+      retryAfterMs: error.retryAfterMs,
+    };
+  return unavailable();
+}
+
 /** The owner fence checks its uid/project/generation after every asynchronous boundary. */
 export function syncHttp(
   context: SyncContext,

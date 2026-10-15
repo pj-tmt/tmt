@@ -47,7 +47,7 @@ export async function initialize(config: PublicWebConfig): Promise<FirebaseAuthP
         port: {
           assertSyncIdentity(uid) {
             if (!auth.currentUser || !auth.currentUser.isAnonymous || auth.currentUser.uid !== uid)
-              throw { code: 'REMOTE_STATE_UNAVAILABLE' };
+              throw { code: 'REMOTE_SCOPE_DENIED' };
           },
           syncAuth(uid) {
             return {
@@ -107,7 +107,7 @@ export async function initialize(config: PublicWebConfig): Promise<FirebaseAuthP
                 user.uid !== context.uid ||
                 context.config.projectId !== config.projectId
               )
-                throw { code: 'REMOTE_STATE_UNAVAILABLE' };
+                throw { code: 'REMOTE_SCOPE_DENIED' };
               const resource = context.resources.find((r) => r.name === interest.resource)!;
               const constraints = Object.entries(interest.scope).map(([field, value]) =>
                 where(field, '==', fieldValue(value)),
@@ -121,18 +121,27 @@ export async function initialize(config: PublicWebConfig): Promise<FirebaseAuthP
                 { includeMetadataChanges: false },
                 (snapshot) => {
                   if (auth.currentUser?.uid !== user.uid || !auth.currentUser.isAnonymous) {
-                    failed();
+                    failed({ code: 'REMOTE_SCOPE_DENIED' });
                     return;
                   }
                   if (
                     !snapshot.metadata.fromCache &&
                     (firstServer || snapshot.docChanges().length > 0)
                   ) {
+                    const documents = firstServer ? snapshot.size : snapshot.docChanges().length;
                     firstServer = false;
-                    changed();
+                    changed(documents);
                   }
                 },
-                () => failed(),
+                (error) =>
+                  failed({
+                    code:
+                      error.code === 'permission-denied' || error.code === 'unauthenticated'
+                        ? 'REMOTE_SCOPE_DENIED'
+                        : error.code === 'resource-exhausted'
+                          ? 'REMOTE_RATE_LIMITED'
+                          : 'REMOTE_STATE_UNAVAILABLE',
+                  }),
               );
             },
           },

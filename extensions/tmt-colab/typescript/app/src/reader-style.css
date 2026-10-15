@@ -17,33 +17,6 @@ body {
 .status {
   font-family: var(--f-mono);
 }
-.reader-information {
-  position: relative;
-  flex: none;
-  margin-left: auto;
-  font-size: 11px;
-}
-.reader-information-panel {
-  position: absolute;
-  top: calc(100% + 10px);
-  right: 0;
-  z-index: 1;
-  width: min(360px, calc(100vw - 24px));
-  max-height: calc(100dvh - var(--reader-bar-size) - 24px);
-  overflow: auto;
-  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
-  padding: 16px;
-  background: var(--c-sheet);
-  color: var(--c-text);
-  font: 12px/1.5 var(--f-body);
-  box-shadow: none;
-}
-.reader-information-panel p {
-  margin: 0 0 12px;
-}
-.reader-information-panel p:last-child {
-  margin-bottom: 0;
-}
 main {
   flex: 1;
   min-width: 0;

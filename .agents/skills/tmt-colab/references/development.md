@@ -55,8 +55,9 @@ any of the three routes. Files and directories must be real, with supported bare
 The build rejects inventory reaching 128 files, 2 MiB per file, or 8 MiB total (50% of Remote's v1
 caps); three of the file slots are reserved for the SDK copy. It also rejects an inventory whose
 manifest would take the declaration past `deploy-declaration`'s 64 KiB.
-Every manifest file carries the existing native CSP; a renderer entry retains its existing
-renderer CSP. Runtime bytes and the canonical manifest are immutable Cargo snapshots.
+Non-renderer manifest files carry the hosted CSP with exactly the three Firebase connect hosts;
+native parent and renderer policies retain their existing boundaries. Runtime bytes and the
+canonical manifest are immutable Cargo snapshots.
 
 `tmt colab deploy-declaration --json` adds the canonical manifest as the declaration's last
 `hosting` key when the executable embeds one (colab-v1, "tmt colab hosting-bundle --json"), and
@@ -65,10 +66,18 @@ the golden `deploy-declaration-v1.hosting.json` and its manifest from a fixed fi
 standard library alone; run it without `--write` to verify and with `--write` after a reviewed
 change. Remote's mirror reads the vector.
 
-This pipeline does not supply hosted sign-in/join glue or the first `firebaseRemote.connect`
-caller, which belong to the Remote browser consumer (#2452 B4), and native releases still unset
-`TMT_COLAB_HOSTING_DIR` until the release step lands (#2487). A synthetic build fixture proves
-the wire inventory and command without claiming a working hosted entry.
+The app's [hosted reader](../../../../extensions/tmt-colab/contracts/colab-v1.md#hosted-read-only-page-consumer-2452-b4)
+uses this inventory and Remote SDK without a local door. Native releases still unset
+`TMT_COLAB_HOSTING_DIR` until #2487's release step. The `hosted-bundle.spec.ts` acceptance runs
+real embedded bytes at a logical demo origin under Remote's unchanged composed CSP; the
+`hosted-reader.spec.ts` browser fixture checks the read-only states and responsive renderer.
+After both app builds and the Remote SDK build, run
+`node extensions/tmt-colab/scripts/hosted-reader-emulator.mjs` with Java 21 and pinned
+`firebase-tools` 15.29.0 already available. This explicit proof builds private native binaries,
+uses only loopback demo Auth/Firestore, and routes the unchanged composed CSP's three Firebase
+hosts to those emulators. It verifies sign-in, holder enrollment, signed authority and empty
+finite discovery; signed vectors separately verify content reads. It never uses real Firebase
+or Docker. Native CLI stream publication currently blocks end-to-end content convergence (#3127).
 
 Focused checks: `cargo +1.97.0 test --offline --locked -p tmt-colab --test build_hosting --test hosting --test deploy_declaration`
 from `rust/`. Run `hosting` and `deploy_declaration` again with `TMT_COLAB_HOSTING_DIR` set to a
@@ -130,7 +139,7 @@ The Firestore declaration maps sealed REST fields, named discovery and write mod
 shipping a cloud consumer. Its `authority` records retain original statement/wrap/chain bytes;
 recipient-only wrap reads are part of the Rules emulator gate. Follow the contract's
 [declaration mapping](../../../../extensions/tmt-colab/contracts/colab-v1.md#firestore-deployment-declaration)
-when changing fields, especially six-field members and checkpoint `seq = index + 1`.
+when changing fields, especially seven-field members and checkpoint `seq = index + 1`.
 
 ## Focused Rust suites
 

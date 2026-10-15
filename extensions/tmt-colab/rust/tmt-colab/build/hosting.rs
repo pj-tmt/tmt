@@ -277,7 +277,7 @@ pub fn generate(
             csp: if route == "/renderer.html" {
                 browser_policy::RENDERER_POLICY
             } else {
-                browser_policy::POLICY
+                browser_policy::HOSTED_POLICY
             },
             path: route.clone(),
             sha256: hash,

@@ -12,6 +12,42 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const LINK_BYTES = 8192;
 export const HOSTED_BOOTSTRAP_MS = 10_000;
+/** The origin's own public descriptor grants no space or operations authority. */
+export async function originLink(origin: string, fetcher: typeof fetch): Promise<string> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    valid(/^https:\/\/[a-z][a-z0-9-]{4,28}[a-z0-9]\.web\.app$/.test(origin));
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        reject(new RefusalError('REMOTE_INPUT_INVALID'));
+      }, HOSTED_BOOTSTRAP_MS);
+    });
+    return await Promise.race([
+      deadline,
+      (async () => {
+        const row = await readHostedConfig(origin, fetcher, controller.signal);
+        const config = parsePublicWebConfig({
+          apiKey: row.apiKey,
+          appId: row.appId,
+          authDomain: row.authDomain,
+          projectId: row.projectId,
+        });
+        valid(origin === `https://${config.projectId}.web.app`);
+        const body = { kind: 'firestore', publicWebConfig: config, version: 1 };
+        const descriptor = canonical({ ...body, checksum: await checksum(body) });
+        valid(!controller.signal.aborted);
+        return `${origin}/pair#${base64url(encoder.encode(descriptor))}`;
+      })(),
+    ]);
+  } catch {
+    throw new RefusalError('REMOTE_INPUT_INVALID');
+  } finally {
+    clearTimeout(timer);
+    controller.abort();
+  }
+}
 function valid(condition: boolean): asserts condition {
   if (!condition) throw new RefusalError('REMOTE_INPUT_INVALID');
 }
@@ -36,6 +72,12 @@ function canonical(value: unknown): string {
     .sort()
     .map((k) => `${JSON.stringify(k)}:${canonical(r[k])}`)
     .join(',')}}`;
+}
+async function checksum(value: unknown): Promise<string> {
+  return Array.from(
+    new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(canonical(value)))),
+    (b) => b.toString(16).padStart(2, '0'),
+  ).join('');
 }
 
 export async function verifyHostedLink(link: string, origin: string): Promise<PublicWebConfig> {
@@ -66,11 +108,7 @@ export async function verifyHostedLink(link: string, origin: string): Promise<Pu
     const publicConfig = parsePublicWebConfig(r.publicWebConfig);
     valid(origin === `https://${publicConfig.projectId}.web.app`);
     const body = { kind: r.kind, publicWebConfig: publicConfig, version: r.version };
-    const checksum = Array.from(
-      new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(canonical(body)))),
-      (b) => b.toString(16).padStart(2, '0'),
-    ).join('');
-    valid(checksum === r.checksum && text === canonical(r));
+    valid((await checksum(body)) === r.checksum && text === canonical(r));
     valid(link === `${origin}/pair#${base64url(bytes)}`);
     return publicConfig;
   } catch {
@@ -85,6 +123,22 @@ export async function confirmHostedConfig(
   fetcher: typeof fetch,
   signal: AbortSignal,
 ): Promise<void> {
+  const r = await readHostedConfig(origin, fetcher, signal);
+  // Hosting may expose unrelated public configuration; never pass it into Firebase.
+  for (const key of ['projectId', 'appId', 'authDomain'] as const) {
+    if (r[key] !== expected[key])
+      throw new ClientError(
+        'unverifiable_response',
+        'Hosted configuration does not match this remote link.',
+      );
+  }
+}
+/** One bounded response codec for origin-link construction and the unchanged connect check. */
+async function readHostedConfig(
+  origin: string,
+  fetcher: typeof fetch,
+  signal: AbortSignal,
+): Promise<Record<string, unknown>> {
   const response = await fetcher(`${origin}/__/firebase/init.json`, {
     signal,
     redirect: 'error',
@@ -113,15 +167,7 @@ export async function confirmHostedConfig(
     const actual: unknown = JSON.parse(text);
     if (typeof actual !== 'object' || actual === null || Array.isArray(actual))
       throw new Error('invalid');
-    const r = actual as Record<string, unknown>;
-    // Hosting may expose unrelated public configuration; never pass it into Firebase.
-    for (const key of ['projectId', 'appId', 'authDomain'] as const) {
-      if (r[key] !== expected[key])
-        throw new ClientError(
-          'unverifiable_response',
-          'Hosted configuration does not match this remote link.',
-        );
-    }
+    return actual as Record<string, unknown>;
   } finally {
     await reader.cancel();
     reader.releaseLock();
