@@ -61,7 +61,11 @@ if (command === 'api') {
       else {for(const entry of state.indexTree) state.indexFiles[entry.path]=state.indexBlobs[entry.sha]; save(); reply({sha:body.sha});}
     } else fail('unexpected index call: ' + url);
   }
-  else if (args.includes('--paginate')) out([state.drafts.length ? state.drafts : state.published ? [state.published] : []]);
+  else if (args.includes('--paginate')) {
+    if (state.listingFails) fail('HTTP 502: upstream unavailable');
+    const releases = state.releaseListings?.length ? state.releaseListings.shift() : state.drafts.length ? state.drafts : state.published ? [state.published] : [];
+    fs.writeFileSync(process.env.FAKE_GH_STATE, JSON.stringify(state)); out([releases]);
+  }
   else if (url.includes('/releases/tags/')) state.published ? out(state.published) : fail('HTTP 404');
   else if (url.includes('/releases/') && args.includes('PATCH')) { state.latest = state.published; fs.writeFileSync(process.env.FAKE_GH_STATE, JSON.stringify(state)); out(state.latest); }
   else if (url.endsWith('/releases/latest')) state.latest ? out(state.latest) : fail('HTTP 404');
@@ -107,6 +111,8 @@ const release = (overrides: Record<string, unknown> = {}) => ({
 
 interface Scenario {
   drafts?: unknown[];
+  releaseListings?: unknown[][];
+  listingFails?: boolean;
   published?: unknown;
   latest?: unknown;
   tagCommit?: string | null;
@@ -217,6 +223,53 @@ describe('release-publish.mjs publish', () => {
     ]);
   });
 
+  it('lists again when a successful listing omits the draft, then publishes once', () => {
+    const candidate = draft(TAG, ASSETS);
+    const fixture = scenario({ drafts: [candidate], releaseListings: [[], [candidate]] });
+    expect(fixture.run(publish)).toMatchObject({ status: 0, output: 'published=true\n' });
+    const calls = fixture.calls();
+    const edit = calls.findIndex(([command, sub]) => command === 'release' && sub === 'edit');
+    expect(edit).toBeGreaterThan(0);
+    expect(calls.slice(0, edit).filter((args) => args.includes('--paginate'))).toHaveLength(2);
+    expect(calls.filter(([command, sub]) => command === 'release' && sub === 'edit')).toHaveLength(
+      1
+    );
+  });
+
+  it('does not turn a failed listing into absence or add retries beyond acquisition', () => {
+    const fixture = scenario({ drafts: [draft(TAG, ASSETS)], listingFails: true });
+    const result = fixture.run(publish);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('HTTP 502: upstream unavailable');
+    expect(result.stderr).not.toContain(`there is no release ${TAG}`);
+    expect(fixture.calls().filter((args) => args.includes('--paginate'))).toHaveLength(3);
+    expect(fixture.calls().some(([command, sub]) => command === 'release' && sub === 'edit')).toBe(
+      false
+    );
+  });
+
+  it('refuses after three absent listings with diagnostics from the last snapshot', () => {
+    const older = draft('tmt-ops-v0.1.0-alpha.2', ASSETS, { created_at: '2026-09-29T01:00:00Z' });
+    const newer = draft('tmt-remote-v0.1.0-alpha.3', ASSETS, {
+      created_at: '2026-09-30T01:00:00Z',
+    });
+    const fixture = scenario({
+      drafts: [draft(TAG, ASSETS)],
+      releaseListings: [[], [older], [older, release({ tag_name: 'v5.0.0-alpha.8' }), newer]],
+    });
+    const result = fixture.run(publish);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(`Not publishing: there is no release ${TAG}.`);
+    expect(result.stderr).toContain('last listing contained 3 releases');
+    expect(result.stderr).toContain(
+      'newest draft tags: tmt-remote-v0.1.0-alpha.3, tmt-ops-v0.1.0-alpha.2'
+    );
+    expect(fixture.calls().filter((args) => args.includes('--paginate'))).toHaveLength(3);
+    expect(fixture.calls().some(([command, sub]) => command === 'release' && sub === 'edit')).toBe(
+      false
+    );
+  });
+
   it('publishes an extension as a prerelease that is never the latest release', () => {
     const tag = 'tmt-ops-v0.1.0-alpha.2';
     const { run, calls, directory } = scenario({ drafts: [draft(tag, ASSETS)] });
@@ -251,6 +304,7 @@ describe('release-publish.mjs publish', () => {
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('Not publishing:');
     expect(result.stderr).toContain(message);
+    expect(calls().filter((args) => args.includes('--paginate'))).toHaveLength(1);
     expect(result.output).toBe('');
     expect(calls().some(([, sub]) => sub === 'edit')).toBe(false);
   });
@@ -273,6 +327,7 @@ describe('release-publish.mjs publish', () => {
       const result = run(['publish', '--product', 'cli', '--tag', tag]);
       expect(result.status).toBe(1);
       expect(result.stderr).toContain(`Not publishing: ${tag} is not an alpha release`);
+      expect(calls().filter((args) => args.includes('--paginate'))).toHaveLength(1);
       expect(result.output).toBe('');
       expect(calls().some(([, sub]) => sub === 'edit')).toBe(false);
     }
@@ -287,6 +342,7 @@ describe('release-publish.mjs publish', () => {
     const parked = path.join(fake.directory, 'components.json');
     writeFileSync(parked, JSON.stringify(map));
     const result = fake.run([...publish, '--components', parked]);
+    expect(fake.calls().filter((args) => args.includes('--paginate'))).toHaveLength(1);
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('cli is not released (release: false');
     expect(fake.calls().some(([, sub]) => sub === 'edit')).toBe(false);
@@ -695,6 +751,33 @@ describe('release-publish.mjs index entry', () => {
     expect(
       fixture.calls().filter((args) => args[1] === 'repos/pj-tmt/tmt/git/refs/heads/release-index')
     ).toHaveLength(1);
+  });
+
+  it('records #3106 missing-draft discovery policy in the pre-merge tooling suite', () => {
+    const read = (file: string) =>
+      readFileSync(new URL(`../../../${file}`, import.meta.url), 'utf8');
+    const manifest = JSON.parse(read('.github/release-parity.json'));
+    expect(manifest.incidents['3106']).toEqual({
+      release: {
+        workflow: 'native-release-bundle.yml',
+        job: 'publish',
+        step: "name:Publish the draft under the product's policy",
+      },
+      preMerge: [
+        {
+          workflow: 'ci.yml',
+          job: 'unit-tests',
+          selection: { kind: 'ci-scope', output: 'native_scope', value: 'full' },
+          coverage: 'policy',
+          tests: ['typescript/test/tooling/release-publish-script.test.ts'],
+        },
+      ],
+    });
+    expect(() => checkReleaseParity(manifest, { read })).not.toThrow();
+    delete manifest.incidents['3106'];
+    expect(() => checkReleaseParity(manifest, { read })).toThrow(
+      'release incidents: unmapped 3106'
+    );
   });
 
   it('records #3036 ref-collision retry policy in the pre-merge tooling suite', () => {
