@@ -392,6 +392,7 @@ export function explainCiSelection(paths, map = componentMap()) {
         ? 'Shared native emulator input requires the selected workspace proof.'
         : (rule?.why ?? 'Unmapped input retains full native verification.'),
       native: nativeSync || (rule ? rule.consumers.includes('native') : true),
+      colabHostedEmulator: selectHostedReaderEmulator([path]),
     };
   });
 }
@@ -572,6 +573,37 @@ export function selectNativeSyncEmulator(paths) {
   );
 }
 
+const HOSTED_READER_EMULATOR_INPUTS = new Set([
+  '.github/workflows/colab-browser.yml',
+  'extensions/tmt-colab/scripts/hosted-reader-emulator.mjs',
+  'extensions/tmt-colab/typescript/app/acceptance/hosted-reader.proof.ts',
+  'extensions/tmt-colab/typescript/app/playwright.hosted.config.ts',
+  'extensions/tmt-colab/typescript/app/src/admission.ts',
+  'extensions/tmt-colab/typescript/app/src/fold.ts',
+  'extensions/tmt-colab/typescript/app/src/fold-protocol.ts',
+  'extensions/tmt-colab/typescript/app/src/reader-link.ts',
+  'extensions/tmt-colab/rust/tmt-colab/build/hosting.rs',
+  'extensions/tmt-remote/rust/tmt-remote/examples/compose_hosting.rs',
+  'extensions/tmt-remote/typescript/remote-client/firebase-build-pin.json',
+]);
+const HOSTED_READER_EMULATOR_ROOTS = [
+  '.github/actions/hosted-reader-emulator',
+  'extensions/tmt-remote/rust/tmt-remote/src',
+  'extensions/tmt-remote/rust/tmt-remote/assets',
+  'extensions/tmt-remote/typescript/remote-client/src',
+];
+
+/** Advisory real producer/hosted reader proof; Remote test and documentation trees stay out. */
+export function selectHostedReaderEmulator(paths) {
+  return paths.some(
+    (path) =>
+      HOSTED_READER_EMULATOR_INPUTS.has(path) ||
+      HOSTED_READER_EMULATOR_ROOTS.some((root) => within(root, path)) ||
+      path.startsWith('extensions/tmt-colab/typescript/app/src/hosted-') ||
+      (!path.startsWith('extensions/tmt-remote/') && selectNativeSyncEmulator([path]))
+  );
+}
+
 /**
  * How much of the native work a change needs. `none`: nothing native is selected.
  * A component name (only `ops` declares `scopedChecks`): every path that selects
@@ -605,7 +637,10 @@ export function renderSelectionEvidence({
   nativeScope,
   range = '...',
 }) {
-  const selects = (row) => (row.native ? 'native' : 'nothing');
+  const selects = (row) =>
+    [row.native && 'native', row.colabHostedEmulator && 'colab-hosted-emulator']
+      .filter(Boolean)
+      .join(', ') || 'nothing';
   const lines = [
     '### CI selection',
     '',
@@ -1016,6 +1051,8 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile, env = proce
   const colabHarness = !queue && !seed && !full && selectColabHarness(selection.paths);
   const colabApp = !queue && !seed && !full && selectColabApp(selection.paths);
   const colabHosted = !queue && !seed && !full && selectColabHosted(selection.paths);
+  const colabHostedEmulator =
+    !queue && !seed && !full && selectHostedReaderEmulator(selection.paths);
   const nativeNotices = !seed && (full || selectNativeNotices(selection.paths));
   const remoteFirestore = mainFull || (!seed && !full && selectRemoteFirestore(selection.paths));
   const colabFirestore = mainFull || (!seed && !full && selectColabFirestore(selection.paths));
@@ -1028,6 +1065,7 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile, env = proce
     `\nColab browser PR selection (client, model, vectors or harness workflow): ${colabHarness}.\n` +
     `\nColab app component suite PR selection (app, client, browser UI, workflow or lockfile): ${colabApp}.\n` +
     `\nColab hosted bundle spec PR selection (Firebase pin or build config, hosting generator, hosted build or spec): ${colabHosted}.\n` +
+    `\nHosted reader emulator PR selection (hosted reader, native producer or qualifier inputs): ${colabHostedEmulator}.\n` +
     `\nNative dependency notices selection: ${nativeNotices}.\n` +
     `\nRemote Firestore Rules emulator selection (Unit tests job): ${remoteFirestore}.\n` +
     `\nColab Firestore Rules emulator selection (Unit tests job): ${colabFirestore}.\n` +
@@ -1042,6 +1080,7 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile, env = proce
       `colab_harness=${colabHarness}\n` +
       `colab_app=${colabApp}\n` +
       `colab_hosted=${colabHosted}\n` +
+      `colab_hosted_emulator=${colabHostedEmulator}\n` +
       `native_notices=${nativeNotices}\n` +
       `remote_firestore=${remoteFirestore}\n` +
       `colab_firestore=${colabFirestore}\n` +

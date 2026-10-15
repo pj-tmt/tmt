@@ -41,6 +41,7 @@ import {
   selectColabApp,
   selectRemoteFirestore,
   selectNativeSyncEmulator,
+  selectHostedReaderEmulator,
   selectColabFirestore,
   selectColabHarness,
   selectColabHosted,
@@ -1378,6 +1379,88 @@ esac
   });
 });
 
+describe('hosted reader emulator selection', () => {
+  it.each([
+    'extensions/tmt-colab/typescript/app/src/hosted-reader.ts',
+    'extensions/tmt-colab/typescript/app/src/hosted-app.css',
+    'extensions/tmt-colab/typescript/app/src/admission.ts',
+    'extensions/tmt-colab/typescript/app/src/fold.ts',
+    'extensions/tmt-colab/typescript/app/src/fold-protocol.ts',
+    'extensions/tmt-colab/typescript/app/src/reader-link.ts',
+    'extensions/tmt-colab/typescript/app/acceptance/hosted-reader.proof.ts',
+    'extensions/tmt-colab/typescript/app/playwright.hosted.config.ts',
+    'extensions/tmt-colab/scripts/hosted-reader-emulator.mjs',
+    'extensions/tmt-colab/scripts/cloud-sync-emulator.mjs',
+    'extensions/tmt-colab/rust/tmt-colab/build/hosting.rs',
+    'extensions/tmt-colab/rust/tmt-colab/src/object_channel/cloud_sync/append.rs',
+    'extensions/tmt-colab/rust/tmt-colab/src/fold.rs',
+    'extensions/tmt-colab/contracts/vectors/deploy-declaration-v1.firestore.rules',
+    'extensions/tmt-remote/rust/tmt-remote/src/serve.rs',
+    'extensions/tmt-remote/rust/tmt-remote/src/object_service/requests.rs',
+    'extensions/tmt-remote/rust/tmt-remote/src/firestore_budget.rs',
+    'extensions/tmt-remote/rust/tmt-remote/assets/remote-v1.js',
+    'extensions/tmt-remote/rust/tmt-remote/assets/settings-v1.js',
+    'extensions/tmt-remote/rust/tmt-remote/examples/compose_hosting.rs',
+    'extensions/tmt-remote/typescript/remote-client/src/firebase-client.ts',
+    'extensions/tmt-remote/typescript/remote-client/src/browser.ts',
+    'extensions/tmt-remote/typescript/remote-client/firebase-build-pin.json',
+    '.github/workflows/ci.yml',
+    '.github/workflows/colab-browser.yml',
+    '.github/actions/hosted-reader-emulator/action.yml',
+    'typescript/scripts/ci-scope.mjs',
+  ])('selects the real producer/reader proof for %s', (file) => {
+    expect(selectHostedReaderEmulator([file])).toBe(true);
+    expect(selectHostedReaderEmulator(['README.md', file])).toBe(true);
+    expect(explainCiSelection([file])[0].colabHostedEmulator).toBe(true);
+  });
+
+  it.each([
+    'README.md',
+    'extensions/tmt-remote/rust/tmt-remote/tests/serve.rs',
+    'extensions/tmt-remote/rust/tmt-remote/docs/serve.md',
+    'extensions/tmt-remote/rust/tmt-remote/src-other/serve.rs',
+    'extensions/tmt-remote/typescript/remote-client/test/emulator/browser.spec.ts',
+    'extensions/tmt-remote/typescript/remote-client/test/emulator/colab-source.json',
+    'extensions/tmt-remote/typescript/remote-client/firebase-build-pin.json.bak',
+    'extensions/tmt-colab/typescript/app/src/page-list.tsx',
+    'extensions/tmt-colab/typescript/app/src/hosted.ts',
+    'extensions/tmt-colab/typescript/app/acceptance/hosted-bundle.spec.ts',
+    'extensions/tmt-colab/typescript/app/acceptance/ask.spec.ts',
+    '.github/actions/hosted-reader-emulator-other/action.yml',
+  ])('does not expand the qualifier to unrelated/test-only input %s', (file) => {
+    expect(selectHostedReaderEmulator([file])).toBe(false);
+    expect(explainCiSelection([file])[0].colabHostedEmulator).toBe(false);
+  });
+
+  it('leaves empty, main and seed browser scope empty', () => {
+    expect(selectHostedReaderEmulator([])).toBe(false);
+    for (const mode of ['seed', 'full', 'main-full']) {
+      let outputs = '';
+      runCiScope([mode], {
+        cwd: '/unused',
+        stdout: { write: (text: string) => (outputs += text) },
+        stderr: { write: () => undefined },
+      });
+      expect(outputs).toContain('colab_hosted_emulator=false\n');
+    }
+  });
+
+  it('shows the same advisory predicate in path explanations and the evidence table', () => {
+    const paths = ['extensions/tmt-colab/typescript/app/src/hosted-reader.ts', 'README.md'];
+    const rows = explainCiSelection(paths);
+    const text = renderSelectionEvidence({
+      base: 'a'.repeat(40),
+      head: 'b'.repeat(40),
+      rows,
+      areas: selectCiAreas(paths),
+      digest: 'fixture',
+    });
+    expect(rows.map((row) => row.colabHostedEmulator)).toEqual([true, false]);
+    expect(text).toContain('colab-hosted-emulator');
+    expect(text).toContain('| `README.md` |');
+  });
+});
+
 describe('CI diff and command integration', () => {
   it('reads actual additions, cross-owner renames and deletions with whitespace-safe paths', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'tmt-ci-scope-'));
@@ -1505,6 +1588,7 @@ describe('CI diff and command integration', () => {
         colab_harness: 'false',
         colab_app: 'false',
         colab_hosted: 'false',
+        colab_hosted_emulator: 'false',
         native_scope: 'full',
         scoped_native_tests: '',
       });
@@ -1534,6 +1618,7 @@ describe('CI diff and command integration', () => {
         colab_harness: 'false',
         colab_app: 'false',
         colab_hosted: 'false',
+        colab_hosted_emulator: 'false',
         native_scope: 'ops',
         native_notices: 'false',
         remote_firestore: 'false',
@@ -1552,8 +1637,13 @@ describe('CI diff and command integration', () => {
       const remoteOutput = capture();
       const remoteLog = capture();
       runCiScope([opsHead, remoteHead], { cwd: root, stdout: remoteOutput, stderr: remoteLog });
-      expect(outputs(remoteOutput.text())).toEqual(full);
-      expect(remoteLog.text()).toContain('| tmt-remote | remote-rust | native |');
+      expect(outputs(remoteOutput.text())).toEqual({ ...full, colab_hosted_emulator: 'true' });
+      expect(remoteLog.text()).toContain(
+        'Hosted reader emulator PR selection (hosted reader, native producer or qualifier inputs): true.'
+      );
+      expect(remoteLog.text()).toContain(
+        '| tmt-remote | remote-rust | native, colab-hosted-emulator |'
+      );
       // The Rules emulator suite's fixtures select its Unit tests steps and stay a full native scope.
       const rulesDir = 'extensions/tmt-remote/rust/tmt-remote/tests/fixtures/rules';
       mkdirSync(path.join(root, rulesDir), { recursive: true });
@@ -2045,6 +2135,7 @@ esac
         colab_harness: 'false',
         colab_app: 'false',
         colab_hosted: 'false',
+        colab_hosted_emulator: 'false',
       });
       expect(select(['merge-group', shared]).outputs).toEqual(full);
       git(['update-ref', 'refs/remotes/origin/main', docs]);
@@ -3302,5 +3393,100 @@ describe('native Auth+Firestore emulator selection', () => {
     expect(runner).toContain('passed; 0 failed; 0 ignored;');
     expect(runner).toContain("host: '127.0.0.1'");
     expect(runner).not.toContain('docker');
+  });
+});
+
+describe('hosted producer/reader emulator workflow wiring', () => {
+  const workflow = readFileSync(
+    new URL('../../../.github/workflows/colab-browser.yml', import.meta.url),
+    'utf8'
+  );
+  const job = (name: string) =>
+    workflow.split(`  ${name}:\n`)[1].split(/\n  [a-z][a-z0-9-]*:\n/)[0];
+
+  it('admits selected PRs through either predicate without duplicating label acceptance', () => {
+    expect(job('changes')).toContain(
+      "colab_hosted_emulator: ${{ steps.scope.outputs.colab_hosted_emulator || 'false' }}"
+    );
+    const hosted = job('colab-hosted');
+    const condition = hosted.match(/^    if: >-\n([\s\S]*?)\n    concurrency:/m)?.[1];
+    expect(condition).toBeDefined();
+    const admit = new Function(
+      'github',
+      'needs',
+      'contains',
+      `return (${condition?.replace('github.event.pull_request.labels.*.name', 'github.event.pull_request.labels.map(label => label.name)')})`
+    );
+    for (const event_name of [
+      'pull_request',
+      'merge_group',
+      'push',
+      'schedule',
+      'workflow_dispatch',
+    ]) {
+      for (const oldSelection of ['true', 'false'])
+        for (const emulator of ['true', 'false'])
+          for (const labelled of [true, false]) {
+            const github = {
+              event_name,
+              event: { pull_request: { labels: labelled ? [{ name: 'colab-acceptance' }] : [] } },
+            };
+            const needs = {
+              changes: { outputs: { colab_hosted: oldSelection, colab_hosted_emulator: emulator } },
+            };
+            expect(
+              admit(github, needs, (values: string[], value: string) => values.includes(value))
+            ).toBe(
+              event_name === 'pull_request' &&
+                !labelled &&
+                (oldSelection === 'true' || emulator === 'true')
+            );
+          }
+    }
+    expect(hosted).toContain(
+      "if: needs.changes.outputs.colab_hosted_emulator == 'true'\n        uses: ./.github/actions/hosted-reader-emulator"
+    );
+    expect(hosted.indexOf('uses: ./.github/actions/hosted-reader-emulator')).toBeGreaterThan(
+      hosted.indexOf('acceptance/hosted-bundle.spec.ts')
+    );
+    expect(hosted).toContain('timeout-minutes: 20');
+    expect(hosted).toContain('permissions:\n      contents: read');
+  });
+
+  it('qualifies once in full acceptance after ordinary binary use and hash recording', () => {
+    const acceptance = job('colab-acceptance');
+    expect(acceptance.match(/uses: \.\/.github\/actions\/hosted-reader-emulator/g)).toHaveLength(1);
+    expect(acceptance).toContain(
+      'if: matrix.shard == 1\n        uses: ./.github/actions/hosted-reader-emulator'
+    );
+    const qualifier = acceptance.indexOf('uses: ./.github/actions/hosted-reader-emulator');
+    expect(qualifier).toBeGreaterThan(
+      acceptance.indexOf('name: Record the tested source and exact build hashes')
+    );
+    expect(qualifier).toBeGreaterThan(
+      acceptance.indexOf('pnpm --filter @tmt/colab-app --fail-if-no-match test:acceptance')
+    );
+    expect(acceptance).toContain('timeout-minutes: 30');
+    expect(acceptance).toContain('permissions:\n      contents: read');
+  });
+
+  it('reuses the owner wrapper with pinned Java/Firebase and no retry or credentials', () => {
+    const action = readFileSync(
+      new URL('../../../.github/actions/hosted-reader-emulator/action.yml', import.meta.url),
+      'utf8'
+    );
+    expect(action).toContain('using: composite');
+    expect(action).toContain('test -n "$JAVA_HOME_21_X64"');
+    expect(action).toContain('echo "JAVA_HOME=$JAVA_HOME_21_X64" >> "$GITHUB_ENV"');
+    expect(action).toContain('echo "$JAVA_HOME_21_X64/bin" >> "$GITHUB_PATH"');
+    expect(action).toContain('npm install --global firebase-tools@15.29.0');
+    expect(action).toContain('firebase setup:emulators:firestore');
+    expect(action).toContain('node extensions/tmt-colab/scripts/hosted-reader-emulator.mjs');
+    expect(action.indexOf('firebase setup:emulators:firestore')).toBeLessThan(
+      action.indexOf('node extensions/tmt-colab/scripts/hosted-reader-emulator.mjs')
+    );
+    expect(action).not.toMatch(
+      /continue-on-error|\|\| true|secrets\.|GH_TOKEN|GITHUB_TOKEN|docker|retry-command/
+    );
   });
 });
