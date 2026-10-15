@@ -3,8 +3,8 @@
   "files": [
     {
       "path": "dist/remote-firebase-v1.js",
-      "sha256": "bbe60a4a801d4d8660b47c0d2d4a0b9ed806cbd66bb6699aa5e6060e77d246dd",
-      "length": 647780,
+      "sha256": "9056ad8b0171de557a093b56145eecbb0f95417577987df6465b4327e799ce6b",
+      "length": 647770,
       "firebaseVersion": "13.0.0"
     },
     {

@@ -42,7 +42,11 @@ const call = (): SyncCall => ({
   signal: new AbortController().signal,
   deadlineAtMs: Date.now() + 1000,
 });
-async function fixture(modes?: readonly string[], received?: (documents: number) => Promise<void>) {
+async function fixture(
+  modes?: readonly string[],
+  received?: (documents: number) => Promise<void>,
+  ownerLive: () => void = () => {},
+) {
   const requests: { url: string; init: RequestInit }[] = [];
   const costs: SyncAdmissionCost[] = [];
   let next: unknown = {
@@ -110,7 +114,7 @@ async function fixture(modes?: readonly string[], received?: (documents: number)
       return new Response(JSON.stringify(value.body), { status: value.status });
     }) as typeof fetch,
     wake,
-    () => {},
+    ownerLive,
   );
   return {
     port,
@@ -652,3 +656,47 @@ test('a guard exception is sanitized, closes once and never exposes its private 
   expect(f.detached()).toBe(1);
   f.port.close();
 });
+
+test.each(['before-next', 'pending-next'] as const)(
+  'identity loss at %s remains a terminal sanitized scope refusal',
+  async (phase) => {
+    let lost = false;
+    const f = await fixture(undefined, undefined, () => {
+      if (lost) throw { code: 'REMOTE_SCOPE_DENIED', message: 'PRIVATE_DIAGNOSTIC' };
+    });
+    const subscription = await f.port.subscribe(
+      { resource: 'rows', scope: { tenant: { stringValue: 'fixture-space' } } },
+      call(),
+    );
+    let answer: Promise<unknown>;
+    if (phase === 'pending-next') {
+      answer = subscription.next(call()).catch((error) => error);
+      lost = true;
+      f.changed();
+    } else {
+      lost = true;
+      answer = subscription.next(call()).catch((error) => error);
+    }
+    expect(await answer).toEqual({ code: 'REMOTE_SCOPE_DENIED' });
+    subscription.close();
+    f.port.close();
+    expect(f.listenerCount()).toBe(1);
+    expect(f.detached()).toBe(1);
+  },
+);
+
+test.each(['expired', 'sign-in-needed', 'cancelled'] as const)(
+  'a token %s refusal preserves its existing AuthPort state without starting a listener',
+  async (state) => {
+    const f = await fixture();
+    f.context.auth.token = async () => ({ code: 'REMOTE_STATE_UNAVAILABLE', state });
+    await expect(
+      f.port.subscribe(
+        { resource: 'rows', scope: { tenant: { stringValue: 'fixture-space' } } },
+        call(),
+      ),
+    ).rejects.toEqual({ code: 'REMOTE_STATE_UNAVAILABLE', state });
+    expect(f.listenerCount()).toBe(0);
+    f.port.close();
+  },
+);

@@ -38,6 +38,14 @@ export interface SyncWakePort {
 }
 const tab = { writes: 0, listeners: 0, streams: new Set<string>() };
 const unavailable = () => ({ code: 'REMOTE_STATE_UNAVAILABLE' as const });
+/** Identity fences retain only their typed scope verdict; private diagnostics never escape. */
+const ownerFailure = (error: unknown): SyncFailure =>
+  typeof error === 'object' &&
+  error !== null &&
+  'code' in error &&
+  error.code === 'REMOTE_SCOPE_DENIED'
+    ? { code: 'REMOTE_SCOPE_DENIED' }
+    : unavailable();
 const invalid = () => ({ code: 'REMOTE_INPUT_INVALID' as const });
 const canonicalFields = (value: Record<string, unknown>) =>
   JSON.stringify(
@@ -246,8 +254,8 @@ export function createSealedSync(
         if (ended || closed) return;
         try {
           live();
-        } catch {
-          failure = unavailable();
+        } catch (error) {
+          failure ??= ownerFailure(error);
         }
         if (pending) {
           const p = pending;
@@ -265,8 +273,8 @@ export function createSealedSync(
           if (ended || closed) throw unavailable();
           try {
             live();
-          } catch {
-            throw unavailable();
+          } catch (error) {
+            throw ownerFailure(error);
           }
           if (nextCall.signal.aborted)
             throw { code: 'REMOTE_STATE_UNAVAILABLE', state: 'cancelled' };
@@ -343,8 +351,8 @@ export function createSealedSync(
         const credential = await syncWait(call, () => context.auth.token(call));
         live();
         syncCallLive(call);
+        if ('state' in credential) throw credential;
         if (
-          'state' in credential ||
           credential.projectId !== context.config.projectId ||
           credential.uid !== context.uid ||
           !Number.isFinite(credential.expiresAtMs) ||

@@ -273,3 +273,16 @@ it('a terminal budget refusal observed before cancellation stays terminal throug
   expect(f.failures).toEqual([refusal]);
   expect(f.calls).toHaveLength(1);
 });
+
+it.each(['expired', 'sign-in-needed'])(
+  'never reopens when the existing AuthPort reports %s',
+  async (state) => {
+    const refusal = { code: 'REMOTE_STATE_UNAVAILABLE', state };
+    const f = fixture({ refuse: refusal });
+    await expect(f.session.ready).rejects.toEqual(refusal);
+    await f.session.close();
+    expect(f.calls).toHaveLength(1);
+    expect(f.failures).toEqual([refusal]);
+    expect(f.active()).toBe(0);
+  },
+);

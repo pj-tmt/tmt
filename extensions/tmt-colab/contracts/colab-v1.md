@@ -3379,6 +3379,56 @@ The hosted entry glue (the first `firebaseRemote.connect` caller), its exact Fir
 origins and the short-route glue are not part of this command. Ordinary releases embed no hosted
 inventory yet; the release build step is tracked on #2487.
 
+### Hosted read-only page consumer (#2452 B4)
+
+On a Firebase Hosting origin the app opens its hosted reader, never the local sample preview or
+`/api/serve-release`. A fresh entry offers Firestore sign-in and asks for a Colab share link.
+The existing reader-link parser consumes the nine-key fragment; it is erased before asynchronous
+effects, the root must derive the space, and the seed is consumed by the shared link/device key
+owner before the first provider request. The link role is a Rules-checked enrollment hint, never signed
+page authority. No owner/member editing, Save, comment, Ask or cloud attachment path is exposed.
+
+The entry fetches one exact `/tmt/declarations/colab.json`, hashes those raw bytes and passes them
+to Remote's `firebaseRemote.connect(firebaseRemote.originLink(), declaration)`; the SDK owns
+origin/config validation and Firebase. The same release declaration supplies all discovery caps.
+After explicit Firestore sign-in, the only hosted mutation is one bounded create of the holder's
+`members` row `{space,page,uid,role,link,token,seq:1}`. The token comes from Colab's link model;
+existing enrollment is read, never replaced, and an uncertain create gets one exact readback,
+never another write. The one-attempt memo survives recovery and hidden-tab resume for that
+page and uid. The following exact `pages` get supplies epoch/expiry hints only. B4 admits epoch 1;
+any later epoch is `COLAB_HOSTED_RESHARE_REQUIRED`: “This page changed its sharing since this
+link was made. Ask the owner to share it again.” Lifting this limit is deferred: consume the exact
+signed baseline original published by B3c-3, addressed by lowercase hex of the epoch advance's
+`objectEnvelopeHash`, using the baseline codec; a checkpoint is never synthesized into a baseline.
+
+One active page owns exactly three interests: log, checkpoints and membership authority.
+Subscriptions attach before bounded discovery. Notices only wake the consumer, which retains
+its own verified positions and reconstructs original documents with the reviewed mapping.
+Admission verifies the signed owner log and link pin, addressed `link:<id>` wraps, device chains,
+paired checkpoints, revocation cuts and contiguous merged stream order before Objects/Catchup
+and the existing fold publish any plaintext. A later sequence-1 writer is discovered across all
+streams. A failed or partial finite page publishes nothing.
+
+Page selection and visibility changes fence the old generation immediately, close its interests,
+and join reads, folds and guard work before any successor opens. Hidden pages hold no interests;
+returning to the tab performs fresh verified catch-up. An elapsed idle `next` deadline keeps the
+same interest; cancellation retires it. Transport/catch-up recovery has at most three attempts
+under one deadline with cancellation-aware backoff. Rules/access, budget/rate, identity and
+application refusals stop without automatic re-enrollment or a fresh listener; stopped and
+recovering views never label retained content Live.
+
+The caller-owned advisory guard shares ten percent of Remote's free daily reads per browser
+origin, serialized across tabs with Web Locks and one IndexedDB record. Remote's budget model
+owns the daily reset and warning/refusal percentages. REST reads/queries precharge their bounds
+and three conservative Rules lookups per returned document; the one enrollment reserves four
+lookups and one write. Listener starts reserve no guessed tail: the SDK reports every complete
+initial server snapshot and later document-change batch, including own changes, and the guard
+counts those raw documents before exposing a notice. A delivered batch that crosses refusal
+remains charged and closes the reader. Corrupt/unavailable storage refuses; the guard is advisory,
+not the Firebase project's aggregate counter. The hosted parent CSP permits only self and the
+three Firebase hosts defined by Remote's transport; native parent and opaque renderer policies
+retain their existing boundaries.
+
 ### `tmt colab stop` (#1594)
 
 `tmt colab stop [--json]` asks the serving process of this data root to shut down. It never

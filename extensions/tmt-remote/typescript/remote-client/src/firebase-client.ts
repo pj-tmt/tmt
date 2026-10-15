@@ -47,7 +47,7 @@ export async function initialize(config: PublicWebConfig): Promise<FirebaseAuthP
         port: {
           assertSyncIdentity(uid) {
             if (!auth.currentUser || !auth.currentUser.isAnonymous || auth.currentUser.uid !== uid)
-              throw { code: 'REMOTE_STATE_UNAVAILABLE' };
+              throw { code: 'REMOTE_SCOPE_DENIED' };
           },
           syncAuth(uid) {
             return {
@@ -107,7 +107,7 @@ export async function initialize(config: PublicWebConfig): Promise<FirebaseAuthP
                 user.uid !== context.uid ||
                 context.config.projectId !== config.projectId
               )
-                throw { code: 'REMOTE_STATE_UNAVAILABLE' };
+                throw { code: 'REMOTE_SCOPE_DENIED' };
               const resource = context.resources.find((r) => r.name === interest.resource)!;
               const constraints = Object.entries(interest.scope).map(([field, value]) =>
                 where(field, '==', fieldValue(value)),

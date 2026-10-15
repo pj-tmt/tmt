@@ -326,3 +326,43 @@ test.each(['permission-denied', 'unauthenticated', 'resource-exhausted'])(
     await auth.close();
   },
 );
+
+test.each(['missing', 'replaced', 'non-anonymous'] as const)(
+  'a %s bound Firebase identity is a terminal scope refusal before a fresh listener',
+  async (kind) => {
+    const config = {
+      apiKey: 'public',
+      projectId: 'demo-identity-ended',
+      authDomain: 'demo-identity-ended.firebaseapp.com',
+      appId: 'identity-ended-app',
+    };
+    const auth = await initialize(config);
+    const before = { signs: calls.signs, listens: calls.listens };
+    calls.state.currentUser =
+      kind === 'missing'
+        ? undefined
+        : {
+            uid: kind === 'replaced' ? 'another-user' : 'fixture-uid',
+            isAnonymous: kind !== 'non-anonymous',
+            async getIdTokenResult() {
+              throw new Error('No token request after identity loss');
+            },
+          };
+    const expected = { code: 'REMOTE_SCOPE_DENIED' };
+    try {
+      assert.throws(() => auth.assertSyncIdentity!('fixture-uid'), expected);
+      await assert.rejects(
+        auth.wake!.listen(
+          { config, uid: 'fixture-uid' } as SyncContext,
+          { resource: 'rows', scope: {} },
+          () => {},
+          () => {},
+        ),
+        expected,
+      );
+      assert.deepEqual({ signs: calls.signs, listens: calls.listens }, before);
+    } finally {
+      await auth.close();
+    }
+  },
+);

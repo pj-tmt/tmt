@@ -2649,6 +2649,8 @@ var tab = {
 	streams: /* @__PURE__ */ new Set()
 };
 var unavailable = () => ({ code: "REMOTE_STATE_UNAVAILABLE" });
+/** Identity fences retain only their typed scope verdict; private diagnostics never escape. */
+var ownerFailure = (error) => typeof error === "object" && error !== null && "code" in error && error.code === "REMOTE_SCOPE_DENIED" ? { code: "REMOTE_SCOPE_DENIED" } : unavailable();
 var invalid = () => ({ code: "REMOTE_INPUT_INVALID" });
 var canonicalFields = (value) => JSON.stringify(Object.fromEntries(Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)));
 var digest = async (bytes) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new Uint8Array(bytes))), (b) => b.toString(16).padStart(2, "0")).join("");
@@ -2806,8 +2808,8 @@ function createSealedSync(context, guard, fetcher, wake, ownerLive, page = { lis
 				if (ended || closed) return;
 				try {
 					live();
-				} catch {
-					failure = unavailable();
+				} catch (error) {
+					failure ??= ownerFailure(error);
 				}
 				if (pending) {
 					const p = pending;
@@ -2825,8 +2827,8 @@ function createSealedSync(context, guard, fetcher, wake, ownerLive, page = { lis
 					if (ended || closed) throw unavailable();
 					try {
 						live();
-					} catch {
-						throw unavailable();
+					} catch (error) {
+						throw ownerFailure(error);
 					}
 					if (nextCall.signal.aborted) throw {
 						code: "REMOTE_STATE_UNAVAILABLE",
@@ -2906,7 +2908,8 @@ function createSealedSync(context, guard, fetcher, wake, ownerLive, page = { lis
 				const credential = await syncWait(call, () => context.auth.token(call));
 				live();
 				syncCallLive(call);
-				if ("state" in credential || credential.projectId !== context.config.projectId || credential.uid !== context.uid || !Number.isFinite(credential.expiresAtMs) || credential.expiresAtMs <= Date.now()) throw unavailable();
+				if ("state" in credential) throw credential;
+				if (credential.projectId !== context.config.projectId || credential.uid !== context.uid || !Number.isFinite(credential.expiresAtMs) || credential.expiresAtMs <= Date.now()) throw unavailable();
 				stop = await syncWait(call, async () => {
 					const detach = await wake.listen(context, boundInterest, (documents) => {
 						if (ended || closed || failure) return;

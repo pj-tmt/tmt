@@ -564,12 +564,12 @@ status and management. Shared background start is [extension-serve-v1](contracts
 ## Colab extension
 
 Colab (`extensions/tmt-colab/`: `tmt-colab`, `tmt-colab-model`, `@tmt/colab-client`,
-`@tmt/colab-app`) is a native extension embedding its app and skill.
-The opt-in installer uses its archived `skills/`; `tmt colab skill` reads embedded
-bytes without core and storage access.
-[colab-v1's hosted bundle](extensions/tmt-colab/contracts/colab-v1.md#tmt-colab-hosting-bundle---json) owns the hosting build.
-[colab-v1](extensions/tmt-colab/contracts/colab-v1.md) is the normative contract; the
-[tmt-colab skill](.agents/skills/tmt-colab/SKILL.md) holds module knowledge and procedures.
+`@tmt/colab-app`) embeds its app and skill; the opt-in archive installer uses `skills/`.
+`tmt colab skill` reads embedded bytes without core or storage.
+[colab-v1](extensions/tmt-colab/contracts/colab-v1.md) owns behavior and hosted packaging;
+the [development skill](.agents/skills/tmt-colab/SKILL.md) owns modules and checks.
+Hosted links use Remote's Firebase SDK, a joined three-interest reader and existing crypto
+admission; later epochs require a new share link.
 
 - **Layer.** Colab is an app on Remote with no door of its own. `tmt-colab serve`
   listens only on the owner-only socket `<dataRoot>/colab/door.sock`. Remote mounts it at
