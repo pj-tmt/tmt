@@ -3,7 +3,7 @@ import { expiryText, localTime, type ExpiryInfo } from './expiry.js';
 
 /** A page fact in trusted chrome; never an access or deletion decision. */
 export function RetentionHint({ page }: { page: Partial<ExpiryInfo> }) {
-  const warning = page.warnings?.some((w) => w === 'expires-soon' || w === 'expired');
+  const warning = page.warnings?.some((w) => w === 'expires-soon' || w === 'not-in-cloud');
   return (
     <p
       className={`retention-hint${warning ? ' retention-warning' : ''}`}

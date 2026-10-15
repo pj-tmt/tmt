@@ -304,28 +304,44 @@ impl OwnerTransaction<'_> {
         }
         let now = (self.clock)()?;
         values::time(now)?;
-        for page in pages.values_mut() {
-            let updated = page["lastUpdateAtMs"].as_u64();
-            if let Some(updated) = updated {
+        // The expiry is the cloud's own: what the last confirmed write of the page's owner row
+        // made it, for the epoch the page is at now (never derived from local activity). A
+        // machine that never had a page row confirmed has no cloud copy to warn about.
+        let mut confirmed = std::collections::BTreeMap::new();
+        let mut stored = self
+            .tx
+            .prepare("SELECT page,epoch,expires_at_ms FROM cloud_page_rows ORDER BY page")?;
+        for row in stored.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, i64>(2)?,
+            ))
+        })? {
+            let (id, epoch, expires) = row?;
+            let expires = u64::try_from(expires).map_err(|_| OwnerFault::Invalid)?;
+            values::time(expires)?;
+            confirmed.insert(id, (epoch, expires));
+        }
+        let cloud_in_use = !confirmed.is_empty();
+        for (id, page) in pages.iter_mut() {
+            if let Some(updated) = page["lastUpdateAtMs"].as_u64() {
                 values::time(updated)?;
             }
-            let (expiry, warning) = match (page["retentionDays"].as_u64(), updated) {
+            let expiry = confirmed
+                .get(id)
+                .filter(|(epoch, _)| page["epoch"].as_str() == Some(epoch.as_str()))
+                .map(|&(_, expires)| expires);
+            let (shown, warning) = match (page["retentionDays"].as_u64(), expiry) {
                 (None, _) => (None, None),
-                (Some(_), None) => (None, Some("expiry-unavailable")),
-                (Some(days), Some(updated)) => match days
-                    .checked_mul(86_400_000)
-                    .and_then(|d| updated.checked_add(d))
-                    .filter(|&n| values::time(n).is_ok())
-                {
-                    None => (None, Some("expiry-out-of-range")),
-                    Some(expiry) if expiry <= now => (Some(expiry), Some("expired")),
-                    Some(expiry) if expiry - now <= 7 * 86_400_000 => {
-                        (Some(expiry), Some("expires-soon"))
-                    }
-                    Some(expiry) => (Some(expiry), None),
-                },
+                (Some(_), None) => (None, cloud_in_use.then_some("not-in-cloud")),
+                (Some(_), Some(expiry)) if expiry <= now => (Some(expiry), Some("not-in-cloud")),
+                (Some(_), Some(expiry)) if expiry - now <= 7 * 86_400_000 => {
+                    (Some(expiry), Some("expires-soon"))
+                }
+                (Some(_), Some(expiry)) => (Some(expiry), None),
             };
-            page["expiresAtMs"] = serde_json::json!(expiry);
+            page["expiresAtMs"] = serde_json::json!(shown);
             page["warnings"] = serde_json::json!(warning.into_iter().collect::<Vec<_>>());
         }
         for (id, page) in pages.iter_mut() {

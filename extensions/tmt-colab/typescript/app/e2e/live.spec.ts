@@ -175,7 +175,7 @@ async function wire(
             retentionDays: 30,
             lastUpdateAtMs: null,
             expiresAtMs: null,
-            warnings: ['expiry-unavailable'],
+            warnings: [],
             labels: [],
           },
         ],

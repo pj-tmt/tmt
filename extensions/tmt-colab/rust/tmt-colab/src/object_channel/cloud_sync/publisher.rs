@@ -42,6 +42,9 @@ pub(crate) enum Row {
         document: sync::Document,
         days: u64,
         refresh: Duration,
+        /// The `expiresAt` the document carries, in milliseconds: what a confirmed write makes
+        /// the cloud's expiry of the page.
+        expires_ms: u64,
     },
 }
 /// A link that ended: its cloud `links` row goes first, so nobody can enroll again, then the
@@ -80,6 +83,8 @@ pub(crate) trait Local {
     /// The next unconfirmed original of a local stream, or none when the page is current.
     fn next(&mut self, page: &PageRef) -> Result<Option<Data>, Fault>;
     fn confirm(&mut self, page: &PageRef, confirm: &Confirm) -> Result<(), Fault>;
+    /// The cloud confirmed the page's owner row, which now expires at `expires_ms`.
+    fn page_row_confirmed(&mut self, page: &PageRef, expires_ms: u64) -> Result<(), Fault>;
     /// Links whose cloud rows may still exist although the link ended.
     fn retirements(&mut self, page: &PageRef) -> Result<Vec<Retirement>, Fault>;
     /// The link's cloud rows are gone for this page.
@@ -131,7 +136,12 @@ impl Publisher {
                             document,
                             days,
                             refresh,
-                        } => self.put_row(document, days, refresh)?,
+                            expires_ms,
+                        } => {
+                            if self.put_row(document, days, refresh)? {
+                                local.page_row_confirmed(page, expires_ms)?;
+                            }
+                        }
                     }
                 }
                 prepared = true;
@@ -259,18 +269,19 @@ impl Publisher {
         self.created.insert(key);
         Ok(())
     }
+    /// Write the row unless it is current. `Ok(true)` means the cloud confirmed this write.
     fn put_row(
         &mut self,
         document: sync::Document,
         days: u64,
         refresh: Duration,
-    ) -> Result<(), Fault> {
+    ) -> Result<bool, Fault> {
         let key = (document.target.resource.clone(), document.target.id.clone());
         let content = comparable(&document.fields);
         if self.written.get(&key).is_some_and(|row| {
             row.content == content && row.days == days && row.at.elapsed() < refresh
         }) {
-            return Ok(());
+            return Ok(false);
         }
         match self.request(sync::Call::Publish {
             binding: self.binding.clone(),
@@ -295,7 +306,7 @@ impl Publisher {
                 days,
             },
         );
-        Ok(())
+        Ok(true)
     }
     /// Create one immutable original. An acknowledged or identical result publishes it; a
     /// possible effect is read back before anything advances.

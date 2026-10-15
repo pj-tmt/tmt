@@ -1572,7 +1572,7 @@ fn owner_discovery_and_paged_log_bootstrap_use_exact_signed_bytes() {
     };
     let page = |labels: Value| {
         json!({"spaceId":server.space,"ownerKey":values::encode_binary(&key.owner_public()),"revision":"130","pageIds":[{"pageId":PAGE,"deleted":false}],
-        "pages":[{"pageId":PAGE,"epoch":"1","sharing":"private","history":"current","archived":false,"retentionDays":30,"lastUpdateAtMs":null,"expiresAtMs":null,"warnings":["expiry-unavailable"],"labels":labels}]})
+        "pages":[{"pageId":PAGE,"epoch":"1","sharing":"private","history":"current","archived":false,"retentionDays":30,"lastUpdateAtMs":null,"expiresAtMs":null,"warnings":[],"labels":labels}]})
     };
     // Every entry carries its labels (display-only, from the owner store, sorted), empty by default.
     assert_eq!(listed(&server), page(json!([])));

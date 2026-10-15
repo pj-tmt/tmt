@@ -97,6 +97,7 @@ impl OwnerTransaction<'_> {
         for sql in [
             "DELETE FROM cloud_publications WHERE page=?",
             "DELETE FROM link_publications WHERE page=?",
+            "DELETE FROM cloud_page_rows WHERE page=?",
             "DELETE FROM receipts WHERE page=?",
             "DELETE FROM checkpoints WHERE page=?",
             "DELETE FROM streams WHERE page=?",

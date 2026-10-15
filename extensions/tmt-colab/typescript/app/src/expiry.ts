@@ -1,4 +1,4 @@
-/** Server-observed local metadata is a display hint, never an access decision. */
+/** Server-observed metadata is a display hint, never an access decision. */
 export interface ExpiryInfo {
   retentionDays: number | null;
   lastUpdateAtMs: number | null;
@@ -23,9 +23,12 @@ export function localTime(value: number | null): string {
 }
 export function expiryText(page: Partial<ExpiryInfo>, now = Date.now()): string {
   if (page.retentionDays === null) return 'kept forever';
-  if (page.warnings?.includes('expiry-out-of-range')) return 'expiry beyond the supported range';
-  if (page.expiresAtMs == null) return 'expiry starts after the next edit';
+  // The expiry is the cloud copy's: what the last confirmed write of the page's row made it.
+  // A page this machine never put in the cloud has none and is only local.
+  if (page.expiresAtMs == null)
+    return page.warnings?.includes('not-in-cloud') ? 'not in the cloud' : 'local only';
   const remaining = page.expiresAtMs - now;
+  if (remaining <= 0) return 'not in the cloud';
   const duration = Math.abs(remaining);
   const days = Math.floor(duration / 86400000);
   const hours = Math.floor(duration / 3600000);
@@ -35,5 +38,5 @@ export function expiryText(page: Partial<ExpiryInfo>, now = Date.now()): string 
       : hours >= 1
         ? `${hours} h`
         : 'less than an hour';
-  return remaining > 0 ? `expires in ${interval}` : `expired ${interval} ago`;
+  return `expires in ${interval}`;
 }

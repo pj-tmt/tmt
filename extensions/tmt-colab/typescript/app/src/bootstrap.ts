@@ -128,9 +128,7 @@ export async function discover(
       Array.isArray(page.warnings) &&
         page.warnings.length <= 1 &&
         page.warnings.every(
-          (w) =>
-            typeof w === 'string' &&
-            ['expiry-unavailable', 'expiry-out-of-range', 'expires-soon', 'expired'].includes(w),
+          (w) => typeof w === 'string' && ['expires-soon', 'not-in-cloud'].includes(w),
         ),
     );
     // Labels are display-only text from the owner store; the owner enforces the full grammar, the

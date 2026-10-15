@@ -183,6 +183,25 @@ impl Store {
         )?;
         Ok(())
     }
+    /// The cloud confirmed the page's owner row for `epoch`, with `expires_at_ms` as its expiry.
+    /// Only the page's current epoch is recorded: a confirmation that finished after the epoch
+    /// moved changes nothing.
+    pub fn confirm_page_row(
+        &mut self,
+        page: &str,
+        epoch: u64,
+        expires_at_ms: u64,
+    ) -> StoreResult<()> {
+        bounded_id(page)?;
+        let expires = i64::try_from(expires_at_ms).map_err(|_| Fault::Invalid)?;
+        self.connection.execute(
+            "INSERT INTO cloud_page_rows(page,epoch,expires_at_ms)
+             SELECT page,epoch,? FROM pages WHERE page=? AND epoch=?
+             ON CONFLICT(page) DO UPDATE SET epoch=excluded.epoch,expires_at_ms=excluded.expires_at_ms",
+            params![expires, page, epoch.to_string()],
+        )?;
+        Ok(())
+    }
     pub fn publication_progress(
         &self,
         scope: StreamScope<'_>,

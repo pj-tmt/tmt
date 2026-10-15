@@ -511,6 +511,13 @@ impl super::publisher::Local for OneUpdate {
         self.next = 0;
         Ok(())
     }
+    fn page_row_confirmed(
+        &mut self,
+        _: &super::PageRef,
+        _: u64,
+    ) -> Result<(), super::publisher::Fault> {
+        Ok(())
+    }
     fn retirements(
         &mut self,
         _: &super::PageRef,

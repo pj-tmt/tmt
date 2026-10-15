@@ -474,7 +474,7 @@ fn schema_one_migration_preserves_all_ciphertext_and_refuses_newer_schema_untouc
     let f = Fixture::new();
     let db = f.oracle();
     // Independent schema-1 fixture: all original columns carry non-default data.
-    db.execute_batch("DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_labels; DROP TABLE baselines; DROP TABLE device_registrations; DROP TABLE owner_operations; DROP TABLE wraps; DROP TABLE epoch_secrets;
+    db.execute_batch("DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_labels; DROP TABLE baselines; DROP TABLE device_registrations; DROP TABLE owner_operations; DROP TABLE wraps; DROP TABLE epoch_secrets;
         DROP TABLE devices; DROP TABLE recipients; DROP TABLE membership_log; DROP TABLE owner_state;
         DROP TABLE checkpoints; DROP TABLE receipts; DROP TABLE streams; DROP TABLE pages;
         CREATE TABLE pages(page TEXT PRIMARY KEY, epoch TEXT NOT NULL);
@@ -647,7 +647,7 @@ fn schema_five_scoped_migration_preserves_independent_legacy_rows_and_replay() {
     db.execute_batch("ALTER TABLE owner_operations RENAME TO modern_operations;
         CREATE TABLE owner_operations(id TEXT PRIMARY KEY,digest BLOB NOT NULL,outcome BLOB NOT NULL);
         INSERT INTO owner_operations SELECT id,digest,outcome FROM modern_operations;
-        DROP TABLE modern_operations; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_labels; PRAGMA user_version=5;").unwrap();
+        DROP TABLE modern_operations; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_labels; PRAGMA user_version=5;").unwrap();
     let before: (String, Vec<u8>, Vec<u8>) = db
         .query_row("SELECT id,digest,outcome FROM owner_operations", [], |r| {
             Ok((r.get(0)?, r.get(1)?, r.get(2)?))

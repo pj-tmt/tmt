@@ -253,9 +253,11 @@ impl Local for StoreLocal {
             vec![("space", text(&self.space)), ("owner", text(uid))],
         )?));
         let days = cloud_days(snapshot.retention_days);
+        let expires_ms = now + days * DAY_MS;
         rows.push(Row::Put {
             days,
             refresh: row_refresh(days),
+            expires_ms,
             document: admission(
                 Resource::Pages,
                 vec![
@@ -270,7 +272,7 @@ impl Local for StoreLocal {
                             "open"
                         }),
                     ),
-                    ("expiresAt", mapping(Field::timestamp(now + days * DAY_MS))?),
+                    ("expiresAt", mapping(Field::timestamp(expires_ms))?),
                 ],
             )?,
         });
@@ -467,6 +469,11 @@ impl Local for StoreLocal {
             ),
         };
         result.map(|_| ()).map_err(store_fault)
+    }
+    fn page_row_confirmed(&mut self, page: &PageRef, expires_ms: u64) -> Result<(), Fault> {
+        self.store
+            .confirm_page_row(&page.page, page.epoch, expires_ms)
+            .map_err(store_fault)
     }
 }
 
