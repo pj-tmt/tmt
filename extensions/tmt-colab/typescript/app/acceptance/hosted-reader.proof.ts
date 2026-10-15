@@ -73,6 +73,18 @@ test('a hosted editor verifies native content, publishes one own edit request an
     run(world, world.binaries.colab, ['share', 'mode', created.pageId, 'link', '--yes', '--json']);
     // Sharing activity after serve startup selects this page, as in Colab's reviewed B3c-2 proof.
     await startDoor(world);
+    // A viewer's unused device chain is not an author, even when editor link chains are valid.
+    // Keep this non-writer in discovery so removing the observed-writers filter is detected.
+    run(world, world.binaries.colab, [
+      'share',
+      'link',
+      'add',
+      created.pageId,
+      '--role',
+      'viewer',
+      '--yes',
+      '--json',
+    ]);
     const added = JSON.parse(
       run(world, world.binaries.colab, [
         'share',
