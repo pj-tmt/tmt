@@ -90,5 +90,22 @@ for (const width of [1440, 1024, 390])
       await sort.click();
       await expect(page.getByRole('menu', { name: 'Sort' })).toBeVisible();
       await page.screenshot({ path: `${directory}/sort-open-${width}-${theme}.png` });
+      // A non-popup action retains focus after activation, so this checks pointer
+      // focus itself rather than an opener that immediately moves focus into a menu.
+      await page.goto('/');
+      await page.evaluate(async () => {
+        const fixture = '/test/browser-overlays.tsx';
+        (await import(fixture)).mount();
+      });
+      const action = page.getByRole('button', { name: 'Header action', exact: true });
+      await action.click();
+      await expect(page.getByTestId('header-count')).toHaveText('1');
+      await expect(action).toBeFocused();
+      expect(await action.evaluate((node) => node.matches(':focus-visible'))).toBe(false);
+      await expect(action).toHaveCSS('outline-style', 'none');
+      await page.keyboard.press('Tab');
+      await page.keyboard.press('Shift+Tab');
+      await expect(action).toBeFocused();
+      await expect(action).toHaveCSS('outline-width', '1px');
     });
   }
