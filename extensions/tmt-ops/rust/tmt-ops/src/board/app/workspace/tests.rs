@@ -2916,3 +2916,99 @@ fn roster_preview_click_selects_the_exact_membership_and_invalidates_old_hits() 
     assert!(app.workspace_action_hits.borrow().is_empty());
     assert!(app.workspace_state_cells.borrow().is_empty());
 }
+
+#[test]
+fn default_attention_colors_stay_in_the_painted_state_word_while_other_states_are_neutral() {
+    use tmt_cli_style::{Base, Depth, Role, Theme};
+    for base in [Base::Tmt, Base::TmtLight] {
+        let look = crate::look::Look {
+            theme: Theme::new(base),
+            depth: Depth::TrueColor,
+        };
+        for (state, role) in [
+            ("working", Role::Text),
+            ("idle", Role::Text),
+            ("offline", Role::Text),
+            ("waiting", Role::Waiting),
+            ("blocked", Role::Blocked),
+        ] {
+            for selected in [false, true] {
+                let mut app = board();
+                app.view.as_mut().unwrap().look = look;
+                let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+                snapshot.squad_looks.clear();
+                snapshot.roster.members.get_mut(MEMBER).unwrap().state = Some(state.into());
+                snapshot.roster.squads[0]
+                    .member_states
+                    .get_mut(MEMBER)
+                    .unwrap()
+                    .state = Some(state.into());
+                let target = OpsTarget::Member {
+                    room_id: Some(ROOM.into()),
+                    identity_id: MEMBER.into(),
+                };
+                snapshot.rows.get_mut(&target).unwrap()["state"] = json!(state);
+                assert!(
+                    snapshot.rows[&target]["colors"]["state"].is_null(),
+                    "fixture has no authored state token"
+                );
+                if !selected {
+                    app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
+                }
+                app.workspace_reconcile();
+                let mut terminal = Terminal::new(TestBackend::new(160, 44)).unwrap();
+                terminal
+                    .draw(|frame| crate::board::view::render(frame, &app))
+                    .unwrap();
+                let hit = app
+                    .hits
+                    .borrow()
+                    .iter()
+                    .find(|hit| {
+                        hit.row()
+                            .is_some_and(|index| app.workspace_rows()[index].target == target)
+                    })
+                    .copied()
+                    .unwrap();
+                let state_area = app
+                    .workspace_state_cells
+                    .borrow()
+                    .iter()
+                    .find(|area| area.y == hit.y)
+                    .copied()
+                    .unwrap();
+                let painted_state = (state_area.x..state_area.right())
+                    .map(|x| terminal.backend().buffer()[(x, hit.y)].symbol())
+                    .collect::<String>();
+                assert!(
+                    painted_state.contains(state),
+                    "the whole state word is visible: {painted_state}"
+                );
+                let painted_row = (hit.x..hit.x + hit.width)
+                    .map(|x| terminal.backend().buffer()[(x, hit.y)].symbol())
+                    .collect::<String>();
+                assert!(painted_row.contains("worker"));
+                for x in hit.x..hit.x + hit.width {
+                    if terminal.backend().buffer()[(x, hit.y)]
+                        .symbol()
+                        .trim()
+                        .is_empty()
+                    {
+                        continue;
+                    }
+                    assert_eq!(
+                        terminal.backend().buffer()[(x, hit.y)].fg,
+                        look.role(if state_area.contains((x, hit.y).into()) {
+                            role
+                        } else {
+                            Role::Text
+                        })
+                        .fg
+                        .unwrap(),
+                        "{base:?}/{role:?}/selected={selected} x{x}"
+                    );
+                }
+            }
+        }
+    }
+}

@@ -448,7 +448,6 @@ pub fn state_style(app: &crate::board::app::App, row: &OpsTreeRow) -> ratatui::s
     let role = match row.state.as_deref() {
         Some("waiting") => Role::Waiting,
         Some("blocked") => Role::Blocked,
-        Some("working") => Role::Working,
         _ => Role::Text,
     };
     app.workspace_snapshot()
