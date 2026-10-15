@@ -17,7 +17,7 @@ export async function deriveReaderKeys(target: ReaderLink): Promise<{
   try {
     requireValue((await deriveSpaceId(copy(selected.root, 32))) === selected.space);
     const link = await linkKeys.deriveLink(seed, selected.space, selected.link),
-      device = await linkKeys.deriveDevice(seed, selected.space, selected.link);
+      device = await linkKeys.deriveDevice(seed, selected.space, selected.link, 'door');
     // Every open presents byte-identical proof; the bearer token comes from the same model.
     const chain = await linkKeys.certifyDevice(link, {
       deviceId: device.id,

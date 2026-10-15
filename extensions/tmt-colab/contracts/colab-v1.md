@@ -890,24 +890,32 @@ as before. A viewer or commenter link never shows it.
 
 The public `/read` entry removes the fragment from the address bar before any other work
 (a reload therefore needs the full link again). In memory only, it derives the link keys from
-the seed with the model's `link::Keys` derivation and wipes the seed. Its reader device is
-also derived from the seed: Ed25519 signing seed `HKDF(seed, LP("tmt-colab-link-device-seed-v1",
-space, link))` and a device ID from the first 16 bytes of `HKDF(seed, LP("tmt-colab-link-device-id-v1",
-space, link))` with UUIDv4 version and variant bits set. It certifies that device as a `link`
-issuer chain with the link's encryption public key, the `rev`/`st` statement and a fixed validity
-window of `issuedAt` 0 to `expiresAt` 9007199254740991 (liveness is the link's, never the
-certificate's). Ed25519 signing is deterministic, so every open presents a byte-identical chain
-and the server keeps one device row per link however often the link is opened
-(`authority-v1.json` `linkDevice` freezes the oracle bytes). The server never enforces this
-derivation: any seed holder may still certify a fresh random device, as the revocation rules above
-state. The owner derives the same device while `share link add` or `reset` borrows the seed, in the
-transaction that appends the `link.add` statement, and keeps its chain as a device row beside the
-link's admission token: the chain names that statement, and the row is never a registration,
-because this machine does not write the link's stream. The cloud snapshot publishes the chain of
-each live link's unrevoked device with the writers' chains, so whoever follows the link's stream
-finds it; an ended link's chain is not published again. A link's `own` records written at the
-local door stay on this machine in v1: the cloud copy of a link's records comes from the holder
-that wrote them there. The entry then runs the challenge and session exchange above and opens
+the seed with the model's `link::Keys` derivation and wipes the seed. A link has one derived
+device per transport, so each transport writes a stream of its own and a race on one never forks
+the other: `door` (the owner's serve, through the Remote door) and `hosted` (the cloud log, written
+by a holder's browser directly; Remote #3122 writes it). A device is Ed25519 signing seed
+`HKDF(seed, LP(<seed label>, space, link))` and a device ID from the first 16 bytes of
+`HKDF(seed, LP(<id label>, space, link))` with UUIDv4 version and variant bits set (the cloud Rules
+admit only a UUIDv4-shaped stream). The `door` labels are `tmt-colab-link-device-seed-v1` and
+`tmt-colab-link-device-id-v1`, which every link has always had; the `hosted` labels are
+`tmt-colab-link-hosted-device-seed-v1` and `tmt-colab-link-hosted-device-id-v1`. This entry is the
+door's holder and derives the `door` device. It certifies that device as a `link` issuer chain
+with the link's encryption public key, the `rev`/`st` statement and a fixed validity window of
+`issuedAt` 0 to `expiresAt` 9007199254740991 (liveness is the link's, never the certificate's).
+Ed25519 signing is deterministic, so every open presents a byte-identical chain and the server
+keeps one device row per transport however often the link is opened (`authority-v1.json`
+`linkDevice` and `linkHostedDevice` freeze the oracle bytes of the two). The server never enforces
+this derivation: any seed holder may still certify a fresh random device, as the revocation rules
+above state. The owner derives both devices while `share link add` or `reset` borrows the seed, in
+the transaction that appends the `link.add` statement, and keeps their chains as device rows beside
+the link's admission token: each chain names that statement, and the rows are never registrations,
+because this machine does not write those streams. `link.remove` revokes every device the link
+issued. A link added before the `hosted` device existed has no `hosted` chain: its owner resets it.
+The cloud snapshot publishes the chain of each live link's unrevoked devices with the writers'
+chains, so whoever follows a link's streams finds them; an ended link's chains are not published
+again. A link's `own` records written at the local door stay on this machine in v1: the cloud copy
+of a link's records comes from the holder that wrote them there, on the `hosted` stream, so the two
+transports never put two different originals at one sequence of one stream. The entry then runs the challenge and session exchange above and opens
 `/sync` with the ticket subprotocol; hello names the session's `principal`. It checks that the
 returned owner key equals the link's `root` (a mismatch ends access) and derives the linked
 `space`, verifies the owner log and link-addressed wraps
@@ -3491,6 +3499,17 @@ Admission verifies the signed owner log and link pin, addressed `link:<id>` wrap
 paired checkpoints, revocation cuts and contiguous merged stream order before Objects/Catchup
 and the existing fold publish any plaintext. A later sequence-1 writer is discovered across all
 streams. A failed or partial finite page publishes nothing.
+
+**One hosted writer per editor link (v1).** A holder writes the link's `hosted` stream with a
+cloud log create, and the Rules continue a stream (`seq > 1`) only for the uid that wrote its
+predecessor. Every hosted holder signs in with an anonymous uid of its own, so one hosted browser
+(one uid) can write a given link's hosted stream: a second hosted holder of the same link is
+refused at its first continuation of that stream, definitively, and must not reseal in a loop
+(Remote's publisher surfaces a typed refusal). This is a tested Rules fact (the Colab Rules suite),
+not a note. The door side is unaffected: the owner's serve applies appends, every door holder shares
+the `door` stream, and a race for its next sequence is refused with nothing frozen (Own-stream edit
+requests). Lifting the hosted limit is a Rules change, a shared Colab artifact (goldens, plan
+digest, vectors), and waits for the owner's go.
 
 **Link-device authors.** A device chain issued by a link (`issuerKind:"link"`) is admitted by the
 rules native author admission applies, never as a member and never in place of one. The issuer is

@@ -144,7 +144,7 @@ async function mintedChain(
   },
 ) {
   const link = await c.link.deriveLink(seedOf(byte), v.spaceId, linkId),
-    device = await c.link.deriveDevice(seedOf(byte), v.spaceId, linkId);
+    device = await c.link.deriveDevice(seedOf(byte), v.spaceId, linkId, 'door');
   const chain = await c.link.certifyDevice(link, {
     deviceId: device.id,
     signingPublic: device.signingPublic,

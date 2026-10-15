@@ -968,31 +968,37 @@ fn a_link_holder_enrolls_by_the_links_token_and_is_removed_with_the_link() {
             && !wraps_for(&emulator, &page, &format!("link:{link}")).is_empty()
     });
     home.assert_emulator_routing();
-    // The link was never opened here, yet its derived device's chain is in the cloud, byte for
-    // byte what a holder derives from the seed and the statement the link names: whoever
-    // follows the link's stream finds the device there.
+    // The link was never opened here, yet the chains of its derived devices, one per transport,
+    // are in the cloud, byte for byte what a holder derives from the seed and the statement the
+    // link names: whoever follows the link's streams finds the devices there.
     let statement: [u8; 32] = tmt_colab_model::values::binary(fragment["st"], 32)
         .unwrap()
         .try_into()
         .unwrap();
-    let chain = tmt_colab_model::link::device_chain(
-        &seed,
-        &home.facts.space,
-        &link,
-        fragment["rev"],
-        &statement,
-    )
-    .unwrap();
-    let subject =
-        tmt_extension_objects::Sha256Hex::from_bytes(Sha256::digest(&chain).into()).to_string();
-    until("the link's device chain is in the cloud", || {
-        page_documents(&emulator, &page, "authority")
-            .iter()
-            .any(|(_, fields)| {
-                fields["kind"]["stringValue"] == "chain"
-                    && fields["subject"]["stringValue"] == subject.as_str()
-            })
-    });
+    for transport in tmt_colab_model::link::Transport::ALL {
+        let chain = tmt_colab_model::link::device_chain(
+            &seed,
+            &home.facts.space,
+            &link,
+            fragment["rev"],
+            &statement,
+            transport,
+        )
+        .unwrap();
+        let subject =
+            tmt_extension_objects::Sha256Hex::from_bytes(Sha256::digest(&chain).into()).to_string();
+        until(
+            &format!("the link's {transport:?} device chain is in the cloud"),
+            || {
+                page_documents(&emulator, &page, "authority")
+                    .iter()
+                    .any(|(_, fields)| {
+                        fields["kind"]["stringValue"] == "chain"
+                            && fields["subject"]["stringValue"] == subject.as_str()
+                    })
+            },
+        );
+    }
     let owner_wrap = page_documents(&emulator, &page, "authority")
         .into_iter()
         .find(|(_, fields)| {

@@ -264,7 +264,7 @@ async function fixture() {
     const seed = new Uint8Array(32).fill(23),
       linkId = '00000000-0000-4000-8000-000000000777',
       keys = await c.link.deriveLink(seed, scope.space, linkId),
-      device = await c.link.deriveDevice(seed, scope.space, linkId);
+      device = await c.link.deriveDevice(seed, scope.space, linkId, 'door');
     await append('link.add', {
       linkId,
       role: 'viewer',

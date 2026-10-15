@@ -216,6 +216,7 @@ fn only_a_chain_a_link_issued_is_a_link_device() {
         "20000000-0000-4000-8000-000000000001",
         "2",
         &[9; 32],
+        tmt_colab_model::link::Transport::Door,
     )
     .unwrap();
     assert!(super::store::link_issued(&link));

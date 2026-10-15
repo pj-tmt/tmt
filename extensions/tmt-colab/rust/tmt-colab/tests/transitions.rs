@@ -15,7 +15,7 @@ use tmt_colab::{
     },
     transitions::{Code, Engine, EpochAdvance},
 };
-use tmt_colab_model::{certificate, crypto, object, statement, values, wrap};
+use tmt_colab_model::{certificate, crypto, link::Transport, object, statement, values, wrap};
 use yrs::{
     Doc, GetString, Map, ReadTxn, StateVector, Text, Transact, Update, updates::decoder::Decode,
 };
@@ -1402,14 +1402,22 @@ fn registrations(f: &Fixture, device: &str) -> i64 {
         )
         .unwrap()
 }
-/// The chain a holder derives from the link's seed for the `link.add` statement at `head`.
-fn device_chain_of(f: &Fixture, id: &str, seed: &[u8; 32], head: &statement::Head) -> Vec<u8> {
+/// The chain a holder derives from the link's seed, for a transport, for the `link.add`
+/// statement at `head`.
+fn device_chain_of(
+    f: &Fixture,
+    id: &str,
+    seed: &[u8; 32],
+    head: &statement::Head,
+    transport: Transport,
+) -> Vec<u8> {
     tmt_colab_model::link::device_chain(
         seed,
         &f.key.space_id,
         id,
         &head.revision.to_string(),
         &head.hash,
+        transport,
     )
     .unwrap()
 }
@@ -1653,21 +1661,31 @@ fn a_links_derived_device_is_kept_when_it_is_added_and_is_never_a_registration()
     // holder that never opened the link on this machine still has a device the log admits.
     let added = head(&f);
     let devices = link_devices(&f, LINK);
-    assert_eq!(devices.len(), 1);
-    let (device, revoked, chain) = &devices[0];
-    assert!(!revoked);
-    assert_eq!(chain, &device_chain_of(&f, LINK, &LINK_SEED, &added));
-    let parsed = certificate::Chain::from_json(chain).unwrap();
-    let cert = parsed.certificate().unwrap();
+    // One device per transport, each with a chain of its own.
+    assert_eq!(devices.len(), Transport::ALL.len());
     let keys = tmt_colab_model::link::Keys::derive(&LINK_SEED, &f.key.space_id, LINK).unwrap();
-    parsed
-        .verify(&added.hash, &cert, &keys.signing_public())
-        .unwrap();
-    assert_eq!(cert.membership_revision, added.revision.to_string());
-    // This machine does not write that stream, so the device has no registration row.
-    assert_eq!(registrations(&f, device), 0);
-    assert_no_seed(&f, chain, &LINK_SEED);
-    // Reset ends the old device with its link and derives the replacement's from its own
+    for transport in Transport::ALL {
+        let expected = device_chain_of(&f, LINK, &LINK_SEED, &added, transport);
+        let (device, revoked, chain) = devices
+            .iter()
+            .find(|(_, _, chain)| chain == &expected)
+            .unwrap_or_else(|| panic!("no {transport:?} device kept"));
+        assert!(!revoked);
+        let parsed = certificate::Chain::from_json(chain).unwrap();
+        let cert = parsed.certificate().unwrap();
+        parsed
+            .verify(&added.hash, &cert, &keys.signing_public())
+            .unwrap();
+        assert_eq!(cert.membership_revision, added.revision.to_string());
+        // This machine does not write those streams, so no device has a registration row.
+        assert_eq!(registrations(&f, device), 0);
+        assert_no_seed(&f, chain, &LINK_SEED);
+    }
+    assert_ne!(
+        devices[0].0, devices[1].0,
+        "the transports never share a stream"
+    );
+    // Reset ends the old devices with their link and derives the replacement's from its own
     // statement, the last one of the transaction.
     link_change(
         &mut f,
@@ -1680,18 +1698,22 @@ fn a_links_derived_device_is_kept_when_it_is_added_and_is_never_a_registration()
     )
     .unwrap();
     let replaced = head(&f);
-    assert_eq!(link_devices(&f, LINK).len(), 1);
-    assert!(link_devices(&f, LINK)[0].1, "the old link's device ends");
+    let old = link_devices(&f, LINK);
+    assert_eq!(old.len(), Transport::ALL.len());
+    assert!(old.iter().all(|d| d.1), "the old link's devices end");
     let fresh = link_devices(&f, REPLACEMENT);
-    assert_eq!(fresh.len(), 1);
-    assert!(!fresh[0].1);
-    assert_eq!(
-        fresh[0].2,
-        device_chain_of(&f, REPLACEMENT, &REPLACEMENT_SEED, &replaced)
-    );
-    assert_eq!(registrations(&f, &fresh[0].0), 0);
-    assert_no_seed(&f, &fresh[0].2, &REPLACEMENT_SEED);
-    // Removing the link ends its device too.
+    assert_eq!(fresh.len(), Transport::ALL.len());
+    for transport in Transport::ALL {
+        let expected = device_chain_of(&f, REPLACEMENT, &REPLACEMENT_SEED, &replaced, transport);
+        let device = fresh
+            .iter()
+            .find(|(_, _, chain)| chain == &expected)
+            .unwrap_or_else(|| panic!("no {transport:?} device for the replacement"));
+        assert!(!device.1);
+        assert_eq!(registrations(&f, &device.0), 0);
+        assert_no_seed(&f, &device.2, &REPLACEMENT_SEED);
+    }
+    // Removing the link ends its devices too.
     let rev = revision(&f);
     link_change(
         &mut f,
@@ -1702,7 +1724,8 @@ fn a_links_derived_device_is_kept_when_it_is_added_and_is_never_a_registration()
         },
     )
     .unwrap();
-    assert!(link_devices(&f, REPLACEMENT)[0].1);
+    assert!(link_devices(&f, REPLACEMENT).iter().all(|d| d.1));
+    assert_eq!(link_devices(&f, REPLACEMENT).len(), Transport::ALL.len());
 }
 #[test]
 fn a_failed_device_write_leaves_no_link_at_all() {

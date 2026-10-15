@@ -71,7 +71,12 @@ type Kind = 'link' | 'member';
 const REVISION = 6n;
 async function world(kind: Kind, reader?: object) {
   const seed = new Uint8Array(32).fill(0x61);
-  const device = await c.link.deriveDevice(seed, v.spaceId, '50000000-0000-4000-8000-000000000001');
+  const device = await c.link.deriveDevice(
+    seed,
+    v.spaceId,
+    '50000000-0000-4000-8000-000000000001',
+    'door',
+  );
   const root = await crypto.subtle.importKey(
     'raw',
     c.binary(v.epochSecret, 32, 32),

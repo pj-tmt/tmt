@@ -75,9 +75,10 @@ the same sealed positive, unsealed refusal, beyond-cut, tail-hash and checkpoint
 controls. The vectors use the actual derived management principal; they establish
 read-bound parity, not a live routed backend or current caller entitlement.
 
-`authority-v1.json` `linkDevice` freezes the browser reader's seed-derived link device: its ID,
-signing public key, and the exact link-issuer chain (fixed 0 to 2^53-1 validity window) with its
-digest. The TypeScript client reproduces these bytes and the Rust model verifies them.
+`authority-v1.json` `linkDevice` and `linkHostedDevice` freeze a link's seed-derived device for
+each transport (the door, and the hosted cloud log): its ID, signing public key, and the exact
+link-issuer chain (fixed 0 to 2^53-1 validity window) with its digest. The two share no ID or key.
+The TypeScript client reproduces these bytes and the Rust model verifies them.
 
 `authority-v1.json` `linkRulesToken` freezes the link's cloud admission token
 (`HKDF(linkSeed, LP("tmt-colab-link-rules-token-v1", space, linkId))`, unpadded base64url); the

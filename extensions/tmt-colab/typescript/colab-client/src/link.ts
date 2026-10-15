@@ -113,8 +113,18 @@ export async function deriveLink(seed: Uint8Array, space: string, id: string): P
     rulesToken.fill(0);
   }
 }
-/** A link's reader device is a pure function of its seed, so every open reuses one server row
- * (the server keeps a device row per ID and only accepts a byte-identical chain for it). */
+/** The transport a holder of a link reaches the page's stream over: the owner's serve through the
+ * Remote door, or the cloud log written directly. Each has its own derived device, so each has its
+ * own stream and a race on one never forks the other. */
+export type LinkTransport = 'door' | 'hosted';
+/** The derivation labels of a transport's device: its signing seed and its ID. The door's are the
+ * ones every link has always had. */
+const DEVICE_LABELS: Record<LinkTransport, readonly [string, string]> = {
+  door: ['tmt-colab-link-device-seed-v1', 'tmt-colab-link-device-id-v1'],
+  hosted: ['tmt-colab-link-hosted-device-seed-v1', 'tmt-colab-link-hosted-device-id-v1'],
+};
+/** A link's device for a transport is a pure function of its seed, so every open reuses one server
+ * row (the server keeps a device row per ID and only accepts a byte-identical chain for it). */
 export interface DerivedDevice {
   id: string;
   sign: CryptoKey;
@@ -127,11 +137,14 @@ export async function deriveDevice(
   seed: Uint8Array,
   space: string,
   linkId: string,
+  transport: LinkTransport,
 ): Promise<DerivedDevice> {
   spaceId(space);
   generatedId(linkId);
-  const deviceSeed = await derive(seed, 'tmt-colab-link-device-seed-v1', space, linkId),
-    idBytes = (await derive(seed, 'tmt-colab-link-device-id-v1', space, linkId)).slice(0, 16);
+  const [seedLabel, idLabel] = DEVICE_LABELS[transport];
+  requireValue(seedLabel !== undefined);
+  const deviceSeed = await derive(seed, seedLabel, space, linkId),
+    idBytes = (await derive(seed, idLabel, space, linkId)).slice(0, 16);
   try {
     const pkcs8 = concat(ED25519_PKCS8, deviceSeed);
     const probe = await crypto.subtle.importKey('pkcs8', pkcs8, 'Ed25519', true, ['sign']);

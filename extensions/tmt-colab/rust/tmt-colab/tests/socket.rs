@@ -28,7 +28,7 @@ const OTHER: &str = "00000000-0000-4000-8000-000000000005";
 const PAGE: &str = "00000000-0000-4000-8000-000000000001";
 use ed25519_dalek::{Signer, SigningKey};
 use serde_json::{Value, json};
-use tmt_colab_model::{framing, object, values};
+use tmt_colab_model::{framing, link::Transport as LinkTransport, object, values};
 use tungstenite::{Message, WebSocket, protocol::Role};
 fn context(id: &str) -> String {
     json!({"deviceId":id,"kind":"browser","origin":"http://127.0.0.1:1","name":"<b>Laptop</b>",
@@ -3951,9 +3951,9 @@ impl Running {
                 Engine, LinkAction, LinkSpec, OwnerAction, OwnerRequest, Publication, ShareMode,
             },
         };
-        const LINK: &str = "20000000-0000-4000-8000-000000000001";
+        const LINK: &str = LINK_ID;
         const LINK_DEVICE: &str = "30000000-0000-4000-8000-000000000001";
-        const SEED: [u8; 32] = [17; 32];
+        const SEED: [u8; 32] = LINK_SEED_BYTES;
         let layout = Layout::open(&self.root).unwrap();
         let key = Keyring::read(&layout).unwrap();
         let mut store = Store::open(&layout).unwrap();
@@ -4049,7 +4049,7 @@ impl Running {
             "issuerSignature":values::encode_binary(&link.certify(
                 &tmt_colab_model::certificate::decode(&certificate).unwrap()).unwrap())}))
         .unwrap();
-        let mut session = self.link_exchange(&chain);
+        let mut session = self.link_exchange(&chain, &device);
         session["chain"] = json!(values::encode_binary(&chain));
         session
     }
@@ -4057,12 +4057,45 @@ impl Running {
     /// second holder of the link opens it.
     fn reopen_link_session(&self, session: &Value) -> Value {
         let chain = values::binary(session["chain"].as_str().unwrap(), 16 * 1024).unwrap();
-        let mut again = self.link_exchange(&chain);
+        let mut again = self.link_exchange(&chain, &SigningKey::from_bytes(&[19; 32]));
         again["chain"] = session["chain"].clone();
         again
     }
-    fn link_exchange(&self, chain: &[u8]) -> Value {
-        let device = SigningKey::from_bytes(&[19; 32]);
+    /// A session of the link `session` came from, as the holder of the device the link's seed
+    /// derives for `transport`: its chain names the same `link.add` statement the first one does.
+    fn derived_link_session(&self, session: &Value, transport: LinkTransport) -> (Value, String) {
+        let named = values::binary(session["chain"].as_str().unwrap(), 16 * 1024).unwrap();
+        let named: Value = serde_json::from_slice(&named).unwrap();
+        let statement: [u8; 32] = values::binary(named["issuerStatement"].as_str().unwrap(), 32)
+            .unwrap()
+            .try_into()
+            .unwrap();
+        let certificate =
+            values::binary(named["deviceCertificate"].as_str().unwrap(), 1024).unwrap();
+        let revision = tmt_colab_model::certificate::decode(&certificate)
+            .unwrap()
+            .membership_revision
+            .to_string();
+        let chain = tmt_colab_model::link::device_chain(
+            &LINK_SEED_BYTES,
+            &self.space,
+            LINK_ID,
+            &revision,
+            &statement,
+            transport,
+        )
+        .unwrap();
+        let signer =
+            tmt_colab_model::link::device_signer(&LINK_SEED_BYTES, &self.space, LINK_ID, transport)
+                .unwrap();
+        let device =
+            tmt_colab_model::link::device_id(&LINK_SEED_BYTES, &self.space, LINK_ID, transport)
+                .unwrap();
+        let mut derived = self.link_exchange(&chain, &signer);
+        derived["chain"] = json!(values::encode_binary(&chain));
+        (derived, device)
+    }
+    fn link_exchange(&self, chain: &[u8], device: &SigningKey) -> Value {
         let response = self.event(
             tmt_colab::readers::CHALLENGE_PATH,
             "",
@@ -5391,20 +5424,39 @@ fn the_serve_runs_cloud_sync_once_listening_asks_remote_once_and_joins_it_at_sto
 
 const REQUEST_LINK: &str = "20000000-0000-4000-8000-000000000001";
 const REQUEST_DEVICE: &str = "30000000-0000-4000-8000-000000000001";
+const LINK_ID: &str = "20000000-0000-4000-8000-000000000001";
+const LINK_SEED_BYTES: [u8; 32] = [17; 32];
 fn request_op(n: u64) -> String {
     format!("60000000-0000-4000-8000-{n:012x}")
 }
 /// The link device's own stream as a holder writes it: each request is a delta of its `own`
 /// document, sealed as that device and appended in sequence.
 struct RequestStream {
+    device: String,
+    key: SigningKey,
     updates: Vec<Vec<u8>>,
     previous: [u8; 32],
 }
 impl RequestStream {
     fn new() -> Self {
+        Self::of(REQUEST_DEVICE.into(), SigningKey::from_bytes(&[19; 32]))
+    }
+    /// The empty stream of another device.
+    fn of(device: String, key: SigningKey) -> Self {
         Self {
+            device,
+            key,
             updates: Vec::new(),
             previous: [0; 32],
+        }
+    }
+    /// The same stream as another holder of its device has it now.
+    fn as_held_by_another(&self) -> Self {
+        Self {
+            device: self.device.clone(),
+            key: self.key.clone(),
+            updates: self.updates.clone(),
+            previous: self.previous,
         }
     }
     /// The `append` frame carrying one edit request, which the session's connection stores.
@@ -5462,13 +5514,13 @@ impl RequestStream {
                 epoch: "1".into(),
                 kind: "update".into(),
                 namespace: "own".into(),
-                author_device: REQUEST_DEVICE.into(),
+                author_device: self.device.clone(),
                 membership_revision: head.to_string(),
                 stream_seq: seq.to_string(),
                 prev_hash: self.previous,
             },
             &[8; 32],
-            &SigningKey::from_bytes(&[19; 32]),
+            &self.key,
             &update,
         )
         .unwrap();
@@ -5477,7 +5529,7 @@ impl RequestStream {
         server.reader_frame(
             session,
             "append",
-            json!({"streamId":REQUEST_DEVICE,"seq":seq.to_string(),
+            json!({"streamId":self.device,"seq":seq.to_string(),
                 "envelopeHash":values::encode_binary(&self.previous),
                 "envelope":values::encode_binary(&envelope.to_json().unwrap())}),
         )
@@ -5606,10 +5658,7 @@ fn two_holders_of_one_editor_link_race_for_the_next_sequence_and_the_loser_sends
     let second = server.reopen_link_session(&session);
     let mut again = server.reader_peer(&second);
     let upper = "ONE\ntwo\nthree\nfour\nfive\n";
-    let mut caught_up = RequestStream {
-        updates: winner.updates.clone(),
-        previous: winner.previous,
-    };
+    let mut caught_up = winner.as_held_by_another();
     let retry = caught_up.request(
         &server,
         &second,
@@ -5623,6 +5672,63 @@ fn two_holders_of_one_editor_link_race_for_the_next_sequence_and_the_loser_sends
     assert_eq!(server.decision(&request_op(3)), "applied");
     assert_eq!(native_source(&layout, &key), upper);
     assert!(!frozen(&server));
+}
+
+#[test]
+fn an_editor_links_door_and_hosted_devices_write_streams_of_their_own_and_both_requests_apply() {
+    let server = Running::start(Tunnels::PRODUCT);
+    let session = server.link_session("editor");
+    let layout = Layout::existing(&server.root).unwrap().unwrap();
+    let key = Keyring::read(&layout).unwrap();
+    // The link's seed derives one device per transport; each holder signs its transport's stream.
+    let (door, door_id) = server.derived_link_session(&session, LinkTransport::Door);
+    let (hosted, hosted_id) = server.derived_link_session(&session, LinkTransport::Hosted);
+    assert_ne!(door_id, hosted_id, "the transports share no stream");
+    let signer = |transport| {
+        tmt_colab_model::link::device_signer(&LINK_SEED_BYTES, &server.space, LINK_ID, transport)
+            .unwrap()
+    };
+    let mut door_peer = server.reader_peer(&door);
+    let mut hosted_peer = server.reader_peer(&hosted);
+    let mut door_stream = RequestStream::of(door_id.clone(), signer(LinkTransport::Door));
+    let mut hosted_stream = RequestStream::of(hosted_id.clone(), signer(LinkTransport::Hosted));
+    // Each holder sends the next sequence of its own stream, which is sequence 1 of both: where
+    // one stream would have forked, there are two, and both requests are applied.
+    let upper = "ONE\ntwo\nthree\nfour\nfive\n";
+    let first = door_stream.request(&server, &door, &request_op(1), "", FIVE, None);
+    send(&mut door_peer, first);
+    assert_eq!(
+        receive_until(&mut door_peer, "receipt").0["type"],
+        "receipt"
+    );
+    assert_eq!(server.decision(&request_op(1)), "applied");
+    let second = hosted_stream.request(
+        &server,
+        &hosted,
+        &request_op(2),
+        FIVE,
+        upper,
+        Some(json!([hunk(1, "one\n", "ONE\n")])),
+    );
+    send(&mut hosted_peer, second);
+    assert_eq!(
+        receive_until(&mut hosted_peer, "receipt").0["type"],
+        "receipt"
+    );
+    assert_eq!(server.decision(&request_op(2)), "applied");
+    assert_eq!(native_source(&layout, &key), upper);
+    for device in [&door_id, &hosted_id] {
+        let (stored, frozen): (i64, i64) = server
+            .oracle()
+            .query_row(
+                "SELECT (SELECT count(*) FROM receipts WHERE stream=?1),
+                        (SELECT frozen FROM streams WHERE stream=?1)",
+                [device],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((stored, frozen), (1, 0), "{device}");
+    }
 }
 
 #[test]
