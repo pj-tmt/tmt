@@ -104,23 +104,21 @@ impl InteractiveChild {
     }
 
     /// Invocation-owned bounded observations while the original child runs.
-    /// Each tick runs `steps` in order, and this owner checks the child's exit
-    /// and forwards pending signals before every step: a signal waits for one
-    /// step at most, and no step runs after the child exited. Each step must
-    /// return within its own supervised budget. Degraded waiting stops ticks.
+    /// The callback must return within its own supervised budget. Exit, signals
+    /// and cleanup retain this owner's ordering; degraded waiting stops ticks.
     pub fn wait_with_ticks(
         self,
         every: Duration,
-        steps: &mut [&mut dyn FnMut()],
+        mut on_tick: impl FnMut(),
         on_degraded: impl FnOnce(&io::Error),
     ) -> Result<u32, CommandError> {
         assert!(!every.is_zero(), "observation cadence must be positive");
-        self.wait_observing(Some((every, steps)), on_degraded)
+        self.wait_observing(Some((every, &mut on_tick)), on_degraded)
     }
 
     fn wait_observing(
         mut self,
-        tick: Option<Tick<'_, '_>>,
+        tick: Option<(Duration, &mut dyn FnMut())>,
         on_degraded: impl FnOnce(&io::Error),
     ) -> Result<u32, CommandError> {
         let result = self.wait_for_exit(tick).or_else(|cause| {
@@ -145,10 +143,8 @@ impl InteractiveChild {
         }
     }
 
-    fn wait_for_exit(&mut self, mut tick: Option<Tick<'_, '_>>) -> io::Result<u32> {
+    fn wait_for_exit(&mut self, mut tick: Option<(Duration, &mut dyn FnMut())>) -> io::Result<u32> {
         let mut next = tick.as_ref().map(|(every, _)| Instant::now() + *every);
-        // The running tick: when it started and its next step.
-        let mut round: Option<(Instant, usize)> = None;
         loop {
             // Drain before checking completion: an exit racing with the check
             // leaves a readable notification, so the following wait cannot miss it.
@@ -156,13 +152,11 @@ impl InteractiveChild {
             if let Some(status) = self.job.wait_timeout(Duration::ZERO)? {
                 return Ok(exit_code(status));
             }
-            let mut forwarded = false;
             for (signal, pending) in [
                 (SIGTERM, &self.signals.terminate),
                 (SIGHUP, &self.signals.hangup),
             ] {
                 if pending.swap(false, Ordering::SeqCst) {
-                    forwarded = true;
                     // The child has not been reaped, so its PID cannot be reused.
                     // A simultaneous exit is handled by the next completion check.
                     match self.job.send_signal(signal) {
@@ -171,27 +165,18 @@ impl InteractiveChild {
                     }
                 }
             }
-            if let Some((every, steps)) = tick.as_mut() {
-                if round.is_none() && next.is_some_and(|deadline| Instant::now() >= deadline) {
-                    round = Some((Instant::now(), 0));
-                }
-                if let Some((started, step)) = round {
-                    // A forwarded TERM or HUP ends the command, so the rest of
-                    // this tick's optional work is skipped.
-                    if let Some(run) = steps.get_mut(step).filter(|_| !forwarded) {
-                        run();
-                        round = Some((started, step + 1));
-                    } else {
-                        round = None;
-                        // Skip missed deadlines instead of issuing a burst of reads.
-                        next = Some(if started + *every > Instant::now() {
-                            started + *every
-                        } else {
-                            Instant::now() + *every
-                        });
-                    }
-                    continue;
-                }
+            if let Some((every, callback)) = tick.as_mut()
+                && next.is_some_and(|deadline| Instant::now() >= deadline)
+            {
+                let started = Instant::now();
+                callback();
+                // Skip missed deadlines instead of issuing a burst of reads.
+                next = Some(if started + *every > Instant::now() {
+                    started + *every
+                } else {
+                    Instant::now() + *every
+                });
+                continue;
             }
             self.signals.wait(next)?;
         }
@@ -226,9 +211,6 @@ fn exit_code(status: subprocess::ExitStatus) -> u32 {
         .code()
         .unwrap_or_else(|| 128 + status.signal().unwrap_or(0).unsigned_abs())
 }
-
-/// A tick's cadence and its steps, in order.
-type Tick<'s, 'f> = (Duration, &'s mut [&'f mut dyn FnMut()]);
 
 impl Drop for InteractiveChild {
     fn drop(&mut self) {
@@ -565,10 +547,10 @@ mod tests {
         let code = child
             .wait_with_ticks(
                 Duration::from_millis(20),
-                &mut [&mut || {
+                || {
                     ticks += 1;
                     std::fs::write(&release, "released").unwrap();
-                }],
+                },
                 |cause| panic!("unexpected degradation: {cause}"),
             )
             .unwrap();
@@ -580,117 +562,12 @@ mod tests {
         assert_eq!(
             fast.wait_with_ticks(
                 Duration::from_secs(1),
-                &mut [&mut || panic!("tick after fast exit")],
+                || panic!("tick after fast exit"),
                 |cause| panic!("{cause}")
             )
             .unwrap(),
             23
         );
-    }
-
-    /// The bound on a fixture that hangs; no assertion depends on it.
-    const WATCHDOG: Duration = Duration::from_secs(10);
-
-    /// Blocks until `pid` has exited but is not reaped yet (a zombie), so the
-    /// owner's next completion check sees the exit.
-    fn until_exited_unreaped(pid: u32) {
-        let watchdog = Instant::now() + WATCHDOG;
-        loop {
-            let stat = std::process::Command::new("ps")
-                .args(["-o", "stat=", "-p", &pid.to_string()])
-                .output()
-                .unwrap();
-            if String::from_utf8_lossy(&stat.stdout)
-                .trim_start()
-                .starts_with('Z')
-            {
-                return;
-            }
-            assert!(Instant::now() < watchdog, "the child did not exit");
-            std::thread::sleep(Duration::from_millis(10));
-        }
-    }
-
-    /// A signal that arrives while a step runs is forwarded before the next
-    /// step, and the command it ends gets no further step in that tick.
-    #[test]
-    fn a_signal_during_a_step_is_forwarded_before_the_next_step() {
-        let _invocation = INVOCATION.lock().unwrap();
-        // Without the forwarded SIGTERM the child would exit 0.
-        let child =
-            InteractiveChild::start(OsStr::new("/bin/sh"), &["-c".into(), "sleep 10".into()])
-                .unwrap();
-        let terminate = Arc::clone(&child.signals.terminate);
-        let events = std::cell::RefCell::new(Vec::new());
-        let code = child
-            .wait_with_ticks(
-                Duration::from_millis(20),
-                &mut [
-                    &mut || {
-                        let mut events = events.borrow_mut();
-                        if events.is_empty() {
-                            // As the SIGTERM handler would, during a step.
-                            terminate.store(true, Ordering::SeqCst);
-                            events.push("signal");
-                        } else {
-                            events.push("first");
-                        }
-                    },
-                    &mut || {
-                        // Any later tick runs only after the signal went.
-                        assert!(!terminate.load(Ordering::SeqCst), "not forwarded");
-                        events.borrow_mut().push("second");
-                    },
-                ],
-                |cause| panic!("unexpected degradation: {cause}"),
-            )
-            .unwrap();
-        assert_eq!(code, 128 + SIGTERM as u32);
-        let events = events.into_inner();
-        assert_eq!(events[0], "signal");
-        // The tick that raised the signal ran no further step; a later tick
-        // (before the child's exit is seen) starts again at the first step.
-        assert_ne!(events.get(1), Some(&"second"), "{events:?}");
-    }
-
-    /// A child that exits during a step gets no further step.
-    #[test]
-    fn no_step_runs_after_the_child_exits_during_a_tick() {
-        let _invocation = INVOCATION.lock().unwrap();
-        let directory = crate::test_support::TestDirectory::new();
-        let go = directory.path.join("go");
-        // Exits 9 once released, or 3 if the test never releases it.
-        let child = InteractiveChild::start(
-            OsStr::new("/bin/sh"),
-            &[
-                "-c".into(),
-                "i=0; while [ ! -f \"$1\" ] && [ $i -lt 1000 ]; do sleep 0.01; i=$((i+1)); done; \
-                 [ -f \"$1\" ] && exit 9; exit 3"
-                    .into(),
-                "step-fixture".into(),
-                go.clone().into_os_string(),
-            ],
-        )
-        .unwrap();
-        let pid = child.pid();
-        let mut first = 0;
-        let mut second = 0;
-        let code = child
-            .wait_with_ticks(
-                Duration::from_millis(20),
-                &mut [
-                    &mut || {
-                        first += 1;
-                        std::fs::write(&go, "go").unwrap();
-                        until_exited_unreaped(pid);
-                    },
-                    &mut || second += 1,
-                ],
-                |cause| panic!("unexpected degradation: {cause}"),
-            )
-            .unwrap();
-        assert_eq!(code, 9);
-        assert_eq!((first, second), (1, 0));
     }
 
     #[test]
@@ -719,7 +596,7 @@ mod tests {
             child
                 .wait_with_ticks(
                     Duration::from_millis(20),
-                    &mut [&mut || panic!("degraded sampling")],
+                    || panic!("degraded sampling"),
                     |_| {
                         degraded = true;
                         std::fs::write(&release, "released").unwrap();

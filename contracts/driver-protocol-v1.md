@@ -20,9 +20,8 @@ and guides link here instead of repeating it.
   `tmt-driver-herdr`, which ships in the CLI release (#1082). TMT approves
   that shipped driver itself on first use in a Herdr pane, unless the user
   removed it. The Herdr driver implements `name-agent` and a pane's
-  `agentName`. Core calls `name-agent` after an explicit bind or rename, while
-  `tmt run` or `tmt resume` waits for its command, and before it clears a
-  marker; it shows `agentName` in `tmt ls` (#2892).
+  `agentName`. Core calls `name-agent` after an explicit bind or rename and
+  before it clears a marker; it shows `agentName` in `tmt ls` (#2892).
 - **Runtime drivers:** the format, the crate's encoding and the conformance
   harness, approval registry and bounded client exist. `tmt driver install|ls|rm`
   accepts either kind. Runtime approval calls `locations`, validates its write
@@ -357,30 +356,9 @@ A host without agent names does not list it.
   marker first and takes the name away before it clears the marker.
 - **When core calls it:** with the identity's name after a committed explicit
   bind (`tmt name`, `this`, `add`, `marked`) and after `tmt mv`; with `null`
-  just before `clear`. `tmt run` and `tmt resume` call it with the identity's
-  name at the 5 s ticks of their wait for the command, never right after the
-  spawn, since the host recognizes the agent only later. They make six
-  attempts at most, each call capped at 1 s. An attempt reads the identity's
-  current name, calls with no storage transaction open, and reads again. The
-  next tick tries again only when the host answered `no_agent` or
-  `not_ready`; when the read after the call shows a new name and the answer
-  was not a definite refusal, also after an uncertain answer (a bounded
-  correction to that new name); or when the read before the call failed and
-  nothing was called. A failed read after the call adds no retry: the host's
-  answer decides. Every other answer ends the attempts: uncertainty alone
-  does not cause a retry; a rename seen after the call permits a new bounded
-  attempt with the then-current name. A binding that ended after a
-  call that may have set the name gets one warning; the run never clears
-  that name itself. This is best
-  effort: concurrent renames of one identity, a failed read after the call,
-  exhausted attempts, or a command that exits first can leave an older name;
-  `tmt this <name>` repairs it. One naming step is two storage reads, each
-  waiting at most 250 ms for a storage writer, plus the 1 s call; a stalled
-  file system is not bounded. Never
-  during a read command and never from
-  a provider hook. Every answer leaves the binding as it is: after a bind or
-  rename core shows a refusal in human output as one warning with its fix
-  (`tmt run` and `tmt resume` show it after their command exits), and before
+  just before `clear`. `tmt run`, `tmt resume`, read commands and provider
+  hooks never call it. Every answer leaves the binding as it is: after a bind or
+  rename core shows a refusal in human output as one warning with its fix, and before
   `clear` it goes on with the clear whatever the answer, except when the
   driver process could not be cleaned up, which stops the clear. The call
   before `clear` gets at most half of the time left in the command's budget.
@@ -427,10 +405,6 @@ A host without agent names does not list it.
     else after the agent list was read (two host calls before the rename) is
     not seen, and the driver's rename replaces it. The driver never widens
     that window with a retry.
-  - The same window applies to TMT's own calls. When a binding ends while a
-    `tmt run` call for it is between its fence and its rename, the rename
-    can land after the end took the name away; the agent then keeps an
-    agent name with no binding, and only the host can clear it.
   - A host may give no stable identity for one agent's lifetime. When an
     agent exits and another starts in the same pane under the same binding,
     and someone gives that agent the name in the record, the driver takes

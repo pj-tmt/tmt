@@ -714,11 +714,7 @@ pub(super) fn agent_name_document(outcome: &super::AgentNameOutcome) -> Value {
 /// The warning and its fix for an agent name the host did not confirm. A
 /// definite refusal says the name was not set; any other failure says the
 /// outcome is unknown, since the host may have set the name before it failed.
-/// `tmt run` prints the same text after its command exits.
-pub(crate) fn agent_name_text(
-    name: &str,
-    error: &tmt_adapters::host::HostError,
-) -> (String, String) {
+fn agent_name_text(name: &str, error: &tmt_adapters::host::HostError) -> (String, String) {
     use tmt_adapters::host::AgentNameRefusal;
     let name = crate::output::shell_word(name);
     match AgentNameRefusal::of(error) {
@@ -746,7 +742,7 @@ pub(crate) fn agent_name_text(
 
 /// The host's own command that clears an agent name, in parentheses after a
 /// space, or nothing. Only Herdr's is known; another host names its own way.
-pub(crate) fn host_clear(host: &str, target: Option<&str>) -> String {
+fn host_clear(host: &str, target: Option<&str>) -> String {
     match (host, target) {
         ("herdr", Some(target)) => format!(
             " (herdr agent rename {} --clear)",
@@ -754,30 +750,6 @@ pub(crate) fn host_clear(host: &str, target: Option<&str>) -> String {
         ),
         _ => String::new(),
     }
-}
-
-/// The warning when the identity was renamed at every naming attempt of a
-/// run: `name` is the newest.
-pub(crate) fn agent_name_renamed_text(name: &str) -> (String, String) {
-    let name = crate::output::shell_word(name);
-    (
-        format!(
-            "TMT could not confirm the agent name {name}: the identity was renamed while TMT set \
-             it. The ls command shows the agent name the host reports. The binding stays."
-        ),
-        format!("To retry setting the agent name, in the agent's pane run: tmt this {name}"),
-    )
-}
-
-/// The warning when a run's binding ended after the host may have set
-/// `name`. The run does not clear it: the binding is no longer the run's.
-pub(crate) fn agent_name_ended_text(name: &str, host: &str, target: Option<&str>) -> String {
-    format!(
-        "The binding ended while TMT set the agent name {}. If the {host} agent still has \
-         that agent name, clear it in the host{}.",
-        crate::output::shell_word(name),
-        host_clear(host, target)
-    )
 }
 
 // Source-checked command samples for the printed-command guard.

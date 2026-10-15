@@ -375,9 +375,8 @@ fn run(request: Invocation) -> Result<(Report, Option<AgentNameOutcome>), Failur
                 *pane = Some((binding.pane_id.clone(), refresh));
             }
         }
-        // An explicit bind or rename sets an agent name here, and `tmt run`
-        // at its wait ticks; a read never does. A refusal leaves the binding
-        // as it is.
+        // An explicit bind or rename sets an agent name; `tmt run`, reads and
+        // hooks never do. A refusal leaves the binding as it is.
         let named = match &report {
             Report::Bound(result) => result
                 .presence
@@ -696,7 +695,6 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
 
 #[cfg(test)]
 pub(crate) use presentation::PRINTED_HINTS as PRESENTATION_HINTS;
-pub(crate) use presentation::{agent_name_ended_text, agent_name_renamed_text, agent_name_text};
 
 /// Guarded add bypasses optional learning/capture on refusal. It shares the
 /// existing binding/publication policy, with admission before storage creation.

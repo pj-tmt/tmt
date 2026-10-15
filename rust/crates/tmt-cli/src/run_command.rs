@@ -23,7 +23,6 @@ use tmt_core::{
     endpoint::ProcessIncarnation,
 };
 
-mod agent_name;
 mod channel;
 mod resume;
 mod run;
