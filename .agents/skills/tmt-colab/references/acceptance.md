@@ -32,6 +32,12 @@ both the PR head and tested merge SHA in each shard's `tested-head.txt`. It reta
 without private error values, traces or profiles. An unexpected outcome also prints this
 bounded summary even if the list reporter's detailed failure is absent from the job log;
 selection and concurrency are owned by the [CI reference](../../tmt-release/references/ci-selection.md#advisory-browser-selection).
+An own-publication timeout may also retain its closed diagnostic: record root/kind, own stream
+ID, submitted/admitted sequence numbers and whether a leader receipt arrived. A replayed receipt
+may have no retained submitted sequence. The failure hook reads only this typed parent attribute
+before browser cleanup; the report independently validates it and drops other fields. Record
+keys, values, generic errors and URLs remain excluded. This metadata never acknowledges a write
+or advances admission; the exact local verified fold still owns publication completion.
 Set `TMT_ACCEPTANCE_KEEP=1` to keep a world's root (counter rows, `*.stderr`) after a run.
 Use that setting only for diagnostics: the harness's injected-failure case requires root deletion,
 so a retained-root run cannot satisfy the complete suite's cleanup gate. A Colab PR handoff

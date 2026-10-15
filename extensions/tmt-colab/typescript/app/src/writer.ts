@@ -10,6 +10,7 @@ import { Connection } from './connection.js';
 import { type JsonValue, type OwnRoot, type OwnRecord, UPDATE_BYTES } from './fold-protocol.js';
 import type { ObjectEntry } from './objects.js';
 import { record } from './storage.js';
+import { publicationSequence, type OwnPublicationReceipt } from './own-publication.js';
 interface SavedWriter {
   pending: { id: string; entry: ObjectEntry } | null;
   completed: string[];
@@ -63,7 +64,12 @@ export class Writer {
   >();
   #pending = new Map<
     string,
-    { resolve(): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }
+    {
+      seq: string | null;
+      resolve(receipt: OwnPublicationReceipt): void;
+      reject(error: Error): void;
+      timer: ReturnType<typeof setTimeout>;
+    }
   >();
   constructor(
     readonly key: string,
@@ -91,6 +97,13 @@ export class Writer {
           this.#compactions.delete(value.id);
           clearTimeout(pending.timer);
           pending.resolve(result);
+        } else if (value?.type === 'publication-receipt') {
+          // Diagnostic metadata never acknowledges a write or changes admission. The ordinary
+          // result stays unchanged, including for a tab still running the previous app assets.
+          exactKeys(value, ['type', 'id', 'seq']);
+          requireValue(typeof value.id === 'string' && publicationSequence(value.seq));
+          const pending = this.#pending.get(value.id);
+          if (pending) pending.seq = value.seq;
         } else if (value?.type === 'result') {
           exactKeys(value, ['type', 'id', 'ok']);
           requireValue(typeof value.id === 'string');
@@ -100,8 +113,9 @@ export class Writer {
           if (!pending) return;
           this.#pending.delete(value.id);
           clearTimeout(pending.timer);
-          if (value.ok) pending.resolve();
-          else pending.reject(new Error('Edit was not accepted; reconnect before retrying'));
+          if (value.ok) {
+            pending.resolve({ seq: pending.seq });
+          } else pending.reject(new Error('Edit was not accepted; reconnect before retrying'));
         }
       } catch {
         /* Untrusted relay messages never become signed updates. */
@@ -146,7 +160,7 @@ export class Writer {
     );
     const completed = task
       .then(
-        () => this.#result(name, true),
+        (seq) => this.#result(name, true, seq),
         () => this.#result(name, false),
       )
       .finally(() => {
@@ -156,14 +170,15 @@ export class Writer {
     this.#working.set(name, completed);
     return completed;
   }
-  #result(id: string, ok: boolean) {
+  #result(id: string, ok: boolean, seq: string | null = null) {
     if (this.#closed) return;
+    if (ok && seq !== null) this.#channel.postMessage({ type: 'publication-receipt', id, seq });
     this.#channel.postMessage({ type: 'result', id, ok });
     const pending = this.#pending.get(id);
     if (pending) {
       this.#pending.delete(id);
       clearTimeout(pending.timer);
-      if (ok) pending.resolve();
+      if (ok) pending.resolve({ seq });
       else pending.reject(new Error('Edit was not accepted; reconnect before retrying'));
     }
   }
@@ -195,7 +210,7 @@ export class Writer {
     const c = await this.connection();
     await c.ready;
     const state = await this.#settled(c);
-    if (state.completed.includes(id)) return;
+    if (state.completed.includes(id)) return null;
     const entry = await c.run(async () => {
       await c.fold.run({
         type: 'check',
@@ -237,6 +252,7 @@ export class Writer {
     state.completed.push(id);
     state.completed = state.completed.slice(-64);
     await record(this.key, state);
+    return entry.seq;
   }
   /** Combine this device's own stream into a checkpoint at its head. Only the leader tab runs it,
    * in the same queue as this device's writes, so no update of its own can land in between. */
@@ -353,12 +369,12 @@ export class Writer {
       this.#compactions.set(id, { resolve, reject, timer: setTimeout(send, 0) });
     });
   }
-  submit(update: Uint8Array): Promise<void> {
+  submit(update: Uint8Array): Promise<OwnPublicationReceipt> {
     requireValue(!this.#closed && update.length <= UPDATE_BYTES && this.#pending.size < 8);
     const id = crypto.randomUUID(),
       bytes = update.slice(),
       deadline = Date.now() + 10_000;
-    return new Promise<void>((resolve, reject) => {
+    return new Promise<OwnPublicationReceipt>((resolve, reject) => {
       const send = () => {
         if (this.#closed || Date.now() >= deadline) {
           this.#pending.delete(id);
@@ -372,9 +388,10 @@ export class Writer {
         if (pending) pending.timer = setTimeout(send, 500);
       };
       this.#pending.set(id, {
-        resolve: () => {
+        seq: null,
+        resolve: (receipt) => {
           bytes.fill(0);
-          resolve();
+          resolve(receipt);
         },
         reject: (error) => {
           bytes.fill(0);
@@ -406,8 +423,8 @@ export class Writer {
       }),
     );
     try {
-      await this.submit(prepared.update);
-      await c.waitForOwnRecords(records);
+      const receipt = await this.submit(prepared.update);
+      await c.waitForOwnRecords(records, receipt);
     } finally {
       prepared.update.fill(0);
     }

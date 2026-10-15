@@ -1,9 +1,10 @@
-import { chromium, expect, type BrowserContext, type Page } from '@playwright/test';
+import { chromium, expect, test, type BrowserContext, type Page } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { OwnedProcess } from './process.js';
 import type { AcceptanceWorld } from './world.js';
 import { run } from './ask.js';
+import { publicationDiagnostic } from '../../src/own-publication.js';
 
 export interface Door {
   /** `http://127.0.0.1:<port>/r/<prefix>`, the machine's route prefix. */
@@ -109,6 +110,36 @@ async function closeContext(context: BrowserContext, stage: (name: string) => vo
   await context.close();
 }
 
+/** Only the parent's typed failure attribute is evidence; authored iframe text is never read. */
+async function attachOwnPublications(context: BrowserContext): Promise<void> {
+  const values = await Promise.all(
+    context.pages().map(async (page) => {
+      try {
+        return await page
+          .locator('[data-own-publication]')
+          .evaluateAll((nodes) =>
+            nodes.slice(0, 8).map((node) => node.getAttribute('data-own-publication')),
+          );
+      } catch {
+        return [];
+      }
+    }),
+  );
+  for (const raw of values.flat().slice(0, 8)) {
+    if (!raw || raw.length > 512) continue;
+    try {
+      const diagnostic = publicationDiagnostic(JSON.parse(raw));
+      if (diagnostic)
+        await test.info().attach('colab-own-publication', {
+          body: JSON.stringify(diagnostic),
+          contentType: 'application/json',
+        });
+    } catch {
+      // A missing or malformed diagnostic never changes the original test failure.
+    }
+  }
+}
+
 /**
  * Pair a fresh Chromium profile as a device through the real door: the owner
  * side runs `pair --json` for page access (`--talk` explicitly enables sending),
@@ -130,6 +161,7 @@ export async function pairBrowser(
   ]);
   const offer = await pair.event((value) => typeof value.link === 'string');
   const context = await chromium.launchPersistentContext(profile, { headless: true });
+  world.onFailure(() => attachOwnPublications(context));
   world.onDispose((stage) => closeContext(context, stage));
   const page = await context.newPage();
   await page.goto(offer.link as string);
@@ -220,6 +252,7 @@ export async function openReaderLink(
   const profile = path.join(world.root, `profile-${name}`);
   fs.mkdirSync(profile, { mode: 0o700 });
   const context = await chromium.launchPersistentContext(profile, { headless: true });
+  world.onFailure(() => attachOwnPublications(context));
   world.onDispose((stage) => closeContext(context, stage));
   const requests: UnpairedBrowser['requests'] = [];
   context.on('request', (request) =>

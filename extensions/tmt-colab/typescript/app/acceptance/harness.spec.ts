@@ -443,12 +443,36 @@ test('harness: child timeouts join teardown and leave no worlds', async () => {
       expect(output).toContain('2 failed');
       expect(fs.readFileSync(parentReport, 'utf8')).toBe('parent reporter sentinel');
       const report = JSON.parse(fs.readFileSync(path.join(directory, 'report.json'), 'utf8')) as {
-        suites: Array<{ specs: Array<{ tests: Array<{ results: Array<{ status: string }> }> }> }>;
+        suites: Array<{
+          specs: Array<{
+            tests: Array<{
+              results: Array<{
+                status: string;
+                attachments: Array<{ name: string; contentType: string; body?: string }>;
+              }>;
+            }>;
+          }>;
+        }>;
       };
       expect(report.suites[0].specs.map((spec) => spec.tests[0].results[0].status)).toEqual([
         'timedOut',
         'timedOut',
       ]);
+      for (const spec of report.suites[0].specs) {
+        const diagnostics = spec.tests[0].results[0].attachments.filter(
+          (attachment) => attachment.name === 'colab-own-publication',
+        );
+        expect(diagnostics).toHaveLength(1);
+        expect(diagnostics[0].contentType).toBe('application/json');
+        expect(JSON.parse(Buffer.from(diagnostics[0].body!, 'base64').toString('utf8'))).toEqual({
+          root: 'messages',
+          kind: 'ask-state',
+          streamId: '30000000-0000-4000-8000-000000000001',
+          submittedSeq: '7',
+          admittedSeq: '4',
+          leaderReceipt: true,
+        });
+      }
       await test.info().attach('child-timeout-lifecycle', {
         body: JSON.stringify(records),
         contentType: 'application/json',
