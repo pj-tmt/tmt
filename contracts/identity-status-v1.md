@@ -145,7 +145,8 @@ name and the agent keeps its earlier name. Any other answer adds no `agentName`
 and one entry to `warnings`, `[{"code", "message"}]`: `AGENT_NAME_NO_AGENT` or
 `AGENT_NAME_NOT_READY` when there is no agent to name yet, and
 `AGENT_NAME_UNCONFIRMED` when the call failed, possibly after the host set the
-name. Human output gives the same message as one warning on stderr. Every
+name. With `--json` the warning is only in the JSON document and stderr stays
+empty; human output gives the same message as one warning on stderr. Every
 answer leaves the binding as it is. An explicit bind repeated on the pane that
 already holds the binding asks again. A tmux binding, a rename to the same name,
 and a command that binds nothing ask nothing.

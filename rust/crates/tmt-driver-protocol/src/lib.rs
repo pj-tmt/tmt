@@ -182,7 +182,7 @@ mod tests {
             assert_eq!(op.bounds().max_output_bytes, 4096);
         }
         assert_eq!(Op::Snapshot.bounds().max_output_bytes, 1024 * 1024);
-        // Naming an agent reads the pane, the agents and its own record.
+        // Naming an agent reads the agents and the pane before it renames.
         assert_eq!(Op::NameAgent.bounds().deadline, Duration::from_millis(2000));
         assert_eq!(Op::NameAgent.bounds().max_output_bytes, 4096);
         assert!(!Op::NameAgent.is_runtime());

@@ -359,11 +359,13 @@ A host without agent names does not list it.
 - **When core calls it:** with the identity's name after a committed explicit
   bind (`tmt name`, `this`, `add`, `marked`) and after a changed `tmt mv`;
   with `null` and the identity's name as `expected` just before `clear`.
-  `tmt run`, `tmt resume`, read commands and provider hooks never call it.
-  Every answer leaves the binding as it is. Before `clear` the call gets at
-  most half of the time left in the command's budget, and core goes on with
-  the clear whatever the answer, except when the driver process could not be
-  cleaned up.
+  `tmt run`, `tmt resume`, read commands and provider hooks never set a
+  name. A binding cleanup (unbind, `tmt rm`, or a failed `tmt run` launch)
+  may take away an agent name equal to the identity's name. Every answer
+  leaves the binding as it is. Before `clear` the call gets at most half of
+  the time left in the command's budget, and core goes on with the clear
+  whatever the answer, except when the driver process could not be cleaned
+  up.
 - **Limits (best effort):** the guards use what the driver observes. Equality
   is not provenance: a clear also takes away an equal name that someone else
   gave. After a `tmt mv` the host refused, the agent keeps the earlier name,

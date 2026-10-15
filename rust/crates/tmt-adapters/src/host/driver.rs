@@ -109,7 +109,7 @@ pub trait HostDriver {
 pub enum AgentNaming {
     /// The host has no agent names, or its driver does not offer them.
     NotLinked,
-    /// The agent has the name, or no TMT name when none was asked for.
+    /// The host completed the requested operation.
     Done,
 }
 
