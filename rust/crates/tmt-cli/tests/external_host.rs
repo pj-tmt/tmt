@@ -976,9 +976,9 @@ fn unbind_takes_the_agent_name_away_first_and_clears_whatever_it_answers() {
 }
 
 /// `tmt ls` shows the host's agent name in JSON, and in human output says
-/// when it differs from the TMT name, or when the TMT name is an agent kind.
+/// when it differs from the TMT name.
 #[test]
-fn ls_shows_the_agent_name_and_advises_on_a_mismatch_or_a_kind_label() {
+fn ls_shows_the_agent_name_and_advises_on_a_mismatch() {
     register();
     let fixture = naming("ls-agent-name", &["ok"]);
     fixture.approve();
@@ -1030,17 +1030,6 @@ fn ls_shows_the_agent_name_and_advises_on_a_mismatch_or_a_kind_label() {
     fs::remove_file(&agent_name).unwrap();
     let row = worker(&fixture.json(&["ls", "--json"])).clone();
     assert!(row.get("agentName").is_none(), "{row:#}");
-
-    // A kind label as the TMT name gets a warning.
-    assert!(fixture.tmt(&["mv", "worker", "claude"]).status.success());
-    fs::write(&agent_name, "claude").unwrap();
-    let human = fixture.tmt(&["ls"]);
-    let text = String::from_utf8_lossy(&human.stdout);
-    assert!(
-        text.contains("claude is an agent kind, not a name"),
-        "{text}"
-    );
-    assert!(text.contains("tmt mv claude <name>"), "{text}");
 }
 
 /// A `tmt mv` the host refused leaves the agent with the name TMT set

@@ -320,10 +320,8 @@ fn action(row: &IdentityPresence, remembered: Option<&RememberedSession>) -> Opt
 /// Advice on live rows of a host with agent names. TMT sets the agent name
 /// and never imports it into the identity, so a host's name that differs is
 /// repaired by an explicit `tmt this`, which replaces it. It never names the
-/// pane label. A name that is only an agent kind gets a warning: agents
-/// address one another by that name.
+/// pane label.
 fn agent_name_advice(rows: &[ListedRow]) -> Vec<(String, String)> {
-    let kinds = tmt_adapters::runtime::RuntimeRegistry::first_party();
     let mut advice = Vec::new();
     for row in rows {
         let presence = &row.presence;
@@ -345,16 +343,6 @@ fn agent_name_advice(rows: &[ListedRow]) -> Vec<(String, String)> {
                     host.as_str()
                 ),
                 format!("In {word}'s pane run: tmt this {word}"),
-            ));
-        }
-        if kinds.harnesses().any(|kind| kind == name.as_str()) {
-            advice.push((
-                format!(
-                    "{name} is an agent kind, not a name; as the {} agent name it does not \
-                     tell agents apart",
-                    host.as_str()
-                ),
-                format!("Choose a distinct name: tmt mv {word} <name>"),
             ));
         }
     }
@@ -752,11 +740,6 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
         &[],
     ),
     crate::cli_style_tests::HintSpec::core("In {word}'s pane run: tmt this {word}", &[""], &[]),
-    crate::cli_style_tests::HintSpec::core(
-        "Choose a distinct name: tmt mv {word} <name>",
-        &[""],
-        &[],
-    ),
     crate::cli_style_tests::HintSpec::core("In pane {pane}, run: tmt this {}", &[""], &[]),
     crate::cli_style_tests::HintSpec::core("tmt add {label} <name>", &[""], &[]),
     crate::cli_style_tests::HintSpec::core("tmt name <name>", &[""], &[]),
