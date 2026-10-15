@@ -48,7 +48,7 @@ names the acceptance specs it ran and the exact tested executable/asset hashes.
 `hosted-reader.proof.ts` runs through the unchanged
 `node extensions/tmt-colab/scripts/hosted-reader-emulator.mjs` wrapper in CI:
 selected `colab-hosted` PR jobs and shard 1 of full label/weekly/manual acceptance,
-after ordinary acceptance has finished using its binaries. The shared action prepares
+after ordinary acceptance, whatever its result, unless the run is cancelled. The shared action prepares
 Java 21, pinned Firebase tools and the emulator JAR; the wrapper owns private state,
 loopback demo Auth/Firestore, real native producer builds and Chromium cleanup.
 This advisory proof is separate from the signed-fixture browser suites; Remote owns

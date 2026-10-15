@@ -156,7 +156,8 @@ Its selected qualifier uses `.github/actions/hosted-reader-emulator`: runner Jav
 `firebase-tools@15.29.0`, a populated Firestore emulator cache and the unchanged owner wrapper,
 with private state, loopback demo Auth/Firestore and Chromium. It runs after the ordinary spec
 because it rebuilds Remote with `test-emulator`. Full label/weekly/manual acceptance runs the
-same action once, on shard 1 after its ordinary suite and build-hash recording. It stays advisory,
+same action once, on shard 1 after ordinary acceptance, whatever its result, unless the run is
+cancelled; build-hash recording stays before it. It stays advisory,
 never runs on main pushes or merge groups, and adds no permission or required aggregate.
 
 The same workflow runs advisory real-binary Colab acceptance weekly, manually,

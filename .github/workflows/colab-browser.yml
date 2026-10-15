@@ -419,7 +419,7 @@ jobs:
           pnpm --filter @tmt/colab-app --fail-if-no-match test:acceptance --workers=1 --reporter=list,json --output "$RUNNER_TEMP/colab-acceptance-private/traces" "${files[@]}"
       # Run once per full event, after the ordinary binaries and their hashes were consumed.
       - name: Prove the real producer and hosted reader through the emulators
-        if: matrix.shard == 1
+        if: ${{ !cancelled() && matrix.shard == 1 }}
         uses: ./.github/actions/hosted-reader-emulator
       - name: Retain only test outcomes without credentials or trace payloads
         if: always()

@@ -3458,11 +3458,11 @@ describe('hosted producer/reader emulator workflow wiring', () => {
     expect(hosted).toContain('permissions:\n      contents: read');
   });
 
-  it('qualifies once in full acceptance after ordinary binary use and hash recording', () => {
+  it('qualifies once after ordinary acceptance regardless of its result unless cancelled', () => {
     const acceptance = job('colab-acceptance');
     expect(acceptance.match(/uses: \.\/.github\/actions\/hosted-reader-emulator/g)).toHaveLength(1);
     expect(acceptance).toContain(
-      'if: matrix.shard == 1\n        uses: ./.github/actions/hosted-reader-emulator'
+      'if: ${{ !cancelled() && matrix.shard == 1 }}\n        uses: ./.github/actions/hosted-reader-emulator'
     );
     const qualifier = acceptance.indexOf('uses: ./.github/actions/hosted-reader-emulator');
     expect(qualifier).toBeGreaterThan(
