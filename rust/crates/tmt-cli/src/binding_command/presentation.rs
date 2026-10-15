@@ -318,10 +318,12 @@ fn action(row: &IdentityPresence, remembered: Option<&RememberedSession>) -> Opt
 }
 
 /// Advice on live rows of a host with agent names. TMT sets the agent name
-/// and never imports it into the identity. A host's name that differs is one
-/// TMT did not set, and the driver refuses to change it, so the advice clears
-/// it in the host first; it never names the pane label. A name that is only
-/// an agent kind gets a warning: agents address one another by that name.
+/// and never imports it into the identity. A host's name that differs may be
+/// TMT's older name or one someone else set; only the driver can tell, so the
+/// advice runs the repair first and clears the name in the host only when the
+/// driver refuses a name TMT did not set. It never names the pane label. A
+/// name that is only an agent kind gets a warning: agents address one another
+/// by that name.
 fn agent_name_advice(rows: &[ListedRow]) -> Vec<(String, String)> {
     let kinds = tmt_adapters::runtime::RuntimeRegistry::first_party();
     let mut advice = Vec::new();
@@ -343,10 +345,11 @@ fn agent_name_advice(rows: &[ListedRow]) -> Vec<(String, String)> {
             let clear = host_clear(host, pane.target.as_deref());
             advice.push((
                 format!(
-                    "{name}'s agent has the {host} agent name {agent_name}, which TMT did not \
-                     set{clear}"
+                    "{name}'s agent has the {host} agent name {agent_name}, not {name}. If the \
+                     command below is refused because TMT did not set that agent name, clear it \
+                     in the host first{clear}"
                 ),
-                format!("Clear that agent name in the host, then in its pane run: tmt this {word}"),
+                format!("In {word}'s pane run: tmt this {word}"),
             ));
         }
         if kinds.harnesses().any(|kind| kind == name.as_str()) {
@@ -800,11 +803,7 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
         &[""],
         &[],
     ),
-    crate::cli_style_tests::HintSpec::core(
-        "Clear that agent name in the host, then in its pane run: tmt this {word}",
-        &[""],
-        &[],
-    ),
+    crate::cli_style_tests::HintSpec::core("In {word}'s pane run: tmt this {word}", &[""], &[]),
     crate::cli_style_tests::HintSpec::core(
         "Choose a distinct name: tmt mv {word} <name>",
         &[""],

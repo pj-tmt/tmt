@@ -362,11 +362,15 @@ A host without agent names does not list it.
   spawn, since the host recognizes the agent only later. They retry only
   `no_agent` and `not_ready`, six attempts at most, each call capped at 1 s,
   and stop at the first other answer. An attempt reads the identity's current
-  name, calls with no storage transaction open, and reads again: a name
-  changed meanwhile is set at the next tick (it counts as an attempt), and a
-  binding that ended after a call that may have set the name gets one
-  warning; the run never clears that name itself. Each read waits at most
-  250 ms for a storage writer; a stalled file system is not bounded. Never
+  name, calls with no storage transaction open, and reads again: the run
+  corrects to the name it reads after its call at the next tick (it counts as
+  an attempt), and a binding that ended after a call that may have set the
+  name gets one warning; the run never clears that name itself. This is best
+  effort: concurrent renames of one identity, a failed read after the call,
+  exhausted attempts, or a command that exits first can leave an older name;
+  `tmt this <name>` repairs it. One naming step is two storage reads, each
+  waiting at most 250 ms for a storage writer, plus the 1 s call; a stalled
+  file system is not bounded. Never
   during a read command and never from
   a provider hook. Every answer leaves the binding as it is: after a bind or
   rename core shows a refusal in human output as one warning with its fix

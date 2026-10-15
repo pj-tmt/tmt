@@ -129,8 +129,9 @@ the name the pane's host gives the agent it recognizes there (Herdr's agent
 name). It is absent, never null, when the host has no agent names (tmux), the
 row has no live observation, or the host reports no name. TMT sets that name
 from the identity's name and never imports it into the identity, so `agentName`
-can differ from `name`; human `tmt ls` then shows the difference, says to clear
-that agent name in the host before running `tmt this` again, and warns when an identity on such a host is named only by an agent
+can differ from `name`; human `tmt ls` then shows the difference with `tmt this` to set TMT's name,
+and says to clear that agent name in the host first only when `tmt this` is
+refused because TMT did not set it, and warns when an identity on such a host is named only by an agent
 kind such as `claude`. The projection reuses the command's existing
 observation; it adds no probe and grants no dispatch authority.
 

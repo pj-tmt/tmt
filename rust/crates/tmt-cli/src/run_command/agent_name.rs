@@ -6,11 +6,12 @@
 //! never repeated in the loop.
 //!
 //! An attempt reads the identity's current name, calls the host with no
-//! storage transaction open, and reads again. A `tmt mv` names the agent only
-//! after its commit, so a call of the run that lands after that naming is
-//! followed by a read that sees the new name, and the next tick sets it; a
-//! call that lands before it is overwritten by it. A binding that ended while
-//! the run set the name gets one warning: the run does not clear the name.
+//! storage transaction open, and reads again; a name changed meanwhile is set
+//! at the next tick. This is best effort: two concurrent renames of one
+//! identity, a read that fails after the call, exhausted attempts, or a
+//! command that exits first can leave an older name, which `tmt ls` shows and
+//! `tmt this` repairs. A binding that ended while the run set the name gets
+//! one warning: the run does not clear the name.
 
 use std::time::{Duration, Instant};
 use tmt_adapters::{

@@ -799,7 +799,7 @@ fn a_running_basic_agent_carries_a_dim_basic_note_that_never_replaces_an_action(
 }
 
 #[test]
-fn a_foreign_herdr_agent_name_is_cleared_in_herdr_before_tmt_this() {
+fn a_herdr_agent_name_mismatch_runs_tmt_this_and_names_the_herdr_clear() {
     let mut binding = binding(RuntimeState::Running, None);
     binding.server.host = tmt_core::host::HostKind::parse("herdr").unwrap();
     let mut pane = pane("term_1", "claude", "/repo");
@@ -809,10 +809,11 @@ fn a_foreign_herdr_agent_name_is_cleared_in_herdr_before_tmt_this() {
     assert_eq!(
         agent_name_advice(&rows),
         [(
-            "worker's agent has the herdr agent name ann, which TMT did not set \
+            "worker's agent has the herdr agent name ann, not worker. If the command below is \
+             refused because TMT did not set that agent name, clear it in the host first \
              (herdr agent rename 'w1:p2' --clear)"
                 .to_owned(),
-            "Clear that agent name in the host, then in its pane run: tmt this worker".to_owned(),
+            "In worker's pane run: tmt this worker".to_owned(),
         )]
     );
 }
