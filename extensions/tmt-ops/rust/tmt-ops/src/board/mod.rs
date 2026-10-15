@@ -961,7 +961,9 @@ pub fn run(
     let now_ms = crate::status::now_ms();
     let resume = resume::directory()
         .and_then(|directory| resume::Resume::take(&directory, std::process::id(), now_ms));
-    let scope = launch_scope(&core, &names, resume.is_some())?;
+    let scope = timing::measure(startup.as_ref(), "startup.launch_scope", || {
+        launch_scope(&core, &names, resume.is_some())
+    })?;
     // Cold launch names resolve before admission; a reload uses carried UUIDs.
     // Once admitted, paint the placeholder before configuration, worker setup
     // and the terminal background query. A later failure drops the guard and

@@ -5329,8 +5329,16 @@ describe('large board responsiveness', () => {
         const stage = (name: string) => first.find((r) => r.stage === name);
         // Cold launch scope is resolved before terminal admission. The admitted
         // placeholder still precedes configuration and workspace acquisition.
+        const scope = stage('startup.launch_scope')!;
         const placeholder = stage('startup.placeholder')!;
-        expect(first[0]).toBe(placeholder);
+        console.info(
+          'Ops startup stages:',
+          JSON.stringify(first.filter((r) => String(r.stage).startsWith('startup.')))
+        );
+        expect(first[0]).toBe(scope);
+        expect(scope.elapsed_us as number).toBeLessThanOrEqual(
+          (placeholder.elapsed_us as number) - (placeholder.duration_us as number)
+        );
         expect(
           ((placeholder.elapsed_us as number) - (placeholder.duration_us as number)) / 1000
         ).toBeLessThan(budgetMs.placeholderStart);
