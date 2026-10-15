@@ -588,55 +588,91 @@ mod tests {
         );
     }
 
-    /// A signal that arrives while a tick runs is forwarded as soon as the
-    /// tick returns: a tick delays forwarding by its own length only.
+    /// The bound on a fixture that hangs; no assertion depends on it.
+    const WATCHDOG: Duration = Duration::from_secs(10);
+
+    /// Blocks until `pid` has exited but is not reaped yet (a zombie), so the
+    /// owner's next completion check sees the exit.
+    fn until_exited_unreaped(pid: u32) {
+        let watchdog = Instant::now() + WATCHDOG;
+        loop {
+            let stat = std::process::Command::new("ps")
+                .args(["-o", "stat=", "-p", &pid.to_string()])
+                .output()
+                .unwrap();
+            if String::from_utf8_lossy(&stat.stdout)
+                .trim_start()
+                .starts_with('Z')
+            {
+                return;
+            }
+            assert!(Instant::now() < watchdog, "the child did not exit");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    /// A signal that arrives while a step runs is forwarded before the next
+    /// step, and the command it ends gets no further step in that tick.
     #[test]
-    fn a_signal_during_a_tick_is_forwarded_when_the_tick_returns() {
+    fn a_signal_during_a_step_is_forwarded_before_the_next_step() {
         let _invocation = INVOCATION.lock().unwrap();
+        // Without the forwarded SIGTERM the child would exit 0.
         let child =
-            InteractiveChild::start(OsStr::new("/bin/sh"), &["-c".into(), "sleep 30".into()])
+            InteractiveChild::start(OsStr::new("/bin/sh"), &["-c".into(), "sleep 10".into()])
                 .unwrap();
         let terminate = Arc::clone(&child.signals.terminate);
-        let tick = Duration::from_millis(300);
-        let mut returned = None;
-        let mut second = false;
+        let events = std::cell::RefCell::new(Vec::new());
         let code = child
             .wait_with_ticks(
                 Duration::from_millis(20),
                 &mut [
                     &mut || {
-                        if returned.is_none() {
-                            // As the SIGTERM handler would, during a slow step.
+                        let mut events = events.borrow_mut();
+                        if events.is_empty() {
+                            // As the SIGTERM handler would, during a step.
                             terminate.store(true, Ordering::SeqCst);
-                            std::thread::sleep(tick);
-                            returned = Some(Instant::now());
+                            events.push("signal");
+                        } else {
+                            events.push("first");
                         }
                     },
-                    // A second slow step: the signal goes before it, and the
-                    // child, ended by it, gets no further step.
                     &mut || {
-                        second = true;
-                        std::thread::sleep(tick);
+                        // Any later tick runs only after the signal went.
+                        assert!(!terminate.load(Ordering::SeqCst), "not forwarded");
+                        events.borrow_mut().push("second");
                     },
                 ],
                 |cause| panic!("unexpected degradation: {cause}"),
             )
             .unwrap();
-        let forwarded = returned.unwrap().elapsed();
         assert_eq!(code, 128 + SIGTERM as u32);
-        assert!(forwarded < Duration::from_millis(250), "{forwarded:?}");
-        assert!(!second, "a step ran after the child ended");
+        let events = events.into_inner();
+        assert_eq!(events[0], "signal");
+        // The tick that raised the signal ran no further step; a later tick
+        // (before the child's exit is seen) starts again at the first step.
+        assert_ne!(events.get(1), Some(&"second"), "{events:?}");
     }
 
-    /// A child that exits during one slow step gets no further step.
+    /// A child that exits during a step gets no further step.
     #[test]
     fn no_step_runs_after_the_child_exits_during_a_tick() {
         let _invocation = INVOCATION.lock().unwrap();
+        let directory = crate::test_support::TestDirectory::new();
+        let go = directory.path.join("go");
+        // Exits 9 once released, or 3 if the test never releases it.
         let child = InteractiveChild::start(
             OsStr::new("/bin/sh"),
-            &["-c".into(), "sleep 0.1; exit 9".into()],
+            &[
+                "-c".into(),
+                "i=0; while [ ! -f \"$1\" ] && [ $i -lt 1000 ]; do sleep 0.01; i=$((i+1)); done; \
+                 [ -f \"$1\" ] && exit 9; exit 3"
+                    .into(),
+                "step-fixture".into(),
+                go.clone().into_os_string(),
+            ],
         )
         .unwrap();
+        let pid = child.pid();
         let mut first = 0;
         let mut second = 0;
         let code = child
@@ -645,7 +681,8 @@ mod tests {
                 &mut [
                     &mut || {
                         first += 1;
-                        std::thread::sleep(Duration::from_millis(400));
+                        std::fs::write(&go, "go").unwrap();
+                        until_exited_unreaped(pid);
                     },
                     &mut || second += 1,
                 ],
