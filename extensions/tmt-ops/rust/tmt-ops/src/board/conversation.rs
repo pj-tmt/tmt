@@ -429,6 +429,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
     let observed = app.references.agents.get(row["id"].as_str().unwrap());
     let runtime = observed
         .and_then(|agent| agent.runtime.as_deref())
+        .or_else(|| observed.filter(|agent| agent.basic).map(|_| "basic"))
         .unwrap_or("–");
     let model = observed
         .and_then(|agent| agent.model.as_deref())
