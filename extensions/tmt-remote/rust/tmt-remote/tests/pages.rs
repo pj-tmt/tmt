@@ -760,6 +760,10 @@ fn every_door_html_page_serves_the_shared_favicon_with_the_exact_data_only_polic
     ] {
         let reply = get(&h, path, "");
         assert_eq!(reply.status, status, "{path}");
+        assert!(
+            reply.body.find("<meta charset").is_some_and(|at| at < 1024),
+            "{path}: charset declaration must start within the first 1024 bytes"
+        );
         let links: Vec<_> = reply
             .body
             .split("<link")

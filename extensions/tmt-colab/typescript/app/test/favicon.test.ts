@@ -7,6 +7,8 @@ const canonical = readFileSync(
 for (const path of ['../index.html', '../public/reader.html']) {
   test(`${path} carries the exact shared favicon bytes`, () => {
     const html = readFileSync(new URL(path, import.meta.url), 'utf8');
+    const charsetAt = Buffer.from(html).indexOf('<meta charset');
+    expect(charsetAt >= 0 && charsetAt < 1024).toBe(true);
     const links = html.match(/<link\b[^>]*\brel="icon"[^>]*>/g);
     expect(links).toHaveLength(1);
     const href = links![0].match(/\bhref="([^"]+)"/)![1];
