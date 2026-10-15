@@ -280,7 +280,19 @@ impl Controller {
     pub fn render(&self, frame: &mut Frame, look: Look, body: Rect) {
         static TEMPLATE: OnceLock<surface::Template<()>> = OnceLock::new();
         static REVIEW_TEMPLATE: OnceLock<surface::Template<()>> = OnceLock::new();
-        let template = if matches!(self.screen, Screen::Confirm | Screen::Delete) {
+        static SHEET_TEMPLATE: OnceLock<surface::Template<()>> = OnceLock::new();
+        let short = matches!(self.screen, Screen::Confirm | Screen::Delete) && body.height < 8;
+        let template = if short {
+            SHEET_TEMPLATE.get_or_init(|| {
+                picker_surface::compile(
+                    FILE,
+                    &MARKUP
+                        .replace(" h-38", "")
+                        .replace("placement=\"center\"", "placement=\"body\""),
+                    picker_surface::schema(&["cursor", "label"]),
+                )
+            })
+        } else if matches!(self.screen, Screen::Confirm | Screen::Delete) {
             REVIEW_TEMPLATE.get_or_init(|| {
                 picker_surface::compile(
                     FILE,
@@ -335,6 +347,22 @@ impl Controller {
         };
         let query = if self.screen == Screen::Save {
             format!("Name: {}", safe(state.picker.query().unwrap_or_default()))
+        } else if short {
+            let (action, name) = if self.screen == Screen::Delete {
+                (
+                    "Delete snapshot",
+                    self.selected_entry()
+                        .and_then(|entry| entry.name.as_deref()),
+                )
+            } else {
+                (
+                    "Restore snapshot",
+                    self.confirmation
+                        .as_ref()
+                        .and_then(|selection| selection.name.as_deref()),
+                )
+            };
+            format!("{action}: {}", safe(name.unwrap_or("Latest")))
         } else {
             String::new()
         };
@@ -351,9 +379,18 @@ impl Controller {
         let footer = if matches!(self.screen, Screen::Confirm | Screen::Delete) {
             let width = Modal {
                 title: String::new(),
-                placement: Placement::Center,
+                placement: if short {
+                    Placement::Body
+                } else {
+                    Placement::Center
+                },
             }
-            .areas(body, [120, 38], true, false)
+            .areas(
+                if short { frame.area() } else { body },
+                [120, 38],
+                true,
+                false,
+            )
             .footer
             .width;
             let hints = [
@@ -371,7 +408,9 @@ impl Controller {
             footer.to_owned()
         };
         let value = json!({"rows":rows,"notes":notes.iter().map(|text|json!({"id":note_id(text),"text":text})).collect::<Vec<_>>(),"query":query,"status":status,"footer":footer});
-        let body = if matches!(self.screen, Screen::Confirm | Screen::Delete) {
+        let body = if short {
+            frame.area()
+        } else if matches!(self.screen, Screen::Confirm | Screen::Delete) {
             // Intrinsic sizing retains the former 38-row cap. Center's 4/5
             // placement bound reaches 38 rows in a centered 48-row body.
             let height = body.height.min(48);

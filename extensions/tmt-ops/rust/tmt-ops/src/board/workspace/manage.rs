@@ -279,7 +279,7 @@ impl Draft {
                 request.identity_id,
             );
         }
-        let mut lines = vec![self.title()];
+        let mut lines = vec![];
         let operation = self.operation.as_ref().and_then(|change| match change {
             Change::Membership(operation) => Some(operation),
             Change::RenameMember(_) => None,
