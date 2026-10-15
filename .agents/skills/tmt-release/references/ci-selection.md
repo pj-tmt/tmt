@@ -147,6 +147,19 @@ Colab executables skip with a named reason there, so the run proves the browser
 components only. It keeps a bounded run log and failure traces for seven days and is
 advisory like the rest of the workflow.
 
+The advisory `colab-hosted` PR job runs the hosted bundle spec when `colab_hosted` or
+`colab_hosted_emulator` selects it. `selectHostedReaderEmulator` in `ci-scope.mjs` owns the
+latter: hosted-reader inputs (including Objects, Catchup and reader keys), Colab's signed-proof
+client source, native producer/composer inputs and Remote's production Rust, assets and SDK
+source; client tests, Remote test/docs trees and the test-only Colab source pin stay out.
+Its selected qualifier uses `.github/actions/hosted-reader-emulator`: runner Java 21,
+`firebase-tools@15.29.0`, a populated Firestore emulator cache and the unchanged owner wrapper,
+with private state, loopback demo Auth/Firestore and Chromium. It runs after the ordinary spec
+because it rebuilds Remote with `test-emulator`. Full label/weekly/manual acceptance runs the
+same action once, on shard 1 after ordinary acceptance, whatever its result, unless the run is
+cancelled; build-hash recording stays before it. It stays advisory,
+never runs on main pushes or merge groups, and adds no permission or required aggregate.
+
 The same workflow runs advisory real-binary Colab acceptance weekly, manually,
 or on a PR carrying `colab-acceptance`. Only adding that exact label can start
 acceptance from a label event; removing a label never starts it. Label edits skip

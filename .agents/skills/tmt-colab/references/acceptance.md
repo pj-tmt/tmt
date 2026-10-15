@@ -43,6 +43,18 @@ Use that setting only for diagnostics: the harness's injected-failure case requi
 so a retained-root run cannot satisfy the complete suite's cleanup gate. A Colab PR handoff
 names the acceptance specs it ran and the exact tested executable/asset hashes.
 
+## Hosted producer/reader emulator proof
+
+`hosted-reader.proof.ts` runs through the unchanged
+`node extensions/tmt-colab/scripts/hosted-reader-emulator.mjs` wrapper in CI:
+selected `colab-hosted` PR jobs and shard 1 of full label/weekly/manual acceptance,
+after ordinary acceptance, whatever its result, unless the run is cancelled. The shared action prepares
+Java 21, pinned Firebase tools and the emulator JAR; the wrapper owns private state,
+loopback demo Auth/Firestore, real native producer builds and Chromium cleanup.
+This advisory proof is separate from the signed-fixture browser suites; Remote owns
+its producer scenario. Selection and lane topology stay in the
+[CI reference](../../tmt-release/references/ci-selection.md#advisory-browser-selection).
+
 ## World
 
 Each scenario gets one world (`harness/world.ts`) under a short `/tmp` root, because Unix

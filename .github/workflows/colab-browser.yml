@@ -25,6 +25,7 @@ jobs:
       colab_harness: ${{ steps.scope.outputs.colab_harness || 'false' }}
       colab_app: ${{ steps.scope.outputs.colab_app || 'false' }}
       colab_hosted: ${{ steps.scope.outputs.colab_hosted || 'false' }}
+      colab_hosted_emulator: ${{ steps.scope.outputs.colab_hosted_emulator || 'false' }}
     steps:
       - if: github.event_name == 'pull_request'
         uses: actions/checkout@v4
@@ -252,7 +253,8 @@ jobs:
     # The pin manifest, the hosted build and this spec select it for a PR; the label, weekly and
     # manual runs include the same spec in full acceptance, so the label never runs it twice.
     if: >-
-      github.event_name == 'pull_request' && needs.changes.outputs.colab_hosted == 'true' &&
+      github.event_name == 'pull_request' &&
+      (needs.changes.outputs.colab_hosted == 'true' || needs.changes.outputs.colab_hosted_emulator == 'true') &&
       !contains(github.event.pull_request.labels.*.name, 'colab-acceptance')
     concurrency:
       group: colab-hosted-${{ github.event.pull_request.number }}
@@ -313,6 +315,10 @@ jobs:
       - name: Run the hosted bundle spec with one worker
         working-directory: typescript
         run: pnpm --filter @tmt/colab-app --fail-if-no-match test:acceptance --workers=1 --reporter=list acceptance/hosted-bundle.spec.ts
+      # The qualifier rebuilds Remote with test-emulator; ordinary acceptance must finish first.
+      - name: Prove the real producer and hosted reader through the emulators
+        if: needs.changes.outputs.colab_hosted_emulator == 'true'
+        uses: ./.github/actions/hosted-reader-emulator
 
   colab-acceptance:
     name: Colab real-binary acceptance (Chromium, shard ${{ matrix.shard }}/2)
@@ -411,6 +417,10 @@ jobs:
             exit 1
           fi
           pnpm --filter @tmt/colab-app --fail-if-no-match test:acceptance --workers=1 --reporter=list,json --output "$RUNNER_TEMP/colab-acceptance-private/traces" "${files[@]}"
+      # Run once per full event, after the ordinary binaries and their hashes were consumed.
+      - name: Prove the real producer and hosted reader through the emulators
+        if: ${{ !cancelled() && matrix.shard == 1 }}
+        uses: ./.github/actions/hosted-reader-emulator
       - name: Retain only test outcomes without credentials or trace payloads
         if: always()
         shell: bash
