@@ -53,6 +53,9 @@
   malformed or stale estimates stay unavailable. `labels::digest::summarize_savings`
   deduplicates the requested roster UUIDs and sums compatible supplied token estimates,
   retaining their independent collection starts and an explicit included/total count.
+  The Overview Digest panel (`overview/summary.rs`) calls it over the visible roster, so
+  its `(N of M)` agrees with the line's agent counts; the held Overview scene is keyed by
+  the Digest window and appends the shared `savings_caption` only when it fits whole.
   The Config-selected Digest window changes only that supplier's argv (`--window` for
   7d/lifetime); other sources keep their argv. The reader starts with the saved window,
   coalesces selection wakes and discards an old-window result completed after a change.

@@ -212,13 +212,16 @@ Overview contains visible-agent attention, global usage and provider limits; the
 squad workspace and the selected agent's conversation. Digest keeps the same
 identity context and existing Core-owned policy controls. A squad's theme applies
 to Agents/Digest; Overview uses the shared board theme.
-Member conversation status, selected-squad usage and Digest Usage show
-`Est. ctx avoided`: Digest's estimate of context input tokens avoided by batching,
+Member conversation status, selected-squad usage, the Overview Digest line and
+Digest Usage show `Est. ctx avoided`: Digest's estimate of context input tokens avoided by batching,
 not billed tokens, cost or turns saved. In workspace settings (`,`), choose the shared
 Digest estimate window: 24h (default), 7d or all time. The saved preference is
 `workspace.digest_window` (`24h`, `7d`, `lifetime`). `—` means unavailable; known zero
 is `0`. Partial sums show `(N of M)` included members. All time begins separately
 for each member when Digest started recording; the detail names those local dates.
+The Overview line sums the agents it counts and follows with the estimate only
+when it fits whole (the short `Est. avoided` form first); it is absent while
+Digest status is unavailable.
 The effective destination keys work from any non-typing pane or overlay; an
 overlay closes through its own back path before switching. Active text, search
 and completion keep `1`/`2`/`3` as input.

@@ -104,7 +104,31 @@ pub(in crate::board) fn render(
                     ),
                 );
             }
-            Panel::Digest => text(frame, rect, scene.summary.digest_line(), app),
+            Panel::Digest => {
+                let (counts, estimate) = scene.summary.digest_parts(usize::from(rect.width));
+                match estimate {
+                    None => text(frame, rect, counts, app),
+                    // Counts are measured state; the estimate keeps the dim role every
+                    // other savings surface gives it. Both fit whole by construction.
+                    Some(estimate) => {
+                        let look = app.look();
+                        tmt_tui::components::strip::paint_left(
+                            frame.buffer_mut(),
+                            rect,
+                            ratatui::text::Line::from(vec![
+                                ratatui::text::Span::styled(
+                                    counts,
+                                    look.role(tmt_cli_style::Role::Muted),
+                                ),
+                                ratatui::text::Span::styled(
+                                    estimate,
+                                    look.role(tmt_cli_style::Role::Dim),
+                                ),
+                            ]),
+                        );
+                    }
+                }
+            }
             Panel::Quota => {
                 text(
                     frame,

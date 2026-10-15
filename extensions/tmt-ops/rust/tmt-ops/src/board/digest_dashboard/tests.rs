@@ -729,6 +729,54 @@ fn selected_squad_summary_shows_the_same_supplied_estimate() {
 }
 
 #[test]
+fn overview_digest_line_shows_the_estimate_and_follows_the_window_without_reading() {
+    use crate::config::DigestWindow;
+    let _no_commands = crate::runner::forbid_commands();
+    let mut app = savings_board();
+    app.shell.tab = crate::board::shell::OpsTab::Overview;
+    let shown = paint(&mut app, 160, 44);
+    assert!(
+        shown.contains("Off · Est. ctx avoided 24h: 18.2k"),
+        "{shown}"
+    );
+    // Counts stay measured state; the estimate takes the dim role of every other
+    // savings surface.
+    let look = app.look();
+    let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(160, 44)).unwrap();
+    terminal
+        .draw(|frame| crate::board::view::render(frame, &app))
+        .unwrap();
+    let cells = &terminal.backend().buffer().content;
+    let symbols: Vec<&str> = cells.iter().map(|cell| cell.symbol()).collect();
+    let at = symbols
+        .windows(9)
+        .position(|window| window == ["O", "f", "f", " ", "·", " ", "E", "s", "t"])
+        .expect("the Digest line carries the estimate");
+    let has = |cell: &ratatui::buffer::Cell, role| {
+        let style: ratatui::style::Style = look.role(role);
+        cell.fg == style.fg.unwrap_or(ratatui::style::Color::Reset)
+            && cell.modifier.contains(style.add_modifier)
+    };
+    assert!(has(&cells[at], tmt_cli_style::Role::Muted));
+    assert!(has(&cells[at + 6], tmt_cli_style::Role::Dim));
+    // The held Overview scene must not outlive the window it summed.
+    let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    workspace.preferences.digest_window = DigestWindow::Week;
+    let shown = paint(&mut app, 160, 44);
+    assert!(
+        shown.contains("Off · Est. ctx avoided 7d: — (0 of 1)"),
+        "{shown}"
+    );
+    // Without Digest evidence the line says so and carries no estimate.
+    // A received label set clears the held scene, as the board's event loop does.
+    app.overview_rows.borrow_mut().clear();
+    app.labels = crate::labels::Supplied::default();
+    let shown = paint(&mut app, 160, 44);
+    assert!(shown.contains("Digest status unavailable"), "{shown}");
+    assert!(!shown.contains("Digest status unavailable · "), "{shown}");
+}
+
+#[test]
 fn member_savings_remain_visible_at_each_supported_width() {
     for width in [60, 80, 100, 160] {
         let mut app = savings_board();
