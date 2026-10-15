@@ -662,7 +662,7 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
           'Enter',
         ]);
         await fixture.waitForCapture(
-          (screen) => screen.includes('product') && screen.includes('product · 0'),
+          (screen) => /^[ \t]*[▸▾] product[ \t]+◌ 0 members\b/m.test(screen),
           shell.pane
         );
         fixture.tmux(['send-keys', '-t', shell.pane, ',']);
@@ -728,7 +728,8 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
         await fixture.waitForCapture((screen) => screen.includes('hidden by filters'), shell.pane);
         fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
         await fixture.waitForCapture(
-          (screen) => !screen.includes('Checklist') && screen.includes('product · 0'),
+          (screen) =>
+            !screen.includes('Checklist') && /^[ \t]*[▸▾] product[ \t]+◌ 0 members\b/m.test(screen),
           shell.pane
         );
         fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
@@ -834,6 +835,12 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
           ? fs.readFileSync(launches, 'utf8').trim().split('\n').join(',')
           : '';
       const screen = (pane: string): string => fixture.capture(40, pane);
+      // The selected-squad preview keeps its full roster; search filters the tree rows.
+      const agentRows = (text: string): string =>
+        text
+          .split('\n')
+          .filter((line) => /^[ \t]*[├└] /.test(line))
+          .join('\n');
 
       const shell = fixture.createShellPane('board');
       fixture.tmux(['select-window', '-t', shell.pane]);
@@ -845,19 +852,26 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
         'Enter',
       ]);
       await fixture.waitForCapture(
-        (screen) => screen.includes('OPS / UI') && screen.includes('2 Agents · product'),
+        (screen) =>
+          screen.includes('OPS / UI') && /^[ \t]*[▸▾] product[ \t]+● 2 members\b/m.test(screen),
         shell.pane
       );
       fixture.tmux(['send-keys', '-t', shell.pane, 'Right']);
       await fixture.waitFor(
-        () => screen(shell.pane).includes('auth-fix') && screen(shell.pane).includes('docs-fix'),
+        () => {
+          const rows = agentRows(screen(shell.pane));
+          return rows.includes('auth-fix') && rows.includes('docs-fix');
+        },
         10_000,
         'both members on the board'
       );
       // A filter is the place the reload must bring back.
       fixture.tmux(['send-keys', '-t', shell.pane, '/', 'docs', 'Enter']);
       await fixture.waitFor(
-        () => screen(shell.pane).includes('docs-fix') && !screen(shell.pane).includes('auth-fix'),
+        () => {
+          const rows = agentRows(screen(shell.pane));
+          return rows.includes('docs-fix') && !rows.includes('auth-fix');
+        },
         10_000,
         'filtered board'
       );
@@ -869,10 +883,11 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
       await fixture.waitFor(
         () => {
           const now = screen(shell.pane);
+          const rows = agentRows(now);
           return (
             now.includes('Board reloaded · tmt-ops') &&
-            now.includes('docs-fix') &&
-            !now.includes('auth-fix')
+            rows.includes('docs-fix') &&
+            !rows.includes('auth-fix')
           );
         },
         15_000,
@@ -906,7 +921,10 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
       await fixture.waitForCapture((text) => text.includes('ASK_EXIT=0'), asker.pane);
       await fixture.waitFor(() => launched() === 'one,two,one,one', 15_000, 'reload on request');
       await fixture.waitFor(
-        () => screen(shell.pane).includes('docs-fix') && !screen(shell.pane).includes('auth-fix'),
+        () => {
+          const rows = agentRows(screen(shell.pane));
+          return rows.includes('docs-fix') && !rows.includes('auth-fix');
+        },
         15_000,
         'the filter survives every reload'
       );
