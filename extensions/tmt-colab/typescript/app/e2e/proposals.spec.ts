@@ -380,3 +380,67 @@ test('decision completion does not reclaim focus after the reader moves away', a
   await expect(card.getByRole('button', { name: 'Follow up', exact: true })).toBeEnabled();
   await expect(chat).toBeFocused();
 });
+
+for (const theme of ['light', 'dark'])
+  test(`floating actions stay clear of every proposal card control at 390 ${theme}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 480 });
+    await mount(page);
+    if (theme === 'dark')
+      await (await pageAction(page.locator('#ask-page-fixture'), 'Theme: Dark')).click();
+    const floating = page.locator('#ask-page-fixture .selection-mode');
+    const card = page.locator('[data-inline-proposal]:not([data-detached]) .proposal-card');
+    await expect(card).toBeVisible();
+    const controls = card.locator('button, [role="combobox"], textarea');
+    // Resolves to the overlapped control's name, or '' when the visible floating actions are clear.
+    const covered = async () => {
+      if (!(await floating.isVisible())) return '';
+      const fab = await floating.boundingBox();
+      if (!fab) return '';
+      for (const control of await controls.all()) {
+        const box = await control.boundingBox();
+        if (
+          box &&
+          box.width > 0 &&
+          fab.x < box.x + box.width &&
+          fab.x + fab.width > box.x &&
+          fab.y < box.y + box.height &&
+          fab.y + fab.height > box.y
+        )
+          return (
+            (await control.textContent())?.trim() || (await control.getAttribute('role')) || '?'
+          );
+      }
+      return '';
+    };
+    const sweep = async () => {
+      let shown = 0;
+      for (const height of [320, 400, 480, 560]) {
+        await page.setViewportSize({ width: 390, height });
+        const max = await page.evaluate(() => document.documentElement.scrollHeight - innerHeight);
+        for (let y = 0; y <= Math.max(0, max); y += 40) {
+          await page.evaluate((y) => window.scrollTo(0, y), y);
+          await expect.poll(covered, { message: `scroll ${y} at height ${height}` }).toBe('');
+          if (await floating.isVisible()) shown++;
+        }
+      }
+      // The floating actions still appear where the card is out of their way.
+      expect(shown).toBeGreaterThan(0);
+    };
+    // Evidence frames: the card's lowest control sits where the floating actions used to cover it.
+    const frameLowControl = async (name: string) => {
+      await page.setViewportSize({ width: 390, height: 480 });
+      await controls.last().evaluate((node) => {
+        window.scrollBy(0, node.getBoundingClientRect().bottom - innerHeight + 24);
+      });
+      await expect.poll(covered).toBe('');
+      await capture(page, name);
+    };
+    await sweep();
+    await frameLowControl(`floating-clear-390-${theme}`);
+    await card.getByRole('button', { name: 'Follow up', exact: true }).click();
+    await expect(card.getByRole('combobox')).toBeVisible();
+    await sweep();
+    await frameLowControl(`floating-clear-composer-390-${theme}`);
+  });

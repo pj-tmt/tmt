@@ -82,6 +82,9 @@ import { PageSizeNotice, PageSizeSection, usePageSize } from './page-size.js';
 import { compactOffered } from './page-usage.js';
 import { SaveNotice, type SaveProblem } from './save-notice.js';
 
+/** In-page cards whose controls the floating actions move above, never over. */
+const AVOIDED_CARDS = '.question-group-footer, .proposal-inline .proposal-card';
+
 /** The control belongs to trusted chrome; only mode is projected into author content. */
 function PageFloatingActions({
   host,
@@ -130,9 +133,7 @@ function PageFloatingActions({
       let bottom = Math.min(innerHeight, box.bottom);
       const fab = element.current?.getBoundingClientRect();
       const left = right - margin - (fab?.width ?? 0);
-      const cards = [
-        ...(host?.parentElement?.querySelectorAll<HTMLElement>('.question-group-footer') ?? []),
-      ]
+      const cards = [...(host?.parentElement?.querySelectorAll<HTMLElement>(AVOIDED_CARDS) ?? [])]
         .filter((footer) => !footer.closest('[data-detached],[hidden]'))
         .map((footer) => (footer.closest('.question-group-card') ?? footer).getBoundingClientRect())
         .filter(
@@ -159,8 +160,8 @@ function PageFloatingActions({
     const observer = new ResizeObserver(place);
     if (host) observer.observe(host);
     if (element.current) observer.observe(element.current);
-    for (const footer of host?.parentElement?.querySelectorAll('.question-group-footer') ?? [])
-      observer.observe(footer);
+    for (const card of host?.parentElement?.querySelectorAll(AVOIDED_CARDS) ?? [])
+      observer.observe(card);
     // Native dialog show/close happens in its own effect. Follow its actual layout,
     // rather than depending on sibling effect order.
     for (const drawer of document.querySelectorAll('.tmt-ui-drawer')) observer.observe(drawer);
