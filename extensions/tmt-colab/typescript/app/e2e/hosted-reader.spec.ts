@@ -77,7 +77,9 @@ for (const width of [390, 1280]) {
       }
       if (state === 'rate-limited') {
         await expect(
-          page.getByRole('heading', { name: 'Too many requests', exact: true }),
+          page
+            .getByTestId('hosted-entry')
+            .getByRole('heading', { name: 'Too many requests', exact: true }),
         ).toBeVisible();
         await expect(page.getByText('Paused', { exact: true })).toBeVisible();
         await expect(page.getByText('failed', { exact: true })).toHaveCount(0);
