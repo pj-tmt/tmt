@@ -640,6 +640,8 @@ describe('rate-gated workspace command refresh', () => {
     await withE2EFixture(async (fixture) => {
       expect((await fixture.runCli(['name', 'Refresh Seat', '-s'])).code).toBe(0);
       const shell = fixture.createShellPane('refresh-command-shell').pane;
+      // A large server is where a capture costs a caller real time.
+      for (let index = 0; index < 60; index++) fixture.createShellPane(`refresh-bulk-${index}`);
       const latest = snapshotPath(fixture);
       const initial = readSnapshot(fixture);
       const originalWindow = initial.panes.find((pane) => pane.id === fixture.pane)!.window;
@@ -649,20 +651,34 @@ describe('rate-gated workspace command refresh', () => {
       fs.writeFileSync(latest, JSON.stringify(initial), { mode: 0o600 });
       const fresh = fs.readFileSync(latest, 'utf8');
       let sequence = 0;
-      const inspect = async () => {
+      // A changing command and a talk-to-pane command keep the snapshot fresh.
+      const refreshing = ['check', fixture.pane, '1', '--json'];
+      // Pure reads are extensions' hot paths and never wait for a capture.
+      const reads = [
+        ['identity', 'list', '--json'],
+        ['room', 'list', '--json'],
+        ['ls', '--json'],
+      ];
+      const run = async (args: readonly string[]) => {
         const status = path.join(fixture.root, `refresh-status-${sequence++}`);
-        submitForeground(fixture, shell, ['identity', 'list', '--json'], status);
+        submitForeground(fixture, shell, args, status);
         expect(
           await waitForFileContent(status, { description: 'inspection command settled' })
         ).toBe('0');
       };
-      await inspect();
+      await run(refreshing);
       expect(fs.readFileSync(latest, 'utf8')).toBe(fresh);
       initial.capturedAtMs = 1;
       fs.writeFileSync(latest, JSON.stringify(initial), { mode: 0o600 });
-      await inspect();
+      const stale = fs.readFileSync(latest, 'utf8');
+      for (const read of reads) {
+        await run(read);
+        expect(fs.readFileSync(latest, 'utf8'), read.join(' ')).toBe(stale);
+      }
+      await run(refreshing);
       const updated = readSnapshot(fixture);
       expect(updated.capturedAtMs).toBeGreaterThan(1);
+      expect(updated.panes.length).toBeGreaterThanOrEqual(initial.panes.length + 60);
       expect(updated.windows.find((window) => window.id === originalWindow)!.name).toBe(
         'manual-edit'
       );
@@ -677,7 +693,7 @@ describe('rate-gated workspace command refresh', () => {
       fs.writeFileSync(latest, JSON.stringify(updated), { mode: 0o600 });
       const eventOnly = fs.readFileSync(latest, 'utf8');
       fixture.tmux(['rename-window', '-t', originalWindow, 'event-only-edit']);
-      await inspect();
+      await run(refreshing);
       expect(fs.readFileSync(latest, 'utf8')).toBe(eventOnly);
       expect((await fixture.runCli(['unbind'])).code).toBe(0);
       expect(

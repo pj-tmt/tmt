@@ -1,6 +1,9 @@
 //! Advisory command refresh, after the command's own output has been flushed.
 
-use crate::invocation::{ExchangeOperation, Invocation};
+use crate::invocation::{
+    ExchangeOperation, IdentityMetadataRequest, IdentityRequest, IdentityStatusRequest, Invocation,
+    PreambleRequest, RoleOperation, RoomOperation,
+};
 use std::{io::Write, time::Instant};
 use tmt_adapters::{
     config::ConfigPaths,
@@ -8,33 +11,56 @@ use tmt_adapters::{
     workspace,
 };
 
+/// A command that changes state or talks to a pane keeps the snapshot fresh. A
+/// pure read never makes its caller wait for the optional capture, whatever its
+/// output mode: extensions call these on their hot paths. A new nested
+/// operation must choose its side here.
 pub(crate) fn eligible(invocation: &Invocation) -> bool {
-    matches!(
-        invocation,
+    match invocation {
         Invocation::Talk { .. }
-            | Invocation::Reply { .. }
-            | Invocation::Answer { .. }
-            | Invocation::Check { .. }
-            | Invocation::List { .. }
-            | Invocation::Result { .. }
-            | Invocation::Inbox { .. }
-            | Invocation::Whoami
-            | Invocation::WhoamiContext
-            | Invocation::Identity(_)
-            | Invocation::Room(_)
-            | Invocation::Focus { .. }
-            | Invocation::FocusClient
-            | Invocation::Preamble(_)
-            | Invocation::Role { .. }
-            | Invocation::Exchange {
-                operation: ExchangeOperation::List { .. }
-                    | ExchangeOperation::Show { .. }
-                    | ExchangeOperation::Ack { .. }
-                    | ExchangeOperation::Ackall { .. }
-                    | ExchangeOperation::Withdraw { .. },
-                ..
-            }
-    )
+        | Invocation::Reply { .. }
+        | Invocation::Answer { .. }
+        | Invocation::Check { .. }
+        | Invocation::Focus { .. } => true,
+        Invocation::Identity(request) => match request {
+            IdentityRequest::Create(_) => true,
+            IdentityRequest::Show(_) | IdentityRequest::List(_) => false,
+            IdentityRequest::Metadata { operation, .. } => match operation {
+                IdentityMetadataRequest::Apply
+                | IdentityMetadataRequest::Set { .. }
+                | IdentityMetadataRequest::Remove { .. } => true,
+                IdentityMetadataRequest::Get { .. } | IdentityMetadataRequest::List => false,
+            },
+            IdentityRequest::Status { operation, .. } => match operation {
+                IdentityStatusRequest::Set { .. } | IdentityStatusRequest::Clear => true,
+                IdentityStatusRequest::Show => false,
+            },
+        },
+        Invocation::Room(operation) => match operation {
+            RoomOperation::Create(_)
+            | RoomOperation::Retire(_)
+            | RoomOperation::Membership { .. }
+            | RoomOperation::Dispatch { .. } => true,
+            RoomOperation::List | RoomOperation::Show(_) => false,
+        },
+        Invocation::Preamble(request) => match request {
+            PreambleRequest::Set { .. } | PreambleRequest::Clear(_) => true,
+            PreambleRequest::Show(_) => false,
+        },
+        Invocation::Role { operation, .. } => match operation {
+            RoleOperation::Set(_) | RoleOperation::Clear => true,
+            RoleOperation::Show => false,
+        },
+        Invocation::Exchange { operation, .. } => match operation {
+            ExchangeOperation::Ack { .. }
+            | ExchangeOperation::Ackall { .. }
+            | ExchangeOperation::Withdraw { .. } => true,
+            ExchangeOperation::List { .. }
+            | ExchangeOperation::Show { .. }
+            | ExchangeOperation::Listen { .. } => false,
+        },
+        _ => false,
+    }
 }
 
 pub(crate) fn refresh(output: &mut impl Write) {
@@ -108,14 +134,173 @@ mod tests {
         assert_eq!(*events.borrow(), ["flush", "capture", "flush"]);
     }
 
+    fn text(value: &str) -> String {
+        value.to_owned()
+    }
+
     #[test]
-    fn finite_inspection_is_eligible_but_protocols_and_event_owners_are_not() {
-        assert!(eligible(&Invocation::Whoami));
-        assert!(eligible(&Invocation::Inbox {
+    fn only_state_changes_and_pane_talk_refresh_and_pure_reads_never_wait() {
+        use crate::invocation::{ContentInput, ListScope, TalkOptions};
+        let talk = TalkOptions {
+            urgent: false,
+            digest_kind: tmt_core::request::digest::DigestKind::Fyi,
+            room: None,
+            inbox: false,
+            force: false,
+            detach: false,
+            delay_seconds: None,
+            timeout_seconds: None,
+            no_preamble: false,
+        };
+        let input = || ContentInput::Inline(text("body"));
+        let metadata = |operation| {
+            Invocation::Identity(IdentityRequest::Metadata {
+                identity: None,
+                operation,
+            })
+        };
+        let status = |operation| {
+            Invocation::Identity(IdentityRequest::Status {
+                identity: None,
+                operation,
+            })
+        };
+        let exchange = |operation| Invocation::Exchange {
             identity: None,
-            from: None,
-            limit: None
-        }));
+            operation,
+        };
+        let refreshing = [
+            Invocation::Talk {
+                target: text("seat"),
+                message: text("hello"),
+                originator: None,
+                options: talk,
+            },
+            Invocation::Reply {
+                request_id: text("req"),
+                receipt: text("receipt"),
+                input: input(),
+            },
+            Invocation::Answer {
+                identity: None,
+                from: None,
+                request: None,
+                input: input(),
+            },
+            Invocation::Check {
+                target: text("seat"),
+                lines: None,
+                capture_only: false,
+            },
+            Invocation::Focus {
+                target: text("seat"),
+                into: None,
+            },
+            Invocation::Identity(IdentityRequest::Create(text("seat"))),
+            metadata(IdentityMetadataRequest::Apply),
+            metadata(IdentityMetadataRequest::Set {
+                key: text("k"),
+                value: text("v"),
+            }),
+            metadata(IdentityMetadataRequest::Remove { key: text("k") }),
+            status(IdentityStatusRequest::Set {
+                activity: text("working"),
+                mood: None,
+                ttl_ms: 1,
+            }),
+            status(IdentityStatusRequest::Clear),
+            Invocation::Room(RoomOperation::Create(text("room"))),
+            Invocation::Room(RoomOperation::Retire(text("room"))),
+            Invocation::Room(RoomOperation::Membership {
+                room: text("room"),
+                identity: None,
+                change: tmt_core::room::MembershipChange::Join,
+            }),
+            Invocation::Room(RoomOperation::Dispatch {
+                room: text("room"),
+                message: text("hello"),
+                identity: None,
+                operation_id: None,
+                kind: tmt_core::request::RequestKind::Request,
+            }),
+            Invocation::Preamble(PreambleRequest::Set {
+                name: text("p"),
+                content: text("c"),
+            }),
+            Invocation::Preamble(PreambleRequest::Clear(text("p"))),
+            Invocation::Role {
+                identity: None,
+                operation: RoleOperation::Set(input()),
+            },
+            Invocation::Role {
+                identity: None,
+                operation: RoleOperation::Clear,
+            },
+            exchange(ExchangeOperation::Ack {
+                request_id: text("req"),
+                revision: 1,
+                incoming: false,
+            }),
+            exchange(ExchangeOperation::Ackall { incoming: false }),
+            exchange(ExchangeOperation::Withdraw {
+                request_id: text("req"),
+                reason: text("why"),
+            }),
+        ];
+        for invocation in &refreshing {
+            assert!(
+                eligible(invocation),
+                "{invocation:?} keeps the snapshot fresh"
+            );
+        }
+        let reads = [
+            Invocation::Whoami,
+            Invocation::WhoamiContext,
+            Invocation::FocusClient,
+            Invocation::List {
+                target: None,
+                room: None,
+                scope: ListScope::default(),
+            },
+            Invocation::Result {
+                request_id: text("req"),
+            },
+            Invocation::Inbox {
+                identity: None,
+                from: None,
+                limit: None,
+            },
+            Invocation::Identity(IdentityRequest::Show(None)),
+            Invocation::Identity(IdentityRequest::List(Vec::new())),
+            metadata(IdentityMetadataRequest::Get { key: text("k") }),
+            metadata(IdentityMetadataRequest::List),
+            status(IdentityStatusRequest::Show),
+            Invocation::Room(RoomOperation::List),
+            Invocation::Room(RoomOperation::Show(text("room"))),
+            Invocation::Preamble(PreambleRequest::Show(None)),
+            Invocation::Role {
+                identity: None,
+                operation: RoleOperation::Show,
+            },
+            exchange(ExchangeOperation::List {
+                limit: None,
+                after: None,
+            }),
+            exchange(ExchangeOperation::Show {
+                request_id: text("req"),
+                incoming: false,
+            }),
+        ];
+        for invocation in &reads {
+            assert!(
+                !eligible(invocation),
+                "{invocation:?} is a read and must not wait for the capture"
+            );
+        }
+    }
+
+    #[test]
+    fn protocols_and_event_owners_never_refresh() {
         assert!(!eligible(&Invocation::Api));
         assert!(!eligible(&Invocation::Mcp {
             identity: "seat".into()
