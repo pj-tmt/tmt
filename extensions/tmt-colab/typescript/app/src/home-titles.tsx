@@ -4,8 +4,8 @@ import { pageTitle } from './page-index.js';
 import { visibleElement } from './visible-element.js';
 import type { PageSummary, PageTransport, TitleReadBudget } from './transport.js';
 
-export const HOME_TITLE_PAGES = 8;
-export const HOME_TITLE_BYTES = 8 * 1024 * 1024;
+export const HOME_TITLE_PAGES = 24;
+export const HOME_TITLE_BYTES = 16 * 1024 * 1024;
 
 /** One Home generation's missing-title reads. Cached rows never enter this queue. */
 export class HomeTitleHints {

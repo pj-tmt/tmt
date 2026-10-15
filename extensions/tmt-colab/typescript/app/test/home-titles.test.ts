@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vite-plus/test';
-import { HOME_TITLE_BYTES, HOME_TITLE_PAGES, HomeTitleHints } from '../src/home-titles.js';
+import { HomeTitleHints } from '../src/home-titles.js';
 import type { TitleReadBudget } from '../src/transport.js';
 
 function deferred<T>() {
@@ -45,20 +45,20 @@ it('rechecks delayed visibility, deduplicates rows and never retries a failed ro
   expect(read).toHaveBeenCalledTimes(2);
 });
 
-it('caps attempted pages even when every read fails', async () => {
+it('caps a Home generation at 24 attempted pages even when every read fails', async () => {
   const read = vi.fn(async () => {
     throw new Error('No title');
   });
   const queue = new HomeTitleHints(read, vi.fn());
-  for (let id = 0; id < HOME_TITLE_PAGES + 10; id++) queue.enqueue(`${id}`, () => true);
-  await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(HOME_TITLE_PAGES));
+  for (let id = 0; id < 34; id++) queue.enqueue(`${id}`, () => true);
+  await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(24));
   await queue.close();
-  expect(read).toHaveBeenCalledTimes(HOME_TITLE_PAGES);
+  expect(read).toHaveBeenCalledTimes(24);
 });
 
 it('shares the byte budget across failures and admits no further page when it is exhausted', async () => {
   const read = vi.fn(async (_id: string, budget: TitleReadBudget) => {
-    expect(budget.remainingBytes).toBe(HOME_TITLE_BYTES);
+    expect(budget.remainingBytes).toBe(16 * 1024 * 1024);
     budget.remainingBytes = 0;
     throw new Error('Limit reached');
   });

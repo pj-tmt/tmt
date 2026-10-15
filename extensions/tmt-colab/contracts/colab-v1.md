@@ -4677,8 +4677,8 @@ title. Home opens a page's content only to fill a missing title hint, bounded an
 cancellable; it never replaces a cached hint without opening the page. A title
 changed elsewhere can therefore remain stale in this browser until that page is opened.
 
-Home admits only visible uncached rows: one read at a time, at most eight attempted
-pages and 8 MiB of admitted incoming sync frames per Home generation, including failed
+Home admits only visible uncached rows: one read at a time, at most 24 attempted
+pages and 16 MiB of admitted incoming sync frames per Home generation, including failed
 reads. It uses the existing verified read catch-up and isolated fold, never an editor,
 Ask or a write. Each connection closes and joins before its successor; leaving Home or
 replacing the mounted session cancels its reads. A failure or exhausted budget keeps

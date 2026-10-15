@@ -622,7 +622,7 @@ result that arrives after a close, a reopen or a change of transport or space.
   registration to `mounted.ts`. Mounted tab ownership/current registration fences
   the best-effort cache write. Rejected folds and replaced sessions cannot supply hints.
 - Home reads hints only after verified discovery/policy. `home-titles.tsx` admits visible
-  uncached rows through a one-page queue (eight attempts and 8 MiB of incoming sync frames
+  uncached rows through a one-page queue (24 attempts and 16 MiB of incoming sync frames
   per Home generation). `mounted.ts::readTitle` uses the existing Admission/Connection/Fold
   path without Live, Ask, an editor or Subscribe. It serializes canceled generations until
   their read work joins; `TitleCache.fillMissing` cannot replace a foreground/cached hint.

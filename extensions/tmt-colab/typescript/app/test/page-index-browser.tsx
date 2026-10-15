@@ -44,8 +44,8 @@ export async function mountPageIndex(
     size === 'missing'
       ? Array.from({ length: 30 }, (_, i) =>
           page(i + 1, {
-            title: i === 1 || i === 29 ? 'Untitled page' : 'Cached title',
-            titleMissing: i === 1 || i === 29,
+            title: i === 0 ? 'Cached title' : 'Untitled page',
+            titleMissing: i !== 0,
           }),
         )
       : size === 'many'
