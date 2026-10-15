@@ -155,7 +155,10 @@ export class Admission {
     this.#target = target;
   }
   /** Historical issuer verification ignores current expiry, matching native
-   * fold. Fresh author() and the actual caller validateRead() still enforce it. */
+   * fold. Fresh author() and the actual caller validateRead() still enforce it.
+   * A chain is verified against exactly the issuer kind it names: the owner member at the
+   * statement it cites, or a link at the `link.add` statement that introduced it. The two
+   * never stand in for each other. */
   async chains(values: unknown) {
     requireValue(Array.isArray(values) && values.length <= 64 && this.head !== null);
     const verified: certificate.Certificate[] = [];
@@ -163,22 +166,75 @@ export class Admission {
       exactKeys(value, ['deviceId', 'chain']);
       const chain = certificate.Chain.fromJson(binary(value.chain, 16 * 1024)),
         c = chain.certificate();
-      const issuer = this.#log[Number(decimal(c.membershipRevision)) - 1];
       requireValue(
-        c.deviceId === value.deviceId &&
-          c.space === this.space &&
-          c.issuerKind === 'member' &&
-          c.issuerId === this.head.ownerMember.id &&
-          issuer !== undefined &&
-          c.issuedAt <= Date.now(),
+        c.deviceId === value.deviceId && c.space === this.space && c.issuedAt <= Date.now(),
       );
-      await chain.verify(issuer.head.hash, c, this.head.ownerMember.signingKey);
+      if (c.issuerKind === 'member') {
+        const issuer = this.#log[Number(decimal(c.membershipRevision)) - 1];
+        requireValue(c.issuerId === this.head.ownerMember.id && issuer !== undefined);
+        await chain.verify(issuer.head.hash, c, this.head.ownerMember.signingKey);
+      } else {
+        // Native `verify_chain`: the issuer is the link recipient its `link.add` created, the
+        // chain cites that statement, and its revision lies between that statement and the head.
+        requireValue(c.issuerKind === 'link');
+        const add = this.#linkAdd(c.issuerId);
+        requireValue(
+          add !== undefined &&
+            decimal(c.membershipRevision) >= add.head.revision &&
+            decimal(c.membershipRevision) <= this.head.revision,
+        );
+        await chain.verify(add.head.hash, c, binary(add.value.linkSignKey, 32, 32));
+      }
       const prior = this.#authors.get(c.deviceId);
-      requireValue(!prior || equal(prior.signingKey, c.signingKey));
+      requireValue(
+        !prior ||
+          (equal(prior.signingKey, c.signingKey) &&
+            prior.issuerKind === c.issuerKind &&
+            prior.issuerId === c.issuerId),
+      );
       this.#authors.set(c.deviceId, c);
       verified.push(c);
     }
     return verified;
+  }
+  /** The `link.add` statement that created a link, with its signed payload. */
+  #linkAdd(linkId: string) {
+    for (const { payload: p, head } of this.#log)
+      if (p.operation === 'link.add' && p.value.linkId === linkId) return { head, value: p.value };
+    return undefined;
+  }
+  /** What a link-issued device may write at `revision`, as native `open_stream_object` decides
+   * it from the membership state at that revision: the link exists, covers this page, the page
+   * is writable and link-shared in that state at the envelope's epoch, and the role is not a
+   * viewer's (an editor's alone writes `content`). A removal at or before the revision is
+   * refused with every other reduction, by `readAuthor`. */
+  #linkWrites(c: certificate.Certificate, context: Context, revision: bigint) {
+    const add = this.#linkAdd(c.issuerId);
+    requireValue(
+      add !== undefined &&
+        add.head.revision <= revision &&
+        decimal(c.membershipRevision) >= add.head.revision &&
+        decimal(c.membershipRevision) <= revision &&
+        add.value.pages.includes(this.page) &&
+        add.value.role !== 'viewer' &&
+        (context.namespace !== 'content' || add.value.role === 'editor'),
+    );
+    let epoch = 1n,
+      linkMode = false,
+      writable = true;
+    for (const { payload: p, head } of this.#log) {
+      if (head.revision > revision) break;
+      if (p.operation === 'epoch.advance' && p.value.pageId === this.page)
+        epoch = decimal(p.value.epoch);
+      else if (p.operation === 'page.share' && p.value.pageId === this.page)
+        linkMode = p.value.mode === 'link';
+      else if (
+        (p.operation === 'page.archive' || p.operation === 'page.delete') &&
+        p.value.pageId === this.page
+      )
+        writable = false;
+    }
+    requireValue(linkMode && writable && epoch === decimal(context.epoch));
   }
   async wraps(values: unknown) {
     requireValue(Array.isArray(values) && values.length <= 512 && this.head !== null);
@@ -234,14 +290,20 @@ export class Admission {
     return this.head.ownerMember.signingKey.slice();
   }
   cuts(device?: string, epoch = this.epoch) {
-    return this.#log.flatMap((v) =>
-      v.payload.operation === 'device.revoke' &&
-      (device === undefined || v.payload.value.deviceId === device)
-        ? v.payload.value.cuts
-            .filter((c) => c.pageId === this.page && c.epoch === epoch)
-            .map((c) => ({ revision: v.head.revision, cut: streamCut.decode(binary(c.cut, 1024)) }))
-        : [],
-    );
+    return this.#log.flatMap(({ payload: p, head }) => {
+      // A removed link ends its devices' streams at the cuts the removal signed, as a device's
+      // revocation ends its own; the cuts name the streams.
+      if (p.operation !== 'device.revoke' && p.operation !== 'link.remove') return [];
+      if (p.operation === 'device.revoke' && device !== undefined && p.value.deviceId !== device)
+        return [];
+      return p.value.cuts
+        .filter((c) => c.pageId === this.page && c.epoch === epoch)
+        .map((c) => ({ revision: head.revision, cut: streamCut.decode(binary(c.cut, 1024)) }))
+        .filter(
+          ({ cut }) =>
+            p.operation === 'device.revoke' || device === undefined || cut.streamId === device,
+        );
+    });
   }
   /** Owner-member provenance: the device chain was issued by the owner member
    * and verified at its membership revision, and the device is not revoked.
@@ -274,7 +336,9 @@ export class Admission {
     return bridge && { ...bridge, epoch };
   }
   /** The pinned key that signed an envelope and whether its author is an owner-member device.
-   * Admission matches native: a stream with a device chain is an owner-member device; a stream
+   * Admission matches native: a stream with a device chain is an owner-member device, or a
+   * link-issued one (`ownerDevice:false`) under `#linkWrites` and the signed cuts of a
+   * `link.remove`; a stream
    * named by a `bridge.add` at the envelope's revision is a bridge, admitted for the `own`
    * namespace of its granted pages only, and never as an owner device. Both stop at the
    * device's signed `device.revoke` cut. */
@@ -294,17 +358,26 @@ export class Admission {
           bridge.epoch === decimal(context.epoch) &&
           bridge.pages.includes(this.page),
       );
-    else
+    else if (c!.issuerKind === 'link') {
+      // A link-issued device is admitted by exactly the rules native applies to it, and the
+      // member path above is never its fallback. `c.issuedAt` bounds it as a member's.
+      requireValue(c!.issuedAt <= Date.now());
+      this.#linkWrites(c!, context, revision);
+    } else
       requireValue(
         c!.issuerKind === 'member' &&
           c!.issuerId === this.head.ownerMember.id &&
           decimal(c!.membershipRevision) <= revision &&
           c!.issuedAt <= Date.now(),
       );
+    const linkId = c?.issuerKind === 'link' ? c.issuerId : undefined;
     for (const statement of this.#log) {
+      // The author's own revocation, or the removal of the link that issued its chain, ends
+      // its stream at the cut the statement signed.
+      const p = statement.payload;
       if (
-        statement.payload.operation !== 'device.revoke' ||
-        statement.payload.value.deviceId !== context.authorDevice
+        !(p.operation === 'device.revoke' && p.value.deviceId === context.authorDevice) &&
+        !(p.operation === 'link.remove' && linkId !== undefined && p.value.linkId === linkId)
       )
         continue;
       requireValue(revision < statement.head.revision);
@@ -316,7 +389,7 @@ export class Admission {
       // Only a verified owner advance that sealed this exact epoch before the
       // reduction can substitute its cut. Missing both bounds remains a refusal.
       const wrapped =
-        statement.payload.value.cuts.find(matches) ??
+        p.value.cuts.find(matches) ??
         this.#log
           .filter(
             (seal) => seal.head.revision > revision && seal.head.revision < statement.head.revision,
@@ -344,7 +417,7 @@ export class Admission {
     }
     return bridge
       ? { key: bridge.signKey.slice(), ownerDevice: false }
-      : { key: c!.signingKey.slice(), ownerDevice: true };
+      : { key: c!.signingKey.slice(), ownerDevice: c!.issuerKind === 'member' };
   }
   author(device: string, revision: string): Uint8Array {
     const c = this.#authors.get(device);

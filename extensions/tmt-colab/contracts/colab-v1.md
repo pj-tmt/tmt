@@ -3460,6 +3460,22 @@ paired checkpoints, revocation cuts and contiguous merged stream order before Ob
 and the existing fold publish any plaintext. A later sequence-1 writer is discovered across all
 streams. A failed or partial finite page publishes nothing.
 
+**Link-device authors.** A device chain issued by a link (`issuerKind:"link"`) is admitted by the
+rules native author admission applies, never as a member and never in place of one. The issuer is
+the link recipient the signed owner log's `link.add` created: the chain cites that statement's
+hash, its signature verifies under that statement's `linkSignKey`, and its `membershipRevision`
+lies from that statement up to the log head. A chain that names the other issuer kind is refused:
+a member chain claiming a link, and a link chain claiming the owner member. An original of such a
+device is admitted when, in the membership state at the revision it names, the link exists and
+covers the page, the page is writable and link-shared at the envelope's epoch, and the link's role
+is `commenter` or `editor` for `own` and `editor` alone for `content` (a viewer link is never an
+author; in practice a link writes `own` only, since the owner applies edit requests). A
+`link.remove` of that link, like a `device.revoke` of the device, ends its stream at the cut it
+signed: originals past the cut are excluded, and a removal at or before the revision refuses the
+original. Historical admission ignores current expiry, as it does for members. The device is
+never an owner-device author, so its records carry no status authority.
+`vectors/link-author-v1.json` pins these cases for native and browser.
+
 Page selection and visibility changes fence the old generation immediately, close its interests,
 and join reads, folds and guard work before any successor opens. Hidden pages hold no interests;
 returning to the tab performs fresh verified catch-up. An elapsed idle `next` deadline keeps the

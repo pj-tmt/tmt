@@ -37,8 +37,9 @@ owns record fields, limits, revision semantics and trust boundaries.
   certificate issuers separately from signing keys; non-owner and bridge records
   keep their existing admission but their status actions are inert. A cut-admitted
   owner action remains effective after revocation; new publication is denied. The browser
-  admits the same authors (`Admission.readAuthor`: owner-member devices and `bridge.add`
-  bridges, shared vector `bridge-own-v1.json`) and derives status authority from owner-device
+  admits the same authors (`Admission.readAuthor`: owner-member devices, `bridge.add`
+  bridges and link-issued devices, shared vectors `bridge-own-v1.json` and
+  `link-author-v1.json`) and derives status authority from owner-device
   provenance (`Objects.statusWriter`), so both readers project the same authenticated status.
   `discussion.rs` reuses the authenticated export projection for native reads and
   prepares agent status actions with no recipients or dispatch. The isolated decoder
