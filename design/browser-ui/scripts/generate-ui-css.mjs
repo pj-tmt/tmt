@@ -31,6 +31,7 @@ const roles = {
   border: ['color', 'edge'],
   input: ['color', 'edge'],
   ring: ['color', 'focus'],
+  scrim: ['surface', 'scrim'],
 };
 const themed = (theme) =>
   Object.entries(roles)

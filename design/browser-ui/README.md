@@ -396,7 +396,7 @@ provides isolated keyboard, cap, empty, status and long-name examples.
 `@tmt/browser-ui/ui` is a separate React presentation entry; import its checked
 `@tmt/browser-ui/ui.css` explicitly. `cn`, `UiTheme` and `useUiPortalContainer`
 provide its foundation; the allocated primitive exports are described below.
-Layers and selection barrels remain empty. No consumer migration or candidate-5
+Layers exports Dialog, Sheet, DropdownMenu, Popover and stock Tooltip adapters; the selection barrel remains empty. No consumer migration or candidate-5
 page replica is included. The existing `./react`, `./static` and `./static.css` entries stay
 unchanged; static never loads React, Radix, cmdk or the new UI graph.
 
@@ -408,8 +408,8 @@ consumer ownership. Component qualification does not grant product authority.
 [`src/ui/provenance.json`](src/ui/provenance.json) records every selected source's
 upstream path and SHA-256 at shadcn/ui commit
 `8720dec73f5aebed9f649ea58636f54599fdedf1`, plus exact direct dependency versions,
-licenses and repositories. Primitives adapt nine selected sources; layers and
-selection sources remain pins for later slices. The helper is adapted from that revision's
+licenses and repositories. Primitives adapt nine selected sources; layers adapt
+the five pinned Dialog, Sheet, DropdownMenu, Tooltip and Popover sources. Selection sources remain pins for a later slice. The helper is adapted from that revision's
 `apps/v4/registry/new-york-v4/lib/utils.ts` to configure `extendTailwindMerge` with
 our `tmt` prefix. The upstream MIT notice is retained in
 [`src/ui/LICENSE.shadcn`](src/ui/LICENSE.shadcn). This revision predates upstream's
@@ -464,16 +464,59 @@ container. Pass it to the real Radix `Portal.container` and render only after it
 is non-null; never omit the container or fall back to `document.body`. Portals
 then inherit that island's namespace, live theme and nesting without copying
 variables or registering a global popup owner. Missing `UiTheme` throws; server
-rendering has no body portal. Modal behavior and popup admission remain the later
-components' responsibility. A layer unable to use this container returns to the
+rendering has no body portal. Radix owns modal containment and its dismissable-layer stack. Host close admission
+is carried by the layer adapters described below. A layer unable to use this container returns to the
 plan rather than introducing a global theme synchronizer.
+
+### Controlled layers (Slice3)
+
+Dialog and Sheet use Radix Dialog for modality. Popover is nonmodal by default;
+DropdownMenu retains Radix keyboard navigation, disabled items and submenus.
+Tooltip retains stock Radix hover/focus timing and Escape behavior; it has no
+busy-veto controller. All portals use their originating `UiTheme` container.
+The scrim aliases the existing `browser.surface.scrim` token; layer dimensions
+follow the visual viewport with a gutter derived from existing spacing.
+No second popup stack or domain operation lives in this leaf.
+
+Actionable hosts that require close veto must supply a controlled
+`useLayerController({ open, onOpenChange, canClose })` as the root's `controller`.
+Return `false` from `canClose` to hold a supported dismissal. The controller
+passes a reason and the original event when available; all host programmatic
+close paths must call `controller.requestClose()`. Raw external `open=false` or
+unmount remains authoritative and bypasses this admission. Without a controller,
+the roots retain stock Radix state behavior and make no close-veto promise.
+Do not perform Ask, upload, request or other domain effects inside the adapters.
+
+Dialog/Sheet initially focus their title, or a usable explicit `initialFocus`
+target. `returnFocus` can name a persistent target; `focusFallback` must name a
+usable surviving control if the opener may disappear. Radix retains focus
+return to a menu trigger by default. Supply both `returnFocus` and `focusFallback`
+on menu content when that trigger can disappear; pointer entry does not infer
+an opener from whichever unrelated control happened to have focus. Radix owns
+containment for modal surfaces. Host autofocus handlers run first and can consume
+the event. Pinned Radix Popover is nonmodal by default: outside pointer or focus can leave
+and dismiss it, but Tab/Shift+Tab loop within its open content. Escape closes
+only that Popover and restores its trigger. In a menu submenu, ArrowLeft closes
+only the submenu and returns to its parent item; Escape closes the whole menu
+and returns to its trigger. These are the pinned stock semantics, not a second
+focus navigator.
+
+For menu-to-Dialog/Sheet transfer, create one `useMenuLayerHandoff({ menu, layer,
+trigger })` with the controlled menu, destination controller and persistent menu
+trigger getter. Connect `onSelect` to the menu item, `onCloseAutoFocus` to the
+menu content, and `returnFocus` to the destination content. Keep the destination
+root outside the transient menu content. A vetoed menu close does not open the
+destination. An admitted selection closes the menu once, suppresses its competing
+close autofocus and opens the destination; destination dismissal returns to the
+persistent menu trigger, then its supplied fallback if unavailable. These hooks
+carry host admission and focus targets; Radix owns surface lifetime and stacking.
 
 ### Slice file ownership and checks
 
 | Owner after foundation merge | Exclusive source/barrel                                                                                          | Exclusive gallery fragment                                      |
 | ---------------------------- | ---------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
 | Slice2 Primitives            | `src/ui/{button,input,textarea,checkbox,switch,separator,badge,alert,tabs}.tsx`, `src/ui/primitives.ts`          | `test/fixtures/ui/primitives.tsx`                               |
-| Slice3 Layers                | `src/ui/{dialog,sheet,dropdown-menu,tooltip,popover}.tsx`, `src/ui/layers.ts`                                    | `test/fixtures/ui/layers.tsx`                                   |
+| Slice3 Layers                | `src/ui/{dialog,sheet,dropdown-menu,tooltip,popover}.tsx`, `src/ui/{layer,layers}.ts`                            | `test/fixtures/ui/layers.tsx`                                   |
 | Slice4 Selection             | `src/ui/{command,combobox,chips}.tsx`, `src/ui/selection.ts`                                                     | `test/fixtures/ui/selection.tsx`                                |
 | Foundation/integrator        | `src/ui/index.ts`, `src/ui/{utils.ts,theme.tsx}`, provenance, generator/policy, package/lock, `generated/ui.css` | `test/fixtures/ui/foundation.tsx`, browser fixture wrapper/spec |
 
