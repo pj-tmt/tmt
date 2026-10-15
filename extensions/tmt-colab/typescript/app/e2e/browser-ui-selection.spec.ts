@@ -119,7 +119,7 @@ test('shield veto always consumes the real first press, then Escape returns focu
   await input.click();
   await page
     .getByRole('button', { name: 'Chips busy off', exact: true })
-    .evaluate((button) => button.click());
+    .evaluate((button) => (button as HTMLButtonElement).click());
   await expect(input).toHaveAttribute('aria-busy', 'true');
   const outside = page.getByRole('button', { name: 'Chips outside action', exact: true });
   const box = (await outside.boundingBox())!;
@@ -134,7 +134,7 @@ test('shield veto always consumes the real first press, then Escape returns focu
   await expect(page.getByLabel('Chips add count')).toHaveText('0');
   await page
     .getByRole('button', { name: 'Chips busy on', exact: true })
-    .evaluate((button) => button.click());
+    .evaluate((button) => (button as HTMLButtonElement).click());
   await input.press('Escape');
   await expect(input).toHaveAttribute('aria-expanded', 'false');
   await expect(input).toBeFocused();
@@ -194,12 +194,12 @@ test('blocked, modified, prevented, composing and removed-option paths never com
   await expect(page.getByLabel('Selection callback count')).toHaveText('0');
   await page
     .getByRole('button', { name: 'Prevent selection keys off' })
-    .evaluate((button) => button.click());
+    .evaluate((button) => (button as HTMLButtonElement).click());
   await input.press('Enter');
   await expect(page.getByLabel('Selection callback count')).toHaveText('0');
   await page
     .getByRole('button', { name: 'Prevent selection keys on' })
-    .evaluate((button) => button.click());
+    .evaluate((button) => (button as HTMLButtonElement).click());
   const session = await page.context().newCDPSession(page);
   await session.send('Input.imeSetComposition', {
     text: 'preedit',
@@ -219,17 +219,17 @@ test('blocked, modified, prevented, composing and removed-option paths never com
   await input.fill('');
   await page
     .getByRole('button', { name: 'Selection read-only off' })
-    .evaluate((button) => button.click());
+    .evaluate((button) => (button as HTMLButtonElement).click());
   await input.press('Enter');
   await input.pressSequentially('x');
   await expect(input).toHaveValue('');
   await expect(page.getByLabel('Selection callback count')).toHaveText('0');
   await page
     .getByRole('button', { name: 'Selection read-only on' })
-    .evaluate((button) => button.click());
+    .evaluate((button) => (button as HTMLButtonElement).click());
   await page
     .getByRole('button', { name: 'Remove active option off' })
-    .evaluate((button) => button.click());
+    .evaluate((button) => (button as HTMLButtonElement).click());
   await expect(page.getByRole('option', { name: 'Alpha', exact: true })).toHaveCount(0);
   await expect(page.getByRole('option', { name: 'Beta', exact: true })).toHaveAttribute(
     'aria-selected',
@@ -249,7 +249,9 @@ test('raw host unmount and StrictMode leave no shield, pointer suppression or fo
   const before = await guards.count();
   await page.getByRole('combobox', { name: 'Chips search' }).click();
   await expect(page.locator('[data-slot=popover-outside-shield]')).toHaveCount(1);
-  await page.getByRole('button', { name: 'Chips mounted on' }).evaluate((button) => button.click());
+  await page
+    .getByRole('button', { name: 'Chips mounted on' })
+    .evaluate((button) => (button as HTMLButtonElement).click());
   await expect(page.getByRole('combobox', { name: 'Chips search' })).toHaveCount(0);
   await expect(page.locator('[data-slot=popover-outside-shield]')).toHaveCount(0);
   await expect(guards).toHaveCount(before);
@@ -354,7 +356,7 @@ for (const width of [320, 390, 1440]) {
       await page.screenshot({ path: info.outputPath('open-900.png') });
       await page
         .getByRole('button', { name: 'Chips busy off', exact: true })
-        .evaluate((button) => button.click());
+        .evaluate((button) => (button as HTMLButtonElement).click());
       await expect(input).toHaveAttribute('aria-busy', 'true');
       const beforeResize = await input.boundingBox();
       expect(beforeResize!.y + beforeResize!.height).toBeGreaterThan(420);
@@ -433,7 +435,7 @@ for (const width of [320, 390, 1440]) {
       await expect(input).toHaveValue('Gamma');
       await page
         .getByRole('button', { name: 'Chips busy on', exact: true })
-        .evaluate((button) => button.click());
+        .evaluate((button) => (button as HTMLButtonElement).click());
       await input.press('Escape');
       await expect(input).toHaveAttribute('aria-expanded', 'false');
       await expect(page.locator('[data-slot=popover-outside-shield]')).toHaveCount(0);
@@ -490,7 +492,7 @@ for (const theme of ['light', 'dark'] as const) {
     await input.evaluate((field) => field.setAttribute('data-retained-offset-input', 'yes'));
     await page
       .getByRole('button', { name: 'Chips busy off', exact: true })
-      .evaluate((button) => button.click());
+      .evaluate((button) => (button as HTMLButtonElement).click());
     const session = await page.context().newCDPSession(page);
     try {
       // Native Chromium page scaling changes the actual visual viewport. This
@@ -632,22 +634,22 @@ test('programmatic close requests honor host veto without a selection or query m
   await page.getByRole('button', { name: 'Close veto off', exact: true }).click();
   await page
     .getByRole('button', { name: 'Open selection programmatically' })
-    .evaluate((button) => button.click());
+    .evaluate((button) => (button as HTMLButtonElement).click());
   await expect(input).toHaveAttribute('aria-expanded', 'true');
   await input.pressSequentially('Be');
   await page
     .getByRole('button', { name: 'Close selection programmatically' })
-    .evaluate((button) => button.click());
+    .evaluate((button) => (button as HTMLButtonElement).click());
   await expect(input).toHaveAttribute('aria-expanded', 'true');
   await expect(input).toHaveValue('Be');
   await expect(input).toBeFocused();
   await expect(page.getByLabel('Selection callback count')).toHaveText('0');
   await page
     .getByRole('button', { name: 'Close veto on', exact: true })
-    .evaluate((button) => button.click());
+    .evaluate((button) => (button as HTMLButtonElement).click());
   await page
     .getByRole('button', { name: 'Close selection programmatically' })
-    .evaluate((button) => button.click());
+    .evaluate((button) => (button as HTMLButtonElement).click());
   await expect(input).toHaveAttribute('aria-expanded', 'false');
   await expect(input).toHaveValue('Be');
   await expect(input).toBeFocused();
