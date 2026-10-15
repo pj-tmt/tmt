@@ -117,3 +117,61 @@ pub(in crate::board) fn details(supplied: &Supplied, id: &str) -> Vec<String> {
     }
     fields
 }
+
+/// Shared secondary caption for member, squad and Digest usage surfaces.
+/// Keep estimate and coverage visible even when the longer context label cannot fit.
+pub(in crate::board) fn savings_caption(
+    summary: &crate::labels::digest::SavingsSummary,
+    window: crate::config::DigestWindow,
+    width: usize,
+) -> String {
+    use unicode_width::UnicodeWidthStr;
+    let value = summary.tokens.map_or_else(
+        || "—".into(),
+        |tokens| crate::source::compact_tokens(u128::from(tokens)),
+    );
+    let coverage = if summary.included < summary.total {
+        format!(" ({} of {})", summary.included, summary.total)
+    } else {
+        String::new()
+    };
+    let full = format!("Est. ctx avoided {}: {value}{coverage}", window.label());
+    if full.width() <= width {
+        full
+    } else {
+        format!("Est. avoided {}: {value}{coverage}", window.label())
+    }
+}
+
+/// Dates describe the included members' own collection starts, never a common
+/// reconstructed window. The caller supplies its local zone; tests pin one.
+pub(in crate::board) fn savings_start(
+    summary: &crate::labels::digest::SavingsSummary,
+    window: crate::config::DigestWindow,
+    zone: &jiff::tz::TimeZone,
+    width: usize,
+) -> Option<String> {
+    if window != crate::config::DigestWindow::AllTime {
+        return None;
+    }
+    let date = |ms| {
+        jiff::Timestamp::from_millisecond(i64::try_from(ms).ok()?)
+            .ok()
+            .map(|time| time.to_zoned(zone.clone()).strftime("%m-%d").to_string())
+    };
+    let first = date(summary.earliest_from_ms?)?;
+    let last = date(summary.latest_from_ms?)?;
+    Some(if first == last {
+        format!("since Digest began recording on {first}")
+    } else {
+        let prefix = "since Digest began recording ·";
+        let range = format!("members started {first} to {last}");
+        let line = format!("{prefix} {range}");
+        // Keep the collection range together on narrow usage surfaces.
+        if unicode_width::UnicodeWidthStr::width(line.as_str()) > width {
+            format!("{prefix}\n{range}")
+        } else {
+            line
+        }
+    })
+}

@@ -172,6 +172,8 @@ to App and ephemeral reload carry, never Config or retained view hints.
 `workspace.overview_sort` names an existing monitor column;
 `workspace.overview_reverse` reverses its initial direction; optional
 `workspace.agent_pins` saves up to 1,024 canonical identity UUIDs for Overview.
+`workspace.digest_window` selects 24h (default), 7d or lifetime (shown as all time)
+for every Digest estimate surface, through the same format-preserving Config CAS.
 Older Ops builds reject that unknown key; the alpha channel upgrades automatically. One
 effective action table resolves defaults/global/host/section overrides for
 dispatch, footer and help. Retired pane/view/tab keys get located notices; authored
@@ -214,7 +216,7 @@ membership target; unsupported legacy actions are reported rather than remapped.
 
 ## Settings inspection and editing
 
-The comma menu offers workspace layout, Theme, Token window and Actions. It does
+The comma menu offers workspace layout, Digest estimate windows, Theme, Token window and Actions. It does
 not expose the former general configuration-inspection overlay. `config show`
 retains effective values/provenance independently; provider argv, run bindings,
 patterns and nested structures remain inert/read-only to inspection.

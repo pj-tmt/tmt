@@ -2,10 +2,20 @@
 //! Labels/actions retain their supplier-owned parser and are keyed by the same
 //! UUIDs in the enclosing snapshot. No scheduling or delivery decisions live here.
 use super::Rows;
+use crate::config::DigestWindow;
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 const SAFE: u64 = 9_007_199_254_740_991;
+
+/// Only this supplier owns its window grammar; other label sources are unchanged.
+pub(super) fn status_arguments(source: &str, window: DigestWindow) -> Vec<&str> {
+    let mut args = vec![source, "status"];
+    if source == "digest" && window != DigestWindow::Day {
+        args.extend(["--window", window.argument()]);
+    }
+    args
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
@@ -18,6 +28,18 @@ pub enum Mode {
 pub enum SettingSource {
     Default,
     Member,
+}
+
+/// Supplier-owned token estimate and coverage. Ops never recomputes its inputs.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Savings {
+    pub method: String,
+    pub window: crate::config::DigestWindow,
+    pub from_ms: u64,
+    pub through_ms: u64,
+    pub tokens: Option<u64>,
+    pub complete: bool,
+    pub gap: Option<String>,
 }
 
 /// Numeric evidence is nullable: unavailable counts and times are never zero.
@@ -34,6 +56,7 @@ pub struct Member {
     pub stats_observed_at_ms: Option<u64>,
     pub next_send_at_ms: Option<u64>,
     pub time_to_send_ms: Option<u64>,
+    pub savings: Option<Savings>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -62,6 +85,100 @@ impl Status {
         Some(Self {
             observed_at_ms,
             members,
+        })
+    }
+}
+
+/// Included identities retain their individual source intervals; no common
+/// watermark or collection-start cohort is invented for a sum.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SavingsSummary {
+    pub tokens: Option<u64>,
+    pub included: usize,
+    pub total: usize,
+    pub earliest_from_ms: Option<u64>,
+    pub latest_from_ms: Option<u64>,
+}
+
+pub fn summarize_savings<'a>(
+    evidence: Option<(&Status, bool)>,
+    identities: impl IntoIterator<Item = &'a str>,
+    window: DigestWindow,
+) -> SavingsSummary {
+    let identities: BTreeSet<_> = identities.into_iter().collect();
+    let mut summary = SavingsSummary {
+        total: identities.len(),
+        ..Default::default()
+    };
+    let Some((status, false)) = evidence else {
+        return summary;
+    };
+    let mut sum = Some(0u64);
+    for identity in identities {
+        let Some(savings) = status
+            .members
+            .get(identity)
+            .and_then(|member| member.savings.as_ref())
+            .filter(|savings| {
+                savings.method == "context-input-avoided-v1" && savings.window == window
+            })
+        else {
+            continue;
+        };
+        let Some(tokens) = savings.tokens else {
+            continue;
+        };
+        summary.included += 1;
+        sum = sum
+            .and_then(|sum| sum.checked_add(tokens))
+            .filter(|sum| *sum <= SAFE);
+        summary.earliest_from_ms = Some(
+            summary
+                .earliest_from_ms
+                .map_or(savings.from_ms, |value| value.min(savings.from_ms)),
+        );
+        summary.latest_from_ms = Some(
+            summary
+                .latest_from_ms
+                .map_or(savings.from_ms, |value| value.max(savings.from_ms)),
+        );
+    }
+    if summary.included > 0 {
+        summary.tokens = sum;
+    }
+    summary
+}
+
+impl Savings {
+    fn parse(value: &Value) -> Option<Self> {
+        let method = value["method"].as_str()?.to_owned();
+        if method.is_empty() {
+            return None;
+        }
+        let window = DigestWindow::parse(value["window"].as_str()?)?;
+        let from_ms = number(value.get("fromMs")?)?;
+        let through_ms = number(value.get("throughMs")?)?;
+        if from_ms > through_ms {
+            return None;
+        }
+        let tokens = nullable(value, "estimatedInputTokensAvoided")?;
+        let complete = value["complete"].as_bool()?;
+        let gap = match value.get("gap")? {
+            Value::Null => None,
+            value => Some(value.as_str().filter(|gap| !gap.is_empty())?.to_owned()),
+        };
+        if (gap.is_some() && tokens.is_some()) || (complete && (gap.is_some() || tokens.is_none()))
+        {
+            return None;
+        }
+        Some(Self {
+            method,
+            window,
+            from_ms,
+            through_ms,
+            tokens,
+            complete,
+            gap,
         })
     }
 }
@@ -148,6 +265,7 @@ impl Member {
             stats_observed_at_ms: nullable(row, "statsObservedAtMs")?,
             next_send_at_ms,
             time_to_send_ms,
+            savings: row.get("savings").and_then(Savings::parse),
         })
     }
 }

@@ -524,6 +524,8 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
             ),
         ]));
     }
+    let savings = app.digest_savings(row["id"].as_str());
+    let mut savings_inline = false;
     let chip_row = (full || !chips.is_empty()).then_some(header.len());
     if full || !chips.is_empty() {
         let mut spans = vec![Span::styled(prefix.clone(), look.role(Role::Muted))];
@@ -535,6 +537,14 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
         if full {
             if chips.is_empty() && "Digest unknown".width() <= chip_budget {
                 spans.push(Span::styled("Digest unknown", look.role(Role::Dim)));
+            }
+            let used: usize = spans.iter().map(Span::width).sum();
+            let room = usize::from(area.width).saturating_sub(used + timer_text.width() + 3);
+            let caption =
+                super::digest_dashboard::savings_caption(&savings, app.digest_window(), room);
+            if caption.width() <= room {
+                spans.push(Span::styled(format!(" · {caption}"), look.role(Role::Dim)));
+                savings_inline = true;
             }
             let used: usize = spans.iter().map(Span::width).sum();
             spans.push(Span::raw(" ".repeat(
@@ -601,6 +611,25 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
     ));
     if let Some(link) = link {
         header.push(link);
+    }
+    if !savings_inline {
+        let caption = super::digest_dashboard::savings_caption(
+            &savings,
+            app.digest_window(),
+            usize::from(area.width),
+        );
+        header.extend(
+            super::notes::wrap(&caption, usize::from(area.width))
+                .into_iter()
+                .map(|line| Line::styled(line, look.role(Role::Dim))),
+        );
+    }
+    if let Some(start) = app.digest_savings_start(&savings, usize::from(area.width)) {
+        header.extend(
+            super::notes::wrap(&start, usize::from(area.width))
+                .into_iter()
+                .map(|line| Line::styled(line, look.role(Role::Dim))),
+        );
     }
     let flow = if session.change == Change::NewOutput {
         "new output · End resumes follow"

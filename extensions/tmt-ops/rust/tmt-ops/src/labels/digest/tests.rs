@@ -141,7 +141,246 @@ fn threshold_zero_retains_scheduled_deadline_and_additive_fields_are_ignored() {
     assert!(status.members[&id].next_send_at_ms.unwrap() > status.observed_at_ms);
     document["future"] = json!({"unknown": true});
     document["members"][2]["future"] = json!([1, 2]);
-    // Savings has no published numeric contract in this phase.
+    // Unsupported additive savings stays unavailable without hiding valid policy.
     document["members"][2]["savings"] = json!({"future": true});
     assert_eq!(parse(&document), Some(status));
+}
+
+#[test]
+fn published_savings_keep_the_supplied_window_coverage_and_known_zero() {
+    for (window, tokens) in [("24h", 2700), ("7d", 0), ("lifetime", 18_200)] {
+        let mut document = document();
+        let id = document["members"][0]["identityId"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        document["members"][0]["savings"] = json!({
+            "method":"context-input-avoided-v1", "window":window,
+            "fromMs":100, "throughMs":1000,
+            "estimatedInputTokensAvoided":tokens, "avoidedSeparateDeliveries":2,
+            "complete":true, "gap":null, "cost":null, "percent":null
+        });
+        let parsed = parse(&document).expect("valid existing labels and status");
+        assert_eq!(
+            parsed.members[&id].savings,
+            Some(Savings {
+                method: "context-input-avoided-v1".into(),
+                window: crate::config::DigestWindow::parse(window).unwrap(),
+                from_ms: 100,
+                through_ms: 1000,
+                tokens: Some(tokens),
+                complete: true,
+                gap: None,
+            })
+        );
+    }
+}
+
+#[test]
+fn optional_savings_do_not_remove_valid_policy_or_labels() {
+    let mut document = document();
+    let id = document["members"][0]["identityId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let baseline = parse(&document).unwrap();
+    for savings in [Value::Null, json!({"future":true}), json!("not evidence")] {
+        document["members"][0]["savings"] = savings;
+        let parsed = parse(&document).expect("optional estimate cannot erase valid policy");
+        assert_eq!(parsed.members[&id].savings, None);
+        assert_eq!(
+            parsed.members[&id].held_count,
+            baseline.members[&id].held_count
+        );
+        assert!(!super::super::parse("digest", &document).unwrap()[&id].is_empty());
+    }
+    document["members"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("savings");
+    assert_eq!(parse(&document).unwrap().members[&id].savings, None);
+}
+
+#[test]
+fn digest_window_uses_supplier_arguments_and_honest_display_names() {
+    use crate::config::DigestWindow;
+    assert_eq!(DigestWindow::default(), DigestWindow::Day);
+    for (window, argument, label) in [
+        (DigestWindow::Day, "24h", "24h"),
+        (DigestWindow::Week, "7d", "7d"),
+        (DigestWindow::AllTime, "lifetime", "all time"),
+    ] {
+        assert_eq!(DigestWindow::parse(argument), Some(window));
+        assert_eq!(window.argument(), argument);
+        assert_eq!(window.label(), label);
+    }
+    assert_eq!(DigestWindow::parse("1h"), None);
+}
+
+fn with_savings(window: &str, values: &[(u64, u64, u64)]) -> Value {
+    let mut document = document();
+    for (row, (from, through, tokens)) in document["members"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .zip(values)
+    {
+        row["savings"] = json!({"method":"context-input-avoided-v1", "window":window,
+            "fromMs":from, "throughMs":through, "estimatedInputTokensAvoided":tokens,
+            "complete":true, "gap":null});
+    }
+    document
+}
+
+#[test]
+fn independently_dated_estimates_sum_once_with_explicit_unavailable_members() {
+    let mut document = with_savings(
+        "lifetime",
+        &[(100, 1000, 2700), (200, 2000, 0), (300, 3000, 99)],
+    );
+    document["members"][2]["savings"]["window"] = json!("7d");
+    let status = parse(&document).unwrap();
+    let ids: Vec<_> = document["members"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["identityId"].as_str().unwrap())
+        .collect();
+    let missing = "10000000-0000-4000-8000-000000000099";
+    let supplied = [ids[0], ids[1], ids[2], ids[0], missing];
+    let summary = summarize_savings(
+        Some((&status, false)),
+        supplied,
+        crate::config::DigestWindow::AllTime,
+    );
+    assert_eq!(
+        summary,
+        SavingsSummary {
+            tokens: Some(2700),
+            included: 2,
+            total: 4,
+            earliest_from_ms: Some(100),
+            latest_from_ms: Some(200)
+        }
+    );
+    for evidence in [None, Some((&status, true))] {
+        assert_eq!(
+            summarize_savings(evidence, supplied, crate::config::DigestWindow::AllTime),
+            SavingsSummary {
+                total: 4,
+                ..Default::default()
+            }
+        );
+    }
+    assert_eq!(
+        summarize_savings(
+            Some((&status, false)),
+            [ids[1]],
+            crate::config::DigestWindow::AllTime
+        )
+        .tokens,
+        Some(0)
+    );
+    assert_eq!(
+        summarize_savings(
+            Some((&status, false)),
+            supplied,
+            crate::config::DigestWindow::Day
+        )
+        .tokens,
+        None
+    );
+}
+
+#[test]
+fn malformed_optional_estimates_never_poison_other_status_evidence() {
+    let baseline = with_savings("24h", &[(100, 1000, 20)]);
+    for (field, value) in [
+        ("fromMs", json!(1001)),
+        ("throughMs", json!(SAFE + 1)),
+        ("estimatedInputTokensAvoided", json!(-1)),
+        ("estimatedInputTokensAvoided", json!(1.5)),
+        ("estimatedInputTokensAvoided", json!(SAFE + 1)),
+        ("method", json!(false)),
+        ("window", json!("1h")),
+        ("complete", json!("true")),
+        ("gap", json!(42)),
+        ("gap", json!("missing_context")),
+    ] {
+        let mut document = baseline.clone();
+        document["members"][0]["savings"][field] = value;
+        let parsed = parse(&document).expect("optional estimate cannot poison policy");
+        assert!(
+            parsed.members.values().next().unwrap().savings.is_none(),
+            "{field}"
+        );
+    }
+}
+
+#[test]
+fn unknown_methods_and_gaps_are_unavailable_while_sum_overflow_never_wraps() {
+    let mut document = with_savings("7d", &[(100, 1000, SAFE), (200, 2000, 1), (300, 3000, 2)]);
+    let ids: Vec<_> = document["members"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .take(3) // Only this squad's members contribute, not every supplied identity.
+        .map(|row| row["identityId"].as_str().unwrap().to_owned())
+        .collect();
+    document["members"][2]["savings"]["method"] = json!("future-estimate");
+    let status = parse(&document).unwrap();
+    let summary = summarize_savings(
+        Some((&status, false)),
+        ids.iter().map(String::as_str),
+        crate::config::DigestWindow::Week,
+    );
+    assert_eq!(
+        (summary.tokens, summary.included, summary.total),
+        (None, 2, 3)
+    );
+    document["members"][0]["savings"]["estimatedInputTokensAvoided"] = Value::Null;
+    document["members"][0]["savings"]["complete"] = json!(false);
+    document["members"][0]["savings"]["gap"] = json!("missing_context");
+    let status = parse(&document).unwrap();
+    assert_eq!(
+        status.members[&ids[0]]
+            .savings
+            .as_ref()
+            .unwrap()
+            .gap
+            .as_deref(),
+        Some("missing_context")
+    );
+    let summary = summarize_savings(
+        Some((&status, false)),
+        ids.iter().map(String::as_str),
+        crate::config::DigestWindow::Week,
+    );
+    assert_eq!(
+        (summary.tokens, summary.included, summary.total),
+        (Some(1), 1, 3)
+    );
+}
+
+#[test]
+fn source_window_argv_is_supplier_owned_and_other_sources_remain_generic() {
+    use crate::config::DigestWindow;
+    assert_eq!(
+        status_arguments("digest", DigestWindow::Day),
+        ["digest", "status"]
+    );
+    assert_eq!(
+        status_arguments("digest", DigestWindow::Week),
+        ["digest", "status", "--window", "7d"]
+    );
+    assert_eq!(
+        status_arguments("digest", DigestWindow::AllTime),
+        ["digest", "status", "--window", "lifetime"]
+    );
+    for window in [DigestWindow::Day, DigestWindow::Week, DigestWindow::AllTime] {
+        assert_eq!(
+            status_arguments("other-supplier", window),
+            ["other-supplier", "status"]
+        );
+    }
 }

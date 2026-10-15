@@ -53,6 +53,24 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, mut area: Rect) {
     } else {
         summary.push(Line::styled("Usage unavailable", look.role(Role::Muted)));
     }
+    if let Some(snapshot) = app.workspace_snapshot() {
+        let savings = app.digest_savings(snapshot.roster.members.keys().map(String::as_str));
+        let caption =
+            model::savings_caption(&savings, app.digest_window(), usize::from(area.width));
+        for text in [
+            Some(caption),
+            app.digest_savings_start(&savings, usize::from(area.width)),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            summary.extend(
+                crate::board::notes::wrap(&text, usize::from(area.width))
+                    .into_iter()
+                    .map(|line| Line::styled(line, look.role(Role::Dim))),
+            );
+        }
+    }
     summary.push(Line::styled(super::summary(app), look.role(Role::Text)));
     let quota = crate::board::home::limits_of(app, area.width, look);
     let quota_start = summary.len() + 1;

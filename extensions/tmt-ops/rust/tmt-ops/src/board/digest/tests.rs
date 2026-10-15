@@ -490,7 +490,14 @@ fn a_successful_change_asks_the_reader_to_read_again_and_a_refused_one_does_not(
         every: Duration::from_secs(60),
         ..Timing::default()
     };
-    let reader = Reader::spawn(&core, vec!["digest".into()], timing, |_| true).unwrap();
+    let reader = Reader::spawn(
+        &core,
+        vec!["digest".into()],
+        timing,
+        crate::config::DigestWindow::Day,
+        |_| true,
+    )
+    .unwrap();
     let reads = || {
         runs(&log)
             .iter()

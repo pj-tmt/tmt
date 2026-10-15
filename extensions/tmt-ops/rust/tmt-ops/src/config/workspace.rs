@@ -113,6 +113,7 @@ pub struct OpsPreferences {
     /// None retains the monitor's needs-you ordering until an explicit sort.
     pub overview_sort: Option<OverviewSort>,
     pub layout: OpsLayout,
+    pub digest_window: super::DigestWindow,
 }
 
 fn canonical_room_id(value: &str) -> bool {
@@ -453,6 +454,14 @@ impl Config {
                         .as_bool()
                         .ok_or_else(|| invalid("`workspace.reverse` must be true or false."))?
                 }
+                "digest_window" => {
+                    result.digest_window = item
+                        .as_str()
+                        .and_then(super::DigestWindow::parse)
+                        .ok_or_else(|| {
+                            invalid("`workspace.digest_window` must be 24h, 7d or lifetime.")
+                        })?;
+                }
                 "layout" => {
                     result.layout = match item.as_str() {
                         Some("auto") => OpsLayout::Auto,
@@ -550,6 +559,7 @@ impl Config {
                 table.remove("overview_sort");
                 table.remove("overview_reverse");
             }
+            document["workspace"]["digest_window"] = value(next.digest_window.argument());
             document["workspace"]["layout"] = value(match next.layout {
                 OpsLayout::Auto => "auto",
                 OpsLayout::Side => "side",
@@ -1096,6 +1106,7 @@ mod tests {
             sort: OpsSort::Attention,
             reversed: true,
             layout: OpsLayout::Stack,
+            digest_window: super::super::DigestWindow::default(),
             overview_sort: None,
         };
         config.save_workspace_preferences(&expected, &next).unwrap();
@@ -1114,6 +1125,59 @@ mod tests {
             Verb::Copy
         );
     }
+    #[test]
+    fn digest_window_uses_one_workspace_preference_and_preserves_authored_text() {
+        use super::super::DigestWindow;
+        let fixture = FileFixture::new();
+        let mut config = fixture.config();
+        assert_eq!(
+            config.workspace_preferences().unwrap().digest_window,
+            DigestWindow::Day
+        );
+        for window in [DigestWindow::Week, DigestWindow::AllTime, DigestWindow::Day] {
+            let expected = config.workspace_preferences().unwrap();
+            let next = OpsPreferences {
+                digest_window: window,
+                ..expected.clone()
+            };
+            config.save_workspace_preferences(&expected, &next).unwrap();
+            config = fixture.config();
+            assert_eq!(config.workspace_preferences().unwrap(), next);
+            let bytes = fs::read_to_string(config.path()).unwrap();
+            assert!(bytes.contains("# preserve user text"));
+            assert_eq!(config.document["bind"]["j"].as_str(), Some("copy"));
+        }
+    }
+
+    #[test]
+    fn malformed_or_stale_digest_window_never_rewrites_the_config() {
+        for text in [
+            "[workspace]\ndigest_window='1h'",
+            "[workspace]\ndigest_window=7",
+        ] {
+            let config = config(text);
+            let before = config.document.to_string();
+            assert!(config.workspace_preferences().is_err());
+            assert_eq!(config.document.to_string(), before);
+        }
+        let fixture = FileFixture::new();
+        let mut first = fixture.config();
+        let mut stale = fixture.config();
+        let expected = first.workspace_preferences().unwrap();
+        let next = OpsPreferences {
+            digest_window: super::super::DigestWindow::Week,
+            ..expected.clone()
+        };
+        first.save_workspace_preferences(&expected, &next).unwrap();
+        let before = fs::read(first.path()).unwrap();
+        assert!(
+            stale
+                .save_workspace_preferences(&expected, &OpsPreferences::default())
+                .is_err()
+        );
+        assert_eq!(fs::read(first.path()).unwrap(), before);
+    }
+
     #[test]
     fn overview_order_round_trips_every_column_and_direction_then_clears() {
         let fixture = FileFixture::new();

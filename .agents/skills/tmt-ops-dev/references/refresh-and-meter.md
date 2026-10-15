@@ -48,7 +48,15 @@
   fields are ignored; a label's `choose` action is checked by `labels/action.rs` and carried with the label. A failing source backs off to 60 s; its
   last good rows stand in for 30 s, then drop. The same acquired snapshot carries
   `labels::digest::Status`, the typed projection of published Digest status fields;
-  it never performs a second acquisition or reads Digest files. Unsupported or
+  it never performs a second acquisition or reads Digest files. Its optional savings
+  projection validates the supplier's method/window and JS-safe evidence; missing,
+  malformed or stale estimates stay unavailable. `labels::digest::summarize_savings`
+  deduplicates the requested roster UUIDs and sums compatible supplied token estimates,
+  retaining their independent collection starts and an explicit included/total count.
+  The Config-selected Digest window changes only that supplier's argv (`--window` for
+  7d/lifetime); other sources keep their argv. The reader starts with the saved window,
+  coalesces selection wakes and discards an old-window result completed after a change.
+  Paint never computes savings from provider state or reconstructs a source window. Unsupported or
   malformed typed fields leave that projection unavailable without discarding valid
   generic labels. Null counts/timestamps remain null, and source observations are
   never replaced by retry time. A retained snapshot marks itself stale after a failed

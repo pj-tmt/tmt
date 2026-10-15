@@ -438,6 +438,7 @@ fn background_publication_does_not_become_an_action_or_repaint() {
             }
             _ => panic!("cache persistence cannot submit a user action"),
         },
+        |_| {},
         Some(&mut state),
         |app| {
             assert_eq!(app.in_flight, 0);

@@ -380,6 +380,7 @@ fn session(
     selected_read: impl Fn(u64, Option<refresh::SelectedRead>),
     checklist: impl Fn(checklist::load::Task),
     io: impl Fn(lane::Job),
+    labels_window: impl Fn(crate::config::DigestWindow),
     mut state: Option<&mut view_state::Session>,
     mut draw: impl FnMut(&mut App) -> io::Result<()>,
 ) -> io::Result<Option<i32>> {
@@ -517,7 +518,11 @@ fn session(
                 if !cancellation.cancelled() {
                     revision += 1;
                     requested = Some(None);
+                    let previous_window = app.digest_window();
                     app.apply(*snapshot);
+                    if app.digest_window() != previous_window {
+                        labels_window(app.digest_window());
+                    }
                     dirty = true;
                     Effect::None
                 } else {
@@ -1011,6 +1016,7 @@ pub fn run(
         &core,
         config.label_sources()?,
         crate::labels::Timing::default(),
+        config.workspace_preferences()?.digest_window,
         {
             let events = events.clone();
             move |supplied| events.send(BoardEvent::Labels(supplied)).is_ok()
@@ -1071,6 +1077,11 @@ pub fn run(
         |revision, identity| worker.selected(revision, identity),
         |task| worker.checklist(task),
         |job| lane.submit(job),
+        |window| {
+            if let Some(labels) = &labels {
+                labels.refresher().window(window);
+            }
+        },
         view_state.as_mut(),
         |app| {
             screen
@@ -1160,6 +1171,7 @@ mod tests {
                 selected_read,
                 checklist,
                 io,
+                |_| {},
                 None,
                 draw,
             );
@@ -1746,6 +1758,59 @@ mod tests {
         }
     }
 
+    #[test]
+    fn a_published_digest_window_wakes_the_existing_reader_once_and_cancelled_views_do_not() {
+        use crate::config::DigestWindow;
+        let mut app = app::workspace::tests::board();
+        let make = |window| {
+            let mut snapshot = app::tests::snapshot(ALL, serde_json::json!([]));
+            snapshot.view = Ok(app::workspace::tests::board().view.take().unwrap());
+            snapshot
+                .view
+                .as_mut()
+                .unwrap()
+                .home
+                .as_mut()
+                .unwrap()
+                .workspace
+                .preferences
+                .digest_window = window;
+            snapshot
+        };
+        let (events, input) = channel();
+        events
+            .send(snapshot_event(make(DigestWindow::Week)))
+            .unwrap();
+        events
+            .send(snapshot_event(make(DigestWindow::Week)))
+            .unwrap();
+        let cancelled = crate::runner::Cancellation::default();
+        cancelled.cancel();
+        events
+            .send(BoardEvent::Snapshot {
+                cancellation: cancelled,
+                snapshot: Box::new(make(DigestWindow::AllTime)),
+            })
+            .unwrap();
+        events.send(BoardEvent::InputClosed).unwrap();
+        let windows = std::cell::RefCell::new(Vec::new());
+        super::session(
+            &mut app,
+            &AtomicUsize::new(0),
+            &input,
+            |_, _, _| {},
+            |_, _| {},
+            |_| {},
+            no_io,
+            |window| windows.borrow_mut().push(window),
+            None,
+            |_| Ok(()),
+        )
+        .unwrap();
+        assert_eq!(*windows.borrow(), [DigestWindow::Week]);
+        assert_eq!(app.digest_window(), DigestWindow::Week);
+    }
+
     fn key(code: KeyCode) -> BoardEvent {
         BoardEvent::Input(Event::Key(KeyEvent::new(code, KeyModifiers::NONE)))
     }
@@ -1934,6 +1999,7 @@ mod tests {
                 |_, _| {},
                 |_| {},
                 no_io,
+                |_| {},
                 None,
                 |app| {
                     painted
@@ -1992,6 +2058,7 @@ mod tests {
                 |_, _| {},
                 |_| {},
                 no_io,
+                |_| {},
                 None,
                 |app| {
                     *app.hits.borrow_mut() = vec![app::Hit {
@@ -2052,6 +2119,7 @@ mod tests {
                     |_, _| {},
                     |_| {},
                     no_io,
+                    |_| {},
                     None,
                     |_| {
                         painted.send(()).unwrap();
@@ -2095,6 +2163,7 @@ mod tests {
                 |_, _| {},
                 |_| {},
                 no_io,
+                |_| {},
                 None,
                 |_| {
                     painted.send(()).unwrap();
