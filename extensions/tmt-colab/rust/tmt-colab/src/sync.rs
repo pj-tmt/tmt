@@ -794,7 +794,7 @@ impl<A: Admission> Server<A> {
         if state.draining {
             return Err(Code::ResyncRequired);
         }
-        state.apply(None, scope, &principal, &checked, author_key)
+        state.apply(None, scope, &principal, &checked, author_key, false)
     }
     /// Share the activity the cloud-sync worker waits on.
     pub fn set_activity(&self, activity: ActivePage) -> Result<(), Code> {
@@ -1886,13 +1886,13 @@ impl<A: Admission> State<A> {
         let key =
             self.admission
                 .authorize(principal, scope, Access::Append(&checked.header.context))?;
-        let accepted = self.apply(Some(id), scope, &device, &checked, &key)?;
+        // Every holder of a link writes the link's one stream with the same key, so two of them
+        // may both seal the next sequence: the second is a lost race, not a fork.
+        let shared = device != principal;
+        let accepted = self.apply(Some(id), scope, &device, &checked, &key, shared)?;
         // A link session's own original may be an edit request; one read from the cloud is
         // settled by the pass that read it.
-        if accepted == Accepted::New
-            && checked.header.context.namespace == "own"
-            && device != principal
-        {
+        if accepted == Accepted::New && checked.header.context.namespace == "own" && shared {
             self.requests_due.mark(scope);
         }
         Ok(())
@@ -1906,6 +1906,7 @@ impl<A: Admission> State<A> {
         principal: &str,
         checked: &Checked,
         key: &[u8; 32],
+        shared: bool,
     ) -> Result<Accepted, Code> {
         let Checked {
             stream,
@@ -1957,7 +1958,11 @@ impl<A: Admission> State<A> {
             "broadcast",
             serde_json::json!({"streamId":stream,"seq":seq,"envelopeHash":envelope_hash,"envelope":envelope}),
         )?;
-        let accepted = self.store.append(&stored)?;
+        let accepted = if shared {
+            self.store.append_shared(&stored)?
+        } else {
+            self.store.append(&stored)?
+        };
         if let Some(peer) = peer {
             self.peers.get_mut(&peer).ok_or(Code::Denied)?.push(receipt);
         }

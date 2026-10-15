@@ -100,13 +100,20 @@ test('an editor link tells an applied request, a changed page, a request still w
   await edit(page, 'large', '<main>three</main>');
   await expect(page.getByText(text.linkEditTooLarge(200 * 1024, 128 * 1024))).toBeVisible();
   await expect(page.getByText(text.saveNotSaved, { exact: true })).toBeVisible();
+  // A lost race for the link's stream: nothing was sent, the draft is kept, and saving again is
+  // offered.
+  await edit(page, 'raced', '<main>four</main>');
+  await expect(page.getByText(text.linkEditRaced)).toBeVisible();
+  await expect(page.getByText(text.saveNotSaved, { exact: true })).toBeVisible();
+  await expect(area).toHaveValue('<main>four</main>');
+  await expect(save).toBeEnabled();
   await expect(page.getByText(text.saveMerged)).toHaveCount(0);
 });
 
 // The design-review captures of the three notices, at a phone and a desktop width in both themes.
 for (const width of [390, 1280])
   for (const theme of ['light', 'dark'] as const)
-    for (const notice of ['waiting', 'changed', 'large'] as const)
+    for (const notice of ['waiting', 'changed', 'large', 'raced'] as const)
       test(`link edit notice ${notice} at ${width} ${theme}`, async ({ page }) => {
         await page.setViewportSize({ width, height: width === 390 ? 844 : 800 });
         await page.emulateMedia({ colorScheme: theme });
@@ -119,8 +126,42 @@ for (const width of [390, 1280])
               ? text.linkEditWaiting
               : notice === 'changed'
                 ? text.linkEditChanged
-                : text.linkEditTooLarge(200 * 1024, 128 * 1024),
+                : notice === 'raced'
+                  ? text.linkEditRaced
+                  : text.linkEditTooLarge(200 * 1024, 128 * 1024),
           ),
         ).toBeVisible();
         await page.screenshot({ path: capturePath(`link-edit-${notice}-${width}-${theme}.png`) });
       });
+
+// The Save button with nothing to save is the design system's disabled role: dim text, and no
+// hover colour even with the pointer on it.
+for (const width of [390, 1280])
+  for (const theme of ['light', 'dark'] as const)
+    test(`link edit Save is dim and unhighlighted while disabled at ${width} ${theme}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: width === 390 ? 844 : 800 });
+      await page.emulateMedia({ colorScheme: theme });
+      await mount(page, 'editor');
+      await page.getByTestId('source-toggle').click();
+      const save = page.getByRole('button', { name: text.save, exact: true });
+      await expect(save).toBeDisabled();
+      await save.hover({ force: true });
+      const colors = await page.evaluate(() => {
+        const probe = document.createElement('span');
+        probe.style.color = 'var(--tmt-ui-color-disabled-text)';
+        document.body.append(probe);
+        const dim = getComputedStyle(probe).color;
+        probe.remove();
+        const button = document.querySelector<HTMLButtonElement>('.source > span button')!;
+        return {
+          dim,
+          button: getComputedStyle(button).color,
+          cursor: getComputedStyle(button).cursor,
+        };
+      });
+      expect(colors.button).toBe(colors.dim);
+      expect(colors.cursor).toBe('default');
+      await page.screenshot({ path: capturePath(`link-edit-save-disabled-${width}-${theme}.png`) });
+    });

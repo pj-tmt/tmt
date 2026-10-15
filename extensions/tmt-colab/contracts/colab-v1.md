@@ -826,7 +826,13 @@ not upgrade a supplied reader ticket into owner authority.
 Only hello, catchup, subscribe, scoped ack and, for a link whose role allows
 it, append (with its upload chunks) are allowed, on the admitted page/epoch. A
 link session stores its own originals as its link's device: the stream is the
-device its chain certifies, and each object names the current membership head.
+device its chain certifies, and each object names the current membership head. Every holder of
+one link derives the same device, so all of them write one stream with one key (v1: one stream per
+link): two holders that send at once both seal the stream's next sequence, the serve stores the
+first, and the second original is refused as `CONFLICT` with nothing written and nothing frozen, so
+the stream stays open to every holder. The refused original was never stored: its sender drops it,
+reconnects, and seals its next original at the stream's new head, and the browser says its edit
+was not sent and keeps the draft. A lost connection is not a refusal: the exact bytes are retried.
 The link's current role decides the namespaces. An `editor` link stores `update`
 objects in `content` and `own` (and `own` checkpoints), a `commenter` link in `own`
 only, and a `viewer` link nothing, from the first upload frame on. No link has the serve save page
@@ -920,7 +926,8 @@ The CLI help and the entry say so plainly.
 Each device has one signed append stream per `(space, page, epoch)`. Sequences
 are contiguous from `1`; readers buffer bounded gaps and apply n only after
 n−1. Identical envelopes replay without changing state; two different envelopes
-for one sequence freeze and flag the stream. Backends store create-only at the
+for one sequence freeze and flag the stream, except the stream a link's holders share, where a
+live session's second original is refused and nothing is frozen. Backends store create-only at the
 scoped `(streamId, seq)` key. One browser tab owns the device's write lock with
 `navigator.locks`; other tabs relay through it. CLI writes hold a file lock.
 

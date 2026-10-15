@@ -213,7 +213,10 @@ whose `role` is `editor` also offers the shared Source drawer (`src/reader-sourc
 sends an edit request through `ReaderSession.edit`: `link-edit.ts` builds the `edit-request` record and its size
 refusals (`EditTooLarge`, the one-document bound), `PageAnswer` reads the outcome from the page itself (applied,
 changed, or still waiting), and the session's `Writer` seals the record into the link device's own stream with
-`Admission.linkAuthor` (via `ownAuthor`, never the member `author`), keeping its pending state in memory only. The
+`Admission.linkAuthor` (via `ownAuthor`, never the member `author`), keeping its pending state in memory only. Every
+holder of a link writes that one stream, so a lost race for the next sequence comes back as `OwnAppendRefused`
+(serve `CONFLICT`, link sessions only): the `Writer` drops the never-stored entry and the next write seals at the
+new head; `Store::append_shared` (live link sessions, `sync.rs`) refuses it without freezing, `append` still freezes. The
 owner router and the owner's Ask and export modules are not part of this bundle.
 
 ## Restart recovery

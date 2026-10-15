@@ -4049,11 +4049,25 @@ impl Running {
             "issuerSignature":values::encode_binary(&link.certify(
                 &tmt_colab_model::certificate::decode(&certificate).unwrap()).unwrap())}))
         .unwrap();
+        let mut session = self.link_exchange(&chain);
+        session["chain"] = json!(values::encode_binary(&chain));
+        session
+    }
+    /// Another session of the link `session` came from: the same device, chain and keys, as a
+    /// second holder of the link opens it.
+    fn reopen_link_session(&self, session: &Value) -> Value {
+        let chain = values::binary(session["chain"].as_str().unwrap(), 16 * 1024).unwrap();
+        let mut again = self.link_exchange(&chain);
+        again["chain"] = session["chain"].clone();
+        again
+    }
+    fn link_exchange(&self, chain: &[u8]) -> Value {
+        let device = SigningKey::from_bytes(&[19; 32]);
         let response = self.event(
             tmt_colab::readers::CHALLENGE_PATH,
             "",
             &json!({"kind":"link","space":self.space,"page":PAGE,
-                "chain":values::encode_binary(&chain)})
+                "chain":values::encode_binary(chain)})
             .to_string(),
         );
         assert!(response.starts_with("HTTP/1.1 200"), "{response}");
@@ -5536,6 +5550,102 @@ fn an_editor_links_edit_requests_are_saved_through_the_save_merge_and_decided_on
         .query_row("SELECT count(*) FROM edit_decisions", [], |row| row.get(0))
         .unwrap();
     assert_eq!(decided, 5);
+}
+
+#[test]
+fn two_holders_of_one_editor_link_race_for_the_next_sequence_and_the_loser_sends_again() {
+    let server = Running::start(Tunnels::PRODUCT);
+    let session = server.link_session("editor");
+    let mut first = server.reader_peer(&session);
+    let layout = Layout::existing(&server.root).unwrap().unwrap();
+    let key = Keyring::read(&layout).unwrap();
+    // Two holders of the link write its one stream with the same key; both hold it as it was
+    // and each seals sequence 1.
+    let mut winner = RequestStream::new();
+    let mut loser = RequestStream::new();
+    let won = winner.request(&server, &session, &request_op(1), "", FIVE, None);
+    let lost = loser.request(&server, &session, &request_op(2), "", "other\n", None);
+    send(&mut first, won);
+    assert_eq!(receive_until(&mut first, "receipt").0["type"], "receipt");
+    assert_eq!(server.decision(&request_op(1)), "applied");
+    // The second original at the taken sequence is refused, and refused alone: the stream is
+    // not frozen, nothing of it is stored, and no decision exists for its request.
+    send(&mut first, lost);
+    assert_eq!(receive_until(&mut first, "error").0["code"], "CONFLICT");
+    let frozen = |server: &Running| -> bool {
+        server
+            .oracle()
+            .query_row(
+                "SELECT frozen FROM streams WHERE stream=?",
+                [REQUEST_DEVICE],
+                |row| row.get(0),
+            )
+            .unwrap()
+    };
+    assert!(!frozen(&server), "a lost race froze the link's stream");
+    let stored: i64 = server
+        .oracle()
+        .query_row(
+            "SELECT count(*) FROM receipts WHERE stream=?",
+            [REQUEST_DEVICE],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(stored, 1);
+    let decided: i64 = server
+        .oracle()
+        .query_row(
+            "SELECT count(*) FROM edit_decisions WHERE operation=?",
+            [request_op(2)],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(decided, 0);
+    // The loser learns the stream as it is now and sends again at the new head, from a new
+    // connection: its request is stored in sequence and applied.
+    let second = server.reopen_link_session(&session);
+    let mut again = server.reader_peer(&second);
+    let upper = "ONE\ntwo\nthree\nfour\nfive\n";
+    let mut caught_up = RequestStream {
+        updates: winner.updates.clone(),
+        previous: winner.previous,
+    };
+    let retry = caught_up.request(
+        &server,
+        &second,
+        &request_op(3),
+        FIVE,
+        upper,
+        Some(json!([hunk(1, "one\n", "ONE\n")])),
+    );
+    send(&mut again, retry);
+    assert_eq!(receive_until(&mut again, "receipt").0["type"], "receipt");
+    assert_eq!(server.decision(&request_op(3)), "applied");
+    assert_eq!(native_source(&layout, &key), upper);
+    assert!(!frozen(&server));
+}
+
+#[test]
+fn a_second_original_at_a_taken_sequence_still_freezes_an_owner_devices_stream() {
+    let server = Running::start(Tunnels::PRODUCT);
+    let mut peer = server.peer(DEVICE);
+    hello(&server, &mut peer, DEVICE);
+    let (first, _, _) = server.append_payload(DEVICE, 1, [0; 32], b"first");
+    send(&mut peer, first);
+    assert_eq!(receive(&mut peer)["type"], "receipt");
+    // The device signed two originals for one sequence: a fork, which freezes its stream.
+    let (fork, _, _) = server.append_payload(DEVICE, 1, [0; 32], b"fork");
+    send(&mut peer, fork);
+    assert_eq!(receive_until(&mut peer, "error").0["code"], "CONFLICT");
+    let frozen: bool = server
+        .oracle()
+        .query_row(
+            "SELECT frozen FROM streams WHERE stream=?",
+            [DEVICE],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(frozen);
 }
 
 #[test]

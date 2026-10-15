@@ -252,10 +252,23 @@ impl Store {
         Ok(())
     }
     pub fn append(&mut self, envelope: &Envelope<'_>) -> StoreResult<Accepted> {
+        self.append_with(envelope, Equivocation::Freeze)
+    }
+    /// `append` for a stream that every holder of one link writes with the same key: a different
+    /// original at a sequence already taken is a lost race, not a fork. It is refused as
+    /// `Conflict` and nothing is written, so the stream stays open to the next holder.
+    pub fn append_shared(&mut self, envelope: &Envelope<'_>) -> StoreResult<Accepted> {
+        self.append_with(envelope, Equivocation::Refuse)
+    }
+    fn append_with(
+        &mut self,
+        envelope: &Envelope<'_>,
+        equivocation: Equivocation,
+    ) -> StoreResult<Accepted> {
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let result = append_in(&tx, envelope, self.clock.as_ref());
+        let result = append_in(&tx, envelope, self.clock.as_ref(), equivocation);
         if result.is_ok() {
             tx.commit()?;
         }
@@ -713,10 +726,19 @@ fn resolve_cursor(
 }
 
 /// Shared create-only append; its caller owns commit/rollback and authority fencing.
+/// What a different original at an already-taken sequence does to its stream.
+#[derive(Clone, Copy)]
+enum Equivocation {
+    /// The stream is frozen: its author signed two originals for one sequence.
+    Freeze,
+    /// The original is refused and the stream is untouched.
+    Refuse,
+}
 fn append_in(
     tx: &Connection,
     envelope: &Envelope<'_>,
     clock: &Clock,
+    equivocation: Equivocation,
 ) -> StoreResult<Option<Accepted>> {
     validate(envelope)?;
     let s = envelope.scope;
@@ -741,6 +763,9 @@ fn append_in(
             && namespace == envelope.namespace.name()
         {
             return Ok(Some(Accepted::Replay));
+        }
+        if matches!(equivocation, Equivocation::Refuse) {
+            return Err(Fault::Conflict);
         }
         tx.execute(
             "UPDATE streams SET frozen=1 WHERE page=? AND epoch=? AND stream=?",

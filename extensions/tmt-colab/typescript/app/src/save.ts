@@ -1,5 +1,6 @@
 import { exactKeys, requireValue } from '@tmt/colab-client';
 import { SOURCE_BYTES } from './fold-protocol.js';
+import { OwnAppendRefused } from './own-publication.js';
 import { SAVE_HUNKS, type SaveHunk } from './save-hunks.js';
 import { text } from './strings.js';
 
@@ -158,6 +159,7 @@ export function settledAgainst(result: SaveResult, hunks?: readonly SaveHunk[]):
 }
 /** The sentence an editor shows for a save that did not succeed. */
 export function saveMessage(error: unknown): string {
+  if (error instanceof OwnAppendRefused) return text.linkEditRaced;
   if (error instanceof EditTooLarge) return text.linkEditTooLarge(error.size, error.limit);
   if (error instanceof SaveTooLarge) return text.saveTooLarge(error.size, error.limit);
   if (error instanceof SaveOutcomeUnknown) return text.saveUnknown(error.operationId);

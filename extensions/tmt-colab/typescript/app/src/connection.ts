@@ -38,7 +38,11 @@ import {
 import { SAVE_SOURCE_BYTES, SaveTooLarge, saveResult, type SaveResult } from './save.js';
 import type { SaveHunk } from './save-hunks.js';
 import { text as strings } from './strings.js';
-import { OwnPublicationTimeout, type OwnPublicationReceipt } from './own-publication.js';
+import {
+  OwnAppendRefused,
+  OwnPublicationTimeout,
+  type OwnPublicationReceipt,
+} from './own-publication.js';
 
 function sameValue(a: JsonValue | undefined, b: JsonValue): boolean {
   if (a === b) return true;
@@ -363,7 +367,11 @@ export class Connection {
         typeof frame.code === 'string' &&
           (SYNC_ERROR_CODES as readonly string[]).includes(frame.code),
       );
-      throw new Error(frame.code);
+      // A link session sends nothing but appends, so while one is waiting for its receipt the
+      // serve's `CONFLICT` is its answer: the sequence is taken, and the original was not stored.
+      throw frame.code === 'CONFLICT' && this.admission.reader && this.#receipts.size > 0
+        ? new OwnAppendRefused(frame.code)
+        : new Error(frame.code);
     }
     if (!this.#complete) {
       requireValue(frame.type === 'catchup');

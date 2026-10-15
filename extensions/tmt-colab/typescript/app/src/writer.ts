@@ -10,7 +10,11 @@ import { Connection } from './connection.js';
 import { type JsonValue, type OwnRoot, type OwnRecord, UPDATE_BYTES } from './fold-protocol.js';
 import type { ObjectEntry } from './objects.js';
 import { record as durableRecord } from './storage.js';
-import { publicationSequence, type OwnPublicationReceipt } from './own-publication.js';
+import {
+  OwnAppendRefused,
+  publicationSequence,
+  type OwnPublicationReceipt,
+} from './own-publication.js';
 interface SavedWriter {
   pending: { id: string; entry: ObjectEntry } | null;
   completed: string[];
@@ -40,6 +44,11 @@ function ownCompaction(value: unknown): OwnCompaction {
   return { outcome: raw.outcome as 'nothing' | 'not-combined' };
 }
 const COMPACT_RELAY_MS = 30_000;
+/** What a sender is told when its edit was not accepted. */
+const notAccepted = (refused: boolean) =>
+  refused
+    ? new OwnAppendRefused('CONFLICT')
+    : new Error('Edit was not accepted; reconnect before retrying');
 
 /** Where a writer keeps its state: the app's durable records, or, for a link session that stores
  * nothing in the owner app's records, memory that lasts as long as the tab. */
@@ -80,6 +89,8 @@ export class Writer {
     string,
     {
       seq: string | null;
+      /** The leader said the serve refused this append because its sequence was taken. */
+      refused: boolean;
       resolve(receipt: OwnPublicationReceipt): void;
       reject(error: Error): void;
       timer: ReturnType<typeof setTimeout>;
@@ -119,6 +130,13 @@ export class Writer {
           requireValue(typeof value.id === 'string' && publicationSequence(value.seq));
           const pending = this.#pending.get(value.id);
           if (pending) pending.seq = value.seq;
+        } else if (value?.type === 'append-refused') {
+          // Like the receipt above, a hint that rides ahead of the ordinary result: a tab still
+          // running the previous app assets ignores it and reads a plain failure.
+          exactKeys(value, ['type', 'id']);
+          requireValue(typeof value.id === 'string');
+          const pending = this.#pending.get(value.id);
+          if (pending) pending.refused = true;
         } else if (value?.type === 'result') {
           exactKeys(value, ['type', 'id', 'ok']);
           requireValue(typeof value.id === 'string');
@@ -130,7 +148,7 @@ export class Writer {
           clearTimeout(pending.timer);
           if (value.ok) {
             pending.resolve({ seq: pending.seq });
-          } else pending.reject(new Error('Edit was not accepted; reconnect before retrying'));
+          } else pending.reject(notAccepted(pending.refused));
         }
       } catch {
         /* Untrusted relay messages never become signed updates. */
@@ -176,7 +194,7 @@ export class Writer {
     const completed = task
       .then(
         (seq) => this.#result(name, true, seq),
-        () => this.#result(name, false),
+        (error) => this.#result(name, false, null, error instanceof OwnAppendRefused),
       )
       .finally(() => {
         update.fill(0);
@@ -185,16 +203,17 @@ export class Writer {
     this.#working.set(name, completed);
     return completed;
   }
-  #result(id: string, ok: boolean, seq: string | null = null) {
+  #result(id: string, ok: boolean, seq: string | null = null, refused = false) {
     if (this.#closed) return;
     if (ok && seq !== null) this.#channel.postMessage({ type: 'publication-receipt', id, seq });
+    if (refused) this.#channel.postMessage({ type: 'append-refused', id });
     this.#channel.postMessage({ type: 'result', id, ok });
     const pending = this.#pending.get(id);
     if (pending) {
       this.#pending.delete(id);
       clearTimeout(pending.timer);
       if (ok) pending.resolve({ seq });
-      else pending.reject(new Error('Edit was not accepted; reconnect before retrying'));
+      else pending.reject(notAccepted(refused));
     }
   }
   /** The saved writer state with any interrupted append finished first: exact stored bytes are
@@ -212,13 +231,29 @@ export class Writer {
     if (state.pending) {
       exactKeys(state.pending, ['id', 'entry']);
       generatedId(state.pending.id);
-      await c.append(state.pending.entry); // Includes signature/scope/authority checks on restored data.
+      // Includes signature/scope/authority checks on restored data.
+      await this.#append(c, state, state.pending.entry);
       state.completed.push(state.pending.id);
       state.completed = state.completed.slice(-64);
       state.pending = null;
       await this.record(this.key, state);
     }
     return state;
+  }
+  /** Append a sealed entry. When the serve answers that its sequence is taken (`OwnAppendRefused`),
+   * it was never stored, so it leaves the saved state and the refusal goes to its sender, whose
+   * next write seals at the stream's new head. Every other failure leaves the exact bytes to be
+   * retried: the serve may hold them. */
+  async #append(c: Connection, state: SavedWriter, entry: ObjectEntry) {
+    try {
+      await c.append(entry);
+    } catch (error) {
+      if (error instanceof OwnAppendRefused) {
+        state.pending = null;
+        await this.record(this.key, state);
+      }
+      throw error;
+    }
   }
   async #write(id: string, update: Uint8Array) {
     requireValue(!this.#closed && this.#leader);
@@ -262,7 +297,7 @@ export class Writer {
     state.pending = { id, entry };
     await this.record(this.key, state);
     requireValue(!this.#closed);
-    await c.append(entry);
+    await this.#append(c, state, entry);
     state.pending = null;
     state.completed.push(id);
     state.completed = state.completed.slice(-64);
@@ -319,7 +354,7 @@ export class Writer {
     state.pending = { id, entry };
     await this.record(this.key, state);
     requireValue(!this.#closed);
-    await c.append(entry);
+    await this.#append(c, state, entry);
     state.pending = null;
     state.completed.push(id);
     state.completed = state.completed.slice(-64);
@@ -404,6 +439,7 @@ export class Writer {
       };
       this.#pending.set(id, {
         seq: null,
+        refused: false,
         resolve: (receipt) => {
           bytes.fill(0);
           resolve(receipt);

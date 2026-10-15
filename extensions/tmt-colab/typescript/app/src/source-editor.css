@@ -18,6 +18,10 @@
   background: var(--c-sheet);
   border-bottom: 1px solid var(--c-rule);
 }
+.source > span button:disabled {
+  color: var(--tmt-ui-color-disabled-text);
+  cursor: default;
+}
 .source-notice {
   padding: 12px 16px 0;
 }

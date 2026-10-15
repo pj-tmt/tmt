@@ -420,6 +420,8 @@ export const text = {
     `The source is ${formatBytes(size)}, over the ${formatBytes(limit)} one page can hold. Shorten it, then save again.`,
   linkEditTooLarge: (size: number, limit: number) =>
     `The edit is ${formatBytes(size)}, over the ${formatBytes(limit)} a link can send. Shorten it and save again.`,
+  linkEditRaced:
+    'Someone else using this link sent an edit at the same moment, so yours was not sent. Your draft is kept; save again.',
   linkEditWaiting:
     "Your edit was sent and is waiting for the owner's Colab to apply it. Your draft is kept.",
   linkEditChanged:
