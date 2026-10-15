@@ -66,25 +66,30 @@ case "$3" in
     # One answer per call from the queue; an empty queue sets the name.
     a=$(head -n 1 "$d/naming" 2>/dev/null)
     if [ -f "$d/naming" ]; then tail -n +2 "$d/naming" > "$d/naming.next"; mv "$d/naming.next" "$d/naming"; fi
-    # `hold` keeps the call in flight until the test releases it (at most
-    # 0.8 s, inside the run's 1 s budget), then answers like an empty queue.
+    # `hold` keeps the call in flight until the next other name-agent call
+    # has answered (the barrier), then answers like an empty queue. The run
+    # kills its call at 1 s, so the safety timeout is 0.9 s; a lapse is
+    # logged for the test to fail on.
     if [ "$a" = hold ]; then
       : > "$d/holding"; i=0
-      while [ ! -f "$d/release" ] && [ $i -lt 16 ]; do sleep 0.05; i=$((i+1)); done
+      while [ ! -f "$d/release" ] && [ $i -lt 18 ]; do sleep 0.05; i=$((i+1)); done
       if [ -f "$d/release" ]; then echo released >> "$d/held"; else echo lapsed >> "$d/held"; fi
       rm -f "$d/holding" "$d/release"; a=
     fi
-    # Like a host driver, a host name TMT did not record is not changed.
+    # Like a host driver, a host name TMT did not record is not changed, and
+    # a name the agent already has is not adopted: no record is written.
     n=$(printf '%s' "$input" | sed -n 's/.*"name":"\([^"]*\)".*/\1/p')
     h=$(cat "$d/agentname" 2>/dev/null); r=$(cat "$d/recorded" 2>/dev/null)
     if [ -z "$a" ] && [ -n "$h" ] && [ "$h" != "$n" ] && [ "$h" != "$r" ]; then a=foreign_name; fi
+    if [ -z "$a" ] && [ -n "$n" ] && [ "$h" = "$n" ]; then a=ok; fi
     case "$a" in
       '') if [ -n "$n" ]; then printf '%s' "$n" > "$d/agentname"; printf '%s' "$n" > "$d/recorded"; else rm -f "$d/agentname" "$d/recorded"; fi
           printf '{"ok":{}}' ;;
       ok) printf '{"ok":{}}' ;;
       slow) sleep 3; printf '{"ok":{}}' ;;
       *) printf '{"error":{"code":"%s","message":"host says %s"}}' "$a" "$a" ;;
-    esac ;;
+    esac
+    if [ -f "$d/holding" ]; then : > "$d/release"; fi ;;
   resolve-target)
     printf '%s\n' "$input" >> "$d/resolved"
     if [ -f "$d/slow" ]; then sleep 3; fi
@@ -831,37 +836,66 @@ fn run_does_not_repeat_an_uncertain_answer_and_says_it_is_uncertain() {
     assert!(!after.contains("was not set"), "{after}");
 }
 
-/// `tmt run` in the driver's pane for a command of `seconds`, still running.
-fn spawn_run(fixture: &Fixture, seconds: u32) -> std::process::Child {
-    let script = format!("sleep {seconds}; echo child-end >&2");
-    fixture
-        .command_in(Some("f1"), &["run", "worker", "/bin/sh", "-c", &script])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap()
+/// A `tmt run` this test owns: dropped before it finishes, as when an
+/// assertion fails, it is killed and reaped, so no process outlives the test.
+struct Running(Option<std::process::Child>);
+
+impl Running {
+    fn finish(mut self) -> Output {
+        self.0.take().unwrap().wait_with_output().unwrap()
+    }
 }
 
-/// Runs `args` while the run's next `hold` call is in flight, then lets the
-/// call finish, so the command's effects land between the run's two reads.
+impl Drop for Running {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.0.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+/// `tmt run` in the driver's pane for a command of `seconds`, still running.
+fn spawn_run(fixture: &Fixture, seconds: u32) -> Running {
+    let script = format!("sleep {seconds}; echo child-end >&2");
+    Running(Some(
+        fixture
+            .command_in(Some("f1"), &["run", "worker", "/bin/sh", "-c", &script])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap(),
+    ))
+}
+
+/// Runs `args` while the run's next `hold` call is in flight. The fake
+/// driver releases that call when the command's own name-agent call has
+/// answered, so the command's commit and naming land between the run's two
+/// reads. The run's 1 s call cap bounds the barrier; a lapse fails here.
 fn during_the_call(fixture: &Fixture, args: &[&str]) {
     let holding = fixture.root.join("driver/holding");
+    let held = || fs::read_to_string(fixture.root.join("driver/held")).unwrap_or_default();
+    let before = held().lines().count();
     // Bounded: the run's attempts come at its 5 s ticks.
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(9);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     while !holding.exists() {
         assert!(std::time::Instant::now() < deadline, "no held call");
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
     let output = fixture.tmt_in(Some("f1"), args);
     assert!(output.status.success(), "tmt {args:?}: {output:?}");
-    fs::write(fixture.root.join("driver/release"), "").unwrap();
-    while holding.exists() {
+    while held().lines().count() == before {
         assert!(
             std::time::Instant::now() < deadline,
             "the held call did not end"
         );
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
+    assert_eq!(
+        held().lines().nth(before),
+        Some("released"),
+        "tmt {args:?} did not name the agent inside the run's 1 s call (lapsed)"
+    );
 }
 
 /// The names the driver was asked to set, in order.
@@ -885,13 +919,8 @@ fn run_ends_with_the_newest_name_after_renames_during_its_calls() {
     let run = spawn_run(&fixture, 18);
     during_the_call(&fixture, &["mv", "worker", "boss"]);
     during_the_call(&fixture, &["mv", "boss", "chief"]);
-    let output = run.wait_with_output().unwrap();
+    let output = run.finish();
     assert!(output.status.success(), "{output:?}");
-    assert_eq!(
-        fs::read_to_string(fixture.root.join("driver/held")).unwrap(),
-        "released\nreleased\n",
-        "each mv landed inside the run's call"
-    );
     // The run, the first mv, the run's correction (held), the second mv,
     // the run's correction.
     assert_eq!(
@@ -915,12 +944,8 @@ fn a_binding_that_ends_during_the_runs_call_gets_one_warning() {
     fixture.approve();
     let run = spawn_run(&fixture, 8);
     during_the_call(&fixture, &["unbind"]);
-    let output = run.wait_with_output().unwrap();
+    let output = run.finish();
     assert!(output.status.success(), "{output:?}");
-    assert_eq!(
-        fs::read_to_string(fixture.root.join("driver/held")).unwrap(),
-        "released\n"
-    );
     // The run, then the unbind's clear; the run made no later call.
     assert_eq!(
         named_names(&fixture),
@@ -1143,22 +1168,23 @@ fn ls_shows_the_agent_name_and_advises_on_a_mismatch_or_a_kind_label() {
     let text = String::from_utf8_lossy(&human.stdout);
     assert!(!text.contains("agent name"), "{text}");
 
-    // Someone renamed the agent in the host: the row shows the mismatch and
-    // says to clear that name before setting TMT's.
+    // Someone renamed the agent in the host: the row shows the mismatch, the
+    // repair, and the clear for when the repair is refused.
     fs::write(&agent_name, "ann").unwrap();
     let human = fixture.tmt(&["ls"]);
     let text = String::from_utf8_lossy(&human.stdout);
     assert!(
-        text.contains("worker's agent has the fake agent name ann, which TMT did not set"),
+        text.contains("worker's agent has the fake agent name ann, not worker"),
         "{text}"
     );
+    assert!(text.contains("clear it in the host first"), "{text}");
     assert!(
-        text.contains("Clear that agent name in the host, then in its pane run: tmt this worker"),
+        text.contains("In worker's pane run: tmt this worker"),
         "{text}"
     );
     assert!(!text.contains("label"), "{text}");
 
-    // The advice in its order: without the clear, the host keeps its name.
+    // The repair is refused for a name TMT did not set, and the host keeps it.
     let this = |fixture: &Fixture| {
         let output = fixture.tmt_in(Some("f1"), &["this", "worker", "--json"]);
         assert!(output.status.success(), "{output:?}");
@@ -1199,4 +1225,47 @@ fn ls_shows_the_agent_name_and_advises_on_a_mismatch_or_a_kind_label() {
         "{text}"
     );
     assert!(text.contains("tmt mv claude <name>"), "{text}");
+}
+
+/// TMT's own older name: a `tmt mv` the host refused leaves the agent with
+/// the name TMT set before. `tmt ls` shows the mismatch neutrally, and the
+/// advised `tmt this` sets the new name with no clear in the host.
+#[test]
+fn ls_advice_repairs_tmts_own_older_name_without_a_clear() {
+    register();
+    // The bind sets and records `worker`; the host refuses `boss` for the mv.
+    let fixture = naming("ls-owned-name", &["", "name_taken"]);
+    fixture.approve();
+    assert!(
+        fixture
+            .tmt_in(Some("f1"), &["name", "worker", "--save"])
+            .status
+            .success()
+    );
+    let agent_name = fixture.root.join("driver/agentname");
+    assert_eq!(fs::read_to_string(&agent_name).unwrap(), "worker");
+    let moved = fixture.json(&["mv", "worker", "boss", "--json"]);
+    assert_eq!(agent_name_of(&moved)["status"], "refused", "{moved:#}");
+    assert_eq!(fs::read_to_string(&agent_name).unwrap(), "worker");
+
+    let human = fixture.tmt(&["ls"]);
+    let text = String::from_utf8_lossy(&human.stdout);
+    assert!(
+        text.contains("boss's agent has the fake agent name worker, not boss"),
+        "{text}"
+    );
+    assert!(!text.contains("which TMT did not set"), "{text}");
+    assert!(text.contains("In boss's pane run: tmt this boss"), "{text}");
+
+    let output = fixture.tmt_in(Some("f1"), &["this", "boss", "--json"]);
+    assert!(output.status.success(), "{output:?}");
+    let set: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        agent_name_of(&set),
+        &serde_json::json!({"status": "set", "name": "boss"})
+    );
+    assert_eq!(fs::read_to_string(&agent_name).unwrap(), "boss");
+    let human = fixture.tmt(&["ls"]);
+    let text = String::from_utf8_lossy(&human.stdout);
+    assert!(!text.contains("agent name"), "{text}");
 }
