@@ -55,12 +55,17 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, mut area: Rect) {
     }
     if let Some(snapshot) = app.workspace_snapshot() {
         let savings = app.digest_savings(snapshot.roster.members.keys().map(String::as_str));
-        summary.push(Line::styled(
-            model::savings_caption(&savings, app.digest_window(), usize::from(area.width)),
-            look.role(Role::Dim),
-        ));
-        if let Some(start) = app.digest_savings_start(&savings) {
-            summary.push(Line::styled(start, look.role(Role::Dim)));
+        let caption =
+            model::savings_caption(&savings, app.digest_window(), usize::from(area.width));
+        for text in [Some(caption), app.digest_savings_start(&savings)]
+            .into_iter()
+            .flatten()
+        {
+            summary.extend(
+                crate::board::notes::wrap(&text, usize::from(area.width))
+                    .into_iter()
+                    .map(|line| Line::styled(line, look.role(Role::Dim))),
+            );
         }
     }
     summary.push(Line::styled(super::summary(app), look.role(Role::Text)));

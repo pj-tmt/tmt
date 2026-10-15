@@ -732,6 +732,60 @@ fn member_savings_remain_visible_at_each_supported_width() {
 }
 
 #[test]
+fn digest_all_time_keeps_both_collection_dates_visible_at_narrow_widths() {
+    use crate::config::DigestWindow;
+    const SECOND: &str = "44444444-4444-4444-8444-444444444444";
+    let ms = |text: &str| text.parse::<jiff::Timestamp>().unwrap().as_millisecond() as u64;
+    for width in [60, 80, 100, 160] {
+        let mut app = savings_board();
+        app.local_zone = Some(jiff::tz::TimeZone::get("Asia/Tokyo").unwrap());
+        let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+        workspace.preferences.digest_window = DigestWindow::AllTime;
+        workspace.roster.members.insert(
+            SECOND.into(),
+            OpsMember {
+                id: SECOND.into(),
+                name: "second".into(),
+                state: None,
+                waiting: false,
+                presence: None,
+                usage: None,
+            },
+        );
+        let mut document = savings_document();
+        document["observedAtMs"] = serde_json::json!(1_792_036_800_000u64);
+        let mut second = document["members"][0].clone();
+        second["identityId"] = serde_json::json!(SECOND);
+        document["members"].as_array_mut().unwrap().push(second);
+        for (row, start) in document["members"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .zip(["2026-10-01T15:00:00Z", "2026-10-08T15:00:00Z"])
+        {
+            row["savings"]["window"] = serde_json::json!("lifetime");
+            row["savings"]["fromMs"] = serde_json::json!(ms(start));
+            row["savings"]["throughMs"] = serde_json::json!(1_792_036_800_000u64);
+        }
+        app.labels = crate::labels::Supplied::from_document("digest", &document, false);
+        press(&mut app, '3');
+        let shown = paint(&mut app, width, 36);
+        assert!(
+            shown.contains("since Digest began recording"),
+            "width {width}: {shown}"
+        );
+        assert!(
+            shown.contains("10-02"),
+            "first collection date, width {width}: {shown}"
+        );
+        assert!(
+            shown.contains("10-09"),
+            "last collection date, width {width}: {shown}"
+        );
+    }
+}
+
+#[test]
 fn window_choice_uses_the_existing_cas_and_never_relabels_old_evidence() {
     use crate::{
         board::app::{Choice, Effect, Request},
