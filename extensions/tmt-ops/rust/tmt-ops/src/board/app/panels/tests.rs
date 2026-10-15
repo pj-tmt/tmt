@@ -489,3 +489,55 @@ fn hiding_conversation_after_tab_focus_does_not_create_an_explicit_message_revea
     assert!(app.conversation.borrow().pane.is_none());
     assert_eq!(app.workspace.selected, selected);
 }
+
+#[test]
+fn workspace_pointer_uses_the_same_policy_rectangles_as_overview_paint() {
+    use crate::{
+        board::workspace::OpsTarget,
+        config::{OverviewPanel, Pane},
+    };
+    use ratatui::{Terminal, backend::TestBackend};
+    for side_shown in [false, true] {
+        let mut app = board();
+        app.workspace.selected = Some(OpsTarget::Member {
+            room_id: Some(crate::board::app::workspace::tests::ROOM.into()),
+            identity_id: crate::board::app::workspace::tests::MEMBER.into(),
+        });
+        let mut policy = OverviewPanels::default();
+        if side_shown {
+            policy.set_shown(OverviewPanel::Monitor, false).unwrap();
+        } else {
+            policy.set_side_shown(false).unwrap();
+        }
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .preferences
+            .overview_panels = Some(PanelSetting::configured(policy));
+        // At compact width a hidden monitor leaves Conversation as the only
+        // interactive pane; at wide width disabling Conversation frees its space.
+        let width = if side_shown { 100 } else { 160 };
+        let mut terminal = Terminal::new(TestBackend::new(width, 36)).unwrap();
+        terminal
+            .draw(|frame| {
+                crate::board::view::prepare(&mut app, frame.area());
+                crate::board::view::render(frame, &app);
+            })
+            .unwrap();
+        let area = app.conversation.borrow().area;
+        let expected = if side_shown {
+            Pane::Replies
+        } else {
+            Pane::Rows
+        };
+        assert_eq!(
+            app.pointer_pane(area.right() - 2, area.y + 2),
+            Some(expected)
+        );
+        assert_eq!(app.pointer_pane(area.x + 2, area.y + 2), Some(expected));
+    }
+}
