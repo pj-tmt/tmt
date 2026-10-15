@@ -9,13 +9,14 @@ pub struct Job<'a> {
     pub owner_valid: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Count {
     pub active: u32,
     pub total: u32,
 }
 
 pub enum CronCountScope<'a> {
+    All,
     Owner { id: &'a str, room: Option<&'a str> },
     Room(&'a str),
 }
@@ -25,6 +26,7 @@ pub enum CronCountScope<'a> {
 #[derive(Default)]
 pub struct Summary {
     known: bool,
+    all: Count,
     rooms: BTreeMap<String, Count>,
     owners: BTreeMap<(String, Option<String>), Count>,
 }
@@ -49,6 +51,7 @@ impl Summary {
                     .active
                     .saturating_add(u32::from(job.on && job.owner_valid && job.owner.is_some()));
             };
+            add(&mut result.all);
             add(result.rooms.entry(job.room.to_owned()).or_insert(Count {
                 active: 0,
                 total: 0,
@@ -73,6 +76,7 @@ impl Summary {
             return None;
         }
         let count = match scope {
+            CronCountScope::All => Some(&self.all),
             CronCountScope::Room(room) => self.rooms.get(room),
             CronCountScope::Owner { id, room } => {
                 self.owners.get(&(id.to_owned(), room.map(str::to_owned)))
@@ -190,5 +194,59 @@ mod tests {
             "◷ 2/3"
         );
         // There is intentionally no clock input: paused clock is not paused job.
+    }
+
+    #[test]
+    fn all_counts_include_orphans_and_equal_the_deduplicated_room_totals() {
+        let jobs = [
+            Job {
+                room: "r1",
+                id: "a",
+                owner: Some("agent"),
+                on: true,
+                owner_valid: true,
+            },
+            Job {
+                room: "r1",
+                id: "a",
+                owner: Some("agent"),
+                on: true,
+                owner_valid: true,
+            },
+            Job {
+                room: "r1",
+                id: "orphan",
+                owner: None,
+                on: true,
+                owner_valid: false,
+            },
+            Job {
+                room: "r2",
+                id: "a",
+                owner: Some("gone"),
+                on: true,
+                owner_valid: false,
+            },
+        ];
+        let summary = Summary::of(Some(&jobs));
+        let all = summary.count(CronCountScope::All).unwrap();
+        assert_eq!(
+            all,
+            Count {
+                active: 1,
+                total: 3
+            }
+        );
+        let rooms: Vec<_> = ["r1", "r2"]
+            .into_iter()
+            .map(|room| summary.count(CronCountScope::Room(room)).unwrap())
+            .collect();
+        assert_eq!(all.active, rooms.iter().map(|c| c.active).sum::<u32>());
+        assert_eq!(all.total, rooms.iter().map(|c| c.total).sum::<u32>());
+        assert_eq!(
+            Summary::of(Some(&[])).count(CronCountScope::All),
+            Some(Count::default())
+        );
+        assert_eq!(Summary::of(None).count(CronCountScope::All), None);
     }
 }

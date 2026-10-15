@@ -26,9 +26,13 @@ distinct. Per-squad rank/state never becomes a global identity state.
 one snapshot. Pool remains first; pinned squads precede the selected sort order.
 A collapsed squad keeps its worst observed child state, prioritizing attention.
 Refresh, sorting, pinning and search preserve the anchor; a hidden or removed
-anchor disables actions rather than selecting its neighbour. A filter with no
-observed matches keeps Common pool and adds a non-interactive message in the
-tree viewport; it does not replace the selection or claim a complete roster.
+anchor disables actions rather than selecting its neighbour. The session-local
+Agents filter selects All, Needs you or Pinned without saving
+preferences. All keeps Common pool first; Needs you retains qualifying groups and
+incomplete evidence; Pinned selects real pinned squads. Search keeps matching
+ancestors and temporarily reveals matching children without changing saved
+expansion. Group totals remain unfiltered room totals. Empty filtered results are
+non-interactive; retained hidden targets grant no action authority.
 
 ## Shell, geometry and input
 
@@ -47,7 +51,10 @@ selected UUID. Only viewport rows build display text and hits.
 `overview::composition` places summary, Digest, quota, chart, monitor and exchange
 panels independently. At 140 columns and 12 body rows, Overview reserves 60% for
 these panels, one separator and the remainder for the existing conversation;
-Agents placement is unchanged. Recent exchanges are bounded latest lead exchanges
+Agents has its own 47% list placement (75 cells at 160 columns), with Auto stacking
+below 120 columns. Its shared title, filter and snapshots bands precede both panes;
+optional bands yield on short screens to preserve the conversation's usable budget.
+Digest retains its existing placement. Recent exchanges are bounded latest lead exchanges
 plus own-result metadata, not an event log: source times sort newest first,
 untimed rows last, and failed or unacquired pages say unavailable. Successful empty
 pages say No observed recent exchanges. Summaries label incomplete totals and
@@ -68,7 +75,7 @@ focuses the selected agent's conversation: compact Overview opens Agents, while
 wide Overview retains its shared pane. A retained Reader moves to Agents when
 Overview can no longer fit its conversation; refresh/resize never converts its
 scroll keys into list/Host actions. Logical placement survives clearing pointer
-rectangles. With fewer than three content rows, the tree omits its outline and
+rectangles. With fewer than three content rows, the table omits its header and
 keeps usable target rows.
 
 The retired HOME attention/audience/cron/tile body painters and their caches are
@@ -81,11 +88,18 @@ than maintaining a second HOME renderer. The single decoded HOME oracle and
 private workspace capture packet share literal fixtures and the actual frame
 entry point; source changes do not authorize frozen regeneration.
 
-Selected-squad detail formats supplied usage windows, lead readings/share and
-independent model observations without the old tile width rules. Missing totals
-do not hide independently supplied lead readings or share; absent observations
-remain not reported, measured zero stays zero, and partial evidence keeps its
-marker. Squad summary does not expose private lead task or link fields.
+Selected-squad detail presents a fixed-width roster preview with lead-first UUID
+members, scoped state and supplied task/next text. Common pool remains virtual.
+The detail retains supplied usage windows, independent lead model/readings/share,
+and their missing/partial markers. It does not expose private lead summary fields.
+The shared HOUR observations supply Agents room token totals, deduplicated once per
+member (~ when any member is missing/partial, — when none is observed); Common pool
+group tokens remain unavailable. Overview and Agents share the truthful TOK 1h and
+spaced ◷ CRON captions. Shell online/waiting/blocked aggregates are computed during
+snapshot configuration from independent UUID sets; paint reads them on every tab,
+qualifying partial/unknown evidence rather than publishing false zero totals.
+Agents tables use the shared Scrolls table viewport, reveal and paging rule with
+one non-interactive range/total/more line, including when every row fits.
 
 Config projects one effective table per list/Reader scope for dispatch, help and
 footer. Reader defaults scroll responses with `j/k`; compatible explicit

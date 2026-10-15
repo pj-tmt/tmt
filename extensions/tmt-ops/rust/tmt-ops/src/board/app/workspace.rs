@@ -157,6 +157,7 @@ impl App {
                     action.verb,
                     Verb::Ui(
                         OpsUiAction::WorkspaceSnapshots
+                            | OpsUiAction::AgentsFilter
                             | OpsUiAction::DiscoverAgents
                             | OpsUiAction::RenameMember
                     )
@@ -393,6 +394,10 @@ impl App {
             return self.say("Loading the workspace…");
         }
         match action {
+            AgentsFilter if self.shell.tab == OpsTab::Agents => {
+                return self.agents_filter(self.workspace.filter.next());
+            }
+            AgentsFilter => return Effect::None,
             OverviewFilter if self.shell.tab == OpsTab::Overview => {
                 self.overview_filter = self.overview_filter.next();
                 self.overview_rows.borrow_mut().clear();
@@ -556,6 +561,20 @@ impl App {
                 unreachable!("shell actions handled first")
             }
         }
+        Effect::None
+    }
+
+    pub(in crate::board) fn agents_filter(
+        &mut self,
+        filter: crate::board::workspace::AgentsFilter,
+    ) -> Effect {
+        if self.shell.tab != OpsTab::Agents || self.workspace_scope() == OpsKeyScope::Reader {
+            return Effect::None;
+        }
+        self.workspace.filter = filter;
+        self.workspace_reconcile();
+        self.invalidate_frame_geometry();
+        self.follow = true;
         Effect::None
     }
     pub(super) fn workspace_input_owner(&self) -> crate::board::shell::OpsInputOwner {

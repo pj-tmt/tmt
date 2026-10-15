@@ -16,6 +16,10 @@ const STRUCTURAL_GLYPHS: &[(&str, &str)] = &[
     ("…", "shared text fitter's truncation indicator"),
     ("–", "unavailable evidence; distinct from measured zero"),
     (
+        "—",
+        "unavailable fixed-table evidence; same unknown meaning as en dash",
+    ),
+    (
         "↑↓←→",
         "navigation keys, scroll direction and annotation targets",
     ),
@@ -157,4 +161,26 @@ fn real_pane_titles_register_heavy_no_color_and_ascii_focus_cues() {
         }
         assert_eq!(glyph_error(&title), None, "{title}");
     }
+}
+
+#[test]
+fn unavailable_table_cell_uses_the_registered_em_dash_without_broadening_decorations() {
+    use ratatui::{Terminal, backend::TestBackend};
+    let app = crate::board::app::workspace::tests::board();
+    let mut terminal = Terminal::new(TestBackend::new(60, 24)).unwrap();
+    terminal
+        .draw(|frame| crate::board::view::render(frame, &app))
+        .unwrap();
+    let row = terminal
+        .backend()
+        .buffer()
+        .content
+        .chunks(60)
+        .map(|row| row.iter().map(|c| c.symbol()).collect::<String>())
+        .find(|row| row.contains("▸ Common pool"))
+        .unwrap();
+    assert!(row.contains('—'));
+    assert_eq!(glyph_error(&row), None);
+    assert!(glyph_error("—\u{fe0f}").is_some());
+    assert!(glyph_error("―").is_some());
 }

@@ -30,7 +30,7 @@ impl Column {
             Self::TokensPerHour => 7,
             Self::Digest => 11, // The longest supplied primary mode plus its choice mark fits whole.
             Self::Runtime | Self::Model => 8,
-            Self::Cron => 9,
+            Self::Cron => 10,
         }
     }
 }
@@ -66,17 +66,40 @@ pub fn solve(width: u16, fields: &[Column]) -> Vec<(Column, Rect)> {
         .map(|column| column.minimum())
         .sum();
     let agent = width.saturating_sub(fixed + fields.len().saturating_sub(1) as u16);
-    let mut markup = String::from("<tmt-view version=\"1\"><tmt-row class=\"flex-row gap-1 h-1\">");
-    for (index, column) in fields.iter().enumerate() {
-        let cells = if *column == Column::Agent {
-            agent
-        } else {
-            column.minimum()
-        };
+    let tracks: Vec<_> = fields
+        .iter()
+        .copied()
+        .map(|column| {
+            (
+                column,
+                if column == Column::Agent {
+                    agent
+                } else {
+                    column.minimum()
+                },
+                column.title(),
+                1,
+            )
+        })
+        .collect();
+    solve_tracks(width, &tracks)
+}
+
+/// Both host profiles materialize their tracks through this one TUI solver.
+fn solve_tracks<K: Copy>(width: u16, tracks: &[(K, u16, &str, u16)]) -> Vec<(K, Rect)> {
+    if width == 0 || tracks.is_empty() {
+        return Vec::new();
+    }
+    let mut markup = String::from("<tmt-view version=\"1\"><tmt-row class=\"flex-row h-1\">");
+    for (index, (_, cells, title, gap)) in tracks.iter().enumerate() {
         markup.push_str(&format!(
-            "<tmt-text id=\"c{index}\" class=\"w-{cells} shrink-0 truncate\">{}</tmt-text>",
-            column.title()
+            "<tmt-text id=\"c{index}\" class=\"w-{cells} shrink-0 truncate\">{title}</tmt-text>"
         ));
+        if index + 1 < tracks.len() {
+            markup.push_str(&format!(
+                "<tmt-text class=\"w-{gap} shrink-0\"> </tmt-text>"
+            ));
+        }
     }
     markup.push_str("</tmt-row></tmt-view>");
     let file = "ops.workspace.columns.xml";
@@ -94,11 +117,10 @@ pub fn solve(width: u16, fields: &[Column]) -> Vec<(Column, Rect)> {
         .expect("admitted workspace columns");
     let solved = tmt_tui::geometry::layout(&root, [width, 1], tmt_tui::text::measure)
         .expect("workspace column geometry");
-    fields
+    tracks
         .iter()
-        .copied()
         .enumerate()
-        .filter_map(|(index, column)| {
+        .filter_map(|(index, (column, _, _, _))| {
             let id = format!("c{index}");
             let cell = solved.iter().find(|cell| {
                 cell.node
@@ -107,7 +129,7 @@ pub fn solve(width: u16, fields: &[Column]) -> Vec<(Column, Rect)> {
                     .is_some_and(|path| path.last() == Some(&id))
             })?;
             Some((
-                column,
+                *column,
                 Rect::new(
                     cell.rect.x.max(0) as u16,
                     0,
@@ -120,6 +142,185 @@ pub fn solve(width: u16, fields: &[Column]) -> Vec<(Column, Rect)> {
         .collect()
 }
 
+/// Agents fields are presentation vocabulary, not configurable Overview columns.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentsField {
+    Agent,
+    Lead,
+    State,
+    Tokens,
+    Digest,
+    Cron,
+}
+
+impl AgentsField {
+    pub fn caption(self, glyphs: crate::board::overview::cron_counts::GlyphSet) -> &'static str {
+        match self {
+            Self::Agent => "SQUAD / AGENT",
+            Self::Lead => "LEAD",
+            Self::State => "MEMBERS / STATE",
+            Self::Tokens => TOKENS_CAPTION,
+            Self::Digest => "DIGEST",
+            Self::Cron => cron_caption(glyphs),
+        }
+    }
+    fn minimum(self) -> u16 {
+        match self {
+            Self::Agent => 22,
+            Self::Lead => 20,
+            Self::State => 15,
+            Self::Tokens => 8,
+            Self::Digest => 7,
+            Self::Cron => 7,
+        }
+    }
+    fn gap(self) -> u16 {
+        match self {
+            Self::Lead | Self::Tokens => 2,
+            _ => 1,
+        }
+    }
+}
+
+pub const TOKENS_CAPTION: &str = "TOK 1h";
+pub fn cron_caption(glyphs: crate::board::overview::cron_counts::GlyphSet) -> &'static str {
+    match glyphs {
+        crate::board::overview::cron_counts::GlyphSet::Unicode => "◷ CRON",
+        crate::board::overview::cron_counts::GlyphSet::Ascii => "CRON",
+    }
+}
+
+#[derive(Default)]
+pub(in crate::board) struct AgentsLayout {
+    held: Option<(u16, Vec<(AgentsField, Rect)>)>,
+    roster: Option<(u16, Vec<(RosterField, Rect)>)>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RosterField {
+    Member,
+    State,
+    Task,
+}
+
+impl RosterField {
+    pub fn caption(self) -> &'static str {
+        match self {
+            Self::Member => "MEMBER",
+            Self::State => "STATE",
+            Self::Task => "TASK / NEXT ACTION",
+        }
+    }
+}
+impl AgentsLayout {
+    pub fn roster_slots(&mut self, area: Rect) -> Vec<(RosterField, Rect)> {
+        if self
+            .roster
+            .as_ref()
+            .is_none_or(|(width, _)| *width != area.width)
+        {
+            let member = if area.width >= 66 { 22 } else { 12 };
+            let state = 15;
+            let task = area.width.saturating_sub(member + state + 2);
+            self.roster = Some((
+                area.width,
+                solve_tracks(
+                    area.width,
+                    &[
+                        (RosterField::Member, member, "MEMBER", 1),
+                        (RosterField::State, state, "STATE", 1),
+                        (RosterField::Task, task, "TASK / NEXT ACTION", 0),
+                    ],
+                ),
+            ));
+        }
+        self.roster
+            .as_ref()
+            .unwrap()
+            .1
+            .iter()
+            .map(|(field, slot)| {
+                (
+                    *field,
+                    Rect::new(area.x + slot.x, area.y, slot.width, 1).intersection(area),
+                )
+            })
+            .collect()
+    }
+    /// `inside` is the list rectangle after canonical placement and pane chrome.
+    pub fn slots(&mut self, inside: Rect) -> Vec<(AgentsField, Rect)> {
+        if self
+            .held
+            .as_ref()
+            .is_none_or(|(width, _)| *width != inside.width)
+        {
+            let width = inside.width.saturating_sub(2);
+            let mut fields = vec![AgentsField::Agent];
+            if inside.width >= 100 {
+                fields.push(AgentsField::Lead);
+            }
+            fields.push(AgentsField::State);
+            if inside.width >= 100 {
+                fields.push(AgentsField::Tokens);
+            }
+            fields.extend([AgentsField::Digest, AgentsField::Cron]);
+            let gap = |field: AgentsField| {
+                if inside.width >= 100 && field == AgentsField::State {
+                    2
+                } else {
+                    field.gap()
+                }
+            };
+            let demand = |fields: &[AgentsField]| {
+                fields.iter().map(|f| f.minimum()).sum::<u16>()
+                    + fields
+                        .iter()
+                        .take(fields.len().saturating_sub(1))
+                        .map(|f| gap(*f))
+                        .sum::<u16>()
+            };
+            for optional in [AgentsField::Digest, AgentsField::Cron] {
+                if demand(&fields) <= width {
+                    break;
+                }
+                fields.retain(|f| *f != optional);
+            }
+            let fixed = demand(&fields).saturating_sub(AgentsField::State.minimum());
+            let state_width = width.saturating_sub(fixed);
+            let tracks: Vec<_> = fields
+                .iter()
+                .copied()
+                .map(|field| {
+                    (
+                        field,
+                        if field == AgentsField::State {
+                            state_width
+                        } else {
+                            field.minimum()
+                        },
+                        field.caption(Default::default()),
+                        gap(field),
+                    )
+                })
+                .collect();
+            self.held = Some((inside.width, solve_tracks(width, &tracks)));
+        }
+        self.held
+            .as_ref()
+            .unwrap()
+            .1
+            .iter()
+            .map(|(field, slot)| {
+                (
+                    *field,
+                    Rect::new(inside.x.saturating_add(1 + slot.x), inside.y, slot.width, 1)
+                        .intersection(inside),
+                )
+            })
+            .collect()
+    }
+}
+
 /// The shared sortable header surface. Hosts provide their caption and hit owner.
 pub fn paint_header(
     buffer: &mut ratatui::buffer::Buffer,
@@ -129,6 +330,62 @@ pub fn paint_header(
     order: Option<crate::config::OverviewSort>,
     hover: Option<Column>,
     caption: impl Fn(Column) -> String,
+) {
+    paint_header_tracks(buffer, area, slots, look, caption, |column| {
+        let mark = order.filter(|order| order.column == column).map_or_else(
+            || if hover == Some(column) { " ↕" } else { "" },
+            |order| {
+                if order.direction == crate::config::OverviewDirection::Ascending {
+                    " ↑"
+                } else {
+                    " ↓"
+                }
+            },
+        );
+        (mark, hover == Some(column))
+    });
+}
+
+pub fn paint_agents_header(
+    buffer: &mut ratatui::buffer::Buffer,
+    area: Rect,
+    slots: &[(AgentsField, Rect)],
+    look: crate::look::Look,
+    glyphs: crate::board::overview::cron_counts::GlyphSet,
+) {
+    paint_header_tracks(
+        buffer,
+        area,
+        slots,
+        look,
+        |field| field.caption(glyphs).into(),
+        |_| ("", false),
+    );
+}
+
+pub fn paint_roster_header(
+    buffer: &mut ratatui::buffer::Buffer,
+    area: Rect,
+    slots: &[(RosterField, Rect)],
+    look: crate::look::Look,
+) {
+    paint_header_tracks(
+        buffer,
+        area,
+        slots,
+        look,
+        |field| field.caption().into(),
+        |_| ("", false),
+    );
+}
+
+fn paint_header_tracks<K: Copy>(
+    buffer: &mut ratatui::buffer::Buffer,
+    area: Rect,
+    slots: &[(K, Rect)],
+    look: crate::look::Look,
+    caption: impl Fn(K) -> String,
+    annotation: impl Fn(K) -> (&'static str, bool),
 ) {
     use ratatui::{style::Modifier, text::Line};
     use tmt_tui::components::strip;
@@ -141,25 +398,23 @@ pub fn paint_header(
     } else {
         look.role(Role::Track).patch(look.role(Role::Muted))
     }
-    .add_modifier(Modifier::BOLD);
+    .add_modifier(
+        Modifier::BOLD
+            | if area.height == 1 {
+                Modifier::UNDERLINED
+            } else {
+                Modifier::empty()
+            },
+    );
     buffer.set_style(row, base);
     for (column, slot) in slots {
-        let mark = order.filter(|order| order.column == *column).map_or_else(
-            || if hover == Some(*column) { " ↕" } else { "" },
-            |order| {
-                if order.direction == crate::config::OverviewDirection::Ascending {
-                    " ↑"
-                } else {
-                    " ↓"
-                }
-            },
-        );
+        let (mark, hot) = annotation(*column);
         let mark_width = unicode_width::UnicodeWidthStr::width(mark) as u16;
         let label = crate::board::view::fit(
             &caption(*column),
             usize::from(slot.width.saturating_sub(mark_width)),
         );
-        let style = if hover == Some(*column) {
+        let style = if hot {
             base.patch(look.role(Role::Accent))
         } else {
             base
@@ -175,10 +430,51 @@ pub fn paint_header(
     }
 }
 
+pub fn state_symbol(state: Option<&str>) -> &'static str {
+    match state {
+        Some("working") => "●",
+        Some("waiting") => "◆",
+        Some("blocked") => "✗",
+        Some("review") => "◐",
+        Some("idle") => "◌",
+        Some("offline") => "○",
+        _ => "—",
+    }
+}
+
+/// State semantics apply only to the state cell; other table cells stay neutral.
+pub fn state_style(app: &crate::board::app::App, row: &OpsTreeRow) -> ratatui::style::Style {
+    let look = app.look();
+    let role = match row.state.as_deref() {
+        Some("waiting") => Role::Waiting,
+        Some("blocked") => Role::Blocked,
+        Some("working") => Role::Working,
+        _ => Role::Text,
+    };
+    app.workspace_snapshot()
+        .and_then(|snapshot| snapshot.rows.get(&row.target))
+        .and_then(|raw| raw["colors"]["state"].as_str())
+        .filter(|_| row.state.as_deref() != Some("waiting"))
+        .map_or_else(|| look.role(role), |color| look.named(color))
+}
+
+pub fn table_style(
+    app: &crate::board::app::App,
+    selected: bool,
+    style: ratatui::style::Style,
+) -> ratatui::style::Style {
+    if selected && app.focused() == crate::config::Pane::Rows {
+        app.look()
+            .selection()
+            .patch(app.look().row_span(true, style, false))
+    } else {
+        crate::board::pane_chrome::row_style(app, selected, style)
+    }
+}
+
 #[derive(Clone)]
 pub struct WorkspaceColumnLabel {
     pub text: String,
-    pub role: Role,
     pub actionable: bool,
 }
 
@@ -260,7 +556,6 @@ pub fn project(input: WorkspaceColumnInput<'_>) -> Option<WorkspaceColumnValues>
         .filter(|(source, _)| *source == "digest")
         .map(|(_, label)| WorkspaceColumnLabel {
             text: label.text.clone(),
-            role: label.role,
             actionable: label.action.is_some(),
         })
         .collect();
@@ -284,6 +579,66 @@ pub fn project(input: WorkspaceColumnInput<'_>) -> Option<WorkspaceColumnValues>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn agents_tracks_follow_pane_width_and_drop_only_whole_optional_fields() {
+        let mut layout = AgentsLayout::default();
+        let narrow = layout.slots(Rect::new(1, 7, 58, 1));
+        assert_eq!(
+            narrow
+                .iter()
+                .map(|(field, slot)| (*field, slot.x, slot.width))
+                .collect::<Vec<_>>(),
+            vec![
+                (AgentsField::Agent, 2, 22),
+                (AgentsField::State, 25, 17),
+                (AgentsField::Digest, 43, 7),
+                (AgentsField::Cron, 51, 7)
+            ]
+        );
+        assert!(
+            !layout
+                .slots(Rect::new(1, 7, 98, 1))
+                .iter()
+                .any(|(field, _)| *field == AgentsField::Lead)
+        );
+        let wide = layout.slots(Rect::new(1, 7, 158, 1));
+        assert_eq!(
+            wide.iter()
+                .map(|(field, slot)| (*field, slot.x, slot.width))
+                .collect::<Vec<_>>(),
+            vec![
+                (AgentsField::Agent, 2, 22),
+                (AgentsField::Lead, 25, 20),
+                (AgentsField::State, 47, 84),
+                (AgentsField::Tokens, 133, 8),
+                (AgentsField::Digest, 143, 7),
+                (AgentsField::Cron, 151, 7)
+            ]
+        );
+        for width in [0, 1, 22, 40, 53, 54, 60, 73, 98, 100, 158] {
+            let area = Rect::new(4, 8, width, 1);
+            let slots = layout.slots(area);
+            assert!(
+                slots
+                    .iter()
+                    .all(|(_, slot)| slot.intersection(area) == *slot)
+            );
+            assert!(
+                slots
+                    .windows(2)
+                    .all(|pair| pair[0].1.right() <= pair[1].1.x)
+            );
+            assert_eq!(
+                slots.iter().any(|(field, _)| *field == AgentsField::Lead),
+                width >= 100
+            );
+            if width < 54 {
+                assert!(!slots.iter().any(|(field, _)| *field == AgentsField::Digest));
+            }
+        }
+        assert_eq!(cron_caption(Default::default()), "◷ CRON");
+    }
 
     #[test]
     fn shared_header_surface_hover_arrow_and_no_color_are_independent_of_selection() {
@@ -395,7 +750,10 @@ mod tests {
             "generic labels cannot invent typed mode evidence"
         );
         assert_eq!(projected.digest_labels[0].text, "supplier mode");
-        assert_eq!(projected.digest_labels[0].role, Role::Waiting);
+        assert_eq!(
+            app.labels.of(identity_id).next().unwrap().1.role,
+            Role::Waiting
+        );
         assert_eq!(
             projected.cron,
             Some((0, 0)),

@@ -180,6 +180,12 @@ impl Look {
     /// and the background stay. Without a selection background (reverse
     /// fallback), `row_span` has already decided.
     pub fn selected_words(&self, buffer: &mut Buffer) {
+        self.selected_words_except(buffer, &[]);
+    }
+
+    /// Table state words keep their foreground under background-only selection.
+    /// The frame owner supplies only current, unobscured state-cell rectangles.
+    pub fn selected_words_except(&self, buffer: &mut Buffer, states: &[ratatui::layout::Rect]) {
         let Some(selection) = self.role(Role::Selection).bg else {
             return;
         };
@@ -196,12 +202,22 @@ impl Look {
             Role::Link,
         ]
         .map(|role| self.role(role).fg);
-        for cell in &mut buffer.content {
+        let width = usize::from(buffer.area.width).max(1);
+        let origin = buffer.area;
+        for (index, cell) in buffer.content.iter_mut().enumerate() {
             // A reversed cell shows its foreground as the background: not a word.
             if cell.bg != selection
                 || cell.fg == Color::Reset
                 || cell.modifier.contains(Modifier::REVERSED)
             {
+                continue;
+            }
+            let point = (
+                origin.x + (index % width) as u16,
+                origin.y + (index / width) as u16,
+            )
+                .into();
+            if states.iter().any(|area| area.contains(point)) {
                 continue;
             }
             let fg = Some(cell.fg);
@@ -327,6 +343,39 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+
+    #[test]
+    fn table_state_word_exclusions_keep_only_the_admitted_cells_colored() {
+        for base in [tmt_cli_style::Base::Tmt, tmt_cli_style::Base::TmtLight] {
+            let look = Look {
+                theme: Theme::new(base),
+                depth: Depth::TrueColor,
+            };
+            let mut buffer = Buffer::empty(ratatui::layout::Rect::new(3, 4, 8, 1));
+            for x in 3..11 {
+                buffer[(x, 4)]
+                    .set_symbol("w")
+                    .set_style(look.selection().patch(look.role(Role::Waiting)));
+            }
+            let state = ratatui::layout::Rect::new(6, 4, 3, 1);
+            look.selected_words_except(&mut buffer, &[state]);
+            for x in 3..11 {
+                assert_eq!(
+                    buffer[(x, 4)].fg,
+                    look.role(if (6..9).contains(&x) {
+                        Role::Waiting
+                    } else {
+                        Role::Text
+                    })
+                    .fg
+                    .unwrap()
+                );
+                assert_eq!(buffer[(x, 4)].bg, look.selection().bg.unwrap());
+            }
+            look.selected_words(&mut buffer);
+            assert!((3..11).all(|x| buffer[(x, 4)].fg == look.role(Role::Text).fg.unwrap()));
         }
     }
 

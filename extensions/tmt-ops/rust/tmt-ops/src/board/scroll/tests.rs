@@ -7,6 +7,67 @@ fn lines(count: usize) -> Vec<Line<'static>> {
         .collect()
 }
 
+#[test]
+fn table_range_and_reveal_share_one_viewport_for_fitting_and_overflowing_rows() {
+    for (content, height) in [(0, 4), (2, 4), (4, 4), (10, 4), (3, 1)] {
+        let scrolls = Scrolls::default();
+        let area = Rect::new(0, 0, 60, height);
+        let mut terminal = Terminal::new(TestBackend::new(60, height)).unwrap();
+        let draw = |terminal: &mut Terminal<TestBackend>| {
+            terminal
+                .draw(|frame| {
+                    scrolls.begin_frame();
+                    scrolls.show_table(
+                        frame,
+                        Pane::Rows,
+                        area,
+                        content,
+                        crate::look::Look::default(),
+                        |frame, view, offset| {
+                            for (index, line) in lines(content)
+                                .into_iter()
+                                .enumerate()
+                                .skip(offset)
+                                .take(usize::from(view.height))
+                            {
+                                strip::paint_left(
+                                    frame.buffer_mut(),
+                                    Rect::new(
+                                        view.x,
+                                        view.y + (index - offset) as u16,
+                                        view.width,
+                                        1,
+                                    ),
+                                    line,
+                                );
+                            }
+                        },
+                    );
+                })
+                .unwrap();
+        };
+        draw(&mut terminal);
+        let viewport = Scrolls::table_viewport(area);
+        assert_eq!(
+            scrolls.page_lines(Pane::Rows),
+            viewport.saturating_sub(1).max(1)
+        );
+        scrolls.reveal_table_range(Pane::Rows, content.saturating_sub(1)..content, area);
+        draw(&mut terminal);
+        assert_eq!(scrolls.offset(Pane::Rows), content.saturating_sub(viewport));
+        if height >= 2 {
+            let range = (0..60)
+                .map(|x| terminal.backend().buffer()[(x, height - 1)].symbol())
+                .collect::<String>();
+            assert!(
+                range.contains(&format!("/ {content} rows  ·  0 more ↓")),
+                "{range}"
+            );
+        }
+        assert_eq!(scrolls.pane_at(0, 0), Some(Pane::Rows));
+    }
+}
+
 /// Draws `count` lines for `pane` in a 20x`height` area and returns the
 /// screen text.
 fn draw(scrolls: &Scrolls, pane: Pane, count: usize, height: u16) -> Vec<String> {

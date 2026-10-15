@@ -31,7 +31,8 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         app.workspace_header_hover.get(),
         |column| match column {
             Column::Digest => "MODE".into(),
-            Column::TokensPerHour => "TOK/h".into(),
+            Column::TokensPerHour => crate::board::workspace::columns::TOKENS_CAPTION.into(),
+            Column::Cron => crate::board::workspace::columns::cron_caption(app.cron_glyphs).into(),
             _ => column.title().to_ascii_uppercase(),
         },
     );
@@ -128,7 +129,6 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                             if supplied.actionable {
                                 label.push_str(" ▾");
                             }
-                            let role = supplied.role;
                             let action = supplied.actionable;
                             let width = unicode_width::UnicodeWidthStr::width(label.as_str())
                                 .min(usize::from(u16::MAX))
@@ -137,10 +137,10 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                                 break;
                             }
                             let cell = Rect::new(x, y, width, 1);
-                            let style = crate::board::pane_chrome::row_style(
+                            let style = crate::board::workspace::columns::table_style(
                                 app,
                                 selected,
-                                look.role(role),
+                                look.role(Role::Muted),
                             );
                             strip::paint_left(frame.buffer_mut(), cell, Line::styled(label, style));
                             if action {
@@ -152,29 +152,25 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                     }
                     let text = crate::board::notes::sanitize(&if *column == Column::Cron {
                         app.cron_glyphs.label(values.cron)
+                    } else if *column == Column::State {
+                        format!(
+                            "{} {}",
+                            crate::board::workspace::columns::state_symbol(row.state.as_deref()),
+                            row.state.as_deref().unwrap_or("unreported")
+                        )
                     } else {
                         values.text(*column, row)
                     });
-                    let role = match column {
-                        Column::State | Column::Agent => match row.state.as_deref() {
-                            Some("blocked") => Role::Blocked,
-                            Some("waiting") => Role::Waiting,
-                            Some("working") => Role::Working,
-                            _ => Role::Text,
-                        },
-                        _ => Role::Muted,
-                    };
-                    let state_style = if matches!(column, Column::State | Column::Agent)
-                        && row.state.as_deref() != Some("waiting")
-                    {
-                        let target = crate::board::app::RowTarget::Workspace(row.target.clone());
-                        app.target_row(&target)
-                            .and_then(|raw| raw["colors"]["state"].as_str())
-                            .map_or_else(|| look.role(role), |color| look.named(color))
+                    let state_style = if *column == Column::State {
+                        app.workspace_state_cells.borrow_mut().push(slot);
+                        crate::board::workspace::columns::state_style(app, row)
+                    } else if *column == Column::Agent {
+                        look.role(Role::Text)
                     } else {
-                        look.role(role)
+                        look.role(Role::Muted)
                     };
-                    let style = crate::board::pane_chrome::row_style(app, selected, state_style);
+                    let style =
+                        crate::board::workspace::columns::table_style(app, selected, state_style);
                     strip::paint_left(
                         frame.buffer_mut(),
                         slot,
