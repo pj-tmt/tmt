@@ -75,9 +75,9 @@ After both app builds and the Remote SDK build, run
 `node extensions/tmt-colab/scripts/hosted-reader-emulator.mjs` with Java 21 and pinned
 `firebase-tools` 15.29.0 already available. This explicit proof builds private native binaries,
 uses only loopback demo Auth/Firestore, and routes the unchanged composed CSP's three Firebase
-hosts to those emulators. It verifies sign-in, holder enrollment, signed authority and empty
-finite discovery; signed vectors separately verify content reads. It never uses real Firebase
-or Docker. Native CLI stream publication currently blocks end-to-end content convergence (#3127).
+hosts to those emulators. It verifies sign-in, holder enrollment, signed authority and rendered
+content through one real CLI save/wake, attaching per-phase provider traffic and advisory ledger
+totals. It never uses real Firebase or Docker; provider billing is not inferred from emulator reads.
 
 Focused checks: `cargo +1.97.0 test --offline --locked -p tmt-colab --test build_hosting --test hosting --test deploy_declaration`
 from `rust/`. Run `hosting` and `deploy_declaration` again with `TMT_COLAB_HOSTING_DIR` set to a

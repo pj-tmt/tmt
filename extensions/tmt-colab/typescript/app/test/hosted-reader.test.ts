@@ -213,11 +213,11 @@ async function fixture() {
     membershipRevision: '1',
     prevHash: new Uint8Array(32),
   };
-  async function seal(change: Partial<c.Context> = {}) {
+  async function seal(change: Partial<c.Context> = {}, author = signer) {
     return c.Envelope.seal(
       { ...context, ...change },
       hex(v.epochKey),
-      signer,
+      author,
       c.text('authenticated update'),
     );
   }
@@ -260,6 +260,34 @@ async function fixture() {
     );
     rows.push(...authority('chain', raw));
   }
+  async function linkWriter() {
+    const seed = new Uint8Array(32).fill(23),
+      linkId = '00000000-0000-4000-8000-000000000777',
+      keys = await c.link.deriveLink(seed, scope.space, linkId),
+      device = await c.link.deriveDevice(seed, scope.space, linkId);
+    await append('link.add', {
+      linkId,
+      role: 'viewer',
+      linkSignKey: c.encodeBinary(keys.signingPublic),
+      linkEncKey: c.encodeBinary(keys.encryption.publicKey()),
+      pages: [scope.page],
+    });
+    const issuer = c.statement.Envelope.fromJson(statements.at(-1)!);
+    rows.push(...authority('membership', statements.at(-1)!));
+    const bytes = await c.link.certifyDevice(keys, {
+      deviceId: device.id,
+      signingPublic: device.signingPublic,
+      encryptionPublic: keys.encryption.publicKey(),
+      membershipRevision: String(statements.length),
+      issuerStatement: await issuer.hash(),
+      issuedAt: c.link.DEVICE_ISSUED_AT,
+      expiresAt: c.link.DEVICE_EXPIRES_AT,
+    });
+    const chain = c.certificate.Chain.fromJson(bytes);
+    await chain.verify(await issuer.hash(), chain.certificate(), keys.signingPublic);
+    rows.push(...authority('chain', bytes));
+    return device;
+  }
   return {
     reader,
     admission,
@@ -274,6 +302,7 @@ async function fixture() {
     rows,
     statements,
     writer,
+    linkWriter,
   };
 }
 
@@ -319,6 +348,7 @@ it('uses its admitted stream position on later wakes and avoids unrelated author
 it('loads a complete checkpoint pair then verifies the tail from their shared prefix', async () => {
   const f = await fixture(),
     prefix = new Uint8Array(32).fill(7);
+  await f.linkWriter();
   await f.checkpoint(await f.seal({ kind: 'checkpoint', streamSeq: '4', prevHash: prefix }));
   await f.checkpoint(
     await f.seal({ kind: 'checkpoint', namespace: 'own', streamSeq: '4', prevHash: prefix }),
@@ -375,6 +405,7 @@ it('stops before reading or decoding when the caller is cancelled or the reader 
 
 it('finds a late seq-one writer on an initially empty page without an authority polling timer', async () => {
   const f = await fixture();
+  await f.linkWriter();
   await f.reader.refresh(call(), new Set(['authority', 'log', 'checkpoints']));
   f.requests.length = 0;
   const writer = '00000000-0000-4000-8000-000000000456';
@@ -401,4 +432,71 @@ it('does not substitute an owner or device wrap for the link-addressed epoch key
   expect(f.admission.root).toBeNull();
   expect(f.folded).toEqual([]);
   f.reader.close();
+});
+
+it('reads an owner stream when discovery also includes a valid nonwriting link-device chain', async () => {
+  const f = await fixture();
+  const link = await f.linkWriter();
+  await f.log(await f.seal());
+  try {
+    expect(
+      await f.reader.refresh(call(), new Set(['authority', 'log', 'checkpoints'])),
+    ).toMatchObject({ source: 'verified page' });
+    expect(f.folded).toEqual([
+      { type: 'apply', updates: [c.text('authenticated update')], own: [] },
+    ]);
+    // The unrelated proof is not installed as an owner-author capability.
+    expect(() => f.admission.author(link.id, String(f.statements.length))).toThrow();
+  } finally {
+    f.reader.close();
+  }
+});
+
+it('keeps a referenced link-issued writer in strict owner-member admission and refuses it', async () => {
+  const f = await fixture();
+  const link = await f.linkWriter();
+  await f.log(await f.seal({ authorDevice: link.id }, link.sign));
+  const admission = vi.spyOn(f.admission, 'chains');
+  try {
+    await expect(
+      f.reader.refresh(call(), new Set(['authority', 'log', 'checkpoints'])),
+    ).rejects.toThrow();
+    expect(admission).toHaveBeenCalledOnce();
+    const supplied = admission.mock.calls[0][0] as { deviceId: string; chain: string }[];
+    expect(supplied.some((value) => value.deviceId === link.id)).toBe(true);
+    expect(f.folded).toEqual([]);
+  } finally {
+    f.reader.close();
+  }
+});
+
+it('refuses missing or forged referenced writer proof even with a valid unrelated link chain', async () => {
+  for (const mode of ['missing', 'forged']) {
+    const f = await fixture();
+    await f.linkWriter();
+    await f.log(await f.seal());
+    const index = f.rows.findIndex((row) => {
+      const fields = JSON.parse(c.decodeText(row.bytes));
+      return (
+        fields.kind.stringValue === 'chain' &&
+        c.certificate.Chain.fromJson(c.binary(fields.bytes.stringValue, 16384)).certificate()
+          .deviceId === v.page
+      );
+    });
+    expect(index).toBeGreaterThanOrEqual(0);
+    f.rows.splice(index, 1);
+    if (mode === 'forged') {
+      const forged = { ...v.chain, issuerSignature: c.encodeBinary(new Uint8Array(64)) };
+      f.rows.push(...authority('chain', c.text(JSON.stringify(forged))));
+    }
+    try {
+      await expect(
+        f.reader.refresh(call(), new Set(['authority', 'log', 'checkpoints'])),
+      ).rejects.toThrow();
+      expect(f.folded).toEqual([]);
+      expect(() => f.admission.author(v.page, String(f.statements.length))).toThrow();
+    } finally {
+      f.reader.close();
+    }
+  }
 });
