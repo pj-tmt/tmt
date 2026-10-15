@@ -1894,12 +1894,11 @@ fn inline_baseline_reserves_first_page_bytes_without_truncating_membership() {
 }
 
 #[test]
-fn the_page_a_peer_opens_is_the_active_page_for_cloud_sync_and_an_ack_is_not() {
+fn hello_and_ack_leave_cloud_activity_unchanged_until_a_foreground_subscribe() {
     let f = Fixture::new();
     let activity = ActivePage::default();
     f.server.set_activity(activity.clone()).unwrap();
     let mut peer = f.peer(ALICE);
-    assert_eq!(activity.wait(0, Duration::ZERO).page, None);
     send(
         &mut peer,
         f.frame(
@@ -1907,25 +1906,70 @@ fn the_page_a_peer_opens_is_the_active_page_for_cloud_sync_and_an_ack_is_not() {
             json!({"membershipRevision":"0","device":ALICE,"cursors":[]}),
         ),
     );
-    let opened = activity.wait(0, Duration::ZERO);
-    assert_eq!(
-        opened.page,
-        Some(PageRef {
-            space: f.space.clone(),
-            page: PAGE.into(),
-            epoch: 1
-        })
+    assert_eq!(activity.wait(0, Duration::ZERO).page, None);
+    let mut complete = false;
+    for _ in 0..8 {
+        let frame = receive(&mut peer);
+        assert_eq!(frame["type"], "catchup");
+        complete = frame["more"] == false;
+        send(&mut peer, f.frame("ack", json!({"cursors":[]})));
+        assert_eq!(activity.wait(0, Duration::ZERO).page, None);
+        if complete {
+            break;
+        }
+    }
+    assert!(complete);
+    // Catchup already subscribes the peer for transport delivery. An explicit foreground
+    // Subscribe is accepted repeatedly: no bootstrap restart or error, only page activity.
+    for expected_version in 1..=2 {
+        send(&mut peer, f.frame("subscribe", json!({"cursors":[]})));
+        let opened = activity.wait(0, Duration::ZERO);
+        assert_eq!(opened.version, expected_version);
+        assert_eq!(
+            opened.page,
+            Some(PageRef {
+                space: f.space.clone(),
+                page: PAGE.into(),
+                epoch: 1
+            })
+        );
+    }
+}
+
+#[test]
+fn a_home_title_catchup_preserves_another_active_cloud_page() {
+    let f = Fixture::new();
+    let activity = ActivePage::default();
+    let viewed = PageRef {
+        space: f.space.clone(),
+        page: "00000000-0000-4000-8000-000000000099".into(),
+        epoch: 1,
+    };
+    activity.touch(viewed.clone());
+    let original = activity.wait(0, Duration::ZERO).version;
+    f.server.set_activity(activity.clone()).unwrap();
+    let mut peer = f.peer(ALICE);
+    send(
+        &mut peer,
+        f.frame(
+            "hello",
+            json!({"membershipRevision":"0","device":ALICE,"cursors":[]}),
+        ),
     );
-    // Credit-only traffic changes nothing, so a reader paging through history does not make
-    // the worker look again.
-    assert_eq!(peer.1.poll(), Progress::Advanced);
-    let cursor = json!({"streamId":ALICE,"namespace":"content","seq":"0","envelopeHash":values::encode_binary(&[0;32])});
-    send(&mut peer, f.frame("ack", json!({"cursors":[cursor]})));
-    let _ = peer.1.poll();
-    assert_eq!(
-        activity.wait(opened.version, Duration::ZERO).version,
-        opened.version
-    );
+    let mut complete = false;
+    for _ in 0..8 {
+        let frame = receive(&mut peer);
+        assert_eq!(frame["type"], "catchup");
+        complete = frame["more"] == false;
+        send(&mut peer, f.frame("ack", json!({"cursors":[]})));
+        let untouched = activity.wait(original, Duration::ZERO);
+        assert_eq!(untouched.page, Some(viewed.clone()));
+        assert_eq!(untouched.version, original);
+        if complete {
+            break;
+        }
+    }
+    assert!(complete);
 }
 
 #[test]

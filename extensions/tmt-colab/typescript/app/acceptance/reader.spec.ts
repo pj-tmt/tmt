@@ -84,7 +84,21 @@ test('reader link: opens unpaired, shows live edits read-only, and ends on Reset
     expect(owner.status).toBe(403);
 
     const baseline = deviceRows(world);
-    const reader = await openReaderLink(world, door, readerPath, 'reader-one');
+    const subscriptions: string[] = [];
+    const reader = await openReaderLink(world, door, readerPath, 'reader-one', (page) => {
+      page.on('websocket', (socket) => {
+        if (!new URL(socket.url()).pathname.endsWith('/sync')) return;
+        socket.on('framesent', ({ payload }) => {
+          if (typeof payload !== 'string') return;
+          const frame = JSON.parse(payload) as { type?: string; page?: string; cursors?: unknown };
+          if (frame.type === 'subscribe') {
+            expect(frame.cursors).toEqual([]);
+            if (frame.page) subscriptions.push(frame.page);
+          }
+        });
+      });
+    });
+    await expect.poll(() => subscriptions).toEqual([created.pageId]);
     await expect(reader.page).toHaveTitle('Colab');
     const frame = reader.page.frameLocator('iframe');
     await expect(frame.locator('#text')).toHaveText('First text', { timeout: 30_000 });

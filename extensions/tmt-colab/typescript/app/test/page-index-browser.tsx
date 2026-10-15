@@ -1,5 +1,5 @@
 /** Page-index presentations with deterministic metadata and no real transport effects. */
-import { Profiler } from 'react';
+import { Profiler, StrictMode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { RouterProvider } from '@tanstack/react-router';
 import { createAppRouter } from '../src/router.js';
@@ -25,7 +25,7 @@ function page(index: number, changes: Partial<PageSnapshot> = {}): PageSnapshot 
 }
 
 export async function mountPageIndex(
-  size: 'few' | 'many',
+  size: 'few' | 'many' | 'missing',
   unknownUpdateAtMs: number | null = null,
 ) {
   document.getElementById('root')!.style.display = 'none';
@@ -39,19 +39,47 @@ export async function mountPageIndex(
   root = createRoot(host);
   initialUpdateLabels = undefined;
   const container = host;
+  missingTitleReads.length = 0;
   const pages =
-    size === 'many'
-      ? Array.from({ length: 200 }, (_, index) => page(200 - index))
-      : [
-          page(1, { title: 'Older notes', lastUpdateAtMs: indexNow - 86400000 * 3 }),
-          page(3, { title: 'Beta update', sharing: 'public', lastUpdateAtMs: indexNow - 3600000 }),
-          page(2, { title: 'Alpha update', sharing: 'link', lastUpdateAtMs: indexNow - 3600000 }),
-          page(4, { title: 'Archived notes', archived: true }),
-          page(5, { title: '', archived: true, lastUpdateAtMs: unknownUpdateAtMs }),
-        ];
+    size === 'missing'
+      ? Array.from({ length: 30 }, (_, i) =>
+          page(i + 1, {
+            title: i === 1 || i === 29 ? 'Untitled page' : 'Cached title',
+            titleMissing: i === 1 || i === 29,
+          }),
+        )
+      : size === 'many'
+        ? Array.from({ length: 200 }, (_, index) => page(200 - index))
+        : [
+            page(1, { title: 'Older notes', lastUpdateAtMs: indexNow - 86400000 * 3 }),
+            page(3, {
+              title: 'Beta update',
+              sharing: 'public',
+              lastUpdateAtMs: indexNow - 3600000,
+            }),
+            page(2, { title: 'Alpha update', sharing: 'link', lastUpdateAtMs: indexNow - 3600000 }),
+            page(4, { title: 'Archived notes', archived: true }),
+            page(5, { title: '', archived: true, lastUpdateAtMs: unknownUpdateAtMs }),
+          ];
   const transport = localTransport('Studio pages', pages);
   const router = createAppRouter({
     ...transport,
+    ...(size === 'missing'
+      ? {
+          readTitle: async (
+            id: string,
+            budget: { remainingBytes: number },
+            signal: AbortSignal,
+          ) => {
+            signal.throwIfAborted();
+            const node = document.querySelector<HTMLElement>(`[data-page-id="${id}"] a`)!;
+            const rect = node.getBoundingClientRect();
+            missingTitleReads.push({ id, visible: rect.bottom > 0 && rect.top < innerHeight });
+            budget.remainingBytes -= 64;
+            return `Loaded ${id}`;
+          },
+        }
+      : {}),
     management: {
       read: async () => {
         throw new Error('No management in index fixture');
@@ -72,7 +100,7 @@ export async function mountPageIndex(
     spaceHome: async () => ({ title: 'Studio pages', pages }),
   });
   location.hash = '/';
-  root.render(
+  const content = (
     <Profiler
       id="page-index"
       onRender={() => {
@@ -84,6 +112,10 @@ export async function mountPageIndex(
       }}
     >
       <RouterProvider router={router} />
-    </Profiler>,
+    </Profiler>
   );
+  root.render(size === 'missing' ? <StrictMode>{content}</StrictMode> : content);
 }
+
+const missingTitleReads: { id: string; visible: boolean }[] = [];
+export const titleReadCalls = () => structuredClone(missingTitleReads);

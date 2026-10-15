@@ -598,7 +598,7 @@ bytes without core and storage access.
   tab claim; all other app assets stay owner-gated. With core: `Product::Colab` registers
   the executable with the installer, and the app is served from `serve --app-dir`, else
   bytes embedded from `TMT_COLAB_APP_DIR`, else the checkout's Vite output.
-  Shared chrome serves native `/assets/chrome.css` even without an app build; Colab owns layout, routing, state words, trusted recovery and archived read views. See the [browser contract](extensions/tmt-colab/contracts/colab-v1.md#implemented-mounted-browser-assets-1253).
+  Shared chrome serves native `/assets/chrome.css` even without an app build; Colab owns layout, routing, state words, trusted recovery, archived reads and bounded missing-title folds. See the [browser contract](extensions/tmt-colab/contracts/colab-v1.md#implemented-mounted-browser-assets-1253).
   One `tmt colab serve` is enough for a browser: it attaches to a running door through
   `tmt remote status --json`, else starts `tmt remote serve --json` as a supervised child
   in its own process group, reading pairing from `tmt remote devices --json`. This

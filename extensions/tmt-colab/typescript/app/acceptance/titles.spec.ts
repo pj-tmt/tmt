@@ -38,20 +38,35 @@ async function captureHeader(page: Page, testInfo: TestInfo, screen: 'page' | 'h
 }
 
 test.afterEach(disposeActiveWorlds);
-test('native page titles become durable browser-local labels after their first verified fold', async () => {
+test('native page titles fill missing visible home labels without opening the page', async () => {
   const testInfo = test.info();
   await withWorld(async (world) => {
     const door = await startDoor(world, await freePort());
     const title = 'Planning & <notes>';
     const created = createPage(world, title, '<p>Title acceptance.</p>');
     const browser = await pairBrowser(world, 'title-browser');
+    const sent: string[] = [];
+    browser.context.on('page', (page) =>
+      page.on('websocket', (socket) => {
+        if (!new URL(socket.url()).pathname.endsWith('/sync')) return;
+        socket.on('framesent', ({ payload }) => {
+          if (typeof payload === 'string') {
+            const frame = JSON.parse(payload) as { type: string };
+            sent.push(frame.type);
+          }
+        });
+      }),
+    );
     const page = await openColab(door, browser);
     await page.setViewportSize({ width: 1440, height: 900 });
     const row = () => page.locator(`[data-page-id="${created.pageId}"]`);
-    await expect(row().getByRole('link')).toHaveText('Untitled page');
+    await expect(row().getByRole('link')).toHaveText(title);
+    expect(sent).toContain('hello');
+    expect(sent).not.toContain('subscribe');
     await row().getByRole('link').click();
     await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
     await expect(page).toHaveTitle(`${title} · Colab`);
+    await expect.poll(() => sent.filter((type) => type === 'subscribe').length).toBe(1);
     await captureHeader(page, testInfo, 'page');
     await (await pageAction(page, 'Manage page')).click();
     const dialog = page.getByRole('dialog');
@@ -96,7 +111,7 @@ test('native page titles become durable browser-local labels after their first v
     const otherPage = await openColab(door, other);
     await expect(
       otherPage.locator(`[data-page-id="${created.pageId}"]`).getByRole('link'),
-    ).toHaveText('Untitled page');
+    ).toHaveText(title);
     expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
       0,
     );

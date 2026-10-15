@@ -24,6 +24,8 @@ import type { ExpiryInfo } from './expiry.js';
 export interface PageSummary extends Partial<ExpiryInfo> {
   readonly id: string;
   readonly title: string;
+  /** No usable browser-local title has been cached yet. */
+  readonly titleMissing?: boolean;
   readonly sharing: 'private' | 'link' | 'public';
   readonly archived?: boolean;
   /** Display-only labels from the owner store; absent where a source has none (fixtures, a reader). */
@@ -72,6 +74,11 @@ export interface SpaceHome {
   readonly pageIds?: readonly PageId[];
 }
 
+/** Shared across a bounded group of read-only page folds, including failed reads. */
+export interface TitleReadBudget {
+  remainingBytes: number;
+}
+
 /** App data port. Mounted adapters own authentication and admission;
  * neither HTML nor the renderer receives that adapter or its capabilities. */
 export interface PageTransport {
@@ -81,6 +88,8 @@ export interface PageTransport {
   readonly drafts?: DraftStore;
   readonly management?: ManagementPort;
   spaceHome(): Promise<SpaceHome>;
+  /** A verified title only: no editor, discussion or live subscription. */
+  readTitle?(id: string, budget: TitleReadBudget, signal: AbortSignal): Promise<string | undefined>;
   page(id: string, signal?: AbortSignal): Promise<PageSnapshot>;
 }
 

@@ -342,6 +342,7 @@ export class Live implements PageBinding {
       this.#connection = open.connection = c;
       await c.ready;
       requireValue(this.#owns(open));
+      c.send('subscribe', { cursors: [] });
       this.#attempts = 0;
       ready = true;
       return c;

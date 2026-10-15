@@ -247,3 +247,35 @@ test('the first committed index render uses the actual time snapshot', async ({ 
   });
   expect(initialLabels).toEqual(['1 hour ago', '1 hour ago', '3 days ago']);
 });
+
+test('Home fills only uncached visible title rows, including under StrictMode', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 600 });
+  await page.goto('/');
+  await page.evaluate(async () => {
+    const path = '/test/page-index-browser.tsx';
+    const { mountPageIndex } = await import(path);
+    await mountPageIndex('missing');
+  });
+  const rows = page.locator('#index-fixture [data-page-id]');
+  await expect(rows).toHaveCount(30);
+  await expect(rows.first().getByRole('link')).toHaveText('Cached title');
+  const reads = () =>
+    page.evaluate(async () => {
+      const path = '/test/page-index-browser.tsx';
+      return (await import(path)).titleReadCalls() as { id: string; visible: boolean }[];
+    });
+  await expect.poll(async () => (await reads()).length).toBeGreaterThan(0);
+  const initial = await reads();
+  const cachedId = await rows.first().getAttribute('data-page-id');
+  const lastId = await rows.last().getAttribute('data-page-id');
+  expect(initial.every((read) => read.visible)).toBe(true);
+  expect(initial.some((read) => read.id === cachedId || read.id === lastId)).toBe(false);
+  await rows.last().scrollIntoViewIfNeeded();
+  await expect(rows.last().getByRole('link')).toHaveText(`Loaded ${lastId}`);
+  const completed = await reads();
+  expect(completed.every((read) => read.visible && read.id !== cachedId)).toBe(true);
+  expect(new Set(completed.map((read) => read.id)).size).toBe(completed.length);
+  expect(completed).toHaveLength(2);
+});
