@@ -217,6 +217,23 @@ scope, hidden-room reveal and composer drafts are not retained across ordinary
 restarts. Active search drafts are not saved. Without an interactive terminal,
 `--view` validates its name and leaves the existing listing output unchanged.
 
+## Member links
+
+Write `#tmt:<canonical-name>` or `#tmt:<identity-UUID>` in message text to refer to a
+member. Known references display the member's name as an underlined link; unknown
+references stay literal. Links do not broadcast or change the message recipient.
+Conversation responses, outgoing messages, inactive composer previews and Recent
+exchange previews use the same acquired identity inventory. Copy and annotation
+keep the original markup and exact source.
+
+Click a link, or use Tab and left/right in the conversation's read focus and press
+Enter, to open its adjacent menu. `j` uses that member's configured host action;
+unavailable bindings explain why it is disabled. Enter shows the member in Agents,
+expanding its squad and keeping the current draft. This explicit navigation clears
+session search/scope and reveals hidden squads without changing shared preferences.
+Esc or a click outside closes the menu. The menu flips above a mention near the
+bottom edge and never covers it. NO_COLOR keeps the underline.
+
 ## Reloading open boards
 
 An open board reloads itself in place, keeping its pid, shell section, exact selection, scroll,

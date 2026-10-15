@@ -250,12 +250,16 @@ pub(in crate::board) fn render(
                                 crate::board::home_leads::Kind::Asked => "Asked",
                                 crate::board::home_leads::Kind::Reply => "Reply",
                             };
-                            text(
-                                frame,
-                                Rect::new(rect.x, rect.y + 1 + index as u16, rect.width, 1),
-                                format!("{age} · {} · {kind} · {}", row.agent, row.preview),
-                                app,
-                            );
+                            let area = Rect::new(rect.x, rect.y + 1 + index as u16, rect.width, 1);
+                            let preview = crate::board::notes::sanitize(&format!(
+                                "{age} · {} · {kind} · {}",
+                                row.agent, row.preview
+                            ));
+                            if !crate::board::member_links::paint_preview(
+                                frame, app, area, &preview,
+                            ) {
+                                text(frame, area, preview, app);
+                            }
                         }
                     }
                 }

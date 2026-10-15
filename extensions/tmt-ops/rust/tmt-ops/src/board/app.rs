@@ -247,6 +247,11 @@ pub enum Effect {
 /// What a menu entry does: run a binding, or reply to one open request.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Choice {
+    MemberLink {
+        target: super::workspace::OpsTarget,
+        jump: bool,
+    },
+    Unavailable(String),
     WorkspaceTimers,
     AgentsFilter(super::workspace::AgentsFilter),
     WorkspaceTarget(super::workspace::OpsTarget),
@@ -300,6 +305,7 @@ pub struct Menu {
     pub title: String,
     pub entries: Vec<MenuEntry>,
     pub selected: usize,
+    pub(super) anchor: Option<ratatui::layout::Rect>,
     pub(super) surface: RefCell<Option<super::menu_surface::MenuSurface>>,
 }
 
@@ -696,6 +702,7 @@ pub struct App {
     pub input: Option<Input>,
     pub(super) composer: super::composer::State,
     pub(super) mentions: super::mentions::State,
+    pub(super) member_links: RefCell<super::member_links::State>,
     pub(super) references: super::inventory::Inventory,
     /// Lane jobs submitted whose events have not arrived.
     pub(super) in_flight: usize,
@@ -1903,6 +1910,28 @@ impl App {
     /// the action with a notice; nothing runs half-filled. While a switch
     /// loads, the rows on screen are another squad's, so nothing acts on them.
     pub fn perform(&mut self, action: &Action) -> Effect {
+        self.perform_context(action, None)
+    }
+    pub(super) fn perform_member_host(
+        &mut self,
+        action: &Action,
+        target: &super::workspace::OpsTarget,
+    ) -> Effect {
+        if !matches!(action.verb, Verb::Jump | Verb::Run)
+            || !matches!(target, super::workspace::OpsTarget::Member { .. })
+            || !self.workspace_snapshot().is_some_and(|snapshot| {
+                snapshot.roster.complete() && snapshot.roster.contains(target)
+            })
+        {
+            return self.say("The mentioned member is unavailable for this host action.");
+        }
+        self.perform_context(action, Some(target))
+    }
+    fn perform_context(
+        &mut self,
+        action: &Action,
+        member: Option<&super::workspace::OpsTarget>,
+    ) -> Effect {
         if self.panels_save_pending {
             return self.say("Wait for the panel save to finish.");
         }
@@ -1926,6 +1955,7 @@ impl App {
         }
         if self.workspace_snapshot().is_some()
             && action.verb.acts_on_member()
+            && member.is_none()
             && self.workspace_selected_member().is_none()
         {
             return self.say("Select a visible named member before running this action.");
@@ -1973,7 +2003,13 @@ impl App {
             }
             _ => {}
         }
-        let Some(row) = self.selected_row().cloned() else {
+        let row = member
+            .map_or_else(
+                || self.selected_row(),
+                |target| self.target_row(&RowTarget::Workspace(target.clone())),
+            )
+            .cloned();
+        let Some(row) = row else {
             return self.say("No row is selected.");
         };
         if action.verb == Verb::Jump && self.workspace_snapshot().is_some() {
@@ -2106,6 +2142,7 @@ impl App {
                 .to_owned(),
             entries,
             selected: 0,
+            anchor: None,
             surface: Default::default(),
         });
         Effect::None
@@ -2382,6 +2419,7 @@ impl App {
                     title: format!("answer {}", send.name),
                     entries: open,
                     selected: 0,
+                    anchor: None,
                     surface: Default::default(),
                 });
                 return Effect::None;
@@ -2497,6 +2535,8 @@ impl App {
 
     pub(super) fn choose(&mut self, choice: Choice) -> Effect {
         match choice {
+            Choice::MemberLink { target, jump } => self.member_link_action(&target, jump),
+            Choice::Unavailable(reason) => self.say(reason),
             Choice::WorkspaceTimers => self.workspace_owner_timers(None, None),
             Choice::AgentsFilter(filter) => self.agents_filter(filter),
             Choice::WorkspaceTarget(target) => {
@@ -2658,6 +2698,7 @@ impl App {
                     prefill: input.text.into_string(),
                     entries,
                     selected: 0,
+                    anchor: None,
                     surface: Default::default(),
                 });
             }
@@ -3054,7 +3095,12 @@ impl App {
                     .min(menu.entries.len().saturating_sub(1));
                 Effect::None
             }
-            _ => Effect::None,
+            _ => {
+                if event.kind == MouseEventKind::Down(MouseButton::Left) && menu.anchor.is_some() {
+                    self.menu = None;
+                }
+                Effect::None
+            }
         }
     }
 
@@ -3081,7 +3127,13 @@ impl App {
         let Some(menu) = &mut self.menu else {
             return Effect::None;
         };
+        let direct_jump = menu.anchor.is_some() && key.code == KeyCode::Char('j');
         let chosen = match key.code {
+            KeyCode::Char('j') if direct_jump => menu
+                .entries
+                .iter()
+                .find(|entry| entry.key == "j")
+                .map(|entry| entry.choice.clone()),
             KeyCode::Esc | KeyCode::Char('q') => None,
             KeyCode::Up | KeyCode::Char('k') => {
                 menu.selected = menu.selected.saturating_sub(1);
@@ -3444,6 +3496,16 @@ impl App {
         {
             return self.perform(&action);
         }
+        if self.menu.is_some() && self.menu.as_ref().is_some_and(|menu| menu.anchor.is_some()) {
+            return self.menu_key(key);
+        }
+        if self.input.is_none()
+            && !self.modal_open()
+            && !self.searching
+            && let Some(effect) = self.member_link_key(key)
+        {
+            return effect;
+        }
         if self.input.is_some() {
             self.update_mentions();
             if let Some(effect) = self.mention_key(key) {
@@ -3500,6 +3562,7 @@ impl App {
         {
             surface.invalidate();
         }
+        self.member_links.borrow_mut().invalidate();
         self.composer.invalidate();
         if self.usage_panel_hidden() && !self.usage_controls {
             self.usage_chart.borrow_mut().release_focus();
@@ -3709,6 +3772,9 @@ impl App {
         }
         if self.menu.is_some() {
             return self.menu_mouse(event);
+        }
+        if let Some(effect) = self.member_link_mouse(event) {
+            return effect;
         }
         if self.mention_mouse(event) {
             return Effect::None;

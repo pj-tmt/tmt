@@ -2475,6 +2475,31 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
     snapshot.shell_counts = snapshot.roster.shell_counts();
     app.workspace_reconcile();
     match scene {
+        "member-links" | "member-links-menu" => {
+            app.references = crate::board::inventory::Inventory::from_listed(
+                &[],
+                &Ok(json!({"identities":[{"id":MEMBER,"name":"worker","canonicalName":"worker"}]})),
+            );
+            app.view.as_mut().unwrap().replies = vec![
+                json!({"recipientId":MEMBER,"requestId":"mention-response","response":"Review #tmt:worker, then ask #tmt:missing. CJK: 請#tmt:worker。"}),
+            ];
+            app.perform(&crate::action::Action::parse("talk").unwrap());
+            app.input.as_mut().unwrap().text = "Draft for #tmt:worker stays raw.".into();
+            assert!(
+                app.input.as_ref().unwrap().draft_key.is_some(),
+                "capture uses a real UUID draft"
+            );
+            key(&mut app, KeyCode::Esc);
+            assert_eq!(
+                app.composer_projection()
+                    .and_then(|projection| projection.text)
+                    .map(|editor| editor.as_str()),
+                Some("Draft for #tmt:worker stays raw.")
+            );
+            app.notice = None;
+            app.workspace_reconcile();
+            app.focus = 1;
+        }
         "help" => {
             key(&mut app, KeyCode::Char('?'));
         }
@@ -2506,6 +2531,8 @@ fn capture_workspace_packet() {
     let output = std::env::var("TMT_WORKSPACE_CAPTURE").expect("task-owned evidence path");
     let mut captures = Vec::new();
     for scene in [
+        "member-links",
+        "member-links-menu",
         "named-layer-long",
         "named-layer-long-partial",
         "named-layer",
@@ -2538,8 +2565,14 @@ fn capture_workspace_packet() {
                         ),
                         depth,
                     };
-                    let app = capture_case(scene, look);
+                    let mut app = capture_case(scene, look);
                     let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+                    if scene == "member-links-menu" {
+                        terminal
+                            .draw(|frame| crate::board::view::render(frame, &app))
+                            .unwrap();
+                        crate::board::member_links::capture_menu(&mut app);
+                    }
                     terminal
                         .draw(|frame| crate::board::view::render(frame, &app))
                         .unwrap();
@@ -2555,7 +2588,7 @@ fn capture_workspace_packet() {
             }
         }
     }
-    assert_eq!(captures.len(), 544);
+    assert_eq!(captures.len(), 608);
     std::fs::write(output, serde_json::to_vec(&captures).unwrap()).unwrap();
 }
 

@@ -146,6 +146,7 @@ impl App {
                         },
                     ],
                     selected: 0,
+                    anchor: None,
                     surface: Default::default(),
                 });
                 Effect::None

@@ -527,6 +527,8 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
     } else if app.modal_open() || (app.input.is_some() && app.input_band.get().is_some()) {
         // Notices and errors above stay; the base key hints would misname the keys.
         Line::default()
+    } else if let Some(hint) = app.member_link_hint() {
+        hint_line(hint, look)
     } else {
         let text = legend.as_ref().map_or_else(
             || hints(app, usize::from(footer.width)),
