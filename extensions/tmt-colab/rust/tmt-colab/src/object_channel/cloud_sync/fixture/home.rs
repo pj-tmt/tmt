@@ -266,8 +266,35 @@ impl Home {
             )
             .unwrap();
     }
+    /// What the CLI and every browser save leave behind: an update of the root-local writer this
+    /// home's keyring names, whose chain the owner stored without any registration row.
+    pub(crate) fn append_as_local_writer(&mut self) -> Vec<u8> {
+        let writer = self.key.local_writer().unwrap().0;
+        let key = &self.key;
+        self.store
+            .device_transaction(&key.space_id, &key.owner_public(), |tx| {
+                let issuer = tx.statement(1)?.unwrap().hash()?;
+                let head = tx.head().unwrap().clone();
+                tx.put_device(&Device {
+                    chain: crate::page::writer_chain(key, &head, &issuer, 1)?,
+                    revoked: false,
+                })?;
+                Ok(Vec::new())
+            })
+            .unwrap();
+        self.append_signed(&writer, 9)
+    }
     /// The next update of a stream, alternating namespaces the way real writers do.
     pub(crate) fn append(&mut self, stream: &str) -> Vec<u8> {
+        let signing = self
+            .devices
+            .iter()
+            .find(|spec| spec.id == stream)
+            .unwrap()
+            .signing;
+        self.append_signed(stream, signing)
+    }
+    fn append_signed(&mut self, stream: &str, signing: u8) -> Vec<u8> {
         let (last, previous) = self.head(stream);
         let seq = last + 1;
         let (namespace, name) = if seq.is_multiple_of(2) {
@@ -275,7 +302,7 @@ impl Home {
         } else {
             (Namespace::Content, "content")
         };
-        let envelope = self.seal(stream, "update", name, seq, previous);
+        let envelope = self.seal_as(stream, "update", name, seq, previous, signing, "1");
         let bytes = envelope.to_json().unwrap();
         let hash = envelope.hash().unwrap();
         self.store

@@ -803,6 +803,30 @@ fn an_expired_cloud_copy_is_written_again_when_the_page_is_reopened_from_local()
     home.start();
     let mut peer = home.peer(DEVICE_A);
     peer.hello(home.facts.revision);
+    // The page the real CLI created is published too, before the fixture device writes anything
+    // a decoder would refuse. Its content and every browser save are sealed by the root-local
+    // writer this machine's keyring names, which no registration backs.
+    let key = Keyring::read(&home.facts.layout).unwrap();
+    let writer = key.local_writer().unwrap().0;
+    until("the content the real CLI created reaches the cloud", || {
+        in_cloud(&emulator, &page, "log", &writer) >= 1
+    });
+    let created = in_cloud(&emulator, &page, "log", &writer);
+    let source = home
+        .world
+        .run_json("tmt-colab", &["page", "read", &page, "--json"])["source"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let saved = peer.save(
+        "50000000-0000-4000-8000-000000000001",
+        &source,
+        &format!("{source}<p>saved in a browser</p>"),
+    );
+    assert_eq!(saved["state"], "committed", "{saved}");
+    until("the browser save reaches the cloud", || {
+        in_cloud(&emulator, &page, "log", &writer) > created
+    });
     let (_, last) = append(&mut peer, &home.facts, DEVICE_A, SEED_A, 1, 2, [0; 32]);
     until("the cloud holds the page and its updates", || {
         in_cloud(&emulator, &page, "log", DEVICE_A) == 2

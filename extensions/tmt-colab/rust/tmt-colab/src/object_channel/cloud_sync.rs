@@ -3,8 +3,12 @@
 //! page and keeps that page's local originals published. Notices are wakeups only; the verified
 //! Store owns every publication position.
 use crate::{
-    SealedClient, keyring::Layout, object_channel::ChannelOwner, registration::OwnerAdmission,
-    store::Store, sync::Server,
+    SealedClient,
+    keyring::{Keyring, Layout},
+    object_channel::ChannelOwner,
+    registration::OwnerAdmission,
+    store::Store,
+    sync::Server,
 };
 use std::{
     io,
@@ -243,9 +247,11 @@ impl CloudSync {
             space,
             local: Arc::new(move |bound| {
                 let store = Store::open(&layout).ok()?;
+                let writer = Keyring::read(&layout).ok()?.local_writer().ok()?.0;
                 Some(Box::new(StoreLocal::new(
                     store,
                     owner,
+                    writer,
                     local_space.clone(),
                     bound,
                     Arc::new(now_ms),

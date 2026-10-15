@@ -166,12 +166,17 @@ impl<A: Admission> Inbound for StoreInbound<A> {
             });
         }
         let owner = self.keyring.owner_public();
+        let writer = self
+            .keyring
+            .local_writer()
+            .map_err(|_| Fault::Stuck("This machine cannot name its own writer."))?
+            .0;
         let (epoch, foreign) = self
             .store
             .owner_read(&self.space, &owner, |tx| {
                 let mut foreign = Vec::new();
                 for stream in &streams {
-                    if !tx.is_local_device(stream)? {
+                    if !tx.is_local_device(&writer, stream)? {
                         foreign.push(stream.clone());
                     }
                 }

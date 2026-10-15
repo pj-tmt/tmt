@@ -432,9 +432,15 @@ impl OwnerTransaction<'_> {
         }
         Ok(out)
     }
-    /// Whether this machine registered the device, which is what makes its stream ours to
-    /// publish. A device whose records were imported from the cloud has no such row.
-    pub(crate) fn is_local_device(&self, id: &str) -> Result<bool> {
+    /// Whether this machine writes the stream of device `id`, which is what makes it ours to
+    /// publish and not the cloud's to hand back. `writer` is the root-local writer this
+    /// machine's keyring names (it seals every CLI write and every browser Save and has no
+    /// registration row); any other local device is one this machine registered. A device whose
+    /// chain was imported from the cloud has neither, and stays foreign.
+    pub(crate) fn is_local_device(&self, writer: &str, id: &str) -> Result<bool> {
+        if id == writer {
+            return Ok(self.device(id)?.is_some_and(|device| !device.revoked));
+        }
         Ok(self.registration(id)?.is_some_and(|row| !row.revoked))
     }
 }

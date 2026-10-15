@@ -14,7 +14,7 @@ use std::{
     path::Path,
     time::Duration,
 };
-use tmt_colab_model::{certificate, framing, object, values, wrap};
+use tmt_colab_model::{certificate, crypto, framing, object, values, wrap};
 use tungstenite::{Message, WebSocket, protocol::Role};
 
 /// The seed of the Remote-paired owner browser whose key vouches for the fixture devices.
@@ -227,6 +227,23 @@ impl Peer {
                 Some("broadcast") if frame["streamId"] == stream => return frame,
                 _ => {}
             }
+        }
+    }
+    /// Save the page text as a browser does, and wait for the serve's reply. The serve prepares
+    /// and seals it with its root-local writer, never with this device's key.
+    pub(super) fn save(&mut self, operation: &str, base: &str, source: &str) -> Value {
+        let digest = |text: &str| values::encode_binary(&crypto::digest(text.as_bytes()));
+        self.send(
+            "save",
+            json!({"operationId":operation,"baseSha256":digest(base),"sourceSha256":digest(source),
+                "source":values::encode_binary(source.as_bytes())}),
+        );
+        loop {
+            let frame = self.read();
+            if frame["type"] == "saveresult" || frame["type"] == "error" {
+                return frame;
+            }
+            self.pending.push_back(frame);
         }
     }
     /// Append one sealed update and wait for its receipt (or the serve's refusal).
