@@ -77,3 +77,8 @@
   background: var(--tmt-ui-surface-sheet);
   box-shadow: none;
 }
+
+.tmt-ui-icon-action-control:focus-visible {
+  outline: 1px solid var(--tmt-ui-color-focus);
+  outline-offset: -1px;
+}

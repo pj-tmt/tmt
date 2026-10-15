@@ -1,7 +1,7 @@
 import { useEffect, useImperativeHandle, useRef, useState } from 'react';
 import type { KeyboardEventHandler, ReactNode, Ref } from 'react';
 import type { BrowserActionProps } from './action.js';
-import { placeIconActionTooltip } from './icon-action-tooltip.js';
+import { claimIconActionTooltip, placeIconActionTooltip } from './icon-action-tooltip.js';
 import { browserUiClasses as c } from './static.js';
 
 // Escape can restore focus to another icon action while closing its host.
@@ -52,6 +52,10 @@ export function BrowserIconAction({
     const node = tooltip.current;
     const anchor = button.current;
     if (!open || !node || !anchor) return;
+    const release = claimIconActionTooltip(anchor.ownerDocument, () => {
+      if (node.matches(':popover-open')) node.hidePopover();
+      setDismissed(true);
+    });
     node.showPopover();
     const dispose = placeIconActionTooltip(anchor, node);
     const escape = (event: KeyboardEvent) => {
@@ -73,6 +77,7 @@ export function BrowserIconAction({
     };
     anchor.ownerDocument.addEventListener('keydown', escape, true);
     return () => {
+      release();
       dispose();
       anchor.ownerDocument.removeEventListener('keydown', escape, true);
       if (node.matches(':popover-open')) node.hidePopover();

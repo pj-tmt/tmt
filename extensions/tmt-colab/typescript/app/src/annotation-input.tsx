@@ -1,3 +1,4 @@
+import './annotation-composer.css';
 import type { ComposerConnectionPresentation } from './router.js';
 import { ConversationPresentation } from './components/conversation-presentation.js';
 import { useAttachmentDropTarget } from './attachment-drop.js';
@@ -447,21 +448,18 @@ export function AnnotationInput({
             cancel();
         }}
       />
+      {!chat && anchor && (
+        <p className="annotation-anchor-note" title={quote}>
+          Attached to this sentence
+        </p>
+      )}
       {!chat && !showCreatorHint && recipientHint}
       <div className="annotation-status-row" data-creator-toggle={!!creator || undefined}>
-        {!chat && anchor && (
-          <span className="annotation-anchor-note" title={quote}>
-            Attached to this sentence
-          </span>
-        )}
-        {chat && discussion?.attachments && (
-          <AttachButton draft={files} disabled={!attachable} label={text.messageAttach} />
+        {discussion?.attachments && (
+          <AttachButton draft={files} disabled={!attachable} labeled label={text.messageAttach} />
         )}
         {showCreatorToggle && creator && (
           <CreatorToggle name={creator.agentName} preference={creatorPreference} />
-        )}
-        {!chat && discussion?.attachments && (
-          <AttachButton draft={files} disabled={!attachable} labeled label={text.messageAttach} />
         )}
         {showCreatorHint && creator ? (
           <div className="annotation-creator-hint">
@@ -516,11 +514,7 @@ export function AnnotationInput({
             }}
           />
         )}
-        {chat ? (
-          <BrowserAction {...sendActionProps} />
-        ) : (
-          <BrowserIconAction {...sendActionProps} icon={<ArrowRight />} />
-        )}
+        <BrowserIconAction {...sendActionProps} icon={<ArrowRight />} />
       </div>
       <CommentSendFailures
         failures={failures}

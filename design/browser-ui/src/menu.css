@@ -75,3 +75,7 @@
   color: var(--tmt-ui-color-muted);
   font-size: 12px;
 }
+
+.tmt-ui-menu-trigger > svg {
+  flex: none;
+}

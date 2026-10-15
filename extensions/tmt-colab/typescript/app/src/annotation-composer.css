@@ -1,0 +1,59 @@
+/* AnnotationInput is the single composer presentation for Chat and threads. */
+.annotation-compose .rich-input-surface[data-accessory],
+.annotation-compose .rich-input-field {
+  border: 0;
+  background: transparent;
+}
+.annotation-compose .rich-input-field {
+  padding: 0;
+  min-height: 5em;
+  max-height: min(12em, 32dvh);
+}
+.annotation-compose .rich-input-field:focus-visible,
+.annotation-compose .rich-input-surface[data-accessory]:has(.rich-input-field:focus-visible) {
+  outline: none;
+  border: 0;
+}
+.annotation-compose .rich-input-accessory {
+  padding: 0;
+}
+.annotation-compose .rich-input-surface[data-accessory] {
+  margin-inline-start: 0;
+}
+.annotation-compose .annotation-status-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  min-height: var(--tmt-ui-host-icon-action-size);
+  margin-top: var(--conversation-gap);
+}
+.annotation-compose .annotation-status-row > .tmt-ui-icon-action:last-child {
+  margin-inline-start: auto;
+}
+.annotation-compose
+  .annotation-status-row
+  > .tmt-ui-icon-action:last-child
+  .tmt-ui-icon-action-control {
+  border: 0;
+  background: var(--tmt-ui-surface-annotation-action);
+  color: var(--tmt-ui-color-annotation-on-action);
+}
+
+.annotation-compose
+  .annotation-status-row:has(> .attach-labeled, > .creator-toggle)
+  > .tmt-ui-icon-action:last-child {
+  margin-inline-start: 0;
+}
+.annotation-compose .annotation-status-row > .creator-toggle {
+  margin-inline-start: auto;
+}
+.annotation-compose .annotation-status-row > .attach-labeled {
+  margin-inline-end: auto;
+}
+
+.annotation-anchor-note {
+  margin: var(--conversation-gap) 0 0;
+  min-width: 0;
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-host-field-label-size);
+}

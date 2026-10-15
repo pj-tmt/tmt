@@ -116,6 +116,11 @@ owns record fields, limits, revision semantics and trust boundaries.
   the read-only reader list via `ReaderSession.attachments`); `attachment-opener.ts` is the
   shared scoped serial read owner; Files enter only on a trusted click. Checks: `test/document-files.test.ts`,
   `e2e/files-panel.spec.ts` and the Files case of `acceptance/attachments.spec.ts`.
+- `annotation-number.css` owns the shared circle metrics; the renderer-style generator
+  projects that checked CSS alongside its paint roles into the opaque frame.
+  `AnnotationInput` and its composer stylesheet present both Chat and annotations;
+  editor, recipient and Send ownership stays unchanged. The [GUI rule](../../../../design/gui-style.md#conversation-turn)
+  owns their appearance.
 - `components/conversation-window.tsx` owns one header, full-width history and bottom
   composer placement for Chat, anchored threads and new annotations. Window geometry
   remains caller-owned; this component owns scrolling for both surfaces.

@@ -94,12 +94,15 @@ for (const width of [1440, 390])
             'line-height',
             '16.5px',
           );
-          await expect(window.locator('.conversation-composer')).toHaveCSS('padding', '8px 12px');
+          await expect(window.locator('.conversation-composer')).toHaveCSS(
+            'padding',
+            '12px 16px 16px',
+          );
           if (surface === 'annotation') {
             await expect(window.locator('.annotation-anchor-note')).toHaveCSS('font-size', '12px');
             await expect(window.locator('.conversation-window-bar')).toHaveCSS(
               'padding',
-              '8px 12px',
+              '8px 16px',
             );
           }
           await page.evaluate(async () => {
@@ -108,7 +111,7 @@ for (const width of [1440, 390])
           });
           await expect(page.locator('#scale-fixture .conversation-turn')).toHaveCSS(
             'padding',
-            '8px 12px 8px 9px',
+            '8px 16px 8px 13px',
           );
         }
       });

@@ -977,7 +977,7 @@ for (const surface of ['chat', 'thread'] as const)
           : page.getByTestId('comment-thread').first();
       const input = panel.getByRole('combobox', { name: 'Message', exact: true });
       await input.fill('A posted image at the message edge.');
-      const attachName = surface === 'chat' ? text.attachFiles : text.messageAttach;
+      const attachName = text.messageAttach;
       const posted = page.waitForEvent('filechooser');
       await panel.getByRole('button', { name: attachName, exact: true }).click();
       await (

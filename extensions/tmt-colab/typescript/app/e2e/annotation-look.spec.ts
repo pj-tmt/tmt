@@ -1,8 +1,9 @@
 import { mkdirSync } from 'node:fs';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import { captureDirectory } from './captures.js';
 import { destination } from '../test/ask-fixtures.js';
 import { pageAction } from '../test/page-actions.js';
+import { text } from '../src/strings.js';
 
 const fixture = '/test/ask-page-browser.tsx';
 async function run(page: Page, method: string, argument?: unknown) {
@@ -15,6 +16,7 @@ const captures = captureDirectory();
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'] as const) {
     test(`annotation design matrix ${width} ${theme}`, async ({ page }) => {
+      mkdirSync(captures, { recursive: true });
       await page.setViewportSize({ width, height: 900 });
       await page.emulateMedia({ colorScheme: theme });
       await page.addInitScript((theme) => {
@@ -146,6 +148,161 @@ for (const width of [1440, 390])
           return clone.innerHTML;
         }),
       ).toBe(authored);
+      expect(await run(page, 'proof')).toMatchObject({ sends: [], actions: [] });
+    });
+  }
+
+async function numberMetrics(number: Locator) {
+  return number.evaluate((node) => {
+    const style = getComputedStyle(node);
+    return Object.fromEntries(
+      [
+        'width',
+        'height',
+        'font-family',
+        'font-size',
+        'font-weight',
+        'line-height',
+        'align-items',
+        'justify-items',
+        'padding',
+        'border-radius',
+        'letter-spacing',
+      ].map((key) => [key, style.getPropertyValue(key)]),
+    );
+  });
+}
+async function sharedComposer(window: Locator) {
+  const compose = window.locator('.annotation-compose');
+  await expect(compose).toHaveCount(1);
+  await expect(compose.locator('.rich-input-field')).toHaveCount(1);
+  const send = compose.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true });
+  await expect(send.locator('.lucide-arrow-right')).toHaveCount(1);
+  const geometry = await compose.evaluate((node) => {
+    const field = node.querySelector('.rich-input-field')!;
+    const attach = node.querySelector('.attach-labeled')!;
+    const send = node.querySelector(
+      '.annotation-status-row > .tmt-ui-icon-action:last-child button',
+    )!;
+    const a = field.getBoundingClientRect(),
+      b = attach.getBoundingClientRect(),
+      c = send.getBoundingClientRect();
+    const style = getComputedStyle(field);
+    const composer = getComputedStyle(node.parentElement!);
+    return {
+      left: b.left - a.left,
+      right: c.right - a.right,
+      square: c.width - c.height,
+      border: style.borderTopWidth,
+      background: style.backgroundColor,
+      padding: composer.padding,
+      rule: composer.borderTopWidth,
+    };
+  });
+  expect(Math.abs(geometry.left)).toBeLessThanOrEqual(1);
+  expect(Math.abs(geometry.right)).toBeLessThanOrEqual(1);
+  expect(Math.abs(geometry.square)).toBeLessThanOrEqual(1);
+  expect(geometry).toMatchObject({
+    border: '0px',
+    background: 'rgba(0, 0, 0, 0)',
+    padding: '12px 16px 16px',
+    rule: '1px',
+  });
+  return geometry;
+}
+async function sharedAgentTag(window: Locator) {
+  const byline = window.locator('[data-turn-role="agent"] .comment-byline');
+  const tag = byline.locator('.conversation-agent-label');
+  await expect(tag).toHaveCount(1);
+  await expect(tag).toHaveText('AGENT');
+  await expect(tag).toHaveCSS('border-top-width', '1px');
+  const gap = await byline.evaluate((node) => {
+    const name = node.querySelector('.conversation-author')!.getBoundingClientRect();
+    const tag = node.querySelector('.conversation-agent-label')!.getBoundingClientRect();
+    const time = node.querySelector('time')!.getBoundingClientRect();
+    return { gap: tag.left - name.right, tagRight: tag.right, timeLeft: time.left };
+  });
+  expect(gap.gap).toBeCloseTo(6, 0);
+  expect(gap.timeLeft).toBeGreaterThan(gap.tagRight);
+  return tag.evaluate((node) => {
+    const style = getComputedStyle(node);
+    return {
+      font: style.font,
+      padding: style.padding,
+      border: style.borderTopWidth,
+      letterSpacing: style.letterSpacing,
+    };
+  });
+}
+for (const width of [1440, 1024, 390])
+  for (const theme of ['light', 'dark'] as const) {
+    test(`annotation and Chat share circles composer and AGENT tag ${width} ${theme}`, async ({
+      page,
+    }) => {
+      mkdirSync(captures, { recursive: true });
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await page.goto('/');
+      const options = {
+        creator: true,
+        attachments: true,
+        agents: [{ ...destination(), agentName: 'Atlas', presence: 'active' }],
+      };
+      await run(page, 'mount', options);
+      await run(page, 'annotationLook');
+      const marker = page
+        .frameLocator('#ask-page-fixture iframe')
+        .locator('[data-colab-thread]')
+        .filter({ hasText: /^1$/ });
+      await marker.click();
+      const thread = page.getByTestId('comment-thread');
+      await expect(thread).toBeVisible();
+      const circle = thread.locator('.annotation-number');
+      const metrics = await numberMetrics(marker);
+      expect(await numberMetrics(circle)).toEqual(metrics);
+      expect(metrics).toMatchObject({
+        width: '22px',
+        height: '22px',
+        'font-size': '12px',
+        'font-weight': '600',
+        'align-items': 'center',
+        'justify-items': 'center',
+      });
+      expect(
+        await marker.evaluate((node) => ({
+          children: node.children.length,
+          before: getComputedStyle(node, '::before').content,
+          after: getComputedStyle(node, '::after').content,
+        })),
+      ).toEqual({ children: 0, before: 'none', after: 'none' });
+      const popover = page.locator('.annotation-popover');
+      await expect(popover).not.toHaveAttribute('data-leader');
+      expect(await popover.evaluate((node) => getComputedStyle(node, '::before').content)).toBe(
+        'none',
+      );
+      const annotationComposer = await sharedComposer(thread);
+      const annotationTag = await sharedAgentTag(thread);
+      await page.screenshot({ path: `${captures}/unified-annotation-${width}-${theme}.png` });
+      await page.keyboard.press('Escape');
+      await run(page, 'mount', { ...options, creator: false });
+      const app = page.locator('#ask-page-fixture');
+      await (await pageAction(app, 'Chat')).click();
+      const chat = page.getByTestId('chat-panel');
+      await expect(chat.getByText(text.chatEmpty, { exact: true })).toBeVisible();
+      await expect(chat.locator('.message-mention-chip')).toHaveCount(0);
+      expect(await sharedComposer(chat)).toEqual(annotationComposer);
+      await page.screenshot({ path: `${captures}/unified-chat-empty-${width}-${theme}.png` });
+      await run(page, 'mount', options);
+      await (await pageAction(app, 'Chat')).click();
+      await expect(chat.locator('.message-mention-chip')).toHaveCount(1);
+      await expect(chat.getByRole('button', { name: 'Send to @Atlas', exact: true })).toHaveCSS(
+        'border-top-width',
+        '0px',
+      );
+      await page.screenshot({ path: `${captures}/unified-chat-recipient-${width}-${theme}.png` });
+      await run(page, 'conversation', { surface: 'chat', state: 'replied' });
+      expect(await sharedAgentTag(chat)).toEqual(annotationTag);
+      await page.screenshot({ path: `${captures}/unified-chat-agent-${width}-${theme}.png` });
       expect(await run(page, 'proof')).toMatchObject({ sends: [], actions: [] });
     });
   }
