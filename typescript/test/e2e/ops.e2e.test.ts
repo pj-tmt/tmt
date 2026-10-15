@@ -92,7 +92,7 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
       await fixture.waitForCapture(
         (screen) =>
           screen.includes('OPS / UI') &&
-          /^AGENT[ \t]+SQUAD[ \t]+STATE[ \t]+TOK\/h[ \t]+MODE[ \t]+CRON[ \t]+RUNTIME[ \t]+MODEL\b/m.test(
+          /^ AGENT[ \t]+SQUAD[ \t]+STATE[ \t]+TOK\/h[ \t]+MODE[ \t]+CRON[ \t]+RUNTIME[ \t]+MODEL\b/m.test(
             screen
           ) &&
           screen.includes('Ben') &&

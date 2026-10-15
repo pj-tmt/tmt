@@ -34,6 +34,8 @@ pub(in crate::board) fn render(
     let Some(snapshot) = app.workspace_snapshot() else {
         return;
     };
+    let area =
+        crate::board::pane_chrome::paint(frame, app, area, crate::config::Pane::Rows, "Overview");
     let scene = super::super::monitor::scene(app, snapshot);
     let limits = if crate::board::home::limits_enabled(app) {
         super::super::quota::lines(

@@ -99,7 +99,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 let values = monitor::values(app, snapshot, row);
                 let y = viewport.y + line as u16;
                 let selected = Some(&row.target) == app.workspace.selected.as_ref();
-                if selected {
+                if selected && app.focused() == Pane::Rows {
                     frame.buffer_mut().set_style(
                         Rect::new(viewport.x, y, viewport.width, 1),
                         look.selection(),
@@ -137,12 +137,11 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                                 break;
                             }
                             let cell = Rect::new(x, y, width, 1);
-                            let style = if selected {
-                                look.selection()
-                                    .patch(look.row_span(true, look.role(role), true))
-                            } else {
-                                look.role(role)
-                            };
+                            let style = crate::board::pane_chrome::row_style(
+                                app,
+                                selected,
+                                look.role(role),
+                            );
                             strip::paint_left(frame.buffer_mut(), cell, Line::styled(label, style));
                             if action {
                                 app.chip_hits.borrow_mut().push((cell, index));
@@ -175,12 +174,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                     } else {
                         look.role(role)
                     };
-                    let style = if selected {
-                        look.selection()
-                            .patch(look.row_span(true, state_style, true))
-                    } else {
-                        state_style
-                    };
+                    let style = crate::board::pane_chrome::row_style(app, selected, state_style);
                     strip::paint_left(
                         frame.buffer_mut(),
                         slot,

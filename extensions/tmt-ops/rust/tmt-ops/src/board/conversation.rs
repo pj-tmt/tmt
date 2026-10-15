@@ -251,7 +251,7 @@ impl App {
             return;
         };
         if let Some(source) = &mut session.exact_source {
-            source.invalidate();
+            source.scroll(self.scrolls.offset(pane), step, self.scrolls.visible(pane));
             return;
         }
         if matches!(step, Step::Lines(0) | Step::Pages(0)) {
@@ -327,6 +327,22 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
     } else {
         area
     };
+    // Chrome replaces the former first header row; keep the existing metadata
+    // admission and compact total header budget over the held response area.
+    let full = area.height >= 20 && area.width >= 60;
+    let header_limit = if area.height < 12 { 4u16 } else { u16::MAX };
+    let inside = super::pane_chrome::paint(
+        frame,
+        app,
+        area,
+        Pane::Replies,
+        &format!(
+            "Conversation · {}",
+            row["name"].as_str().unwrap_or("unknown agent")
+        ),
+    );
+    let header_limit = header_limit.saturating_sub(inside.y.saturating_sub(area.y));
+    let area = inside;
     // Effective bindings depend on logical conversation placement. Acquire them
     // before mutably borrowing the response sessions that own that placement.
     let bindings = app.bindings();
@@ -410,7 +426,6 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
         _ if tree_row.is_some_and(|row| row.lead) => "lead",
         _ => "member",
     };
-    let full = area.height >= 20 && area.width >= 60;
     let observed = app.references.agents.get(row["id"].as_str().unwrap());
     let runtime = observed
         .and_then(|agent| agent.runtime.as_deref())
@@ -491,20 +506,9 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
         )));
         state_spans.push(Span::styled(timer_text.clone(), look.role(Role::Muted)));
     }
-    let mut header = vec![
-        rule(
-            format!(
-                "Conversation · {name}{}",
-                if app.focus == 1 && app.input.is_none() {
-                    " · focused · Esc back"
-                } else {
-                    ""
-                }
-            ),
-            Role::Accent,
-        ),
-        Line::from(state_spans),
-    ];
+    let mut header = Vec::new();
+    let state_row = header.len();
+    header.push(Line::from(state_spans));
     let runtime_row = runtime_known.then_some(header.len());
     if runtime_known {
         header.push(Line::from(vec![
@@ -626,14 +630,14 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
         .max(1)
         .min(area.height)
         .min(header.len() as u16)
-        .min(if area.height < 12 { 4 } else { u16::MAX });
+        .min(header_limit);
     let retained_prefix = usize::from(header_height)
         .saturating_sub(usize::from(usize::from(header_height) < header.len()));
     let controls_row = controls_row.filter(|index| *index < retained_prefix);
     let timer_row = if full {
         chip_row
     } else {
-        Some(runtime_row.unwrap_or(1))
+        Some(runtime_row.unwrap_or(state_row))
     };
     let retained_timer = timer_row.is_some_and(|row| row < retained_prefix);
     let retained_chip = !chips.is_empty() && chip_row.is_some_and(|row| row < retained_prefix);

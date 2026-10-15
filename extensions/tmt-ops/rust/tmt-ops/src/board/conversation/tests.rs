@@ -413,7 +413,7 @@ fn narrow_response_header_keeps_source_and_choice_label_together() {
         }),
     )
     .unwrap();
-    for (width, visible) in [(12, false), (13, true), (40, true)] {
+    for (width, visible) in [(14, false), (15, true), (40, true)] {
         let mut app = workspace_fixture();
         app.labels = Supplied::from_rows(vec![(
             "digest".into(),

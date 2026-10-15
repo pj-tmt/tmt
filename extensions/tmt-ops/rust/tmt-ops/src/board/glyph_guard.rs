@@ -10,6 +10,8 @@ const STRUCTURAL_GLYPHS: &[(&str, &str)] = &[
         "─│┌┐└┘├┤┬┴┼",
         "single-line rules and square overlay borders",
     ),
+    ("━", "focused base-pane heavy top rule"),
+    ("▶", "NO_COLOR receiving-pane marker"),
     ("·", "separates adjacent labels without implying a state"),
     ("…", "shared text fitter's truncation indicator"),
     ("–", "unavailable evidence; distinct from measured zero"),
@@ -83,6 +85,7 @@ fn glyph_guard_rejects_unregistered_ambiguous_and_emoji_decorations_and_unspaced
         "⏱ cron",
         "😀 cron",
         "1️⃣ cron",
+        "▶\u{fe0f} Agents",
         "◐0",
         "◆✗",
         "↻lead",
@@ -110,5 +113,48 @@ fn retired_occurrence_prefixes_do_not_relax_semantic_mark_spacing() {
     }
     for good in ["◆ row", " ◆ row", "  ◆ row", " │ ◆ row"] {
         assert_eq!(glyph_error(good), None, "positive control {good:?}");
+    }
+}
+
+#[test]
+fn real_pane_titles_register_heavy_no_color_and_ascii_focus_cues() {
+    use ratatui::{Terminal, backend::TestBackend, layout::Rect};
+    use tmt_cli_style::{Depth, Theme};
+    for (depth, ascii) in [
+        (Depth::TrueColor, false),
+        (Depth::None, false),
+        (Depth::None, true),
+    ] {
+        let mut app = crate::board::app::workspace::tests::capture_case(
+            "agents",
+            crate::look::Look {
+                theme: Theme::default(),
+                depth,
+            },
+        );
+        app.cron_glyphs = crate::board::overview::cron_counts::GlyphSet::from_ascii(ascii);
+        assert_eq!(app.look().depth, depth);
+        let mut terminal = Terminal::new(TestBackend::new(60, 6)).unwrap();
+        terminal
+            .draw(|frame| {
+                crate::board::pane_chrome::paint(
+                    frame,
+                    &app,
+                    Rect::new(0, 0, 60, 6),
+                    crate::config::Pane::Rows,
+                    "Agents",
+                );
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let title = (0..60).map(|x| buffer[(x, 0)].symbol()).collect::<String>();
+        assert!(title.starts_with("━━ "), "{title}");
+        if depth == Depth::None {
+            assert!(
+                title.contains(if ascii { "> Agents" } else { "▶ Agents" }),
+                "{title}"
+            );
+        }
+        assert_eq!(glyph_error(&title), None, "{title}");
     }
 }

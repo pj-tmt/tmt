@@ -350,6 +350,7 @@ pub fn valid_event(event: &str) -> bool {
         "enter",
         "backspace",
         "tab",
+        "backtab",
         "space",
         "delete",
         "home",
