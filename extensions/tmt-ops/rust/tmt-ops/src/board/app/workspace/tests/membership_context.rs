@@ -5,6 +5,7 @@ const SECOND_ROOM: &str = "44444444-4444-4444-8444-444444444444";
 
 fn flat(memberships: usize, tab: OpsTab) -> App {
     let mut app = board();
+    observe_waiting_member(&mut app);
     let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
     let row = workspace.rows[&OpsTarget::Member {
         room_id: Some(ROOM.into()),

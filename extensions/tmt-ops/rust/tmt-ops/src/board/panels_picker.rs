@@ -82,6 +82,10 @@ fn rows<P: Panel>(policy: &Panels<P>) -> Vec<(String, String, String)> {
     let mut rows: Vec<_> = policy
         .order()
         .iter()
+        .filter(|panel| {
+            P::SIDE_KEY != "conversation"
+                || matches!(panel.key(), "usage" | "subscriptions" | "monitor")
+        })
         .map(|panel| {
             (
                 panel.key().into(),
@@ -90,6 +94,8 @@ fn rows<P: Panel>(policy: &Panels<P>) -> Vec<(String, String, String)> {
                     "Usage (fixed header)".into()
                 } else if P::SIDE_KEY == "conversation" && panel.key() == "subscriptions" {
                     "Quota in Usage (fixed row)".into()
+                } else if P::SIDE_KEY == "conversation" && panel.key() == "monitor" {
+                    "Squads / Needs you (fixed body)".into()
                 } else if panel.key() == "usage" && P::SIDE_KEY == "details" {
                     "Usage".into()
                 } else {
@@ -110,7 +116,9 @@ fn rows<P: Panel>(policy: &Panels<P>) -> Vec<(String, String, String)> {
         ("save", "Save"),
         ("cancel", "Cancel"),
     ] {
-        rows.push((id.into(), String::new(), name.into()));
+        if P::SIDE_KEY != "conversation" || !matches!(id, "up" | "down") {
+            rows.push((id.into(), String::new(), name.into()));
+        }
     }
     rows
 }
@@ -134,13 +142,10 @@ fn edit<P: Panel>(
             policy.set_shown(panel, !policy.shown(panel))?;
         }
         Edit::Up | Edit::Down => {
-            let panel = P::parse(selected).ok_or("Select a vertical panel first.")?;
-            let fixed = |panel: P| {
-                P::SIDE_KEY == "conversation" && matches!(panel.key(), "usage" | "subscriptions")
-            };
-            if fixed(panel) {
-                return Err("Usage has a fixed header; quota shares its provider rows.".into());
+            if P::SIDE_KEY == "conversation" {
+                return Err("Overview sections have fixed positions.".into());
             }
+            let panel = P::parse(selected).ok_or("Select a vertical panel first.")?;
             let index = policy
                 .order()
                 .iter()
@@ -148,14 +153,11 @@ fn edit<P: Panel>(
                 .expect("admitted panel");
             let down = matches!(action, Edit::Down);
             let next = if down {
-                policy.order()[index + 1..]
-                    .iter()
-                    .position(|item| !fixed(*item))
-                    .map(|offset| index + 1 + offset)
+                index
+                    .checked_add(1)
+                    .filter(|next| *next < policy.order().len())
             } else {
-                policy.order()[..index]
-                    .iter()
-                    .rposition(|item| !fixed(*item))
+                index.checked_sub(1)
             };
             if let Some(next) = next {
                 for _ in 0..index.abs_diff(next) {

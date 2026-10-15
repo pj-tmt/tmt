@@ -5,6 +5,7 @@ fn key(code: KeyCode) -> Event {
 }
 fn board() -> App {
     let mut app = crate::board::app::workspace::tests::board();
+    crate::board::app::workspace::tests::observe_waiting_member(&mut app);
     app.shell.tab = OpsTab::Overview;
     app
 }
@@ -16,7 +17,7 @@ fn preview_reads_override_but_cancel_uses_the_latest_acquisition_without_a_write
     assert_eq!(app.panels_event(&key(KeyCode::Enter)), Some(Effect::None));
     assert!(
         !app.overview_panels()
-            .shown(crate::config::OverviewPanel::Summary)
+            .shown(crate::config::OverviewPanel::Subscriptions)
     );
     assert_eq!(app.workspace_snapshot().unwrap().preferences, expected);
     let mut fresh = OverviewPanels::default();
@@ -162,12 +163,14 @@ fn mouse_toggle_and_move_use_fresh_painted_rows_and_match_plain_keys() {
         crossterm::event::{MouseButton, MouseEvent, MouseEventKind},
     };
     let mut mouse = board();
+    mouse.shell.tab = OpsTab::Digest;
     mouse.open_panels();
     let mut keys = board();
+    keys.shell.tab = OpsTab::Digest;
     keys.open_panels();
     let mut terminal = Terminal::new(TestBackend::new(100, 36)).unwrap();
     for (label, code) in [
-        ("Summary counts", KeyCode::Enter),
+        ("Status", KeyCode::Enter),
         ("Move selected panel down", KeyCode::Char('d')),
     ] {
         terminal
@@ -394,8 +397,8 @@ fn revealed_conversation_survives_preview_save_and_uses_the_existing_busy_refusa
     assert_eq!(app.focused_pane(), Some(crate::config::Pane::Replies));
     app.in_flight = 0;
     app.open_panels();
-    // Conversation is after the six ordered panel rows, selected by plain keys.
-    for _ in 0..6 {
+    // Conversation follows the three live Overview controls.
+    for _ in 0..3 {
         app.panels_event(&key(KeyCode::Down));
     }
     app.panels_event(&key(KeyCode::Enter));

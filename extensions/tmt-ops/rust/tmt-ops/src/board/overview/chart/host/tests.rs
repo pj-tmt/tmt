@@ -415,6 +415,7 @@ fn overview_panels_preserve_the_wide_reader_and_talk_placement() {
     crate::status::with_now_ms(fixtures::NOW, || {
         let _no_commands = crate::runner::forbid_commands();
         let mut app = board();
+        crate::board::app::workspace::tests::observe_waiting_member(&mut app);
         fixtures::populate(&mut app);
         let target = app.workspace.selected.clone();
         paint(&mut app, 160, 24);

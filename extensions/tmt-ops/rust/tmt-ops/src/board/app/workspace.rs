@@ -530,23 +530,7 @@ impl App {
         ));
         Effect::None
     }
-    pub(in crate::board) fn overview_sort_column(
-        &mut self,
-        column: crate::config::OverviewColumn,
-    ) -> Effect {
-        let Some(_) = self.workspace_snapshot() else {
-            return Effect::None;
-        };
-        if self.shell.tab != OpsTab::Overview {
-            return Effect::None;
-        }
-        let mut next = self.workspace_order();
-        next.overview = Some(match next.overview {
-            Some(order) if order.column == column => order.reverse(),
-            _ => crate::config::OverviewSort::initial(column),
-        });
-        self.changed_view_order(next)
-    }
+
     pub(super) fn workspace_action(&mut self, action: OpsUiAction) -> Effect {
         use OpsUiAction::*;
         match action {

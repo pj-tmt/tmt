@@ -2152,6 +2152,7 @@ printf '%s\n' '{{}}'
         assert!(snapshot.view.as_ref().unwrap().home.is_some());
         let mut app = super::super::app::App::new(Some(ALL.into()));
         app.apply(*snapshot);
+        app.shell.tab = super::super::shell::OpsTab::Agents;
         app.workspace.expanded.insert(ROOM.into());
         let index = app
             .workspace_rows()

@@ -112,6 +112,7 @@ mod tests {
             shell::OpsTab,
         };
         let mut app = crate::board::app::workspace::tests::board();
+        crate::board::app::workspace::tests::observe_waiting_member(&mut app);
         app.shell.tab = OpsTab::Overview;
         app.invoker_tmux = false;
         app.set_body_width(80);

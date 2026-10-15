@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::BTreeSet;
 
 fn lead(id: &str, squad: &str) -> Lead {
     Lead {
@@ -675,4 +676,28 @@ fn full_message_expiry_and_missing_body_are_honest() {
     );
     detail["final"]["status"] = json!("retained");
     assert!(message(Kind::Reply).body(detail).is_err());
+}
+
+// A test oracle over the retained read-state machine; no production Recent view remains.
+impl State {
+    pub fn observations_complete(&self) -> bool {
+        let retained: BTreeSet<_> = self
+            .leads
+            .iter()
+            .map(|lead| (lead.squad.as_str(), lead.id()))
+            .collect();
+        self.sender.is_some()
+            && self.results_observed
+            && self.failure.is_none()
+            && self.lead_observed.iter().all(|((squad, id), observed)| {
+                *observed && retained.contains(&(squad.as_str(), id.as_str()))
+            })
+            && self.leads.iter().all(|lead| {
+                lead.failure.is_none()
+                    && self
+                        .lead_observed
+                        .get(&(lead.squad.clone(), lead.id().to_owned()))
+                        == Some(&true)
+            })
+    }
 }

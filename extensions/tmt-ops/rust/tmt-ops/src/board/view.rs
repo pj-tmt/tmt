@@ -104,7 +104,6 @@ pub(in crate::board) fn render_frame(
     app.frame_clocks.borrow_mut().clear();
     app.chip_hits.borrow_mut().clear();
     app.workspace_action_hits.borrow_mut().clear();
-    app.overview_sort_hits.borrow_mut().clear();
     app.cron_scope_hits.borrow_mut().clear();
     app.workspace_strip_hits.borrow_mut().clear();
     app.workspace_state_cells.borrow_mut().clear();

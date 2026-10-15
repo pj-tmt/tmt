@@ -15,7 +15,7 @@ use ratatui::crossterm::event::{
 };
 use serde_json::Value;
 use std::{
-    cell::{Cell, RefCell},
+    cell::RefCell,
     collections::{BTreeMap, BTreeSet},
     time::{Duration, Instant},
 };
@@ -627,16 +627,12 @@ pub struct App {
     pub(super) workspace_startup: Option<String>,
     pub(super) workspace_form: Option<super::workspace::manage::Draft>,
     pub(in crate::board) cron_scope_hits: RefCell<Vec<TimerHit>>,
-    pub(in crate::board) workspace_header_hover: Cell<Option<crate::config::OverviewColumn>>,
     pub(in crate::board) view_layer: super::view_state::Layer,
     pub(in crate::board) overview_filter: super::overview::monitor::Filter,
     pub(in crate::board) overview_rows: RefCell<super::overview::monitor::Cache>,
-    pub(in crate::board) overview_layout: RefCell<super::overview::columns::Layout>,
     pub(in crate::board) agents_layout: RefCell<super::workspace::columns::AgentsLayout>,
     pub(in crate::board) workspace_strip_hits: RefCell<Vec<(ratatui::layout::Rect, Choice)>>,
     pub(in crate::board) workspace_state_cells: RefCell<Vec<ratatui::layout::Rect>>,
-    pub(in crate::board) overview_sort_hits:
-        RefCell<Vec<(ratatui::layout::Rect, crate::config::OverviewColumn)>>,
     pub(in crate::board) workspace_action_hits:
         RefCell<Vec<(ratatui::layout::Rect, super::workspace::OpsTarget, Choice)>>,
     pub(super) timing: Option<super::timing::Ui>,
@@ -966,6 +962,30 @@ impl App {
             })
             .max_by_key(|(reading, evidence)| (*evidence, reading.span, !reading.partial))
             .map(|(reading, _)| reading)
+    }
+
+    /// The same HOUR readings and per-room UUID de-duplication supply both tables.
+    pub(in crate::board) fn overview_squad_usage(
+        &self,
+        squad: &super::workspace::OpsSquad,
+    ) -> Option<(u128, bool)> {
+        let mut total = 0u128;
+        let mut known = false;
+        let mut partial = squad.observation != super::workspace::OpsObservation::Complete;
+        let mut seen = std::collections::BTreeSet::new();
+        for id in &squad.members {
+            if !seen.insert(id) {
+                continue;
+            }
+            if let Some(reading) = self.overview_member_usage(id) {
+                known = true;
+                total = total.saturating_add(reading.tokens);
+                partial |= reading.partial;
+            } else {
+                partial = true;
+            }
+        }
+        known.then_some((total, partial))
     }
 
     pub(super) fn home_usage(&self, squad: &str, now: Instant) -> Option<HomeUsage<'_>> {
@@ -3395,7 +3415,6 @@ impl App {
 
     pub fn key(&mut self, key: KeyEvent) -> Effect {
         self.meter_hover = None;
-        self.workspace_header_hover.set(None);
         if key.kind == ratatui::crossterm::event::KeyEventKind::Release {
             return Effect::None;
         }
@@ -3578,8 +3597,6 @@ impl App {
         self.row_starts.borrow_mut().clear();
         self.tab_hits.borrow_mut().clear();
         self.workspace_action_hits.borrow_mut().clear();
-        self.overview_sort_hits.borrow_mut().clear();
-        self.workspace_header_hover.set(None);
         self.cron_scope_hits.borrow_mut().clear();
         self.workspace_strip_hits.borrow_mut().clear();
         self.workspace_state_cells.borrow_mut().clear();
@@ -3684,19 +3701,8 @@ impl App {
                     _ => None,
                 })
         };
-        let header =
-            if self.loading() || self.modal_open() || self.input.is_some() || self.searching {
-                None
-            } else {
-                self.overview_sort_hits
-                    .borrow()
-                    .iter()
-                    .find(|(area, _)| area.contains((event.column, event.row).into()))
-                    .map(|(_, column)| *column)
-            };
-        let changed = next != self.meter_hover || header != self.workspace_header_hover.get();
+        let changed = next != self.meter_hover;
         self.meter_hover = next;
-        self.workspace_header_hover.set(header);
         changed
     }
 
@@ -3764,7 +3770,7 @@ impl App {
         }
         // A button/wheel event carries the current position too. Reconcile an
         // existing hover, without inventing hover on terminals lacking motion.
-        if self.meter_hover.is_some() || self.workspace_header_hover.get().is_some() {
+        if self.meter_hover.is_some() {
             self.move_pointer(event);
         }
         if let Some(effect) = self.overlay_event(&Event::Mouse(event)) {
@@ -3943,15 +3949,6 @@ impl App {
                 self.workspace.selected = Some(hit.target);
                 self.workspace_reconcile();
                 return self.workspace_owner_timers(hit.room, hit.owner);
-            }
-            let column = self
-                .overview_sort_hits
-                .borrow()
-                .iter()
-                .find(|(area, _)| area.contains((event.column, event.row).into()))
-                .map(|(_, column)| *column);
-            if let Some(column) = column {
-                return self.overview_sort_column(column);
             }
 
             let workspace_action = self

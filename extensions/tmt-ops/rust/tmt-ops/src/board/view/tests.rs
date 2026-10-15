@@ -685,12 +685,17 @@ fn state_cells_use_the_projected_token_for_pattern_and_exact_states() {
                 theme: tmt_cli_style::Theme::new(base),
                 depth,
             };
-            for state in ["blocked", "blocked-on-ci", "waiting"] {
+            for state in [
+                "blocked",
+                "blocked-on-ci-with-a-long-tail-that-exceeds-every-admitted-state-track",
+                "waiting",
+            ] {
                 for selected in [false, true] {
                     let mut app = workspace_board();
-                    app.shell.tab = crate::board::shell::OpsTab::Overview;
+                    app.shell.tab = crate::board::shell::OpsTab::Agents;
                     app.view.as_mut().unwrap().look = look;
                     let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+                    snapshot.squad_looks.clear();
                     snapshot.roster.members.get_mut(MEMBER).unwrap().state = Some(state.into());
                     snapshot.roster.squads[0]
                         .member_states
@@ -710,8 +715,7 @@ fn state_cells_use_the_projected_token_for_pattern_and_exact_states() {
                     if selected {
                         app.select(index);
                     } else {
-                        // Overview now has only identity rows: index zero is the
-                        // tested member, not the old tree's Common pool row.
+                        // Clear UUID selection to inspect the unselected member style.
                         app.workspace.selected = None;
                     }
                     let buffer = board_buffer(&app, 160, 24);
@@ -724,14 +728,26 @@ fn state_cells_use_the_projected_token_for_pattern_and_exact_states() {
                     let cells: Vec<_> = (hit.x..hit.x + hit.width)
                         .map(|x| buffer[(x, hit.y)].symbol())
                         .collect();
-                    let shown = if state == "blocked-on-ci" {
-                        "blocked…"
+                    let shown = if state.starts_with("blocked-on-ci") {
+                        let row_text = cells.concat();
+                        assert!(
+                            !row_text.contains(state),
+                            "the long state must fit its track"
+                        );
+                        let tail = &row_text[row_text.find("blocked").expect("state prefix")..];
+                        let end = tail.find('…').expect("clipped State keeps an ellipsis");
+                        tail[..end + '…'.len_utf8()].to_owned()
                     } else {
-                        state
+                        state.to_owned()
                     };
                     let at = (0..cells.len())
-                        .find(|start| cells[*start..].concat().starts_with(shown))
-                        .expect("the State column keeps a visible ellipsis for a long state");
+                        .find(|start| cells[*start..].concat().starts_with(&shown))
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "the State column keeps a visible ellipsis for {state:?}: {}",
+                                cells.concat()
+                            )
+                        });
                     let token = if state == "waiting" {
                         look.role(Role::Waiting)
                     } else {
@@ -743,7 +759,9 @@ fn state_cells_use_the_projected_token_for_pattern_and_exact_states() {
                         token
                     };
                     for x in hit.x + at as u16
-                        ..hit.x + at as u16 + unicode_width::UnicodeWidthStr::width(shown) as u16
+                        ..hit.x
+                            + at as u16
+                            + unicode_width::UnicodeWidthStr::width(shown.as_str()) as u16
                     {
                         assert_eq!(
                             painted_at(&buffer, x, hit.y),
@@ -1001,6 +1019,7 @@ fn policy_chips_keep_actual_workspace_row_height_hits_and_selection_at_each_widt
                         depth,
                     };
                     let mut plain = workspace_board();
+                    crate::board::app::workspace::tests::observe_waiting_member(&mut plain);
                     plain.shell.tab = tab;
                     plain.view.as_mut().unwrap().look = look;
                     plain
@@ -1033,6 +1052,7 @@ fn policy_chips_keep_actual_workspace_row_height_hits_and_selection_at_each_widt
                     );
                     let starts = plain.row_starts.borrow().clone();
                     let mut focused = workspace_board();
+                    crate::board::app::workspace::tests::observe_waiting_member(&mut focused);
                     focused.shell.tab = tab;
                     focused.view.as_mut().unwrap().look = look;
                     focused
@@ -1075,29 +1095,14 @@ fn policy_chips_keep_actual_workspace_row_height_hits_and_selection_at_each_widt
                             .collect::<String>();
                         let label = match tab {
                             OpsTab::Digest => "unavailable",
-                            // The monitor's labelled Digest column remains
-                            // unknown without a verified supplied observation.
-                            OpsTab::Overview => "—",
+                            OpsTab::Overview => "waiting",
                             OpsTab::Agents => "—",
                         };
                         assert!(line.contains(label), "{tab:?}/{width}/{depth:?}: {line}");
                         if tab == OpsTab::Overview {
-                            let digest = focused
-                                .overview_sort_hits
-                                .borrow()
-                                .iter()
-                                .find(|(_, column)| {
-                                    *column == crate::config::OverviewColumn::Digest
-                                })
-                                .map(|(area, _)| *area)
-                                .expect("Digest column is visible at this width");
-                            let shown = (digest.x..digest.right())
-                                .map(|column| buffer[(column, *y)].symbol())
-                                .collect::<String>();
-                            assert_eq!(
-                                shown.trim(),
-                                "—",
-                                "raw policy does not invent an effective mode"
+                            assert!(
+                                !line.contains("Auto ▾"),
+                                "the removed MODE cell grants no choice authority"
                             );
                         }
                     }
@@ -1147,7 +1152,7 @@ fn supplied_digest_zero_held_and_mode_changes_replace_old_labels_and_keep_the_ch
     use crate::board::app::workspace::tests::{MEMBER, ROOM};
     use crate::board::shell::OpsTab;
     use crate::labels::{Choose, Label, Supplied};
-    for tab in [OpsTab::Overview, OpsTab::Agents, OpsTab::Digest] {
+    for tab in [OpsTab::Agents, OpsTab::Digest] {
         for width in [80, 100, 160] {
             crate::status::with_now_ms(1000, || {
                 let mut app = workspace_board();

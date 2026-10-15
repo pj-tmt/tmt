@@ -1,46 +1,69 @@
-use super::*;
-
-fn board() -> crate::board::app::App {
+use crate::board::{
+    app::workspace::tests::{MEMBER, ROOM},
+    app::{App, Effect, HitTarget},
+    shell::OpsTab,
+};
+use ratatui::{
+    Terminal,
+    backend::TestBackend,
+    crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind},
+};
+fn board() -> App {
     let mut app = crate::board::app::workspace::tests::board();
-    app.shell.tab = crate::board::shell::OpsTab::Overview;
+    app.shell.tab = OpsTab::Overview;
     app
 }
-fn paint(app: &mut crate::board::app::App, width: u16) {
-    app.set_body_width(width);
-    let mut terminal =
-        ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, 44)).unwrap();
+fn waiting(app: &mut App) {
+    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    snapshot.roster.members.get_mut(MEMBER).unwrap().waiting = true;
+    snapshot.roster.squads[0]
+        .member_states
+        .get_mut(MEMBER)
+        .unwrap()
+        .waiting = true;
+    snapshot
+        .rows
+        .get_mut(&crate::board::workspace::OpsTarget::Member {
+            room_id: Some(ROOM.into()),
+            identity_id: MEMBER.into(),
+        })
+        .unwrap()["pending"] = serde_json::json!("Approve this change?");
+    snapshot.shell_counts = snapshot.roster.shell_counts();
+    app.overview_rows.borrow_mut().clear();
+    app.workspace_reconcile();
+}
+fn key(app: &mut App, code: KeyCode) -> Effect {
+    app.key(KeyEvent::new(code, KeyModifiers::NONE))
+}
+fn paint(app: &mut App, width: u16, height: u16) -> String {
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
     terminal
-        .draw(|frame| crate::board::view::render(frame, app))
+        .draw(|frame| {
+            crate::board::view::prepare(app, frame.area());
+            crate::board::view::render(frame, app);
+        })
         .unwrap();
+    terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect()
 }
-fn click(app: &mut crate::board::app::App, x: u16, y: u16) {
-    use ratatui::crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
-    app.mouse(
-        MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Left),
-            column: x,
-            row: y,
-            modifiers: KeyModifiers::NONE,
-        },
-        std::time::Instant::now(),
-    );
-}
-
 #[test]
 fn global_timers_need_no_uuid_and_new_stays_refused() {
-    use crate::board::app::HitTarget;
-    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     let _no_commands = crate::runner::forbid_commands();
     let mut app = board();
     app.workspace.selected = None;
-    paint(&mut app, 160);
-    let hit = *app
-        .hits
-        .borrow()
-        .iter()
-        .find(|hit| hit.target == HitTarget::AllRoomTimers)
-        .unwrap();
-    click(&mut app, hit.x, hit.y);
+    paint(&mut app, 103, 51);
+    assert!(
+        app.hits
+            .borrow()
+            .iter()
+            .all(|hit| hit.target != HitTarget::AllRoomTimers)
+    );
+    key(&mut app, KeyCode::Char('c'));
     assert!(app.cron_list.is_none());
     assert_eq!(
         app.notice.as_deref(),
@@ -50,71 +73,135 @@ fn global_timers_need_no_uuid_and_new_stays_refused() {
         vec![],
         tmt_ops::cron::ClockStatus::NoClock,
     )));
-    paint(&mut app, 160);
-    click(&mut app, hit.x, hit.y);
+    key(&mut app, KeyCode::Char('c'));
     let list = app
         .cron_list
         .as_ref()
-        .expect("global hit opens existing list");
+        .expect("explicit global key opens the existing list");
     assert!(list.scope.is_none() && list.owner.is_none());
     assert!(app.workspace.selected.is_none());
-    app.key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
+    key(&mut app, KeyCode::Char('n'));
     assert!(
         app.notice
-            .as_ref()
+            .as_deref()
             .is_some_and(|notice| notice.contains("explicit squad or job"))
     );
     assert!(app.input.is_none());
-    app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-    app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
-    let list = app
-        .cron_list
-        .as_ref()
-        .expect("c with no selected scope opens same list");
-    assert!(list.scope.is_none() && list.owner.is_none());
-    assert!(app.workspace.selected.is_none());
 }
-
 #[test]
-fn global_hit_is_replaced_on_repaint_and_does_not_retarget_hidden_selection() {
-    use crate::board::app::HitTarget;
+fn removed_count_cells_cannot_retain_their_old_timer_authority() {
     let mut app = board();
+    app.shell.tab = OpsTab::Agents;
     app.cron.replace(Ok(crate::board::cronboard::test_cron(
         vec![],
         tmt_ops::cron::ClockStatus::NoClock,
     )));
-    app.search = "no matching agent".into();
-    app.workspace_reconcile();
-    let selected = app.workspace.selected.clone();
-    paint(&mut app, 160);
-    let hit = *app
-        .hits
+    paint(&mut app, 160, 36);
+    let old = app
+        .cron_scope_hits
         .borrow()
-        .iter()
-        .find(|hit| hit.target == HitTarget::AllRoomTimers)
-        .unwrap();
-    click(&mut app, hit.x, hit.y);
-    assert!(
-        app.cron_list
-            .as_ref()
-            .is_some_and(|list| list.scope.is_none() && list.owner.is_none())
+        .first()
+        .cloned()
+        .expect("positive control: an actual count hit");
+    app.shell.tab = OpsTab::Overview;
+    paint(&mut app, 100, 36);
+    assert!(app.cron_scope_hits.borrow().is_empty());
+    let selected = app.workspace.selected.clone();
+    app.mouse(
+        MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: old.area.x.min(99),
+            row: old.area.y,
+            modifiers: KeyModifiers::NONE,
+        },
+        std::time::Instant::now(),
     );
+    assert!(app.cron_list.is_none());
     assert_eq!(app.workspace.selected, selected);
-    app.cron_list = None;
-    paint(&mut app, 20);
-    assert!(
-        app.hits
-            .borrow()
-            .iter()
-            .all(|hit| hit.target != HitTarget::AllRoomTimers)
-    );
-    click(&mut app, hit.x, hit.y);
-    assert!(
-        app.cron_list.is_none(),
-        "removed control cannot retain authority"
-    );
 }
-
+#[test]
+fn one_primary_viewport_keeps_waiting_targets_and_hits_bounded_at_short_heights() {
+    for width in [60, 103, 148, 160] {
+        for height in [8, 18, 24, 36, 51] {
+            let mut app = board();
+            waiting(&mut app);
+            paint(&mut app, width, height);
+            let hits: Vec<_> = app
+                .hits
+                .borrow()
+                .iter()
+                .filter(|hit| hit.row().is_some())
+                .copied()
+                .collect();
+            assert_eq!(hits.len(), 1, "{width}x{height} retains its waiting target");
+            for hit in hits {
+                assert_eq!(hit.row(), Some(0));
+                assert!(hit.x + hit.width <= width && hit.y < height);
+            }
+        }
+    }
+}
+#[test]
+fn hiding_the_primary_container_clears_its_previous_hit_owner() {
+    let mut app = board();
+    waiting(&mut app);
+    paint(&mut app, 160, 36);
+    assert!(app.hits.borrow().iter().any(|hit| hit.row().is_some()));
+    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    let mut policy = snapshot
+        .preferences
+        .overview_panels
+        .as_ref()
+        .map(|setting| setting.effective())
+        .unwrap_or_default();
+    policy
+        .set_shown(crate::config::OverviewPanel::Monitor, false)
+        .unwrap();
+    snapshot.preferences.overview_panels = Some(crate::config::PanelSetting::configured(policy));
+    app.invalidate_frame_geometry();
+    paint(&mut app, 160, 36);
+    assert!(app.hits.borrow().iter().all(|hit| hit.row().is_none()));
+}
+#[test]
+fn eight_rows_keep_filter_details_and_usage_keys_without_a_table_header() {
+    for width in [60, 100, 160] {
+        let mut app = board();
+        waiting(&mut app);
+        let selected = app.workspace.selected.clone();
+        key(&mut app, KeyCode::Char('u'));
+        assert!(!app.usage_controls);
+        app.notice = None;
+        let text = paint(&mut app, width, 8);
+        assert!(!text.contains("Subscriptions") && !text.contains("Digest status"));
+        assert!(app.hits.borrow().iter().any(|hit| hit.row() == Some(0)));
+        key(&mut app, KeyCode::Char('f'));
+        assert!(app.overview_filter == crate::board::overview::monitor::Filter::NeedsYou);
+        key(&mut app, KeyCode::Char('f'));
+        assert!(app.overview_filter == crate::board::overview::monitor::Filter::All);
+        assert_eq!(app.workspace.selected, selected);
+        key(&mut app, KeyCode::Char('e'));
+        assert!(app.monitor_details.is_some());
+        key(&mut app, KeyCode::Esc);
+        assert!(app.monitor_details.is_none());
+        app.invalidate_frame_geometry();
+        key(&mut app, KeyCode::Char('u'));
+        assert!(
+            !app.usage_controls,
+            "invalidated geometry admits no controls"
+        );
+        paint(&mut app, width, 8);
+        key(&mut app, KeyCode::Char('u'));
+        assert!(app.usage_controls);
+        let modal = paint(&mut app, width, 8);
+        assert!(
+            modal.contains("5m") && modal.contains("60m"),
+            "short modal remains operable: {modal}"
+        );
+        key(&mut app, KeyCode::Esc);
+        assert!(!app.usage_controls);
+        assert_eq!(app.workspace.selected, selected);
+    }
+}
 #[test]
 fn keyboard_timers_never_widens_a_hidden_missing_or_other_tab_scope() {
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -146,114 +233,4 @@ fn keyboard_timers_never_widens_a_hidden_missing_or_other_tab_scope() {
         app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
         assert!(app.cron_list.is_none());
     }
-}
-
-#[test]
-fn every_panel_is_disjoint_and_short_heights_keep_the_monitor() {
-    for width in [0, 1, 60, 100, 160] {
-        for height in [0, 1, 8, 18, 24, 36, 44] {
-            let area = Rect::new(2, 3, width, height);
-            let panels = panels(area, 2);
-            for (_, panel) in &panels {
-                assert_eq!(panel.intersection(area), *panel);
-            }
-            assert!(
-                panels
-                    .windows(2)
-                    .all(|pair| pair[0].1.bottom() <= pair[1].1.y)
-            );
-            if !area.is_empty() {
-                let table = panels
-                    .iter()
-                    .find(|(panel, _)| *panel == Panel::Table)
-                    .unwrap()
-                    .1;
-                assert!(
-                    table.height >= height.min(6),
-                    "{width}x{height}: {panels:?}"
-                );
-                assert_eq!(
-                    panels.iter().map(|(_, area)| area.height).sum::<u16>(),
-                    height
-                );
-            } else {
-                assert!(panels.is_empty());
-            }
-        }
-    }
-}
-
-#[test]
-fn eight_rows_keep_the_table_and_filter_details_usage_keys() {
-    use crate::board::{
-        app::{Effect, HitTarget},
-        overview::monitor::Filter,
-    };
-    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-    crate::status::with_now_ms(1_791_600_000_000, || {
-        let _no_commands = crate::runner::forbid_commands();
-        let key = |code| KeyEvent::new(code, KeyModifiers::NONE);
-        for width in [160, 100, 80, 60] {
-            let mut app = crate::board::home::tests::oracle::metered(crate::look::Look {
-                theme: tmt_cli_style::Theme::default(),
-                depth: tmt_cli_style::Depth::None,
-            });
-            assert_eq!(app.key(key(KeyCode::Char('u'))), Effect::None);
-            assert!(
-                !app.usage_controls,
-                "no controls before a workspace frame is painted"
-            );
-            app.notice = None;
-            app.set_body_width(width);
-            let mut terminal =
-                ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, 8)).unwrap();
-            terminal
-                .draw(|frame| crate::board::view::render(frame, &app))
-                .unwrap();
-            let text: String = terminal
-                .backend()
-                .buffer()
-                .content
-                .iter()
-                .map(|cell| cell.symbol())
-                .collect();
-            assert!(!text.contains("Subscriptions") && !text.contains("Digest status"));
-            assert!(app.hits.borrow().iter().any(|hit| hit.row() == Some(0)));
-            assert!(
-                app.hits
-                    .borrow()
-                    .iter()
-                    .all(|hit| !matches!(hit.target, HitTarget::Quota | HitTarget::AllRoomTimers))
-            );
-            let selected = app.workspace.selected.clone();
-            app.invalidate_frame_geometry();
-            app.key(key(KeyCode::Char('u')));
-            assert!(
-                !app.usage_controls,
-                "invalidated table geometry admits no controls"
-            );
-            terminal
-                .draw(|frame| crate::board::view::render(frame, &app))
-                .unwrap();
-            app.key(key(KeyCode::Char('f')));
-            assert!(app.overview_filter == Filter::NeedsYou);
-            app.key(key(KeyCode::Char('f')));
-            assert!(app.overview_filter == Filter::All);
-            assert_eq!(app.workspace.selected, selected);
-            app.key(key(KeyCode::Char('e')));
-            assert!(app.monitor_details.is_some());
-            app.key(key(KeyCode::Esc));
-            assert!(app.monitor_details.is_none());
-            terminal
-                .draw(|frame| crate::board::view::render(frame, &app))
-                .unwrap();
-            app.key(key(KeyCode::Char('u')));
-            assert!(app.usage_controls, "usage is still reachable at {width}x8");
-            terminal
-                .draw(|frame| crate::board::view::render(frame, &app))
-                .unwrap();
-            app.key(key(KeyCode::Esc));
-            assert!(!app.usage_controls && app.workspace.selected == selected);
-        }
-    });
 }

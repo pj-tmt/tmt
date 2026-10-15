@@ -333,6 +333,18 @@ pub(in crate::board) fn identity_rows(
     preferred: Option<&OpsTarget>,
     visibility: &OpsVisibility,
 ) -> Vec<OpsTreeRow> {
+    identity_rows_matching(snapshot, query, preferred, visibility, |_| true)
+}
+
+/// Apply a destination's evidence predicate before choosing one UUID occurrence.
+/// An ineligible preferred membership cannot hide another eligible occurrence.
+pub(in crate::board) fn identity_rows_matching(
+    snapshot: &observe::OpsWorkspaceSnapshot,
+    query: &str,
+    preferred: Option<&OpsTarget>,
+    visibility: &OpsVisibility,
+    admit: impl Fn(&OpsTreeRow) -> bool,
+) -> Vec<OpsTreeRow> {
     let query = query.to_lowercase();
     // Canonical roster projection owns membership and unknown-pool admission.
     // Deduplicate its occurrences once; stale row documents grant no authority.
@@ -352,7 +364,10 @@ pub(in crate::board) fn identity_rows(
         let OpsTarget::Member { identity_id, .. } = &row.target else {
             continue;
         };
-        if !snapshot.rows.contains_key(&row.target) || !row.title.to_lowercase().contains(&query) {
+        if !snapshot.rows.contains_key(&row.target)
+            || !row.title.to_lowercase().contains(&query)
+            || !admit(&row)
+        {
             continue;
         }
         let id = identity_id.clone();

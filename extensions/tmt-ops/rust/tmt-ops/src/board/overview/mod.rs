@@ -6,7 +6,6 @@ pub(super) mod actions;
 pub(super) mod columns;
 pub(super) mod composition;
 pub(super) mod detail;
-pub(super) mod events;
 pub(super) mod monitor;
 pub(super) mod quota;
 pub(super) mod sort;

@@ -171,9 +171,9 @@ lowercase room UUIDs. An absent key means none; an empty saved set removes the k
 Unknown/deleted room IDs remain stored without pruning and do not inflate the
 live hidden count. Pins remain independent. Session launch scope/reveal belongs
 to App and ephemeral reload carry, never Config or retained view hints.
-`workspace.overview_sort` names an existing monitor column;
+`workspace.overview_sort` names an existing identity sort field;
 `workspace.overview_reverse` reverses its initial direction; optional
-`workspace.agent_pins` saves up to 1,024 canonical identity UUIDs for Overview.
+`workspace.agent_pins` retains up to 1,024 canonical identity UUIDs; it does not reorder waiting-only Needs you.
 `workspace.digest_window` selects 24h (default), 7d or lifetime (shown as all time)
 for every Digest estimate surface, through the same format-preserving Config CAS;
 `workspace.savings_unit` (`tokens` default, `percent`, `cost`) is the sibling key on the
@@ -194,10 +194,12 @@ neither cancels its admitted write nor applies a late result to a reopened picke
 
 `workspace.overview_panels` stores `order`, `hidden` and `conversation` over IDs
 `summary`, `digest`, `subscriptions`, `usage`, `monitor`, `exchanges`.
-On Overview, Usage has a fixed full-width header position and `subscriptions`
+Overview exposes only Usage, inline quota, Squads / Needs you and Conversation in
+its picker; fixed positions ignore retained vertical order. Retired Summary, Digest
+and Recent controls remain absent. Usage has a fixed full-width header position and `subscriptions`
 controls quota cells inside its provider rows. Their order entries are retained
 in the stored complete ID set, but the picker identifies them as fixed and refuses
-move actions; body moves skip them. Digest retains independently movable panels.
+move actions. Digest retains independently movable panels.
 `workspace.digest_panels` stores `order`, `hidden` and `details` over IDs `status`,
 `usage`, `subscriptions`, `chart`, `list`. Order contains each ID once; hidden is
 a unique subset. Keep monitor/list or its side pane visible. Absence and omitted

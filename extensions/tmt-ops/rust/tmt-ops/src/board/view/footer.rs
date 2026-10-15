@@ -4,7 +4,6 @@ use crate::board::app::App;
 use ratatui::{
     Frame,
     layout::Rect,
-    style::Modifier,
     text::{Line, Span},
 };
 use tmt_cli_style::Role;
@@ -58,7 +57,7 @@ pub(in crate::board) fn key_label(event: &str) -> &str {
 
 /// Whether the selected row allows the action. Board-level actions always do;
 /// a row action needs a row, and `reply` and `open` need something to act on.
-fn row_allows(app: &App, action: &crate::action::Action) -> bool {
+pub(in crate::board) fn row_allows(app: &App, action: &crate::action::Action) -> bool {
     use crate::action::Verb;
     if app.workspace_snapshot().is_some()
         && action.verb.acts_on_member()
@@ -106,26 +105,53 @@ pub(super) fn hints(app: &App, width: usize) -> String {
     workspace_hints(app, width)
 }
 
-/// Two disjoint Overview hint groups read the one effective binding table.
-/// Compact screens without the panel legend keep the ordinary fitted footer.
-pub(in crate::board) fn overview_legend(app: &App, width: usize) -> Option<[String; 2]> {
-    workspace_legend(app, width, crate::board::shell::OpsTab::Overview)
+/// One fitted Overview footer reads the effective binding table.
+pub(in crate::board) fn overview_hints(app: &App, width: usize) -> Option<String> {
+    let hints = workspace_legend(app, crate::board::shell::OpsTab::Overview)?;
+    Some(fit_hints(
+        hints.first.into_iter().chain(hints.second).collect(),
+        hints.tail,
+        width,
+    ))
 }
-
 pub(in crate::board) fn agents_legend(app: &App, width: usize) -> Option<[String; 2]> {
-    workspace_legend(app, width, crate::board::shell::OpsTab::Agents)
+    let hints = workspace_legend(app, crate::board::shell::OpsTab::Agents)?;
+    Some([
+        fit_hints(hints.first, vec![], width),
+        fit_hints(hints.second, hints.tail, width),
+    ])
+}
+struct Hints {
+    first: Vec<String>,
+    second: Vec<String>,
+    tail: Vec<String>,
+}
+fn fit_hints(mut hints: Vec<String>, tail: Vec<String>, width: usize) -> String {
+    while hints
+        .iter()
+        .chain(&tail)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join("  ")
+        .width()
+        > width
+    {
+        if hints.pop().is_none() {
+            return tail
+                .first()
+                .filter(|hint| hint.width() <= width)
+                .cloned()
+                .unwrap_or_default();
+        }
+    }
+    hints.extend(tail);
+    hints.join("  ")
 }
 
-fn workspace_legend(
-    app: &App,
-    width: usize,
-    tab: crate::board::shell::OpsTab,
-) -> Option<[String; 2]> {
+fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints> {
     use crate::action::{OpsUiAction as Ui, Verb};
     if app.shell.tab != tab
         || app.focused_pane() == Some(crate::config::Pane::Replies)
-        || (tab == crate::board::shell::OpsTab::Overview
-            && app.conversation.borrow().area.height < 18)
         || app.usage_chart.borrow().focused()
         || app.modal_open()
         || app.input.is_some()
@@ -199,7 +225,9 @@ fn workspace_legend(
         (Verb::Open, "o", "link"),
         (Verb::Ui(Ui::Pin), "p", "pin"),
     ] {
-        if seen.contains(&verb)
+        if (tab == crate::board::shell::OpsTab::Overview
+            && matches!(verb, Verb::ViewReply | Verb::Open | Verb::Ui(Ui::Pin)))
+            || seen.contains(&verb)
             || (verb == Verb::Ui(Ui::Pin)
                 && tab == crate::board::shell::OpsTab::Overview
                 && app.workspace_selected_member().is_none())
@@ -216,7 +244,8 @@ fn workspace_legend(
         (Ui::ShowSquad, "S"),
         (Ui::RevealHidden, "h"),
     ] {
-        if let Some(key) = find(Verb::Ui(verb), preferred)
+        if tab == crate::board::shell::OpsTab::Agents
+            && let Some(key) = find(Verb::Ui(verb), preferred)
             && let Some(action) = bindings.get(&key)
         {
             first.push(format!("{} {}", key_label(&key), hint_word(app, action)));
@@ -225,11 +254,9 @@ fn workspace_legend(
     let mut second = Vec::new();
     let mut tail = Vec::new();
     let filter = if tab == crate::board::shell::OpsTab::Agents {
-        app.workspace.filter.next().label()
-    } else if app.overview_filter == crate::board::overview::monitor::Filter::All {
-        "needs you"
+        app.workspace.filter.next().label().to_owned()
     } else {
-        "all"
+        app.overview_filter.next().label().to_ascii_lowercase()
     };
     let filter_verb = if tab == crate::board::shell::OpsTab::Agents {
         Ui::AgentsFilter
@@ -241,16 +268,27 @@ fn workspace_legend(
     {
         second.push(format!("{} panes", key_label(&key)));
     }
-    for (verb, preferred, word) in [
-        (Verb::Ui(Ui::Search), "/", "search"),
-        (Verb::Ui(Ui::Timers), "c", "timers"),
-        (Verb::Ui(filter_verb), "f", filter),
-        (Verb::Ui(Ui::SavingsUnit), "$", "unit"),
-        (Verb::Ui(Ui::UsageControls), "u", "chart"),
-        (Verb::Settings, ",", "settings"),
-        (Verb::Ui(Ui::Help), "?", "help"),
-        (Verb::Ui(Ui::Quit), "q", "quit"),
-    ] {
+    let choices = if tab == crate::board::shell::OpsTab::Overview {
+        vec![
+            (Verb::Ui(filter_verb), "f", filter.as_str()),
+            (Verb::Ui(Ui::Search), "/", "search"),
+            (Verb::Settings, ",", "settings"),
+            (Verb::Ui(Ui::Help), "?", "help"),
+            (Verb::Ui(Ui::Quit), "q", "quit"),
+        ]
+    } else {
+        vec![
+            (Verb::Ui(Ui::Search), "/", "search"),
+            (Verb::Ui(Ui::Timers), "c", "timers"),
+            (Verb::Ui(filter_verb), "f", filter.as_str()),
+            (Verb::Ui(Ui::SavingsUnit), "$", "unit"),
+            (Verb::Ui(Ui::UsageControls), "u", "chart"),
+            (Verb::Settings, ",", "settings"),
+            (Verb::Ui(Ui::Help), "?", "help"),
+            (Verb::Ui(Ui::Quit), "q", "quit"),
+        ]
+    };
+    for (verb, preferred, word) in choices {
         if seen.contains(&verb) || (verb == Verb::Ui(Ui::SavingsUnit) && !app.savings_visible()) {
             continue;
         }
@@ -269,33 +307,16 @@ fn workspace_legend(
     {
         tail.push("Ctrl-C quit".into());
     }
-    fn fit(mut hints: Vec<String>, tail: Vec<String>, width: usize) -> String {
-        while hints
-            .iter()
-            .chain(&tail)
-            .cloned()
-            .collect::<Vec<_>>()
-            .join("  ")
-            .width()
-            > width
-        {
-            if hints.pop().is_none() {
-                return tail
-                    .first()
-                    .filter(|hint| hint.width() <= width)
-                    .cloned()
-                    .unwrap_or_default();
-            }
-        }
-        hints.extend(tail);
-        hints.join("  ")
-    }
-    Some([fit(first, vec![], width), fit(second, tail, width)])
+    Some(Hints {
+        first,
+        second,
+        tail,
+    })
 }
 
 fn workspace_hints(app: &App, width: usize) -> String {
-    if let Some([_, second]) = overview_legend(app, width) {
-        return second;
+    if let Some(hints) = overview_hints(app, width) {
+        return hints;
     }
     if app.usage_chart_available() && app.usage_chart.borrow().focused() {
         return crate::board::view::fit(
@@ -415,24 +436,7 @@ fn workspace_hints(app: &App, width: usize) -> String {
 /// Style the fitted hint list shared by board, HOME, read and jobs footers.
 /// Informational attention summaries remain muted rather than becoming keys.
 pub(in crate::board) fn hint_line(text: &str, look: crate::look::Look) -> Line<'static> {
-    let mut spans = Vec::new();
-    for (index, hint) in text.split("  ").enumerate() {
-        if index > 0 {
-            spans.push(Span::styled("  ", look.role(Role::Muted)));
-        }
-        if let Some((key, label)) = hint.split_once(' ')
-            && key != "◆"
-        {
-            spans.push(Span::styled(
-                key.to_owned(),
-                look.role(Role::Accent).add_modifier(Modifier::BOLD),
-            ));
-            spans.push(Span::styled(format!(" {label}"), look.role(Role::Muted)));
-        } else {
-            spans.push(Span::styled(hint.to_owned(), look.role(Role::Muted)));
-        }
-    }
-    Line::from(spans)
+    crate::board::m12_key_hints::line(text, look, look.role(Role::Accent), "  ")
 }
 
 pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::look::Look) {
@@ -534,7 +538,11 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
             || hints(app, usize::from(footer.width)),
             |lines| lines[1].clone(),
         );
-        hint_line(&text, look)
+        if app.shell.tab == crate::board::shell::OpsTab::Overview {
+            crate::board::m12_key_hints::line(&text, look, look.role(Role::Text), "  ")
+        } else {
+            hint_line(&text, look)
+        }
     };
     if app.settings.is_some() {
         for span in &mut footer_line.spans {

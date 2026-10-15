@@ -435,6 +435,7 @@ fn header_frames() -> Value {
         ("tmt", tmt_cli_style::Depth::None, "NO_COLOR"),
     ] {
         let mut app = crate::board::app::workspace::tests::board();
+        crate::board::app::workspace::tests::observe_waiting_member(&mut app);
         app.shell.tab = crate::board::shell::OpsTab::Overview;
         app.view.as_mut().unwrap().look = crate::look::Look {
             theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::parse(base).unwrap()),

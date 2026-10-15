@@ -453,10 +453,10 @@ mod tests {
             (wide.list.unwrap().width, wide.conversation.unwrap().width),
             (96, 63)
         );
-        let columns = crate::board::overview::columns::visible(medium.list.unwrap().width);
-        assert_eq!(columns, crate::config::OverviewColumn::ALL);
-        assert!(columns.contains(&crate::config::OverviewColumn::Squad));
-        assert!(columns.contains(&crate::config::OverviewColumn::Runtime));
+        assert!(
+            medium.list.unwrap().width >= 53,
+            "the shared waiting-row tracks remain available"
+        );
         assert_eq!(
             agents(Rect::new(0, 0, 160, 44), Preference::Side, false)
                 .list

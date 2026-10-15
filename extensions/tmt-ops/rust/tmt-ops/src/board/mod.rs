@@ -21,6 +21,11 @@ mod home_leads;
 mod inventory;
 mod lane;
 mod limits;
+mod m12_key_hints;
+mod m3_section_rule;
+mod m5_team_strip;
+mod m6_state_cell;
+mod m7_waiting_row;
 mod markdown;
 mod member_links;
 mod mentions;
@@ -1197,6 +1202,7 @@ mod tests {
 
     fn theme_board() -> App {
         let mut app = app::workspace::tests::board();
+        app::workspace::tests::observe_waiting_member(&mut app);
         app.shell.tab = shell::OpsTab::Overview;
         app.view.as_mut().unwrap().refresh = None;
         for bindings in app

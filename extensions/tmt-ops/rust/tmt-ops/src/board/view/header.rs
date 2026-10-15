@@ -262,7 +262,6 @@ pub(in crate::board) fn spinner_wait(
 pub(in crate::board) enum ClockSurface {
     Labels { target: RowTarget, width: usize },
     Limits { width: u16, rows: usize },
-    OverviewQuota { width: u16, rows: usize },
     QuotaDetails,
     UsageChart,
     OverviewUsageQuota { width: u16 },
@@ -282,13 +281,6 @@ impl ClockSurface {
                     .map(|chip| chip.text.as_str())
                     .collect()
             }
-            Self::OverviewQuota { width, rows } => super::super::overview::quota::clock_mark(
-                app.limits.as_deref(),
-                now,
-                *width,
-                *rows,
-                app.look(),
-            ),
             Self::OverviewUsageQuota { width } => super::super::overview::quota::usage_clock_mark(
                 app.limits.as_deref(),
                 now,

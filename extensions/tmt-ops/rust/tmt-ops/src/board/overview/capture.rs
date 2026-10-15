@@ -122,6 +122,10 @@ fn capture_monitor_modal_packet() {
 #[ignore = "explicit Overview mock-fidelity frame export"]
 fn capture_overview_mock_packet() {
     let output = std::env::var("TMT_OVERVIEW_CAPTURE").expect("task-owned evidence path");
+    if std::env::var_os("TMT_OVERVIEW_S2_CAPTURE").is_some() {
+        capture_squads_packet(&output);
+        return;
+    }
     crate::status::with_now_ms(1_791_600_000_000, || {
         let _no_commands = crate::runner::forbid_commands();
         let mut frames = Vec::new();
@@ -155,12 +159,10 @@ fn capture_overview_mock_packet() {
                                 KeyModifiers, MouseEvent, MouseEventKind,
                             };
                             let area = app
-                                .overview_sort_hits
-                                .borrow()
-                                .iter()
-                                .find(|(_, column)| *column == super::columns::Column::Agent)
-                                .expect("the visible Agent header is sortable")
-                                .0;
+                                .workspace_placement(app.conversation.borrow().area)
+                                .unwrap()
+                                .list
+                                .unwrap();
                             app.mouse(
                                 MouseEvent {
                                     kind: MouseEventKind::Moved,
@@ -274,4 +276,92 @@ fn pinned_large_case(look: crate::look::Look) -> crate::board::app::App {
     snapshot.view = Ok(app.view.take().unwrap());
     app.apply(snapshot);
     app
+}
+
+/// S2 evidence uses acquired fixture documents and the actual App painter.
+fn capture_squads_packet(output: &str) {
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        let _no_commands = crate::runner::forbid_commands();
+        let mut frames = Vec::new();
+        for scene in ["squads", "squads-empty", "squads-partial"] {
+            for width in [60, 103, 148] {
+                for (base, depth) in [
+                    ("tmt", tmt_cli_style::Depth::TrueColor),
+                    ("tmt-light", tmt_cli_style::Depth::TrueColor),
+                    ("tmt", tmt_cli_style::Depth::None),
+                ] {
+                    let mut app = crate::board::app::workspace::tests::populated_board(8, 28);
+                    app.shell.tab = crate::board::shell::OpsTab::Overview;
+                    let view = app.view.as_mut().unwrap();
+                    view.look = crate::look::Look {
+                        theme: tmt_cli_style::Theme::new(
+                            tmt_cli_style::theme::Base::parse(base).unwrap(),
+                        ),
+                        depth,
+                    };
+                    let snapshot = &mut view.home.as_mut().unwrap().workspace;
+                    // Literal current observations exercise nine questions without
+                    // invoking the retired HOME projection or inventing token data.
+                    let waiting: std::collections::BTreeSet<_> =
+                        snapshot.roster.members.keys().take(9).cloned().collect();
+                    for (id, member) in &mut snapshot.roster.members {
+                        member.waiting = waiting.contains(id);
+                    }
+                    for squad in &mut snapshot.roster.squads {
+                        for (id, member) in &mut squad.member_states {
+                            member.waiting = waiting.contains(id);
+                            let target = crate::board::workspace::OpsTarget::Member {
+                                room_id: Some(squad.room_id.clone()),
+                                identity_id: id.clone(),
+                            };
+                            let row = snapshot.rows.get_mut(&target).unwrap();
+                            row["fields"]["task"] = json!("Bounded observed task");
+                            if member.waiting {
+                                row["waitingOnYou"] = json!([{
+                                    "requestId":format!("question-{id}"),
+                                    "preparedAtMs":1_791_599_000_000u64,
+                                    "preview":format!("Approve the change for {}?", row["name"].as_str().unwrap()),
+                                }]);
+                            }
+                        }
+                    }
+                    if scene == "squads-empty" {
+                        snapshot.roster.squads.clear();
+                        snapshot.roster.members.clear();
+                        snapshot.rows.clear();
+                    } else if scene == "squads-partial" {
+                        snapshot.roster.membership_complete = false;
+                    }
+                    snapshot.shell_counts = snapshot.roster.shell_counts();
+                    app.overview_rows.borrow_mut().clear();
+                    app.workspace_reconcile();
+                    app.workspace.selected =
+                        app.workspace_rows().first().map(|row| row.target.clone());
+                    let height = 51;
+                    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+                    terminal
+                        .draw(|frame| {
+                            crate::board::view::prepare(&mut app, frame.area());
+                            crate::board::view::render(frame, &app);
+                        })
+                        .unwrap();
+                    let buffer = terminal.backend().buffer();
+                    let cells = buffer.content.iter().map(|cell| json!({
+                        "symbol":cell.symbol(), "fg":format!("{:?}",cell.fg),
+                        "bg":format!("{:?}",cell.bg), "modifier":format!("{:?}",cell.modifier),
+                    })).collect::<Vec<_>>();
+                    let lines: Vec<_> = buffer
+                        .content
+                        .chunks(usize::from(width))
+                        .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+                        .collect();
+                    frames.push(json!({"scene":scene,"width":width,"height":height,"base":base,
+                        "depth":format!("{depth:?}"),"lines":lines,"cells":cells,
+                        "selected":format!("{:?}",app.workspace.selected),"hits":format!("{:?}",app.hits.borrow())}));
+                }
+            }
+        }
+        assert_eq!(frames.len(), 27);
+        std::fs::write(output, serde_json::to_vec(&frames).unwrap()).unwrap();
+    });
 }
