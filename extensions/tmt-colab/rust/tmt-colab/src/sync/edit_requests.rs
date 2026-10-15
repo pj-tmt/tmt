@@ -9,13 +9,29 @@ use super::{Admission, Code, SaveJob, Server, SyncScope};
 use crate::{
     fold::Snapshot,
     page::{patch::Hunk, save::Save},
-    store::EditState,
+    store::{EDIT_DECISIONS, EditState},
 };
 use serde_json::Value;
 use tmt_colab_model::values;
 
 /// The most requests one call settles; the next call continues.
 const BATCH: usize = 16;
+
+/// The pages where a link session stored an `own` original that may carry an edit request, until
+/// a connection settles them. Every page stays marked however many sessions mark pages meanwhile.
+#[derive(Default)]
+pub(super) struct Due(Vec<SyncScope>);
+impl Due {
+    pub(super) fn mark(&mut self, scope: &SyncScope) {
+        if !self.0.contains(scope) {
+            self.0.push(scope.clone());
+        }
+    }
+    /// All the marked pages, which are no longer marked.
+    pub(super) fn take(&mut self) -> Vec<SyncScope> {
+        std::mem::take(&mut self.0)
+    }
+}
 
 /// One request as its writer's `own` document holds it, already decoder-validated.
 struct Request {
@@ -82,6 +98,12 @@ impl<A: Admission> Server<A> {
                 .map_err(|_| Code::Denied)?;
             (open, decided)
         };
+        // A full page settles nothing more: a request saved without room for its decision would be
+        // saved again by every later trigger.
+        let room = EDIT_DECISIONS.saturating_sub(decided.len());
+        if room == 0 {
+            return Ok(0);
+        }
         // One read-only view of the page, outside every lock.
         let pending = {
             let mut source = open().map_err(|_| Code::Denied)?;
@@ -110,7 +132,7 @@ impl<A: Admission> Server<A> {
                 }
             }
             pending.sort_by(|a, b| (&a.writer, &a.operation).cmp(&(&b.writer, &b.operation)));
-            pending.truncate(BATCH);
+            pending.truncate(BATCH.min(room));
             pending
         };
         let mut settled = 0;
@@ -139,25 +161,29 @@ impl<A: Admission> Server<A> {
             .map_err(|_| Code::Denied)?
             .admission
             .authorize_link_save(&writer, scope);
-        let decision = if allowed.is_err() {
-            Some(EditState::Refused)
-        } else {
-            {
-                let mut state = self.0.lock().map_err(|_| Code::Denied)?;
-                *state
-                    .saving
-                    .entry((scope.page.clone(), operation.clone()))
-                    .or_default() += 1;
+        let decision = match allowed {
+            // The link's own answer: it ends the request for good.
+            Err(Code::Denied | Code::Expired) => Some(EditState::Refused),
+            // No answer could be had now (a lock, a clock or the store): try again later.
+            Err(_) => None,
+            Ok(()) => {
+                {
+                    let mut state = self.0.lock().map_err(|_| Code::Denied)?;
+                    *state
+                        .saving
+                        .entry((scope.page.clone(), operation.clone()))
+                        .or_default() += 1;
+                }
+                let job = SaveJob {
+                    open: open.clone(),
+                    scope: scope.clone(),
+                    principal: writer.clone(),
+                    for_request: true,
+                    save,
+                    hunks,
+                };
+                self.run_save_job(None, &job)?.settles()
             }
-            let job = SaveJob {
-                open: open.clone(),
-                scope: scope.clone(),
-                principal: writer.clone(),
-                for_request: true,
-                save,
-                hunks,
-            };
-            self.run_save_job(None, &job)?.settles()
         };
         let Some(decision) = decision else {
             return Ok(false);
@@ -170,5 +196,28 @@ impl<A: Admission> Server<A> {
             .decide_edit(&scope.page, epoch, &writer, &operation, decision)
             .map_err(|_| Code::Denied)?;
         Ok(true)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scope(page: &str) -> SyncScope {
+        SyncScope {
+            space: "space".into(),
+            page: page.into(),
+            epoch: "1".into(),
+        }
+    }
+
+    #[test]
+    fn two_pages_marked_before_any_is_taken_are_both_taken_once() {
+        let mut due = Due::default();
+        due.mark(&scope("first"));
+        due.mark(&scope("second"));
+        due.mark(&scope("first"));
+        assert_eq!(due.take(), [scope("first"), scope("second")]);
+        assert!(due.take().is_empty(), "taking marks nothing again");
     }
 }

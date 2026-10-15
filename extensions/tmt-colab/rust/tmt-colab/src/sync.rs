@@ -122,8 +122,9 @@ pub trait Admission: Send {
     ) -> Result<[u8; 32], Code>;
 
     /// Whether the serve may save page text for the link device `device` now, for a request the
-    /// device left in its stream rather than a session it holds. Denied unless its link is live,
-    /// an editor and covers the page.
+    /// device left in its stream rather than a session it holds. `Denied` or `Expired` is the
+    /// link's own answer: it is gone, revoked, expired, not an editor or does not cover the page.
+    /// Any other error means no answer could be had now, and decides nothing.
     fn authorize_link_save(&self, _device: &str, _scope: &SyncScope) -> Result<(), Code> {
         Err(Code::Denied)
     }
@@ -548,9 +549,9 @@ struct State<A> {
     /// Tells the cloud-sync worker which page was last opened or written. Nothing waits on it
     /// unless the serve runs the worker.
     activity: ActivePage,
-    /// A link session stored its own original, which may carry an edit request: the page whose
-    /// requests the session's connection settles once it is outside the lock.
-    requests_due: Option<SyncScope>,
+    /// Pages where a link session stored its own original, which may carry an edit request: the
+    /// connection that polls next settles them all once it is outside the lock.
+    requests_due: edit_requests::Due,
 }
 /// Shared queue/admission/store owner. No worker threads; dropping a Connection
 /// removes its subscriber. Mutate authority only through update_admission.
@@ -759,7 +760,7 @@ impl<A: Admission> Server<A> {
             saving: HashMap::new(),
             draining: false,
             activity: ActivePage::default(),
-            requests_due: None,
+            requests_due: edit_requests::Due::default(),
         })))
     }
     /// Apply one original read from the cloud. The caller has already admitted its author and
@@ -901,7 +902,7 @@ impl<A: Admission> DetachedCatchup<A> {
             saving: HashMap::new(),
             draining: false,
             activity: ActivePage::default(),
-            requests_due: None,
+            requests_due: edit_requests::Due::default(),
         };
         // The consumer already admitted current membership and eligible opaque
         // historical keys on its live connection. Name that exact head without
@@ -1466,12 +1467,17 @@ impl<A: Admission> State<A> {
             if job.for_request {
                 self.admission
                     .authorize_link_save(&job.principal, &job.scope)
+                    .map_err(|code| match code {
+                        Code::Denied | Code::Expired => crate::page::Fault::Denied,
+                        // No answer is not a refusal: the request stays undecided.
+                        _ => crate::page::Fault::Unavailable,
+                    })
             } else {
                 self.admission
                     .authorize(&job.principal, &job.scope, access)
                     .map(|_| ())
-            }
-            .map_err(|_| crate::page::Fault::Denied)?;
+                    .map_err(|_| crate::page::Fault::Denied)
+            }?;
             let author = self.admission.save_author()?;
             let outputs = broadcasts(
                 write.job(),
@@ -1887,7 +1893,7 @@ impl<A: Admission> State<A> {
             && checked.header.context.namespace == "own"
             && device != principal
         {
-            self.requests_due = Some(scope.clone());
+            self.requests_due.mark(scope);
         }
         Ok(())
     }
@@ -2174,9 +2180,9 @@ impl<S: Read + Write, A: Admission> Connection<S, A> {
                     .server
                     .0
                     .lock()
-                    .ok()
-                    .and_then(|mut state| state.requests_due.take());
-                if let Some(due) = due {
+                    .map(|mut state| state.requests_due.take())
+                    .unwrap_or_default();
+                for due in due {
                     let _ = self.server.apply_edit_requests(&due);
                 }
                 if let Err(code) = result {

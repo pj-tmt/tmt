@@ -9,7 +9,7 @@ use std::{
     path::PathBuf,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering},
     },
     thread::JoinHandle,
     time::{Duration, Instant},
@@ -74,6 +74,8 @@ struct Running {
     /// Parks a save after its snapshot is taken, so the page can move under the snapshot.
     snapshot_gate: SaveGate,
     replacement: Arc<AtomicBool>,
+    /// Reads of the serve's reader clock still to succeed before one fails; `-1`: none fails.
+    clock_fault: Arc<AtomicI32>,
     registration: Arc<Mutex<Registration>>,
     root: PathBuf,
     path: PathBuf,
@@ -131,6 +133,8 @@ impl Running {
         let snapshot_gate: SaveGate = Arc::default();
         let after_snapshot = Arc::clone(&snapshot_gate);
         let save_root = root.clone();
+        let clock_fault = Arc::new(AtomicI32::new(-1));
+        let faulty_clock = Arc::clone(&clock_fault);
         let observes_rekey = rekey_probe.is_some();
         let mut registration = Registration::with_decoder_config(
             store,
@@ -157,7 +161,18 @@ impl Running {
                 release.recv_timeout(Duration::from_secs(30)).unwrap();
             }
             source
-        }));
+        }))
+        .with_reader_clock(move || match faulty_clock.load(Ordering::SeqCst) {
+            0 => {
+                faulty_clock.store(-1, Ordering::SeqCst);
+                Err(tmt_colab::registration::Code::Unavailable)
+            }
+            reads if reads > 0 => {
+                faulty_clock.store(reads - 1, Ordering::SeqCst);
+                Ok(now())
+            }
+            _ => Ok(now()),
+        });
         for id in [DEVICE, OTHER] {
             registration
                 .register(Some(&context(id)), &registration_body(id), now())
@@ -200,6 +215,7 @@ impl Running {
             save_gate,
             snapshot_gate,
             replacement,
+            clock_fault,
             registration,
             root,
             path,
@@ -5615,4 +5631,100 @@ fn a_request_whose_link_ends_before_it_is_decided_writes_nothing_and_ends_the_ho
         )
         .unwrap();
     assert_eq!(applied, 0);
+}
+
+#[test]
+fn a_request_the_serve_could_get_no_answer_for_stays_undecided_until_a_later_try_settles_it() {
+    // The clock fails at the first read of the request's link (before the save is prepared) and
+    // at the second (when the prepared save is about to commit): neither is a refusal of the link.
+    for reads_before_failure in [0, 1] {
+        let server = Running::start(Tunnels::PRODUCT);
+        let session = server.link_session("editor");
+        let mut link = server.reader_peer(&session);
+        let layout = Layout::existing(&server.root).unwrap().unwrap();
+        let key = Keyring::read(&layout).unwrap();
+        let mut stream = RequestStream::new();
+        // Park the serve just as it starts to read the page for the request, so the failure
+        // is armed after the append that carried the request was admitted.
+        let (entered, parked) = std::sync::mpsc::channel();
+        let (release, wait) = std::sync::mpsc::channel();
+        *server.save_gate.lock().unwrap() = Some((entered, wait));
+        let frame = stream.request(&server, &session, &request_op(1), "", FIVE, None);
+        send(&mut link, frame);
+        parked.recv_timeout(Duration::from_secs(30)).unwrap();
+        server
+            .clock_fault
+            .store(reads_before_failure, Ordering::SeqCst);
+        release.send(()).unwrap();
+        assert_eq!(receive_until(&mut link, "receipt").0["type"], "receipt");
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while server.clock_fault.load(Ordering::SeqCst) != -1 {
+            assert!(
+                Instant::now() < deadline,
+                "the serve never failed its clock"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        std::thread::sleep(Duration::from_millis(500));
+        let decided: i64 = server
+            .oracle()
+            .query_row("SELECT count(*) FROM edit_decisions", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(decided, 0, "a failed clock decided the request");
+        assert_eq!(native_source(&layout, &key), "");
+        // The next request on the page settles both, the first one applied rather than refused.
+        let upper = "ONE\ntwo\nthree\nfour\nfive\n";
+        let frame = stream.request(
+            &server,
+            &session,
+            &request_op(2),
+            FIVE,
+            upper,
+            Some(json!([hunk(1, "one\n", "ONE\n")])),
+        );
+        send(&mut link, frame);
+        assert_eq!(receive_until(&mut link, "receipt").0["type"], "receipt");
+        assert_eq!(server.decision(&request_op(1)), "applied");
+        assert_eq!(server.decision(&request_op(2)), "applied");
+        assert_eq!(native_source(&layout, &key), upper);
+    }
+}
+
+#[test]
+fn a_page_with_a_full_epoch_of_decisions_saves_no_further_request() {
+    let server = Running::start(Tunnels::PRODUCT);
+    let session = server.link_session("editor");
+    let mut link = server.reader_peer(&session);
+    let layout = Layout::existing(&server.root).unwrap().unwrap();
+    let key = Keyring::read(&layout).unwrap();
+    // The epoch already holds its most decisions.
+    let mut oracle = server.oracle();
+    oracle.busy_timeout(Duration::from_secs(10)).unwrap();
+    let tx = oracle.transaction().unwrap();
+    for n in 0..tmt_colab::store::EDIT_DECISIONS as u64 {
+        tx.execute(
+            "INSERT INTO edit_decisions VALUES (?,?,?,?,?)",
+            rusqlite::params![PAGE, "1", REQUEST_DEVICE, request_op(1000 + n), "applied"],
+        )
+        .unwrap();
+    }
+    tx.commit().unwrap();
+    // A further request is neither saved nor decided, whatever the number of triggers.
+    let mut stream = RequestStream::new();
+    for n in 1..=2 {
+        let frame = stream.request(&server, &session, &request_op(n), "", FIVE, None);
+        send(&mut link, frame);
+        assert_eq!(receive_until(&mut link, "receipt").0["type"], "receipt");
+    }
+    std::thread::sleep(Duration::from_millis(500));
+    let held: i64 = server
+        .oracle()
+        .query_row(
+            "SELECT count(*) FROM edit_decisions WHERE operation IN (?,?)",
+            [request_op(1), request_op(2)],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(held, 0);
+    assert_eq!(native_source(&layout, &key), "", "a request was saved");
 }
