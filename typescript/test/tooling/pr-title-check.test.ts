@@ -503,7 +503,9 @@ describe('workflow wiring', () => {
     const step = ci
       .split('      - name: Check conventional PR titles\n')[1]
       .split('      - name: Check current PR Agent attribution')[0];
-    expect(step).not.toContain('if:');
+    expect(step.match(/^        if: .+$/gm)).toEqual([
+      "        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'",
+    ]);
     expect(step).toContain('GITHUB_TOKEN: ${{ github.token }}');
     expect(step).toContain('run: node typescript/scripts/pr-title-check.mjs');
     expect(ci.split('  pull_request:\n')[1].split('  merge_group:')[0]).not.toContain('edited');
