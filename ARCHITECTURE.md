@@ -35,7 +35,7 @@ Infra reviews the [layout map/allowlist](.github/repository-layout.json).
 | `contracts/`              | Core public contracts and normative fixtures                                         |
 | `scripts/`                | Shared shell/build/development helpers                                               |
 | `skills/`                 | Canonical bundled user-agent guidance                                                |
-| `site/`                   | Public Home/Colab landing, handbook sources and translations                                       |
+| `site/`                   | Public Home/Colab landing, handbook sources and translations                         |
 | `design/`                 | Tokens/CLI; [private browser-ui](design/gui-components.md); no Core/CLI dep/embed    |
 
 New homes or exceptions need infra review and coordinated map/allowlist changes; ignored outputs
