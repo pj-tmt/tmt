@@ -681,6 +681,51 @@ mod tests {
     }
 
     #[test]
+    fn factory_t_is_unassigned_but_authored_t_keeps_its_precedence() {
+        for scope in [
+            OpsKeyScope::Overview,
+            OpsKeyScope::Squad,
+            OpsKeyScope::Member,
+            OpsKeyScope::Pool,
+            OpsKeyScope::Reader,
+        ] {
+            assert!(
+                !config("")
+                    .workspace_keys(scope, None, None)
+                    .unwrap()
+                    .bindings
+                    .contains_key("t")
+            );
+            let configured = config("[bind]\nt='talk'\n[bind.tmux]\nt='copy'\n");
+            assert_eq!(
+                configured
+                    .workspace_keys(scope, None, None)
+                    .unwrap()
+                    .bindings["t"]
+                    .verb,
+                Verb::Talk
+            );
+            assert_eq!(
+                configured
+                    .workspace_keys(scope, Some("tmux"), None)
+                    .unwrap()
+                    .bindings["t"]
+                    .verb,
+                Verb::Copy
+            );
+            let section = [("t".into(), Action::parse("open").unwrap())].into();
+            assert_eq!(
+                configured
+                    .workspace_keys(scope, Some("tmux"), Some(&section))
+                    .unwrap()
+                    .bindings["t"]
+                    .verb,
+                Verb::Open
+            );
+        }
+    }
+
+    #[test]
     fn reader_defaults_and_explicit_overrides_use_the_same_precedence() {
         let plain = config("")
             .workspace_keys(OpsKeyScope::Reader, None, None)

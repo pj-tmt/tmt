@@ -440,7 +440,7 @@ pub fn preset(tmux: bool, panes: &[crate::config::Pane]) -> Bindings {
     .collect()
 }
 
-/// Fixtures that press a key the presets no longer bind (`r` reply,
+/// Fixtures that press a key the presets no longer bind (`t` Talk, `r` reply,
 /// `w` token window, `T` theme, `l` view) bind it as a user would.
 #[cfg(test)]
 pub(crate) fn with_action_keys(mut bindings: Bindings) -> Bindings {
@@ -477,7 +477,6 @@ pub fn all_preset() -> Bindings {
         [
             ("tab", Some("next-pane")),
             ("a", Some("annotate lead")),
-            ("t", Some("talk")),
             ("e", Some("home-message")),
             ("v", Some("view-reply")),
             ("A", Some("home-write")),
@@ -557,10 +556,10 @@ mod tests {
             }
             assert_eq!(bindings[","].verb, Verb::Settings);
         }
-        for bindings in [preset(true, &[]), preset(false, &[])] {
+        for bindings in [preset(true, &[]), preset(false, &[]), all_preset()] {
             assert!(
                 !bindings.contains_key("t"),
-                "flat presets no longer advertise the retired factory Talk key"
+                "presets no longer advertise the retired factory Talk key"
             );
         }
         // They stay bindable, like every other action.

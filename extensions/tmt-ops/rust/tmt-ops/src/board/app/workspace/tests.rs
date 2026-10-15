@@ -1048,7 +1048,23 @@ fn shell_tabs_are_plain_labels_and_clipped_labels_have_no_pointer_authority() {
         app.tab_hits.borrow_mut().clear();
         let line = crate::board::workspace::render::tabs(&app, Rect::new(0, 0, 80, 1));
         assert_eq!(line.to_string(), "  1 Overview   2 Agents   3 Digest  ");
-        assert_eq!(app.tab_hits.borrow().len(), 3);
+        let hits = app.tab_hits.borrow();
+        assert_eq!(hits.len(), 3);
+        for (hit, (x, width)) in hits.iter().zip([(1, 12), (14, 10), (25, 10)]) {
+            assert_eq!((hit.x, hit.y, hit.width), (x, 0, width));
+        }
+        for gap_x in [13, 24, 35] {
+            assert!(
+                !hits
+                    .iter()
+                    .any(|hit| gap_x >= hit.x && gap_x < hit.x + hit.width)
+            );
+        }
+        drop(hits);
+        for gap in [2, 4, 6] {
+            assert_eq!(line.spans[gap].content, " ");
+            assert_eq!(line.spans[gap].style, ratatui::style::Style::default());
+        }
         for (index, span) in line.spans.iter().skip(1).step_by(2).enumerate() {
             let selected = index == 1; // The fixture starts in Agents.
             let expected = if selected {
