@@ -79,6 +79,14 @@ fn usage(app: &App, width: u16) -> (Vec<Line<'static>>, std::ops::Range<usize>) 
     (lines, savings_lines)
 }
 
+fn status(app: &App) -> Line<'static> {
+    if app.loading() {
+        Line::styled("Loading workspace…", app.look().role(Role::Muted))
+    } else {
+        Line::styled(super::summary(app), app.look().role(Role::Text))
+    }
+}
+
 pub(super) fn status_in_body(app: &App) -> bool {
     // Workspace shell chrome holds navigation, not a dashboard's Status panel.
     app.workspace_snapshot().is_some()
@@ -129,7 +137,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         strip::paint_left(
             frame.buffer_mut(),
             Rect::new(area.x, y, area.width, 1),
-            crate::board::workspace::render::summary(app, area.width),
+            status(app),
         );
         y += 1;
     }
@@ -148,11 +156,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         let rect = Rect::new(area.x, y, area.width, height).intersection(area);
         y += rect.height;
         match panel {
-            Id::Status => strip::paint_left(
-                frame.buffer_mut(),
-                rect,
-                crate::board::workspace::render::summary(app, rect.width),
-            ),
+            Id::Status => strip::paint_left(frame.buffer_mut(), rect, status(app)),
             Id::Usage => {
                 for (offset, line) in usage.iter().take(usize::from(rect.height)).enumerate() {
                     if savings_lines.contains(&offset) {

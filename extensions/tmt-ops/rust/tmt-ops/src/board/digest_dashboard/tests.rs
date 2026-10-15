@@ -1554,7 +1554,7 @@ fn workspace_status_is_a_body_panel_and_keeps_the_shared_shell_unchanged() {
             app.shell.tab = crate::board::shell::OpsTab::Digest;
             app.labels = supplied(serde_json::json!(3), false);
             assert!(!app.loading());
-            let expected = model::summary(&app.labels);
+            let expected = super::summary(&app);
             let mut policy = DigestPanels::default();
             for _ in 0..position {
                 policy.move_panel(Id::Status, true);
@@ -1601,7 +1601,8 @@ fn workspace_status_is_a_body_panel_and_keeps_the_shared_shell_unchanged() {
             if position == 0 {
                 assert_eq!(status_y + 1, usage_y);
             } else {
-                assert_eq!(usage_y + 2, status_y);
+                assert!(lines[usage_y + 2].starts_with("Est. ctx avoided"));
+                assert_eq!(usage_y + 3, status_y);
             }
             assert!(
                 status_y >= 4,
