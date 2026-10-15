@@ -825,9 +825,9 @@ fn run_does_not_repeat_an_uncertain_answer_and_says_it_is_uncertain() {
     assert!(!after.contains("was not set"), "{after}");
 }
 
-/// A host call longer than the run's 1 s cap is stopped at the cap, its
-/// driver process with it, and the uncertain answer is not repeated: the run
-/// warns once after the command.
+/// A host call longer than the run's 1 s cap is stopped at the cap: the
+/// driver gets at most 1 s, its answer never comes, and the uncertain answer
+/// is not repeated: the run warns once after the command.
 #[test]
 fn run_stops_a_naming_call_at_its_1_s_cap() {
     register();
@@ -836,10 +836,15 @@ fn run_stops_a_naming_call_at_its_1_s_cap() {
     // The call starts at the 5 s tick; the command ends 4 s later, after
     // the slow driver would have answered had it not been stopped.
     let (output, _) = run_in_pane(&fixture, 9);
-    assert_eq!(fixture.requests("named").len(), 1);
+    let named = fixture.requests("named");
+    assert_eq!(named.len(), 1);
+    let given = named[0]["deadlineMs"].as_u64().unwrap();
+    assert!(given <= 1000, "the call's deadline: {given} ms");
+    // The answer never came. This does not show that every descendant of
+    // the driver was reaped.
     assert!(
         !fixture.root.join("driver/slow-answered").exists(),
-        "the driver outlived the cap"
+        "the slow driver answered"
     );
     let (during, after) = after_the_command(&output);
     assert_eq!(during, "");

@@ -367,8 +367,9 @@ A host without agent names does not list it.
   was not a definite refusal, also after an uncertain answer (a bounded
   correction to that new name); or when the read before the call failed and
   nothing was called. A failed read after the call adds no retry: the host's
-  answer decides. Every other answer ends the attempts, so an uncertain
-  answer is never repeated for the same name. A binding that ended after a
+  answer decides. Every other answer ends the attempts: uncertainty alone
+  does not cause a retry; a rename seen after the call permits a new bounded
+  attempt with the then-current name. A binding that ended after a
   call that may have set the name gets one warning; the run never clears
   that name itself. This is best
   effort: concurrent renames of one identity, a failed read after the call,
