@@ -1,17 +1,21 @@
 //! Gives the agent that `tmt run` or `tmt resume` started the identity's name
 //! as its host agent name. The host recognizes the agent only some time after
-//! it starts, so the supervisor tries at each wait tick, not at the spawn. It
-//! retries only while the host recognizes no agent yet, and stops at the
-//! first other answer: a definite refusal is final, and an uncertain one is
-//! never repeated in the loop.
+//! it starts, so the supervisor tries at each wait tick, not at the spawn.
 //!
 //! An attempt reads the identity's current name, calls the host with no
-//! storage transaction open, and reads again; a name changed meanwhile is set
-//! at the next tick. This is best effort: two concurrent renames of one
-//! identity, a read that fails after the call, exhausted attempts, or a
-//! command that exits first can leave an older name, which `tmt ls` shows and
-//! `tmt this` repairs. A binding that ended while the run set the name gets
-//! one warning: the run does not clear the name.
+//! storage transaction open, and reads again. The next tick tries again only
+//! while the host recognizes no agent yet; to set a name that the read after
+//! the call shows changed, unless the host definitely refused, also after an
+//! uncertain answer; or after a read before the call failed and nothing was
+//! called. A failed read after the call adds no retry: the host's answer
+//! decides. Every other answer is final, so an uncertain answer is never
+//! repeated for the same name. All of this stays inside the six attempts.
+//!
+//! This is best effort: two concurrent renames of one identity, a read that
+//! fails after the call, exhausted attempts, or a command that exits first
+//! can leave an older name, which `tmt ls` shows and `tmt this` repairs. A
+//! binding that ended while the run set the name gets one warning: the run
+//! does not clear the name.
 
 use std::time::{Duration, Instant};
 use tmt_adapters::{

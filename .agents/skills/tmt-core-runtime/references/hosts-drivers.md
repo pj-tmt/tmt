@@ -76,9 +76,11 @@ channels and the driver protocol. The owner map is in
   `AgentNameRefusal` separates definite refusals (`Rejected`, `NoAgent`, `Foreign`), which keep
   the agent's earlier name, from `Uncertain`, where the host may have set it. A run attempt
   reads the binding and the identity's name, calls the host with no transaction open, and reads
-  again; the run corrects to the name it reads after its call, at the next tick. Concurrent
-  renames of one identity, a failed read after the call (the host's answer stands and is never
-  retried), exhausted attempts, or a command that exits first can leave an older name; `tmt ls`
+  again. The next tick retries `no_agent` and `not_ready`, and corrects to a new name read after
+  the call unless the host definitely refused, also after `Uncertain`; a failed read after the
+  call adds no retry, and the host's answer decides. Concurrent renames of one identity, a
+  failed read after the call, exhausted attempts, or a command that exits first can leave an
+  older name; `tmt ls`
   shows it and `tmt this <name>` repairs it. Sampling and naming are
   separate tick steps, and `InteractiveChild::wait_with_ticks` checks the command's exit and
   forwards signals before each one. A `name-agent` whose driver process could not be cleaned

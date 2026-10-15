@@ -359,13 +359,18 @@ A host without agent names does not list it.
   bind (`tmt name`, `this`, `add`, `marked`) and after `tmt mv`; with `null`
   just before `clear`. `tmt run` and `tmt resume` call it with the identity's
   name at the 5 s ticks of their wait for the command, never right after the
-  spawn, since the host recognizes the agent only later. They retry only
-  `no_agent` and `not_ready`, six attempts at most, each call capped at 1 s,
-  and stop at the first other answer. An attempt reads the identity's current
-  name, calls with no storage transaction open, and reads again: the run
-  corrects to the name it reads after its call at the next tick (it counts as
-  an attempt), and a binding that ended after a call that may have set the
-  name gets one warning; the run never clears that name itself. This is best
+  spawn, since the host recognizes the agent only later. They make six
+  attempts at most, each call capped at 1 s. An attempt reads the identity's
+  current name, calls with no storage transaction open, and reads again. The
+  next tick tries again only when the host answered `no_agent` or
+  `not_ready`; when the read after the call shows a new name and the answer
+  was not a definite refusal, also after an uncertain answer (a bounded
+  correction to that new name); or when the read before the call failed and
+  nothing was called. A failed read after the call adds no retry: the host's
+  answer decides. Every other answer ends the attempts, so an uncertain
+  answer is never repeated for the same name. A binding that ended after a
+  call that may have set the name gets one warning; the run never clears
+  that name itself. This is best
   effort: concurrent renames of one identity, a failed read after the call,
   exhausted attempts, or a command that exits first can leave an older name;
   `tmt this <name>` repairs it. One naming step is two storage reads, each
