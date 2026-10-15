@@ -94,7 +94,7 @@ for (const width of [1440, 1024, 390])
       // focus itself rather than an opener that immediately moves focus into a menu.
       await page.goto('/');
       await page.evaluate(async () => {
-        const fixture = '/test/browser-overlays.tsx';
+        const fixture = '/test/header-actions-browser.tsx';
         (await import(fixture)).mount();
       });
       const action = page.getByRole('button', { name: 'Header action', exact: true });
