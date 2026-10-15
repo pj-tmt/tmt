@@ -1138,6 +1138,7 @@ impl crate::sync::Admission for OwnerAdmission {
                             access,
                             crate::sync::Access::Append(_)
                                 | crate::sync::Access::Write
+                                | crate::sync::Access::Save
                                 | crate::sync::Access::Publish
                         ))
                 {

@@ -829,9 +829,14 @@ link session stores its own originals as its link's device: the stream is the
 device its chain certifies, and each object names the current membership head.
 The link's current role decides the namespaces. An `editor` link stores `update`
 objects in `content` and `own` (and `own` checkpoints), a `commenter` link in `own`
-only, and a `viewer` link nothing, from the first upload frame on. Every other
-frame, awareness publication, saves, usage, compaction and every object request
-(Ask, Chat, attachments), is denied for every link and for public sessions. What a
+only, and a `viewer` link nothing, from the first upload frame on. An `editor` link may also have the
+serve save page text (`save`, `savestatus`, and the upload chunks of a save), never a
+save that changes attachments: the serve prepares and seals it exactly as it does
+an owner browser's save, so the signed author is the root-local writer and no link
+is named (a browser never seals page content). A `commenter` or `viewer` link has
+no save. Every other frame, awareness publication, usage, compaction and every
+object request (Ask, Chat, attachments), is denied for every link and for public
+sessions. What a
 stored original means is the fold's call as for any author: a `content` original
 from a link that is not an editor, or any original from a viewer, is refused there.
 Link catchup selects only

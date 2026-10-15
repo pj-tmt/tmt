@@ -75,9 +75,13 @@ impl From<store::Fault> for Code {
 /// Append receives the exact model-decoded header, never unsigned routing claims.
 pub enum Access<'a> {
     Read,
-    /// Everything a writer does besides storing its own originals: awareness, saves, usage,
-    /// compaction and object requests. A link session never has it.
+    /// Everything a writer does besides storing its own originals and saving text: awareness,
+    /// usage, compaction, object requests and a save that changes attachments. A link session
+    /// never has it.
     Publish,
+    /// Saving page text, which the serve prepares and seals with its own writer. A link session
+    /// has it only while the link is an editor.
+    Save,
     /// Storing the principal's own originals (an append and its upload chunks), before the exact
     /// header is known. A link session has it only while its role may write.
     Write,
@@ -946,16 +950,22 @@ impl<A: Admission> State<A> {
             self.admission
                 .authorize(&principal, &scope, Access::Write)?;
         }
-        if matches!(
-            &frame,
-            Frame::Awareness { .. }
-                | Frame::Save { .. }
-                | Frame::SaveStatus { .. }
-                | Frame::Usage { .. }
-                | Frame::Compact { .. }
-        ) {
-            self.admission
-                .authorize(&principal, &scope, Access::Publish)?;
+        // A save that changes attachments needs the full writer: a link cannot upload any.
+        match &frame {
+            Frame::Save {
+                attachments: None, ..
+            }
+            | Frame::SaveStatus { .. } => {
+                self.admission.authorize(&principal, &scope, Access::Save)?;
+            }
+            Frame::Save { .. }
+            | Frame::Awareness { .. }
+            | Frame::Usage { .. }
+            | Frame::Compact { .. } => {
+                self.admission
+                    .authorize(&principal, &scope, Access::Publish)?;
+            }
+            _ => {}
         }
         if self.draining
             && matches!(
@@ -1397,8 +1407,13 @@ impl<A: Admission> State<A> {
                 }
                 (Prepared::Write(frozen), merged) => (frozen, merged),
             };
+            let access = if job.save.attachments.is_some() {
+                Access::Publish
+            } else {
+                Access::Save
+            };
             self.admission
-                .authorize(&job.principal, &job.scope, Access::Publish)
+                .authorize(&job.principal, &job.scope, access)
                 .map_err(|_| crate::page::Fault::Denied)?;
             let author = self.admission.save_author()?;
             let outputs = broadcasts(

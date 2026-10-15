@@ -529,7 +529,9 @@ changed scope, a second stale head and unknown outcomes never rebuild (colab-v1 
   epoch-scoped and never owner devices. A link session writes only through `sync::Access::Write` and
   `Append`: `Sessions::writer` reads the live link, so its role admits `content` and `own` (editor),
   `own` (commenter) or nothing (viewer), signed by the link device (`Admission::device`); the fold
-  stays the authority on what a stored original means. Every other frame stays denied
+  stays the authority on what a stored original means. An editor link also has `Access::Save`: its text
+  save is prepared and sealed by the serve's root-local writer like any browser save (no link is named
+  as author), and a save changing attachments needs `Publish`. Every other frame stays denied
   (`readers.rs`, `registration.rs`).
 
 The quick switcher's data (#2599) is React-free except one hook. `quick-switcher.ts` ranks the
