@@ -16,6 +16,7 @@ that communication. In a shared host, confirm your caller identity and pass
 `--identity <name-or-UUID>`; outside a verified pane, select the identity
 explicitly. A local inbox can receive without a live pane.
 Omit `--detach` to wait for the final reply instead.
+Use `#tmt:<name>` with a member's canonical name to reference them in Ops; this is display-only and never changes the recipient.
 
 ```bash
 tmt talk reviewer "Review this patch" --detach --json
