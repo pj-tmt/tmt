@@ -105,18 +105,24 @@ it.each([
     'Read-only',
     'Sign in to read the shared page. Signing in gives read access only; you cannot edit the page.',
   ],
-  ['commenter', 'Can comment', 'Sign in to read this page and send comments.'],
+  [
+    'commenter',
+    'Read-only',
+    'Sign in to read the shared page. Signing in gives read access only; you cannot edit the page.',
+  ],
   [
     'editor',
     'Can edit',
-    'Sign in to read this page and send comments or edit requests. The owner applies edits while Colab is running.',
+    'Sign in to read this page and send edit requests. The owner applies edits while Colab is running.',
   ],
 ] as const)('uses the %s hint only for sign-in presentation', (role, mark, copy) => {
   const html = markup({ phase: 'sign-in', hasLink: true, role });
   expect(html).toContain(mark);
   expect(html).toContain(copy);
   expect(html).not.toContain('source-toggle');
-  if (role !== 'viewer') expect(html).not.toContain('you cannot edit the page');
+  if (role === 'editor') expect(html).not.toContain('you cannot edit the page');
+  expect(html).not.toContain('send comments');
+  expect(html).not.toContain('Can comment');
 });
 
 it.each([
@@ -152,9 +158,8 @@ it.each(['viewer', 'commenter', 'editor'] as const)(
       view: { source: '<main>admitted</main>', title: 'Page' },
       budget: { day: 1, reads: 10, writes: 0, state: 'ok' },
     });
-    expect(html).toContain(
-      role === 'editor' ? 'Can edit' : role === 'commenter' ? 'Can comment' : 'Read-only',
-    );
+    expect(html).toContain(role === 'editor' ? 'Can edit' : 'Read-only');
+    expect(html).not.toContain('Can comment');
     expect(html.includes('source-toggle')).toBe(role === 'editor');
     expect(html).not.toContain('>Ask<');
   },

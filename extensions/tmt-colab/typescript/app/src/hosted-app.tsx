@@ -12,9 +12,10 @@ export type { EditRequestOutcome as HostedRequestOutcome } from './reader-source
 const signInCopy = {
   viewer:
     'Sign in to read the shared page. Signing in gives read access only; you cannot edit the page.',
-  commenter: 'Sign in to read this page and send comments.',
+  commenter:
+    'Sign in to read the shared page. Signing in gives read access only; you cannot edit the page.',
   editor:
-    'Sign in to read this page and send comments or edit requests. The owner applies edits while Colab is running.',
+    'Sign in to read this page and send edit requests. The owner applies edits while Colab is running.',
 };
 
 /** Fixed copy only: raw provider/crypto diagnostics, keys and tokens never reach presentation. */
@@ -161,13 +162,7 @@ export function HostedApp({ state, signIn }: { state: HostedEntryState; signIn()
                 ? 'Share link needed'
                 : undefined)
           }
-          eyebrow={
-            state.phase === 'sign-in' && state.role === 'editor'
-              ? 'Can edit'
-              : state.phase === 'sign-in' && state.role === 'commenter'
-                ? 'Can comment'
-                : 'Read-only'
-          }
+          eyebrow={state.phase === 'sign-in' && state.role === 'editor' ? 'Can edit' : 'Read-only'}
           title={title}
           testId="hosted-entry"
           actions={

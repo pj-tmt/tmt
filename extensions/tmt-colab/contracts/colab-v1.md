@@ -3480,8 +3480,8 @@ owner before the first provider request. The link role is a Rules-checked enroll
 page authority. A verified editor link may send own-stream edit requests through the shared Source
 drawer; it never seals content. Owner/member editing, Ask and cloud attachments remain absent.
 Colab's own-record codec/preparation and fresh author accessor own admission; no hosted module
-reimplements link-author or edit-request validation. Role copy and marks distinguish viewer,
-commenter and editor; sending is not owner application.
+reimplements link-author or edit-request validation. Viewer and commenter links show read-only
+copy and marks; editor links offer edit requests, whose sending is not owner application.
 
 The entry fetches one exact `/tmt/declarations/colab.json`, hashes those raw bytes and passes them
 to Remote's `firebaseRemote.connect(firebaseRemote.originLink(), declaration)`; the SDK owns

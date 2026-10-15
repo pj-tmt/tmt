@@ -46,13 +46,7 @@ export function ReaderApp({
   const [files, setFiles] = useState(false);
   const [sourceOpen, setSourceOpen] = useState(false);
   const [writerBlocked, setWriterBlocked] = useState(false);
-  const mode = writerBlocked
-    ? text.readerOnly
-    : role === 'commenter'
-      ? 'Can comment'
-      : canEdit
-        ? text.readerCanEdit
-        : text.readerOnly;
+  const mode = writerBlocked ? text.readerOnly : canEdit ? text.readerCanEdit : text.readerOnly;
   const descriptors = state.kind === 'ready' ? (state.view.attachments ?? []) : [];
   const source = state.kind === 'ready' ? state.view.source : null;
   const title = state.kind === 'ready' ? state.view.title : '';

@@ -160,15 +160,17 @@ for (const width of [390, 1280]) {
         } else if (state.startsWith('sign-in-')) {
           await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
           await expect(
+            page.getByText(state === 'sign-in-editor' ? 'Can edit' : 'Read-only', { exact: true }),
+          ).toBeVisible();
+          await expect(
             page.getByText(
               state === 'sign-in-editor'
-                ? 'Can edit'
-                : state === 'sign-in-commenter'
-                  ? 'Can comment'
-                  : 'Read-only',
+                ? 'Sign in to read this page and send edit requests. The owner applies edits while Colab is running.'
+                : 'Sign in to read the shared page. Signing in gives read access only; you cannot edit the page.',
               { exact: true },
             ),
           ).toBeVisible();
+          await expect(page.getByText('Can comment', { exact: true })).toHaveCount(0);
         }
         expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
           width,
