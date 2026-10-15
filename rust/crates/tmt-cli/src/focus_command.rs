@@ -11,7 +11,10 @@ use crate::{
 use std::io::{self, Write};
 use tmt_adapters::{
     config::ConfigPaths,
-    host::{ActionError, CallerEnvironment, FocusError, Host, Invoker, OperationOptions},
+    host::{
+        ActionError, CallerEnvironment, FocusError, Host, Invoker, OperationOptions, PaneSwap,
+        SwapDirection,
+    },
     storage::Storage,
 };
 use tmt_core::{
@@ -40,6 +43,7 @@ fn pane_failure(error: FocusError, pane: &str) -> Failure {
     match error {
         FocusError::HostUnsupported => host_unsupported(),
         FocusError::PaneNotFound => pane_missing(pane),
+        FocusError::NoNeighbour => no_neighbour(),
         FocusError::Evidence(error) => endpoint_failure(error.into()),
     }
 }
@@ -47,6 +51,7 @@ fn pane_failure(error: FocusError, pane: &str) -> Failure {
 fn identity_failure(error: ActionError) -> Failure {
     match error {
         ActionError::HostUnsupported => host_unsupported(),
+        ActionError::NoNeighbour => no_neighbour(),
         ActionError::Evidence(error) => endpoint_failure(error),
         other => Failure::new(
             "RECONCILIATION_FAILED",
@@ -57,9 +62,22 @@ fn identity_failure(error: ActionError) -> Failure {
     }
 }
 
+fn no_neighbour() -> Failure {
+    Failure::new(
+        "PANE_NOT_FOUND",
+        "No visible neighbouring pane in that direction; nothing changed.",
+        3,
+    )
+}
+
+enum FocusResult {
+    Focused(Focused),
+    Swapped(PaneSwap),
+}
+
 /// `target` is an identity UUID, name or pane target (such as a previous
 /// `from`); Focus resolves UUIDs first, on the current server only.
-fn run(target: String) -> Result<Focused, Failure> {
+fn run(target: String, into: Option<SwapDirection>) -> Result<FocusResult, Failure> {
     // A focus changes the invoking user's own view: the caller's host.
     let host = Host::for_caller(&CallerEnvironment::current());
     // A tmux view needs the invoking client; an external host focuses
@@ -68,6 +86,18 @@ fn run(target: String) -> Result<Focused, Failure> {
         tmt_core::host::HostKind::External(_) => None,
         _ => Some(invoker()?),
     };
+    if into.is_some() {
+        let caller = invoker
+            .as_ref()
+            .and_then(|invoker| invoker.pane.as_deref())
+            .ok_or_else(host_unsupported)?;
+        let verified = host
+            .caller_pane(&CallerEnvironment::current())
+            .map_err(endpoint_failure)?;
+        if verified.as_deref() != Some(caller) {
+            return Err(host_unsupported());
+        }
+    }
     let paths = ConfigPaths::discover().map_err(Failure::from)?;
     let mut storage = Storage::open(&paths.database).map_err(|error| {
         Failure::storage_access(
@@ -79,6 +109,34 @@ fn run(target: String) -> Result<Focused, Failure> {
         )
     })?;
     let pending = target::resolve_focus(&mut storage, &host, &target).and_then(|observed| {
+        if let Some(direction) = into {
+            let invoker = invoker.as_ref().ok_or_else(host_unsupported)?;
+            if observed.server.host != host.kind() || observed.server.socket_path != invoker.socket
+            {
+                return Err(host_unsupported());
+            }
+            if let (Some(identity), Some(binding)) = (observed.identity, observed.binding) {
+                let entry = BindingEntry {
+                    identity,
+                    binding: Some(binding),
+                };
+                return host
+                    .session()
+                    .with_invoker(invoker.clone())
+                    .swap_into(&entry, direction)
+                    .map(FocusResult::Swapped)
+                    .map_err(identity_failure);
+            }
+            return host
+                .swap_pane(
+                    invoker,
+                    &observed.pane.id,
+                    direction,
+                    OperationOptions::default(),
+                )
+                .map(FocusResult::Swapped)
+                .map_err(|error| pane_failure(error, &observed.pane.id));
+        }
         let (Some(identity), binding @ Some(_)) = (observed.identity, observed.binding) else {
             // An unbound pane target has no identity evidence to verify.
             let pane = observed.pane.id;
@@ -92,6 +150,7 @@ fn run(target: String) -> Result<Focused, Failure> {
                     previous: before.pane,
                     viewer: before.client,
                 })
+                .map(FocusResult::Focused)
                 .map_err(|error| pane_failure(error, &pane));
         };
         let entry = BindingEntry { identity, binding };
@@ -101,7 +160,7 @@ fn run(target: String) -> Result<Focused, Failure> {
             None => session,
         };
         match session.focus(&entry) {
-            ActionResult::Completed(focused) => Ok(focused),
+            ActionResult::Completed(focused) => Ok(FocusResult::Focused(focused)),
             ActionResult::Failed(error) => Err(identity_failure(error)),
             _ => Err(host_unsupported()),
         }
@@ -135,13 +194,42 @@ pub fn client(mode: OutputMode) -> io::Result<u8> {
     Ok(0)
 }
 
-pub fn execute(target: String, mode: OutputMode) -> io::Result<u8> {
-    let focused = match run(target) {
-        Ok(focused) => focused,
-        Err(error) => return error.publish(mode),
+pub fn execute(target: String, into: Option<SwapDirection>, mode: OutputMode) -> io::Result<u8> {
+    let result = match run(target, into) {
+        Ok(result) => result,
+        Err(mut error) => {
+            if into.is_some() && error.code == "HOST_UNSUPPORTED" {
+                error.message = "This host cannot swap panes for this invocation: use a verified caller pane and another target on the same server. Nothing changed.".into();
+            }
+            return error.publish(mode);
+        }
     };
     let mut stdout = tmt_cli_style::stream::stdout(mode.json);
     let terminal = stdout.terminal();
+    let focused = match result {
+        FocusResult::Swapped(swapped) => {
+            if mode.json {
+                let document = if swapped.already {
+                    serde_json::json!({"swapped": null, "with": {"pane": swapped.neighbour}, "already": true})
+                } else {
+                    serde_json::json!({"swapped": {"pane": swapped.target}, "with": {"pane": swapped.neighbour}})
+                };
+                writeln!(stdout, "{document}")?;
+            } else {
+                tmt_cli_style::message::success(
+                    &mut stdout,
+                    terminal,
+                    &if swapped.already {
+                        format!("{} is already beside this pane", swapped.target)
+                    } else {
+                        format!("Swapped {} with {}", swapped.target, swapped.neighbour)
+                    },
+                )?;
+            }
+            return Ok(0);
+        }
+        FocusResult::Focused(focused) => focused,
+    };
     if mode.json {
         let document = serde_json::json!({
             "focused": {"pane": focused.interface},

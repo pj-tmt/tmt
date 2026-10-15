@@ -753,6 +753,8 @@ The workspace shows the selected agent's conversation in its Auto/Side/Stack
 placement. All sections share response, reading position and composer by agent UUID, so renaming an agent or changing its membership does not
 create another draft. Runtime is the observed runtime name, not the model's vendor;
 missing runtime/model evidence is shown as unavailable.
+The model shown is the last completed turn's model (`consumption.modelId`), falling back to
+the session-start model, so a mid-session `/model` switch appears after the next completed turn.
 
 A two-pane `rows`/`replies` workspace uses terminal cells without blank row padding.
 Its automatic layout is side by side when wide, stacked at medium widths, and focused

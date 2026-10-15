@@ -81,6 +81,12 @@ const MIGRATIONS: &[&str] = &[
     r#"
     CREATE TABLE link_admissions(link TEXT PRIMARY KEY, token TEXT NOT NULL) WITHOUT ROWID;
     "#,
+    // Schema 10: the (page, link) pairs whose cloud `links` row this machine may have written, until
+    // the link's removal from the cloud is complete. Intent is recorded before the row is created.
+    r#"
+    CREATE TABLE link_publications(page TEXT NOT NULL, link TEXT NOT NULL,
+        PRIMARY KEY(page,link), FOREIGN KEY(page) REFERENCES pages(page)) WITHOUT ROWID;
+    "#,
 ];
 pub(super) const CURRENT_VERSION: u32 = MIGRATIONS.len() as u32;
 

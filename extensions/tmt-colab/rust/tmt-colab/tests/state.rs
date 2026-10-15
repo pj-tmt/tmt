@@ -940,7 +940,7 @@ fn schema_four_migration_does_not_backfill_or_let_replay_establish_a_time() {
     db.execute_batch("ALTER TABLE owner_operations RENAME TO current_owner_operations;
         CREATE TABLE owner_operations(id TEXT PRIMARY KEY, digest BLOB NOT NULL, outcome BLOB NOT NULL);
         INSERT INTO owner_operations(id,digest,outcome) SELECT id,digest,outcome FROM current_owner_operations;
-        DROP TABLE current_owner_operations; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_labels;
+        DROP TABLE current_owner_operations; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_labels;
         ALTER TABLE pages DROP COLUMN last_update_at_ms; PRAGMA user_version=4")
         .unwrap();
     let raw = fs::read(layout.directory.join("space.db")).unwrap();

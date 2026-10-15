@@ -680,3 +680,33 @@ fn malformed_history_is_not_consumption_evidence() {
         );
     }
 }
+
+#[test]
+fn model_follows_the_last_completed_turn_and_unknown_stays_unknown() {
+    let mut rate = Rate::new(TokenWindow::parse("24h").unwrap());
+    let mut first = input(100);
+    first.resumes.get_mut("a").unwrap()["model"] = json!("session-start");
+    rate.sample(&first, 0);
+    assert_eq!(rate.model("a"), Some("session-start"));
+    let mut next = input(200);
+    next.resumes.get_mut("a").unwrap()["model"] = json!("session-start");
+    next.resumes.get_mut("a").unwrap()["consumption"]["modelId"] = json!("switched");
+    rate.sample(&next, 60_000);
+    assert_eq!(rate.model("a"), Some("switched"));
+    for unusable in [json!(""), json!(null), json!(7), json!("x".repeat(257))] {
+        let mut again = input(300);
+        again.resumes.get_mut("a").unwrap()["model"] = json!("session-start");
+        again.resumes.get_mut("a").unwrap()["consumption"]["modelId"] = unusable;
+        rate.sample(&again, 120_000);
+        assert_eq!(rate.model("a"), Some("session-start"));
+    }
+    let mut bare = input(400);
+    bare.resumes
+        .get_mut("a")
+        .unwrap()
+        .as_object_mut()
+        .unwrap()
+        .remove("model");
+    rate.sample(&bare, 180_000);
+    assert_eq!(rate.model("a"), None);
+}

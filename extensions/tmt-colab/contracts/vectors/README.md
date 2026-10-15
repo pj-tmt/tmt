@@ -139,6 +139,9 @@ and the Rules emulator suite read them. Run the oracle without `--write` to veri
 `--write` after a reviewed source edit (then regenerate the goldens, see the colab skill's
 Firestore Rules emulator section).
 
+The members `holders` discovery declares an integer `seq` the Rules pin to `1` (a declaration-grammar
+constant, not a sequence), and the composed Rules admit a link wrap to a member whose row names the link.
+
 `deploy-declaration-v1.hosting.json` is the same reply for an executable that embeds a hosted
 inventory: the declaration gains a last top-level `hosting` key holding the canonical manifest
 verbatim, and the declaration digest covers it. `deploy-declaration-v1.hosting.manifest.json` is

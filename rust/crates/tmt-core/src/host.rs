@@ -7,6 +7,15 @@ use crate::names::ecmascript_space;
 use std::sync::OnceLock;
 pub use tmt_host_grammar::{HostGrammar, HostName};
 
+/// A caller-relative side for a terminal host action; layout remains host-owned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SwapDirection {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
 /// A terminal host. tmux is built in; any other host, Herdr included, is
 /// named by the driver that serves it (#570). A host is only its name, so stored rows
 /// and JSON read without knowing which drivers are installed; whether one is

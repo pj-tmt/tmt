@@ -96,6 +96,7 @@ impl OwnerTransaction<'_> {
         // The retained page primary key also prevents create_page from reviving it.
         for sql in [
             "DELETE FROM cloud_publications WHERE page=?",
+            "DELETE FROM link_publications WHERE page=?",
             "DELETE FROM receipts WHERE page=?",
             "DELETE FROM checkpoints WHERE page=?",
             "DELETE FROM streams WHERE page=?",

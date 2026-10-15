@@ -108,7 +108,7 @@ async function seedWorld() {
     await seed(`spaces/${t.space}`, { space: t.space, owner: `owner${name}` });
     await seed(`pages/${sp(t)}`, { space: t.space, page: t.page, epoch: 1, state: "open", expiresAt: future });
     for (const [uid, role] of [[`owner${name}`, "editor"], [`writer${name}`, "commenter"], [`peer${name}`, "commenter"], [`viewer${name}`, "viewer"]]) {
-      await seed(`members/${sp(t)}_${uid}`, { space: t.space, page: t.page, uid, role, link: null, token: null });
+      await seed(`members/${sp(t)}_${uid}`, { space: t.space, page: t.page, uid, role, link: null, token: null, seq: 1 });
     }
     await seed(`links/${sp(t)}_${t.link}`, { space: t.space, page: t.page, link: t.link, role: "viewer", token: name === "A" ? TOKEN_A : TOKEN_B });
     await seed(`log/${logId(t, 1, t.stream, 1)}`, entry(t, 1));
@@ -170,7 +170,16 @@ test("pages: only the space owner admits a page; epoch never decreases; expiry a
   assert.equal(await set(`pages/${id}`, page({ epoch: 2, state: "archived" }), as("ownerA")), 200);
   assert.equal(await set(`pages/${id}`, page({ epoch: 3 }), as("ownerB")), 403, "another owner cannot advance it");
   assert.equal(await get(`pages/${id}`, as("ownerA")), 200);
-  assert.equal(await get(`pages/${id}`, as("writerA")), 403, "members do not read the admission row");
+  // Members read the row (routing and lifetime hints) with an exact get; nobody lists pages.
+  assert.equal(await get(`pages/${id}`, as("writerA")), 403, "a page nobody joined has no members to read it");
+  await seed(`members/${id}_writerA`, { space: T.A.space, page: fresh, uid: "writerA", role: "viewer", link: null, token: null, seq: 1 });
+  assert.equal(await get(`pages/${id}`, as("writerA")), 200, "a member reads the row");
+  assert.equal(await get(`pages/${id}`, as("peerA")), 403, "a non-member does not");
+  assert.equal(await get(`pages/${id}`, as("writerB")), 403, "another tenant's member does not");
+  assert.equal(await get(`pages/${id}`, NOBODY), 403, "sign-in required");
+  assert.equal((await list("pages", { space: T.A.space }, as("writerA"))).status, 403, "a member cannot list pages");
+  assert.equal((await list("pages", { space: T.A.space }, as("ownerA"))).status, 403, "nor can the owner");
+  assert.equal((await list("pages", { space: T.A.space, page: fresh }, as("writerA"))).status, 403, "even narrowed to the page");
   assert.equal(await remove(`pages/${id}`, as("writerA")), 403);
   assert.equal(await remove(`pages/${id}`, as("ownerA")), 200);
 });
@@ -274,7 +283,7 @@ test("links and members: an owner enrolls members; a link holder enrolls only by
   await boot();
   const t = T.A;
   const holder = as("holder1");
-  const row = (uid, role, extra = {}) => ({ space: t.space, page: t.page, uid, role, link: null, token: null, ...extra });
+  const row = (uid, role, extra = {}) => ({ space: t.space, page: t.page, uid, role, link: null, token: null, seq: 1, ...extra });
   const enrol = (over = {}) => row("holder1", "viewer", { link: t.link, token: TOKEN_A, ...over });
   const id = (uid) => `members/${sp(t)}_${uid}`;
 
@@ -413,7 +422,7 @@ test("log owner bootstrap: only the owner skips a pruned predecessor; other guar
   assert.equal(await next(2, "writerA"), 200, "matching member predecessor remains allowed");
 
   const ownerMember = `members/${sp(t)}_ownerA`;
-  const ownerRow = (role) => ({ space: t.space, page: t.page, uid: "ownerA", role, link: null, token: null });
+  const ownerRow = (role) => ({ space: t.space, page: t.page, uid: "ownerA", role, link: null, token: null, seq: 1 });
   await seed(ownerMember, ownerRow("viewer"));
   assert.equal(await at(7, "ownerA"), 403, "the owner's member role still gates writes");
   await seed(ownerMember, ownerRow("editor"));
@@ -522,7 +531,7 @@ test("tenants: owner A can neither read, list nor write owner B's space, and the
     assert.equal(await set(`log/${logId(mine, 1, mine.stream, 2)}`, entry(mine, 2, { space: theirs.space }), as(ally)), 403, "a space field that disagrees with the ID");
     assert.equal(await set(`pages/${sp(theirs)}`, { space: theirs.space, page: theirs.page, epoch: 9, state: "open", expiresAt: future }, as(me)), 403, "page row");
     assert.equal(await set(`members/${sp(theirs)}_${me}`, { space: theirs.space, page: theirs.page, uid: me, role: "editor" }, as(me)), 403, "self-enrollment");
-    assert.equal(await set(`members/${sp(theirs)}_${me}`, { space: theirs.space, page: theirs.page, uid: me, role: "viewer", link: mine.link, token: mine === T.A ? TOKEN_A : TOKEN_B }, as(me)), 403, "my link's secret does not open their page");
+    assert.equal(await set(`members/${sp(theirs)}_${me}`, { space: theirs.space, page: theirs.page, uid: me, role: "viewer", link: mine.link, token: mine === T.A ? TOKEN_A : TOKEN_B, seq: 1 }, as(me)), 403, "my link's secret does not open their page");
   }
   // Each side still works inside its own space.
   assert.equal(await set(`log/${logId(T.A, 1, T.A.stream, 2)}`, entry(T.A, 2), as("writerA")), 200);
@@ -589,20 +598,27 @@ test("payload admission refuses multibyte ciphertext", async () => {
   assert.equal(await set(checkpoint, chunk(t, 1), writer), 200);
 });
 
-test("members: one six-field shape distinguishes owner nulls from link enrollment", async () => {
+test("members: one seven-field shape distinguishes owner nulls from link enrollment", async () => {
   await boot();
   const t = T.A, path = `members/${sp(t)}_newMember`;
-  const row = { space: t.space, page: t.page, uid: "newMember", role: "viewer", link: null, token: null };
+  const row = { space: t.space, page: t.page, uid: "newMember", role: "viewer", link: null, token: null, seq: 1 };
   const legacy = { ...row };
   delete legacy.link;
   delete legacy.token;
   assert.equal(await set(path, legacy, as("ownerA")), 403, "no four-field shape");
+  const unsequenced = { ...row };
+  delete unsequenced.seq;
+  assert.equal(await set(path, unsequenced, as("ownerA")), 403, "seq is required");
+  assert.equal(await set(path, { ...row, seq: 2 }, as("ownerA")), 403, "seq is pinned to 1 for the owner");
+  assert.equal(await set(path, { ...row, seq: "1" }, as("ownerA")), 403, "seq is an integer");
   assert.equal(await set(path, { ...row, token: TOKEN_A }, as("ownerA")), 403, "owner requires the null pair");
   assert.equal(await set(path, row, as("ownerA")), 200);
   const enrolled = { ...row, uid: "newHolder", link: t.link, token: TOKEN_A };
   const enrolPath = `members/${sp(t)}_newHolder`;
   assert.equal(await set(enrolPath, { ...enrolled, token: null }, as("newHolder")), 403, "null is not an enrollment secret");
   assert.equal(await set(enrolPath, { ...enrolled, link: null }, as("newHolder")), 403, "non-null link required");
+  assert.equal(await set(enrolPath, { ...enrolled, seq: 2 }, as("newHolder")), 403, "seq is pinned to 1 for a holder");
+  assert.equal(await set(enrolPath, { ...unsequenced, uid: "newHolder", link: t.link, token: TOKEN_A }, as("newHolder")), 403, "a holder's seq is required");
   assert.equal(await set(enrolPath, enrolled, as("newHolder")), 200);
   assert.equal(await get(`log/${logId(t, 1, t.stream, 1)}`, as("newHolder")), 200, "viewer reads");
   assert.equal(await set(`log/${logId(t, 1, t.stream, 2)}`, entry(t, 2, { uid: "newHolder" }), as("newHolder")), 403, "enrollment never grants viewer writes");
@@ -699,6 +715,87 @@ test("authority: discovery is page-scoped and wraps disclose only to their recip
   assert.equal(await get(authorityPath(own), as("ownerA")), 200, "owner is this wrap's recipient");
   await remove(`members/${sp(T.A)}_writerA`, as("ownerA"));
   assert.equal(await get(path, as("writerA")), 403, "recipient must still be admitted");
+});
+
+/** A link holder enrolled by the link's secret, as the hosted reader does it. */
+async function enrol(t, uid, link = t.link, token = TOKEN_A) {
+  assert.equal(
+    await set(`members/${sp(t)}_${uid}`, { space: t.space, page: t.page, uid, role: "viewer", link, token, seq: 1 }, as(uid)),
+    200,
+    `${uid} enrols by link ${link}`,
+  );
+}
+
+test("authority: a link holder reads the wraps addressed to its own link and no one else's", async () => {
+  await boot();
+  const t = T.A, owner = as("ownerA"), otherLink = "30000000-0000-4000-8000-0000000000aa";
+  await seed(`links/${sp(t)}_${otherLink}`, { space: t.space, page: t.page, link: otherLink, role: "viewer", token: "F".repeat(43) });
+  const linkWrap = (link, subject) => authority(t, "wrap", { subject, recipient: `link:${link}` });
+  const mine = linkWrap(t.link, "d".repeat(64)), theirs = linkWrap(otherLink, "e".repeat(64));
+  for (const row of [mine, theirs]) assert.equal(await set(authorityPath(row), row, owner), 200, "the owner publishes a link wrap");
+  await enrol(t, "holder1");
+  await enrol(t, "holder2", otherLink, "F".repeat(43));
+
+  // The holder reads exactly its own link's wrap, by get and by the page-scoped list.
+  assert.equal(await get(authorityPath(mine), as("holder1")), 200);
+  assert.deepEqual(await list("authority", authorityScope(mine), as("holder1")), { status: 200, found: 1 });
+  assert.equal(await get(authorityPath(theirs), as("holder1")), 403, "another link's wrap");
+  assert.equal((await list("authority", authorityScope(theirs), as("holder1"))).status, 403, "another link's query");
+  assert.equal(await get(authorityPath(theirs), as("holder2")), 200);
+  assert.equal(await get(authorityPath(mine), as("holder2")), 403);
+  // The prefix is the guard: a bare link ID, a uid-looking value and an unenrolled caller read nothing.
+  const bare = authority(t, "wrap", { subject: "f".repeat(64), recipient: t.link });
+  assert.equal(await set(authorityPath(bare), bare, owner), 200);
+  assert.equal(await get(authorityPath(bare), as("holder1")), 403, "the recipient must carry the link: prefix");
+  assert.equal(await get(authorityPath(mine), as("stranger")), 403, "not enrolled");
+  assert.equal(await get(authorityPath(mine), NOBODY), 403);
+  assert.equal((await list("authority", authorityScope(mine), as("stranger"))).status, 403);
+  // Owner and ordinary members hold no link, so a link wrap is not theirs to read.
+  for (const uid of ["ownerA", "writerA", "viewerA"]) {
+    assert.equal(await get(authorityPath(mine), as(uid)), 403, `${uid} has no link`);
+    assert.equal((await list("authority", authorityScope(mine), as(uid))).status, 403);
+  }
+  // A uid wrap is still its recipient's alone, and a holder is not its uid's recipient by link.
+  assert.equal(await get(authorityPath(authority(t, "wrap")), as("holder1")), 403);
+  // The holder's own uid-addressed wraps keep working beside the link's.
+  const own = authority(t, "wrap", { subject: "9".repeat(64), recipient: "holder1" });
+  assert.equal(await set(authorityPath(own), own, owner), 200);
+  assert.equal(await get(authorityPath(own), as("holder1")), 200);
+  // Another tenant's holder never reads this space's link wrap, whatever its link.
+  await enrol(T.B, "holderB", T.B.link, TOKEN_B);
+  assert.equal(await get(authorityPath(mine), as("holderB")), 403, "other tenant");
+  // Removing the holder's row closes every read at once.
+  assert.equal(await remove(`members/${sp(t)}_holder1`, owner), 200);
+  assert.equal(await get(authorityPath(mine), as("holder1")), 403, "removed holder");
+  assert.equal(await get(`pages/${sp(t)}`, as("holder1")), 403, "removed holder reads no page row");
+  assert.equal(await get(`log/${logId(t, 1, t.stream, 1)}`, as("holder1")), 403, "nor the log");
+});
+
+test("members: the owner discovers a link's holders; no one else lists members", async () => {
+  await boot();
+  const t = T.A, otherLink = "30000000-0000-4000-8000-0000000000aa";
+  await seed(`links/${sp(t)}_${otherLink}`, { space: t.space, page: t.page, link: otherLink, role: "viewer", token: "F".repeat(43) });
+  await enrol(t, "holder1");
+  await enrol(t, "holder2");
+  await enrol(t, "holder3", otherLink, "F".repeat(43));
+  const holders = (link, extra = {}) => ({ space: t.space, page: t.page, link, ...extra });
+  assert.deepEqual(await list("members", holders(t.link), as("ownerA")), { status: 200, found: 2 }, "the link's two holders");
+  assert.deepEqual(await list("members", holders(otherLink), as("ownerA")), { status: 200, found: 1 });
+  assert.deepEqual(await list("members", holders("30000000-0000-4000-8000-0000000000bb"), as("ownerA")), { status: 200, found: 0 }, "an unused link has none");
+  // Not the owner: not another tenant's owner, not a member or holder, not a stranger.
+  for (const uid of ["ownerB", "writerA", "viewerA", "holder1", "stranger"]) {
+    assert.equal((await list("members", holders(t.link), as(uid))).status, 403, `${uid} cannot list members`);
+  }
+  assert.equal((await list("members", holders(t.link), NOBODY)).status, 403);
+  assert.deepEqual(await list("members", holders(t.link, { page: T.B.page }), as("ownerA")), { status: 200, found: 0 }, "another page's scope finds nothing");
+  assert.equal((await list("members", { ...holders(t.link), space: T.B.space }, as("ownerA"))).status, 403, "another tenant's space");
+  // The owner removes the holders it discovered; deletes are the owner's alone.
+  assert.equal(await remove(`members/${sp(t)}_holder1`, as("holder1")), 403, "a holder cannot remove itself");
+  assert.equal(await remove(`members/${sp(t)}_holder1`, as("ownerB")), 403);
+  assert.equal(await remove(`members/${sp(t)}_holder1`, as("ownerA")), 200);
+  assert.equal(await remove(`members/${sp(t)}_holder2`, as("ownerA")), 200);
+  assert.deepEqual(await list("members", holders(t.link), as("ownerA")), { status: 200, found: 0 });
+  assert.deepEqual(await list("members", holders(otherLink), as("ownerA")), { status: 200, found: 1 }, "the other link's holder stays");
 });
 
 test("authority: chunks retain one original count and recipient; only owner cleans expired records", async () => {

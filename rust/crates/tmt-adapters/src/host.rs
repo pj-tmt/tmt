@@ -46,6 +46,8 @@ pub use crate::tmux::{
 };
 pub(crate) use delivery::DeliveryCause;
 pub use delivery::{DeliveryError, DeliveryStage};
+pub use driver::PaneSwap;
+pub use tmt_core::host::SwapDirection;
 
 /// Recovery topology and evidence returned by the optional host capture port.
 pub struct WorkspaceCapture {
@@ -215,6 +217,7 @@ impl std::error::Error for HostError {
 pub enum ActionError {
     Evidence(HostError),
     Unverified,
+    NoNeighbour,
     Offline,
     /// No client of the invoking user can be focused; nothing changed.
     HostUnsupported,
@@ -227,6 +230,7 @@ impl fmt::Display for ActionError {
         match self {
             Self::Evidence(error) => error.fmt(f),
             Self::Unverified => f.write_str("Could not verify the identity binding."),
+            Self::NoNeighbour => f.write_str("No visible neighbour in that direction."),
             Self::Offline => f.write_str("The agent runtime has ended; no pane input was sent."),
             Self::HostUnsupported => {
                 f.write_str("No tmux client for this invocation can be focused.")
@@ -243,7 +247,7 @@ impl std::error::Error for ActionError {
             Self::Evidence(error) => Some(error),
             Self::Delivery(error) => Some(error),
             Self::Process(error) => Some(error),
-            Self::Unverified | Self::Offline | Self::HostUnsupported => None,
+            Self::Unverified | Self::NoNeighbour | Self::Offline | Self::HostUnsupported => None,
         }
     }
 }
@@ -748,6 +752,19 @@ impl<R: CommandRunner> Host<R> {
         self.tmux.focus_pane(invoker, pane, options)
     }
 
+    pub fn swap_pane(
+        &self,
+        invoker: &Invoker,
+        pane: &str,
+        direction: SwapDirection,
+        options: OperationOptions<'_>,
+    ) -> Result<PaneSwap, FocusError> {
+        match self.primary {
+            HostKind::Tmux => self.tmux.swap_pane(invoker, pane, direction, options),
+            HostKind::External(_) => Err(FocusError::HostUnsupported),
+        }
+    }
+
     /// Post-commit pane cosmetics. An external host's pane has no badge;
     /// only its marker's name is kept current.
     pub fn update_binding_cosmetics(
@@ -821,6 +838,18 @@ impl<R: CommandRunner> BindingSession<'_, R> {
             HostKind::Tmux => &mut self.tmux,
             HostKind::External(host) => self.external.driver(host),
         }
+    }
+
+    pub fn swap_into(
+        &mut self,
+        entry: &BindingEntry,
+        direction: SwapDirection,
+    ) -> Result<PaneSwap, ActionError> {
+        driver::swap_into(
+            self.driver(binding_host(entry, self.primary)),
+            entry,
+            direction,
+        )
     }
 
     /// Recent user keys in a verified binding, without provider buffer guesses.

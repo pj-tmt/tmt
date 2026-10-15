@@ -910,9 +910,7 @@ impl App {
             .lead
             .as_ref()?["id"]
             .as_str()?;
-        view.home_rate.get(squad)?.input.resumes.get(id)?["model"]
-            .as_str()
-            .filter(|model| !model.is_empty())
+        super::rate::resume_model(view.home_rate.get(squad)?.input.resumes.get(id)?)
     }
 
     pub(in crate::board) fn home_meter(&self, squad: &str) -> Option<&super::meter::Meter> {
@@ -5343,6 +5341,27 @@ mod token_window_tests {
             .enabled = false;
         assert!(!app.sample_home(Ok(&receipt), time + Duration::from_secs(10)));
         assert!(app.home_usage("product", time).is_none());
+    }
+
+    #[test]
+    fn home_lead_model_follows_the_last_completed_turn() {
+        let mut app = home(Instant::now());
+        fn resume(app: &mut App) -> &mut serde_json::Value {
+            app.view
+                .as_mut()
+                .unwrap()
+                .home_rate
+                .get_mut("product")
+                .unwrap()
+                .input
+                .resumes
+                .get_mut("a")
+                .unwrap()
+        }
+        resume(&mut app)["model"] = serde_json::json!("start");
+        assert_eq!(app.home_lead_model("product"), Some("start"));
+        resume(&mut app)["consumption"]["modelId"] = serde_json::json!("switched");
+        assert_eq!(app.home_lead_model("product"), Some("switched"));
     }
 
     #[test]

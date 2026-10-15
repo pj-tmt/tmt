@@ -297,3 +297,240 @@ fn a_retention_override_moves_the_page_rows_expiry_and_it_is_the_rows_own_refres
     let (document, _) = page_row(fixture.local.preamble(&page).ok().unwrap());
     assert_eq!(document.fields["expiresAt"], expiry(365));
 }
+
+const LINK: &str = "50000000-0000-4000-8000-000000000001";
+const LINK_SEED: [u8; 32] = [31; 32];
+
+/// The owner adds a viewer link for the page, as `link.add` leaves it in the Store: the signed
+/// statement, the recipient, the wrap of the page secret, and (when `token`) the admission token.
+fn add_link(fixture: &mut Fixture, token: bool) -> String {
+    let keys =
+        tmt_colab_model::link::Keys::derive(&LINK_SEED, &fixture.key.space_id, LINK).unwrap();
+    let recipient = crate::store::owner::Recipient {
+        kind: "link".into(),
+        id: LINK.into(),
+        role: Some("viewer".into()),
+        signing_key: keys.signing_public(),
+        encryption_key: keys.recipient().public_key(),
+        pages: vec![crate::object_channel::cloud_sync::fixture::home::PAGE.into()],
+        revoked: false,
+    };
+    let payload = serde_json::to_vec(&serde_json::json!({
+        "linkId": LINK, "role": "viewer",
+        "linkSignKey": tmt_colab_model::values::encode_binary(&recipient.signing_key),
+        "linkEncKey": tmt_colab_model::values::encode_binary(&recipient.encryption_key),
+        "pages": recipient.pages,
+    }))
+    .unwrap();
+    let home = &mut fixture.home;
+    let head = home
+        .store
+        .owner_head(&home.key.space_id, &home.key.owner_public())
+        .unwrap()
+        .unwrap();
+    let key = &home.key;
+    home.store
+        .owner_transaction(
+            &key.space_id,
+            &key.owner_public(),
+            crate::store::owner::Mutation {
+                operation_id: "40000000-0000-4000-8000-0000000000a1",
+                digest: [8; 32],
+                expected_revision: head.revision,
+            },
+            |tx| {
+                tx.append_statement(&key.sign_statement(tx.head(), "link.add", &payload)?)?;
+                let revision = tx.head().unwrap().revision;
+                tx.put_recipient(&recipient)?;
+                if token {
+                    tx.put_link_admission(LINK, &keys.rules_token())?;
+                }
+                tx.put_wrap(&key.seal_wrap(
+                    &tmt_colab_model::wrap::Header {
+                        space: key.space_id.clone(),
+                        page: crate::object_channel::cloud_sync::fixture::home::PAGE.into(),
+                        epoch: "1".into(),
+                        recipient_kind: "link".into(),
+                        recipient_id: LINK.into(),
+                        recipient_key: recipient.encryption_key,
+                        signer_key: key.owner_public(),
+                        membership_revision: revision.to_string(),
+                    },
+                    &crate::object_channel::cloud_sync::fixture::home::SECRET,
+                )?)?;
+                Ok(Vec::new())
+            },
+        )
+        .unwrap();
+    keys.rules_token()
+}
+/// The owner removes the link: its recipient is revoked and its admission token is dropped.
+fn end_link(fixture: &mut Fixture) {
+    let home = &mut fixture.home;
+    let key = &home.key;
+    let head = home
+        .store
+        .owner_head(&key.space_id, &key.owner_public())
+        .unwrap()
+        .unwrap();
+    home.store
+        .owner_transaction(
+            &key.space_id,
+            &key.owner_public(),
+            crate::store::owner::Mutation {
+                operation_id: "40000000-0000-4000-8000-0000000000a2",
+                digest: [9; 32],
+                expected_revision: head.revision,
+            },
+            |tx| {
+                let mut link = tx.recipient("link", LINK)?.unwrap();
+                link.revoked = true;
+                tx.put_recipient(&link)?;
+                tx.drop_link_admission(LINK)?;
+                tx.append_statement(&key.sign_statement(
+                    tx.head(),
+                    "link.remove",
+                    &serde_json::to_vec(&serde_json::json!({"linkId": LINK, "cuts": []}))?,
+                )?)?;
+                Ok(Vec::new())
+            },
+        )
+        .unwrap();
+}
+
+#[test]
+fn a_live_link_is_a_row_and_wraps_for_the_link_and_is_tracked_for_its_removal() {
+    let mut fixture = Fixture::new();
+    let page = fixture.page(1);
+    let token = add_link(&mut fixture, true);
+    let rows = fixture.local.preamble(&page).ok().unwrap();
+    assert_eq!(
+        resources(&rows),
+        [
+            "spaces",
+            "pages",
+            "members",
+            "links",
+            "authority",
+            "authority",
+            "authority",
+            "authority"
+        ],
+        "the link row follows the owner's rows; then two statements, the owner's wrap and the link's"
+    );
+    let [link] = &documents(&rows, "links")[..] else {
+        panic!("one link row")
+    };
+    let fields = documents::decode(Resource::Links, link).unwrap();
+    for (key, value) in [
+        ("link", LINK),
+        ("role", "viewer"),
+        ("token", token.as_str()),
+    ] {
+        assert_eq!(fields.get(key), Some(&Field::String(value.into())), "{key}");
+    }
+    let wraps: Vec<_> = documents(&rows, "authority")
+        .into_iter()
+        .filter(|document| {
+            documents::decode(Resource::Authority, document)
+                .unwrap()
+                .get("recipient")
+                == Some(&Field::String(format!("link:{LINK}")))
+        })
+        .collect();
+    let [wrap] = &wraps[..] else {
+        panic!("one wrap for the link")
+    };
+    let (kind, bytes) = originals::authority(std::slice::from_ref(wrap)).unwrap();
+    assert_eq!(kind, originals::Authority::Wrap);
+    let header = tmt_colab_model::wrap::Envelope::from_json(&bytes)
+        .unwrap()
+        .header()
+        .unwrap();
+    assert_eq!(
+        (header.recipient_kind.as_str(), header.recipient_id.as_str()),
+        ("link", LINK)
+    );
+    assert_eq!(
+        fixture.local.store.link_publications(&page.page).unwrap(),
+        [LINK],
+        "recorded before the row is written"
+    );
+    assert!(fixture.local.retirements(&page).ok().unwrap().is_empty());
+    // The owner's own member row says what it is: a constant seq beside the null link.
+    let [member] = &documents(&rows, "members")[..] else {
+        panic!("the owner's member row")
+    };
+    assert_eq!(
+        documents::decode(Resource::Members, member)
+            .unwrap()
+            .get("seq"),
+        Some(&Field::number(1).unwrap())
+    );
+}
+
+#[test]
+fn a_link_without_a_token_is_not_published() {
+    let mut fixture = Fixture::new();
+    let page = fixture.page(1);
+    add_link(&mut fixture, false);
+    let rows = fixture.local.preamble(&page).ok().unwrap();
+    assert_eq!(
+        resources(&rows),
+        [
+            "spaces",
+            "pages",
+            "members",
+            "authority",
+            "authority",
+            "authority"
+        ],
+        "two statements and the owner's wrap, nothing for the link"
+    );
+    assert!(
+        fixture
+            .local
+            .store
+            .link_publications(&page.page)
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn a_link_that_ends_is_retired_once_and_forgotten() {
+    let mut fixture = Fixture::new();
+    let page = fixture.page(1);
+    add_link(&mut fixture, true);
+    fixture.local.preamble(&page).ok().unwrap();
+    end_link(&mut fixture);
+    // The ended link is no longer published, and its cloud rows are due for removal.
+    let rows = fixture.local.preamble(&page).ok().unwrap();
+    assert!(!resources(&rows).contains(&"links"));
+    let retirements = fixture.local.retirements(&page).ok().unwrap();
+    let [retirement] = &retirements[..] else {
+        panic!("one retirement")
+    };
+    assert_eq!(retirement.link, LINK);
+    assert_eq!(retirement.target.resource, "links");
+    assert_eq!(
+        retirement.target.id,
+        format!("{}_{}_{LINK}", page.space, page.page)
+    );
+    assert_eq!(
+        retirement.scope["link"],
+        serde_json::json!({"stringValue": LINK})
+    );
+    // It stays due across calls, until it is recorded as done.
+    assert_eq!(fixture.local.retirements(&page).ok().unwrap().len(), 1);
+    fixture.local.retired(&page, LINK).ok().unwrap();
+    assert!(fixture.local.retirements(&page).ok().unwrap().is_empty());
+    assert!(
+        fixture
+            .local
+            .store
+            .link_publications(&page.page)
+            .unwrap()
+            .is_empty()
+    );
+}

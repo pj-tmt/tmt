@@ -3144,15 +3144,15 @@ of that same space and page. The Rules text is identical for every tenant. An em
 that owner A can neither read, list nor write owner B's space, and the reverse, including crafted
 IDs, a missing `space` field and queries that omit a filter.
 
-| Resource (path) | Kind       | Document ID                         | Holds                                                                                                                                              |
-| --------------- | ---------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `spaces`        | checkpoint | `space`                             | the owner uid: first writer of a space ID owns it; never updated or deleted                                                                        |
-| `pages`         | checkpoint | `space_page`                        | the owner-written admission row: current `epoch`, `state` (`open` or `archived`), `expiresAt`; deleting it denies every read and write of the page |
-| `links`         | checkpoint | `space_page_link`                   | an owner-written enrollment secret and role for a share link; holders cannot read it                                                               |
-| `members`       | checkpoint | `space_page_uid`                    | who may read or write and in which role (`viewer`, `commenter`, `editor`, `bridge`)                                                                |
-| `log`           | log        | `space_page_epoch_stream_seq`       | one immutable encrypted envelope: `uid` (the writer), `hash`, `envelope`, `expiresAt`                                                              |
-| `checkpoints`   | checkpoint | `space_page_epoch_object_index`     | one immutable 32 KiB chunk of an encrypted object: `uid` (the writer), `index` of `count` (at most 513)                                            |
-| `authority`     | checkpoint | `space_page_epoch_kind_subject_seq` | owner-written exact signed membership statements, key wraps and certificate chains, in immutable chunks                                            |
+| Resource (path) | Kind       | Document ID                         | Holds                                                                                                                                                                                   |
+| --------------- | ---------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `spaces`        | checkpoint | `space`                             | the owner uid: first writer of a space ID owns it; never updated or deleted                                                                                                             |
+| `pages`         | checkpoint | `space_page`                        | the owner-written admission row: current `epoch`, `state` (`open` or `archived`), `expiresAt`; deleting it denies every read and write of the page; the owner and any member may get it |
+| `links`         | checkpoint | `space_page_link`                   | an owner-written enrollment secret and role for a share link; holders cannot read it                                                                                                    |
+| `members`       | checkpoint | `space_page_uid`                    | who may read or write and in which role (`viewer`, `commenter`, `editor`, `bridge`)                                                                                                     |
+| `log`           | log        | `space_page_epoch_stream_seq`       | one immutable encrypted envelope: `uid` (the writer), `hash`, `envelope`, `expiresAt`                                                                                                   |
+| `checkpoints`   | checkpoint | `space_page_epoch_object_index`     | one immutable 32 KiB chunk of an encrypted object: `uid` (the writer), `index` of `count` (at most 513)                                                                                 |
+| `authority`     | checkpoint | `space_page_epoch_kind_subject_seq` | owner-written exact signed membership statements, key wraps and certificate chains, in immutable chunks                                                                                 |
 
 There is no `blob` resource and no presence resource: Awareness stores nothing on Firestore, and
 cloud attachments are #2165's. The admission collections are declared ordinary resources so the
@@ -3167,10 +3167,18 @@ create; `pages` and `members` create/put/delete; `links`, `log` and `authority` 
 Only `spaces` binds the publisher through `uidField:owner`; the other resources use null so a
 blanket creator-uid equality cannot deny owner maintenance of someone else's admitted record.
 
-Members have one six-field shape: `space,page,uid,role,link,token`. Owner-written rows carry
+Members have one seven-field shape: `space,page,uid,role,link,token,seq`. Owner-written rows carry
 `link:null,token:null`; self-enrollment carries the exact non-null strings checked against the
-link secret and role. Four-field rows are refused; nothing has been deployed and no migration
-is introduced. All other resource field sets are pinned by the declaration.
+link secret and role. `seq` is a declaration-grammar constant, not a sequence: Rules pin it to the
+integer `1` on every create and put, because the declaration's discovery needs an integer field.
+Rows without it are refused; nothing has been deployed and no migration is introduced. The
+`holders` discovery (owner-only list, equality on `space,page,link`) is how the owner finds the
+rows a link enrolled. All other resource field sets are pinned by the declaration.
+
+A page row is readable by an exact get to the owner and to any member, and never listed: it holds
+only `space,page,epoch,state,expiresAt`, routing and lifetime hints that a hosted reader uses to
+name the current epoch and the truthful "not in the cloud" state. They are never authority; the
+signed membership, epoch advance and wrap verification decide everything.
 
 The `log` regular shape binds `space,page,epoch,stream`, orders the integer `seq` ascending and
 uses the same stream's logical cursor. Its `writers` discovery binds only `space,page,epoch`,
@@ -3204,12 +3212,14 @@ is not provisioned.
 
 Authority's regular query scope is `space,page,epoch,kind,recipient,subject`, ordered by `seq`;
 its `records` discovery removes only subject. Membership/chain require `recipient:""` and are
-readable to current page members. Wraps carry an owner-written authenticated-uid recipient
-projection and are readable only to that uid **and** current page membership, with no owner
-exception. A wrap discovery includes the caller's uid; omitting recipient or naming another uid
-is refused. The existing wrap verifier still checks the cryptographic recipient/context;
-this uid projection supplies no key authority. An owner's second machine reads its own wrap
-as recipient. Queries do not disclose another recipient's wraps.
+readable to current page members. Wraps carry an owner-written recipient projection of one of two
+forms: the reading uid, or `link:` and a link ID. A wrap is readable only to its recipient **and**
+current page membership, with no owner exception: a uid wrap to that uid, a link wrap to a member
+whose `members` row names that link (an owner row has no link and matches none). A wrap discovery
+names the recipient, either the caller's uid or `link:<its link>`; omitting recipient or naming
+another is refused. The existing wrap verifier still checks the cryptographic recipient/context;
+this projection supplies no key authority. An owner's second machine reads its own wrap as
+recipient. Queries do not disclose another recipient's wraps.
 
 The native sealed-document codecs map these seven resources to canonical REST fields and
 page-bound IDs. One dormant client shares the object bus reader and ordered request counter;
@@ -3218,12 +3228,25 @@ cancellation or generation close. Transport checksums do not authenticate payloa
 the declaration nor these codecs enable cloud sync by themselves. The serve runs one worker per
 object-channel generation: it asks Remote to activate, binds, and publishes the most recently
 active page (opened in a browser or written by the CLI; another page is published when it is
-next touched). It creates the owner's `spaces`, `pages` and own `members` rows, then the signed
-membership, chain and wrap originals, then each local original in sequence, always authority
-before data; a position is recorded only after the exact original was created or read back
+next touched, or when a management change such as a link, member or policy concerns it). It
+creates the owner's `spaces`, `pages` and own `members` rows, then one `links` row for each live
+link of the page that has an admission token and the signed membership, chain and wrap originals,
+the wraps addressed to those links among them, then each local original in sequence, always
+authority before data; a position is recorded only after the exact original was created or read back
 identical. A page whose publication stopped is reported once for the serve's lifetime and is not
 tried again at that epoch; Remote declining to activate prints nothing, so a machine without cloud
 sync stays local, and a restarted Remote is asked again.
+
+The worker also ends a link in the cloud. A link it published that has since ended (removed,
+reset, or sharing turned off) loses its `links` row first, so nobody can enroll through it, then
+every `members` row the `holders` discovery finds for it, a bounded number per pass; only then is
+the link forgotten. The owner Store records the (page, link) pair before the row is first written
+(`link_publications`), so a restart finishes the removal. A refused delete of a row that is not
+there reads as already gone, because Rules read the row being deleted. A change made through the
+serve (a link added, removed or reset, a member or a policy change) wakes the worker for the pages
+it concerns, without waiting for an edit. Until the removal completes, a removed link's holder may
+still read the page's routing, authority and ciphertext records; it can decrypt nothing past the
+epoch advance the removal made.
 
 The same worker reads the active page back from the cloud; Changed notices only wake it, and the
 Store's receipts are the position. A read is due when the page is first watched, after a notice,

@@ -162,7 +162,8 @@ fn focus_takes_one_identity_or_pane_target() {
         assert_eq!(
             parsed(&["focus", target, "--json"]).invocation,
             Invocation::Focus {
-                target: target.into()
+                target: target.into(),
+                into: None,
             }
         );
     }
@@ -175,6 +176,34 @@ fn focus_takes_one_identity_or_pane_target() {
         parse_error(&["focus", "auth-fix", "--client"]).code,
         "USAGE_ERROR"
     );
+}
+
+#[test]
+fn focus_into_accepts_only_directions_with_a_target() {
+    for direction in ["left", "right", "up", "down"] {
+        let invocation = parsed(&["focus", "worker", "--into", direction, "--json"]).invocation;
+        let expected = match direction {
+            "left" => tmt_core::host::SwapDirection::Left,
+            "right" => tmt_core::host::SwapDirection::Right,
+            "up" => tmt_core::host::SwapDirection::Up,
+            "down" => tmt_core::host::SwapDirection::Down,
+            _ => unreachable!(),
+        };
+        assert_eq!(
+            invocation,
+            Invocation::Focus {
+                target: "worker".into(),
+                into: Some(expected)
+            }
+        );
+    }
+    for args in [
+        vec!["focus", "worker", "--into", "diagonal"],
+        vec!["focus", "--client", "--into", "left"],
+        vec!["focus", "--into", "left"],
+    ] {
+        assert_eq!(parse_error(&args).code, "USAGE_ERROR");
+    }
 }
 
 #[test]

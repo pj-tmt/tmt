@@ -110,9 +110,24 @@ impl<R: CommandRunner> HostDriver for BindingSession<'_, R> {
                 viewer: before.client,
             }),
             Err(FocusError::HostUnsupported) => Err(ActionError::HostUnsupported),
-            Err(FocusError::PaneNotFound) => Err(ActionError::Unverified),
+            Err(FocusError::PaneNotFound | FocusError::NoNeighbour) => Err(ActionError::Unverified),
             Err(FocusError::Evidence(error)) => Err(ActionError::Evidence(error.into())),
         }
+    }
+    fn swap_into(
+        &mut self,
+        binding: &Binding,
+        direction: crate::host::SwapDirection,
+    ) -> Result<crate::host::PaneSwap, ActionError> {
+        let invoker = self.invoker.as_ref().ok_or(ActionError::HostUnsupported)?;
+        self.tmux
+            .swap_pane(invoker, &binding.pane_id, direction, self.options(None))
+            .map_err(|error| match error {
+                FocusError::HostUnsupported => ActionError::HostUnsupported,
+                FocusError::PaneNotFound => ActionError::Unverified,
+                FocusError::NoNeighbour => ActionError::NoNeighbour,
+                FocusError::Evidence(error) => ActionError::Evidence(error.into()),
+            })
     }
 }
 
@@ -886,6 +901,45 @@ mod tests {
         fn focus(&mut self, binding: &Binding) -> Result<Focused, ActionError> {
             HostDriver::focus(&mut self.tmux, binding)
         }
+    }
+
+    #[test]
+    fn swap_verifies_binding_and_default_hosts_refuse_without_an_effect() {
+        let entry = entry();
+        let runner = ScriptedRunner::default();
+        runner.push_output(observation(&entry, 654, true), Vec::new());
+        let tmux = Tmux::new(runner);
+        let mut host = AgentHost {
+            tmux: BindingSession::new(&tmux).with_invoker(invoker("/tmp/tmt-driver.sock")),
+            answer: || ActionResult::Unsupported,
+            prompts: Vec::new(),
+        };
+        assert!(matches!(
+            driver::swap_into(&mut host, &entry, crate::host::SwapDirection::Left),
+            Err(ActionError::HostUnsupported)
+        ));
+        assert_eq!(
+            tmux.runner.calls.borrow().len(),
+            1,
+            "only binding evidence, no host effect"
+        );
+        assert!(host.prompts.is_empty());
+        let mut binding = BindingSession::new(&tmux).with_invoker(invoker("/tmp/other.sock"));
+        assert!(matches!(
+            driver::swap_into(&mut binding, &entry, crate::host::SwapDirection::Left),
+            Err(ActionError::HostUnsupported)
+        ));
+        assert_eq!(
+            tmux.runner.calls.borrow().len(),
+            1,
+            "foreign server refuses before evidence"
+        );
+        let mut no_caller = BindingSession::new(&tmux);
+        assert!(matches!(
+            driver::swap_into(&mut no_caller, &entry, crate::host::SwapDirection::Left),
+            Err(ActionError::HostUnsupported)
+        ));
+        assert_eq!(tmux.runner.calls.borrow().len(), 1);
     }
 
     #[test]
