@@ -11,6 +11,15 @@ on:
   schedule:
     - cron: '17 3 * * 1'
   workflow_dispatch:
+    inputs:
+      workspace_proof:
+        description: 'N=1 experiment only; requires Infra immutable-head launch approval'
+        type: boolean
+        default: false
+      proof_head:
+        description: 'Reviewed exact 40-character source SHA (must equal dispatched ref)'
+        type: string
+        default: ''
 
 env:
   CARGO_PROFILE_DEV_DEBUG: 0
@@ -35,7 +44,7 @@ jobs:
       macos: ${{ steps.main.outputs.macos || steps.event.outputs.macos }}
       main_full_admitted: ${{ steps.main.outputs.admitted || 'false' }}
       native: ${{ steps.mainfull.outputs.native || steps.scope.outputs.native || steps.queue.outputs.native || steps.seed.outputs.native }}
-      native_scope: ${{ steps.mainfull.outputs.native_scope || steps.scope.outputs.native_scope || steps.queue.outputs.native_scope || steps.seed.outputs.native_scope }}
+      native_scope: ${{ steps.proof.outputs.native_scope || steps.mainfull.outputs.native_scope || steps.scope.outputs.native_scope || steps.queue.outputs.native_scope || steps.seed.outputs.native_scope }}
       native_notices: ${{ steps.mainfull.outputs.native_notices || steps.scope.outputs.native_notices || steps.queue.outputs.native_notices || steps.seed.outputs.native_notices }}
       release_rehearsal: ${{ steps.rehearsal.outputs.release_rehearsal || 'false' }}
       release_rehearsal_products: ${{ steps.rehearsal.outputs.release_rehearsal_products || '[]' }}
@@ -52,6 +61,10 @@ jobs:
           VERIFY: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
           MACOS: ${{ github.event_name != 'merge_group' }}
         run: printf 'verify=%s\nmacos=%s\n' "$VERIFY" "$MACOS" >> "$GITHUB_OUTPUT"
+      - name: Isolate the manual N=1 proof from ordinary workers
+        if: github.event_name == 'workflow_dispatch' && inputs.workspace_proof
+        id: proof
+        run: echo 'native_scope=none' >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -70,7 +83,7 @@ jobs:
         id: mainfull
         run: node typescript/scripts/ci-scope.mjs main-full >> "$GITHUB_OUTPUT"
       - name: Select the cache-seeding jobs
-        if: steps.event.outputs.verify != 'true' && github.event_name != 'push'
+        if: steps.event.outputs.verify != 'true' && github.event_name != 'push' && !inputs.workspace_proof
         id: seed
         env:
           SEED_SCOPE: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'full' || 'seed' }}
@@ -131,7 +144,7 @@ jobs:
         working-directory: typescript
         run: |
           pnpm check:tooling
-          pnpm exec vp test run --config vitest.config.ts test/tooling/ci-scope.test.ts test/tooling/component-skills.test.ts test/tooling/release-cut.test.ts test/tooling/release-cut-live.test.ts test/tooling/release-source-at-ref.test.ts test/tooling/release-version-injection.test.ts test/tooling/release-workflow.test.ts test/tooling/release-parity.test.ts test/tooling/release-rehearsal.test.ts test/tooling/guide-budget.test.ts test/tooling/markdown-links.test.ts test/tooling/pr-agent-check.test.ts test/tooling/docker-workspace.test.ts
+          pnpm exec vp test run --config vitest.config.ts test/tooling/ci-scope.test.ts test/tooling/workspace-proof.test.ts test/tooling/component-skills.test.ts test/tooling/release-cut.test.ts test/tooling/release-cut-live.test.ts test/tooling/release-source-at-ref.test.ts test/tooling/release-version-injection.test.ts test/tooling/release-workflow.test.ts test/tooling/release-parity.test.ts test/tooling/release-rehearsal.test.ts test/tooling/guide-budget.test.ts test/tooling/markdown-links.test.ts test/tooling/pr-agent-check.test.ts test/tooling/docker-workspace.test.ts
       - name: Verify isolated browser presentation leaf
         working-directory: typescript
         run: |
@@ -994,3 +1007,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: node typescript/scripts/ci-scope.mjs notify-main-failure
+
+  workspace-proof:
+    name: Experimental N=1 workspace proof
+    if: github.event_name == 'workflow_dispatch' && inputs.workspace_proof
+    uses: ./.github/workflows/workspace-proof.yml
+    with:
+      proof_head: ${{ inputs.proof_head }}
