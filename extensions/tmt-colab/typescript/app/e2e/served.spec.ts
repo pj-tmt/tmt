@@ -6,6 +6,7 @@ import { createServer, request, type Server } from 'node:http';
 import { type AddressInfo } from 'node:net';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
+import { deriveSpaceId } from '@tmt/colab-client';
 import { expect, test, type Page } from '@playwright/test';
 import { capturePath } from './captures.js';
 import { writeExecutable } from '../../../../../typescript/test/support/executable-fixture.mjs';
@@ -417,17 +418,25 @@ test('public reader entry: exact static bytes, link fragment removed, and no acc
     await expect(page.getByRole('alert')).toContainText('incomplete or malformed');
     await expect(page.getByRole('alert').locator('.tmt-ui-notice-mark .lucide-x')).toBeVisible();
     expect(await page.evaluate(() => location.hash)).toBe('');
-    // A well-formed link for a space this server does not hold has no grant: access ended.
+    // A well-formed link for a space this server does not hold has no grant: access ended. It
+    // names the owner's root, which derives the space, and the role the link carries.
     const seed = Buffer.alloc(32, 7).toString('base64url');
     const statement = Buffer.alloc(32, 9).toString('base64url');
+    const owner = (await crypto.subtle.generateKey('Ed25519', false, [
+      'sign',
+      'verify',
+    ])) as CryptoKeyPair;
+    const root = new Uint8Array(await crypto.subtle.exportKey('raw', owner.publicKey));
     const link = [
       'v=1',
-      'space=' + 'a'.repeat(32),
+      'space=' + (await deriveSpaceId(root)),
       'page=10000000-0000-4000-8000-000000000001',
       'link=20000000-0000-4000-8000-000000000001',
       'rev=4',
       'st=' + statement,
       'seed=' + seed,
+      'root=' + Buffer.from(root).toString('base64url'),
+      'role=viewer',
     ].join('&');
     await page.goto('about:blank'); // A hash-only change would not reload the entry.
     await page.goto(server.origin + mount + 'read#' + link);
