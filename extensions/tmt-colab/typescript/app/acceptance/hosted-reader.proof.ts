@@ -30,7 +30,7 @@ function remoteLink() {
 }
 
 test.afterEach(disposeActiveWorlds);
-test('a hosted link holder verifies native authority and admits empty discovery without a local door', async () => {
+test('a hosted link holder verifies native content and a later save without a local door', async () => {
   if (process.env.GCLOUD_PROJECT !== project)
     throw new Error('the demo emulator harness is required');
   const auth = host('FIREBASE_AUTH_EMULATOR_HOST'),
@@ -99,6 +99,13 @@ test('a hosted link holder verifies native authority and admits empty discovery 
         { timeout: 90000, intervals: [100, 250, 500, 1000] },
       )
       .toBe(true);
+    await expect
+      .poll(async () => (await admin('log')).documents?.length ?? 0, {
+        timeout: 60000,
+        intervals: [100, 250, 500, 1000],
+      })
+      .toBeGreaterThan(0);
+    const initialLogDocuments = (await admin('log')).documents?.length ?? 0;
     const { view, files, manifest } = composed(world);
     const { origin: local } = await serve(world, view, files);
     const policy = manifest.files.find((file) => file.path === '/index.html')!.csp!;
@@ -124,7 +131,14 @@ test('a hosted link holder verifies native authority and admits empty discovery 
     const unexpected: string[] = [],
       paths: string[] = [],
       writes: string[] = [];
-    const queries: Array<{ collection: string; documents: number }> = [];
+    let phase: 'open' | 'wake' = 'open';
+    const queries: Array<{ phase: string; collection: string; limit?: number; documents: number }> =
+      [];
+    const gets: Array<{ phase: string; collection: string; status: number }> = [];
+    const listens: Array<{ phase: string; documentChangeMarkers: number }> = [];
+    const boundaries: Record<string, unknown> = {};
+    let openConverged = false,
+      wakeConverged = false;
     let pageGets = 0;
     let holderToken = '';
     await context.addInitScript(() => {
@@ -157,15 +171,30 @@ test('a hosted link holder verifies native authority and admits empty discovery 
         await route.fulfill({ response });
       } else if (url.origin === 'https://firestore.googleapis.com') {
         if (url.pathname.endsWith(':commit')) writes.push(request.postData() ?? '');
+        const requestedPhase = phase;
         const response = await route.fetch({
           url: `http://${firestore}${url.pathname}${url.search}`,
         });
+        if (request.method() === 'GET' && url.pathname.includes('/documents/'))
+          gets.push({
+            phase: requestedPhase,
+            collection: url.pathname.split('/').at(-2)!,
+            status: response.status(),
+          });
+        if (url.pathname.includes('Listen/channel'))
+          listens.push({
+            phase,
+            documentChangeMarkers: ((await response.text()).match(/"documentChange"\s*:/g) ?? [])
+              .length,
+          });
         if (response.ok() && url.pathname.endsWith(':runQuery')) {
           const input = request.postDataJSON() as {
-            structuredQuery: { from: Array<{ collectionId: string }> };
+            structuredQuery: { from: Array<{ collectionId: string }>; limit?: number };
           };
           const rows = (await response.json()) as Array<{ document?: unknown }>;
           queries.push({
+            phase: requestedPhase,
+            limit: input.structuredQuery.limit,
             collection: input.structuredQuery.from[0].collectionId,
             documents: rows.filter((row) => row.document !== undefined).length,
           });
@@ -183,6 +212,52 @@ test('a hosted link holder verifies native authority and admits empty discovery 
       await context.unrouteAll({ behavior: 'ignoreErrors' });
     });
     const page = await context.newPage();
+    // Read only the committed advisory ledger; never inspect identity or key records.
+    const budget = () =>
+      page.evaluate(async () => {
+        const db = await new Promise<IDBDatabase>((resolve, reject) => {
+          const request = indexedDB.open('tmt-colab', 1);
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+        });
+        try {
+          return await new Promise<{ day: number; reads: number; writes: number } | undefined>(
+            (resolve, reject) => {
+              const tx = db.transaction('keys', 'readonly');
+              const read = tx.objectStore('keys').get('hosted-reads-v1');
+              tx.oncomplete = () => resolve(read.result);
+              tx.onerror = () => reject(tx.error);
+              tx.onabort = () => reject(tx.error);
+            },
+          );
+        } finally {
+          db.close();
+        }
+      });
+    world.onDispose(async () => {
+      boundaries.final = await budget().catch(() => ({ unavailable: true }));
+      const body = JSON.stringify(
+        {
+          initialLogDocuments,
+          openConverged,
+          wakeConverged,
+          boundaries,
+          pageGets,
+          queries,
+          gets,
+          listens,
+          admissionWrites: writes.length,
+          note: 'REST phases identify request start; Listen markers identify response delivery and are not unique documents. Ledger totals are advisory reservations, not billed reads. Admin oracles excluded. Open/wake boundaries are verified rendered headings.',
+        },
+        null,
+        2,
+      );
+      const summary = test.info().outputPath('provider-read-summary.json');
+      fs.writeFileSync(summary, body);
+      await test
+        .info()
+        .attach('provider-read-summary', { path: summary, contentType: 'application/json' });
+    });
     const crashes: string[] = [];
     page.on('pageerror', (error) => crashes.push(error.message));
     await page.goto(`${origin}/read/${created.pageId}${fragment}`);
@@ -190,19 +265,31 @@ test('a hosted link holder verifies native authority and admits empty discovery 
     await page.getByRole('button', { name: 'Sign in', exact: true }).click();
     await expect(page.getByText('Live', { exact: true })).toBeVisible({ timeout: 25000 });
     await expect(page.locator('iframe')).toHaveCount(1);
-    // #3127: the native CLI's local stream is currently excluded from publication. Do not seed
-    // writer authority or claim content convergence here. Signed fixture tests cover content;
-    // this real proof covers bootstrap, authority, and truthful empty finite discovery.
+    await expect(page.frameLocator('iframe').locator('h1')).toHaveText(
+      'Native owner first version',
+      { timeout: 60000 },
+    );
+    openConverged = true;
+    boundaries.open = await budget();
+    phase = 'wake';
+    run(
+      world,
+      world.binaries.colab,
+      ['page', 'write', created.pageId, '--file', '-', '--json'],
+      '<main><h1>Native owner second version</h1></main>',
+    );
+    await expect(page.frameLocator('iframe').locator('h1')).toHaveText(
+      'Native owner second version',
+      { timeout: 60000 },
+    );
+    wakeConverged = true;
+    boundaries.wake = await budget();
     expect(pageGets).toBe(1);
     expect(queries.some((query) => query.collection === 'authority' && query.documents > 0)).toBe(
       true,
     );
     for (const collection of ['log', 'checkpoints'])
       expect(queries.some((query) => query.collection === collection)).toBe(true);
-    await test.info().attach('provider-read-summary', {
-      body: JSON.stringify({ pageGets, queries }),
-      contentType: 'application/json',
-    });
     expect(writes).toHaveLength(1);
     const mutation = JSON.parse(writes[0]).writes;
     expect(mutation).toHaveLength(1);
