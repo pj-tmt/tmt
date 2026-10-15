@@ -518,6 +518,8 @@ for (const width of [320, 390, 1440])
         const underlying = fixture(page).getByRole('button', {
           name: 'Underlying host action',
           exact: true,
+          // Radix's modal menu correctly hides background controls from AT.
+          includeHidden: true,
         });
         const box = await underlying.boundingBox();
         if (!box) throw new Error('Underlying private control has no bounds');
@@ -605,6 +607,12 @@ for (const width of [320, 390, 1440])
             held.startsWith('Busy') ? 'popover-busy-veto' : 'popover-uncertain-veto',
           );
           await parent.getByLabel(held, { exact: true }).uncheck();
+          // The outside checkbox click becomes an admitted pointer dismissal
+          // once its host state releases the veto.
+          await expectState(page, { popoverOpen: false, dialogOpen: true });
+          await expect(opener).toBeFocused();
+          await opener.click();
+          await expect(popup).toBeVisible();
           await close.click();
           await expectState(page, { popoverOpen: false, dialogOpen: true });
           await expect(opener).toBeFocused();
