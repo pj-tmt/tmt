@@ -7,8 +7,8 @@ use super::{App, RowTarget};
 use crate::board::resume::Resume;
 
 impl App {
-    /// Cold-start hints use the same carry seam, retaining this process's
-    /// drafts/search/scroll state. The caller admits only a fresh complete view.
+    /// Cold-start hints use the same carry seam for retained controls and scroll.
+    /// Composer drafts stay in this process; admission requires a fresh complete view.
     pub(in crate::board) fn carry_view_hint(
         &mut self,
         hint: &crate::board::view_state::ViewState,
@@ -19,6 +19,8 @@ impl App {
         };
         resume.squads_expanded = hint.expanded.iter().cloned().collect();
         resume.pool_expanded = hint.pool_expanded;
+        resume.controls = hint.controls.clone();
+        resume.scrolls = hint.scrolls.clone();
         if !explicit_startup {
             resume.shell = hint.shell;
             resume.selected = hint.selected.clone().map(RowTarget::Workspace);
@@ -72,6 +74,8 @@ impl App {
     pub(in crate::board) fn resume(&self) -> Option<Resume> {
         let tab = self.current.clone()?;
         Some(Resume {
+            layer: self.view_layer.clone(),
+            controls: Some(crate::board::view_state::Controls::capture(self)),
             visibility: self.workspace.visibility.clone(),
             shell: self.shell.tab,
             squads_expanded: self.workspace.expanded.iter().cloned().collect(),
@@ -96,6 +100,7 @@ impl App {
         // A reload's carried scope, including an explicitly cleared scope,
         // supersedes the original argv selection before the first projection.
         self.workspace_startup = None;
+        self.view_layer = resume.layer.clone();
         self.workspace.visibility = resume.visibility.clone();
         self.pending_resume = Some(resume);
     }
@@ -113,6 +118,9 @@ impl App {
             return;
         };
         self.search = resume.search;
+        if let Some(controls) = resume.controls {
+            controls.apply(self);
+        }
         self.shell.tab = resume.shell;
         self.workspace.expanded = resume.squads_expanded.into_iter().collect();
         self.workspace.pool_expanded = resume.pool_expanded;
@@ -276,6 +284,8 @@ mod tests {
             }),
             ("carried state not yet applied", |app| {
                 app.carry(Resume {
+                    layer: Default::default(),
+                    controls: None,
                     visibility: Default::default(),
                     shell: crate::board::shell::OpsTab::Overview,
                     squads_expanded: vec![],
@@ -408,5 +418,34 @@ mod tests {
         assert!(!after.follow);
         assert!(after.pending_resume.is_none());
         assert!(!after.reload_blocked());
+    }
+    #[test]
+    fn named_layer_controls_and_session_scope_survive_real_exec_snapshot_round_trip() {
+        use crate::board::{
+            app::workspace::tests::{ROOM, board},
+            view_state::{Layer, Order},
+            workspace::AgentsFilter,
+        };
+        let mut first = board();
+        first.view_layer = Layer::parse("popup").unwrap();
+        first.workspace.visibility.scope = vec![ROOM.into()];
+        first.workspace.visibility.reveal_hidden = true;
+        first.search = "worker".into();
+        first.workspace_reconcile();
+        first.workspace.order = Some(Order {
+            agents: crate::config::OpsSort::Attention,
+            reversed: true,
+            overview: None,
+        });
+        first.workspace.filter = AgentsFilter::NeedsYou;
+        let arrived = arrive(&first.resume().unwrap());
+        let mut next = board();
+        next.carry(arrived);
+        next.restore_pending();
+        assert_eq!(next.view_layer, first.view_layer);
+        assert_eq!(next.workspace_order(), first.workspace_order());
+        assert_eq!(next.search, "worker");
+        assert_eq!(next.workspace.visibility, first.workspace.visibility);
+        assert_eq!(next.workspace.filter, first.workspace.filter);
     }
 }

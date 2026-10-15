@@ -252,7 +252,7 @@ pub const UI: &CommandSpec = spec!(
     "ui",
     "Open the terminal board (lists the members without a terminal)",
     [
-        "Show one squad for this session; Esc clears" => "tmt ops ui --squad product",
+        "Keep a separate popup view" => "tmt ops ui --view popup --popup",
         "Show several squads without changing saved hidden squads" => "tmt ops ui --squad product --squad infra",
         "Reload every open board once it is idle, after an upgrade" => "tmt ops ui --reload-all",
     ]

@@ -26,6 +26,8 @@ impl Drop for Scratch {
 fn saved() -> ViewState {
     ViewState {
         shell: OpsTab::Agents,
+        controls: Some(Controls::capture(&board())),
+        scrolls: Vec::new(),
         expanded: [ROOM.into()].into(),
         pool_expanded: true,
         selected: Some(OpsTarget::Member {
@@ -60,8 +62,10 @@ fn restart_round_trip_restores_the_exact_view_without_names_or_drafts() {
     let bytes = fs::read(scratch.file()).unwrap();
     assert!(!String::from_utf8(bytes.clone()).unwrap().contains("worker"));
     let value: Value = serde_json::from_slice(&bytes).unwrap();
-    assert_eq!(value.as_object().unwrap().len(), 5);
-    assert!(value.get("search").is_none() && value.get("scrolls").is_none());
+    assert_eq!(value.as_object().unwrap().len(), 7);
+    assert!(value.get("search").is_none());
+    assert_eq!(value["controls"]["query"], "");
+    assert_eq!(value["scrolls"], json!([]));
     let mut next = cold();
     let mut reopened = Session::load(scratch.file(), false, false);
     let (restored, job) = reopened.tick(&mut next, now);
@@ -451,4 +455,167 @@ fn background_publication_does_not_become_an_action_or_repaint() {
     assert_eq!(publications.get(), 1);
     assert_eq!(paints.get(), 1, "publication completion is paint-neutral");
     assert!(ViewState::read(&scratch.file()).is_some());
+}
+
+#[test]
+fn layer_names_admit_only_bounded_filename_components() {
+    let root = Path::new("/isolated/board");
+    assert_eq!(Layer::default().path(root), root.join("view.json"));
+    assert_eq!(Layer::parse("default").unwrap(), Layer::default());
+    assert_eq!(
+        Layer::parse("popup-2").unwrap().path(root),
+        root.join("views/popup-2.json")
+    );
+    for bad in [
+        "",
+        "../default",
+        "a/b",
+        "A",
+        "popup.json",
+        "two words",
+        "é",
+        "a\n",
+    ] {
+        assert!(Layer::parse(bad).is_err(), "{bad:?}");
+    }
+    assert!(Layer::parse(&"a".repeat(32)).is_ok());
+    assert!(Layer::parse(&"a".repeat(33)).is_err());
+}
+
+#[test]
+fn layers_share_by_name_and_reset_only_the_selected_file() {
+    let scratch = Scratch::new();
+    let default = Layer::default().path(&scratch.0);
+    let popup = Layer::parse("popup").unwrap().path(&scratch.0);
+    let untouched = saved().bytes().unwrap();
+    write(&default, &saved());
+    let mut first = board();
+    first.workspace.filter = super::super::workspace::AgentsFilter::Pinned;
+    first.overview_filter = super::super::overview::monitor::Filter::NeedsYou;
+    first.search = "committed".into();
+    first.workspace.query = first.search.clone();
+    first.workspace.order = Some(Order {
+        agents: crate::config::OpsSort::Members,
+        reversed: true,
+        overview: Some(crate::config::OverviewSort::initial(
+            crate::config::OverviewColumn::Cron,
+        )),
+    });
+    first.scrolls.restore([(crate::config::Pane::Rows, 9)]);
+    let mut session = Session::load(popup.clone(), false, false);
+    assert!(!popup.exists(), "opening never creates a file");
+    session.flush(&mut first, Instant::now());
+    assert_eq!(
+        fs::read(&default).unwrap(),
+        untouched,
+        "other layer stays byte-identical"
+    );
+    let mut second = cold();
+    let mut reopened = Session::load(
+        Layer::parse("popup").unwrap().path(&scratch.0),
+        false,
+        false,
+    );
+    assert!(reopened.tick(&mut second, Instant::now()).0);
+    assert_eq!(second.search, "committed");
+    assert_eq!(second.workspace.filter, first.workspace.filter);
+    assert_eq!(second.overview_filter, first.overview_filter);
+    assert_eq!(second.workspace_order(), first.workspace_order());
+    assert_eq!(second.scrolls.offset(crate::config::Pane::Rows), 9);
+    reset(&popup).unwrap();
+    assert!(!popup.exists());
+    assert_eq!(fs::read(&default).unwrap(), untouched);
+    reset(&popup).unwrap();
+    let mut empty = Session::load(popup.clone(), false, false);
+    let mut third = cold();
+    assert!(!empty.tick(&mut third, Instant::now()).0);
+    assert_eq!(third.search, "");
+    assert_eq!(third.workspace.order, None);
+}
+
+#[test]
+fn old_default_v1_hint_needs_no_migration_and_retains_config_sort_defaults() {
+    let scratch = Scratch::new();
+    let mut old: Value = serde_json::from_slice(&saved().bytes().unwrap()).unwrap();
+    old.as_object_mut().unwrap().remove("controls");
+    old.as_object_mut().unwrap().remove("scrolls");
+    let bytes = serde_json::to_vec(&old).unwrap();
+    cache::replace(&scratch.file(), &bytes).unwrap();
+    let mut session = Session::load(scratch.file(), false, false);
+    assert_eq!(
+        fs::read(scratch.file()).unwrap(),
+        bytes,
+        "read does not migrate"
+    );
+    let mut app = cold();
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .preferences
+        .sort = crate::config::OpsSort::Members;
+    assert!(session.tick(&mut app, Instant::now()).0);
+    assert_eq!(
+        app.workspace_order().agents,
+        crate::config::OpsSort::Members
+    );
+    assert_eq!(app.workspace.selected, saved().selected);
+    assert!(
+        app.workspace.order.is_none(),
+        "no retained order overrides authored defaults"
+    );
+}
+
+#[test]
+fn search_draft_and_invalid_controls_never_replace_a_good_hint() {
+    let scratch = Scratch::new();
+    write(&scratch.file(), &saved());
+    let bytes = fs::read(scratch.file()).unwrap();
+    let mut session = Session::load(scratch.file(), false, false);
+    let mut app = board();
+    session.tick(&mut app, Instant::now());
+    app.searching = true;
+    app.search = "draft".into();
+    app.workspace.query = app.search.clone();
+    session.flush(&mut app, Instant::now());
+    assert_eq!(fs::read(scratch.file()).unwrap(), bytes);
+    let value: Value = serde_json::from_slice(&bytes).unwrap();
+    for (key, bad) in [
+        ("query", json!("a".repeat(4097))),
+        ("agentsFilter", json!("invented")),
+        ("reversed", json!(1)),
+        ("sort", json!("random")),
+    ] {
+        let mut corrupt = value.clone();
+        corrupt["controls"][key] = bad;
+        assert!(ViewState::decode(&corrupt).is_none(), "{key}");
+    }
+    for bad in [
+        json!([["Rows", 1], ["Rows", 2]]),
+        json!([["invented", 1]]),
+        json!([["Rows", -1]]),
+    ] {
+        let mut corrupt = value.clone();
+        corrupt["scrolls"] = bad;
+        assert!(ViewState::decode(&corrupt).is_none());
+    }
+}
+
+#[test]
+fn original_reset_flag_is_never_replayed_after_exec_and_reset_errors_preserve_bytes() {
+    let scratch = Scratch::new();
+    write(&scratch.file(), &saved());
+    let bytes = fs::read(scratch.file()).unwrap();
+    let _exec = Session::open(scratch.file(), true, false, true).unwrap();
+    assert_eq!(fs::read(scratch.file()).unwrap(), bytes);
+    let _cold = Session::open(scratch.file(), false, false, true).unwrap();
+    assert!(!scratch.file().exists());
+    fs::create_dir_all(scratch.file()).unwrap();
+    let child = scratch.file().join("foreign");
+    fs::write(&child, b"preserve").unwrap();
+    assert!(Session::open(scratch.file(), false, false, true).is_err());
+    assert_eq!(fs::read(child).unwrap(), b"preserve");
 }

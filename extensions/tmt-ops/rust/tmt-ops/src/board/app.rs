@@ -616,6 +616,7 @@ pub struct App {
     pub(super) workspace_form: Option<super::workspace::manage::Draft>,
     pub(in crate::board) cron_scope_hits: RefCell<Vec<TimerHit>>,
     pub(in crate::board) workspace_header_hover: Cell<Option<crate::config::OverviewColumn>>,
+    pub(in crate::board) view_layer: super::view_state::Layer,
     pub(in crate::board) overview_filter: super::overview::monitor::Filter,
     pub(in crate::board) overview_rows: RefCell<super::overview::monitor::Cache>,
     pub(in crate::board) overview_layout: RefCell<super::overview::columns::Layout>,

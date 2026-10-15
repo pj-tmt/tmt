@@ -408,6 +408,10 @@ own module/drawing boundaries and verification.
   data enters `config.json` or Core's database.
 - **Workspace.** Overview/Agents/Digest share one acquired roster; Overview caches monitor order, while tree projections are frame-scoped.
   UUID squad anchors and virtual Common pool define selection; paint/input do no Core reads. WP1 owns conversation/editor/drafts.
+  The existing quiet cache lane publishes per-name view hints (default keeps its
+  original path): destination/UUID anchors, expansion, committed filters/sort/search
+  and pane scroll. Shared Config preferences stay separate; exec carries the layer
+  and session-only visibility. [View-state ownership](.agents/skills/tmt-ops-dev/references/board.md#workspace-and-retained-identity).
   The shell replaces named-tab/factory/switcher navigation and HOME cursors; reload carries UUID anchors.
   `labels::Reader` acquires Config-selected windows; `labels::digest` sums
   [supplier estimates](extensions/tmt-digest/contracts/digest-v1.md#savings), never provider history.

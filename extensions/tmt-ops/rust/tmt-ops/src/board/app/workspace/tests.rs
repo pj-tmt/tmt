@@ -2389,6 +2389,14 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
     }
     match scene {
         "overview" => app.shell.tab = OpsTab::Overview,
+        "named-layer" => app.view_layer = crate::board::ViewLayer::parse("popup").unwrap(),
+        "named-layer-long" => {
+            app.view_layer = crate::board::ViewLayer::parse(&"x".repeat(32)).unwrap()
+        }
+        "named-layer-long-partial" => {
+            app.view_layer = crate::board::ViewLayer::parse(&"x".repeat(32)).unwrap();
+            home.workspace.roster.observation = OpsObservation::Partial;
+        }
         "digest" => app.shell.tab = OpsTab::Digest,
         "empty" => {
             home.summary = Default::default();
@@ -2498,6 +2506,9 @@ fn capture_workspace_packet() {
     let output = std::env::var("TMT_WORKSPACE_CAPTURE").expect("task-owned evidence path");
     let mut captures = Vec::new();
     for scene in [
+        "named-layer-long",
+        "named-layer-long-partial",
+        "named-layer",
         "overview",
         "agents",
         "digest",
@@ -2544,7 +2555,7 @@ fn capture_workspace_packet() {
             }
         }
     }
-    assert_eq!(captures.len(), 448);
+    assert_eq!(captures.len(), 544);
     std::fs::write(output, serde_json::to_vec(&captures).unwrap()).unwrap();
 }
 
@@ -3404,6 +3415,8 @@ fn scope_header_fits_whole_names_and_neutralizes_untrusted_roster_names() {
 #[test]
 fn cold_view_hints_cannot_set_or_clear_session_visibility() {
     let hint = crate::board::view_state::ViewState {
+        controls: None,
+        scrolls: Vec::new(),
         shell: OpsTab::Digest,
         expanded: Default::default(),
         pool_expanded: true,
@@ -3453,4 +3466,80 @@ fn hidden_line_reports_both_attention_kinds_but_omits_absent_and_revealed_attent
     assert!(line.contains("Hidden: 1 · show"));
     assert!(!line.contains("blocked"));
     assert!(!line.contains("waiting"));
+}
+
+#[test]
+fn nondefault_layer_caption_changes_only_the_header_and_never_overlaps_attention() {
+    for width in [160, 100, 60] {
+        for base in ["tmt", "tmt-light"] {
+            for depth in [tmt_cli_style::Depth::TrueColor, tmt_cli_style::Depth::None] {
+                let look = crate::look::Look {
+                    theme: tmt_cli_style::Theme::new(
+                        tmt_cli_style::theme::Base::parse(base).unwrap(),
+                    ),
+                    depth,
+                };
+                let default = capture_case("agents", look);
+                let mut named = capture_case("agents", look);
+                named.view_layer = crate::board::ViewLayer::parse("popup").unwrap();
+                let draw = |app: &App| {
+                    let mut terminal = Terminal::new(TestBackend::new(width, 36)).unwrap();
+                    terminal
+                        .draw(|frame| crate::board::view::render(frame, app))
+                        .unwrap();
+                    terminal.backend().buffer().clone()
+                };
+                let ordinary = draw(&default);
+                let popup = draw(&named);
+                let line = |buffer: &ratatui::buffer::Buffer| {
+                    buffer.content[..usize::from(width)]
+                        .iter()
+                        .map(|cell| cell.symbol())
+                        .collect::<String>()
+                };
+                let shown = line(&popup);
+                assert!(shown.contains(if width == 60 {
+                    "OPS / UI · p…"
+                } else {
+                    "OPS / UI · popup"
+                }));
+                assert!(
+                    shown.contains("online")
+                        && shown.contains("waiting")
+                        && shown.contains("blocked")
+                );
+                assert!(!line(&ordinary).contains("· popup"));
+                assert_eq!(
+                    &ordinary.content[usize::from(width)..],
+                    &popup.content[usize::from(width)..]
+                );
+                named.view_layer = crate::board::ViewLayer::parse(&"x".repeat(32)).unwrap();
+                let long = line(&draw(&named));
+                assert!(
+                    long.contains("online") && long.contains("waiting") && long.contains("blocked")
+                );
+                if width >= 100 {
+                    assert!(long.contains(&"x".repeat(32)));
+                } else {
+                    assert!(long.contains('…'));
+                    assert!(!long.contains(&"x".repeat(32)));
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn named_header_keeps_unknown_attention_before_the_long_layer_caption() {
+    let app = capture_case("named-layer-long-partial", crate::look::Look::default());
+    for width in [60, 100] {
+        let line = paint(&app, width, 36)[0].clone();
+        assert!(line.contains("online") && line.contains("waiting") && line.contains("blocked"));
+        assert!(line.contains("totals unknown"));
+        if width == 100 {
+            assert!(line.contains("OPS / UI · ") && line.contains('…'));
+        } else {
+            assert!(!line.contains(" · x"));
+        }
+    }
 }

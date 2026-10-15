@@ -72,7 +72,7 @@ pub(in crate::board) fn values(
 pub(in crate::board) struct Cache {
     held: Option<(Key, Rc<Scene>)>,
 }
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(in crate::board) enum Filter {
     #[default]
     All,
@@ -119,7 +119,7 @@ pub(in crate::board) fn rows(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<[
 
 pub(in crate::board) fn scene(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<Scene> {
     let key = Key {
-        order: snapshot.preferences.overview_sort,
+        order: app.workspace_order().overview,
         query: app.workspace.query.clone(),
         filter: app.overview_filter,
         pins: snapshot.preferences.agent_pins.clone(),
@@ -153,7 +153,7 @@ pub(in crate::board) fn scene(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<
     projected.sort_by(
         |(a, av), (b, bv)| {
             let pinned = |row: &OpsTreeRow| matches!(&row.target, OpsTarget::Member { identity_id, .. } if key.pins.contains(identity_id));
-            pinned(b).cmp(&pinned(a)).then_with(|| match snapshot.preferences.overview_sort {
+            pinned(b).cmp(&pinned(a)).then_with(|| match key.order {
             Some(order) => sort::compare(&av.order(a), &bv.order(b), order),
             None => sort::needs_you(&av.order(a), &bv.order(b)),
             })
@@ -380,41 +380,26 @@ mod tests {
         assert_eq!(app.workspace.selected.as_ref(), Some(&targets[0]));
     }
     #[test]
-    fn monitor_consumes_persisted_order_without_retargeting_selection() {
+    fn monitor_consumes_layer_order_without_config_write_or_retargeting_selection() {
         let mut app = board();
         let selected = app.workspace.selected.clone();
+        let config = app.workspace_snapshot().unwrap().preferences.clone();
         assert_eq!(app.workspace_rows()[0].title, "A lead");
-        let effect = app.overview_sort_column(OverviewColumn::Agent);
-        let Effect::Act(Request::WorkspacePreferences { expected, next, .. }) = effect else {
-            panic!("sort must go through the Config lane");
-        };
-        assert_eq!(expected.overview_sort, None);
         assert_eq!(
-            next.overview_sort,
+            app.overview_sort_column(OverviewColumn::Agent),
+            Effect::None
+        );
+        assert_eq!(
+            app.workspace_order().overview,
             Some(OverviewSort::initial(OverviewColumn::Agent))
         );
         assert_eq!(app.workspace.selected, selected);
-        app.view
-            .as_mut()
-            .unwrap()
-            .home
-            .as_mut()
-            .unwrap()
-            .workspace
-            .preferences = next;
-        let effect = app.overview_sort_column(OverviewColumn::Agent);
-        let Effect::Act(Request::WorkspacePreferences { next, .. }) = effect else {
-            panic!("header toggle");
-        };
-        app.view
-            .as_mut()
-            .unwrap()
-            .home
-            .as_mut()
-            .unwrap()
-            .workspace
-            .preferences = next;
+        assert_eq!(
+            app.overview_sort_column(OverviewColumn::Agent),
+            Effect::None
+        );
         assert_eq!(app.workspace_rows()[0].title, "worker");
+        assert_eq!(app.workspace_snapshot().unwrap().preferences, config);
         assert_eq!(app.workspace.selected, selected);
         app.workspace.query = "A lead".into();
         assert_eq!(
@@ -506,31 +491,39 @@ mod tests {
                 std::time::Instant::now(),
             );
             let press = keyed.key(KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE));
-            let Effect::Act(Request::WorkspacePreferences { expected, next, .. }) = click else {
-                panic!("painted sort header must request the Config lane")
-            };
-            let Effect::Act(Request::WorkspacePreferences {
-                expected: key_expected,
-                next: key_next,
-                ..
-            }) = press
-            else {
-                panic!("sort key must request the same Config lane")
-            };
-            assert_eq!(expected, key_expected);
-            assert_eq!(next, key_next);
+            assert_eq!(
+                click,
+                Effect::None,
+                "sort does not request a shared Config write"
+            );
+            assert_eq!(press, Effect::None);
+            assert_eq!(clicked.workspace_order(), keyed.workspace_order());
+            assert_eq!(
+                clicked.workspace_snapshot().unwrap().preferences,
+                keyed.workspace_snapshot().unwrap().preferences
+            );
+            assert!(
+                clicked
+                    .workspace_snapshot()
+                    .unwrap()
+                    .preferences
+                    .overview_sort
+                    .is_none()
+            );
             assert_eq!(clicked.workspace.selected, selected);
             assert_eq!(keyed.workspace.selected, selected);
-            for app in [&mut clicked, &mut keyed] {
-                app.view
-                    .as_mut()
-                    .unwrap()
-                    .home
-                    .as_mut()
-                    .unwrap()
-                    .workspace
-                    .preferences = next.clone();
-            }
+            assert_eq!(
+                clicked
+                    .workspace_rows()
+                    .iter()
+                    .map(|row| &row.title)
+                    .collect::<Vec<_>>(),
+                keyed
+                    .workspace_rows()
+                    .iter()
+                    .map(|row| &row.title)
+                    .collect::<Vec<_>>()
+            );
         }
     }
     #[test]

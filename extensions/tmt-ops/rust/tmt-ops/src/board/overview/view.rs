@@ -27,7 +27,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         header,
         &slots,
         app.look(),
-        snapshot.preferences.overview_sort,
+        app.workspace_order().overview,
         app.workspace_header_hover.get(),
         |column| match column {
             Column::Digest => "MODE".into(),

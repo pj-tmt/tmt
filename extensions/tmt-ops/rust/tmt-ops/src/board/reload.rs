@@ -429,6 +429,8 @@ mod tests {
         let root = scratch("restart");
         let state = root.join("state");
         let resume = Resume {
+            layer: Default::default(),
+            controls: None,
             visibility: Default::default(),
             shell: crate::board::shell::OpsTab::Overview,
             squads_expanded: vec![],

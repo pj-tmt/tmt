@@ -46,7 +46,7 @@ impl OverviewColumn {
         Self::Model,
     ];
 
-    fn key(self) -> &'static str {
+    pub(crate) fn key(self) -> &'static str {
         match self {
             Self::Agent => "agent",
             Self::Squad => "squad",

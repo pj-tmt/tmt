@@ -506,6 +506,41 @@ o = "run touch ${marker}"
     });
   });
 
+  it('named view validation and noninteractive reset preserve all retained bytes', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      expect((await squad(sandbox, ['init', 'product'])).status).toBe(0);
+      const directory = path.join(sandbox.env.XDG_CACHE_HOME!, 'tmt-ops', 'board');
+      mkdirSync(path.join(directory, 'views'), { recursive: true });
+      const files = [
+        path.join(directory, 'view.json'),
+        path.join(directory, 'views', 'popup.json'),
+      ];
+      for (const file of files) writeFileSync(file, 'retained bytes');
+      const listed = await squad(sandbox, ['ls', '--squad', 'product']);
+      for (const name of ['default', 'popup', 'a'.repeat(32)]) {
+        const result = await ops(sandbox, ['ui', '--view', name, '--squad', 'product']);
+        expect(result.status).toBe(0);
+        expect(result.body).toEqual(listed.body);
+      }
+      for (const args of [
+        ['--view', '../default'],
+        ['--view', 'UPPER'],
+        ['--view', 'a'.repeat(33)],
+        ['--view', 'popup', '--reset-view'],
+        ['--reset-view'],
+        ['--view', 'popup', '--reload-all'],
+        ['--reset-view', '--reload-all'],
+      ]) {
+        const result = await ops(sandbox, ['ui', ...args]);
+        expect(result.status).toBe(1);
+        expect(result.body.error.code).toBe('USAGE_ERROR');
+      }
+      for (const file of files) expect(readFileSync(file, 'utf8')).toBe('retained bytes');
+      expect(readdirSync(path.join(directory, 'views'))).toEqual(['popup.json']);
+    });
+  });
+
   it('launch scope refuses retired rooms and lists only active valid names', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
@@ -5259,6 +5294,180 @@ describe('large board responsiveness', () => {
     freshBoard: 10_000,
     tabSwitch: 10_000,
   };
+
+  it('named view layers restore independently, reset one layer and retain controls through reload', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      const found = spawnSync('/usr/bin/which', ['tmux'], { encoding: 'utf8' });
+      if (found.status !== 0) throw new Error('Build/install tmux for isolated board tests');
+      const executable = found.stdout.trim();
+      const socket = path.join(sandbox.root, 'views.sock');
+      sandbox.env.PATH = [path.dirname(executable), sandbox.env.PATH].join(path.delimiter);
+      sandbox.env.TERM = 'xterm-256color';
+      sandbox.env.NO_COLOR = '1';
+      const tmux = (args: string[]) => {
+        const result = spawnSync(executable, ['-S', socket, ...args], {
+          env: sandbox.env,
+          encoding: 'utf8',
+          timeout: 5000,
+        });
+        if (result.status !== 0) throw new Error(`Private tmux failed: ${result.stderr}`);
+        return result.stdout.trimEnd();
+      };
+      await identity(sandbox, 'Ben');
+      expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
+      const directory = path.join(sandbox.env.XDG_CACHE_HOME!, 'tmt-ops', 'board');
+      mkdirSync(path.join(directory, 'views'), { recursive: true });
+      const defaultFile = path.join(directory, 'view.json');
+      const popupFile = path.join(directory, 'views', 'popup.json');
+      const old = {
+        version: 1,
+        shell: 'agents',
+        squadsExpanded: [],
+        poolExpanded: false,
+        selected: null,
+      };
+      const defaultBytes = JSON.stringify(old);
+      writeFileSync(defaultFile, defaultBytes);
+      writeFileSync(
+        popupFile,
+        JSON.stringify({
+          ...old,
+          shell: 'overview',
+          controls: {
+            query: 'old-popup-search',
+            agentsFilter: 'pinned',
+            overviewFilter: 'needs-you',
+            sort: 'members',
+            reversed: true,
+            overviewSort: { column: 'cron', descending: true },
+          },
+          scrolls: [],
+        })
+      );
+      const config = path.join(sandbox.globalDir, 'ops.toml');
+      const configBefore = readFileSync(config, 'utf8');
+      tmux([
+        '-f',
+        '/dev/null',
+        'new-session',
+        '-d',
+        '-s',
+        'views',
+        '-c',
+        sandbox.root,
+        '-x',
+        '160',
+        '-y',
+        '36',
+        '/bin/sh',
+      ]);
+      const server = Number(tmux(['display-message', '-p', '#{pid}']));
+      const pane = tmux(['display-message', '-p', '#{pane_id}']);
+      const quoted = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+      let sequence = 0;
+      const captures: { named: boolean; layer?: string; width: number; text: string }[] = [];
+      const screen = () => tmux(['capture-pane', '-p', '-t', pane]);
+      const launch = async (args: string[], layer?: string) => {
+        const named = layer !== undefined;
+        const trace = path.join(sandbox.root, `view-${sequence++}.jsonl`);
+        tmux([
+          'send-keys',
+          '-t',
+          pane,
+          '-l',
+          `TMT_OPS_TIMING_TRACE=${quoted(trace)} ${quoted(sandbox.cli.executable)} ops ui ${args.map(quoted).join(' ')}`,
+        ]);
+        tmux(['send-keys', '-t', pane, 'Enter']);
+        await vi.waitFor(
+          () => {
+            expect(existsSync(trace)).toBe(true);
+            expect(readFileSync(trace, 'utf8')).toContain('fresh_board');
+            const header = screen().split('\n')[0];
+            expect(header).toContain(named ? `OPS / UI · ${layer}` : 'OPS / UI');
+            if (!named) expect(header).not.toContain('· popup');
+          },
+          { timeout: 30_000, interval: 50 }
+        );
+        for (const width of [160, 100, 60]) {
+          tmux(['resize-window', '-t', 'views', '-x', String(width), '-y', '36']);
+          await vi.waitFor(
+            () => {
+              expect(tmux(['display-message', '-p', '-t', pane, '#{pane_width}'])).toBe(
+                String(width)
+              );
+              const header = screen().split('\n')[0];
+              if (width >= 100) expect(header).toContain('OPS / UI');
+              if (named || width >= 100) expect(header).toContain('online');
+              if (named) expect(header).toContain('waiting');
+              if (named) expect(header).toContain('blocked');
+            },
+            { timeout: 10_000, interval: 25 }
+          );
+          captures.push({ named, layer, width, text: screen() });
+        }
+        tmux(['resize-window', '-t', 'views', '-x', '160', '-y', '36']);
+      };
+      const quit = async () => {
+        tmux(['send-keys', '-t', pane, 'q']);
+        await vi.waitFor(
+          () =>
+            expect(tmux(['display-message', '-p', '-t', pane, '#{pane_current_command}'])).not.toBe(
+              'tmt-ops'
+            ),
+          { timeout: 10_000, interval: 25 }
+        );
+      };
+      try {
+        await launch(['--view', 'popup', '--popup'], 'popup');
+        await quit();
+        expect(JSON.parse(readFileSync(popupFile, 'utf8')).controls).toMatchObject({
+          query: 'old-popup-search',
+          sort: 'members',
+          reversed: true,
+          agentsFilter: 'pinned',
+        });
+        expect(readFileSync(defaultFile, 'utf8')).toBe(defaultBytes);
+        await launch(['--view', 'popup', '--reset-view'], 'popup');
+        tmux(['send-keys', '-t', pane, '/', 'B', 'e', 'n', 'Enter']);
+        expect((await ops(sandbox, ['ui', '--reload-all'])).status).toBe(0);
+        await vi.waitFor(() => expect(screen()).toContain('Board reloaded'), {
+          timeout: 30_000,
+          interval: 50,
+        });
+        expect(screen().split('\n')[0]).toContain('OPS / UI · popup');
+        await quit();
+        const retained = JSON.parse(readFileSync(popupFile, 'utf8'));
+        expect(retained.controls).toMatchObject({
+          query: 'Ben',
+          sort: 'name',
+          reversed: false,
+          agentsFilter: 'all',
+          overviewFilter: 'all',
+        });
+        expect(retained).not.toHaveProperty('scope');
+        expect(retained).not.toHaveProperty('revealHidden');
+        expect(readFileSync(defaultFile, 'utf8')).toBe(defaultBytes);
+        await launch([]);
+        await quit();
+        expect(JSON.parse(readFileSync(defaultFile, 'utf8')).shell).toBe('agents');
+        expect(JSON.parse(readFileSync(popupFile, 'utf8'))).toEqual(retained);
+        const longName = 'x'.repeat(32);
+        await launch(['--view', longName], longName);
+        await quit();
+        expect(readFileSync(config, 'utf8')).toBe(configBefore);
+        if (process.env.TMT_VIEW_LAYER_CAPTURES) {
+          writeFileSync(process.env.TMT_VIEW_LAYER_CAPTURES, JSON.stringify(captures));
+        }
+      } finally {
+        spawnSync(executable, ['-S', socket, 'kill-server'], { env: sandbox.env, timeout: 5000 });
+        await vi.waitFor(() => expect(() => process.kill(server, 0)).toThrow(), {
+          timeout: 10_000,
+          interval: 25,
+        });
+      }
+    });
+  }, 120_000);
 
   it('paints a placeholder before configuration and switches tabs off the input thread', async () => {
     await withSandbox(async (sandbox) => {

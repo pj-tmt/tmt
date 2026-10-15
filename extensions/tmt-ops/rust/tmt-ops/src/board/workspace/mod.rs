@@ -132,6 +132,7 @@ pub struct OpsWorkspace {
     pub expanded: BTreeSet<String>,
     pub pool_expanded: bool,
     pub query: String,
+    pub(in crate::board) order: Option<crate::board::view_state::Order>,
     pub filter: AgentsFilter,
     pub visibility: OpsVisibility,
 }
@@ -474,12 +475,20 @@ impl OpsWorkspace {
             if pinned != Ordering::Equal {
                 return pinned;
             }
-            let order = match preferences.sort {
+            let order = match self
+                .order
+                .unwrap_or_else(|| crate::board::view_state::Order::from(preferences))
+                .agents
+            {
                 OpsSort::Name => a.name.cmp(&b.name),
                 OpsSort::Attention => roster.attention(b).cmp(&roster.attention(a)),
                 OpsSort::Members => a.members.len().cmp(&b.members.len()),
             };
-            let order = if preferences.reversed {
+            let order = if self
+                .order
+                .unwrap_or_else(|| crate::board::view_state::Order::from(preferences))
+                .reversed
+            {
                 order.reverse()
             } else {
                 order
