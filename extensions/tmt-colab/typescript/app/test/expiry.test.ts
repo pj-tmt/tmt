@@ -14,23 +14,24 @@ it('names expiry with relative days and hours, as the CLI does', () => {
   expect(expiryText({ ...base, expiresAtMs: now + 3600000 - 1 }, now)).toContain(
     'in less than an hour',
   );
-  expect(expiryText({ ...base, expiresAtMs: now - 2 * 86400000, warnings: ['expired'] }, now)).toBe(
-    'expired 2 days ago',
+  // Past the cloud expiry the cloud copy is gone, however long ago it ended.
+  expect(
+    expiryText({ ...base, expiresAtMs: now - 2 * 86400000, warnings: ['not-in-cloud'] }, now),
+  ).toBe('not in the cloud');
+  expect(expiryText({ ...base, expiresAtMs: now, warnings: ['not-in-cloud'] }, now)).toBe(
+    'not in the cloud',
   );
-  expect(expiryText({ ...base, expiresAtMs: now - 5 * 3600000 }, now)).toContain('expired 5 h ago');
   expect(expiryText(base, now)).not.toMatch(/\d{4}-|UTC|\.789/);
 });
-it('keeps unknown and forever evidence friendly without fabricating a relative date', () => {
-  expect(
-    expiryText(
-      { ...base, lastUpdateAtMs: null, expiresAtMs: null, warnings: ['expiry-unavailable'] },
-      now,
-    ),
-  ).toBe('expiry starts after the next edit');
+it('keeps local-only and forever evidence friendly without fabricating a relative date', () => {
+  // Nothing was ever put in the cloud: no expiry to show and nothing to warn of.
+  expect(expiryText({ ...base, lastUpdateAtMs: null, expiresAtMs: null, warnings: [] }, now)).toBe(
+    'local only',
+  );
+  expect(expiryText({ ...base, expiresAtMs: null, warnings: ['not-in-cloud'] }, now)).toBe(
+    'not in the cloud',
+  );
   expect(expiryText({ ...base, retentionDays: null, expiresAtMs: null }, now)).toBe('kept forever');
-  expect(
-    expiryText({ ...base, expiresAtMs: null, warnings: ['expiry-out-of-range'] }, now),
-  ).toContain('beyond the supported range');
   expect(localTime(null)).toBe('Not recorded yet');
   expect(localTime(Number.MAX_SAFE_INTEGER)).toContain('beyond the supported range');
 });

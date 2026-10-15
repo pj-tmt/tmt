@@ -121,12 +121,17 @@ impl Drop for Fixture {
     }
 }
 #[test]
-fn verified_projection_uses_same_durable_time_for_defaults_override_and_boundaries() {
+fn verified_projection_reports_the_cloud_expiry_the_last_confirmed_page_row_made() {
     let mut f = Fixture::new();
     f.create();
+    // Nothing was ever confirmed in the cloud: the page is local only, with nothing to warn of.
     let p = f.projection();
     assert_eq!(p["lastUpdateAtMs"], NOW);
     assert_eq!(p["retentionDays"], 30);
+    assert!(p["expiresAtMs"].is_null());
+    assert_eq!(p["warnings"], json!([]));
+    f.store.confirm_page_row(PAGE, 1, NOW + 30 * DAY).unwrap();
+    let p = f.projection();
     assert_eq!(p["expiresAtMs"], NOW + 30 * DAY);
     assert_eq!(p["warnings"], json!([]));
     f.clock.store(NOW + 23 * DAY - 1, Ordering::SeqCst);
@@ -136,7 +141,9 @@ fn verified_projection_uses_same_durable_time_for_defaults_override_and_boundari
     f.clock.store(NOW + 30 * DAY - 1, Ordering::SeqCst);
     assert_eq!(f.projection()["warnings"], json!(["expires-soon"]));
     f.clock.store(NOW + 30 * DAY, Ordering::SeqCst);
-    assert_eq!(f.projection()["warnings"], json!(["expired"]));
+    let p = f.projection();
+    assert_eq!(p["expiresAtMs"], NOW + 30 * DAY);
+    assert_eq!(p["warnings"], json!(["not-in-cloud"]));
     // Expiry leaves readable content and edit authority in place.
     assert_eq!(
         page::read(&f.store, &f.key, PAGE, &mut f.decoder())
@@ -144,38 +151,32 @@ fn verified_projection_uses_same_durable_time_for_defaults_override_and_boundari
             .source,
         "<p>Initial</p>"
     );
+    // A retention override alone moves nothing: only a confirmed write of the row does.
     f.apply(OwnerAction::Retention {
         page: PAGE,
         days: Some(60),
     });
     let p = f.projection();
-    assert_eq!(p["lastUpdateAtMs"], NOW);
-    assert_eq!(p["expiresAtMs"], NOW + 60 * DAY);
-    assert_eq!(p["warnings"], json!([]));
-    f.apply(OwnerAction::Retention {
-        page: PAGE,
-        days: None,
-    });
+    assert_eq!(p["expiresAtMs"], NOW + 30 * DAY);
+    assert_eq!(p["warnings"], json!(["not-in-cloud"]));
+    f.store.confirm_page_row(PAGE, 1, NOW + 90 * DAY).unwrap();
     let p = f.projection();
-    assert_eq!(p["lastUpdateAtMs"], NOW);
-    assert!(p["expiresAtMs"].is_null());
+    assert_eq!(p["expiresAtMs"], NOW + 90 * DAY);
     assert_eq!(p["warnings"], json!([]));
-    f.apply(OwnerAction::Retention {
-        page: PAGE,
-        days: Some(9_007_199_254_740_991),
-    });
-    let p = f.projection();
-    assert!(p["expiresAtMs"].is_null());
-    assert_eq!(p["warnings"], json!(["expiry-out-of-range"]));
+    // Local edits never move it, and an unknown last-update time does not either.
     f.sql()
         .execute("UPDATE pages SET last_update_at_ms=NULL", [])
         .unwrap();
-    assert_eq!(f.projection()["warnings"], json!(["expiry-unavailable"]));
+    let p = f.projection();
+    assert_eq!(p["expiresAtMs"], NOW + 90 * DAY);
+    assert_eq!(p["warnings"], json!([]));
     f.apply(OwnerAction::Retention {
         page: PAGE,
         days: None,
     });
-    assert_eq!(f.projection()["warnings"], json!([]));
+    let p = f.projection();
+    assert!(p["expiresAtMs"].is_null());
+    assert_eq!(p["warnings"], json!([]));
     f.sql()
         .execute(
             "UPDATE membership_log SET envelope=x'00' WHERE revision='00000000000000000001'",
@@ -183,6 +184,57 @@ fn verified_projection_uses_same_durable_time_for_defaults_override_and_boundari
         )
         .unwrap();
     assert!(inspection::catalog(&f.store, &f.key).is_err());
+}
+#[test]
+fn a_confirmed_row_belongs_to_its_epoch_and_goes_with_the_page() {
+    let mut f = Fixture::new();
+    f.create();
+    f.store.confirm_page_row(PAGE, 1, NOW + 30 * DAY).unwrap();
+    f.apply(OwnerAction::EpochAdvance { page: PAGE });
+    // The row confirmed for epoch 1 says nothing about epoch 2, which is not in the cloud yet.
+    let p = f.projection();
+    assert_eq!(p["epoch"], "2");
+    assert!(p["expiresAtMs"].is_null());
+    assert_eq!(p["warnings"], json!(["not-in-cloud"]));
+    // A confirmation that finished after the epoch moved changes nothing.
+    f.store.confirm_page_row(PAGE, 1, NOW + 60 * DAY).unwrap();
+    assert!(f.projection()["expiresAtMs"].is_null());
+    f.store.confirm_page_row(PAGE, 2, NOW + 40 * DAY).unwrap();
+    let p = f.projection();
+    assert_eq!(p["expiresAtMs"], NOW + 40 * DAY);
+    assert_eq!(p["warnings"], json!([]));
+    let rows = |f: &Fixture| -> i64 {
+        f.sql()
+            .query_row("SELECT count(*) FROM cloud_page_rows", [], |r| r.get(0))
+            .unwrap()
+    };
+    assert_eq!(rows(&f), 1);
+    f.apply(OwnerAction::Delete { page: PAGE });
+    assert_eq!(rows(&f), 0);
+}
+#[test]
+fn a_page_never_confirmed_is_not_in_the_cloud_only_once_this_machine_has_a_cloud_copy() {
+    const OTHER: &str = "10000000-0000-4000-8000-000000000002";
+    let mut f = Fixture::new();
+    f.create();
+    f.apply(OwnerAction::Create {
+        creation_recipient: None,
+        page: OTHER,
+        title: "Other",
+        source: "<p>Other</p>",
+        publisher_agent: None,
+    });
+    let warnings = |f: &Fixture| -> Vec<Value> {
+        inspection::catalog(&f.store, &f.key).unwrap()["pages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["warnings"].clone())
+            .collect()
+    };
+    assert_eq!(warnings(&f), [json!([]), json!([])]);
+    f.store.confirm_page_row(PAGE, 1, NOW + 30 * DAY).unwrap();
+    assert_eq!(warnings(&f), [json!([]), json!(["not-in-cloud"])]);
 }
 #[test]
 fn content_samples_append_clock_and_failed_late_receipt_rolls_back_time() {

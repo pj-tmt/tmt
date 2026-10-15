@@ -3555,8 +3555,9 @@ changes (a log create is checked against the row's epoch and `open` state), and 
 activity after at most one day, or half of a one-day lifetime. An activity refresh
 updates only the page row. A row that lapsed while the owner was away is written again
 by the next pass after the page is reopened from local, and its entries, which keep their
-own deadlines, read again. Seven-day cloud warnings, the "not in the cloud" projection
-for expired reads and renewal of entries near their own expiry await their own slices.
+own deadlines, read again. Each confirmed write of the page row is recorded as the page's
+cloud expiry, which the owner's page list shows (see [Local management CLI](#local-management-cli-1307)).
+Renewal of entries near their own expiry awaits its own slice.
 Logs and checkpoint chunks have independent deadlines and need renewal only near their
 own expiry horizon, avoiding a rewrite of every entry on each page edit. Entries may
 outlive their page, but page expiry still denies every content read. The binding must
@@ -3809,29 +3810,37 @@ The stored time never decreases for a page. Exact replay, failed/rolled-back
 updates, own/discussion/Ask updates, reads, checkpoints and policy/epoch changes
 never refresh it. Schema-4 migration preserves content and receipts and leaves
 legacy times null without backfill. No client envelope time, file time, read time
-or fabricated zero establishes expiry. The next admitted content edit starts
-evidence for a legacy page.
+or fabricated zero establishes it. The next admitted content edit starts evidence for a
+legacy page. The time is the page's last edit and is not what expiry is computed from.
 
-Retention defaults to 30 days; forever is null. Finite `expiresAtMs` is
-`lastUpdateAtMs + retentionDays * 86400000`, using checked arithmetic bounded to
-safe integers. A legacy unknown finite expiry is null with `expiry-unavailable`
-("expiry starts after the next edit"); an unrepresentable finite expiry is null
-with `expiry-out-of-range`. Forever has no expiry or expiry warning, even with
-unknown last-update time. At most one expiry warning is emitted: `expires-soon`
-when expiry is in the future and at most seven days away; `expired` at or after
-expiry. Otherwise warnings are empty, apart from a separate `title-unavailable`
-CLI hint. JSON retains exact UTC milliseconds. Human `ls`, `show` and retention
-reads use whole relative elapsed time, sampled once per result: `last edit 2 min
-ago`, `expiry in 30 days`, and a dim `expires in 30 days` line under each list
-link. Finite expiry within seven days has a `◷` waiting mark; past expiry reads
-`expired 2 days ago`. Expiry intervals use days, hours or less than an hour, matching
-browser retention hints rather than UTC calendar dates. The footer says "Expiry
-never deletes your local copy." CLI state values are lowercase UX display copy:
-`kept forever`, `starts after the next edit`, and `beyond the supported range`.
-They omit redundant type labels and final periods; browser hints keep their
-sentence form. A verified `expiry-out-of-range` warning shows `retention out of
-range` instead of an unreadable day count. Human reads never change the projection,
-policy or stored time; JSON still exposes the exact configured day count.
+Retention defaults to 30 days; forever is null. The expiry shown is the cloud copy's and is
+never derived from local activity: `expiresAtMs` is the `expiresAt` of the page's owner row as
+the cloud last confirmed it for the page's current epoch. The serve's cloud-sync worker records
+it when its write of the row is confirmed (Store schema 11: one row per page holding the epoch
+and that expiry, replaced by each confirmation and removed with the page's data), so an edit or
+a retention override moves it only once a later write of the row is confirmed. A page with no
+confirmed row for its current epoch has a null `expiresAtMs`. Forever has no expiry and no
+warning. At most one expiry warning is emitted: `expires-soon` when the confirmed expiry is in
+the future and at most seven days away; `not-in-cloud` when it is at or before now, or when the
+page has no confirmed row for its current epoch (never confirmed, or the epoch moved) on a
+machine that has confirmed a page row for some page. A machine that never has is local only:
+null expiry and no warning. Otherwise warnings are empty, apart from a separate
+`title-unavailable` CLI hint. JSON retains exact UTC milliseconds. Human `ls`, `show` and
+retention reads use whole relative elapsed time, sampled once per result: `last edit 2 min
+ago`, `expiry in 30 days`, and a dim `expires in 30 days` line under each list link. Finite
+expiry within seven days has a `◷` waiting mark; a page that is not in the cloud reads
+`not in the cloud`, and a local-only page `local only`. Expiry intervals use days, hours or less
+than an hour, matching browser retention hints rather than UTC calendar dates. The footer says
+"Expiry never deletes your local copy." CLI state values are lowercase UX display copy:
+`kept forever`, `local only` and `not in the cloud`. They omit redundant type labels and final
+periods; browser hints keep their sentence form. `expires-soon` prints one stderr line,
+`<id>: <expiry> · Expiry never deletes your local copy`, and so does `not-in-cloud` with a
+non-null `expiresAtMs`: a page that was in the cloud and whose confirmed expiry has passed.
+`not-in-cloud` with a null `expiresAtMs` (a page not yet put in the cloud for its current epoch:
+never published, or the epoch moved and the new one is not confirmed yet) is shown in the list
+and in detail but prints no line, so a syncing machine does not repeat a warning for pages
+nothing is wrong with. Human reads never change the projection, policy or stored time; JSON
+still exposes the exact configured day count.
 
 One verified owner-log projection supplies these hints to CLI and `/api/pages`.
 Discovery metadata never grants signed policy or write authority. Local expiry
@@ -4869,10 +4878,10 @@ of wire framing but is never decrypted or materialized for management. A failed
 preview does not remove home management access. Retention defaults to 30 days.
 Chrome presents the native durable last-update/expiry display hints as relative
 retention time, with the absolute local date on hover. The hint stays inside the
-page card under its status badge. The seven-day warning and the expired state
-add a waiting mark and body text color; ordinary hints use dim text. The copy is the
-CLI's lowercase wording (`expires in 6 days`, `expired 2 days ago`, `kept forever`,
-`expiry starts after the next edit`, `expiry beyond the supported range`); the
+page card under its status badge. The seven-day warning and the not-in-the-cloud state
+add a waiting mark and body text color; ordinary hints, including `local only`, use dim text. The copy is the
+CLI's lowercase wording (`expires in 6 days`, `kept forever`, `local only`,
+`not in the cloud`); the
 local-copy note is separate (the dialog's retention form and the CLI footer). The collapsed Details line includes the local last-edit date.
 Local expiry never automatically deletes data or ends access.
 

@@ -336,6 +336,62 @@ fn a_retention_override_moves_the_page_rows_expiry_and_it_is_the_rows_own_refres
     assert_eq!(document.fields["expiresAt"], expiry(365));
 }
 
+#[test]
+fn the_page_rows_expiry_is_recorded_only_once_the_cloud_confirms_it() {
+    let mut fixture = Fixture::new();
+    let page = fixture.page(1);
+    fixture.append(DEVICE);
+    let recorded = |fixture: &Fixture| -> Vec<(String, String, u64)> {
+        let db = rusqlite::Connection::open(fixture.layout.directory.join("space.db")).unwrap();
+        let mut query = db
+            .prepare("SELECT page,epoch,expires_at_ms FROM cloud_page_rows")
+            .unwrap();
+        query
+            .query_map([], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get::<_, i64>(2)? as u64))
+            })
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap()
+    };
+    let expires = fixture
+        .local
+        .preamble(&page)
+        .ok()
+        .unwrap()
+        .into_iter()
+        .find_map(|row| match row {
+            Row::Put { expires_ms, .. } => Some(expires_ms),
+            Row::Create(_) => None,
+        })
+        .unwrap();
+    assert_eq!(expires, NOW + 30 * DAY_MS);
+    // Reading the rows to write records nothing: the cloud has not confirmed them.
+    assert!(recorded(&fixture).is_empty());
+    fixture.local.page_row_confirmed(&page, expires).unwrap();
+    assert_eq!(
+        recorded(&fixture),
+        [(page.page.clone(), "1".to_owned(), expires)]
+    );
+    // A later confirmation replaces it, and one for another epoch than the page's is ignored.
+    fixture
+        .local
+        .page_row_confirmed(&page, expires + DAY_MS)
+        .unwrap();
+    let other_epoch = PageRef {
+        epoch: 2,
+        ..page.clone()
+    };
+    fixture
+        .local
+        .page_row_confirmed(&other_epoch, expires + 9 * DAY_MS)
+        .unwrap();
+    assert_eq!(
+        recorded(&fixture),
+        [(page.page.clone(), "1".to_owned(), expires + DAY_MS)]
+    );
+}
+
 const LINK: &str = "50000000-0000-4000-8000-000000000001";
 const LINK_SEED: [u8; 32] = [31; 32];
 

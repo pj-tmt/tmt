@@ -13,7 +13,7 @@ const metadata = {
   retentionDays: Number.MAX_SAFE_INTEGER,
   lastUpdateAtMs: Number.MAX_SAFE_INTEGER,
   expiresAtMs: null,
-  warnings: ['expiry-out-of-range'],
+  warnings: ['not-in-cloud'],
   labels: [] as string[],
 };
 async function response(pages: unknown[]) {
@@ -43,7 +43,7 @@ it('accepts 1000 worst-sized valid expiry rows within the existing bounded respo
   const boot = await discover(mount);
   expect(boot.pages).toHaveLength(1000);
   expect(boot.pages[999].lastUpdateAtMs).toBe(Number.MAX_SAFE_INTEGER);
-  expect(boot.pages[0].warnings).toEqual(['expiry-out-of-range']);
+  expect(boot.pages[0].warnings).toEqual(['not-in-cloud']);
 });
 it('keeps the worst-sized labels of a full space inside the bounded response', async () => {
   vi.stubGlobal('navigator', {
@@ -164,7 +164,9 @@ it('rejects unsafe or ill-typed expiry hints before accepting discovery', async 
     { retentionDays: 0 },
     { retentionDays: '30' },
     { warnings: ['unknown'] },
-    { warnings: ['expired', 'expires-soon'] },
+    { warnings: ['not-in-cloud', 'expires-soon'] },
+    { warnings: ['expired'] },
+    { warnings: ['expiry-unavailable'] },
     { warnings: [1] },
   ]) {
     await response([{ ...metadata, ...patch }]);

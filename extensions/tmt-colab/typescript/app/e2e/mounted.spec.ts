@@ -135,7 +135,7 @@ async function fixture(
                 retentionDays: 30,
                 lastUpdateAtMs: null,
                 expiresAtMs: null,
-                warnings: ['expiry-unavailable'],
+                warnings: [],
                 labels: [],
               },
             ],
@@ -381,7 +381,7 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
             retentionDays: 30,
             lastUpdateAtMs: null,
             expiresAtMs: null,
-            warnings: ['expiry-unavailable'],
+            warnings: [],
             labels: [],
           },
         ],
@@ -604,7 +604,7 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
         retentionDays: 30,
         lastUpdateAtMs: null,
         expiresAtMs: null,
-        warnings: ['expiry-unavailable'],
+        warnings: [],
         labels: [],
       },
     ]),
@@ -694,7 +694,7 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   const manage = page.getByRole('menuitem', { name: 'Manage page' });
   await manage.click();
   const dialog = page.getByRole('dialog');
-  await expect(dialog).toContainText('expiry starts after the next edit');
+  await expect(dialog).toContainText('local only');
   await expect(dialog.getByRole('heading', { level: 2 })).toBeFocused();
   await expect(dialog.getByRole('heading', { level: 2 })).toHaveCSS('outline-style', 'none');
   await expect(dialog).not.toBeFocused();
@@ -900,15 +900,15 @@ test.describe('relative retention evidence', () => {
         await dialog.getByRole('button', { name: 'Close', exact: true }).click();
       }
     }
-    warning = 'expired';
+    warning = 'not-in-cloud';
     now = expires + 2 * 86400000;
     await page.clock.setFixedTime(now);
     await page.reload();
     await row.getByRole('button', { name: /^Actions for/ }).click();
-    await expect(hint).toHaveText('expired 2 days ago');
+    await expect(hint).toHaveText('not in the cloud');
     await expect(row.getByRole('link')).toBeVisible();
     await page.getByRole('menuitem', { name: 'Manage page' }).click();
-    await expect(dialog.locator('.retention-hint')).toContainText('expired 2 days ago');
+    await expect(dialog.locator('.retention-hint')).toContainText('not in the cloud');
     await expect(dialog.getByRole('button', { name: 'Set retention', exact: true })).toBeEnabled();
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
     warning = '';

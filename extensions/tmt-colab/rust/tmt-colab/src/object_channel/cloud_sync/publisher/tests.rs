@@ -25,6 +25,8 @@ struct Fake {
     /// Links that ended and whose cloud rows are not yet removed.
     ended: Vec<Retirement>,
     retired: Vec<String>,
+    /// The expiries the publisher reported as confirmed page rows, in order.
+    page_rows: Vec<u64>,
 }
 impl Fake {
     /// Every read of local state may be the moment a concurrent append lands.
@@ -70,10 +72,12 @@ impl Local for Fake {
                     document,
                     days,
                     refresh,
+                    expires_ms,
                 } => Row::Put {
                     document: document.clone(),
                     days: *days,
                     refresh: *refresh,
+                    expires_ms: *expires_ms,
                 },
             })
             .collect();
@@ -101,6 +105,10 @@ impl Local for Fake {
         };
         self.confirmed.push(format!("update-{seq}"));
         self.queue.pop_front();
+        Ok(())
+    }
+    fn page_row_confirmed(&mut self, _: &PageRef, expires_ms: u64) -> Result<(), Fault> {
+        self.page_rows.push(expires_ms);
         Ok(())
     }
     fn retirements(&mut self, _: &PageRef) -> Result<Vec<Retirement>, Fault> {
@@ -330,6 +338,7 @@ fn lifetime_row(fields: &[(&str, &str)], days: u64, refresh: Duration) -> Row {
         document: document("pages", "p", fields),
         days,
         refresh,
+        expires_ms: days * 86_400_000,
     }
 }
 
@@ -343,6 +352,8 @@ fn the_page_row_is_put_once_and_not_rewritten_until_it_is_old() {
     rig.publisher.pass(&mut local, &page()).unwrap();
     rig.publisher.pass(&mut local, &page()).unwrap();
     assert_eq!(kinds(&rig), ["put pages/p"]);
+    // Only the write is reported as confirmed, with the expiry that write carried.
+    assert_eq!(local.page_rows, [30 * 86_400_000]);
 }
 
 #[test]
@@ -381,6 +392,26 @@ fn the_page_row_is_written_again_when_its_content_changes_or_its_refresh_interva
     )];
     rig.publisher.pass(&mut local, &page()).unwrap();
     assert_eq!(kinds(&rig).len(), 5);
+    // Each of the five writes was confirmed once, with its own expiry; the skipped pass none.
+    assert_eq!(local.page_rows.len(), 5);
+    assert_eq!(local.page_rows[3..], [90 * 86_400_000; 2]);
+}
+
+#[test]
+fn a_page_row_the_cloud_did_not_confirm_is_not_reported() {
+    let mut rig = rig();
+    rig.firestore.faults.lock().unwrap().refuse_next = Some(sync::Error {
+        code: sync::Code::Denied,
+        state: None,
+        reset_at_ms: None,
+        retry_after_ms: None,
+    });
+    let mut local = Fake {
+        rows: vec![page_row(&[("epoch", "1")], Duration::from_secs(3600))],
+        ..Fake::default()
+    };
+    assert!(rig.publisher.pass(&mut local, &page()).is_err());
+    assert!(local.page_rows.is_empty());
 }
 
 const LINK: &str = "30000000-0000-4000-8000-000000000001";

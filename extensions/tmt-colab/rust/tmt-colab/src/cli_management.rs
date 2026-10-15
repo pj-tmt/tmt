@@ -1236,18 +1236,20 @@ fn expiry_text(page: &Value, now_ms: u64, listing: bool) -> String {
     if page["retentionDays"].is_null() {
         return "kept forever".into();
     }
-    if page["warnings"]
+    let missing = page["warnings"]
         .as_array()
-        .is_some_and(|w| w.iter().any(|v| v == "expiry-out-of-range"))
-    {
-        return "beyond the supported range".into();
-    }
+        .is_some_and(|w| w.iter().any(|v| v == "not-in-cloud"));
     let Some(ms) = page["expiresAtMs"].as_u64() else {
-        return "starts after the next edit".into();
+        return if missing {
+            "not in the cloud"
+        } else {
+            "local only"
+        }
+        .into();
     };
     let interval = retention_interval(ms.abs_diff(now_ms));
     if ms <= now_ms {
-        format!("expired {interval} ago")
+        "not in the cloud".into()
     } else {
         let mark = if ms - now_ms <= 7 * DAY_MS {
             "◷ "
@@ -1258,11 +1260,16 @@ fn expiry_text(page: &Value, now_ms: u64, listing: bool) -> String {
         format!("{mark}{verb}in {interval}")
     }
 }
+/// One stderr line for a page that needs attention: its cloud copy ends within seven days, or it
+/// was in the cloud and its confirmed expiry has passed. A page not put in the cloud yet reads
+/// `not in the cloud` in the list but is no cause for a line on every read.
 fn warn_expiry(page: &Value, now_ms: u64) -> Result<()> {
-    if page["warnings"]
-        .as_array()
-        .is_some_and(|w| w.iter().any(|v| v == "expires-soon" || v == "expired"))
-    {
+    let warned = |name: &str| {
+        page["warnings"]
+            .as_array()
+            .is_some_and(|w| w.iter().any(|v| v == name))
+    };
+    if warned("expires-soon") || (warned("not-in-cloud") && page["expiresAtMs"].is_u64()) {
         let mut out = tmt_cli_style::stream::stderr();
         let terminal = out.terminal();
         tmt_cli_style::message::warning(
@@ -1329,11 +1336,6 @@ fn human_fields(value: &Value, now_ms: u64) -> Result<Vec<(String, String)>> {
                         "retention".to_owned(),
                         if days.is_null() {
                             "forever".to_owned()
-                        } else if v["warnings"]
-                            .as_array()
-                            .is_some_and(|w| w.iter().any(|v| v == "expiry-out-of-range"))
-                        {
-                            "out of range".to_owned()
                         } else {
                             format!("{} days", text(days))
                         },
@@ -1527,29 +1529,23 @@ mod expiry_tests {
                 "◷ in less than an hour",
                 "◷ expires in less than an hour",
             ),
-            (
-                now,
-                "expired less than an hour ago",
-                "expired less than an hour ago",
-            ),
-            (now - 2 * DAY_MS, "expired 2 days ago", "expired 2 days ago"),
+            (now, "not in the cloud", "not in the cloud"),
+            (now - 2 * DAY_MS, "not in the cloud", "not in the cloud"),
         ] {
             assert_eq!(expiry_text(&page(Some(expires), &[]), now, false), detail);
             assert_eq!(expiry_text(&page(Some(expires), &[]), now, true), list);
         }
     }
     #[test]
-    fn unavailable_states_use_ux_display_values_and_forever_has_no_warning() {
+    fn states_without_a_cloud_expiry_use_ux_display_values_and_forever_has_no_warning() {
         for listing in [false, true] {
+            // A machine that never put a page in the cloud has nothing to warn about.
+            assert_eq!(expiry_text(&page(None, &[]), 0, listing), "local only");
             assert_eq!(
-                expiry_text(&page(None, &["expiry-unavailable"]), 0, listing),
-                "starts after the next edit"
+                expiry_text(&page(None, &["not-in-cloud"]), 0, listing),
+                "not in the cloud"
             );
-            assert_eq!(
-                expiry_text(&page(None, &["expiry-out-of-range"]), 0, listing),
-                "beyond the supported range"
-            );
-            let mut forever = page(None, &["expiry-out-of-range"]);
+            let mut forever = page(None, &["not-in-cloud"]);
             forever["retentionDays"] = Value::Null;
             assert_eq!(expiry_text(&forever, 0, listing), "kept forever");
         }
@@ -1577,22 +1573,8 @@ mod expiry_tests {
         );
         assert_eq!(
             expiry_text(&page(Some(0), &[]), u64::MAX, false),
-            "expired 213503982334 days ago"
+            "not in the cloud"
         );
-    }
-    #[test]
-    fn details_display_verified_out_of_range_without_changing_retention() {
-        let source = json!({"page":{"pageId":"page", "retentionDays":9_007_199_254_740_991u64,"lastUpdateAtMs":1_000,"expiresAtMs":null,"warnings":["expiry-out-of-range"]}});
-        let before = source.clone();
-        let fields = human_fields(&source, 121_000).unwrap();
-        assert!(fields.contains(&("retention".into(), "out of range".into())));
-        assert!(fields.contains(&("expiry".into(), "beyond the supported range".into())));
-        assert!(
-            !fields
-                .iter()
-                .any(|(_, value)| value.contains("9007199254740991"))
-        );
-        assert_eq!(source, before);
     }
     #[test]
     fn details_use_the_supplied_clock_and_leave_the_projection_exact() {

@@ -87,6 +87,15 @@ const MIGRATIONS: &[&str] = &[
     CREATE TABLE link_publications(page TEXT NOT NULL, link TEXT NOT NULL,
         PRIMARY KEY(page,link), FOREIGN KEY(page) REFERENCES pages(page)) WITHOUT ROWID;
     "#,
+    // Schema 11: when the cloud last confirmed the page's owner row, and the expiry that row then
+    // carried, for the page's current epoch. The cloud deletes a page at that expiry, so this is
+    // the only honest source of when it ends there; nothing here is derived from local activity.
+    // A row at a past epoch is replaced, never kept; removed with the page's data.
+    r#"
+    CREATE TABLE cloud_page_rows(page TEXT PRIMARY KEY, epoch TEXT NOT NULL,
+        expires_at_ms INTEGER NOT NULL CHECK(expires_at_ms>=0),
+        FOREIGN KEY(page) REFERENCES pages(page)) WITHOUT ROWID;
+    "#,
 ];
 pub(super) const CURRENT_VERSION: u32 = MIGRATIONS.len() as u32;
 

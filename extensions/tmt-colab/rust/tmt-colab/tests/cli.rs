@@ -666,6 +666,25 @@ const OPERATION: &str = "40000000-0000-4000-8000-000000000001";
 fn seed_page(pilot: &Pilot) {
     seed_page_with_title(pilot, "Encrypted π\u{1b}[31m");
 }
+const DAY_MS: u64 = 86_400_000;
+/// What the publisher records once the cloud confirms a page's row: a cloud copy of the page's
+/// first epoch that expires `after_ms` from now. Returns that expiry.
+fn confirm_cloud_copy(pilot: &Pilot, page: &str, after_ms: u64) -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let now = u64::try_from(
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis(),
+    )
+    .unwrap();
+    let layout = tmt_colab::keyring::Layout::open(&pilot.root.join("selected")).unwrap();
+    tmt_colab::store::Store::open(&layout)
+        .unwrap()
+        .confirm_page_row(page, 1, now + after_ms)
+        .unwrap();
+    now + after_ms
+}
 fn seed_page_with_title(pilot: &Pilot, title: &str) {
     use ed25519_dalek::{Signer, SigningKey};
     use tmt_colab::{
@@ -777,6 +796,14 @@ fn management_reads_verify_encrypted_titles_and_preserve_missing_and_existing_st
     failure(&pilot, &["show", PAGE, "--json"], "COLAB_PAGE_NOT_FOUND");
     assert!(!pilot.root.join("selected").exists());
     seed_page(&pilot);
+    // Nothing is in the cloud yet, so the page has no cloud expiry and nothing to warn of.
+    let local = pilot.call(&["show", PAGE, "--json"]);
+    assert!(local["page"]["expiresAtMs"].is_null());
+    assert_eq!(local["page"]["warnings"], json!([]));
+    let human = pilot.command().args(["ls"]).output().unwrap();
+    assert!(String::from_utf8_lossy(&human.stdout).contains("local only"));
+    assert!(human.stderr.is_empty());
+    let expires = confirm_cloud_copy(&pilot, PAGE, 30 * DAY_MS);
     let db = pilot.root.join("selected/colab/space.db");
     let before = fs::read(&db).unwrap();
     let list = pilot.call(&["ls", "--json"]);
@@ -790,8 +817,7 @@ fn management_reads_verify_encrypted_titles_and_preserve_missing_and_existing_st
     assert_eq!(show["page"], listed);
     assert_eq!(show["members"][0]["id"], MEMBER);
     assert_eq!(show["page"]["warnings"], json!([]));
-    let updated = show["page"]["lastUpdateAtMs"].as_u64().unwrap();
-    assert_eq!(show["page"]["expiresAtMs"], updated + 30 * 86_400_000);
+    assert_eq!(show["page"]["expiresAtMs"], expires);
     assert_eq!(show["discussions"], "not-available");
     let human = pilot.command().args(["ls"]).output().unwrap();
     assert!(human.status.success());
@@ -1310,7 +1336,7 @@ fn serve_migrates_an_older_store_and_preserves_the_page() {
         CREATE TABLE owner_operations(id TEXT PRIMARY KEY, digest BLOB NOT NULL, outcome BLOB NOT NULL);
         INSERT INTO owner_operations(id,digest,outcome) SELECT id,digest,outcome FROM current_owner_operations;
         DROP TABLE current_owner_operations;
-        DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_labels;
+        DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_labels;
         ALTER TABLE pages DROP COLUMN last_update_at_ms; PRAGMA user_version=4")
         .unwrap();
     drop(conn);
@@ -3495,6 +3521,7 @@ fn human_output_is_readable_and_the_decoder_note_is_not_repeated_per_command() {
     let pilot = Pilot::new(None);
     let created = pilot.call(&["page", "create", "--title", "Notes", "--json"]);
     let page = created["pageId"].as_str().unwrap();
+    confirm_cloud_copy(&pilot, page, 30 * DAY_MS);
     let human = |args: &[&str]| {
         let out = pilot.command().args(args).output().unwrap();
         assert!(out.status.success(), "{out:?}");
@@ -3835,6 +3862,7 @@ fn full_management_confirmation_input_and_retention_reads_preserve_state() {
     for serving in [false, true] {
         let mut pilot = Pilot::new(None);
         seed_page(&pilot);
+        let expires = confirm_cloud_copy(&pilot, PAGE, 30 * DAY_MS);
         if serving {
             pilot.start();
         }
@@ -3910,8 +3938,7 @@ fn full_management_confirmation_input_and_retention_reads_preserve_state() {
             shown.contains("last edit") && shown.contains("expiry") && shown.contains("in 29 days")
         );
         assert!(!shown.contains(" UTC"));
-        let updated = before["page"]["lastUpdateAtMs"].as_u64().unwrap();
-        assert_eq!(before["page"]["expiresAtMs"], updated + 30 * 86_400_000);
+        assert_eq!(before["page"]["expiresAtMs"], expires);
         assert_eq!(before["page"]["warnings"], json!([]));
         let catalog = pilot.call(&["ls", "--json"]);
         for field in ["retentionDays", "lastUpdateAtMs", "expiresAtMs", "warnings"] {
@@ -4597,7 +4624,7 @@ fn release_preflight_reads_an_older_store_without_migration_and_refuses_a_future
     let connection = rusqlite::Connection::open(&db).unwrap();
     connection
         .execute_batch(
-            "DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_labels; PRAGMA user_version=6",
+            "DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_labels; PRAGMA user_version=6",
         )
         .unwrap();
     drop(connection);
@@ -4690,7 +4717,7 @@ fn a_release_replacement_migrates_for_the_new_cli_and_restarts_its_owned_door() 
     let connection = rusqlite::Connection::open(&db).unwrap();
     connection
         .execute_batch(
-            "DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_labels; PRAGMA user_version=6",
+            "DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_labels; PRAGMA user_version=6",
         )
         .unwrap();
     drop(connection);
@@ -5576,6 +5603,19 @@ fn expiry_human_lines_are_relative_dim_and_keep_exact_json_and_local_state() {
             )
             .unwrap();
     };
+    // Only fixture SQL sets the confirmed cloud row too; production records it when the cloud
+    // confirms the page's owner row.
+    let set_cloud_row = |row: Option<(&str, u64)>| {
+        let db = rusqlite::Connection::open(pilot.root.join("selected/colab/space.db")).unwrap();
+        db.execute("DELETE FROM cloud_page_rows", []).unwrap();
+        if let Some((epoch, expires)) = row {
+            db.execute(
+                "INSERT INTO cloud_page_rows SELECT page,?1,?2 FROM pages",
+                rusqlite::params![epoch, i64::try_from(expires).unwrap()],
+            )
+            .unwrap();
+        }
+    };
     let now = || {
         u64::try_from(
             SystemTime::now()
@@ -5585,33 +5625,58 @@ fn expiry_human_lines_are_relative_dim_and_keep_exact_json_and_local_state() {
         )
         .unwrap()
     };
-    for (updated, expiry, last_edit, warning) in [
-        (Some(now() - 120_000), "in 29 days", Some("2 min ago"), None),
+    for (updated, cloud, expiry, list_expiry, last_edit, warning) in [
+        (
+            Some(now() - 120_000),
+            Some(("1", now() + 30 * day - 120_000)),
+            "in 29 days",
+            "expires in 29 days",
+            Some("2 min ago"),
+            None,
+        ),
         (
             Some(now() - 23 * day - 3_600_000),
+            Some(("1", now() + 7 * day - 3_600_000)),
             "◷ in 6 days",
+            "◷ expires in 6 days",
             Some("23 days ago"),
             Some("expires-soon"),
         ),
         (
             Some(now() - 32 * day - 3_600_000),
-            "expired 2 days ago",
+            Some(("1", now() - 2 * day - 3_600_000)),
+            "not in the cloud",
+            "not in the cloud",
             Some("32 days ago"),
-            Some("expired"),
+            Some("not-in-cloud"),
         ),
+        // The row confirmed is for another epoch: this one was never confirmed.
         (
-            None,
-            "starts after the next edit",
-            None,
-            Some("expiry-unavailable"),
+            Some(now() - 120_000),
+            Some(("9", now() + 30 * day)),
+            "not in the cloud",
+            "not in the cloud",
+            Some("2 min ago"),
+            Some("not-in-cloud"),
         ),
+        // Nothing was ever confirmed, whatever the last edit says: the page is only local.
+        (
+            Some(now() - 120_000),
+            None,
+            "local only",
+            "local only",
+            Some("2 min ago"),
+            None,
+        ),
+        (None, None, "local only", "local only", None, None),
     ] {
+        set_cloud_row(cloud);
         set_updated(updated);
         let before = pilot.call(&["show", id, "--json"]);
         assert_eq!(before["page"]["lastUpdateAtMs"], json!(updated));
         assert_eq!(
             before["page"]["expiresAtMs"],
-            json!(updated.map(|ms| ms + 30 * day))
+            json!(cloud.filter(|(epoch, _)| *epoch == "1").map(|(_, ms)| ms))
         );
         assert_eq!(
             before["page"]["warnings"],
@@ -5631,7 +5696,6 @@ fn expiry_human_lines_are_relative_dim_and_keep_exact_json_and_local_state() {
                 };
                 let list = human(&["ls"]);
                 let list_text = String::from_utf8(list.stdout).unwrap();
-                let list_expiry = expiry.replace("in ", "expires in ");
                 let line = if color {
                     format!("    \x1b[2m{list_expiry}\x1b[0m\n")
                 } else {
@@ -5643,7 +5707,7 @@ fn expiry_human_lines_are_relative_dim_and_keep_exact_json_and_local_state() {
                     list_text.contains(&link),
                     "short link survives narrow output: {list_text}"
                 );
-                assert!(list_text.find(&link).unwrap() < list_text.find(&list_expiry).unwrap());
+                assert!(list_text.find(&link).unwrap() < list_text.find(list_expiry).unwrap());
                 for args in [["show", id], ["retention", id]] {
                     let out = human(&args);
                     let text = String::from_utf8(out.stdout).unwrap();
@@ -5655,7 +5719,12 @@ fn expiry_human_lines_are_relative_dim_and_keep_exact_json_and_local_state() {
                     }
                     assert!(text.contains("Expiry never deletes your local copy."));
                     assert!(!text.contains(" UTC") && !text.contains("advisory"));
-                    if matches!(warning, Some("expires-soon" | "expired")) {
+                    // A page that was in the cloud and lost it, or expires soon, prints one line;
+                    // a page not put in the cloud for this epoch only reads `not in the cloud`.
+                    if warning == Some("expires-soon")
+                        || (warning == Some("not-in-cloud")
+                            && before["page"]["expiresAtMs"].is_u64())
+                    {
                         let stderr = String::from_utf8(out.stderr).unwrap();
                         assert!(
                             stderr.contains(expiry)
@@ -5678,18 +5747,16 @@ fn expiry_human_lines_are_relative_dim_and_keep_exact_json_and_local_state() {
             assert_eq!(list["pages"][0][field], before["page"][field]);
         }
     }
+    // A retention change alone neither moves the cloud expiry nor warns: only a confirmed write
+    // of the page's row makes a new one.
     set_updated(Some(now() - 120_000));
-    pilot.call(&["retention", id, "9007199254740991", "--json"]);
-    let out = pilot.command().args(["show", id]).output().unwrap();
-    assert!(out.status.success());
-    let text = String::from_utf8(out.stdout).unwrap();
-    assert!(text.contains("beyond the supported range"));
-    assert!(text.contains("retention") && text.contains("out of range"));
-    assert!(!text.contains("9007199254740991"));
+    let expires = now() + 30 * day;
+    set_cloud_row(Some(("1", expires)));
+    pilot.call(&["retention", id, "90", "--json"]);
     let before = pilot.call(&["retention", id, "--json"]);
-    assert_eq!(before["page"]["retentionDays"], 9_007_199_254_740_991u64);
-    assert!(before["page"]["expiresAtMs"].is_null());
-    assert_eq!(before["page"]["warnings"], json!(["expiry-out-of-range"]));
+    assert_eq!(before["page"]["retentionDays"], 90);
+    assert_eq!(before["page"]["expiresAtMs"], expires);
+    assert_eq!(before["page"]["warnings"], json!([]));
     pilot.call(&["retention", id, "forever", "--json"]);
     for args in [vec!["ls"], vec!["show", id], vec!["retention", id]] {
         let out = pilot.command().args(&args).output().unwrap();

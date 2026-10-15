@@ -394,7 +394,10 @@ is added.
   replay, own/discussion/Ask updates, checkpoints and policy/epoch changes do not
   refresh it. A failed later operation receipt rolls back content and time together.
   `owner/bootstrap.rs` verifies the owner log and supplies one retention/expiry
-  projection to inspection and mounted discovery; unsigned dates remain display hints.
+  projection to inspection and mounted discovery. The expiry is the cloud's: the cloud-sync
+  publisher reports each confirmed write of a page row (`Local::page_row_confirmed`) and
+  `Store::confirm_page_row` keeps the latest expiry per page and epoch (`cloud_page_rows`,
+  schema 11); nothing is derived from local activity, and unsigned dates remain display hints.
 - The store never decides authority. Callers verify signatures, roles, sessions and epochs
   before an append (`Admission`, below).
 
@@ -585,12 +588,11 @@ result that arrives after a close, a reopen or a change of transport or space.
   hints are dim. The CLI formats the same projection with one local clock per human
   result: relative last edits, short expiry values, and dim list hints under each link.
   Finite expiry within seven days has a waiting mark; its footer says "Expiry never
-  deletes your local copy." JSON keeps exact milliseconds, and expired local pages remain
-  available. Browser hints use the same lowercase wording (`expires in 6 days`, `expired 2 days ago`,
-  `expiry starts after the next edit`); CLI values use UX's lowercase values: `kept forever`, `starts after the next edit`,
-  and `beyond the supported range`. A verified out-of-range warning masks the human retention count
-  as `out of range`, without changing JSON or policy.
-  Exact warning codes, checked arithmetic and forever semantics live in the contract.
+  deletes your local copy." JSON keeps exact milliseconds, and pages gone from the cloud remain
+  available locally. Browser hints use the same lowercase wording (`expires in 6 days`,
+  `not in the cloud`, `local only`); CLI values use UX's lowercase values: `kept forever`,
+  `local only` and `not in the cloud`.
+  Exact warning codes and forever semantics live in the contract.
   The link artifact is a transient ID/seed, not a new reader URL/import grammar.
 
 ## Short owner-page links
