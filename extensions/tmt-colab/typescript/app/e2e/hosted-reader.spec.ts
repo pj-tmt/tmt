@@ -1,27 +1,33 @@
-import { expect, test } from '@playwright/test';
+import { text } from '../src/strings.js';
+import { expect, test, type Page } from '@playwright/test';
 import { capturePath } from './captures.js';
 
 test.use({ timezoneId: 'Asia/Tokyo' });
+
+const origin = 'https://demo-tmt-hosted.web.app';
+async function hostedFixture(page: Page, baseURL: string | undefined): Promise<string[]> {
+  const outside: string[] = [];
+  await page.routeWebSocket('**/*', (socket) => socket.close());
+  await page.route('**/*', async (route) => {
+    const url = new URL(route.request().url());
+    if (url.origin !== origin) {
+      outside.push(url.origin);
+      await route.abort();
+    } else {
+      const response = await route.fetch({ url: `${baseURL}${url.pathname}${url.search}` });
+      await route.fulfill({ response });
+    }
+  });
+  return outside;
+}
 
 // This fixture verifies actual chrome/rendering, not authority or provider behavior. The embedded
 // hosted-bundle acceptance separately enforces the composed CSP with the real SDK bytes.
 for (const width of [390, 1280]) {
   test(`hosted read-only states and renderer at ${width}px`, async ({ page, baseURL }) => {
-    const origin = 'https://demo-tmt-hosted.web.app';
-    const outside: string[] = [];
+    const outside = await hostedFixture(page, baseURL);
     await page.setViewportSize({ width, height: 844 });
     await page.clock.setFixedTime(new Date('2026-11-02T00:00:00Z'));
-    await page.routeWebSocket('**/*', (socket) => socket.close());
-    await page.route('**/*', async (route) => {
-      const url = new URL(route.request().url());
-      if (url.origin !== origin) {
-        outside.push(url.origin);
-        await route.abort();
-      } else {
-        const response = await route.fetch({ url: `${baseURL}${url.pathname}${url.search}` });
-        await route.fulfill({ response });
-      }
-    });
     const errors: string[] = [];
     page.on('pageerror', (error) => errors.push(error.message));
     for (const state of [
@@ -48,7 +54,8 @@ for (const width of [390, 1280]) {
             exact: false,
           }),
         ).toBeVisible();
-        await expect(page.getByRole('button', { name: /^(Save|Ask|Share)$/ })).toHaveCount(0);
+        await expect(page.getByRole('button', { name: text.save, exact: true })).toHaveCount(0);
+        await expect(page.getByRole('button', { name: /^(Ask|Share)$/ })).toHaveCount(0);
         await page.getByLabel('Info', { exact: true }).click();
         const panel = page.locator('.reader-information-panel');
         await expect(panel).toBeVisible();
@@ -97,7 +104,8 @@ for (const width of [390, 1280]) {
 
 for (const width of [390, 1280]) {
   for (const colorScheme of ['light', 'dark'] as const) {
-    test(`hosted role and outcome copy at ${width}px ${colorScheme}`, async ({ page }) => {
+    test(`hosted role and outcome copy at ${width}px ${colorScheme}`, async ({ page, baseURL }) => {
+      const outside = await hostedFixture(page, baseURL);
       await page.setViewportSize({ width, height: 844 });
       await page.emulateMedia({ colorScheme });
       await page.clock.setFixedTime(new Date('2026-11-02T00:00:00Z'));
@@ -107,12 +115,38 @@ for (const width of [390, 1280]) {
         'sign-in-viewer',
         'sign-in-commenter',
         'sign-in-editor',
+        'editor',
         'request-sent',
         'request-refused',
         'request-unconfirmed',
         'budget',
       ]) {
-        await page.goto(`/test/hosted-browser.html?state=${state}`);
+        await page.goto(`${origin}/test/hosted-browser.html?state=${state}`);
+        if (state === 'editor' || state.startsWith('request-')) {
+          await expect(
+            page
+              .frameLocator('iframe')
+              .getByRole('heading', { name: 'Verified shared page', exact: true }),
+          ).toBeVisible();
+          await page.getByTestId('source-toggle').click();
+          const area = page.locator('#source-edit');
+          await expect(area).toBeVisible();
+          if (state.startsWith('request-')) {
+            await area.fill('<main><h1>Requested draft</h1></main>');
+            await page.getByRole('button', { name: text.save, exact: true }).click();
+            await expect(
+              page.getByText(
+                state === 'request-sent'
+                  ? 'Sent'
+                  : state === 'request-refused'
+                    ? 'Not sent'
+                    : 'Unconfirmed',
+                { exact: true },
+              ),
+            ).toBeVisible();
+            await expect(area).toHaveValue('<main><h1>Requested draft</h1></main>');
+          }
+        }
         if (state === 'request-unconfirmed') {
           await expect(page.getByText('Unconfirmed', { exact: true })).toBeVisible();
           await expect(
@@ -145,6 +179,7 @@ for (const width of [390, 1280]) {
         });
       }
       expect(errors).toEqual([]);
+      expect(outside).toEqual([]);
     });
   }
 }

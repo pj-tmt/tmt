@@ -141,3 +141,32 @@ it.each([
     expect(html).not.toContain('Edit request sent');
   }
 });
+
+it.each(['viewer', 'commenter', 'editor'] as const)(
+  'keeps the ready %s role mark separate from author admission',
+  (role) => {
+    const html = markup({
+      phase: 'ready',
+      role,
+      edit: async () => ({ request: 'sent' }),
+      view: { source: '<main>admitted</main>', title: 'Page' },
+      budget: { day: 1, reads: 10, writes: 0, state: 'ok' },
+    });
+    expect(html).toContain(
+      role === 'editor' ? 'Can edit' : role === 'commenter' ? 'Can comment' : 'Read-only',
+    );
+    expect(html.includes('source-toggle')).toBe(role === 'editor');
+    expect(html).not.toContain('>Ask<');
+  },
+);
+
+it('never labels definitive writer occupancy sent, refused-before-effect or unknown', () => {
+  const html = renderToStaticMarkup(
+    createElement(HostedRequestNotice, { outcome: 'writer-in-use' }),
+  );
+  expect(html).toContain('data-tone="blocked"');
+  expect(html).not.toContain('>Sent<');
+  expect(html).not.toContain('>Not sent<');
+  expect(html).not.toContain('>Unconfirmed<');
+  expect(html).toContain('[Pending Colab/UX writer-in-use copy]');
+});

@@ -1,4 +1,4 @@
-import { certificate, requireValue } from '@tmt/colab-client';
+import { certificate, editRequest, encodeBinary, requireValue } from '@tmt/colab-client';
 import type { SyncCall } from '../../../../tmt-remote/typescript/remote-client/src/sealed-sync.js';
 import { Admission } from './admission.js';
 import { HostedAdmission } from './hosted-admission.js';
@@ -11,17 +11,22 @@ import { deriveReaderKeys } from './reader-keys.js';
 import type { ReaderLink } from './reader-link.js';
 import type { Registration } from './registration.js';
 import type { PageView } from './transport.js';
+import type { ReaderEdit } from './reader-source.js';
+import type { OwnAuthor } from './own-seal.js';
+import { hunksOf } from './save-hunks.js';
 
 type Usage = Awaited<ReturnType<HostedBudget['snapshot']>>;
 export type HostedEntryState =
   | { phase: 'loading' | 'link-needed' | 'recovering' | 'paused' }
   | { phase: 'sign-in'; hasLink: boolean; role?: ReaderLink['role'] }
-  | { phase: 'ready'; view: PageView; budget: Usage }
+  | { phase: 'ready'; view: PageView; budget: Usage; role?: ReaderLink['role']; edit?: ReaderEdit }
   | { phase: 'failed'; failure: unknown };
 interface Options {
   state(value: HostedEntryState): void;
   bootstrap?(call: SyncCall): Promise<HostedBootstrap>;
   visible?: boolean;
+  /** Fresh admission belongs to Colab, independently of historical read admission. */
+  ownAuthor?(admission: Admission): OwnAuthor;
 }
 interface Page {
   target: ReaderLink;
@@ -29,7 +34,7 @@ interface Page {
   admission: HostedAdmission;
 }
 
-/** One origin/auth/declaration owner with one selected read-only page. No native door fallback. */
+/** One origin/auth/declaration owner with one selected page. No native door fallback. */
 export class HostedEntry {
   private readonly controller = new AbortController();
   private boot?: Promise<HostedBootstrap>;
@@ -168,6 +173,8 @@ export class HostedEntry {
     }
     if (this.session) return;
     const { target, keys } = page;
+    let reader: HostedPageReader | undefined;
+    let writable = false;
     const registration: Registration = {
       deviceId: keys.device.id,
       chain: certificate.Chain.fromJson(keys.chain),
@@ -214,7 +221,9 @@ export class HostedEntry {
                 expiresAt: hints.expiresAtMs,
               },
             );
-            const reader = new HostedPageReader(port, admission, target, boot.limits);
+            const author = this.options.ownAuthor?.(admission);
+            reader = new HostedPageReader(port, admission, target, boot.limits, undefined, author);
+            writable = author !== undefined;
             const scope = {
               space: { stringValue: target.space },
               page: { stringValue: target.page },
@@ -245,7 +254,18 @@ export class HostedEntry {
         publish: async (view, call) => {
           const budget = await boot.budget.snapshot();
           if (this.current(generation) && this.shown && !call.signal.aborted)
-            this.options.state({ phase: 'ready', view, budget });
+            this.options.state({
+              phase: 'ready',
+              view,
+              budget,
+              role: target.role,
+              ...(writable && target.role === 'editor' && reader
+                ? {
+                    edit: (source, base) =>
+                      this.edit(reader!, generation, call.signal, source, base),
+                  }
+                : {}),
+            });
         },
         recovering: () => {
           if (this.current(generation) && this.shown) this.options.state({ phase: 'recovering' });
@@ -260,5 +280,51 @@ export class HostedEntry {
     );
     this.session = session;
     await session.ready.catch(() => {});
+  }
+  private async edit(
+    reader: HostedPageReader,
+    generation: number,
+    signal: AbortSignal,
+    source: string,
+    base: string,
+  ): ReturnType<ReaderEdit> {
+    if (!this.current(generation) || !this.shown || this.terminal || signal.aborted)
+      return { request: 'refused' };
+    let submitted = false;
+    try {
+      const operationId = crypto.randomUUID(),
+        hunks = hunksOf(base, source);
+      const value = await editRequest.verifiedEditRequest({
+        version: 1,
+        kind: 'edit-request',
+        operationId,
+        baseSha256: encodeBinary(await editRequest.sourceDigest(base)),
+        sourceSha256: encodeBinary(await editRequest.sourceDigest(source)),
+        source,
+        ...(hunks ? { hunks } : {}),
+      });
+      if (!this.current(generation) || signal.aborted) return { request: 'refused' };
+      submitted = true;
+      const result = await reader.submitOwn(
+        [{ root: 'intents', key: operationId, value: JSON.parse(JSON.stringify(value)) }],
+        { signal, deadlineAtMs: Date.now() + 30_000 },
+      );
+      return { request: result.outcome };
+    } catch (failure) {
+      const code =
+        typeof failure === 'object' && failure !== null && 'code' in failure
+          ? failure.code
+          : undefined;
+      return {
+        request:
+          !submitted ||
+          code === 'REMOTE_SCOPE_DENIED' ||
+          code === 'REMOTE_BUDGET_EXHAUSTED' ||
+          code === 'REMOTE_RATE_LIMITED' ||
+          code === 'REMOTE_INPUT_INVALID'
+            ? 'refused'
+            : 'unconfirmed',
+      };
+    }
   }
 }

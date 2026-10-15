@@ -9,6 +9,7 @@ import type {
   SyncQueryRequest,
 } from '../../../../tmt-remote/typescript/remote-client/src/sealed-sync.js';
 import { Admission } from '../src/admission.js';
+import type { OwnAuthor } from '../src/own-seal.js';
 import type { Registration } from '../src/registration.js';
 import type { Fold } from '../src/fold.js';
 import type { FoldCommand } from '../src/fold-protocol.js';
@@ -71,7 +72,7 @@ function authority(kind: string, bytes: Uint8Array, recipient = '') {
     }),
   );
 }
-async function fixture() {
+async function fixture(ownAuthor?: OwnAuthor) {
   const signer = await crypto.subtle.importKey(
     'pkcs8',
     c.concat(hex('302e020100300506032b657004220420'), hex(v.seed)),
@@ -110,11 +111,18 @@ async function fixture() {
     ),
     pages: [scope.page],
   });
-  const admission = new Admission(scope.space, scope.page, '1', hex(v.public), {} as Registration, {
-    linkId: v.linkId,
-    principal: 'holder-uid',
-    expiresAt: Number.MAX_SAFE_INTEGER,
-  });
+  const admission = new Admission(
+    scope.space,
+    scope.page,
+    '1',
+    hex(v.public),
+    { deviceId: v.page } as Registration,
+    {
+      linkId: v.linkId,
+      principal: 'holder-uid',
+      expiresAt: Number.MAX_SAFE_INTEGER,
+    },
+  );
   // The read adapter receives an Admission whose key was already opened by the wrap verifier.
   admission.root = await crypto.subtle.importKey('raw', hex(v.epochKey), 'HKDF', false, [
     'deriveBits',
@@ -126,6 +134,8 @@ async function fixture() {
   const requests: SyncQueryRequest[] = [];
   const port = {
     context: {
+      uid: 'holder-uid',
+      config: { projectId: 'demo-hosted' },
       resources: ['log', 'checkpoints', 'authority'].map((name) => ({
         name,
         sync: {
@@ -139,6 +149,8 @@ async function fixture() {
         },
       })),
     },
+    publish: vi.fn(),
+    read: vi.fn(),
     async query(request: SyncQueryRequest) {
       requests.push(structuredClone(request));
       const { query } = request;
@@ -203,6 +215,7 @@ async function fixture() {
       ]),
     ),
     fold,
+    ownAuthor,
   );
   const context: c.Context = {
     ...scope,
@@ -290,6 +303,7 @@ async function fixture() {
   }
   return {
     reader,
+    port,
     admission,
     requests,
     folded,
@@ -324,7 +338,7 @@ it('feeds exact signed authority and contiguous cross-namespace updates to the e
   expect(
     f.requests.filter((request) => request.shape === 'stream').map((request) => request.query),
   ).toHaveLength(3);
-  f.reader.close();
+  await f.reader.close();
   expect(f.admission.root).toBeNull();
   expect(f.fold.close).toHaveBeenCalledOnce();
 });
@@ -343,7 +357,7 @@ it('uses its admitted stream position on later wakes and avoids unrelated author
   });
   expect(f.folded).toHaveLength(1);
   expect(f.folded[0]).toMatchObject({ updates: [c.text('authenticated update')] });
-  f.reader.close();
+  await f.reader.close();
 });
 it('loads a complete checkpoint pair then verifies the tail from their shared prefix', async () => {
   const f = await fixture(),
@@ -360,7 +374,7 @@ it('loads a complete checkpoint pair then verifies the tail from their shared pr
     f.requests.find((request) => request.shape === 'stream' && request.query.resource === 'log')
       ?.query,
   ).toMatchObject({ cursor: { seq: 4 } });
-  f.reader.close();
+  await f.reader.close();
 });
 it('does not decode or expose a partial checkpoint pair or a forged update', async () => {
   for (const mode of ['partial', 'forged']) {
@@ -377,7 +391,7 @@ it('does not decode or expose a partial checkpoint pair or a forged update', asy
       f.reader.refresh(call(), new Set(['authority', 'log', 'checkpoints'])),
     ).rejects.toBeDefined();
     expect(f.folded).toEqual([]);
-    f.reader.close();
+    await f.reader.close();
   }
 });
 it('a missing sequence requires a fresh catch-up, without folding the successful prefix', async () => {
@@ -388,7 +402,7 @@ it('a missing sequence requires a fresh catch-up, without folding the successful
     f.reader.refresh(call(), new Set(['authority', 'log', 'checkpoints'])),
   ).rejects.toMatchObject({ state: 'catch-up-required' });
   expect(f.folded).toEqual([]);
-  f.reader.close();
+  await f.reader.close();
 });
 it('stops before reading or decoding when the caller is cancelled or the reader is closed', async () => {
   const f = await fixture();
@@ -396,7 +410,7 @@ it('stops before reading or decoding when the caller is cancelled or the reader 
     f.reader.refresh({ ...call(), signal: AbortSignal.abort() }, new Set(['log'])),
   ).rejects.toMatchObject({ state: 'cancelled' });
   expect(f.requests).toEqual([]);
-  f.reader.close();
+  await f.reader.close();
   await expect(f.reader.refresh(call(), new Set(['log']))).rejects.toMatchObject({
     state: 'cancelled',
   });
@@ -417,7 +431,7 @@ it('finds a late seq-one writer on an initially empty page without an authority 
     .map((request) => request.query.scope.kind);
   expect(kinds).toEqual([{ stringValue: 'chain' }]);
   expect(f.folded.at(-1)).toMatchObject({ updates: [c.text('authenticated update')] });
-  f.reader.close();
+  await f.reader.close();
 });
 
 it('does not substitute an owner or device wrap for the link-addressed epoch key', async () => {
@@ -431,7 +445,7 @@ it('does not substitute an owner or device wrap for the link-addressed epoch key
   expect(verifier).toHaveBeenCalledOnce();
   expect(f.admission.root).toBeNull();
   expect(f.folded).toEqual([]);
-  f.reader.close();
+  await f.reader.close();
 });
 
 it('reads an owner stream when discovery also includes a valid nonwriting link-device chain', async () => {
@@ -448,7 +462,7 @@ it('reads an owner stream when discovery also includes a valid nonwriting link-d
     // The unrelated proof is not installed as an owner-author capability.
     expect(() => f.admission.author(link.id, String(f.statements.length))).toThrow();
   } finally {
-    f.reader.close();
+    await f.reader.close();
   }
 });
 
@@ -466,7 +480,7 @@ it('keeps a referenced link-issued writer in strict owner-member admission and r
     expect(supplied.some((value) => value.deviceId === link.id)).toBe(true);
     expect(f.folded).toEqual([]);
   } finally {
-    f.reader.close();
+    await f.reader.close();
   }
 });
 
@@ -496,7 +510,57 @@ it('refuses missing or forged referenced writer proof even with a valid unrelate
       expect(f.folded).toEqual([]);
       expect(() => f.admission.author(v.page, String(f.statements.length))).toThrow();
     } finally {
-      f.reader.close();
+      await f.reader.close();
     }
+  }
+});
+
+it('definitively refuses a different uid on the observed own stream before fresh seal/create', async () => {
+  vi.stubGlobal('navigator', {
+    locks: { request: async (_key: string, _options: unknown, action: () => unknown) => action() },
+  });
+  const author = vi.fn(() => hex(v.public)),
+    f = await fixture(author);
+  try {
+    await f.log(await f.seal({ namespace: 'own' }));
+    expect(
+      await f.reader.submitOwn(
+        [{ root: 'messages', key: 'comment', value: { text: 'Hello' } }],
+        call(),
+      ),
+    ).toEqual({ outcome: 'writer-in-use', confirmed: 0 });
+    expect(author).not.toHaveBeenCalled();
+    expect(f.port.publish).not.toHaveBeenCalled();
+    expect(f.folded.some((command) => command.type === 'prepare-own')).toBe(false);
+  } finally {
+    await f.reader.close();
+    vi.unstubAllGlobals();
+  }
+});
+it('fresh author refusal is typed before decoder preparation, sealing or provider publication', async () => {
+  vi.stubGlobal('navigator', {
+    locks: { request: async (_key: string, _options: unknown, action: () => unknown) => action() },
+  });
+  const author = vi.fn(() => {
+      throw new Error('PRIVATE_ADMISSION_DETAIL');
+    }),
+    f = await fixture(author),
+    seal = vi.spyOn(c.Envelope, 'seal');
+  try {
+    await expect(
+      f.reader.submitOwn([{ root: 'messages', key: 'comment', value: { text: 'Hello' } }], call()),
+    ).resolves.toMatchObject({
+      outcome: 'refused',
+      confirmed: 0,
+      failure: { code: 'REMOTE_SCOPE_DENIED' },
+    });
+    expect(author).toHaveBeenCalledOnce();
+    expect(seal).not.toHaveBeenCalled();
+    expect(f.port.publish).not.toHaveBeenCalled();
+    expect(f.folded.some((command) => command.type === 'prepare-own')).toBe(false);
+  } finally {
+    seal.mockRestore();
+    await f.reader.close();
+    vi.unstubAllGlobals();
   }
 });

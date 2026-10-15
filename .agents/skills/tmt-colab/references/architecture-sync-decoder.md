@@ -54,8 +54,9 @@ before switching or bounded recovery. `hosted-budget` owns the cross-tab origin 
 `hosted-discovery`/`hosted-query` bound finite reads; `hosted-documents` reconstructs the native
 mapping's exact originals. `hosted-authority` feeds Admission; `hosted-reader` selects observed writers' chains for its
 strict member verifier, then reuses Objects/Catchup/Fold before the read-only ReaderApp.
-The [hosted contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#hosted-read-only-page-consumer-2452-b4)
-owns limits, refusals and the deferred baseline carrier. No hosted module owns Firebase or a writer.
+The [hosted contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#hosted-page-consumer-2452-b4-3122)
+owns limits, refusals and the deferred baseline carrier. `hosted-publish` sends frozen own originals once; `own-seal` is shared with native Writer.
+Hosted owns a serialized own-record sender, never Firebase or content writes.
 
 ## Isolated decoder
 

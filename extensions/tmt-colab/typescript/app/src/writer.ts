@@ -9,6 +9,7 @@ import {
 import { Connection } from './connection.js';
 import { type JsonValue, type OwnRoot, type OwnRecord, UPDATE_BYTES } from './fold-protocol.js';
 import type { ObjectEntry } from './objects.js';
+import { sealOwnUpdate } from './own-seal.js';
 import { record as durableRecord } from './storage.js';
 import {
   OwnAppendRefused,
@@ -269,30 +270,9 @@ export class Writer {
       });
       const a = c.admission,
         head = c.objects.head(a.registration.deviceId);
-      requireValue(a.root !== null && a.head !== null);
-      await a.ownAuthor(a.head.revision.toString());
-      const envelope = await Envelope.seal(
-        {
-          space: a.space,
-          page: a.page,
-          epoch: a.epoch,
-          kind: 'update',
-          namespace: 'own',
-          authorDevice: a.registration.deviceId,
-          membershipRevision: a.head.revision.toString(),
-          streamSeq: String(head.seq + 1n),
-          prevHash: head.hash,
-        },
-        a.root,
-        a.registration.keys.sign,
-        update,
-      );
+      const entry = await sealOwnUpdate(a, head, update, (_device, revision) => a.ownAuthor(revision));
       requireValue(c.active && !this.#closed);
-      return {
-        seq: decodeHeader(envelope.header()).context.streamSeq,
-        envelopeHash: encodeBinary(await envelope.hash()),
-        envelope: encodeBinary(envelope.toJson()),
-      };
+      return entry;
     });
     state.pending = { id, entry };
     await this.record(this.key, state);

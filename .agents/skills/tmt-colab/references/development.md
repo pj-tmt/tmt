@@ -66,7 +66,7 @@ the golden `deploy-declaration-v1.hosting.json` and its manifest from a fixed fi
 standard library alone; run it without `--write` to verify and with `--write` after a reviewed
 change. Remote's mirror reads the vector.
 
-The app's [hosted reader](../../../../extensions/tmt-colab/contracts/colab-v1.md#hosted-read-only-page-consumer-2452-b4)
+The app's [hosted reader](../../../../extensions/tmt-colab/contracts/colab-v1.md#hosted-page-consumer-2452-b4-3122)
 uses this inventory and Remote SDK without a local door. Native releases still unset
 `TMT_COLAB_HOSTING_DIR` until #2487's release step. The `hosted-bundle.spec.ts` acceptance runs
 real embedded bytes at a logical demo origin under Remote's unchanged composed CSP; the

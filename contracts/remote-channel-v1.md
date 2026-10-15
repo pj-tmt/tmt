@@ -2366,6 +2366,37 @@ Remote-authored frozen vectors qualify pure grammar/validation only, not Colab a
 provider acceptance. Cloud adapter conformance distinguishes these every-backend guarantees from
 local-only guarantees rather than silently skipping the latter.
 
+### Hosted own-record publication guard (#3122)
+
+Colab's hosted caller admits exactly `members` create and prepared `own`-namespace `log`
+create. This is caller policy over the SDK's validated neutral mutation metadata, never a
+Remote role/record validator. Every other mode/resource shape refuses with
+`REMOTE_SCOPE_DENIED` before Auth or provider I/O. Colab owns fresh signed author admission,
+own-record preparation and sealing; the browser never seals content or checkpoints.
+
+The durable cross-tab origin ledger shares 10% of `READS_PER_DAY`: 5,000 modeled reads,
+warning at 3,500 and refusal before a reservation reaches 4,500, with the SDK's Pacific reset.
+Writes are tracked, not separately refused. Members-create reserves four lookup reads and one
+write. Each own-log create reserves `BudgetModel.create(4,4).readsPerAppend()` reads and one
+write: 13 + 1 under the four-person/all-writers assumption, pinned to the native vector.
+A prepared batch is at most four documents (52 reads + 4 tracked writes); the Colab edit
+request transport prepares one document. REST catch-up/readback and listener deliveries add
+their ordinary costs. A refused reservation spends nothing; uncertainty is never refunded.
+These are advisory reservations, not measured project usage or a provider billing claim.
+
+The sender freezes exact IDs/bytes before any create and serializes each own stream across
+tabs through creation and readback. It sends each original once. A commit acknowledgment or
+unknown gets one bounded exact-ID readback; `already-present` already includes the SDK's
+comparison and gets no second read. Only matching canonical bytes and digest are sent.
+Missing/unreadable observation stays unconfirmed; an occupied immutable ID with different
+bytes is a definitive loss. A partial batch never reports full success. Neither uncertainty,
+Rules/budget/rate refusal nor definitive loss triggers resealing, a new ID or another create.
+The distinct `writer-in-use` result covers definitive stream/ID occupancy; another hosted uid
+cannot continue a stream whose predecessor uid differs. Colab owns the device derivation and
+one-hosted-writer-per-editor-link rule. Publication confirmation is not owner application:
+the owner applies edit requests while Colab is running. Page change/close cancels and joins
+sender, reader and guard work before releasing keys or opening a successor.
+
 ### Proposal: authorized deploy
 
 `tmt remote deploy <backend>` composes Remote's resources and all enabled extension declarations

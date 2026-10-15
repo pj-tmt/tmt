@@ -3470,22 +3470,26 @@ The hosted entry glue (the first `firebaseRemote.connect` caller), its exact Fir
 origins and the short-route glue are not part of this command. Ordinary releases embed no hosted
 inventory yet; the release build step is tracked on #2487.
 
-### Hosted read-only page consumer (#2452 B4)
+### Hosted page consumer (#2452 B4, #3122)
 
 On a Firebase Hosting origin the app opens its hosted reader, never the local sample preview or
 `/api/serve-release`. A fresh entry offers Firestore sign-in and asks for a Colab share link.
 The existing reader-link parser consumes the nine-key fragment; it is erased before asynchronous
 effects, the root must derive the space, and the seed is consumed by the shared link/device key
 owner before the first provider request. The link role is a Rules-checked enrollment hint, never signed
-page authority. No owner/member editing, Save, comment, Ask or cloud attachment path is exposed.
+page authority. A verified editor link may send own-stream edit requests through the shared Source
+drawer; it never seals content. Owner/member editing, Ask and cloud attachments remain absent.
+Colab's own-record codec/preparation and fresh author accessor own admission; no hosted module
+reimplements link-author or edit-request validation. Role copy and marks distinguish viewer,
+commenter and editor; sending is not owner application.
 
 The entry fetches one exact `/tmt/declarations/colab.json`, hashes those raw bytes and passes them
 to Remote's `firebaseRemote.connect(firebaseRemote.originLink(), declaration)`; the SDK owns
 origin/config validation and Firebase. The same release declaration supplies all discovery caps.
-After explicit Firestore sign-in, the only hosted mutation is one bounded create of the holder's
+After explicit sign-in, enrollment is one bounded create of the holder's
 `members` row `{space,page,uid,role,link,token,seq:1}`. The token comes from Colab's link model;
 existing enrollment is read, never replaced, and an uncertain create gets one exact readback,
-never another write. The one-attempt memo survives recovery and hidden-tab resume for that
+never another enrollment write. The one-attempt memo survives recovery and hidden-tab resume for that
 page and uid. The following exact `pages` get supplies epoch/expiry hints only. B4 admits epoch 1;
 any later epoch is `COLAB_HOSTED_RESHARE_REQUIRED`: “This page changed its sharing since this
 link was made. Ask the owner to share it again.” Lifting this limit is deferred: consume the exact
@@ -3537,9 +3541,13 @@ recovering views never label retained content Live.
 
 The caller-owned advisory guard shares ten percent of Remote's free daily reads per browser
 origin, serialized across tabs with Web Locks and one IndexedDB record. Remote's budget model
-owns the daily reset and warning/refusal percentages. REST reads/queries precharge their bounds
-and three conservative Rules lookups per returned document; the one enrollment reserves four
-lookups and one write. Listener starts reserve no guessed tail: the SDK reports every complete
+owns the daily reset and warning/refusal percentages. Mutation shapes, own-log reservations,
+bounds and the four publication outcomes follow Remote's
+[hosted guard](../../../contracts/remote-channel-v1.md#hosted-own-record-publication-guard-3122),
+including exactly one same-ID readback and no reseal/resend. The Source drawer keeps an
+unconfirmed draft for a deliberate user decision and does not substitute requested text for
+admitted content; a definitive writer loss cannot retry from that drawer. Listener starts reserve
+no guessed tail: the SDK reports every complete
 initial server snapshot and later document-change batch, including own changes, and the guard
 counts those raw documents before exposing a notice. A delivered batch that crosses refusal
 remains charged and closes the reader. Corrupt/unavailable storage refuses; the guard is advisory,

@@ -12,19 +12,23 @@ import {
 } from './hosted-authority.js';
 import { Catchup } from './catchup.js';
 import { Fold } from './fold.js';
+import type { OwnRecord } from './fold-protocol.js';
+import { sealOwnUpdate, type OwnAuthor } from './own-seal.js';
+import { publishHostedOwn, type HostedPublishResult } from './hosted-publish.js';
 import { Objects } from './objects.js';
 import { HostedDiscovery, type HostedRunLimit } from './hosted-discovery.js';
 import {
   hostedAuthoritySet,
   hostedCheckpointSet,
   hostedLog,
+  hostedOwnLog,
   type HostedOriginal,
   type HostedScope,
 } from './hosted-documents.js';
 import { hostedQuery } from './hosted-query.js';
 import type { PageView } from './transport.js';
 
-/** A single page's read verifier. HostedInterests serializes refresh and joins it before close. */
+/** One page's verifier and own sender, with shared serialized state and joined shutdown. */
 export class HostedPageReader {
   private readonly discovery: HostedDiscovery;
   private readonly objects: Objects;
@@ -32,13 +36,19 @@ export class HostedPageReader {
   private readonly fold: Pick<Fold, 'run' | 'close'>;
   private readonly knownWriters = new Set<string>();
   private started = false;
+  private ownStreamInUse = false;
   private closed = false;
+  private readonly controller = new AbortController();
+  private changes: Promise<void> = Promise.resolve();
+  private closing?: Promise<void>;
+  private readonly writes = new Set<Promise<unknown>>();
   constructor(
     private readonly port: SealedSyncPort,
     private readonly admission: Admission,
     private readonly pin: HostedMembershipPin,
     private readonly limits: ReadonlyMap<string, HostedRunLimit>,
     fold?: Pick<Fold, 'run' | 'close'>,
+    private readonly ownAuthor?: OwnAuthor,
   ) {
     requireHostedEpoch(admission.epoch);
     requireValue(admission.reader !== undefined);
@@ -47,7 +57,10 @@ export class HostedPageReader {
     this.discovery = new HostedDiscovery(port, limits);
     this.objects = new Objects(admission);
   }
-  async refresh(call: SyncCall, resources: ReadonlySet<string>): Promise<PageView> {
+  refresh(call: SyncCall, resources: ReadonlySet<string>): Promise<PageView> {
+    return this.run(() => this.refreshNow(call, resources));
+  }
+  private async refreshNow(call: SyncCall, resources: ReadonlySet<string>): Promise<PageView> {
     this.live(call);
     const a = this.admission;
     if (!this.started || resources.has('authority')) {
@@ -96,6 +109,11 @@ export class HostedPageReader {
         for (const document of await this.discover('log', {}, call)) {
           const original = await hostedLog(document, this.scope);
           writers.add(original.header.context.authorDevice);
+          if (
+            original.header.context.authorDevice === a.registration.deviceId &&
+            original.publisherUid !== this.port.context.uid
+          )
+            this.ownStreamInUse = true;
         }
       }
       requireValue(writers.size <= 256);
@@ -174,10 +192,136 @@ export class HostedPageReader {
       catchup.close();
     }
   }
-  close(): void {
+  /** A single shared stream lock spans fresh catch-up, own preparation, create and readback. */
+  submitOwn(
+    records: readonly OwnRecord[],
+    call: SyncCall,
+    fits?: (updateBytes: number) => void,
+  ): Promise<HostedPublishResult> {
+    try {
+      this.live(call);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    const frozen = structuredClone([...records]);
+    if (!this.ownAuthor || !navigator.locks)
+      return Promise.reject({ code: 'REMOTE_STATE_UNAVAILABLE' });
+    const signal = AbortSignal.any([
+      call.signal,
+      this.controller.signal,
+      AbortSignal.timeout(Math.max(1, Math.min(30_000, call.deadlineAtMs - Date.now()))),
+    ]);
+    const bound = { ...call, signal },
+      a = this.admission;
+    const key = JSON.stringify([
+      'colab-hosted-own',
+      this.port.context.config.projectId,
+      this.port.context.uid,
+      a.space,
+      a.page,
+      a.epoch,
+      a.registration.deviceId,
+    ]);
+    let attempted = false,
+      confirmed = 0;
+    const work = Promise.resolve(
+      navigator.locks.request(key, { signal }, () =>
+        this.run(async () => {
+          this.live(bound);
+          await this.refreshNow(bound, new Set(['authority', 'log', 'checkpoints']));
+          this.live(bound);
+          // Rules bind a stream continuation to its predecessor uid. This observation grants nothing.
+          if (this.ownStreamInUse) return { outcome: 'writer-in-use' as const, confirmed: 0 };
+          await this.authorize(a.registration.deviceId, a.head!.revision.toString());
+          const prepared = await this.fold.run({
+            type: 'prepare-own',
+            writer: a.registration.deviceId,
+            records: frozen,
+          });
+          try {
+            this.live(bound);
+            fits?.(prepared.update.length);
+            const entry = await sealOwnUpdate(
+              a,
+              this.objects.head(a.registration.deviceId),
+              prepared.update,
+              this.authorize,
+            );
+            this.live(bound);
+            const document = await hostedOwnLog(
+              entry,
+              this.scope,
+              this.port.context.uid,
+              Math.min(a.reader!.expiresAt, Date.now() + 365 * 24 * 60 * 60 * 1000),
+            );
+            this.live(bound);
+            await this.authorize(a.registration.deviceId, a.head!.revision.toString());
+            attempted = true;
+            const result = await publishHostedOwn(this.port, [document], bound);
+            confirmed = result.confirmed;
+            if (result.outcome === 'sent') {
+              const update = await this.objects.admit(
+                a.registration.deviceId,
+                entry,
+                'update',
+                'own',
+              );
+              if (update) {
+                try {
+                  await this.fold.run({ type: 'apply', updates: [], own: [update] });
+                } finally {
+                  update.update.fill(0);
+                }
+              }
+              this.knownWriters.add(a.registration.deviceId);
+            }
+            return result;
+          } finally {
+            prepared.update.fill(0);
+          }
+        }),
+      ),
+    ).catch((failure: unknown): HostedPublishResult => ({
+      outcome: attempted ? 'unconfirmed' : 'refused',
+      confirmed,
+      failure: signal.aborted
+        ? {
+            code: 'REMOTE_STATE_UNAVAILABLE',
+            state: call.signal.aborted || this.closed ? 'cancelled' : 'deadline',
+          }
+        : failure,
+    }));
+    this.writes.add(work);
+    void work.then(
+      () => this.writes.delete(work),
+      () => this.writes.delete(work),
+    );
+    return work;
+  }
+  private readonly authorize: OwnAuthor = async (device, revision) => {
+    try {
+      return await this.ownAuthor!(device, revision);
+    } catch {
+      throw { code: 'REMOTE_SCOPE_DENIED' };
+    }
+  };
+  close(): Promise<void> {
+    if (this.closing) return this.closing;
     this.closed = true;
+    this.controller.abort();
     this.fold.close();
-    this.admission.closeKeys();
+    this.closing = Promise.allSettled([...this.writes, this.changes]).then(() =>
+      this.admission.closeKeys(),
+    );
+    return this.closing;
+  }
+  private run<T>(action: () => Promise<T>): Promise<T> {
+    const work = this.changes.then(action);
+    this.changes = work.then(
+      () => {},
+      () => {},
+    );
+    return work;
   }
   private frame() {
     return { version: 1, type: 'catchup', ...this.scope };

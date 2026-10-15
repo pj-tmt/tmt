@@ -1,5 +1,4 @@
-import { BrowserAction, BrowserNotice } from '@tmt/browser-ui/react';
-import { Circle, Diamond, X } from 'lucide-react';
+import { BrowserAction } from '@tmt/browser-ui/react';
 import { ColabHeader } from './colab-header.js';
 import { NoticeCard } from './notice-card.js';
 import { ReaderApp } from './reader-app.js';
@@ -7,38 +6,8 @@ import type { HostedEntryState } from './hosted-entry.js';
 import { text } from './strings.js';
 import './hosted-app.css';
 
-export type HostedRequestOutcome = 'sent' | 'refused' | 'unconfirmed';
-/** Provider uncertainty never becomes a refusal or an automatic resend. */
-export function HostedRequestNotice({ outcome }: { outcome: HostedRequestOutcome }) {
-  return (
-    <div className="source-notice">
-      <BrowserNotice
-        tone={outcome === 'unconfirmed' ? 'waiting' : outcome === 'refused' ? 'blocked' : 'muted'}
-        announcement={outcome === 'refused' ? 'alert' : 'status'}
-        stateLabel={
-          outcome === 'unconfirmed' ? 'Unconfirmed' : outcome === 'refused' ? 'Not sent' : 'Sent'
-        }
-        mark={
-          outcome === 'unconfirmed' ? (
-            <Diamond fill="currentColor" />
-          ) : outcome === 'refused' ? (
-            <X />
-          ) : (
-            <Circle />
-          )
-        }
-        title={
-          outcome === 'unconfirmed'
-            ? "Couldn't confirm the edit request. It may still reach the owner; check the page before sending it again."
-            : outcome === 'refused'
-              ? 'Edit request not sent. Ask the owner for a current link.'
-              : "Edit request sent. It appears on the page when the owner's Colab applies it."
-        }
-        body={null}
-      />
-    </div>
-  );
-}
+export { EditRequestNotice as HostedRequestNotice } from './reader-source.js';
+export type { EditRequestOutcome as HostedRequestOutcome } from './reader-source.js';
 
 const signInCopy = {
   viewer:
@@ -142,6 +111,12 @@ export function HostedApp({ state, signIn }: { state: HostedEntryState; signIn()
       <div className="hosted-reader">
         <ReaderApp
           state={{ kind: 'ready', view: state.view }}
+          role={state.role}
+          canEdit={state.role === 'editor'}
+          edit={state.role === 'editor' ? state.edit : undefined}
+          accessNote={
+            state.role === 'editor' ? 'The owner applies edits while Colab is running.' : undefined
+          }
           notice={
             state.budget.state === 'warn' ? (
               <p className="hosted-reading-warning" role="status">

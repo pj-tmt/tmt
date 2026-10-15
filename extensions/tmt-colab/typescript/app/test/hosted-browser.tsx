@@ -3,7 +3,7 @@ import 'virtual:tokens.css';
 import '@tmt/browser-ui/static.css';
 import '../src/style.css';
 import { createRoot } from 'react-dom/client';
-import { HostedApp, HostedRequestNotice } from '../src/hosted-app.js';
+import { HostedApp } from '../src/hosted-app.js';
 import type { HostedEntryState } from '../src/hosted-entry.js';
 
 const states: Record<string, HostedEntryState> = {
@@ -32,23 +32,29 @@ const states: Record<string, HostedEntryState> = {
   denied: { phase: 'failed', failure: { code: 'REMOTE_SCOPE_DENIED' } },
   missing: { phase: 'failed', failure: { code: 'COLAB_HOSTED_NOT_IN_CLOUD' } },
 };
+states.editor = {
+  ...states.ready,
+  phase: 'ready',
+  view: {
+    title: 'Shared design notes',
+    source:
+      '<main><h1>Verified shared page</h1><p>The owner applies edits while Colab is running.</p></main>',
+  },
+  budget: { reads: 100, writes: 1, day: 1, state: 'ok' },
+  role: 'editor',
+  edit: async () => ({ request: 'sent' }),
+};
+for (const outcome of ['sent', 'refused', 'unconfirmed'] as const) {
+  states[`request-${outcome}`] = {
+    ...states.editor,
+    phase: 'ready',
+    view: { title: 'Shared design notes', source: '<main><h1>Verified shared page</h1></main>' },
+    budget: { reads: 100, writes: 1, day: 1, state: 'ok' },
+    role: 'editor',
+    edit: async () => ({ request: outcome }),
+  };
+}
 const selected = new URL(location.href).searchParams.get('state') ?? 'sign-in';
 createRoot(document.getElementById('root')!).render(
-  selected === 'request-sent' ||
-    selected === 'request-refused' ||
-    selected === 'request-unconfirmed' ? (
-    <main>
-      <HostedRequestNotice
-        outcome={
-          selected === 'request-sent'
-            ? 'sent'
-            : selected === 'request-refused'
-              ? 'refused'
-              : 'unconfirmed'
-        }
-      />
-    </main>
-  ) : (
-    <HostedApp state={states[selected] ?? states['sign-in']} signIn={() => {}} />
-  ),
+  <HostedApp state={states[selected] ?? states['sign-in']} signIn={() => {}} />,
 );

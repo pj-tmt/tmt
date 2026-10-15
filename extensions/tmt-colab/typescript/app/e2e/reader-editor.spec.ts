@@ -165,3 +165,48 @@ for (const width of [390, 1280])
       expect(colors.cursor).toBe('default');
       await page.screenshot({ path: capturePath(`link-edit-save-disabled-${width}-${theme}.png`) });
     });
+
+for (const outcome of ['sent', 'refused', 'unconfirmed', 'writer-in-use'] as const) {
+  test(`a ${outcome} edit request retains its draft without claiming an owner-applied save`, async ({
+    page,
+  }) => {
+    await mount(page, 'editor');
+    await script(page, outcome);
+    await page.getByTestId('source-toggle').click();
+    const area = page.locator('#source-edit'),
+      save = page.getByRole('button', { name: text.save, exact: true });
+    await area.fill('<main>requested draft</main>');
+    await save.click();
+    await expect(
+      page.getByText(
+        outcome === 'writer-in-use'
+          ? '[Pending writer-in-use label]'
+          : outcome === 'sent'
+            ? 'Sent'
+            : outcome === 'refused'
+              ? 'Not sent'
+              : 'Unconfirmed',
+        { exact: true },
+      ),
+    ).toBeVisible();
+    await expect(area).toHaveValue('<main>requested draft</main>');
+    expect(await saves(page)).toHaveLength(1);
+    // Only the still-admitted source is rendered; sending never substitutes the requested text.
+    await expect(
+      page.frameLocator('iframe').getByRole('heading', { name: 'Release notes', exact: true }),
+    ).toBeVisible();
+    if (outcome === 'sent' || outcome === 'writer-in-use') await expect(save).toBeDisabled();
+    else await expect(save).toBeEnabled();
+    if (outcome === 'writer-in-use') {
+      await area.fill('<main>kept after definitive loss</main>');
+      await expect(save).toBeDisabled();
+      await expect(page.getByText('[Pending writer-in-use label]', { exact: true })).toBeVisible();
+      expect(await saves(page)).toHaveLength(1);
+    }
+    if (outcome === 'unconfirmed') {
+      await expect(page.locator('.source-notice [data-tone="waiting"]')).toBeVisible();
+      // No observation or render effect can silently submit another operation.
+      expect(await saves(page)).toHaveLength(1);
+    }
+  });
+}

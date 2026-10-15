@@ -574,8 +574,7 @@ Colab (`extensions/tmt-colab/`: `tmt-colab`, `tmt-colab-model`, `@tmt/colab-clie
 `tmt colab skill` reads embedded bytes without core or storage.
 [colab-v1](extensions/tmt-colab/contracts/colab-v1.md) owns behavior and hosted packaging;
 the [development skill](.agents/skills/tmt-colab/SKILL.md) owns modules and checks.
-Hosted links reuse Remote's SDK, a joined three-interest reader, crypto admission and caller
-guard; later epochs require a new link.
+Hosted links reuse Remote's SDK, joined interests and Colab admission/own sealing; epoch 1 only.
 
 - **Layer.** Colab is an app on Remote with no door of its own. `tmt-colab serve`
   listens only on the owner-only socket `<dataRoot>/colab/door.sock`. Remote mounts it at
