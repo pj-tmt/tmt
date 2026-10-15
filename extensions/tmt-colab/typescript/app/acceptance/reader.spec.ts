@@ -479,6 +479,56 @@ async function publicRead(
   return browser;
 }
 
+test('editor link: the reader offers the Source drawer, its save changes the owner page, and a viewer link has none', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const created = createPage(world, 'Editor link acceptance', '<h1 id="text">First text</h1>');
+    colab(world, ['share', 'mode', created.pageId, 'link', '--yes']);
+    const added = colab(world, [
+      'share',
+      'link',
+      'add',
+      created.pageId,
+      '--role',
+      'editor',
+      '--yes',
+    ]);
+    const readerPath = added.readerPath as string;
+    expect(new URLSearchParams(readerPath.split('#')[1]).get('role')).toBe('editor');
+
+    const editor = await openReaderLink(world, door, readerPath, 'editor-one');
+    const frame = editor.page.frameLocator('iframe');
+    await expect(frame.locator('#text')).toHaveText('First text', { timeout: 30_000 });
+    await expect(editor.page.locator('.chip')).toHaveText('Can edit');
+    await editor.page.getByTestId('source-toggle').click();
+    const area = editor.page.locator('#source-edit');
+    await expect(area).toHaveValue(/First text/);
+    await area.fill((await area.inputValue()).replace('First text', 'Edited through a link'));
+    await editor.page.getByRole('button', { name: 'Save source', exact: true }).click();
+    // The serve prepared and committed the save: the owner's page, read by the owner's CLI, has it,
+    // and the reader shows the saved page.
+    await expect
+      .poll(() => String(colab(world, ['page', 'read', created.pageId]).source), {
+        timeout: 30_000,
+      })
+      .toContain('Edited through a link');
+    await expect(frame.locator('#text')).toHaveText('Edited through a link', { timeout: 30_000 });
+    await expect(
+      editor.page.getByRole('button', { name: 'Save source', exact: true }),
+    ).toBeDisabled();
+
+    // A viewer link to the same page reads it, with no Source control, and sees the edit.
+    const viewerLink = colab(world, ['share', 'link', 'add', created.pageId, '--yes']);
+    const viewer = await openReaderLink(world, door, viewerLink.readerPath as string, 'viewer-one');
+    await expect(viewer.page.frameLocator('iframe').locator('#text')).toHaveText(
+      'Edited through a link',
+      { timeout: 30_000 },
+    );
+    await expect(viewer.page.locator('.chip')).toHaveText('Read-only');
+    await expect(viewer.page.getByTestId('source-toggle')).toHaveCount(0);
+  });
+});
+
 test('public transport is read-only and both narrowing paths revoke two-page links after scoped Reset', async () => {
   await withWorld(async (world) => {
     const door = await startDoor(world, await freePort());

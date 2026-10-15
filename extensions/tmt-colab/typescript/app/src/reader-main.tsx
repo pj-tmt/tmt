@@ -1,6 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import type { AttachmentBinding } from './attachment-service.js';
 import { ReaderApp, type ReaderState } from './reader-app.js';
+import type { ReaderEdit } from './reader-source.js';
 import { isOlderReaderFragment, parseReaderFragment } from './reader-link.js';
 import { accessEnded, ReaderSession } from './reader.js';
 import '@tmt/browser-ui/static.css';
@@ -15,7 +16,10 @@ history.replaceState(history.state, '', location.pathname + location.search);
 const root = createRoot(document.getElementById('root')!);
 let shown: ReaderState = { kind: 'opening' };
 let files: AttachmentBinding | undefined;
-const render = () => root.render(<ReaderApp state={shown} attachments={files} />);
+let canEdit = false;
+let edit: ReaderEdit | undefined;
+const render = () =>
+  root.render(<ReaderApp state={shown} attachments={files} canEdit={canEdit} edit={edit} />);
 const show = (state: ReaderState) => {
   shown = state;
   render();
@@ -37,6 +41,7 @@ async function start() {
   } catch {
     return show({ kind: isOlderReaderFragment(fragment) ? 'older' : 'invalid' });
   }
+  canEdit = link.role === 'editor';
   const failure = (error: Error) => show({ kind: accessEnded(error) ? 'ended' : 'failed' });
   try {
     const session = await ReaderSession.open(
@@ -46,6 +51,7 @@ async function start() {
       failure,
     );
     files = session.attachments;
+    if (canEdit) edit = (source, base) => session.edit(source, base);
     render();
     addEventListener('pagehide', () => session.close());
   } catch (error) {

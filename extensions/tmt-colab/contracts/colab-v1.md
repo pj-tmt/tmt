@@ -877,6 +877,11 @@ whose `root` does not derive `space`. `role` is only a hint for the one self-adm
 a hosted reader; the capability comes from the signed link statements, and a hosted reader stays
 read-only whatever `role` says. `share link add --role viewer|commenter|editor` (default `viewer`)
 chooses the role the link statement carries, and `share link reset` keeps the replaced link's role.
+A link whose `role` is `editor` makes the `/read` entry offer the owner page's Source drawer and mark itself
+"Can edit" instead of "Read-only": a save travels the link's session as a `save` frame, which the serve admits
+for an editor link only and seals as the root-local writer (no link is named). The serve stays the authority:
+the fragment's `role` only decides whether the drawer is offered, and a narrowed or removed link ends the session
+as before. A viewer or commenter link never shows it.
 
 The public `/read` entry removes the fragment from the address bar before any other work
 (a reload therefore needs the full link again). In memory only, it derives the link keys from
