@@ -114,6 +114,7 @@ pub struct OpsPreferences {
     pub overview_sort: Option<OverviewSort>,
     pub layout: OpsLayout,
     pub digest_window: super::DigestWindow,
+    pub savings_unit: super::SavingsUnit,
 }
 
 fn canonical_room_id(value: &str) -> bool {
@@ -462,6 +463,14 @@ impl Config {
                             invalid("`workspace.digest_window` must be 24h, 7d or lifetime.")
                         })?;
                 }
+                "savings_unit" => {
+                    result.savings_unit = item
+                        .as_str()
+                        .and_then(super::SavingsUnit::parse)
+                        .ok_or_else(|| {
+                            invalid("`workspace.savings_unit` must be tokens, percent or cost.")
+                        })?;
+                }
                 "layout" => {
                     result.layout = match item.as_str() {
                         Some("auto") => OpsLayout::Auto,
@@ -560,6 +569,7 @@ impl Config {
                 table.remove("overview_reverse");
             }
             document["workspace"]["digest_window"] = value(next.digest_window.argument());
+            document["workspace"]["savings_unit"] = value(next.savings_unit.argument());
             document["workspace"]["layout"] = value(match next.layout {
                 OpsLayout::Auto => "auto",
                 OpsLayout::Side => "side",
@@ -1107,6 +1117,7 @@ mod tests {
             reversed: true,
             layout: OpsLayout::Stack,
             digest_window: super::super::DigestWindow::default(),
+            savings_unit: super::super::SavingsUnit::Cost,
             overview_sort: None,
         };
         config.save_workspace_preferences(&expected, &next).unwrap();
@@ -1147,6 +1158,76 @@ mod tests {
             assert!(bytes.contains("# preserve user text"));
             assert_eq!(config.document["bind"]["j"].as_str(), Some("copy"));
         }
+    }
+
+    #[test]
+    fn savings_unit_is_one_additive_preference_beside_the_window() {
+        use super::super::{DigestWindow, SavingsUnit};
+        let fixture = FileFixture::new();
+        let mut config = fixture.config();
+        assert_eq!(
+            config.workspace_preferences().unwrap().savings_unit,
+            SavingsUnit::Tokens
+        );
+        for unit in [SavingsUnit::Percent, SavingsUnit::Cost, SavingsUnit::Tokens] {
+            let expected = config.workspace_preferences().unwrap();
+            let next = OpsPreferences {
+                savings_unit: unit,
+                ..expected.clone()
+            };
+            config.save_workspace_preferences(&expected, &next).unwrap();
+            config = fixture.config();
+            let loaded = config.workspace_preferences().unwrap();
+            assert_eq!(loaded, next);
+            assert_eq!(loaded.digest_window, expected.digest_window);
+            assert!(
+                fs::read_to_string(config.path())
+                    .unwrap()
+                    .contains("# preserve user text")
+            );
+        }
+        for text in [
+            "[workspace]\nsavings_unit='money'",
+            "[workspace]\nsavings_unit=1",
+        ] {
+            let bad = self::config(text);
+            let before = bad.document.to_string();
+            assert!(bad.workspace_preferences().is_err());
+            assert_eq!(bad.document.to_string(), before);
+        }
+        // The order is tokens, percent, cost; lifetime has no percent.
+        let order = |window| {
+            let mut seen = vec![SavingsUnit::Tokens];
+            while seen.len() < 4 {
+                let next = seen.last().unwrap().next(window);
+                if next == SavingsUnit::Tokens {
+                    break;
+                }
+                seen.push(next);
+            }
+            seen
+        };
+        assert_eq!(
+            order(DigestWindow::Day),
+            [SavingsUnit::Tokens, SavingsUnit::Percent, SavingsUnit::Cost]
+        );
+        assert_eq!(
+            order(DigestWindow::AllTime),
+            [SavingsUnit::Tokens, SavingsUnit::Cost]
+        );
+        // A saved percent reads as tokens for lifetime, and the next step is cost.
+        assert_eq!(
+            SavingsUnit::Percent.shown(DigestWindow::AllTime),
+            SavingsUnit::Tokens
+        );
+        assert_eq!(
+            SavingsUnit::Percent.next(DigestWindow::AllTime),
+            SavingsUnit::Cost
+        );
+        assert_eq!(
+            SavingsUnit::Percent.shown(DigestWindow::Week),
+            SavingsUnit::Percent
+        );
     }
 
     #[test]

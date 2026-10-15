@@ -104,6 +104,56 @@ impl DigestWindow {
     }
 }
 
+/// How the shared Digest estimate is shown. Every unit comes from the one status
+/// document already held, so choosing one never needs a new acquisition.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SavingsUnit {
+    #[default]
+    Tokens,
+    Percent,
+    Cost,
+}
+
+impl SavingsUnit {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "tokens" => Some(Self::Tokens),
+            "percent" => Some(Self::Percent),
+            "cost" => Some(Self::Cost),
+            _ => None,
+        }
+    }
+
+    pub fn argument(self) -> &'static str {
+        match self {
+            Self::Tokens => "tokens",
+            Self::Percent => "percent",
+            Self::Cost => "cost",
+        }
+    }
+
+    /// The unit actually shown: lifetime has no percent, so a saved percent
+    /// reads as tokens there without rewriting the saved choice.
+    pub fn shown(self, window: DigestWindow) -> Self {
+        if self == Self::Percent && window == DigestWindow::AllTime {
+            Self::Tokens
+        } else {
+            self
+        }
+    }
+
+    /// Click and keyboard order on every surface: tokens, percent, cost, and
+    /// back, skipping percent where the window cannot show it.
+    pub fn next(self, window: DigestWindow) -> Self {
+        match self.shown(window) {
+            Self::Tokens if window == DigestWindow::AllTime => Self::Cost,
+            Self::Tokens => Self::Percent,
+            Self::Percent => Self::Cost,
+            Self::Cost => Self::Tokens,
+        }
+    }
+}
+
 /// A board observation window, never persisted usage history.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TokenWindow(u64);
