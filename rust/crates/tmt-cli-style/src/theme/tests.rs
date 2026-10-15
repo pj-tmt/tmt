@@ -529,6 +529,9 @@ fn chips_use_existing_surfaces_and_keep_hot_and_disabled_distinct() {
                 let hot = screen::chip(&theme, kind, ChipState::Hot, depth);
                 let disabled = screen::chip(&theme, kind, ChipState::Disabled, depth);
                 assert_ne!(idle, hot, "{base:?}/{depth:?}/{kind:?}");
+                if depth == Depth::Ansi16 {
+                    assert!(hot.add_modifier.contains(Modifier::BOLD));
+                }
                 assert_ne!(disabled, hot);
                 assert!(disabled.add_modifier.contains(Modifier::DIM));
                 assert_eq!(

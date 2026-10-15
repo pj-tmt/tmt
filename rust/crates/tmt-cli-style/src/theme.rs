@@ -584,6 +584,12 @@ pub mod screen {
             ChipKind::Secondary => fill(theme, Role::Selection, depth, Fill::Solid),
             ChipKind::Primary => fill(theme, Role::Accent, depth, Fill::Lighter),
         };
+        // User palettes can make distinct ANSI colors visually indistinguishable.
+        let hot = if depth == Depth::Ansi16 {
+            hot.add_modifier(Modifier::BOLD)
+        } else {
+            hot
+        };
         if hot != idle {
             return hot;
         }
