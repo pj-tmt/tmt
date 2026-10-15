@@ -176,7 +176,14 @@ impl App {
             .selection_state(&snapshot.roster, &self.workspace_rows())
     }
     pub(in crate::board) fn workspace_selection_visible(&self) -> bool {
-        self.workspace_selection_state() == SelectionState::Visible
+        let target_shown = match self.shell.tab {
+            OpsTab::Overview => self
+                .overview_panels()
+                .shown(crate::config::OverviewPanel::Monitor),
+            OpsTab::Digest => self.digest_panels().shown(crate::config::DigestPanel::List),
+            _ => true,
+        };
+        target_shown && self.workspace_selection_state() == SelectionState::Visible
     }
     pub(in crate::board) fn workspace_squad(&self) -> Option<&crate::board::workspace::OpsSquad> {
         if self.shell.tab == OpsTab::Overview {
@@ -246,14 +253,17 @@ impl App {
         {
             return;
         }
+        // Only this explicit, validated message path establishes a temporary
+        // reveal. Tab and pointer eligibility are checked before focus changes.
+        self.focus = 1;
         if self.shell.tab == OpsTab::Overview
-            && crate::board::conversation::layout::overview(self.conversation_area())
+            && self
+                .overview_placement(self.conversation_area())
                 .conversation
                 .is_none()
         {
             self.shell.tab = OpsTab::Agents;
         }
-        self.focus = 1;
         self.invalidate_frame_geometry();
     }
     pub(in crate::board) fn workspace_bindings(&self) -> Bindings {
@@ -1023,6 +1033,13 @@ impl App {
                 key: String::new(),
                 label: label.into(),
                 choice: Choice::Action(Action::parse(action).expect("workspace setting action")),
+            });
+        }
+        if matches!(self.shell.tab, OpsTab::Overview | OpsTab::Digest) {
+            entries.push(MenuEntry {
+                key: String::new(),
+                label: "Panels".into(),
+                choice: Choice::Panels,
             });
         }
         self.menu = Some(Menu {

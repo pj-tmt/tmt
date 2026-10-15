@@ -47,19 +47,24 @@ pub(in crate::board) fn render(
     } else {
         Vec::new()
     };
-    let placed = app.overview_layout.borrow_mut().panels(
-        area,
-        if limits.is_empty() {
-            0
-        } else {
-            limits.len().saturating_add(1).min(usize::from(u16::MAX)) as u16
-        },
-    );
+    let quota_rows = if limits.is_empty() {
+        0
+    } else {
+        limits.len().saturating_add(1).min(usize::from(u16::MAX)) as u16
+    };
+    let policy = app.overview_panels();
+    let budget = super::Budget::new(area.height, quota_rows, &policy);
+    let chart_now = crate::status::now_ms();
+    let chart_demand =
+        super::super::chart::host::demand(app, area.width, budget.chart_and_target, chart_now);
+    let placed = app
+        .overview_layout
+        .borrow_mut()
+        .panels(area, quota_rows, &policy, chart_demand);
     // The existing chart host clears its prior-frame visibility/hits even when its panel cannot fit.
     if !placed.iter().any(|(panel, _)| *panel == Panel::Chart) {
         let _ = super::super::chart::host::render(frame, app, Rect { height: 0, ..area });
     }
-    let mut chart_rest = None;
     for (panel, mut rect) in placed.iter().copied() {
         match panel {
             Panel::Summary => {
@@ -177,25 +182,8 @@ pub(in crate::board) fn render(
                     );
                 }
             }
-            Panel::Chart => {
-                let table = placed
-                    .iter()
-                    .find(|(panel, _)| *panel == Panel::Table)
-                    .unwrap()
-                    .1;
-                chart_rest = Some(super::super::chart::host::render(
-                    frame,
-                    app,
-                    Rect {
-                        height: table.bottom() - rect.y,
-                        ..rect
-                    },
-                ));
-            }
+            Panel::Chart => super::super::chart::host::render_panel(frame, app, rect, chart_now),
             Panel::Table => {
-                if let Some(rest) = chart_rest {
-                    rect = rest;
-                }
                 let sort = snapshot
                     .preferences
                     .overview_sort

@@ -4,6 +4,11 @@ use super::*;
 use crate::action::{Action, Verb};
 use std::collections::BTreeSet;
 
+mod panels;
+pub use panels::{
+    DigestPanel, DigestPanels, OverviewPanel, OverviewPanels, Panel, PanelSetting, Panels,
+};
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum OpsSort {
     #[default]
@@ -115,6 +120,8 @@ pub struct OpsPreferences {
     pub layout: OpsLayout,
     pub digest_window: super::DigestWindow,
     pub savings_unit: super::SavingsUnit,
+    pub overview_panels: Option<PanelSetting<OverviewPanel>>,
+    pub digest_panels: Option<PanelSetting<DigestPanel>>,
 }
 
 fn canonical_room_id(value: &str) -> bool {
@@ -350,6 +357,18 @@ impl Config {
                 notices.push(format!("`links.{scheme}` belongs to retired notebook-link activation. The authored handler is preserved; configure an explicit workspace binding or opener for the selected agent's link."));
             }
         }
+        if let Some(workspace) = self.document.get("workspace").and_then(Item::as_table_like) {
+            panel_notice::<OverviewPanel>(
+                workspace.get("overview_panels"),
+                "overview_panels",
+                &mut notices,
+            );
+            panel_notice::<DigestPanel>(
+                workspace.get("digest_panels"),
+                "digest_panels",
+                &mut notices,
+            );
+        }
         notices
     }
 
@@ -363,6 +382,8 @@ impl Config {
         let mut result = OpsPreferences::default();
         for (key, item) in table.iter() {
             match key {
+                "overview_panels" => result.overview_panels = Some(PanelSetting::observe(item)),
+                "digest_panels" => result.digest_panels = Some(PanelSetting::observe(item)),
                 "pinned" => {
                     let pins = item.as_array().ok_or_else(|| {
                         invalid("`workspace.pinned` must be an array of room UUIDs.")
@@ -526,10 +547,24 @@ impl Config {
                 "Agent pins require canonical identity UUIDs, at most 1024.",
             ));
         }
+        validate_panel_save(&expected.overview_panels, &next.overview_panels)?;
+        validate_panel_save(&expected.digest_panels, &next.digest_panels)?;
         self.write(|document| {
             if document.get("workspace").is_none() {
                 document["workspace"] = Item::Table(Table::new());
             }
+            write_panel(
+                document,
+                "overview_panels",
+                &expected.overview_panels,
+                &next.overview_panels,
+            );
+            write_panel(
+                document,
+                "digest_panels",
+                &expected.digest_panels,
+                &next.digest_panels,
+            );
             let mut pins = toml_edit::Array::new();
             for id in &next.pinned {
                 pins.push(id.as_str());
@@ -620,6 +655,55 @@ impl Config {
             sources,
             notices,
         })
+    }
+}
+
+fn panel_notice<P: Panel>(item: Option<&Item>, key: &str, notices: &mut Vec<String>) {
+    if let Some(error) = item
+        .map(PanelSetting::<P>::observe)
+        .and_then(|setting| setting.error().map(str::to_owned))
+    {
+        notices.push(format!(
+            "`workspace.{key}`: {error}; using dashboard defaults. The authored value is unchanged."
+        ));
+    }
+}
+fn validate_panel_save<P: Panel>(
+    expected: &Option<PanelSetting<P>>,
+    next: &Option<PanelSetting<P>>,
+) -> Result<(), SquadError> {
+    if expected != next && next.as_ref().is_some_and(|setting| !setting.writable()) {
+        return Err(invalid(
+            "An explicit panel Save must contain a complete valid policy.",
+        ));
+    }
+    Ok(())
+}
+fn write_panel<P: Panel>(
+    document: &mut DocumentMut,
+    key: &str,
+    expected: &Option<PanelSetting<P>>,
+    next: &Option<PanelSetting<P>>,
+) {
+    if expected == next {
+        return;
+    }
+    let workspace = document["workspace"]
+        .as_table_like_mut()
+        .expect("workspace validated");
+    match next {
+        None => {
+            workspace.remove(key);
+        }
+        Some(setting) => {
+            if let Some(item) = workspace.get_mut(key) {
+                setting.write(item);
+            } else {
+                let mut item = Item::Table(Table::new());
+                setting.write(&mut item);
+                workspace.insert(key, item);
+            }
+        }
     }
 }
 
@@ -1119,6 +1203,8 @@ mod tests {
             digest_window: super::super::DigestWindow::default(),
             savings_unit: super::super::SavingsUnit::Cost,
             overview_sort: None,
+            overview_panels: None,
+            digest_panels: None,
         };
         config.save_workspace_preferences(&expected, &next).unwrap();
         let reloaded = fixture.config();
@@ -1587,5 +1673,157 @@ mod tests {
         assert_eq!(keys.bindings["S"].text, "reverse-sort");
         assert!(!defaults(OpsKeyScope::Overview).contains_key("s"));
         assert!(!defaults(OpsKeyScope::Overview).contains_key("S"));
+    }
+    #[test]
+    fn panel_policy_errors_fall_back_with_one_notice_without_relaxing_other_keys() {
+        for field in [
+            "overview_panels = 5",
+            "overview_panels = { hidden = ['future'] }",
+            "overview_panels = { conversation = false, hidden = ['monitor'] }",
+        ] {
+            let cfg = config(&format!("[workspace]\n{field}\nsort='attention'\n"));
+            let preferences = cfg.workspace_preferences().unwrap();
+            assert_eq!(preferences.sort, OpsSort::Attention);
+            assert_eq!(
+                preferences.overview_panels.as_ref().unwrap().effective(),
+                OverviewPanels::default()
+            );
+            let notices = cfg.workspace_migration_notices();
+            assert_eq!(
+                notices
+                    .iter()
+                    .filter(|notice| notice.contains("workspace.overview_panels"))
+                    .count(),
+                1
+            );
+            assert!(preferences.digest_panels.is_none());
+        }
+        for field in ["sort = 5", "unknown = true", "agent_pins = true"] {
+            assert!(
+                config(&format!("[workspace]\noverview_panels=5\n{field}\n"))
+                    .workspace_preferences()
+                    .is_err()
+            );
+        }
+    }
+    #[test]
+    fn unrelated_saves_preserve_absent_partial_and_invalid_panel_observations() {
+        for panel in [
+            "",
+            "overview_panels = 5\n",
+            "overview_panels = { hidden = [] } # inline\n",
+            "[workspace.overview_panels] # policy\nhidden = [] # partial\n",
+        ] {
+            let fixture = FileFixture::new();
+            let text = format!("# user text\n[workspace]\nsort='name'\n{panel}");
+            fs::write(fixture.0.join("ops.toml"), &text).unwrap();
+            let mut cfg = fixture.config();
+            let before = cfg.document["workspace"].get("overview_panels").cloned();
+            let expected = cfg.workspace_preferences().unwrap();
+            let mut next = expected.clone();
+            next.reversed = true;
+            cfg.save_workspace_preferences(&expected, &next).unwrap();
+            let reloaded = fixture.config();
+            assert_eq!(reloaded.workspace_preferences().unwrap(), next);
+            assert_eq!(
+                reloaded.document["workspace"]
+                    .get("overview_panels")
+                    .map(ToString::to_string),
+                before.as_ref().map(ToString::to_string)
+            );
+            assert!(
+                reloaded.document["workspace"]
+                    .get("digest_panels")
+                    .is_none()
+            );
+            assert!(
+                fs::read_to_string(cfg.path())
+                    .unwrap()
+                    .contains("# user text")
+            );
+        }
+    }
+    #[test]
+    fn panel_save_writes_full_policy_keeps_form_and_only_reset_removes_it() {
+        for text in [
+            "[workspace]\noverview_panels = {} # keep\n",
+            "[workspace.overview_panels] # keep\n",
+        ] {
+            let fixture = FileFixture::new();
+            fs::write(fixture.0.join("ops.toml"), text).unwrap();
+            let mut cfg = fixture.config();
+            let inline = cfg.document["workspace"]["overview_panels"].is_inline_table();
+            let expected = cfg.workspace_preferences().unwrap();
+            let mut next = expected.clone();
+            next.overview_panels = Some(PanelSetting::configured(OverviewPanels::default()));
+            cfg.save_workspace_preferences(&expected, &next).unwrap();
+            let reloaded = fixture.config();
+            assert_eq!(reloaded.workspace_preferences().unwrap(), next);
+            let item = &reloaded.document["workspace"]["overview_panels"];
+            assert_eq!(item.is_inline_table(), inline);
+            for key in ["order", "hidden", "conversation"] {
+                assert!(item.get(key).is_some());
+            }
+            assert!(fs::read_to_string(cfg.path()).unwrap().contains("# keep"));
+            let explicit = next.clone();
+            next.overview_panels = None;
+            cfg.save_workspace_preferences(&explicit, &next).unwrap();
+            let bytes = fs::read_to_string(cfg.path()).unwrap();
+            assert!(!bytes.contains("overview_panels"));
+        }
+    }
+    #[test]
+    fn malformed_policy_change_is_stale_even_when_both_render_defaults() {
+        let fixture = FileFixture::new();
+        fs::write(
+            fixture.0.join("ops.toml"),
+            "[workspace]\noverview_panels = 5\n",
+        )
+        .unwrap();
+        let expected = fixture.config().workspace_preferences().unwrap();
+        let mut next = expected.clone();
+        next.overview_panels = Some(PanelSetting::configured(OverviewPanels::default()));
+        fs::write(
+            fixture.0.join("ops.toml"),
+            "[workspace]\noverview_panels = 6\n",
+        )
+        .unwrap();
+        let mut fresh = fixture.config();
+        let before = fs::read(fresh.path()).unwrap();
+        assert!(fresh.save_workspace_preferences(&expected, &next).is_err());
+        assert_eq!(fs::read(fresh.path()).unwrap(), before);
+        let current = fresh.workspace_preferences().unwrap();
+        let mut reset = current.clone();
+        reset.overview_panels = None;
+        fresh.save_workspace_preferences(&current, &reset).unwrap();
+        assert!(
+            !fs::read_to_string(fresh.path())
+                .unwrap()
+                .contains("overview_panels")
+        );
+    }
+    #[test]
+    fn both_dashboard_policies_round_trip_inside_an_inline_workspace() {
+        let fixture = FileFixture::new();
+        fs::write(
+            fixture.0.join("ops.toml"),
+            "workspace = { sort = 'name' } # workspace\n",
+        )
+        .unwrap();
+        let mut cfg = fixture.config();
+        let expected = cfg.workspace_preferences().unwrap();
+        let mut next = expected.clone();
+        let mut digest = DigestPanels::default();
+        digest.set_shown(DigestPanel::Chart, false).unwrap();
+        next.digest_panels = Some(PanelSetting::configured(digest));
+        next.overview_panels = Some(PanelSetting::configured(OverviewPanels::default()));
+        cfg.save_workspace_preferences(&expected, &next).unwrap();
+        assert_eq!(fixture.config().workspace_preferences().unwrap(), next);
+        assert!(fixture.config().document["workspace"].is_inline_table());
+        assert!(
+            fs::read_to_string(cfg.path())
+                .unwrap()
+                .contains("# workspace")
+        );
     }
 }

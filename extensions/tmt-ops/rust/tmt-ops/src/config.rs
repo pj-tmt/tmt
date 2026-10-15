@@ -26,8 +26,8 @@ mod states;
 mod workspace;
 pub use states::{Rank, States};
 pub use workspace::{
-    OpsKeyScope, OpsLayout, OpsPreferences, OpsSort, OverviewColumn, OverviewDirection,
-    OverviewSort,
+    DigestPanel, DigestPanels, OpsKeyScope, OpsLayout, OpsPreferences, OpsSort, OverviewColumn,
+    OverviewDirection, OverviewPanel, OverviewPanels, OverviewSort, Panel, PanelSetting, Panels,
 };
 pub(crate) use workspace::{
     admit_action as admit_workspace_action, defaults as workspace_defaults,

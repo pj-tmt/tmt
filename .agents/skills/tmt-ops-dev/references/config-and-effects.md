@@ -181,10 +181,27 @@ same write. `SavingsUnit::shown` reads percent as tokens for lifetime, and `next
 it there. The `savings-unit` action ships without a default key so that no frozen
 binding table moves; a click on a painted estimate (`Choice::SavingsUnit`) and the Actions
 menu reach it, and the footer hint appears only while a frame painted an estimate.
-Older Ops builds reject that unknown key; the alpha channel upgrades automatically. One
-effective action table resolves defaults/global/host/section overrides for
+Older Ops builds reject that unknown key; alpha publication is automatic, but
+installation requires an explicit upgrade. One effective action table resolves defaults/global/host/section overrides for
 dispatch, footer and help. Retired pane/view/tab keys get located notices; authored
 bytes remain intact. The shell has no legacy mode or factory-view picker.
+
+Workspace settings → Panels previews Overview and Digest independently, with
+show/hide, order, a separate Conversation/Details switch and Reset to default.
+Save uses the existing asynchronous workspace preference CAS; a changed source
+retains the draft and error. Cancel drops the preview. Closing a pending save
+neither cancels its admitted write nor applies a late result to a reopened picker.
+
+`workspace.overview_panels` stores `order`, `hidden` and `conversation` over IDs
+`summary`, `digest`, `subscriptions`, `usage`, `monitor`, `exchanges`.
+`workspace.digest_panels` stores `order`, `hidden` and `details` over IDs `status`,
+`usage`, `subscriptions`, `chart`, `list`. Order contains each ID once; hidden is
+a unique subset. Keep monitor/list or its side pane visible. Absence and omitted
+fields select defaults; Save writes all three fields, preserving table or inline
+table form, comments and unrelated values. Only Reset removes the table. Invalid
+panel values yield a located notice and default policy; other invalid config
+still fails admission. IDs are persisted: older builds reject these keys, and a
+new ID makes an older complete order invalid until repaired.
 
 Independent `view` CLI configuration, workflow/layout readers and offline markup
 validation retain their own command contracts. A CLI view key changes no roster,

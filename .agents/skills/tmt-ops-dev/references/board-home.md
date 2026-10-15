@@ -71,7 +71,16 @@ these panels, one separator and the remainder for the existing conversation;
 Agents has its own 47% list placement (75 cells at 160 columns), with Auto stacking
 below 120 columns. Its shared title, filter and snapshots bands precede both panes;
 optional bands yield on short screens to preserve the conversation's usable budget.
-Digest retains its existing placement. Recent exchanges are bounded latest lead exchanges
+Effective panel policy comes from acquired
+workspace preferences or the disposable Panels preview; its persisted IDs and
+save semantics belong to [config-and-effects](config-and-effects.md#views-pane-arrangements).
+Hidden panels receive no rectangle or stale hit/clock authority. Chart demand is
+derived before disjoint allocation; one painter consumes its own rectangle.
+Only explicit message focus reveals a configured-off Overview conversation;
+Tab, pointer and refresh do not. Existing Escape handling ends the reveal and
+keeps the UUID draft. Digest has its own ordered panels and Details switch;
+hidden Status still exposes loading, stale and unavailable observations.
+Recent exchanges are bounded latest lead exchanges
 plus own-result metadata, not an event log: source times sort newest first,
 untimed rows last, and failed or unacquired pages say unavailable. Successful empty
 pages say No observed recent exchanges. Summaries label incomplete totals and

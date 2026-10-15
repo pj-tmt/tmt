@@ -32,19 +32,74 @@ fn chart_height(app: &App, area: Rect) -> Option<u8> {
             ) >= 6
     })
 }
-pub(in crate::board) fn render(frame: &mut Frame, app: &App, mut area: Rect) -> Rect {
+/// Pure paint demand from held samples and the available chart/target budget.
+/// No chart visibility/cache, hit map, focus or clock mark is changed here.
+/// The existing clock is captured once and shared with the final painter.
+pub(in crate::board) fn demand(app: &App, width: u16, target_row_budget: u16, now: u64) -> u16 {
+    if width == 0 || target_row_budget <= 1 || app.workspace_snapshot().is_none() {
+        return 0;
+    }
+    let state = app.usage_chart.borrow();
+    let grid = Grid::new(
+        u64::from(state.selection.each_minutes) * 60_000,
+        u64::from(state.selection.range_minutes) * 60_000,
+        now,
+    )
+    .expect("admitted chart clock");
+    let positive = if let Some(data) = state.observed.as_ref().filter(|data| data.grid == grid) {
+        data.buckets
+            .iter()
+            .any(|bucket| bucket.tokens.is_some_and(|n| n > 0))
+    } else {
+        app.usage_series(state.selection, now)
+            .buckets
+            .iter()
+            .any(|bucket| bucket.tokens.is_some_and(|n| n > 0))
+    };
+    let area = Rect::new(0, 0, width, target_row_budget);
+    if positive
+        && width >= 38
+        && !app.usage_controls
+        && let Some(height) = chart_height(app, area)
+    {
+        return u16::from(height) + 3 + controls::height(width);
+    }
+    u16::from(list_capacity(app, Rect::new(0, 1, width, target_row_budget - 1)) > 0)
+}
+
+/// Legacy tail callers use exactly the same demand and own-rectangle painter.
+pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) -> Rect {
+    let now = crate::status::now_ms();
+    let used = demand(app, area.width, area.height, now).min(area.height);
+    render_panel(
+        frame,
+        app,
+        Rect {
+            height: used,
+            ..area
+        },
+        now,
+    );
+    Rect {
+        y: area.y + used,
+        height: area.height - used,
+        ..area
+    }
+}
+
+pub(in crate::board) fn render_panel(frame: &mut Frame, app: &App, area: Rect, now: u64) {
     let look = app.look();
     let key = hint(app);
     let mut state = app.usage_chart.borrow_mut();
     state.hits.clear();
     state.visible = false;
     // Do not project before acquisition, or displace the last usable target row.
-    if area.width == 0 || area.height <= 1 || app.workspace_snapshot().is_none() {
+    if area.is_empty() || app.workspace_snapshot().is_none() {
         state.hover = None;
-        return area;
+        return;
     }
     state.visible = true;
-    refresh(app, &mut state, crate::status::now_ms());
+    refresh(app, &mut state, now);
     let data = Rc::clone(state.observed.as_ref().unwrap());
     // Unknown/zero data remains honest and reachable through the same controls,
     // without reserving an empty plot or exposing meaningless bucket hit areas.
@@ -53,22 +108,15 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, mut area: Rect) -> 
         .iter()
         .any(|bucket| bucket.tokens.is_some_and(|n| n > 0));
     let height = (positive && area.width >= 38 && !app.usage_controls)
-        .then(|| chart_height(app, area))
+        .then(|| {
+            (1..=5)
+                .rev()
+                .find(|height| u16::from(*height) + 3 + controls::height(area.width) <= area.height)
+        })
         .flatten();
     if let Some(height) = height {
-        let used = paint_chart(frame, app, &mut state, area, look, key, height);
-        area.y += used;
-        area.height -= used;
+        paint_chart(frame, app, &mut state, area, look, key, height);
     } else {
-        if list_capacity(
-            app,
-            Rect::new(area.x, area.y + 1, area.width, area.height - 1),
-        ) == 0
-        {
-            state.visible = false;
-            state.hover = None;
-            return area;
-        }
         if !app.usage_controls {
             state.release_focus();
         }
@@ -93,15 +141,12 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, mut area: Rect) -> 
             &summary,
             look,
         );
-        area.y += 1;
-        area.height -= 1;
     }
     if !app.modal_open() {
         app.frame_clocks
             .borrow_mut()
             .push(crate::board::view::ClockSurface::UsageChart);
     }
-    area
 }
 pub(in crate::board) fn render_controls(frame: &mut Frame, app: &App, body: Rect) {
     let look = app.look();

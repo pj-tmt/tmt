@@ -352,3 +352,45 @@ fn help_roster_and_disabled_custom_w_do_not_change_on_meter_only_ticks() {
         "disabled footer preserves pre-meter hint set"
     );
 }
+
+#[test]
+fn digest_aggregate_rejects_named_meter_region_and_status_for_either_configured_flag() {
+    for enabled in [false, true] {
+        let mut app = workspace_board();
+        app.shell.tab = crate::board::shell::OpsTab::Digest;
+        assert!(!app.loading());
+        assert!(crate::tabs::aggregate(app.current.as_deref().unwrap()));
+        app.meter = Some(Meter::new(
+            crate::config::TokenRate {
+                enabled,
+                ..Default::default()
+            },
+            &input(100),
+            Instant::now(),
+        ));
+        assert_eq!(app.meter.as_ref().unwrap().layout(160).is_some(), enabled);
+        for width in 0..=160 {
+            for height in 0..=44 {
+                let area = Rect::new(0, 0, width, height);
+                assert!(meter_region(&app, area).is_none());
+                let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+                terminal
+                    .draw(|frame| {
+                        super::super::header::render_meter(frame, &app, area);
+                        super::super::header::render_meter_status(frame, &app, area);
+                    })
+                    .unwrap();
+                assert!(
+                    terminal
+                        .backend()
+                        .buffer()
+                        .content
+                        .iter()
+                        .all(|cell| cell.symbol() == " ")
+                );
+                assert!(app.hits.borrow().is_empty());
+                assert!(app.frame_clocks.borrow().is_empty());
+            }
+        }
+    }
+}

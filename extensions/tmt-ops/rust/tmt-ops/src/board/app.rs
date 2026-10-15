@@ -21,6 +21,7 @@ use std::{
 };
 
 mod carry;
+mod panels;
 pub(in crate::board) mod workspace;
 
 /// What the refresh worker loaded for one squad.
@@ -259,6 +260,7 @@ pub enum Choice {
     DigestWindow(crate::config::DigestWindow),
     /// A click on a painted Digest estimate: the next unit.
     SavingsUnit,
+    Panels,
     Checklist,
     Action(Action),
     /// Confirms a cron control picked from a menu.
@@ -511,6 +513,7 @@ pub(super) enum Overlay {
     Help,
     Settings,
     Theme,
+    Panels,
     CronList,
     CronReview,
     MonitorDetails,
@@ -530,6 +533,7 @@ impl Overlay {
                 Self::Help => "help",
                 Self::Settings => "settings",
                 Self::Theme => "theme-picker",
+                Self::Panels => "panels-picker",
                 Self::CronList => "cron-list",
                 Self::CronReview => "cron-review",
                 Self::MonitorDetails => "monitor-details",
@@ -686,6 +690,8 @@ pub struct App {
     pub(in crate::board) overlay_focus: tmt_tui::app::FocusStack,
     pub menu: Option<Menu>,
     pub(super) theme_picker: Option<super::theme_picker::Picker>,
+    pub(super) panels_picker: Option<super::panels_picker::Picker>,
+    pub(super) panels_save_pending: bool,
     pub(super) settings: Option<super::settings::Overlay>,
     pub input: Option<Input>,
     pub(super) composer: super::composer::State,
@@ -1726,16 +1732,36 @@ impl App {
     }
 
     pub fn collapsed_panes(&self) -> BTreeSet<Pane> {
-        if self.workspace_snapshot().is_none()
-            || (self.shell.tab == super::shell::OpsTab::Overview
-                && super::conversation::layout::overview(self.conversation_area())
-                    .conversation
-                    .is_none())
-        {
-            [Pane::Replies].into()
-        } else {
-            BTreeSet::new()
+        if self.workspace_snapshot().is_none() {
+            return [Pane::Replies].into();
         }
+        let mut collapsed = BTreeSet::new();
+        match self.shell.tab {
+            super::shell::OpsTab::Overview => {
+                let placement = self.overview_placement(self.conversation_area());
+                if placement.list.is_none()
+                    || !self
+                        .overview_panels()
+                        .shown(crate::config::OverviewPanel::Monitor)
+                {
+                    collapsed.insert(Pane::Rows);
+                }
+                if placement.conversation.is_none() {
+                    collapsed.insert(Pane::Replies);
+                }
+            }
+            super::shell::OpsTab::Digest => {
+                let policy = self.digest_panels();
+                if !policy.shown(crate::config::DigestPanel::List) {
+                    collapsed.insert(Pane::Rows);
+                }
+                if !policy.side_shown() {
+                    collapsed.insert(Pane::Replies);
+                }
+            }
+            _ => {}
+        }
+        collapsed
     }
 
     pub fn set_body_width(&mut self, width: u16) {
@@ -1754,7 +1780,7 @@ impl App {
         use super::conversation::layout::{self, Preference};
         let snapshot = self.workspace_snapshot()?;
         Some(if self.shell.tab == super::shell::OpsTab::Overview {
-            layout::overview(area).into()
+            self.overview_placement(area).into()
         } else if self.shell.tab == super::shell::OpsTab::Agents {
             layout::agents_tree(
                 area,
@@ -1812,12 +1838,17 @@ impl App {
             self.focus = self.focus.min(self.focus_panes().len().saturating_sub(1));
             if self.focus == 1
                 && self.shell.tab == super::shell::OpsTab::Overview
-                && super::conversation::layout::overview(self.conversation_area())
+                && self.overview_panels().side_shown()
+                && self
+                    .overview_placement(self.conversation_area())
                     .conversation
                     .is_none()
             {
                 self.shell.tab = super::shell::OpsTab::Agents;
                 self.invalidate_frame_geometry();
+            }
+            if self.collapsed_panes().contains(&self.focused()) {
+                self.next_pane();
             }
             return;
         }
@@ -1872,6 +1903,14 @@ impl App {
     /// the action with a notice; nothing runs half-filled. While a switch
     /// loads, the rows on screen are another squad's, so nothing acts on them.
     pub fn perform(&mut self, action: &Action) -> Effect {
+        if self.panels_save_pending {
+            return self.say("Wait for the panel save to finish.");
+        }
+        if action.verb == Verb::Ui(crate::action::OpsUiAction::UsageControls)
+            && self.usage_panel_hidden()
+        {
+            return self.say("Usage chart is hidden by the panel policy.");
+        }
         if let Err(error) = crate::config::admit_workspace_action(action, "action") {
             return self.say(error.message);
         }
@@ -1913,7 +1952,9 @@ impl App {
                     Effect::Settings
                 };
             }
-            Verb::Theme => return Effect::PickTheme,
+            Verb::Theme => return if self.panels_picker.is_some() {
+                self.say("Close Panels before opening Theme.")
+            } else { Effect::PickTheme },
             Verb::NextPane => {
                 self.next_pane();
                 return Effect::None;
@@ -2490,6 +2531,7 @@ impl App {
             Choice::WorkspaceLayout(layout) => self.workspace_layout(layout),
             Choice::DigestWindow(window) => self.select_digest_window(window),
             Choice::SavingsUnit => self.cycle_savings_unit(),
+            Choice::Panels => self.open_panels(),
             Choice::Checklist => self.open_checklist(),
             Choice::Action(action) => self.perform(&action),
             Choice::Cron(request) => Effect::Act(Request::Cron(request)),
@@ -2981,6 +3023,10 @@ impl App {
     }
     /// Shows the observed outcome without a second row-feedback cache.
     pub fn finished(&mut self, outcome: Result<String, String>) {
+        if self.panels_save_pending {
+            self.panels_finished(outcome);
+            return;
+        }
         self.notice = Some(outcome.unwrap_or_else(|error| error));
     }
 
@@ -3104,6 +3150,7 @@ impl App {
                     .as_ref()
                     .map_or_else(Vec::new, |draft| draft.focus_fields()),
                 Overlay::Theme => vec![vec!["theme-picker".into(), "choices".into()]],
+                Overlay::Panels => vec![vec!["panels-picker".into(), "choices".into()]],
                 Overlay::Settings => vec![vec!["settings".into(), "content".into()]],
                 Overlay::CronList => vec![vec!["cron-list".into(), "choices".into()]],
                 Overlay::CronReview => ["cancel", "read", "apply"]
@@ -3167,6 +3214,8 @@ impl App {
             Some(Overlay::Help)
         } else if self.settings.is_some() {
             Some(Overlay::Settings)
+        } else if self.panels_picker.is_some() {
+            Some(Overlay::Panels)
         } else if self.theme_picker.is_some() {
             Some(Overlay::Theme)
         } else if self.cron_list.is_some() {
@@ -3184,6 +3233,7 @@ impl App {
     ) -> Option<Effect> {
         match overlay {
             Overlay::Workspace => self.workspace_form_event(field, event),
+            Overlay::Panels => self.panels_event(event),
             Overlay::Recovery => self.recovery_event(event),
             Overlay::ReplyReader => Some(self.reader_event(event)),
             Overlay::Checklist => self.checklist_event(event),
@@ -3442,12 +3492,18 @@ impl App {
     /// Refuse pointer and viewport authority from a superseded frame. Offsets
     /// and drafts survive; only a new paint can publish interactive geometry.
     pub(super) fn invalidate_frame_geometry(&self) {
+        if let Some(picker) = &self.panels_picker {
+            picker.invalidate();
+        }
         if let Some(menu) = &self.menu
             && let Some(surface) = menu.surface.borrow_mut().as_mut()
         {
             surface.invalidate();
         }
         self.composer.invalidate();
+        if self.usage_panel_hidden() && !self.usage_controls {
+            self.usage_chart.borrow_mut().release_focus();
+        }
         self.usage_chart.borrow_mut().invalidate_geometry();
         if let Some(details) = &self.usage_details {
             details.borrow_mut().invalidate();

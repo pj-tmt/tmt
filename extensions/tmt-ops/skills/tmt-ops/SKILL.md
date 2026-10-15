@@ -272,6 +272,15 @@ panels; unacquired/failed sources stay unknown. The Summary Timers control opens
 all rooms. With no selected target, Overview `c` does the same; a hidden/missing
 selected scope still refuses to widen.
 
+Workspace settings → Panels previews each dashboard's panel visibility/order
+and its separate Conversation/Details switch. Use the visible Move up/down
+controls or plain `u`/`d`, then Save, Cancel or Reset to default. Keep at least one
+interactive surface visible. Cancel discards the preview; stale Save retains it
+with an error. Closing a pending save does not cancel its already admitted write.
+A configured-off Overview Conversation opens temporarily on explicit message
+focus; Escape returns to rows and retains the draft. Tab and pointer do not open
+it. Hidden panels do not change acquisition or action admission.
+
 The Agents tree is a fixed-column table: SQUAD / AGENT, LEAD, MEMBERS / STATE,
 TOK 1h, DIGEST and ◷ CRON. LEAD and room token totals appear at 100 inner list cells;
 narrower tables drop whole optional columns. Only state glyphs/words carry state

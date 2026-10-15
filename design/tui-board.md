@@ -167,6 +167,16 @@ text is inert. The Summary timer control opens all rooms without a selected UUID
 existing scoped controls keep their admission rules. Effective key hints remain
 readable without color.
 
+Workspace settings → Panels has a separate policy for Overview and Digest:
+show/hide and reorder the vertical panels, toggle Conversation/Details separately,
+preview immediately, then Save or Cancel; Reset restores defaults. Plain keys
+and visible Move up/down controls share the same actions. Keep one interactive
+surface visible; freed space goes to it. Hidden panels have no stale hits or
+clock marks. Configured-off Overview Conversation appears only for explicit
+message focus and disappears through the existing Escape path, keeping the
+UUID draft. Digest Status occupies its configured position inside the body, not
+the shared shell. Failed/stale/loading Status remains visible even when hidden.
+
 Overview names known attention and working/idle/blocked totals, retaining
 partial/stale/unknown distinctions. A complete empty attention read may say
 `Nothing needs you`; a failed read never becomes a fabricated zero. The global
