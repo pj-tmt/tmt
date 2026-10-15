@@ -5719,7 +5719,12 @@ fn expiry_human_lines_are_relative_dim_and_keep_exact_json_and_local_state() {
                     }
                     assert!(text.contains("Expiry never deletes your local copy."));
                     assert!(!text.contains(" UTC") && !text.contains("advisory"));
-                    if matches!(warning, Some("expires-soon" | "not-in-cloud")) {
+                    // A page that was in the cloud and lost it, or expires soon, prints one line;
+                    // a page not put in the cloud for this epoch only reads `not in the cloud`.
+                    if warning == Some("expires-soon")
+                        || (warning == Some("not-in-cloud")
+                            && before["page"]["expiresAtMs"].is_u64())
+                    {
                         let stderr = String::from_utf8(out.stderr).unwrap();
                         assert!(
                             stderr.contains(expiry)

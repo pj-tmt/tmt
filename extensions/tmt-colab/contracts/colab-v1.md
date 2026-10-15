@@ -3833,9 +3833,14 @@ expiry within seven days has a `◷` waiting mark; a page that is not in the clo
 than an hour, matching browser retention hints rather than UTC calendar dates. The footer says
 "Expiry never deletes your local copy." CLI state values are lowercase UX display copy:
 `kept forever`, `local only` and `not in the cloud`. They omit redundant type labels and final
-periods; browser hints keep their sentence form. `expires-soon` and `not-in-cloud` also print
-one stderr line, `<id>: <expiry> · Expiry never deletes your local copy`. Human reads never
-change the projection, policy or stored time; JSON still exposes the exact configured day count.
+periods; browser hints keep their sentence form. `expires-soon` prints one stderr line,
+`<id>: <expiry> · Expiry never deletes your local copy`, and so does `not-in-cloud` with a
+non-null `expiresAtMs`: a page that was in the cloud and whose confirmed expiry has passed.
+`not-in-cloud` with a null `expiresAtMs` (a page not yet put in the cloud for its current epoch:
+never published, or the epoch moved and the new one is not confirmed yet) is shown in the list
+and in detail but prints no line, so a syncing machine does not repeat a warning for pages
+nothing is wrong with. Human reads never change the projection, policy or stored time; JSON
+still exposes the exact configured day count.
 
 One verified owner-log projection supplies these hints to CLI and `/api/pages`.
 Discovery metadata never grants signed policy or write authority. Local expiry

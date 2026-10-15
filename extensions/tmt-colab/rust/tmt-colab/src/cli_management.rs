@@ -1260,11 +1260,16 @@ fn expiry_text(page: &Value, now_ms: u64, listing: bool) -> String {
         format!("{mark}{verb}in {interval}")
     }
 }
+/// One stderr line for a page that needs attention: its cloud copy ends within seven days, or it
+/// was in the cloud and its confirmed expiry has passed. A page not put in the cloud yet reads
+/// `not in the cloud` in the list but is no cause for a line on every read.
 fn warn_expiry(page: &Value, now_ms: u64) -> Result<()> {
-    if page["warnings"]
-        .as_array()
-        .is_some_and(|w| w.iter().any(|v| v == "expires-soon" || v == "not-in-cloud"))
-    {
+    let warned = |name: &str| {
+        page["warnings"]
+            .as_array()
+            .is_some_and(|w| w.iter().any(|v| v == name))
+    };
+    if warned("expires-soon") || (warned("not-in-cloud") && page["expiresAtMs"].is_u64()) {
         let mut out = tmt_cli_style::stream::stderr();
         let terminal = out.terminal();
         tmt_cli_style::message::warning(
