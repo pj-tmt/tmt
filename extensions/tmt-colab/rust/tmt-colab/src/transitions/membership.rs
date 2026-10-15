@@ -7,7 +7,7 @@ use crate::{
     keyring::Keyring,
     store::{
         Store,
-        owner::{Cut, Mutation, OwnerFault, OwnerTransaction, Recipient},
+        owner::{Cut, Device, Mutation, OwnerFault, OwnerTransaction, Recipient},
     },
 };
 use serde_json::{Value, json};
@@ -43,6 +43,7 @@ pub(super) enum Action<'a> {
     Link {
         remove: Option<&'a str>,
         add: Option<Recipient>,
+        /// The seed of the link a reset or add creates, borrowed while the transition runs.
         seed: Option<&'a [u8; 32]>,
         /// The added link's cloud admission token, derived while its seed is borrowed.
         token: Option<String>,
@@ -355,6 +356,7 @@ impl Engine {
                 let statement =
                     key.sign_statement(tx.head(), operation, &serde_json::to_vec(&payload)?)?;
                 tx.append_statement(&statement)?;
+                let issued = tx.head().cloned().ok_or(OwnerFault::Invalid)?;
                 let mut statements = vec![statement];
                 let mut wraps = Vec::new();
                 for (page, p) in prepared {
@@ -386,6 +388,7 @@ impl Engine {
                 if let Action::Link {
                     remove: Some(_),
                     add: Some(r),
+                    seed,
                     token,
                     ..
                 } = &action
@@ -396,7 +399,8 @@ impl Engine {
                         &serde_json::to_vec(&link_payload(r))?,
                     )?;
                     tx.append_statement(&added)?;
-                    let revision = tx.head().ok_or(OwnerFault::Invalid)?.revision;
+                    let introduced = tx.head().cloned().ok_or(OwnerFault::Invalid)?;
+                    let revision = introduced.revision;
                     for page in &r.pages {
                         let snapshot = prepared.get(page).ok_or(OwnerFault::Invalid)?.snapshot();
                         let epoch = tx.current_epoch(page)?;
@@ -413,6 +417,9 @@ impl Engine {
                     tx.put_recipient(r)?;
                     if let Some(token) = token {
                         tx.put_link_admission(&r.id, token)?;
+                    }
+                    if let Some(seed) = seed {
+                        put_link_device(tx, key, &r.id, seed, &introduced)?;
                     }
                     statements.push(added);
                 }
@@ -432,9 +439,15 @@ impl Engine {
                     match &action {
                         Action::Link {
                             remove: None,
+                            seed,
                             token: Some(token),
                             ..
-                        } => tx.put_link_admission(&r.id, token)?,
+                        } => {
+                            tx.put_link_admission(&r.id, token)?;
+                            if let Some(seed) = seed {
+                                put_link_device(tx, key, &r.id, seed, &issued)?;
+                            }
+                        }
                         Action::Link {
                             remove: Some(id), ..
                         } => tx.drop_link_admission(id)?,
@@ -468,6 +481,29 @@ impl Page {
             Self::Keep(s) => s,
         }
     }
+}
+/// The reader device a link certifies is a pure function of its seed, so the owner derives it
+/// while the seed is borrowed and keeps its chain: the cloud copy of the link's stream is then
+/// found by this machine. It is a device row, never a registration: this machine does not write
+/// that stream. `introduced` is the `link.add` statement the chain must name.
+fn put_link_device(
+    tx: &mut OwnerTransaction<'_>,
+    key: &Keyring,
+    id: &str,
+    seed: &[u8; 32],
+    introduced: &statement::Head,
+) -> Result<()> {
+    let chain = tmt_colab_model::link::device_chain(
+        seed,
+        &key.space_id,
+        id,
+        &introduced.revision.to_string(),
+        &introduced.hash,
+    )?;
+    tx.put_device(&Device {
+        chain,
+        revoked: false,
+    })
 }
 fn rank(role: &str) -> u8 {
     match role {

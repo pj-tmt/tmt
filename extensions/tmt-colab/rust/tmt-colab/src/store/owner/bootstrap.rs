@@ -116,6 +116,19 @@ impl OwnerTransaction<'_> {
         // revoked author's objects themselves; a chain is never live authority.
         Ok(device.chain)
     }
+    /// The chains of the unrevoked devices link `id` certified, which a holder of the link may
+    /// write streams for. They are published beside the writers' chains so the stream is found.
+    pub(crate) fn link_device_chains(&self, id: &str) -> Result<Vec<Vec<u8>>> {
+        let mut chains = Vec::new();
+        for device in self.devices()? {
+            let chain = certificate::Chain::from_json(&device.chain)?;
+            let cert = chain.certificate()?;
+            if !device.revoked && cert.issuer_kind == "link" && cert.issuer_id == id {
+                chains.push(device.chain);
+            }
+        }
+        Ok(chains)
+    }
     pub(crate) fn wrap_page(
         &self,
         page: &str,
