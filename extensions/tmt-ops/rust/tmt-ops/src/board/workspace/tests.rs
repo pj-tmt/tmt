@@ -34,6 +34,149 @@ fn roster() -> OpsRoster {
     }
 }
 
+#[test]
+fn shell_counts_deduplicate_memberships_and_keep_attention_independent_of_state() {
+    let mut roster = roster();
+    let one = roster.members.get_mut("one").unwrap();
+    one.presence = Some(true);
+    one.state = Some("blocked".into());
+    let lead = roster.members.get_mut("lead").unwrap();
+    lead.presence = Some(true);
+    lead.state = Some("waiting".into());
+    lead.waiting = false; // A state word alone is not an open request/pending field.
+    let free = roster.members.get_mut("free").unwrap();
+    free.presence = Some(false);
+    free.state = Some("working".into());
+    roster.squads[0].member_states.insert(
+        "one".into(),
+        OpsMembershipState {
+            waiting: true,
+            state: Some("blocked".into()),
+            rank: None,
+        },
+    );
+    roster.squads.push(OpsSquad {
+        room_id: "other".into(),
+        ..roster.squads[0].clone()
+    });
+    assert_eq!(
+        roster.shell_counts(),
+        ShellCounts {
+            online: 2,
+            waiting: 1,
+            blocked: 1,
+            complete: true
+        }
+    );
+    roster.members.get_mut("one").unwrap().presence = None;
+    assert!(!roster.shell_counts().complete);
+    roster.membership_complete = false;
+    assert_eq!(roster.shell_counts().blocked, 1);
+    assert!(!roster.shell_counts().complete);
+    assert!(!OpsRoster::default().shell_counts().complete);
+    assert_eq!(
+        OpsRoster {
+            observation: OpsObservation::Complete,
+            membership_complete: true,
+            ..Default::default()
+        }
+        .shell_counts(),
+        ShellCounts {
+            complete: true,
+            ..Default::default()
+        }
+    );
+}
+
+#[test]
+fn agents_filters_preserve_targets_expansion_and_saved_preferences() {
+    let mut roster = roster();
+    roster.squads[0].member_states.insert(
+        "one".into(),
+        OpsMembershipState {
+            state: Some("blocked".into()),
+            ..Default::default()
+        },
+    );
+    let selected = target(Some("room"), "one");
+    let mut workspace = OpsWorkspace {
+        selected: Some(selected.clone()),
+        ..Default::default()
+    };
+    workspace.expanded.insert("room".into());
+    let mut preferences = OpsPreferences::default();
+    let original = preferences.clone();
+    workspace.filter = AgentsFilter::NeedsYou;
+    let rows = workspace.rows(&roster, &preferences);
+    assert_eq!(rows.len(), 3);
+    assert_eq!(rows[0].target, OpsTarget::Squad("room".into()));
+    assert_eq!(rows[0].count, Some(2));
+    assert_eq!(
+        workspace.selection_state(&roster, &rows),
+        SelectionState::Visible
+    );
+    workspace.filter = AgentsFilter::Pinned;
+    assert!(workspace.rows(&roster, &preferences).is_empty());
+    assert_eq!(
+        workspace.selection_state(&roster, &[]),
+        SelectionState::Hidden
+    );
+    assert_eq!(preferences, original);
+    preferences.pinned.insert("room".into());
+    assert_eq!(workspace.rows(&roster, &preferences).len(), 3);
+    assert_eq!(workspace.expanded, BTreeSet::from(["room".into()]));
+    assert_eq!(workspace.selected, Some(selected));
+    assert_eq!(AgentsFilter::All.next().next().next(), AgentsFilter::All);
+}
+
+#[test]
+fn search_reveals_matching_members_without_changing_expansion_or_group_count() {
+    let roster = roster();
+    let mut workspace = OpsWorkspace {
+        query: "Alice".into(),
+        ..Default::default()
+    };
+    let rows = workspace.rows(&roster, &OpsPreferences::default());
+    assert_eq!(rows.len(), 3);
+    assert_eq!(rows[1].count, Some(2));
+    assert_eq!(rows[2].target, target(Some("room"), "one"));
+    assert!(workspace.expanded.is_empty() && !workspace.pool_expanded);
+    workspace.query.clear();
+    assert_eq!(workspace.rows(&roster, &OpsPreferences::default()).len(), 2);
+    workspace.query = "Free".into();
+    let rows = workspace.rows(&roster, &OpsPreferences::default());
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[1].target, target(None, "free"));
+    assert!(!workspace.pool_expanded);
+}
+
+#[test]
+fn attention_filter_does_not_turn_incomplete_evidence_into_a_known_non_match() {
+    let mut roster = roster();
+    let workspace = OpsWorkspace {
+        filter: AgentsFilter::NeedsYou,
+        ..Default::default()
+    };
+    for observation in [
+        OpsObservation::Partial,
+        OpsObservation::Stale,
+        OpsObservation::Unavailable,
+    ] {
+        roster.squads[0].observation = observation;
+        let rows = workspace.rows(&roster, &OpsPreferences::default());
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].count, None);
+        assert_eq!(rows[1].count, None);
+        assert_eq!(rows[1].observation, observation);
+    }
+    roster.squads[0].observation = OpsObservation::Complete;
+    assert!(
+        workspace
+            .rows(&roster, &OpsPreferences::default())
+            .is_empty()
+    );
+}
+
 fn target(room: Option<&str>, member: &str) -> OpsTarget {
     OpsTarget::Member {
         room_id: room.map(str::to_owned),

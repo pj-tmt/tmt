@@ -23,6 +23,7 @@ pub enum OpsUiAction {
     Sort,
     ReverseSort,
     OverviewFilter,
+    AgentsFilter,
     Timers,
     WorkspaceSnapshots,
     DiscoverAgents,
@@ -59,6 +60,13 @@ macro_rules! spec {
     };
 }
 const SPECS: &[OpsUiSpec] = &[
+    spec!(
+        AgentsFilter,
+        "agents-filter",
+        "filter",
+        "cycle Agents through all, needs you and pinned squads",
+        11
+    ),
     spec!(
         MonitorDetails,
         "monitor-details",

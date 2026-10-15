@@ -5,20 +5,8 @@ use tmt_cli_style::Role;
 use tmt_tui::components::{Modal, Placement, strip};
 
 fn list_capacity(app: &App, area: Rect) -> usize {
-    use crate::board::conversation::layout::{self, Preference};
-    let placement = if app.shell.tab == OpsTab::Overview {
-        layout::overview(area)
-    } else {
-        let preference =
-            app.workspace_snapshot()
-                .map_or(Preference::Auto, |snapshot| {
-                    match snapshot.preferences.layout {
-                        crate::config::OpsLayout::Auto => Preference::Auto,
-                        crate::config::OpsLayout::Side => Preference::Side,
-                        crate::config::OpsLayout::Stack => Preference::Stack,
-                    }
-                });
-        layout::agents(area, preference, app.focused() == Pane::Replies)
+    let Some(placement) = app.workspace_placement(area) else {
+        return 0;
     };
     let Some(mut list) = placement.list else {
         return 0;

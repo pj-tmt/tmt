@@ -2511,8 +2511,8 @@ printf '%s\n' '{{}}'
             .join("\n");
         assert!(
             screen.contains("quiet")
-                && screen.contains("Lead: not set")
-                && screen.contains("Members: 0"),
+                && screen.contains("Roster preview · Lead — · 0 members")
+                && screen.contains("No members"),
             "{screen}"
         );
 

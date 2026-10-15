@@ -58,6 +58,14 @@ pub struct OpsRoster {
     pub membership_complete: bool,
 }
 
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct ShellCounts {
+    pub online: usize,
+    pub waiting: usize,
+    pub blocked: usize,
+    pub complete: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum OpsTarget {
     Pool,
@@ -76,6 +84,34 @@ pub struct OpsWorkspace {
     pub expanded: BTreeSet<String>,
     pub pool_expanded: bool,
     pub query: String,
+    pub filter: AgentsFilter,
+}
+
+/// Session-local tree scope; it never changes membership or saved preferences.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum AgentsFilter {
+    #[default]
+    All,
+    NeedsYou,
+    Pinned,
+}
+
+impl AgentsFilter {
+    pub fn next(self) -> Self {
+        match self {
+            Self::All => Self::NeedsYou,
+            Self::NeedsYou => Self::Pinned,
+            Self::Pinned => Self::All,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::All => "All",
+            Self::NeedsYou => "Needs you",
+            Self::Pinned => "Pinned",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,6 +139,48 @@ pub struct OpsTreeRow {
 }
 
 impl OpsRoster {
+    /// Independent UUID sets; presence and request attention are different facts.
+    pub fn shell_counts(&self) -> ShellCounts {
+        let mut waiting = BTreeSet::new();
+        let mut blocked = BTreeSet::new();
+        for member in self.members.values() {
+            if member.waiting {
+                waiting.insert(&member.id);
+            }
+            if member.state.as_deref() == Some("blocked") {
+                blocked.insert(&member.id);
+            }
+        }
+        for squad in &self.squads {
+            let members: BTreeSet<_> = squad.members.iter().collect();
+            for (id, state) in &squad.member_states {
+                if !members.contains(id) || !self.members.contains_key(id) {
+                    continue;
+                }
+                if state.waiting {
+                    waiting.insert(id);
+                }
+                if state.state.as_deref() == Some("blocked") {
+                    blocked.insert(id);
+                }
+            }
+        }
+        ShellCounts {
+            online: self
+                .members
+                .values()
+                .filter(|member| member.presence == Some(true))
+                .count(),
+            waiting: waiting.len(),
+            blocked: blocked.len(),
+            complete: self.complete()
+                && self
+                    .members
+                    .values()
+                    .all(|member| member.presence.is_some()),
+        }
+    }
+
     fn members<'a>(&'a self, squad: &'a OpsSquad) -> impl Iterator<Item = &'a OpsMember> {
         squad.members.iter().filter_map(|id| self.members.get(id))
     }
@@ -220,25 +298,39 @@ impl OpsWorkspace {
         let query = self.query.to_lowercase();
         let matches = |name: &str| name.to_lowercase().contains(&query);
         let pool: Vec<_> = roster.pool().collect();
-        // Common pool is always first, including unknown/empty observations.
-        let mut rows = vec![OpsTreeRow {
-            target: OpsTarget::Pool,
-            title: "Common pool".into(),
-            depth: 0,
-            lead: false,
-            state: None,
-            presence: None,
-            usage: None,
-            count: roster.complete().then_some(pool.len()),
-            observation: if roster.complete() {
-                OpsObservation::Complete
-            } else if roster.observation == OpsObservation::Complete {
-                OpsObservation::Partial
-            } else {
-                roster.observation
-            },
-        }];
-        if self.pool_expanded {
+        // All keeps the virtual pool first, including unknown/empty observations.
+        // Attention filtering retains incomplete evidence instead of proving no match.
+        let show_pool = match self.filter {
+            AgentsFilter::All => true,
+            AgentsFilter::NeedsYou => {
+                !roster.complete()
+                    || pool
+                        .iter()
+                        .any(|member| member.waiting || member.state.as_deref() == Some("blocked"))
+            }
+            AgentsFilter::Pinned => false,
+        };
+        let mut rows = Vec::new();
+        if show_pool {
+            rows.push(OpsTreeRow {
+                target: OpsTarget::Pool,
+                title: "Common pool".into(),
+                depth: 0,
+                lead: false,
+                state: None,
+                presence: None,
+                usage: None,
+                count: roster.complete().then_some(pool.len()),
+                observation: if roster.complete() {
+                    OpsObservation::Complete
+                } else if roster.observation == OpsObservation::Complete {
+                    OpsObservation::Partial
+                } else {
+                    roster.observation
+                },
+            });
+        }
+        if show_pool && (self.pool_expanded || !query.is_empty()) {
             let mut pool = pool;
             pool.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.id.cmp(&b.id)));
             for member in pool.into_iter().filter(|member| matches(&member.name)) {
@@ -267,8 +359,24 @@ impl OpsWorkspace {
             order.then_with(|| a.room_id.cmp(&b.room_id))
         });
         for squad in squads {
-            let squad_matches = matches(&squad.name);
+            if match self.filter {
+                AgentsFilter::All => false,
+                AgentsFilter::NeedsYou => {
+                    squad.observation == OpsObservation::Complete && roster.attention(squad) == 0
+                }
+                AgentsFilter::Pinned => !preferences.pinned.contains(&squad.room_id),
+            } {
+                continue;
+            }
+            let squad_matches = matches(&squad.name)
+                || squad
+                    .lead
+                    .as_ref()
+                    .and_then(|id| roster.members.get(id))
+                    .is_some_and(|lead| matches(&lead.name));
             let mut members: Vec<_> = roster.members(squad).collect();
+            let mut seen = BTreeSet::new();
+            members.retain(|member| seen.insert(&member.id));
             if !squad_matches && !members.iter().any(|member| matches(&member.name)) {
                 continue;
             }
@@ -294,7 +402,7 @@ impl OpsWorkspace {
                     .then(|| squad.members.iter().collect::<BTreeSet<_>>().len()),
                 observation: squad.observation,
             });
-            if self.expanded.contains(&squad.room_id) {
+            if self.expanded.contains(&squad.room_id) || !query.is_empty() {
                 let unknown = OpsMembershipState::default();
                 members.sort_by(|a, b| {
                     (squad.lead.as_deref() != Some(&a.id))

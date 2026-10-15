@@ -83,17 +83,23 @@ fn help_chrome_is_opaque_and_end_keeps_its_footer_at_every_capture_width() {
         let mut app = workspace_board();
         key(&mut app, KeyCode::Char('?'));
         let top = draw(&app, width, 30);
-        assert!(top[3].starts_with('┌') && top[3].contains(" help "));
-        assert!(top[28].starts_with('└'));
-        for line in &top[4..28] {
+        let first = top
+            .iter()
+            .position(|line| line.starts_with('┌') && line.contains(" help "))
+            .expect("painted help header");
+        let last = top
+            .iter()
+            .rposition(|line| line.starts_with('└'))
+            .expect("painted help bottom");
+        for line in &top[first + 1..last] {
             assert!(line.starts_with("│ ") && line.ends_with('│'), "{line}");
         }
-        assert!(top[27].contains(super::super::super::help::FOOTER));
+        assert!(top[last - 1].contains(super::super::super::help::FOOTER));
         key(&mut app, KeyCode::End);
         let end = draw(&app, width, 30);
         assert_ne!(end, top);
         assert!(end.iter().any(|line| line.contains("Alt-Backspace")));
-        assert_eq!(end[27], top[27]);
+        assert_eq!(end[last - 1], top[last - 1]);
         key(&mut app, KeyCode::Home);
         assert_eq!(draw(&app, width, 30), top);
     }

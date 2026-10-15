@@ -47,6 +47,9 @@ fn key_label(event: &str) -> &str {
     match event {
         "enter" => "⏎",
         "backspace" => "⌫",
+        "left" => "←",
+        "right" => "→",
+        "tab" => "Tab",
         other => other,
     }
 }
@@ -104,10 +107,23 @@ pub(super) fn hints(app: &App, width: usize) -> String {
 /// Two disjoint Overview hint groups read the one effective binding table.
 /// Compact screens without the panel legend keep the ordinary fitted footer.
 pub(in crate::board) fn overview_legend(app: &App, width: usize) -> Option<[String; 2]> {
+    workspace_legend(app, width, crate::board::shell::OpsTab::Overview)
+}
+
+pub(in crate::board) fn agents_legend(app: &App, width: usize) -> Option<[String; 2]> {
+    workspace_legend(app, width, crate::board::shell::OpsTab::Agents)
+}
+
+fn workspace_legend(
+    app: &App,
+    width: usize,
+    tab: crate::board::shell::OpsTab,
+) -> Option<[String; 2]> {
     use crate::action::{OpsUiAction as Ui, Verb};
-    if app.shell.tab != crate::board::shell::OpsTab::Overview
+    if app.shell.tab != tab
         || app.focused_pane() == Some(crate::config::Pane::Replies)
-        || app.conversation.borrow().area.height < 18
+        || (tab == crate::board::shell::OpsTab::Overview
+            && app.conversation.borrow().area.height < 18)
         || app.usage_chart.borrow().focused()
         || app.modal_open()
         || app.input.is_some()
@@ -148,6 +164,26 @@ pub(in crate::board) fn overview_legend(app: &App, width: usize) -> Option<[Stri
             }
         }
     }
+    if tab == crate::board::shell::OpsTab::Agents {
+        if bindings
+            .get("left")
+            .is_some_and(|a| a.verb == Verb::Ui(Ui::Fold))
+            && bindings
+                .get("right")
+                .is_some_and(|a| a.verb == Verb::Ui(Ui::Expand))
+        {
+            first.push("←→ fold".into());
+        } else {
+            for (verb, preferred, word) in [
+                (Verb::Ui(Ui::Fold), "left", "fold"),
+                (Verb::Ui(Ui::Expand), "right", "expand"),
+            ] {
+                if let Some(key) = find(verb, preferred) {
+                    first.push(format!("{} {word}", key_label(&key)));
+                }
+            }
+        }
+    }
     if let Some(action) = bindings.get("enter").filter(|action| {
         row_allows(app, action) && !matches!(action.verb, Verb::Ui(Ui::Quit | Ui::Help))
     }) {
@@ -156,12 +192,15 @@ pub(in crate::board) fn overview_legend(app: &App, width: usize) -> Option<[Stri
     }
     for (verb, preferred, word) in [
         (Verb::Talk, "t", "chat"),
+        (Verb::ViewReply, "v", "reader"),
         (Verb::Jump, "j", "host"),
         (Verb::Open, "o", "link"),
         (Verb::Ui(Ui::Pin), "p", "pin"),
     ] {
         if seen.contains(&verb)
-            || (verb == Verb::Ui(Ui::Pin) && app.workspace_selected_member().is_none())
+            || (verb == Verb::Ui(Ui::Pin)
+                && tab == crate::board::shell::OpsTab::Overview
+                && app.workspace_selected_member().is_none())
         {
             continue;
         }
@@ -172,15 +211,27 @@ pub(in crate::board) fn overview_legend(app: &App, width: usize) -> Option<[Stri
     }
     let mut second = Vec::new();
     let mut tail = Vec::new();
-    let filter = if app.overview_filter == crate::board::overview::monitor::Filter::All {
+    let filter = if tab == crate::board::shell::OpsTab::Agents {
+        app.workspace.filter.next().label()
+    } else if app.overview_filter == crate::board::overview::monitor::Filter::All {
         "needs you"
     } else {
         "all"
     };
+    let filter_verb = if tab == crate::board::shell::OpsTab::Agents {
+        Ui::AgentsFilter
+    } else {
+        Ui::OverviewFilter
+    };
+    if tab == crate::board::shell::OpsTab::Agents
+        && let Some(key) = find(Verb::NextPane, "tab")
+    {
+        second.push(format!("{} panes", key_label(&key)));
+    }
     for (verb, preferred, word) in [
         (Verb::Ui(Ui::Search), "/", "search"),
         (Verb::Ui(Ui::Timers), "c", "timers"),
-        (Verb::Ui(Ui::OverviewFilter), "f", filter),
+        (Verb::Ui(filter_verb), "f", filter),
         (Verb::Ui(Ui::UsageControls), "u", "chart"),
         (Verb::Settings, ",", "settings"),
         (Verb::Ui(Ui::Help), "?", "help"),
@@ -370,6 +421,15 @@ pub(in crate::board) fn hint_line(text: &str, look: crate::look::Look) -> Line<'
 }
 
 pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::look::Look) {
+    let legend = if footer.height >= 2
+        && app.notice.is_none()
+        && app.error.is_none()
+        && app.migration_notice.is_none()
+    {
+        agents_legend(app, usize::from(footer.width))
+    } else {
+        None
+    };
     if let Some(input) = app.input.as_ref().filter(|input| {
         !matches!(
             input.compose,
@@ -378,6 +438,12 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
                 | crate::board::app::Compose::Workspace
         ) && app.input_band.get().is_none()
     }) {
+        let footer = Rect::new(
+            footer.x,
+            footer.bottom().saturating_sub(1),
+            footer.width,
+            u16::from(footer.height > 0),
+        );
         let hint = input
             .hint
             .as_ref()
@@ -447,7 +513,11 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
         // Notices and errors above stay; the base key hints would misname the keys.
         Line::default()
     } else {
-        hint_line(&hints(app, usize::from(footer.width)), look)
+        let text = legend.as_ref().map_or_else(
+            || hints(app, usize::from(footer.width)),
+            |lines| lines[1].clone(),
+        );
+        hint_line(&text, look)
     };
     if app.settings.is_some() {
         for span in &mut footer_line.spans {
@@ -461,5 +531,18 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
             look.role(Role::Dim),
         ));
     }
+    if let Some([first, _]) = legend {
+        strip::paint_left(
+            frame.buffer_mut(),
+            Rect::new(footer.x, footer.bottom() - 2, footer.width, 1),
+            hint_line(&first, look),
+        );
+    }
+    let footer = Rect::new(
+        footer.x,
+        footer.bottom().saturating_sub(1),
+        footer.width,
+        u16::from(footer.height > 0),
+    );
     strip::paint_left(frame.buffer_mut(), footer, footer_line);
 }

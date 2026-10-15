@@ -246,6 +246,9 @@ pub enum Effect {
 /// What a menu entry does: run a binding, or reply to one open request.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Choice {
+    WorkspaceTimers,
+    AgentsFilter(super::workspace::AgentsFilter),
+    WorkspaceTarget(super::workspace::OpsTarget),
     WorkspaceBegin(super::workspace::manage::Kind),
     WorkspaceRoom {
         kind: super::workspace::manage::Kind,
@@ -615,6 +618,9 @@ pub struct App {
     pub(in crate::board) overview_filter: super::overview::monitor::Filter,
     pub(in crate::board) overview_rows: RefCell<super::overview::monitor::Cache>,
     pub(in crate::board) overview_layout: RefCell<super::overview::columns::Layout>,
+    pub(in crate::board) agents_layout: RefCell<super::workspace::columns::AgentsLayout>,
+    pub(in crate::board) agents_strip_hits: RefCell<Vec<(ratatui::layout::Rect, Choice)>>,
+    pub(in crate::board) workspace_state_cells: RefCell<Vec<ratatui::layout::Rect>>,
     pub(in crate::board) overview_sort_hits:
         RefCell<Vec<(ratatui::layout::Rect, crate::config::OverviewColumn)>>,
     pub(in crate::board) workspace_action_hits:
@@ -1736,11 +1742,21 @@ impl App {
     pub(in crate::board) fn workspace_placement(
         &self,
         area: ratatui::layout::Rect,
-    ) -> Option<super::conversation::layout::Placement> {
+    ) -> Option<super::conversation::layout::WorkspacePlacement> {
         use super::conversation::layout::{self, Preference};
         let snapshot = self.workspace_snapshot()?;
         Some(if self.shell.tab == super::shell::OpsTab::Overview {
-            layout::overview(area)
+            layout::overview(area).into()
+        } else if self.shell.tab == super::shell::OpsTab::Agents {
+            layout::agents_tree(
+                area,
+                match snapshot.preferences.layout {
+                    crate::config::OpsLayout::Auto => Preference::Auto,
+                    crate::config::OpsLayout::Side => Preference::Side,
+                    crate::config::OpsLayout::Stack => Preference::Stack,
+                },
+                self.focused() == Pane::Replies,
+            )
         } else {
             layout::agents(
                 area,
@@ -1751,6 +1767,7 @@ impl App {
                 },
                 self.focused() == Pane::Replies,
             )
+            .into()
         })
     }
 
@@ -2417,6 +2434,31 @@ impl App {
 
     pub(super) fn choose(&mut self, choice: Choice) -> Effect {
         match choice {
+            Choice::WorkspaceTimers => self.workspace_owner_timers(None, None),
+            Choice::AgentsFilter(filter) => self.agents_filter(filter),
+            Choice::WorkspaceTarget(target) => {
+                if self
+                    .workspace_snapshot()
+                    .is_some_and(|snapshot| snapshot.roster.contains(&target))
+                {
+                    if let super::workspace::OpsTarget::Member {
+                        room_id: Some(room),
+                        ..
+                    } = &target
+                    {
+                        self.workspace.expanded.insert(room.clone());
+                    } else if matches!(
+                        target,
+                        super::workspace::OpsTarget::Member { room_id: None, .. }
+                    ) {
+                        self.workspace.pool_expanded = true;
+                    }
+                    self.workspace.selected = Some(target);
+                    self.workspace_reconcile();
+                    self.invalidate_frame_geometry();
+                }
+                Effect::None
+            }
             Choice::WorkspaceBegin(kind) => self.workspace_begin(kind),
             Choice::WorkspaceRoom {
                 kind,
@@ -3396,6 +3438,8 @@ impl App {
         self.overview_sort_hits.borrow_mut().clear();
         self.workspace_header_hover.set(None);
         self.cron_scope_hits.borrow_mut().clear();
+        self.agents_strip_hits.borrow_mut().clear();
+        self.workspace_state_cells.borrow_mut().clear();
         if let Some(details) = &self.monitor_details {
             details.invalidate();
         }
@@ -3519,6 +3563,12 @@ impl App {
         if (self.scrolls.visible(Pane::Rows) || self.conversation.borrow().pane.is_some())
             && let Some(placement) = self.workspace_placement(self.conversation.borrow().area)
         {
+            if placement
+                .agents
+                .is_some_and(|bands| bands.title.contains((column, row).into()))
+            {
+                return Some(Pane::Rows);
+            }
             for (pane, area) in [
                 (Pane::Rows, placement.list),
                 (Pane::Replies, placement.conversation),
@@ -3713,6 +3763,19 @@ impl App {
             return effect;
         }
         if !self.loading() && event.kind == MouseEventKind::Down(MouseButton::Left) {
+            let strip = self
+                .agents_strip_hits
+                .borrow()
+                .iter()
+                .find(|(area, _)| area.contains((event.column, event.row).into()))
+                .map(|(_, choice)| choice.clone());
+            if let Some(choice) = strip {
+                if self.shell.tab == super::shell::OpsTab::Agents && !self.searching {
+                    self.focus = 0;
+                    return self.choose(choice);
+                }
+                return Effect::None;
+            }
             let timer = self
                 .cron_scope_hits
                 .borrow()

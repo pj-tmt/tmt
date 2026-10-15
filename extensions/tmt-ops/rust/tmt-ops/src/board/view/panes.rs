@@ -9,23 +9,10 @@ pub(super) fn render_body(frame: &mut Frame, app: &App, area: Rect) {
     } else {
         let area = if app.shell.tab == crate::board::shell::OpsTab::Agents
             && app.composer_projection().is_some()
-            && app.workspace_snapshot().is_some_and(|snapshot| {
-                use crate::{
-                    board::conversation::layout::{self, Preference},
-                    config::{OpsLayout, Pane},
-                };
-                layout::agents(
-                    area,
-                    match snapshot.preferences.layout {
-                        OpsLayout::Auto => Preference::Auto,
-                        OpsLayout::Side => Preference::Side,
-                        OpsLayout::Stack => Preference::Stack,
-                    },
-                    app.focused() == Pane::Replies,
-                )
-                .conversation
-                .is_none()
-            }) {
+            && app
+                .workspace_placement(area)
+                .is_some_and(|placement| placement.conversation.is_none())
+        {
             let height =
                 super::waiting::input_lines(app, area).min(usize::from(area.height)) as u16;
             app.input_band.set(Some(Rect::new(
@@ -35,11 +22,8 @@ pub(super) fn render_body(frame: &mut Frame, app: &App, area: Rect) {
                 height,
             )));
             let list_height = area.height - height;
-            // The composer paints the shared boundary. Let a decorated tree's
-            // bottom border occupy that same row, rather than stacking rules.
-            let shared_boundary = u16::from(list_height >= 3 && area.width >= 3);
             Rect {
-                height: list_height + shared_boundary,
+                height: list_height,
                 ..area
             }
         } else {

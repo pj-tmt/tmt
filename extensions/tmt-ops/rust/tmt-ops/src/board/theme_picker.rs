@@ -464,8 +464,15 @@ mod tests {
                 let line: String = (0..108).map(|x| buffer[(x, row)].symbol()).collect();
                 line[..line.find(text).expect("header text")].width() as u16
             };
+            let tabs_y = app
+                .tab_hits
+                .borrow()
+                .iter()
+                .find(|hit| hit.tab == 1)
+                .expect("painted Agents tab")
+                .y;
             assert_eq!(
-                buffer[(find(0, "2 Agents"), 0)].fg,
+                buffer[(find(tabs_y, "2 Agents"), tabs_y)].fg,
                 app.look().role(Role::Muted).fg.unwrap_or_default(),
                 "plain shell tabs use the preview without attention badges"
             );
@@ -482,7 +489,7 @@ mod tests {
                 "summary uses previewed text while the mark keeps its retained token"
             );
             assert_eq!(buffer[(find(summary_y, "◆"), summary_y)].fg, expected);
-            let tabs: String = (0..108).map(|x| buffer[(x, 0)].symbol()).collect();
+            let tabs: String = (0..108).map(|x| buffer[(x, tabs_y)].symbol()).collect();
             assert!(!tabs.contains('◆'));
             if override_text.is_empty() {
                 assert_eq!(expected, ratatui::style::Color::Reset);

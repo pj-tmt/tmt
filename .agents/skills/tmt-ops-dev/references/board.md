@@ -102,20 +102,27 @@ state only, no squad data or durable preference policy.
   carries no section binding, and public JSON keeps it outside `sections`.
   The retired UI-only member rule/count is absent; workspace tree rows and counts
   derive from the acquired UUID roster instead of this document projection.
-- `workspace::render::tree` formats the viewport's admitted UUID targets from one
-  acquired roster; it owns no factory grid, boxed-member scene or column-width
-  carry cache. Each row reserves its cursor, fits its supplied state/chips, and
-  publishes only its clipped visible hit rectangle. A repeated identity in two
-  squads remains two room/identity targets with independent room observations.
-  Selection covers the actual row and uses `Look::row_span` plus the common
-  selection-word pass. Model/usage truth remains with acquired observations and
-  their existing owners; painting does not turn missing readings into fresh ones.
+- `workspace::render::tree` paints viewport UUID targets as a fixed-column Agents
+  table. `workspace::columns` owns the Agents profile, captions, whole-column drop
+  policy and shared TUI track/header solver; LEAD is local presentation vocabulary.
+  The list pane's inner width admits LEAD/TOK 1h at 100 cells. Room counts include
+  the distinct lead; connectors follow the filtered sibling sequence. Only state
+  glyphs/words receive state colour. Selection uses a background (the existing
+  reverse fallback in NO_COLOR), and inactive selections keep the pane focus cues.
+  Digest choices and timer counts publish only complete visible frozen hits.
+  The selected group's roster preview is MEMBER / STATE / TASK / NEXT ACTION;
+  choosing a member retains the exact room/identity target. Unknown readings,
+  membership and timer totals remain distinct from observed zero.
+
 - Selection words: `Look::selected_words` is the one owner of what a real selection
   background (`tmt`, `tmt-light`) does to colors. `render_frame` runs it last, over the
   finished buffer: on a cell with the selection background, `muted`, `dim`, `accent`, `link` and the
   state colors (waiting, working, review, blocked) paint in `text` unless the cell is a
   single mark glyph (`MARKS`; a dim or muted mark still becomes `text`). Surfaces name no
-  word/mark classes. The reverse
+  word/mark classes. Agents/Overview State rectangles are frame-local exclusions
+  supplied to that same pass while no blocking overlay is present; the state word
+  keeps its foreground under the selection background. Resize/model replacement
+  and each frame clear these rectangles. The reverse
   fallback stays with `row_span`. The contrast test in `tmt-cli-style` pins text 4.5:1
   and marks 3:1 on that background.
 

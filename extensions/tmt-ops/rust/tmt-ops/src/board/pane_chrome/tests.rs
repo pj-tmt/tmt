@@ -185,8 +185,8 @@ fn real_tree_retains_selected_uuid_and_cursor_but_dims_the_row_when_content_rece
                 .find(|hit| hit.target == HitTarget::Row(app.selected))
                 .copied()
                 .unwrap();
-            let cursor = terminal.backend().buffer()[(hit.x, hit.y)].clone();
-            assert_eq!(cursor.symbol(), "›");
+            let cursor = terminal.backend().buffer()[(hit.x + 3, hit.y)].clone();
+            assert_eq!(cursor.symbol(), "└");
             assert!(
                 cursor.bg == app.look().selection().bg.unwrap_or_default()
                     || cursor.modifier.contains(Modifier::REVERSED)
@@ -195,8 +195,8 @@ fn real_tree_retains_selected_uuid_and_cursor_but_dims_the_row_when_content_rece
             terminal
                 .draw(|frame| crate::board::view::render(frame, &app))
                 .unwrap();
-            let cell = &terminal.backend().buffer()[(hit.x, hit.y)];
-            assert_eq!(cell.symbol(), "›");
+            let cell = &terminal.backend().buffer()[(hit.x + 3, hit.y)];
+            assert_eq!(cell.symbol(), "└");
             assert!(cell.modifier.contains(Modifier::DIM));
             assert!(!cell.modifier.contains(Modifier::REVERSED));
             assert_eq!(app.workspace.selected, selected);

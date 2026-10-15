@@ -104,8 +104,9 @@ workspace's tree, conversation or pending-continuation geometry.
   `lead` (a row, or null) and `attention`: `state` (`waiting`, `blocked` or
   `normal`), `waiting` (members that owe the user a decision or wait for an
   answer) and `blocked` (members in the `blocked` state). These remain CLI/source
-  facts; Overview owns the UI aggregate, while the squad tree displays observed
-  membership state. Agents has no duplicate aggregate count in its tab/header.
+  facts; Overview owns its dashboard aggregate, while the squad tree displays
+  observed membership state. The common shell shows UUID-deduplicated online,
+  waiting and blocked observations on every tab; tab labels have no attention badge.
 - `sections`: always a list. Unless the user defined sections, it holds exactly
   one section with `title: null` containing every member except the lead. With
   user sections, members that match none follow in a final `title: null`
@@ -215,10 +216,10 @@ The effective destination keys work from any non-typing pane or overlay; an
 overlay closes through its own back path before switching. Active text, search
 and completion keep `1`/`2`/`3` as input.
 
-Overview is a one-row-per-identity monitor: Agent, Squad, State, TOK/h, MODE (Digest),
-Cron, Runtime and Model fit the available width. `e` opens full observed values,
+Overview is a one-row-per-identity monitor: Agent, Squad, State, TOK 1h, MODE (Digest),
+◷ CRON, Runtime and Model fit the available width. `e` opens full observed values,
 link/binding scopes, sources and management instructions. Click a column heading
-to toggle its order; keyboard sorting requires authored bindings. TOK/h and Cron start
+to toggle its order; keyboard sorting requires authored bindings. Tokens and Cron start
 descending; other columns ascend. Unknown values stay last in either direction,
 UUID breaks ties, and the initial order puts blocked then waiting first. This
 saved monitor order is independent of the Agents tree order. `f` switches the
@@ -228,8 +229,14 @@ panels; unacquired/failed sources stay unknown. The Summary Timers control opens
 all rooms. With no selected target, Overview `c` does the same; a hidden/missing
 selected scope still refuses to widen.
 
-The Agents tree keeps Common pool first, then pinned squads and its selected sort
-order. Expand a squad to see its members; the lead is marked and included once in
+The Agents tree is a fixed-column table: SQUAD / AGENT, LEAD, MEMBERS / STATE,
+TOK 1h, DIGEST and ◷ CRON. LEAD and room token totals appear at 100 inner list cells;
+narrower tables drop whole optional columns. Only state glyphs/words carry state
+colour, and selection uses a background or the existing NO_COLOR reverse cue.
+All keeps Common pool first, then pinned squads and the selected sort order.
+`f` cycles the session-local All / Needs you / Pinned filter; explicit bindings win.
+Search reveals matching children temporarily without changing saved expansion.
+Expand a squad to see its members; the lead is marked and included once in
 its count. A collapsed squad retains its worst observed member state. An identity
 in several squads keeps each squad's state and one conversation/draft by UUID.
 Common pool means no Ops squad membership, not no Core room membership. Partial
@@ -442,8 +449,9 @@ or a changed target sends nothing.
 
 Overview is the shell's global dashboard. Waiting and blocked observations remain
 visible; a complete read can say `Nothing needs you`, but a partial/stale read
-shows observed counts and says totals are unknown. Agents/Digest keep contextual
-headers instead of repeating global counts. Search, pinning, sorting, expansion,
+shows observed counts and says totals are unknown. The shell keeps online/waiting/
+blocked observations visible across tabs; missing evidence is qualified rather
+than presented as zero. Search, pinning, sorting, expansion,
 refresh and reload retain exact room/identity selection. A hidden or removed
 selected target cannot redirect an operation to an adjacent row.
 
@@ -455,7 +463,10 @@ Model attribution is best effort. Provider limits and sampled history reuse the
 existing bounded observations; reading sends and acknowledges nothing.
 Public `tmt ops sq ls --tab all --json` retains its aggregate document.
 
-Select a squad to inspect its lead, members, usage and timers. Add a member, set or
+Select a squad to inspect its lead-first MEMBER / STATE / TASK / NEXT ACTION roster,
+supplied usage facts and timers. Agents uses a 47% list in Side layout; Auto stacks
+below 120 columns and uses a single focused pane when the usable budgets do not fit.
+The table reserves one range/total/more row. Add a member, set or
 clear its lead, rename it, pin it or open Timers through the named controls or
 Manage. `n` creates from a name, optional lead and explicit members. Assign offers
 add (keep every membership) or move (remove the selected source only after the
@@ -491,7 +502,8 @@ ordinary deliveries; owner and urgent messages can still interrupt.
 
 ## Cron on the board
 
-`c` or the selected squad's Timers control opens the shared job list, scoped by
+The Agents section's Timers control opens all observed rooms without retargeting
+selection. `c` or the selected squad's Timers control opens the shared job list, scoped by
 room UUID. Member counts show active/total jobs: Overview uses that owner across
 rooms, Agents uses the current room, and squad counts include orphan jobs. Counts
 remain unknown after a failed read. Clicking a complete count freezes its room
