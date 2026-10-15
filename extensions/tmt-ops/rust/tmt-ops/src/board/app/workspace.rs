@@ -60,11 +60,13 @@ impl App {
     pub(in crate::board) fn digest_savings_start(
         &self,
         summary: &crate::labels::digest::SavingsSummary,
+        width: usize,
     ) -> Option<String> {
         crate::board::digest_dashboard::savings_start(
             summary,
             self.digest_window(),
             self.local_zone.as_ref().unwrap_or(&jiff::tz::TimeZone::UTC),
+            width,
         )
     }
     pub(in crate::board) fn workspace_rows(&self) -> Rc<[OpsTreeRow]> {

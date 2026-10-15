@@ -655,18 +655,21 @@ fn lifetime_detail_uses_individual_source_starts_in_local_dates() {
         latest_from_ms: Some(ms("2026-10-08T16:00:00Z")),
     };
     assert_eq!(
-        model::savings_start(&value, DigestWindow::AllTime, &zone).as_deref(),
+        model::savings_start(&value, DigestWindow::AllTime, &zone, 160).as_deref(),
         Some("since Digest began recording · members started 10-02 to 10-09")
     );
     value.latest_from_ms = value.earliest_from_ms;
     assert_eq!(
-        model::savings_start(&value, DigestWindow::AllTime, &zone).as_deref(),
+        model::savings_start(&value, DigestWindow::AllTime, &zone, 160).as_deref(),
         Some("since Digest began recording on 10-02")
     );
-    assert_eq!(model::savings_start(&value, DigestWindow::Day, &zone), None);
+    assert_eq!(
+        model::savings_start(&value, DigestWindow::Day, &zone, 160),
+        None
+    );
     value.earliest_from_ms = None;
     assert_eq!(
-        model::savings_start(&value, DigestWindow::AllTime, &zone),
+        model::savings_start(&value, DigestWindow::AllTime, &zone, 160),
         None
     );
 }
@@ -781,6 +784,12 @@ fn digest_all_time_keeps_both_collection_dates_visible_at_narrow_widths() {
         assert!(
             shown.contains("10-09"),
             "last collection date, width {width}: {shown}"
+        );
+        assert!(
+            shown
+                .lines()
+                .any(|line| line.contains("members started 10-02 to 10-09")),
+            "collection date range stays together, width {width}: {shown}"
         );
     }
 }

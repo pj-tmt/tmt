@@ -149,6 +149,7 @@ pub(in crate::board) fn savings_start(
     summary: &crate::labels::digest::SavingsSummary,
     window: crate::config::DigestWindow,
     zone: &jiff::tz::TimeZone,
+    width: usize,
 ) -> Option<String> {
     if window != crate::config::DigestWindow::AllTime {
         return None;
@@ -163,6 +164,14 @@ pub(in crate::board) fn savings_start(
     Some(if first == last {
         format!("since Digest began recording on {first}")
     } else {
-        format!("since Digest began recording · members started {first} to {last}")
+        let prefix = "since Digest began recording ·";
+        let range = format!("members started {first} to {last}");
+        let line = format!("{prefix} {range}");
+        // Keep the collection range together on narrow usage surfaces.
+        if unicode_width::UnicodeWidthStr::width(line.as_str()) > width {
+            format!("{prefix}\n{range}")
+        } else {
+            line
+        }
     })
 }

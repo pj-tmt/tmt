@@ -623,7 +623,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 .map(|line| Line::styled(line, look.role(Role::Dim))),
         );
     }
-    if let Some(start) = app.digest_savings_start(&savings) {
+    if let Some(start) = app.digest_savings_start(&savings, usize::from(area.width)) {
         header.extend(
             super::notes::wrap(&start, usize::from(area.width))
                 .into_iter()

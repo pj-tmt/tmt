@@ -57,9 +57,12 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, mut area: Rect) {
         let savings = app.digest_savings(snapshot.roster.members.keys().map(String::as_str));
         let caption =
             model::savings_caption(&savings, app.digest_window(), usize::from(area.width));
-        for text in [Some(caption), app.digest_savings_start(&savings)]
-            .into_iter()
-            .flatten()
+        for text in [
+            Some(caption),
+            app.digest_savings_start(&savings, usize::from(area.width)),
+        ]
+        .into_iter()
+        .flatten()
         {
             summary.extend(
                 crate::board::notes::wrap(&text, usize::from(area.width))

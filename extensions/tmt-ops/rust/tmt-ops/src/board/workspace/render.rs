@@ -846,7 +846,7 @@ fn roster_preview(frame: &mut Frame, app: &App, mut area: Rect, target: &OpsTarg
                 .into_iter()
                 .map(|text| Line::styled(text, look.role(Role::Dim))),
         );
-        if let Some(start) = app.digest_savings_start(&savings) {
+        if let Some(start) = app.digest_savings_start(&savings, usize::from(area.width)) {
             facts.extend(
                 crate::board::notes::wrap(&start, usize::from(area.width))
                     .into_iter()
