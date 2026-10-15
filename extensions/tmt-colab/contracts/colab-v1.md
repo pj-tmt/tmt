@@ -3151,7 +3151,7 @@ IDs, a missing `space` field and queries that omit a filter.
 | `links`         | checkpoint | `space_page_link`                   | an owner-written enrollment secret and role for a share link; holders cannot read it                                                                                                    |
 | `members`       | checkpoint | `space_page_uid`                    | who may read or write and in which role (`viewer`, `commenter`, `editor`, `bridge`)                                                                                                     |
 | `log`           | log        | `space_page_epoch_stream_seq`       | one immutable encrypted envelope: `uid` (the writer), `hash`, `envelope`, `expiresAt`                                                                                                   |
-| `checkpoints`   | checkpoint | `space_page_epoch_object_index`     | one immutable 32 KiB chunk of an encrypted object: `uid` (the writer), `index` of `count` (at most 513)                                                                                 |
+| `checkpoints`   | checkpoint | `space_page_epoch_object_index`     | one immutable 32 KiB chunk of an encrypted object (a content checkpoint or an epoch's baseline): `uid` (the writer), `index` of `count` (at most 513)                                   |
 | `authority`     | checkpoint | `space_page_epoch_kind_subject_seq` | owner-written exact signed membership statements, key wraps and certificate chains, in immutable chunks                                                                                 |
 
 There is no `blob` resource and no presence resource: Awareness stores nothing on Firestore, and
@@ -3190,6 +3190,13 @@ Late writers are found by repeated runs, even when another writer is far ahead. 
 stream field and **`seq = index + 1`** as the positive chunk sequence; the existing index-based
 ID and first-chunk writer ownership do not change. Their `objects` discovery drops only object.
 Checkpoint and authority limits declare `chunkBytes:32768`; all previous planning bounds remain.
+
+**Epoch baselines.** From the second epoch on, the owner publishes that epoch's exact signed `html`
+baseline original through the same `checkpoints` carrier, chunked like any checkpoint object, with
+the object ID the lowercase hex of the `objectEnvelopeHash` its signed `epoch.advance` names, and
+confirms it before that epoch's wraps. The first epoch has none. A reader finds the object from the
+verified membership log, reassembles every chunk in order and verifies the hash, the signed
+descriptor and the signatures itself; the rows grant no authority and add no collection or Rules.
 
 Authority has exactly three kinds: `membership` (the original signed statement), `wrap` (the
 original signed key-wrap envelope), and `chain` (the original certificate-chain JSON).

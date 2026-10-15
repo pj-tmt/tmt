@@ -251,15 +251,18 @@ fn admission_documents_keep_the_seven_field_member_shape() {
 }
 
 fn sealed_original(kind: &str, plaintext: &[u8]) -> Vec<u8> {
+    sealed_original_at(kind, "1", plaintext)
+}
+fn sealed_original_at(kind: &str, epoch: &str, plaintext: &[u8]) -> Vec<u8> {
     let context = tmt_colab_model::object::Context {
         space: "a".repeat(32),
         page: PAGE.into(),
-        epoch: "1".into(),
+        epoch: epoch.into(),
         kind: kind.into(),
         namespace: "content".into(),
         author_device: STREAM.into(),
         membership_revision: "1".into(),
-        stream_seq: "1".into(),
+        stream_seq: if kind == "html" { "0" } else { "1" }.into(),
         prev_hash: [0; 32],
     };
     tmt_colab_model::object::seal(
@@ -395,6 +398,64 @@ fn a_checkpoint_publishes_through_the_shared_base_and_reads_back_whole() {
     let documents = originals::checkpoint_documents(base, &bytes).unwrap();
     assert_eq!(documents.len(), 3);
     assert_eq!(originals::checkpoint(&documents).unwrap().bytes, bytes);
+}
+fn routing_at(epoch: u64) -> originals::Routing<'static> {
+    originals::Routing { epoch, ..routing() }
+}
+#[test]
+fn a_baseline_publishes_as_chunks_under_its_own_hash_and_reads_back_whole() {
+    let bytes = sealed_original_at("html", "2", &[7; 70_000]);
+    let hash = tmt_extension_objects::Sha256Hex::from_bytes(
+        tmt_colab_model::object::Envelope::from_json(&bytes)
+            .unwrap()
+            .hash()
+            .unwrap(),
+    )
+    .to_string();
+    let documents = originals::baseline_documents(&routing_at(2), &bytes).unwrap();
+    assert!(documents.len() > 2, "chunked like any checkpoint object");
+    for (index, document) in documents.iter().enumerate() {
+        let fields = decode(Resource::Checkpoints, document).unwrap();
+        assert_eq!(fields["object"], string(&hash), "the object ID is the hash");
+        assert_eq!(fields["epoch"], Field::number(2).unwrap());
+        assert_eq!(fields["index"], Field::number(index as u64).unwrap());
+    }
+    let read = originals::baseline(&documents).unwrap();
+    assert_eq!(read.bytes, bytes);
+    // Partial, reordered or doctored sets are not a baseline.
+    assert!(originals::baseline(&documents[1..]).is_err());
+    let mut reordered = documents.clone();
+    reordered.swap(0, 1);
+    assert!(originals::baseline(&reordered).is_err());
+    // A checkpoint reassembles only as a checkpoint, and a baseline only as a baseline.
+    assert!(originals::checkpoint(&documents).is_err());
+    let checkpoint = sealed_original_at("checkpoint", "2", &[7; 70_000]);
+    let base = originals::checkpoint_base(&routing_at(2), &checkpoint).unwrap();
+    let chunks = originals::checkpoint_documents(base, &checkpoint).unwrap();
+    assert!(originals::baseline(&chunks).is_err());
+}
+#[test]
+fn a_baseline_is_refused_for_the_wrong_epoch_kind_or_scope() {
+    let bytes = sealed_original_at("html", "2", b"baseline");
+    assert!(originals::baseline_documents(&routing_at(2), &bytes).is_ok());
+    assert!(
+        originals::baseline_documents(&routing_at(3), &bytes).is_err(),
+        "another epoch's"
+    );
+    assert!(
+        originals::baseline_documents(&routing(), &sealed_original_at("html", "1", b"first"))
+            .is_err(),
+        "the first epoch has no baseline"
+    );
+    assert!(
+        originals::baseline_documents(&routing_at(2), &sealed_original_at("update", "2", b"x"))
+            .is_err(),
+        "an update is not a baseline"
+    );
+    let mut other = routing_at(2);
+    other.page = "10000000-0000-4000-8000-0000000000ff";
+    assert!(originals::baseline_documents(&other, &bytes).is_err());
+    assert!(originals::baseline_documents(&routing_at(2), b"").is_err());
 }
 #[test]
 fn signed_authority_splits_and_reassembles_exactly_and_refuses_anything_partial() {

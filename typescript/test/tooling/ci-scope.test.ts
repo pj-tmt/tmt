@@ -3298,7 +3298,7 @@ describe('native Auth+Firestore emulator selection', () => {
     );
     expect(runner).toContain('runInPrivateWorld');
     expect(runner).toContain("'--ignored'");
-    expect(runner).toContain('const scenarios = 4;');
+    expect(runner).toContain('const scenarios = 5;');
     expect(runner).toContain('passed; 0 failed; 0 ignored;');
     expect(runner).toContain("host: '127.0.0.1'");
     expect(runner).not.toContain('docker');

@@ -1038,3 +1038,171 @@ fn a_link_holder_enrolls_by_the_links_token_and_is_removed_with_the_link() {
     );
     home.stop();
 }
+
+/// The chunks of the checkpoint objects published for `epoch` of this page, as
+/// (object ID, chunk IDs in order, reassembled bytes).
+fn epoch_objects(
+    emulator: &Emulator,
+    page: &str,
+    epoch: u64,
+) -> Vec<(String, Vec<String>, Vec<u8>)> {
+    let mut chunks: Vec<(String, u64, String, Vec<u8>)> =
+        page_documents(emulator, page, "checkpoints")
+            .into_iter()
+            .filter(|(_, fields)| fields["epoch"]["integerValue"] == epoch.to_string().as_str())
+            .map(|(id, fields)| {
+                let index = fields["index"]["integerValue"]
+                    .as_str()
+                    .unwrap()
+                    .parse()
+                    .unwrap();
+                let bytes = tmt_colab_model::values::binary(
+                    fields["bytes"]["stringValue"].as_str().unwrap(),
+                    32_768,
+                )
+                .unwrap();
+                let object = fields["object"]["stringValue"].as_str().unwrap().to_owned();
+                (object, index, id, bytes)
+            })
+            .collect();
+    chunks.sort();
+    let mut objects: Vec<(String, Vec<String>, Vec<u8>)> = Vec::new();
+    for (object, _, id, bytes) in chunks {
+        match objects.last_mut() {
+            Some((last, ids, whole)) if *last == object => {
+                ids.push(id);
+                whole.extend_from_slice(&bytes);
+            }
+            _ => objects.push((object, vec![id], bytes)),
+        }
+    }
+    objects
+}
+
+/// Rotating the epoch publishes that epoch's exact signed baseline, under the hash the signed
+/// `epoch.advance` names, before the wraps of the new epoch; the first epoch has none; a holder of
+/// the replacement link reads it whole.
+#[test]
+#[ignore = "run by the cloud-sync emulator harness"]
+fn a_new_epochs_baseline_reaches_the_cloud_before_its_wraps_and_a_link_holder_reads_it() {
+    let inputs = Inputs::from_env();
+    let emulator = Emulator::new(&inputs);
+    let world = World::new(&inputs, "bsl-a");
+    remote_setup(&world, &inputs);
+    sign_in(&world, &inputs);
+    let created = world.run_json(
+        "tmt-colab",
+        &["page", "create", "--title", "proof", "--no-open", "--json"],
+    );
+    let page = created["pageId"].as_str().unwrap().to_owned();
+    world.run_json(
+        "tmt-colab",
+        &["share", "mode", &page, "link", "--yes", "--json"],
+    );
+    let mut home = Running {
+        facts: Facts::read(&world, &page),
+        world,
+        serve: None,
+        door: None,
+    };
+    home.start();
+    let added = home.world.run_json(
+        "tmt-colab",
+        &["share", "link", "add", &page, "--yes", "--json"],
+    );
+    let old = added["linkId"].as_str().unwrap().to_owned();
+    until("the first epoch's link wrap is in the cloud", || {
+        !wraps_for(&emulator, &page, &format!("link:{old}")).is_empty()
+    });
+    assert!(
+        page_documents(&emulator, &page, "checkpoints").is_empty(),
+        "the first epoch has no baseline"
+    );
+
+    // Resetting the link revokes the old one and rotates the page to epoch 2.
+    let reset = home.world.run_json(
+        "tmt-colab",
+        &["share", "link", "reset", &page, &old, "--yes", "--json"],
+    );
+    let link = reset["linkId"].as_str().unwrap().to_owned();
+    assert_ne!(link, old);
+    let reader = reset["readerPath"].as_str().unwrap();
+    let seed: [u8; 32] = tmt_colab_model::values::binary(
+        reader
+            .split_once('#')
+            .unwrap()
+            .1
+            .split('&')
+            .find_map(|part| part.strip_prefix("seed="))
+            .unwrap(),
+        32,
+    )
+    .unwrap()
+    .try_into()
+    .unwrap();
+    let token = tmt_colab_model::link::Keys::derive(&seed, &home.facts.space, &link)
+        .unwrap()
+        .rules_token();
+    let recipient = format!("link:{link}");
+    until("the new epoch's link wrap is in the cloud", || {
+        !wraps_for(&emulator, &page, &recipient).is_empty()
+    });
+    home.assert_emulator_routing();
+
+    // The wrap is there, so the whole baseline already is: it was confirmed first.
+    let objects = epoch_objects(&emulator, &page, 2);
+    assert_eq!(objects.len(), 1, "one baseline object for the new epoch");
+    let (object, ids, bytes) = &objects[0];
+    let facts = Facts::read(&home.world, &page);
+    assert_eq!(facts.epoch, "2");
+    let key = Keyring::read(&facts.layout).unwrap();
+    let store = Store::open(&facts.layout).unwrap();
+    let stored = store
+        .owner_read(&key.space_id, &key.owner_public(), |tx| {
+            tx.baseline(&page, 2)
+        })
+        .unwrap()
+        .expect("the owner holds the epoch's baseline");
+    assert_eq!(
+        *bytes, stored.envelope,
+        "the cloud holds the owner's exact sealed baseline"
+    );
+    let named = serde_json::from_slice::<Value>(&stored.descriptor).unwrap()["objectEnvelopeHash"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let hash = tmt_colab_model::values::binary(&named, 32).unwrap();
+    assert_eq!(
+        *object,
+        hash.iter().map(|b| format!("{b:02x}")).collect::<String>(),
+        "published under the hash the signed epoch.advance names"
+    );
+    assert!(
+        ids.iter()
+            .enumerate()
+            .all(|(index, id)| { *id == format!("{}_{page}_2_{object}_{index}", facts.space) })
+    );
+
+    // A holder of the replacement link enrolls with its token and reads the chunks whole.
+    let holder = emulator.sign_up();
+    let member = encode(
+        Resource::Members,
+        Fields::from_iter([
+            ("space".into(), text(&facts.space)),
+            ("page".into(), text(&page)),
+            ("uid".into(), text(&holder.uid)),
+            ("role".into(), text("viewer")),
+            ("link".into(), text(&link)),
+            ("token".into(), text(&token)),
+            ("seq".into(), Field::number(1).unwrap()),
+        ]),
+    )
+    .unwrap();
+    assert_eq!(emulator.put(&member, Some(&holder)), 200);
+    for id in ids {
+        assert_eq!(emulator.get_as("checkpoints", id, &holder), 200);
+    }
+    let stranger = emulator.sign_up();
+    assert_eq!(emulator.get_as("checkpoints", &ids[0], &stranger), 403);
+    home.stop();
+}

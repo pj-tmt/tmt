@@ -46,14 +46,15 @@ pub fn log(document: &sync::Document) -> Result<Original, Invalid> {
     Ok(result)
 }
 /// Split one already sealed checkpoint. No new seal, identity or payload store.
-pub fn checkpoint_documents(
-    mut fields: Fields,
-    bytes: &[u8],
-) -> Result<Vec<sync::Document>, Invalid> {
+pub fn checkpoint_documents(fields: Fields, bytes: &[u8]) -> Result<Vec<sync::Document>, Invalid> {
     let parsed = original(bytes.to_vec(), &fields, "checkpoint")?;
     if parsed.header.object_id != text(&fields, "object")? || bytes.is_empty() {
         return Err(Invalid);
     }
+    chunk_documents(fields, bytes)
+}
+/// The chunk records of one exact object, each a whole-field create under the same routing.
+fn chunk_documents(mut fields: Fields, bytes: &[u8]) -> Result<Vec<sync::Document>, Invalid> {
     let count = bytes.len().div_ceil(32_768);
     if count > 513 {
         return Err(Invalid);
@@ -74,6 +75,15 @@ pub fn checkpoint_documents(
 /// A complete ordered object query is required. Partial, duplicate, mixed or
 /// reordered chunks cannot become a checkpoint or advance a verified position.
 pub fn checkpoint(documents: &[sync::Document]) -> Result<Original, Invalid> {
+    let (first, bytes) = chunks(documents)?;
+    let result = original(bytes, &first, "checkpoint")?;
+    if result.header.object_id != text(&first, "object")? {
+        return Err(Invalid);
+    }
+    Ok(result)
+}
+/// The ordered, complete chunks of one object, reassembled, with the first chunk's routing.
+fn chunks(documents: &[sync::Document]) -> Result<(Fields, Vec<u8>), Invalid> {
     let first = decode(Resource::Checkpoints, documents.first().ok_or(Invalid)?)?;
     let count = integer(&first, "count")?;
     if count == 0 || count > 513 || count != documents.len() as u64 {
@@ -97,8 +107,40 @@ pub fn checkpoint(documents: &[sync::Document]) -> Result<Original, Invalid> {
         }
         bytes.extend_from_slice(&chunk);
     }
-    let result = original(bytes, &first, "checkpoint")?;
-    if result.header.object_id != text(&first, "object")? {
+    Ok((first, bytes))
+}
+/// The records that carry an epoch's baseline: the exact sealed `html` original the owner Store
+/// holds, in the checkpoints carrier, under its own hash. `object` is the lowercase hex of the
+/// hash the signed `epoch.advance` names, so a reader finds it from the verified membership log.
+pub fn baseline_documents(
+    routing: &Routing<'_>,
+    bytes: &[u8],
+) -> Result<Vec<sync::Document>, Invalid> {
+    let envelope = object::Envelope::from_json(bytes).map_err(|_| Invalid)?;
+    let header = object::Header::decode(envelope.header()).map_err(|_| Invalid)?;
+    let context = &header.context;
+    if routing.epoch < 2
+        || context.space != routing.space
+        || context.page != routing.page
+        || context.epoch != routing.epoch.to_string()
+        || context.kind != "html"
+        || bytes.is_empty()
+    {
+        return Err(Invalid);
+    }
+    let hash = Sha256Hex::from_bytes(envelope.hash().map_err(|_| Invalid)?).to_string();
+    let mut fields = routing.base()?;
+    fields.insert("object".into(), Field::String(hash));
+    chunk_documents(fields, bytes)
+}
+/// A complete baseline, reassembled: every chunk present and in order, and the sealed original
+/// hashing to the object ID it was published under. Verifying it is the reader's job.
+pub fn baseline(documents: &[sync::Document]) -> Result<Original, Invalid> {
+    let (first, bytes) = chunks(documents)?;
+    let result = original(bytes, &first, "html")?;
+    if Sha256Hex::from_bytes(result.hash).to_string() != text(&first, "object")?
+        || integer(&first, "epoch")? < 2
+    {
         return Err(Invalid);
     }
     Ok(result)
