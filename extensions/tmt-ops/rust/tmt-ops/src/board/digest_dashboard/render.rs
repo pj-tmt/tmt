@@ -53,22 +53,27 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, mut area: Rect) {
     } else {
         summary.push(Line::styled("Usage unavailable", look.role(Role::Muted)));
     }
+    let mut savings_lines = 0..0;
     if let Some(snapshot) = app.workspace_snapshot() {
         let savings = app.digest_savings(snapshot.roster.members.keys().map(String::as_str));
-        let caption =
-            model::savings_caption(&savings, app.digest_window(), usize::from(area.width));
-        for text in [
+        let caption = app.savings_caption(&savings, usize::from(area.width));
+        for (index, text) in [
             Some(caption),
             app.digest_savings_start(&savings, usize::from(area.width)),
         ]
         .into_iter()
         .flatten()
+        .enumerate()
         {
+            let start = summary.len();
             summary.extend(
                 crate::board::notes::wrap(&text, usize::from(area.width))
                     .into_iter()
                     .map(|line| Line::styled(line, look.role(Role::Dim))),
             );
+            if index == 0 {
+                savings_lines = start..summary.len();
+            }
         }
     }
     summary.push(Line::styled(super::summary(app), look.role(Role::Text)));
@@ -106,6 +111,9 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, mut area: Rect) {
                 width: area.width,
                 target: HitTarget::Quota,
             });
+        }
+        if savings_lines.contains(&offset) {
+            app.savings_hit(area.x, area.y + offset as u16, line.width(), area.width);
         }
         strip::paint_left(
             frame.buffer_mut(),

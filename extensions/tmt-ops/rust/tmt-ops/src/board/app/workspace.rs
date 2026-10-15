@@ -61,6 +61,25 @@ impl App {
         next.digest_window = window;
         self.workspace_save(next)
     }
+    /// The unit on screen: the saved choice, except where its window cannot
+    /// show it (lifetime has no percent).
+    pub(in crate::board) fn savings_unit(&self) -> crate::config::SavingsUnit {
+        self.workspace_snapshot()
+            .map_or(crate::config::SavingsUnit::default(), |snapshot| {
+                snapshot.preferences.savings_unit
+            })
+            .shown(self.digest_window())
+    }
+    /// One click or key on any savings figure moves every surface to the next
+    /// unit; the choice is the shared preference, never a view-local state.
+    pub(in crate::board) fn cycle_savings_unit(&mut self) -> Effect {
+        let Some(snapshot) = self.workspace_snapshot() else {
+            return self.say("The workspace has not loaded.");
+        };
+        let mut next = snapshot.preferences.clone();
+        next.savings_unit = self.savings_unit().next(self.digest_window());
+        self.workspace_save(next)
+    }
     pub(in crate::board) fn digest_savings<'a>(
         &self,
         identities: impl IntoIterator<Item = &'a str>,
@@ -69,6 +88,37 @@ impl App {
             self.labels.digest(),
             identities,
             self.digest_window(),
+        )
+    }
+    /// Whether this frame painted an estimate that answers the unit key.
+    pub(in crate::board) fn savings_visible(&self) -> bool {
+        self.workspace_strip_hits
+            .borrow()
+            .iter()
+            .any(|(_, choice)| *choice == crate::board::app::Choice::SavingsUnit)
+    }
+    /// A painted estimate answers a click with the next unit. The rectangle is
+    /// the caption as painted and clipped, so a hidden figure has no hit.
+    pub(in crate::board) fn savings_hit(&self, x: u16, y: u16, width: usize, clip: u16) {
+        let width = width.min(usize::from(clip)) as u16;
+        if width > 0 {
+            self.workspace_strip_hits.borrow_mut().push((
+                ratatui::layout::Rect::new(x, y, width, 1),
+                crate::board::app::Choice::SavingsUnit,
+            ));
+        }
+    }
+    /// The caption in the unit on screen, through the one owner of its wording.
+    pub(in crate::board) fn savings_caption(
+        &self,
+        summary: &crate::labels::digest::SavingsSummary,
+        width: usize,
+    ) -> String {
+        crate::board::digest_dashboard::savings_caption(
+            summary,
+            self.digest_window(),
+            self.savings_unit(),
+            width,
         )
     }
     pub(in crate::board) fn digest_savings_start(
@@ -482,6 +532,7 @@ impl App {
         match action {
             Quit => return Effect::Quit,
             QuotaDetails => return self.open_quota_details(),
+            SavingsUnit => return self.cycle_savings_unit(),
             UsageControls => return super::super::overview::chart::host::focus(self),
             Help => {
                 self.help_state.borrow_mut().open();
@@ -731,8 +782,9 @@ impl App {
             Manage | CreateSquad | RemoveMembership | MoveMembership => {
                 return self.workspace_management(action);
             }
-            Overview | Agents | DigestDashboard | QuotaDetails | UsageControls | Help | Quit
-            | ScrollUp | ScrollDown | ScrollPageUp | ScrollPageDown | ScrollTop | ScrollBottom => {
+            Overview | Agents | DigestDashboard | QuotaDetails | SavingsUnit | UsageControls
+            | Help | Quit | ScrollUp | ScrollDown | ScrollPageUp | ScrollPageDown | ScrollTop
+            | ScrollBottom => {
                 unreachable!("shell actions handled first")
             }
         }

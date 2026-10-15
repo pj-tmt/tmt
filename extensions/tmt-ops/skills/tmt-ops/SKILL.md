@@ -245,6 +245,16 @@ for each member when Digest started recording; the detail names those local date
 The Overview line sums the agents it counts and follows with the estimate only
 when it fits whole (the short `Est. avoided` form first); it is absent while
 Digest status is unavailable.
+Click any estimate to cycle its unit on every view at once: tokens (default), percent
+(`12% of input`) and cost (`≈ $12.40 at list price`). The saved preference is
+`workspace.savings_unit` (`tokens`, `percent`, `cost`), next to the window.
+Percent has no all-time form, so all time shows tokens and the cycle skips it.
+Cost is an estimate at list price for uncached input, never money saved or a bill;
+the Digest tab's Details list the price table and each member's quote and share.
+A sum of percents needs one shared interval and a sum of costs one price table;
+otherwise it reads `— (intervals differ)` or `— (prices differ)`. The `savings-unit`
+action has no default key: bind one under `[bind]` and its hint appears beside a
+painted estimate, or choose `Savings unit` from the Actions menu.
 The effective destination keys work from any non-typing pane or overlay; an
 overlay closes through its own back path before switching. Active text, search
 and completion keep `1`/`2`/`3` as input.
