@@ -226,10 +226,10 @@
             'body:has(>[data-colab-highlight]:not([data-colab-markers])){isolation:isolate}' +
             '::highlight(colab-comments){background:var(--tmt-ui-surface-annotation-highlight);color:inherit;text-decoration:none}' +
             `
-            [data-colab-question-group]{display:block!important}
+            [data-colab-question-group]:not([hidden]){display:block!important}
             [data-colab-question-group]>p[data-title]{font-size:22px!important;font-weight:700!important;line-height:1.35!important}
             [data-colab-question-group]>p[data-title]::before{content:"Q: ";color:color-mix(in srgb,currentColor 45%,transparent)}
-            [data-colab-question]{display:block!important;box-sizing:border-box!important;width:calc(100vw - 32px)!important;margin:0!important;padding:16px!important;background:#fff!important;color:#343434!important;font:16px/1.5 sans-serif!important;overflow-wrap:anywhere}
+            [data-colab-question]{display:block!important;box-sizing:border-box!important;width:100%!important;margin:0!important;padding:16px!important;background:#fff!important;color:#343434!important;font:16px/1.5 sans-serif!important;overflow-wrap:anywhere}
             [data-colab-question]>[data-question]{margin:0!important;font:inherit!important;font-weight:500!important;color:inherit!important}
             [data-colab-question]>[data-question][data-colab-question-number]::before{content:attr(data-colab-question-number) " ";font-weight:400;color:color-mix(in srgb,currentColor 55%,transparent)}
             [data-colab-question-active="false"]{display:none!important}
@@ -632,12 +632,20 @@
               if (spacer.style.minHeight !== height) spacer.style.minHeight = height;
               spacer.style.display = 'block';
               const top = spacer.getBoundingClientRect().top + scrollY;
+              const bounds = matches[0].getBoundingClientRect();
+              if (
+                before &&
+                (target.closest('[hidden]') || !bounds.width || !target.getClientRects().length)
+              )
+                continue;
               if (Number.isFinite(top) && top >= 0 && top <= 1000000)
                 positions.push({
                   id: slot.id,
                   top,
                   ...(before
                     ? {
+                        left: bounds.left,
+                        width: bounds.width,
                         beforeTop: before.getBoundingClientRect().top + scrollY,
                         descriptionHeight: Math.min(
                           2000,
@@ -709,17 +717,6 @@
                       'data-colab-question-number',
                       `Q${group.questions.indexOf(id) + 1}`,
                     );
-                  if (id === group.active) {
-                    // Match the trusted card's 16px page gutter, even with authored body margins.
-                    const element = members[0],
-                      left = element.getBoundingClientRect().left;
-                    if (Math.abs(left - 16) > 0.5)
-                      element.style.setProperty(
-                        'margin-left',
-                        `${(parseFloat(getComputedStyle(element).marginLeft) || 0) + 16 - left}px`,
-                        'important',
-                      );
-                  }
                 }
               }
               // Parent-admitted choices render as trusted controls, not concatenated author labels.

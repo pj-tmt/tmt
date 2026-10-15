@@ -43,6 +43,8 @@ export interface AnchorPosition {
   top: number;
   beforeTop?: number;
   descriptionHeight?: number;
+  left?: number;
+  width?: number;
 }
 export interface InlineSlot {
   id: string;
@@ -208,6 +210,21 @@ export async function mountRenderer(
   };
   const resize = () => {
     slotRounds = 0;
+    // A former valid width cannot remain admitted after the viewport narrows.
+    // The same ordered slot reply will reattach it with current authored bounds.
+    const fitting = lastSlots.filter(
+      (slot) =>
+        slot.left === undefined ||
+        slot.width === undefined ||
+        (slot.left + slot.width <= frame.clientWidth &&
+          frame.getBoundingClientRect().left + slot.left + slot.width <= innerWidth),
+    );
+    if (fitting.length !== lastSlots.length) {
+      lastSlots = fitting;
+      // The former serialization is no longer the admitted placement.
+      slotPositions = '';
+      options.onSlots?.(lastSlots);
+    }
     lastHeight = innerScroll ? viewportHeight() : Math.max(viewportHeight(), reportedHeight);
     growthReports = 0;
     frame.style.height = `${lastHeight}px`;
@@ -495,11 +512,17 @@ export async function mountRenderer(
       const seen = new Set<string>();
       const next: AnchorPosition[] = [];
       for (const slot of value.slots) {
+        const requested = slotHeights.find((item) => item.id === slot?.id);
+        const answer = requested?.before !== undefined;
+        const keys = answer
+          ? ['id', 'top', 'beforeTop', 'descriptionHeight', 'left', 'width']
+          : ['id', 'top'];
         if (
           !slot ||
           typeof slot !== 'object' ||
           Array.isArray(slot) ||
-          (Object.keys(slot).length !== 2 && Object.keys(slot).length !== 4) ||
+          Object.keys(slot).length !== keys.length ||
+          !keys.every((key) => Object.hasOwn(slot, key)) ||
           typeof slot.id !== 'string' ||
           !admitted.has(slot.id) ||
           seen.has(slot.id) ||
@@ -507,25 +530,40 @@ export async function mountRenderer(
           !Number.isFinite(slot.top) ||
           slot.top < 0 ||
           slot.top > MAX_RENDER_HEIGHT ||
-          (Object.keys(slot).length === 4 &&
-            (slotHeights.find((item) => item.id === slot.id)?.before === undefined ||
+          (answer &&
+            (!questionGroups.some((group) => group.id === slot.id) ||
+              typeof slot.beforeTop !== 'number' ||
               !Number.isFinite(slot.beforeTop) ||
               slot.beforeTop < 0 ||
               slot.beforeTop > slot.top ||
+              typeof slot.descriptionHeight !== 'number' ||
               !Number.isFinite(slot.descriptionHeight) ||
               slot.descriptionHeight < 0 ||
               slot.descriptionHeight > 2000 ||
-              Object.keys(slot).some(
-                (key) => !['id', 'top', 'beforeTop', 'descriptionHeight'].includes(key),
-              )))
+              typeof slot.left !== 'number' ||
+              !Number.isFinite(slot.left) ||
+              slot.left < 0 ||
+              slot.left > MAX_RENDER_HEIGHT ||
+              typeof slot.width !== 'number' ||
+              !Number.isFinite(slot.width) ||
+              slot.width <= 0 ||
+              slot.width > MAX_RENDER_HEIGHT ||
+              slot.left + slot.width > frame.clientWidth ||
+              frame.getBoundingClientRect().left + slot.left < 0 ||
+              frame.getBoundingClientRect().left + slot.left + slot.width > innerWidth))
         )
           return;
         seen.add(slot.id);
         next.push({
           id: slot.id,
           top: slot.top,
-          ...(Object.keys(slot).length === 4
-            ? { beforeTop: slot.beforeTop, descriptionHeight: slot.descriptionHeight }
+          ...(answer
+            ? {
+                beforeTop: slot.beforeTop,
+                descriptionHeight: slot.descriptionHeight,
+                left: slot.left,
+                width: slot.width,
+              }
             : {}),
         });
       }

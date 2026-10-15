@@ -86,6 +86,15 @@ open panels spatially; overlapping anchored windows fit above its reserved botto
 marks the hovered target; text-bearing clicks and completed selections open the retained
 anchored discussion. Textless targets show a temporary hint and create nothing. Readers
 have no toggle. No selection navigation prepares, publishes or sends an Ask.
+Question cards follow the actual authored group/standalone bounds measured by the
+opaque frame, through the existing slot owner and its strict cosmetic protocol.
+The [inline slot contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#own-stream-discussion-records-1427)
+owns the exact shapes and admission limits. The parent floating-action placement
+effect reuses its resize/scroll observer to clear attached visible question cards
+containing footers, including answer controls, recipients and Send; with no available space above them,
+the floating actions temporarily hide while header entry points remain available.
+Footer/FAB observers and scroll listeners clean up with that effect. This does not
+change drafts, active-tab geometry retirement, selection coordinates or send policy.
 Author backgrounds and widths belong to the page; parent theme tokens style
 chrome. `theme.ts` reads the parent's explicit root choice, otherwise the live OS
 preference; theme actions record Light/Dark or remove the explicit choice for System only on activation. `renderer.ts` subscribes
