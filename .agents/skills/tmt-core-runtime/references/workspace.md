@@ -81,10 +81,14 @@ not an empty inventory. No new driver port or permission is introduced.
 Global `workspace.snapshotEnabled` defaults to true. Set it with
 `tmt config set --global workspace.snapshotEnabled false` to disable capture.
 Global `workspace.snapshotIntervalMs` is an integer from 0 through 2147483647,
-default 60000. After finite communication and inspection commands flush their
-output, an advisory refresh reads the previous snapshot timestamp once under the
-publication lock. Only an older snapshot (strictly beyond the interval), or a
-missing one, requests bounded capture. A backwards clock keeps the prior snapshot.
+default 60000. After a command that changes state or talks to a pane (talk,
+reply, answer, check, focus, and the mutating identity, room, preamble, role and
+exchange operations) flushes its output, an advisory refresh reads the previous
+snapshot timestamp once under the publication lock. A pure read (`whoami`, `ls`,
+`result`, `inbox`, and every identity, room, preamble, role and exchange
+listing or show) never refreshes, so its caller never waits for a capture. Only
+an older snapshot (strictly beyond the interval), or a missing one, requests
+bounded capture. A backwards clock keeps the prior snapshot.
 Zero disables command refresh while preserving event capture. Fresh snapshots
 need no host or storage reads; due captures retain native caller verification.
 Listen, provider hooks, API/MCP and launch/binding event owners do not use this
