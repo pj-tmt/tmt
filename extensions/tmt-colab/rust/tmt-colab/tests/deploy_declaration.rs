@@ -418,7 +418,7 @@ fn the_sync_mapping_keeps_discovery_separate_from_stream_catchup_and_write_autho
     }
     assert_eq!(
         resource("members")["sync"]["fields"],
-        serde_json::json!(["space", "page", "uid", "role", "link", "token"])
+        serde_json::json!(["space", "page", "uid", "role", "link", "token", "seq"])
     );
     for (name, stream, scopes, shape) in [
         ("log", "stream", vec!["space", "page", "epoch"], "writers"),
@@ -434,6 +434,8 @@ fn the_sync_mapping_keeps_discovery_separate_from_stream_catchup_and_write_autho
             vec!["space", "page", "epoch", "kind", "recipient"],
             "records",
         ),
+        // `seq` is a constant 1 (Rules pin it): the grammar needs an integer for this discovery.
+        ("members", "uid", vec!["space", "page", "link"], "holders"),
     ] {
         let query = &resource(name)["sync"]["query"];
         let mut ordinary = scopes.clone();
@@ -449,7 +451,7 @@ fn the_sync_mapping_keeps_discovery_separate_from_stream_catchup_and_write_autho
             "not dependent on first-record retention"
         );
     }
-    for name in ["spaces", "pages", "links", "members"] {
+    for name in ["spaces", "pages", "links"] {
         assert!(resource(name)["sync"]["query"].is_null());
     }
     assert_eq!(resource("checkpoints")["limits"]["chunkBytes"], 32768);

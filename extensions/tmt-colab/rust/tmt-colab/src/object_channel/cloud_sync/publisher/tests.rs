@@ -2,6 +2,7 @@
 //! preamble, uncertain effects, conflicts and refusals.
 use super::*;
 use crate::cloud_sync::fixture::{BINDING, Firestore, ScriptedRemote, document, peer};
+use crate::object_channel::documents;
 use std::{collections::VecDeque, time::Duration};
 
 const PAGE: &str = "10000000-0000-4000-8000-000000000001";
@@ -21,6 +22,9 @@ struct Fake {
     /// A stream that appears after this many reads: its chain row and its first original.
     arrival: Option<(usize, Row, Data)>,
     reads: usize,
+    /// Links that ended and whose cloud rows are not yet removed.
+    ended: Vec<Retirement>,
+    retired: Vec<String>,
 }
 impl Fake {
     /// Every read of local state may be the moment a concurrent append lands.
@@ -97,6 +101,14 @@ impl Local for Fake {
         };
         self.confirmed.push(format!("update-{seq}"));
         self.queue.pop_front();
+        Ok(())
+    }
+    fn retirements(&mut self, _: &PageRef) -> Result<Vec<Retirement>, Fault> {
+        Ok(self.ended.clone())
+    }
+    fn retired(&mut self, _: &PageRef, link: &str) -> Result<(), Fault> {
+        self.ended.retain(|ended| ended.link != link);
+        self.retired.push(link.into());
         Ok(())
     }
 }
@@ -369,4 +381,132 @@ fn the_page_row_is_written_again_when_its_content_changes_or_its_refresh_interva
     )];
     rig.publisher.pass(&mut local, &page()).unwrap();
     assert_eq!(kinds(&rig).len(), 5);
+}
+
+const LINK: &str = "30000000-0000-4000-8000-000000000001";
+const OTHER_LINK: &str = "30000000-0000-4000-8000-000000000002";
+/// A member row enrolled by `link`, as the provider holds it.
+fn holder(uid: &str, link: &str) -> sync::Document {
+    let page = page();
+    document(
+        "members",
+        &format!("{}_{}_{uid}", page.space, page.page),
+        &[("space", &page.space), ("page", &page.page), ("link", link)],
+    )
+}
+fn ended(link: &str) -> Retirement {
+    let page = page();
+    Retirement {
+        link: link.into(),
+        target: documents::link_target(&page.space, &page.page, link).unwrap(),
+        scope: documents::holders_scope(&page.space, &page.page, link).unwrap(),
+    }
+}
+
+#[test]
+fn an_ended_links_row_goes_first_then_its_holders_and_nothing_else() {
+    let mut rig = rig();
+    let page = page();
+    let link_row = document(
+        "links",
+        &format!("{}_{}_{LINK}", page.space, page.page),
+        &[("link", LINK)],
+    );
+    for doc in [
+        &link_row,
+        &holder("one", LINK),
+        &holder("two", LINK),
+        &holder("kept", OTHER_LINK),
+    ] {
+        rig.firestore.put(doc);
+    }
+    let mut local = Fake {
+        rows: vec![row("spaces", "s")],
+        queue: (1..=1).map(data).collect(),
+        ended: vec![ended(LINK)],
+        ..Fake::default()
+    };
+    assert_eq!(rig.publisher.pass(&mut local, &page), Ok(false));
+    let prefix = format!("{}_{}", page.space, page.page);
+    assert_eq!(
+        kinds(&rig),
+        [
+            "create spaces/s".to_owned(),
+            format!("delete links/{prefix}_{LINK}"),
+            "discover members/".to_owned(),
+            format!("delete members/{prefix}_one"),
+            format!("delete members/{prefix}_two"),
+            "create log/log-1".to_owned(),
+        ],
+        "authority first, then the link's removal, then data"
+    );
+    assert_eq!(local.retired, [LINK]);
+    let docs = rig.firestore.docs.lock().unwrap();
+    assert!(docs.contains_key(&("members".into(), format!("{prefix}_kept"))));
+    assert!(!docs.keys().any(|(resource, _)| resource == "links"));
+}
+
+#[test]
+fn an_ended_link_with_nothing_left_in_the_cloud_is_retired_without_error() {
+    let mut rig = rig();
+    let mut local = Fake {
+        ended: vec![ended(LINK)],
+        ..Fake::default()
+    };
+    assert_eq!(rig.publisher.pass(&mut local, &page()), Ok(false));
+    assert_eq!(
+        local.retired,
+        [LINK],
+        "a refused delete of an absent row reads as gone"
+    );
+}
+
+#[test]
+fn a_retirement_larger_than_a_pass_continues_where_the_discovery_left_off() {
+    let mut rig = rig();
+    rig.firestore
+        .page
+        .store(10, std::sync::atomic::Ordering::SeqCst);
+    for n in 0..70 {
+        rig.firestore.put(&holder(&format!("u{n:02}"), LINK));
+    }
+    let mut local = Fake {
+        ended: vec![ended(LINK)],
+        ..Fake::default()
+    };
+    assert_eq!(rig.publisher.pass(&mut local, &page()), Ok(true));
+    assert!(local.retired.is_empty(), "not retired while holders remain");
+    assert_eq!(
+        rig.firestore.docs.lock().unwrap().len(),
+        70 - PASS_DOCUMENTS
+    );
+    assert_eq!(rig.publisher.pass(&mut local, &page()), Ok(false));
+    assert_eq!(local.retired, [LINK]);
+    assert!(rig.firestore.docs.lock().unwrap().is_empty());
+}
+
+#[test]
+fn a_refused_retirement_other_than_absence_stops_nothing_it_did_not_finish() {
+    let mut rig = rig();
+    rig.firestore.faults.lock().unwrap().refuse_next = Some(sync::Error {
+        code: sync::Code::Budget,
+        state: None,
+        reset_at_ms: Some(1),
+        retry_after_ms: Some(7_000),
+    });
+    let mut local = Fake {
+        ended: vec![ended(LINK)],
+        ..Fake::default()
+    };
+    assert_eq!(
+        rig.publisher.pass(&mut local, &page()),
+        Err(Fault::Budget(7_000))
+    );
+    assert!(local.retired.is_empty());
+    assert_eq!(
+        rig.publisher.pass(&mut local, &page()),
+        Ok(false),
+        "and it is retried"
+    );
+    assert_eq!(local.retired, [LINK]);
 }

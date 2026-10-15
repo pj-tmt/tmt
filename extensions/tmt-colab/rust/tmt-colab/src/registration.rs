@@ -196,6 +196,15 @@ impl Registration {
             summary_source: None,
         })
     }
+    /// The page's current epoch, to name it when the cloud worker is asked to look at it again.
+    pub fn page_epoch(&self, page: &str) -> Option<u64> {
+        self.store
+            .owner_read(&self.keyring.space_id, &self.keyring.owner_public(), |tx| {
+                tx.page_epoch(page)
+            })
+            .ok()?
+            .and_then(|epoch| epoch.parse().ok())
+    }
     /// Server-owned reader clock, injected for deterministic expiry verification.
     pub fn with_reader_clock(
         mut self,

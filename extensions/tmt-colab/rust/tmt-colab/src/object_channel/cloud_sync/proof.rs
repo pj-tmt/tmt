@@ -17,6 +17,7 @@ use crate::store::{Store, StreamScope};
 use base64::Engine;
 use device::{Member, Peer, Writer};
 use emulator::Emulator;
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{
     fs,
@@ -487,6 +488,7 @@ fn member_row(facts: &Facts, page: &str, uid: &str, role: &str) -> sync::Documen
             ("role".into(), text(role)),
             ("link".into(), Field::Null(())),
             ("token".into(), Field::Null(())),
+            ("seq".into(), Field::number(1).unwrap()),
         ]),
     )
     .unwrap()
@@ -860,5 +862,179 @@ fn an_expired_cloud_copy_is_written_again_when_the_page_is_reopened_from_local()
     until("the update made after reopening is published", || {
         in_cloud(&emulator, &page, "log", DEVICE_A) == 4
     });
+    home.stop();
+}
+
+/// The cloud documents of a collection for this page, as (ID, fields), by Admin bypass.
+fn page_documents(emulator: &Emulator, page: &str, collection: &str) -> Vec<(String, Value)> {
+    emulator
+        .list(collection)
+        .into_iter()
+        .filter_map(|document| {
+            let id = document["name"].as_str()?.rsplit('/').next()?.to_owned();
+            id.contains(page).then(|| (id, document["fields"].clone()))
+        })
+        .collect()
+}
+/// The IDs of the authority wraps addressed to `recipient`.
+fn wraps_for(emulator: &Emulator, page: &str, recipient: &str) -> Vec<String> {
+    page_documents(emulator, page, "authority")
+        .into_iter()
+        .filter(|(_, fields)| {
+            fields["kind"]["stringValue"] == "wrap"
+                && fields["recipient"]["stringValue"] == recipient
+        })
+        .map(|(id, _)| id)
+        .collect()
+}
+
+/// A share link reaches the cloud as a row and a wrap addressed to the link; a holder with no
+/// account of the owner's enrolls by the link's token, reads exactly what the link grants, and
+/// loses it all when the link is removed, with no edit to wake the worker.
+#[test]
+#[ignore = "run by the cloud-sync emulator harness"]
+fn a_link_holder_enrolls_by_the_links_token_and_is_removed_with_the_link() {
+    let inputs = Inputs::from_env();
+    let emulator = Emulator::new(&inputs);
+    let world = World::new(&inputs, "lnk-a");
+    remote_setup(&world, &inputs);
+    sign_in(&world, &inputs);
+    let created = world.run_json(
+        "tmt-colab",
+        &["page", "create", "--title", "proof", "--no-open", "--json"],
+    );
+    let page = created["pageId"].as_str().unwrap().to_owned();
+    world.run_json(
+        "tmt-colab",
+        &["share", "mode", &page, "link", "--yes", "--json"],
+    );
+    let mut home = Running {
+        facts: Facts::read(&world, &page),
+        world,
+        serve: None,
+        door: None,
+    };
+    home.start();
+
+    // The link is added while the page is being served and nothing is edited or opened: the
+    // worker is woken by the change itself.
+    let added = home.world.run_json(
+        "tmt-colab",
+        &["share", "link", "add", &page, "--yes", "--json"],
+    );
+    let link = added["linkId"].as_str().unwrap().to_owned();
+    let reader = added["readerPath"].as_str().unwrap();
+    let fragment: std::collections::HashMap<_, _> = reader
+        .split_once('#')
+        .unwrap()
+        .1
+        .split('&')
+        .map(|part| part.split_once('=').unwrap())
+        .collect();
+    let seed: [u8; 32] = tmt_colab_model::values::binary(fragment["seed"], 32)
+        .unwrap()
+        .try_into()
+        .unwrap();
+    let token = tmt_colab_model::link::Keys::derive(&seed, &home.facts.space, &link)
+        .unwrap()
+        .rules_token();
+    let row = format!("{}_{page}_{link}", home.facts.space);
+    until("the link's row and wrap are in the cloud", || {
+        emulator.ids("links").contains(&row)
+            && !wraps_for(&emulator, &page, &format!("link:{link}")).is_empty()
+    });
+    home.assert_emulator_routing();
+    let owner_wrap = page_documents(&emulator, &page, "authority")
+        .into_iter()
+        .find(|(_, fields)| {
+            fields["kind"]["stringValue"] == "wrap"
+                && !fields["recipient"]["stringValue"]
+                    .as_str()
+                    .unwrap()
+                    .starts_with("link:")
+        })
+        .expect("the owner's own wrap")
+        .0;
+    let link_wrap = wraps_for(&emulator, &page, &format!("link:{link}")).remove(0);
+    let links = page_documents(&emulator, &page, "links");
+    assert_eq!(links.len(), 1);
+    assert_eq!(links[0].1["token"]["stringValue"], token.as_str());
+    assert_eq!(links[0].1["role"]["stringValue"], "viewer");
+
+    // A holder enrolls with the link's token and nothing else of the owner's.
+    let holder = emulator.sign_up();
+    let stranger = emulator.sign_up();
+    let enroll = |uid: &str, token: &str| {
+        encode(
+            Resource::Members,
+            Fields::from_iter([
+                ("space".into(), text(&home.facts.space)),
+                ("page".into(), text(&page)),
+                ("uid".into(), text(uid)),
+                ("role".into(), text("viewer")),
+                ("link".into(), text(&link)),
+                ("token".into(), text(token)),
+                ("seq".into(), Field::number(1).unwrap()),
+            ]),
+        )
+        .unwrap()
+    };
+    assert_eq!(
+        emulator.put(&enroll(&stranger.uid, &"X".repeat(43)), Some(&stranger)),
+        403,
+        "a wrong token enrolls nobody"
+    );
+    assert_eq!(
+        emulator.put(&enroll(&holder.uid, &token), Some(&holder)),
+        200,
+        "the link's token enrolls its holder"
+    );
+    // What a holder of the link may read besides its own wrap: the signed membership records.
+    let membership = page_documents(&emulator, &page, "authority")
+        .into_iter()
+        .find(|(_, fields)| fields["kind"]["stringValue"] == "membership")
+        .expect("the signed membership records")
+        .0;
+    assert_eq!(emulator.get_as("authority", &link_wrap, &holder), 200);
+    assert_eq!(
+        emulator.get_as("pages", &format!("{}_{page}", home.facts.space), &holder),
+        200
+    );
+    assert_eq!(emulator.get_as("authority", &membership, &holder), 200);
+    assert_eq!(
+        emulator.get_as("authority", &owner_wrap, &holder),
+        403,
+        "the owner's own wrap is not the link's"
+    );
+    assert_eq!(emulator.get_as("authority", &link_wrap, &stranger), 403);
+    assert_eq!(emulator.get_as("authority", &membership, &stranger), 403);
+
+    // Removing the link takes the row, the holder's enrollment and every read with it, again
+    // with no edit to wake the worker: the row goes first, then the holders it enrolled.
+    home.world.run_json(
+        "tmt-colab",
+        &["share", "link", "remove", &page, &link, "--json"],
+    );
+    until(
+        "the link's row and its holder are gone from the cloud",
+        || {
+            !emulator.ids("links").contains(&row)
+                && !emulator
+                    .ids("members")
+                    .iter()
+                    .any(|id| id.ends_with(&holder.uid))
+        },
+    );
+    assert_eq!(emulator.get_as("authority", &membership, &holder), 403);
+    assert_eq!(emulator.get_as("authority", &link_wrap, &holder), 403);
+    assert_eq!(
+        emulator.get_as("pages", &format!("{}_{page}", home.facts.space), &holder),
+        403
+    );
+    assert_eq!(
+        emulator.put(&enroll(&holder.uid, &token), Some(&holder)),
+        403,
+        "the removed link enrolls nobody again"
+    );
     home.stop();
 }

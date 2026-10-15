@@ -172,10 +172,57 @@ fn authority_ids_and_wrap_discovery_preserve_recipient_boundaries() {
         "wrap has exactly one chunk"
     );
     fields.insert("count".into(), Field::number(1).unwrap());
-    assert!(encode(Resource::Authority, fields).is_ok());
+    assert!(encode(Resource::Authority, fields.clone()).is_ok());
+    // A wrap may be addressed to a link: `link:` and its ID, nothing looser.
+    for (recipient, ok) in [
+        (format!("link:{STREAM}"), true),
+        ("link:".to_owned(), false),
+        ("link:not-an-id".to_owned(), false),
+        (
+            "link:30000000-0000-4000-8000-0000000000AA".to_owned(),
+            false,
+        ),
+        (format!("link: {STREAM}"), false),
+        (format!("Link:{STREAM}"), false),
+        (format!("link:{STREAM}:x"), false),
+    ] {
+        fields.insert("recipient".into(), string(&recipient));
+        assert_eq!(
+            encode(Resource::Authority, fields.clone()).is_ok(),
+            ok,
+            "{recipient}"
+        );
+    }
+    fields.insert("kind".into(), string("chain"));
+    fields.insert("recipient".into(), string(&format!("link:{STREAM}")));
+    assert!(
+        encode(Resource::Authority, fields).is_err(),
+        "only wraps carry a recipient"
+    );
 }
 #[test]
-fn admission_documents_keep_the_six_field_member_shape() {
+fn a_members_seq_is_the_constant_one() {
+    let member = |seq: Option<u64>| {
+        let mut fields = Fields::from_iter([
+            ("space".into(), string(&"a".repeat(32))),
+            ("page".into(), string(PAGE)),
+            ("uid".into(), string("holder")),
+            ("role".into(), string("viewer")),
+            ("link".into(), string(STREAM)),
+            ("token".into(), string(&"T".repeat(43))),
+        ]);
+        if let Some(seq) = seq {
+            fields.insert("seq".into(), Field::number(seq).unwrap());
+        }
+        fields
+    };
+    assert!(encode(Resource::Members, member(Some(1))).is_ok());
+    for seq in [None, Some(0), Some(2)] {
+        assert!(encode(Resource::Members, member(seq)).is_err(), "{seq:?}");
+    }
+}
+#[test]
+fn admission_documents_keep_the_seven_field_member_shape() {
     let member = Fields::from_iter([
         ("space".into(), string(&"a".repeat(32))),
         ("page".into(), string(PAGE)),
@@ -183,6 +230,7 @@ fn admission_documents_keep_the_six_field_member_shape() {
         ("role".into(), string("editor")),
         ("link".into(), Field::Null(())),
         ("token".into(), Field::Null(())),
+        ("seq".into(), Field::number(1).unwrap()),
     ]);
     let doc = encode(Resource::Members, member.clone()).unwrap();
     assert_eq!(doc.fields["link"], json!({"nullValue":null}));

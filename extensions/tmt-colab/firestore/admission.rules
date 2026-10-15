@@ -11,9 +11,12 @@
 //   authority: clients verify the owner chain against the space ID). Never updated or deleted.
 // pages/{space_page}: owner admission, finite expiry at most 365 days from refresh.
 //   Client policy defaults to 30 days; owner overrides are 1 through 365 days.
-//   Deleting it denies every read and write of the page at once.
+//   Deleting it denies every read and write of the page at once. The owner and any member may get
+//   it (routing and lifetime hints, never authority); nobody may list it.
 // links/{space_page_link}: owner-written enrollment secret for a share link, unreadable by holders.
-// members/{space_page_uid}: who may read or write. The owner writes rows; a link holder creates
+// members/{space_page_uid}: who may read or write. `seq` is a constant 1: the declaration grammar
+//   needs an integer for the owner's per-link holder discovery, which row IDs cannot serve.
+//   The owner writes rows; a link holder creates
 //   its own row by equality with the link's secret (Rules cannot hash a join proof).
 // log/{space_page_epoch_stream_seq}: immutable encrypted envelope, contiguous per member stream. A stream
 //   belongs to the uid that wrote its first entry: seq 1 is safe because a stream ID is unknown until
@@ -21,6 +24,9 @@
 //   Consumers still verify the signed checkpoint cut and contiguous tail.
 // checkpoints/{space_page_epoch_object_index}: immutable encrypted chunk, owned by the
 //   uid that wrote index 0 the same way, so no one can fill an object's later chunks with garbage.
+// authority/{space_page_epoch_kind_subject_seq}: owner-written signed records. A member reads the
+//   membership and chain records, and the wraps addressed to its uid or, as a link holder, to
+//   `link:<its link>` (the link on its members row).
 //
 // A list query is admitted by membership and the page's expiry only: Firestore cannot compare
 // a document's own expiresAt with request.time in a query, so a query may return an entry past
@@ -43,7 +49,8 @@ match /spaces/{space} {
 
 match /pages/{id} {
   allow get: if request.auth != null
-    && ext.get(/spaces/$(resource.data.space)).data.owner == request.auth.uid;
+    && (ext.get(/spaces/$(resource.data.space)).data.owner == request.auth.uid
+      || ext.exists(/members/$(resource.data.space + '_' + resource.data.page + '_' + request.auth.uid)));
   allow create, update: if request.auth != null
     && request.resource.data.keys().hasOnly(['space', 'page', 'epoch', 'state', 'expiresAt'])
     && request.resource.data.keys().hasAll(['space', 'page', 'epoch', 'state', 'expiresAt'])
@@ -91,8 +98,9 @@ match /members/{id} {
     && id == request.resource.data.space + '_' + request.resource.data.page + '_' + request.resource.data.uid
     && request.resource.data.role in ['viewer', 'commenter', 'editor', 'bridge']
     && ext.exists(/pages/$(request.resource.data.space + '_' + request.resource.data.page))
-    && request.resource.data.keys().hasOnly(['space', 'page', 'uid', 'role', 'link', 'token'])
-    && request.resource.data.keys().hasAll(['space', 'page', 'uid', 'role', 'link', 'token'])
+    && request.resource.data.keys().hasOnly(['space', 'page', 'uid', 'role', 'link', 'token', 'seq'])
+    && request.resource.data.keys().hasAll(['space', 'page', 'uid', 'role', 'link', 'token', 'seq'])
+    && request.resource.data.seq == 1
     && ((request.resource.data.link == null && request.resource.data.token == null
         && ext.get(/spaces/$(request.resource.data.space)).data.owner == request.auth.uid)
       || (request.method == 'create'
@@ -207,12 +215,18 @@ match /authority/{id} {
     && ext.get(/pages/$(resource.data.space + '_' + resource.data.page)).data.expiresAt > request.time
     && resource.data.expiresAt > request.time
     && ((resource.data.kind in ['membership', 'chain'] && resource.data.recipient == '')
-      || (resource.data.kind == 'wrap' && resource.data.recipient == request.auth.uid));
+      || (resource.data.kind == 'wrap'
+        && (resource.data.recipient == request.auth.uid
+          || (ext.get(/members/$(resource.data.space + '_' + resource.data.page + '_' + request.auth.uid)).data.link is string
+            && resource.data.recipient == 'link:' + ext.get(/members/$(resource.data.space + '_' + resource.data.page + '_' + request.auth.uid)).data.link))));
   allow list: if request.auth != null
     && ext.exists(/members/$(resource.data.space + '_' + resource.data.page + '_' + request.auth.uid))
     && ext.get(/pages/$(resource.data.space + '_' + resource.data.page)).data.expiresAt > request.time
     && ((resource.data.kind in ['membership', 'chain'] && resource.data.recipient == '')
-      || (resource.data.kind == 'wrap' && resource.data.recipient == request.auth.uid));
+      || (resource.data.kind == 'wrap'
+        && (resource.data.recipient == request.auth.uid
+          || (ext.get(/members/$(resource.data.space + '_' + resource.data.page + '_' + request.auth.uid)).data.link is string
+            && resource.data.recipient == 'link:' + ext.get(/members/$(resource.data.space + '_' + resource.data.page + '_' + request.auth.uid)).data.link))));
   allow create: if request.auth != null
     && request.resource.data.keys().hasOnly(['space', 'page', 'epoch', 'kind', 'subject', 'seq', 'count', 'uid', 'recipient', 'bytes', 'expiresAt'])
     && request.resource.data.keys().hasAll(['space', 'page', 'epoch', 'kind', 'subject', 'seq', 'count', 'uid', 'recipient', 'bytes', 'expiresAt'])
