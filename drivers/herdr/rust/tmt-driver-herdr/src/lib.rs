@@ -630,8 +630,9 @@ impl<R: Runner> HerdrDriver<R> {
 
     /// Writes this binding's agent name record, or removes whatever record
     /// the pane holds, and reads the pane back, because Herdr drops a report
-    /// it considers stale without an error. Called only after the rename it
-    /// confirms.
+    /// it considers stale without an error. Called after the rename it
+    /// confirms, or with no name when there is nothing to rename: Herdr took
+    /// the name away with the agent, or the agent has no name already.
     fn record(
         &self,
         socket: &str,

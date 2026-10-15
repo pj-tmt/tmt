@@ -674,7 +674,7 @@ pub(super) fn warnings(
     }
 }
 
-/// The host did not set the agent name after a committed bind or rename:
+/// The host did not confirm the agent name after a committed bind or rename:
 /// the cause, that the binding stays, and the fix.
 pub(super) fn agent_name_warning(
     output: &mut tmt_cli_style::stream::Stream<impl Write>,
