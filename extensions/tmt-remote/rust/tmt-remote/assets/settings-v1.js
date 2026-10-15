@@ -335,6 +335,9 @@ function canonical(value) {
 	const r = value;
 	return `{${Object.keys(r).sort().map((k) => `${JSON.stringify(k)}:${canonical(r[k])}`).join(",")}}`;
 }
+async function checksum(value) {
+	return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", encoder$1.encode(canonical(value)))), (b) => b.toString(16).padStart(2, "0")).join("");
+}
 async function verifyHostedLink(link, origin) {
 	try {
 		valid$1(typeof link === "string" && encoder$1.encode(link).length <= LINK_BYTES);
@@ -353,12 +356,11 @@ async function verifyHostedLink(link, origin) {
 		valid$1(r.version === 1 && r.kind === "firestore" && typeof r.checksum === "string" && /^[a-f0-9]{64}$/.test(r.checksum));
 		const publicConfig = parsePublicWebConfig(r.publicWebConfig);
 		valid$1(origin === `https://${publicConfig.projectId}.web.app`);
-		const body = {
+		valid$1(await checksum({
 			kind: r.kind,
 			publicWebConfig: publicConfig,
 			version: r.version
-		};
-		valid$1(Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", encoder$1.encode(canonical(body)))), (b) => b.toString(16).padStart(2, "0")).join("") === r.checksum && text === canonical(r));
+		}) === r.checksum && text === canonical(r));
 		valid$1(link === `${origin}/pair#${base64url(bytes)}`);
 		return publicConfig;
 	} catch {

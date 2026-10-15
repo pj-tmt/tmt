@@ -81,9 +81,9 @@ assets retain the git-diff regeneration gate. The lazy adapter's bundle check re
 imports, grpc-js and undici. Before loading Auth, `projectId`, `appId` and `authDomain` must
 equal same-origin `/__/firebase/init.json`. A hosted page that calls `connect` must allow
 identitytoolkit.googleapis.com and securetoken.googleapis.com in `connect-src`, plus
-firestore.googleapis.com for sealed-document transport. Colab owns those shell headers;
-the fixture verifies these requirements, not shipped policy. The local path never imports
-Firebase implicitly.
+firestore.googleapis.com for sealed-document transport. Colab owns the hosted shell policy.
+`firebaseRemote.originLink()` derives its public pair link from that same origin; `connect`
+retains every verification check. The local path never imports Firebase implicitly.
 
 ## Sealed-document types
 
@@ -93,7 +93,9 @@ owns context, injected Auth, sequence catch-up, uncertainty and the cloud object
 profile. The browser transport shares hosted App/Auth, uses REST for data and one memory-only
 Web SDK listener per page interest for coalesced wake hints. The caller supplies admission
 reservations before REST attempts/listener starts; listener delivery and REST catch-up are
-separate modeled read costs, including the writer's own listener. Native transport and
+separate modeled read costs, including the writer's own listener. Optional `guard.received`
+reports the full initial server tail and every later batch; its terminal budget refusal
+closes the listener, and the caller joins its ledger jobs. Native transport and
 credentials remain separate slices. Frozen fixtures are not installed provider evidence.
 
 The explicitly selected native emulator acceptance uses the same Colab vectors; see

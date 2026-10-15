@@ -55,8 +55,9 @@ any of the three routes. Files and directories must be real, with supported bare
 The build rejects inventory reaching 128 files, 2 MiB per file, or 8 MiB total (50% of Remote's v1
 caps); three of the file slots are reserved for the SDK copy. It also rejects an inventory whose
 manifest would take the declaration past `deploy-declaration`'s 64 KiB.
-Every manifest file carries the existing native CSP; a renderer entry retains its existing
-renderer CSP. Runtime bytes and the canonical manifest are immutable Cargo snapshots.
+Non-renderer manifest files carry the hosted CSP with exactly the three Firebase connect hosts;
+native parent and renderer policies retain their existing boundaries. Runtime bytes and the
+canonical manifest are immutable Cargo snapshots.
 
 `tmt colab deploy-declaration --json` adds the canonical manifest as the declaration's last
 `hosting` key when the executable embeds one (colab-v1, "tmt colab hosting-bundle --json"), and

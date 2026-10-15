@@ -1,4 +1,4 @@
-import { expect, it } from 'vite-plus/test';
+import { expect, it, vi } from 'vite-plus/test';
 import {
   createBuildWatch,
   entryOf,
@@ -167,4 +167,61 @@ it('reports a stale tab and an older serve independently of a failing read', asy
   expect(await w.instance.check()).toBe(true);
   expect(w.instance.serveOlder()).not.toBeNull();
   expect(w.notified()).toBe(1);
+});
+
+it.each(['/', '/colab', '/pair', '/read/page', '/p/page'])(
+  'never probes the native serve release from hosted entry %s',
+  async (path) => {
+    const url = new URL(path, 'https://demo-colab-reader.web.app');
+    const requests: string[] = [];
+    vi.stubGlobal('location', url);
+    vi.stubGlobal('document', {
+      baseURI: url.href,
+      querySelectorAll: () => [{ src: new URL('/assets/index-ABCDEFGH.js', url).href }],
+    });
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
+      const request = new URL(String(input));
+      requests.push(request.pathname);
+      return new Response(
+        request.pathname.endsWith('/api/serve-release')
+          ? JSON.stringify({ running: 'old', installed: 'new' })
+          : page('/assets/index-ABCDEFGH.js'),
+      );
+    });
+    try {
+      const watch = createBuildWatch();
+      expect(await watch.check()).toBe(false);
+      expect(watch.serveOlder()).toBeNull();
+      expect(requests).toEqual([path]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  },
+);
+
+it('still checks the native release for a mounted owner page', async () => {
+  const url = new URL('https://door.example/r/abc/x/colab/');
+  const requests: string[] = [];
+  vi.stubGlobal('location', url);
+  vi.stubGlobal('document', {
+    baseURI: url.href,
+    querySelectorAll: () => [{ src: new URL('assets/index-ABCDEFGH.js', url).href }],
+  });
+  vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
+    const request = new URL(String(input));
+    requests.push(request.pathname);
+    return new Response(
+      request.pathname.endsWith('/api/serve-release')
+        ? JSON.stringify({ running: 'old', installed: 'new' })
+        : page('assets/index-ABCDEFGH.js'),
+    );
+  });
+  try {
+    const watch = createBuildWatch();
+    expect(await watch.check()).toBe(false);
+    expect(watch.serveOlder()).toEqual({ running: 'old', installed: 'new' });
+    expect(requests).toEqual(['/r/abc/x/colab/', '/r/abc/x/colab/api/serve-release']);
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });

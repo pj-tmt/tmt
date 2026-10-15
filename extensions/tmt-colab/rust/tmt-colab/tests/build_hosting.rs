@@ -162,7 +162,7 @@ fn snapshot_matches_canonical_manifest_and_upstream_sdk_without_runtime_source_p
         if metadata["path"] == "/renderer.html" {
             assert_eq!(metadata["csp"], browser_policy::RENDERER_POLICY);
         } else {
-            assert_eq!(metadata["csp"], browser_policy::POLICY);
+            assert_eq!(metadata["csp"], browser_policy::HOSTED_POLICY);
         }
         if metadata["path"] == "/sdk/remote-v1.js" {
             assert_eq!(bytes, fs::read(&build.sdk).unwrap());
@@ -232,7 +232,7 @@ fn changed_sdk_copy_is_refused_and_input_names_cannot_select_renderer_policy() {
         .iter()
         .find(|file| file["path"] == "/renderer-copy.html")
         .unwrap();
-    assert_eq!(copy["csp"], browser_policy::POLICY);
+    assert_eq!(copy["csp"], browser_policy::HOSTED_POLICY);
     assert_ne!(copy["csp"], browser_policy::RENDERER_POLICY);
 }
 
@@ -408,4 +408,55 @@ fn the_declaration_with_its_manifest_may_reach_the_size_cap_and_not_pass_it() {
     fs::write(&build.declaration, vec![b' '; room + 1]).unwrap();
     let error = build.generate().unwrap_err();
     assert!(error.to_string().contains("declaration exceed"), "{error}");
+}
+
+#[test]
+fn hosted_parent_allows_only_the_three_firebase_hosts_without_broadening_native_or_renderer() {
+    let build = Build::new();
+    build.generate().unwrap();
+    let manifest: Value = serde_json::from_slice(
+        &fs::read(build.output.join("colab-hosting-manifest.json")).unwrap(),
+    )
+    .unwrap();
+    let connect = |policy: &str| -> Vec<String> {
+        policy
+            .split(';')
+            .find(|part| part.trim().starts_with("connect-src "))
+            .unwrap()
+            .split_whitespace()
+            .skip(1)
+            .map(str::to_owned)
+            .collect()
+    };
+    assert_eq!(connect(browser_policy::POLICY), vec!["'self'"]);
+    assert_eq!(connect(browser_policy::RENDERER_POLICY), vec!["'none'"]);
+    for route in ["/index.html", "/reader.html"] {
+        let policy = manifest["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|file| file["path"] == route)
+            .unwrap()["csp"]
+            .as_str()
+            .unwrap();
+        assert_eq!(
+            connect(policy),
+            vec![
+                "'self'",
+                "https://identitytoolkit.googleapis.com",
+                "https://securetoken.googleapis.com",
+                "https://firestore.googleapis.com",
+            ],
+            "{route}"
+        );
+        assert!(!policy.contains("unsafe-inline"));
+        assert!(!policy.contains("*.googleapis.com"));
+    }
+    let renderer = manifest["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|file| file["path"] == "/renderer.html")
+        .unwrap();
+    assert_eq!(renderer["csp"], browser_policy::RENDERER_POLICY);
 }

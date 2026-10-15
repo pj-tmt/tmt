@@ -26,9 +26,14 @@ const calls = vi.hoisted(() => ({
   queries: [] as { collection: unknown; constraints: unknown[] }[],
   listens: 0,
   detached: 0,
+  failed: undefined as undefined | ((error: { code: string }) => void),
   changed: undefined as
     | undefined
-    | ((snapshot: { metadata: { fromCache: boolean }; docChanges(): unknown[] }) => void),
+    | ((snapshot: {
+        metadata: { fromCache: boolean };
+        size: number;
+        docChanges(): unknown[];
+      }) => void),
 }));
 vi.mock('firebase/app', () => ({
   initializeApp: () => {
@@ -71,10 +76,16 @@ vi.mock('firebase/firestore', () => ({
     calls.queries.push(built);
     return built;
   },
-  onSnapshot: (_query: unknown, options: unknown, changed: typeof calls.changed) => {
+  onSnapshot: (
+    _query: unknown,
+    options: unknown,
+    changed: typeof calls.changed,
+    failed: typeof calls.failed,
+  ) => {
     assert.deepEqual(options, { includeMetadataChanges: false });
     calls.listens++;
     calls.changed = changed;
+    calls.failed = failed;
     return () => {
       calls.detached++;
     };
@@ -160,12 +171,14 @@ test('shared listener uses one memory cache and exact page filters, never reads 
   };
   let changed = 0,
     failed = 0;
+  const delivered: (number | undefined)[] = [];
   const before = calls.firestores;
   const stop = await a.wake!.listen(
     context,
     interest,
-    () => {
+    (documents) => {
       changed++;
+      delivered.push(documents);
     },
     () => {
       failed++;
@@ -194,23 +207,29 @@ test('shared listener uses one memory cache and exact page filters, never reads 
   const stop3 = await a.wake!.listen(
     context,
     interest,
-    () => {
+    (documents) => {
       changed++;
+      delivered.push(documents);
     },
     () => {
       failed++;
     },
   );
-  calls.changed!({ metadata: { fromCache: true }, docChanges: () => [{}] });
+  calls.changed!({ metadata: { fromCache: true }, size: 1024, docChanges: () => [{}] });
   assert.equal(changed, 0);
-  calls.changed!({ metadata: { fromCache: false }, docChanges: () => [] });
+  calls.changed!({ metadata: { fromCache: false }, size: 1024, docChanges: () => [] });
   assert.equal(changed, 1);
-  calls.changed!({ metadata: { fromCache: false }, docChanges: () => [] });
+  calls.changed!({ metadata: { fromCache: false }, size: 1024, docChanges: () => [] });
   assert.equal(changed, 1);
-  calls.changed!({ metadata: { fromCache: false }, docChanges: () => [{}] });
+  calls.changed!({ metadata: { fromCache: false }, size: 1024, docChanges: () => [{}] });
   assert.equal(changed, 2);
+  assert.deepEqual(
+    delivered,
+    [1024, 1],
+    'full initial tail, then changed documents, including own writes',
+  );
   await b.signOut();
-  calls.changed!({ metadata: { fromCache: false }, docChanges: () => [{}] });
+  calls.changed!({ metadata: { fromCache: false }, size: 1024, docChanges: () => [{}] });
   assert.equal(changed, 2);
   assert.equal(failed, 1);
   stop();
@@ -257,3 +276,53 @@ test('token bridge checks anonymous provider, aud, sub and expiry without mintin
   assert.equal(calls.signs, count);
   await a.close();
 });
+
+test.each(['permission-denied', 'unauthenticated', 'resource-exhausted'])(
+  'listener %s refusal remains typed so a consumer never starts recovery for it',
+  async (code) => {
+    const config = {
+      apiKey: 'public',
+      projectId: 'demo-listener-denied',
+      authDomain: 'demo-listener-denied.firebaseapp.com',
+      appId: 'denied-app',
+    };
+    const auth = await initialize(config);
+    const user = {
+      uid: 'fixture-uid',
+      isAnonymous: true,
+      async getIdTokenResult() {
+        return {
+          token: 'TOKEN_CANARY',
+          claims: { aud: config.projectId, sub: 'fixture-uid' },
+          signInProvider: 'anonymous',
+          expirationTime: new Date(Date.now() + 60_000).toISOString(),
+        };
+      },
+    };
+    calls.state.currentUser = user;
+    const context = {
+      config,
+      uid: user.uid,
+      extension: 'notes',
+      declarationDigest: 'a'.repeat(64),
+      space: 'space-1',
+      auth: auth.syncAuth!(user.uid),
+      resources: [{ name: 'rows', path: 'rows', maxObjectBytes: 100 }],
+    } satisfies SyncContext;
+    let failure: unknown;
+    const stop = await auth.wake!.listen(
+      context,
+      { resource: 'rows', scope: { space: { stringValue: 'space-1' } } },
+      () => {},
+      (error) => {
+        failure = error;
+      },
+    );
+    calls.failed!({ code });
+    assert.deepEqual(failure, {
+      code: code === 'resource-exhausted' ? 'REMOTE_RATE_LIMITED' : 'REMOTE_SCOPE_DENIED',
+    });
+    stop();
+    await auth.close();
+  },
+);

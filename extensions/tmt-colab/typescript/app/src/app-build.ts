@@ -94,6 +94,8 @@ export function parseServeRelease(value: unknown): ServeRelease | null {
 
 /** The serve's release, or null when the route is absent (an older serve) or unreadable. */
 async function serveRelease(): Promise<ServeRelease | null> {
+  // The installed-release observation belongs to the native mounted serve only.
+  if (!/^\/r\/[a-z0-9]+\/x\/colab(?:\/|$)/.test(location.pathname)) return null;
   const root = new URL(location.href);
   root.hash = '';
   root.search = '';

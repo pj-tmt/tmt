@@ -121,18 +121,27 @@ export async function initialize(config: PublicWebConfig): Promise<FirebaseAuthP
                 { includeMetadataChanges: false },
                 (snapshot) => {
                   if (auth.currentUser?.uid !== user.uid || !auth.currentUser.isAnonymous) {
-                    failed();
+                    failed({ code: 'REMOTE_SCOPE_DENIED' });
                     return;
                   }
                   if (
                     !snapshot.metadata.fromCache &&
                     (firstServer || snapshot.docChanges().length > 0)
                   ) {
+                    const documents = firstServer ? snapshot.size : snapshot.docChanges().length;
                     firstServer = false;
-                    changed();
+                    changed(documents);
                   }
                 },
-                () => failed(),
+                (error) =>
+                  failed({
+                    code:
+                      error.code === 'permission-denied' || error.code === 'unauthenticated'
+                        ? 'REMOTE_SCOPE_DENIED'
+                        : error.code === 'resource-exhausted'
+                          ? 'REMOTE_RATE_LIMITED'
+                          : 'REMOTE_STATE_UNAVAILABLE',
+                  }),
               );
             },
           },
