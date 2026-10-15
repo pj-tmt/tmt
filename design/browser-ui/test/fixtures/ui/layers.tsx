@@ -118,7 +118,7 @@ function LayerGallery() {
       aria-label="Layer qualification fixture"
       className="tmt:font-body tmt:text-(length:--tmt-foundation-command-size) tmt:grid tmt:gap-4 tmt:p-4"
     >
-      <h2>Layers: private host state, no product operations</h2>
+      <h3>Layers: private host state, no product operations</h3>
       <p>
         Controlled close admission is mandatory for these actionable stories. Raw state/unmount
         bypass it. Tooltip retains stock Radix behavior.

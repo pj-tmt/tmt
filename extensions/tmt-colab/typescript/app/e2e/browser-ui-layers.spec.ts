@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Locator, type TestInfo } from '@playwright/test';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 
 // Every scenario mounts the existing private foundation HTML; no product controllers.
 const tokens = JSON.parse(
@@ -135,8 +135,10 @@ async function capture(page: Page, info: TestInfo, name: string): Promise<void> 
   const path = info.outputPath(filename);
   await page.screenshot({ path });
   await info.attach(name, { path, contentType: 'image/png' });
-  await info.attach(`${name}-manifest`, {
-    body: JSON.stringify({
+  const manifest = info.outputPath(`${name}-manifest.json`);
+  writeFileSync(
+    manifest,
+    JSON.stringify({
       test: info.title,
       project: info.project.name,
       viewport: page.viewportSize(),
@@ -144,6 +146,9 @@ async function capture(page: Page, info: TestInfo, name: string): Promise<void> 
       state: await state(page),
       head: process.env.GITHUB_SHA ?? 'local exact head recorded by author',
     }),
+  );
+  await info.attach(`${name}-manifest`, {
+    path: manifest,
     contentType: 'application/json',
   });
 }
