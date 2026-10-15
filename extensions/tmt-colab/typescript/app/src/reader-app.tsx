@@ -28,7 +28,6 @@ export function ReaderApp({
   attachments,
   notice,
   canEdit = false,
-  role,
   accessNote,
   edit,
 }: {
@@ -38,7 +37,6 @@ export function ReaderApp({
   notice?: ReactNode;
   /** The link says it may edit. The serve decides; this only changes what the page offers. */
   canEdit?: boolean;
-  role?: 'viewer' | 'commenter' | 'editor';
   accessNote?: string;
   /** Saves page text; absent until the session is open. */
   edit?: ReaderEdit;
@@ -165,9 +163,7 @@ export function ReaderApp({
                     publisherAgent={state.view.publisherAgent}
                   />
                 )}
-                {(accessNote || role !== 'commenter') && (
-                  <p>{accessNote ?? (canEdit ? text.readerNoteEditor : text.readerNote)}</p>
-                )}
+                <p>{accessNote ?? (canEdit ? text.readerNoteEditor : text.readerNote)}</p>
                 <p>{text.warning}</p>
               </div>
             </details>

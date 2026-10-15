@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, it } from 'vite-plus/test';
 import { HostedApp, hostedFailureCopy, HostedRequestNotice } from '../src/hosted-app.js';
 import type { HostedEntryState } from '../src/hosted-entry.js';
+import { text } from '../src/strings.js';
 
 const markup = (state: HostedEntryState) =>
   renderToStaticMarkup(createElement(HostedApp, { state, signIn() {} }));
@@ -162,6 +163,12 @@ it.each(['viewer', 'commenter', 'editor'] as const)(
     expect(html).not.toContain('Can comment');
     expect(html.includes('source-toggle')).toBe(role === 'editor');
     expect(html).not.toContain('>Ask<');
+    if (role === 'commenter') {
+      expect(html).toContain(text.readerNote);
+      expect(html).not.toContain(
+        renderToStaticMarkup(createElement('p', null, text.readerNoteEditor)),
+      );
+    }
   },
 );
 
