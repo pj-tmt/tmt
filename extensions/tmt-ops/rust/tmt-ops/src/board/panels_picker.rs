@@ -86,7 +86,11 @@ fn rows<P: Panel>(policy: &Panels<P>) -> Vec<(String, String, String)> {
             (
                 panel.key().into(),
                 if policy.shown(*panel) { "✓" } else { "" }.into(),
-                if panel.key() == "usage" && P::SIDE_KEY == "details" {
+                if P::SIDE_KEY == "conversation" && panel.key() == "usage" {
+                    "Usage (fixed header)".into()
+                } else if P::SIDE_KEY == "conversation" && panel.key() == "subscriptions" {
+                    "Quota in Usage (fixed row)".into()
+                } else if panel.key() == "usage" && P::SIDE_KEY == "details" {
                     "Usage".into()
                 } else {
                     label(panel.key()).into()
@@ -131,7 +135,33 @@ fn edit<P: Panel>(
         }
         Edit::Up | Edit::Down => {
             let panel = P::parse(selected).ok_or("Select a vertical panel first.")?;
-            policy.move_panel(panel, matches!(action, Edit::Down));
+            let fixed = |panel: P| {
+                P::SIDE_KEY == "conversation" && matches!(panel.key(), "usage" | "subscriptions")
+            };
+            if fixed(panel) {
+                return Err("Usage has a fixed header; quota shares its provider rows.".into());
+            }
+            let index = policy
+                .order()
+                .iter()
+                .position(|item| *item == panel)
+                .expect("admitted panel");
+            let down = matches!(action, Edit::Down);
+            let next = if down {
+                policy.order()[index + 1..]
+                    .iter()
+                    .position(|item| !fixed(*item))
+                    .map(|offset| index + 1 + offset)
+            } else {
+                policy.order()[..index]
+                    .iter()
+                    .rposition(|item| !fixed(*item))
+            };
+            if let Some(next) = next {
+                for _ in 0..index.abs_diff(next) {
+                    policy.move_panel(panel, down);
+                }
+            }
         }
     }
     *draft = Some(policy);

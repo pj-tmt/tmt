@@ -1,6 +1,4 @@
-//! Direct Each/Range options: input rectangles come from admitted/clipped nodes.
-use super::super::model::Selection;
-use super::{Focus, Hit, Target};
+//! M13 ChipGroup: shared admitted options, selected padding and clipped hit IDs.
 use crate::look::Look;
 use ratatui::{buffer::Buffer, layout::Rect};
 use serde_json::json;
@@ -10,8 +8,8 @@ use tmt_tui::{
     binding::{Node, Schema, Schemas, Scopes, Sources, Template},
     geometry, paint, text,
 };
-const FILE: &str = "ops.usage.controls.xml";
-const MARKUP: &str = r#"<tmt-view version="1" class="w-full"><tmt-repeat each="$.rows" as="row"><tmt-row class="h-1 w-full"><tmt-text bind="row.label" class="shrink-0"/><tmt-repeat each="row.options" as="option"><tmt-text id-bind="option.id" bind="option.text" class="shrink-0"/></tmt-repeat></tmt-row></tmt-repeat></tmt-view>"#;
+const FILE: &str = "ops.board.chip-group.xml";
+const MARKUP: &str = r#"<tmt-view version="1" class="w-full"><tmt-repeat each="$.rows" as="row"><tmt-row class="h-1 w-full"><tmt-text bind="row.label" class="shrink-0"/><tmt-repeat each="row.options" as="option"><tmt-text id-bind="option.id" bind="option.text" class="shrink-0"/><tmt-text bind="option.gap" class="shrink-0"/></tmt-repeat></tmt-row></tmt-repeat></tmt-view>"#;
 struct Data;
 impl Sources for Data {
     type Source = ();
@@ -22,12 +20,32 @@ impl Sources for Data {
         Err("controls use bound values only".into())
     }
 }
-fn node(selection: Selection, summary: Option<&str>, width: u16) -> Node {
+
+#[derive(Clone)]
+pub(in crate::board) struct Choice {
+    pub id: String,
+    pub actionable: bool,
+    pub text: String,
+    pub gap: String,
+    pub selected: bool,
+    pub disabled: bool,
+    pub cursor: bool,
+}
+pub(in crate::board) struct ChipGroup {
+    pub label: String,
+    pub choices: Vec<Choice>,
+}
+pub(in crate::board) struct Hit {
+    pub area: Rect,
+    pub id: String,
+}
+fn node(groups: &[ChipGroup]) -> Node {
     static TEMPLATE: OnceLock<Template<()>> = OnceLock::new();
     let template = TEMPLATE.get_or_init(|| {
         let option = Schema::Object(BTreeMap::from([
             ("id".into(), Schema::StableId),
             ("text".into(), Schema::Scalar),
+            ("gap".into(), Schema::Scalar),
         ]));
         let row = Schema::Object(BTreeMap::from([
             ("label".into(), Schema::Scalar),
@@ -40,71 +58,22 @@ fn node(selection: Selection, summary: Option<&str>, width: u16) -> Node {
         let parsed = tmt_tui::parse(FILE, MARKUP).expect("embedded usage controls");
         tmt_tui::binding::compile(FILE, &parsed, &schema, &Data).expect("typed usage controls")
     });
-    let mut rows: Vec<_> = [("Each  ", "each", Selection::EACH.as_slice(), selection.each_minutes), ("Range ", "range", Selection::RANGE.as_slice(), selection.range_minutes)].into_iter().map(|(label, prefix, values, selected)| {
-        let options: Vec<_> = values.iter().map(|value| json!({"id":format!("{prefix}-{value}"), "text": if *value == selected { format!("[{value:>2}m] ") } else { format!(" {value:>2}m  ") }})).collect();
-        json!({"label":label,"options":options})
-    }).collect();
-    if summary.is_none() && height(width) == 1 {
-        let mut options = rows[0]["options"].as_array().unwrap().clone();
-        options.push(json!({"id":"range-caption", "text":"Range "}));
-        options.extend(rows[1]["options"].as_array().unwrap().iter().cloned());
-        rows = vec![json!({"label":"Each  ", "options":options})];
-    }
-    if let Some(summary) = summary {
-        rows = vec![json!({"label":"", "options":[{"id":"open-chart","text":summary}]})];
-    }
+    let rows:Vec<_>=groups.iter().map(|group|json!({"label":group.label,"options":group.choices.iter().map(|choice|json!({"id":choice.id,"text":choice.text,"gap":choice.gap})).collect::<Vec<_>>()})).collect();
     template
         .materialize(FILE, &json!({"rows":rows}), &Data)
-        .expect("admitted usage controls")
+        .expect("admitted shared chip group")
 }
-pub(super) fn height(width: u16) -> u16 {
-    // Two labels (six cells each) plus the seven existing six-cell options.
-    if width >= 54 { 1 } else { 2 }
-}
-pub(super) fn paint(
+pub(in crate::board) fn paint(
     buffer: &mut Buffer,
     area: Rect,
-    selection: Selection,
-    focus: Option<Focus>,
-    draft: usize,
+    groups: &[ChipGroup],
     look: Look,
 ) -> Vec<Hit> {
-    paint_node(
-        buffer,
-        area,
-        node(selection, None, area.width),
-        selection,
-        focus,
-        draft,
-        look,
-    )
-}
-pub(super) fn summary(
-    buffer: &mut Buffer,
-    area: Rect,
-    selection: Selection,
-    text: &str,
-    look: Look,
-) -> Vec<Hit> {
-    paint_node(
-        buffer,
-        area,
-        node(selection, Some(text), area.width),
-        selection,
-        None,
-        0,
-        look,
-    )
-}
-fn paint_node(
-    buffer: &mut Buffer,
-    area: Rect,
-    node: Node,
-    selection: Selection,
-    focus: Option<Focus>,
-    draft: usize,
-    look: Look,
-) -> Vec<Hit> {
+    let choices: Vec<_> = groups
+        .iter()
+        .flat_map(|group| group.choices.iter())
+        .collect();
+    let node = node(groups);
     let mut cells = geometry::layout(&node, [area.width, area.height], text::measure)
         .expect("usage control geometry");
     for cell in &mut cells {
@@ -113,63 +82,36 @@ fn paint_node(
             rect.y += i32::from(area.y);
         }
     }
-    let target = |id: &str| {
-        if id == "open-chart" {
-            return Some(Target::Controls);
-        }
-        let (prefix, value) = id.split_once('-')?;
-        let value = value.parse().ok()?;
-        match prefix {
-            "each" => Some(Target::Each(value)),
-            "range" => Some(Target::Range(value)),
-            _ => None,
-        }
-    };
     let hits = paint::paint_with(&cells, buffer, |index, _, _| {
-        let choice = cells[index]
-            .node
-            .id
-            .as_ref()
-            .and_then(|id| id.last())
-            .and_then(|id| target(id));
-        let (selected, disabled, cursor) = match choice {
-            Some(Target::Each(v)) => (
-                v == selection.each_minutes,
-                v > selection.range_minutes,
-                focus == Some(Focus::Each) && Selection::EACH[draft] == v,
-            ),
-            Some(Target::Range(v)) => (
-                v == selection.range_minutes,
-                v < selection.each_minutes,
-                focus == Some(Focus::Range) && Selection::RANGE[draft] == v,
-            ),
-            _ => (false, false, false),
-        };
-        let style = if cursor {
-            look.selection()
-        } else {
-            look.role(if disabled {
-                Role::Dim
-            } else if selected {
-                Role::Accent
-            } else {
-                Role::Muted
-            })
-        };
+        let id = cells[index].node.id.as_ref().and_then(|path| path.last());
+        let choice = id.and_then(|id| choices.iter().find(|choice| choice.id == *id));
+        let (selected, disabled, cursor) = choice.map_or((false, false, false), |choice| {
+            (choice.selected, choice.disabled, choice.cursor)
+        });
+        let mut style = look.role(if disabled { Role::Dim } else { Role::Muted });
+        if selected {
+            style = style.add_modifier(ratatui::style::Modifier::REVERSED);
+        }
+        if cursor {
+            style = style.add_modifier(ratatui::style::Modifier::UNDERLINED);
+        }
         (style, Align::Left)
     });
     hits.into_iter()
         .filter_map(|hit| {
-            let target = target(hit.id?.last()?)?;
-            Some(Hit {
-                area: Rect::new(
-                    hit.rect.x.try_into().ok()?,
-                    hit.rect.y.try_into().ok()?,
-                    hit.rect.width.try_into().ok()?,
-                    hit.rect.height.try_into().ok()?,
-                ),
-                target,
-            })
+            let id = hit.id?.last()?.clone();
+            choices
+                .iter()
+                .any(|choice| choice.id == id && choice.actionable)
+                .then_some(Hit {
+                    area: Rect::new(
+                        hit.rect.x.try_into().ok()?,
+                        hit.rect.y.try_into().ok()?,
+                        hit.rect.width.try_into().ok()?,
+                        hit.rect.height.try_into().ok()?,
+                    ),
+                    id,
+                })
         })
         .collect()
 }

@@ -1,8 +1,8 @@
 //! One session chart controller shared by Overview and Digest. Source rings and
 //! frame diffs remain with their existing owners; this cache holds only 12 totals.
-use super::{detail::Details, model::Selection, project, scene::Scene};
+use super::{detail::Details, model::Selection, project};
+use crate::board::m4_spark_row::Scene;
 use crate::{
-    action::{OpsUiAction, Verb},
     board::{
         app::{App, Effect},
         rate::series::{self, Grid, Series},
@@ -19,9 +19,9 @@ use std::{collections::BTreeSet, rc::Rc};
 
 mod controls;
 mod render;
-pub(in crate::board) use render::{demand, render, render_controls, render_panel};
+pub(in crate::board) use render::{demand, overview_demand, render_controls, render_panel};
 #[cfg(test)]
-mod tests;
+pub(in crate::board) mod tests;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Focus {
@@ -53,7 +53,7 @@ pub(in crate::board) struct State {
     hover: Option<usize>,
     observed: Option<Rc<Series>>,
     // The scene key includes all display values, coverage and solved dimensions.
-    scene: Option<(super::model::Series, u16, u8, Scene)>,
+    scene: Option<(crate::board::m4_spark_row::Data, u16, Scene)>,
 }
 impl State {
     pub fn release_focus(&mut self) {

@@ -139,6 +139,21 @@ struct Member {
     began: Option<u64>,
     sampled: Option<u64>,
     buckets: Vec<Bucket>,
+    /// Only mixed-provenance cells need a split. Keys are the owning ring slot,
+    /// removed on replacement; this never carries independent history or totals.
+    provider_splits: BTreeMap<u64, BTreeMap<u16, u128>>,
+    drivers: Vec<String>,
+    current_driver: Option<u16>,
+}
+
+/// Verified counted provenance belongs to each ring cell. Mixed cells retain
+/// only their proven provider portions; current metadata never relabels history.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(in crate::board) enum Provider {
+    #[default]
+    Unknown,
+    Driver(u16),
+    Mixed,
 }
 
 /// Receipt-time batches and coverage; each reporting UUID owns one bounded ring.
@@ -146,6 +161,7 @@ struct Member {
 struct Bucket {
     slot: Option<u64>,
     tokens: u128,
+    provider: Provider,
     evidence: bool,
     gap: bool,
     /// Whole core rollup tokens cannot be split at a shorter window boundary.
@@ -187,15 +203,72 @@ impl Default for Rate {
 }
 
 impl Member {
+    fn observe_driver(&mut self, resume: &serde_json::Value) {
+        self.current_driver = resume["driver"]
+            .as_str()
+            .filter(|driver| crate::board::limits::Provider::from_driver(driver).is_some())
+            .and_then(|driver| match self.driver(driver) {
+                Provider::Driver(id) => Some(id),
+                _ => None,
+            });
+    }
+    fn driver(&mut self, driver: &str) -> Provider {
+        if crate::board::limits::Provider::from_driver(driver).is_none() {
+            return Provider::Unknown;
+        }
+        if let Some(index) = self.drivers.iter().position(|name| name == driver) {
+            return Provider::Driver(index as u16);
+        }
+        // Keep the current display name as well as every counted ring reference.
+        let reusable = (0..self.drivers.len()).find(|index| {
+            let id = *index as u16;
+            self.current_driver != Some(id)
+                && !self
+                    .buckets
+                    .iter()
+                    .any(|bucket| bucket.provider == Provider::Driver(id))
+                && !self
+                    .provider_splits
+                    .values()
+                    .any(|parts| parts.contains_key(&id))
+        });
+        if let Some(index) = reusable {
+            self.drivers[index] = driver.to_owned();
+            Provider::Driver(index as u16)
+        } else if let Ok(index) = u16::try_from(self.drivers.len()) {
+            self.drivers.push(driver.to_owned());
+            Provider::Driver(index)
+        } else {
+            Provider::Unknown
+        }
+    }
+    fn provider_tokens<'a>(&'a self, bucket: &Bucket) -> impl Iterator<Item = (u16, u128)> + 'a {
+        let single = match bucket.provider {
+            Provider::Driver(index) => Some((index, bucket.tokens)),
+            _ => None,
+        };
+        let mixed = if bucket.provider == Provider::Mixed {
+            bucket.slot.and_then(|slot| self.provider_splits.get(&slot))
+        } else {
+            None
+        };
+        single.into_iter().chain(
+            mixed
+                .into_iter()
+                .flat_map(|parts| parts.iter().map(|(id, tokens)| (*id, *tokens))),
+        )
+    }
+
     fn interval(
         &mut self,
         sampled: Option<u64>,
         now: u64,
         evidence: bool,
         gap: bool,
-        tokens: u128,
+        counted: (u128, Provider),
         slots: usize,
     ) {
+        let (tokens, provider) = counted;
         self.sampled = Some(now);
         if !self.reporter {
             return;
@@ -210,6 +283,9 @@ impl Member {
         for slot in start..=end {
             let bucket = &mut self.buckets[(slot % slots as u64) as usize];
             if bucket.slot != Some(slot) {
+                if let Some(old) = bucket.slot {
+                    self.provider_splits.remove(&old);
+                }
                 *bucket = Bucket {
                     slot: Some(slot),
                     ..Default::default()
@@ -218,16 +294,35 @@ impl Member {
             bucket.evidence |= evidence;
             bucket.gap |= gap;
         }
-        // Repeated observations within one slot coalesce, including gap evidence.
-        let bucket = &mut self.buckets[(end % slots as u64) as usize];
-        if bucket.slot != Some(end) {
-            *bucket = Bucket {
+        // Repeated observations within one slot coalesce. Keep proven portions
+        // even when a driver switch or seeded unknown shares that same slot.
+        let index = (end % slots as u64) as usize;
+        if self.buckets[index].slot != Some(end) {
+            if let Some(old) = self.buckets[index].slot {
+                self.provider_splits.remove(&old);
+            }
+            self.buckets[index] = Bucket {
                 slot: Some(end),
                 ..Default::default()
             };
         }
+        let prior = self.buckets[index];
+        let mut portions: BTreeMap<_, _> = self.provider_tokens(&prior).collect();
+        let bucket = &mut self.buckets[index];
         bucket.evidence |= evidence;
         bucket.gap |= gap;
+        if tokens > 0 {
+            if bucket.tokens == 0 || bucket.provider == provider {
+                bucket.provider = provider;
+            } else {
+                match provider {
+                    Provider::Driver(id) => *portions.entry(id).or_default() += tokens,
+                    Provider::Unknown | Provider::Mixed => (),
+                }
+                self.provider_splits.insert(end, portions);
+                bucket.provider = Provider::Mixed;
+            }
+        }
         bucket.tokens += tokens;
     }
 
@@ -283,10 +378,18 @@ impl Rate {
         self.retain(input);
         for id in input.resumes.keys() {
             let state = self.members.entry(id.clone()).or_default();
+            state.observe_driver(&input.resumes[id]);
             let Some(seed) = seeds.get(id).and_then(Option::as_ref) else {
                 state.previous = None;
                 state.blocked = true;
-                state.interval(state.sampled, now, false, state.reporter, 0, self.slots);
+                state.interval(
+                    state.sampled,
+                    now,
+                    false,
+                    state.reporter,
+                    (0, Provider::Unknown),
+                    self.slots,
+                );
                 continue;
             };
             if seed.through > now {
@@ -304,14 +407,30 @@ impl Rate {
             // Includes open live receipts: latest, not through, is the seed watermark.
             for bucket in &mut state.buckets {
                 if bucket.slot.is_some_and(|slot| slot >= seed.from / SLOT_MS) {
+                    if let Some(slot) = bucket.slot {
+                        state.provider_splits.remove(&slot);
+                    }
                     *bucket = Bucket::default();
                 }
             }
-            for slice in &seed.buckets {
+            let latest = Counter::read(&seed.latest);
+            let mut linked =
+                latest.as_ref().is_some_and(|counter| counter.usable) && seed.sampled.is_some();
+            let mut providers = vec![Provider::Unknown; seed.buckets.len()];
+            for (index, slice) in seed.buckets.iter().enumerate().rev() {
+                linked &= slice.complete && !slice.gap && !slice.discontinuous;
+                if linked {
+                    providers[index] = state.driver(&latest.as_ref().unwrap().key.0);
+                }
+            }
+            for (slice, provider) in seed.buckets.iter().zip(providers) {
                 let first = slice.from_ms / SLOT_MS;
                 let last = (slice.to_ms - 1) / SLOT_MS;
                 for slot in first..=last {
                     let bucket = &mut state.buckets[(slot % self.slots as u64) as usize];
+                    if let Some(old) = bucket.slot {
+                        state.provider_splits.remove(&old);
+                    }
                     *bucket = Bucket {
                         slot: Some(slot),
                         evidence: slice.complete,
@@ -324,6 +443,7 @@ impl Rate {
                 }
                 let bucket = &mut state.buckets[(last % self.slots as u64) as usize];
                 bucket.tokens = u128::from(slice.input_tokens) + u128::from(slice.output_tokens);
+                bucket.provider = provider;
                 bucket.source_from = Some(slice.from_ms);
                 bucket.origin = BucketOrigin::History {
                     covered_ms: u32::try_from(slice.covered_ms).ok(),
@@ -345,11 +465,19 @@ impl Rate {
         self.retain(input);
         for (id, resume) in &input.resumes {
             let state = self.members.entry(id.clone()).or_default();
+            state.observe_driver(&input.resumes[id]);
             state.model = resume_model(resume).map(str::to_owned);
             state.reporter |= resume["consumption"].is_object();
             let Some(next) = Counter::read(resume) else {
                 state.blocked = true;
-                state.interval(state.sampled, now, false, state.reporter, 0, self.slots);
+                state.interval(
+                    state.sampled,
+                    now,
+                    false,
+                    state.reporter,
+                    (0, Provider::Unknown),
+                    self.slots,
+                );
                 continue;
             };
             state.reporter = true;
@@ -360,13 +488,27 @@ impl Rate {
                     || (next.sequence == previous.sequence && next != *previous))
             {
                 state.blocked = true;
-                state.interval(state.sampled, now, false, true, 0, self.slots);
+                state.interval(
+                    state.sampled,
+                    now,
+                    false,
+                    true,
+                    (0, Provider::Unknown),
+                    self.slots,
+                );
                 continue;
             }
             if !next.usable {
                 state.previous = Some(next);
                 state.blocked = true;
-                state.interval(state.sampled, now, false, true, 0, self.slots);
+                state.interval(
+                    state.sampled,
+                    now,
+                    false,
+                    true,
+                    (0, Provider::Unknown),
+                    self.slots,
+                );
                 continue;
             }
             let continuous = state.previous.as_ref().filter(|previous| {
@@ -391,9 +533,17 @@ impl Rate {
                 ),
             };
             state.began.get_or_insert(now);
+            let provider = state.driver(&next.key.0);
             state.previous = Some(next);
             state.blocked = false;
-            state.interval(state.sampled, now, evidence, gap, tokens, self.slots);
+            state.interval(
+                state.sampled,
+                now,
+                evidence,
+                gap,
+                (tokens, provider),
+                self.slots,
+            );
         }
     }
 
@@ -408,7 +558,14 @@ impl Rate {
             .is_some_and(|at| now.saturating_sub(at) >= every_ms * 2);
         for member in self.members.values_mut() {
             member.blocked = true;
-            member.interval(member.sampled, now, false, gap, 0, self.slots);
+            member.interval(
+                member.sampled,
+                now,
+                false,
+                gap,
+                (0, Provider::Unknown),
+                self.slots,
+            );
         }
     }
 

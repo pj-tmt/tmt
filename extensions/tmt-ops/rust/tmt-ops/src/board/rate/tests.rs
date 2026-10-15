@@ -710,3 +710,8 @@ fn model_follows_the_last_completed_turn_and_unknown_stays_unknown() {
     rate.sample(&bare, 180_000);
     assert_eq!(rate.model("a"), None);
 }
+
+#[test]
+fn provider_provenance_stays_in_the_existing_ring_cell_budget() {
+    assert_eq!(std::mem::size_of::<Bucket>(), 64);
+}

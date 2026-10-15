@@ -52,6 +52,13 @@ impl App {
         &self,
         area: ratatui::layout::Rect,
     ) -> crate::board::conversation::layout::Placement {
+        let usage = self.overview_usage_band(area);
+        let area = ratatui::layout::Rect::new(
+            area.x,
+            area.y + usage.height,
+            area.width,
+            area.height.saturating_sub(usage.height),
+        );
         // Reader focus alone may come from Tab. The existing UUID draft owner
         // distinguishes an explicit message reveal without another open flag.
         crate::board::conversation::layout::overview_policy(
@@ -62,6 +69,27 @@ impl App {
                     .input
                     .as_ref()
                     .is_some_and(|input| input.draft_key.is_some()),
+        )
+    }
+    pub(in crate::board) fn overview_usage_band(
+        &self,
+        area: ratatui::layout::Rect,
+    ) -> ratatui::layout::Rect {
+        let height = if self.usage_panel_hidden() || self.workspace_snapshot().is_none() {
+            0
+        } else {
+            crate::board::overview::chart::host::overview_demand(
+                self,
+                area.width.saturating_sub(1),
+                area.height,
+                crate::status::now_ms(),
+            )
+        };
+        ratatui::layout::Rect::new(
+            area.x.saturating_add(u16::from(area.width > 0)),
+            area.y,
+            area.width.saturating_sub(1),
+            height,
         )
     }
     pub(in crate::board) fn open_panels(&mut self) -> Effect {

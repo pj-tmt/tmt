@@ -57,11 +57,14 @@ pub struct Bucket {
     pub from_ms: i64,
     pub to_ms: i64,
     pub tokens: Option<u64>,
+    pub providers: std::collections::BTreeMap<String, u64>,
     pub coverage: Coverage,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Series {
+    pub drivers: std::collections::BTreeSet<String>,
+    pub totals: Option<(u128, std::collections::BTreeMap<String, u128>)>,
     pub selection: Selection,
     pub buckets: Vec<Bucket>,
 }
@@ -81,13 +84,42 @@ impl Series {
             if index > 0 && buckets[index - 1].to_ms != bucket.from_ms {
                 return Err("Interval grid is not contiguous");
             }
+            if bucket
+                .providers
+                .values()
+                .map(|n| u128::from(*n))
+                .sum::<u128>()
+                > u128::from(bucket.tokens.unwrap_or(0))
+            {
+                return Err("Provider portions exceed the observed token total");
+            }
             match (bucket.tokens, bucket.coverage) {
                 (None, Coverage::Unknown) | (Some(_), Coverage::Complete | Coverage::Unknown) => (),
                 (Some(_), Coverage::Partial { covered_ms }) if covered_ms <= interval as u64 => (),
                 _ => return Err("Token reading and source coverage disagree"),
             }
         }
-        Ok(Self { selection, buckets })
+        let drivers = buckets
+            .iter()
+            .flat_map(|bucket| bucket.providers.keys().cloned())
+            .collect();
+        let mut amounts = std::collections::BTreeMap::new();
+        let mut total = None;
+        for bucket in &buckets {
+            if let Some(tokens) = bucket.tokens {
+                *total.get_or_insert(0u128) += u128::from(tokens);
+            }
+            for (driver, tokens) in &bucket.providers {
+                *amounts.entry(driver.clone()).or_insert(0u128) += u128::from(*tokens);
+            }
+        }
+        let totals = total.map(|tokens| (tokens, amounts));
+        Ok(Self {
+            drivers,
+            totals,
+            selection,
+            buckets,
+        })
     }
 }
 
@@ -102,6 +134,7 @@ mod tests {
                 from_ms: index as i64 * interval,
                 to_ms: (index as i64 + 1) * interval,
                 tokens: Some(index as u64),
+                providers: Default::default(),
                 coverage: Coverage::Complete,
             })
             .collect()

@@ -265,6 +265,7 @@ pub(in crate::board) enum ClockSurface {
     OverviewQuota { width: u16, rows: usize },
     QuotaDetails,
     UsageChart,
+    OverviewUsageQuota { width: u16 },
 }
 
 impl ClockSurface {
@@ -286,6 +287,12 @@ impl ClockSurface {
                 now,
                 *width,
                 *rows,
+                app.look(),
+            ),
+            Self::OverviewUsageQuota { width } => super::super::overview::quota::usage_clock_mark(
+                app.limits.as_deref(),
+                now,
+                *width,
                 app.look(),
             ),
             Self::UsageChart => super::super::overview::chart::host::clock_mark(app, now),

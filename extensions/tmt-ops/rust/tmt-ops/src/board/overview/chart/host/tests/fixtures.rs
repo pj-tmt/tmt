@@ -31,7 +31,30 @@ pub(super) fn populate_values(app: &mut App, values: [u64; 12]) {
         resumes: BTreeMap::from([(id.clone(), resume.clone())]),
         names: BTreeMap::from([(id.clone(), name)]),
     };
-    let seed = Seed {
+    let seed = seed(values, resume);
+    let mut view = app.view.take().unwrap();
+    view.home_rate.insert(
+        "chart-fixture".into(),
+        RateView {
+            settings: crate::config::TokenRate {
+                enabled: true,
+                reduced_motion: true,
+                ..Default::default()
+            },
+            input,
+            history: Some([(id, Some(seed))].into()),
+        },
+    );
+    let mut snapshot = crate::board::app::tests::snapshot(crate::board::ALL, serde_json::json!([]));
+    snapshot.tabs = app.tabs.clone();
+    snapshot.view = Ok(view);
+    app.apply(snapshot);
+    app.shell.tab = OpsTab::Overview;
+    app.focus = 0;
+}
+
+fn seed(values: [u64; 12], resume: serde_json::Value) -> Seed {
+    Seed {
         from: NOW - 3_600_000,
         through: NOW,
         available: Some(NOW - 3_600_000),
@@ -62,24 +85,143 @@ pub(super) fn populate_values(app: &mut App, values: [u64; 12]) {
                 }
             })
             .collect(),
-    };
-    let mut view = app.view.take().unwrap();
-    view.home_rate.insert(
-        "chart-fixture".into(),
-        RateView {
-            settings: crate::config::TokenRate {
-                enabled: true,
-                reduced_motion: true,
-                ..Default::default()
+    }
+}
+
+/// Three actual rate-ring inputs, including a missing watermark, supply review
+/// captures through the production projection. No display-only provider totals.
+pub(in crate::board) fn mixed(app: &mut App) {
+    use crate::board::workspace::OpsTarget;
+    use serde_json::json;
+    populate(app);
+    let view = app.view.as_mut().unwrap();
+    let home = view.home.as_mut().unwrap();
+    let first = home.workspace.roster.members.keys().next().unwrap().clone();
+    let member = home.workspace.roster.members[&first].clone();
+    let room = home.workspace.roster.squads[0].room_id.clone();
+    let row = home.workspace.rows[&OpsTarget::Member {
+        room_id: Some(room.clone()),
+        identity_id: first.clone(),
+    }]
+        .clone();
+    let rate = view.home_rate.get_mut("chart-fixture").unwrap();
+    let seed = seed(VALUES, rate.input.resumes[&first].clone());
+    rate.history = Some([(first.clone(), Some(seed.clone()))].into());
+    for (id, name, driver) in [
+        (
+            "44444444-4444-4444-8444-444444444444",
+            "codex-worker",
+            "codex",
+        ),
+        (
+            "55555555-5555-4555-8555-555555555555",
+            "unproven-worker",
+            "unknown",
+        ),
+    ] {
+        let mut next = member.clone();
+        next.id = id.into();
+        next.name = name.into();
+        home.workspace.roster.members.insert(id.into(), next);
+        home.workspace.roster.squads[0].members.push(id.into());
+        let mut row = row.clone();
+        row["id"] = json!(id);
+        row["name"] = json!(name);
+        home.workspace.rows.insert(
+            OpsTarget::Member {
+                room_id: Some(room.clone()),
+                identity_id: id.into(),
             },
-            input,
-            history: Some([(id, Some(seed))].into()),
-        },
+            row,
+        );
+        let mut seed = seed.clone();
+        if driver == "unknown" {
+            seed.latest = serde_json::Value::Null;
+        } else {
+            seed.latest["driver"] = json!(driver);
+        }
+        rate.input.resumes.insert(id.into(), seed.latest.clone());
+        rate.input.names.insert(id.into(), name.into());
+        rate.history.as_mut().unwrap().insert(id.into(), Some(seed));
+    }
+    home.workspace.shell_counts = home.workspace.roster.shell_counts();
+    home.summary.members = 3;
+    home.summary.working = 3;
+    let mut snapshot = crate::board::app::tests::snapshot(crate::board::ALL, json!([]));
+    snapshot.tabs = app.tabs.clone();
+    snapshot.view = Ok(app.view.take().unwrap());
+    app.apply(snapshot);
+    app.references = crate::board::inventory::Inventory::from_listed(
+        &[],
+        &Ok(json!({"identities":[
+            {"id":first,"name":"worker","canonicalName":"worker"},
+            {"id":"44444444-4444-4444-8444-444444444444","name":"codex-worker","canonicalName":"codex-worker"},
+            {"id":"33333333-3333-4333-8333-333333333333","name":"Owner","canonicalName":"owner"}
+        ]})),
     );
+    use crate::board::limits::{Provider, Reading, Standing, Window};
+    app.limits = Some(vec![
+        Standing {
+            provider: Provider::named("claude"),
+            latest: Some(Reading {
+                observed_at_ms: NOW,
+                weekly: Window {
+                    left: 82.0,
+                    resets_at_ms: NOW + 86_400_000,
+                },
+                short: Some(Window {
+                    left: 98.0,
+                    resets_at_ms: NOW + 3_600_000,
+                }),
+            }),
+            burn: None,
+            trend: None,
+        },
+        Standing {
+            provider: Provider::named("codex"),
+            latest: Some(Reading {
+                observed_at_ms: NOW,
+                weekly: Window {
+                    left: 88.0,
+                    resets_at_ms: NOW + 576_000_000,
+                },
+                short: None,
+            }),
+            burn: None,
+            trend: None,
+        },
+    ]);
+    app.overview_rows.borrow_mut().clear();
+}
+
+/// Authoritative empty history after populated evidence must revoke every old
+/// count/hit while retaining acquired driver names and separately held quotas.
+pub(super) fn unreported(app: &mut App) {
+    mixed(app);
+    let mut view = app.view.take().unwrap();
+    for rate in view.home_rate.values_mut() {
+        let mut seeds = BTreeMap::new();
+        for (id, resume) in &mut rate.input.resumes {
+            if resume.is_object() {
+                resume["consumption"] = serde_json::Value::Null;
+            }
+            seeds.insert(
+                id.clone(),
+                Some(Seed {
+                    from: NOW - 3_600_000,
+                    through: NOW,
+                    available: None,
+                    sampled: None,
+                    latest: serde_json::Value::Null,
+                    reporting: false,
+                    buckets: Vec::new(),
+                }),
+            );
+        }
+        rate.history = Some(seeds);
+    }
     let mut snapshot = crate::board::app::tests::snapshot(crate::board::ALL, serde_json::json!([]));
     snapshot.tabs = app.tabs.clone();
     snapshot.view = Ok(view);
     app.apply(snapshot);
-    app.shell.tab = OpsTab::Overview;
-    app.focus = 0;
 }

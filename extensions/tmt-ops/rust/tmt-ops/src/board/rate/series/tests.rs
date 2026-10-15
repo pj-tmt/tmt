@@ -7,8 +7,8 @@ use crate::board::rate::{history, tests::input};
 
 const HOUR: u64 = 3_600_000;
 
-fn seeded(zero: bool, partial: bool) -> Rate {
-    let seed = history::Seed {
+fn history_seed(zero: bool, partial: bool) -> history::Seed {
+    history::Seed {
         from: 0,
         through: HOUR,
         available: Some(0),
@@ -28,7 +28,10 @@ fn seeded(zero: bool, partial: bool) -> Rate {
                 discontinuous: false,
             })
             .collect(),
-    };
+    }
+}
+fn seeded(zero: bool, partial: bool) -> Rate {
+    let seed = history_seed(zero, partial);
     let mut rate = Rate::default();
     rate.seed(
         &input(100),
@@ -217,4 +220,165 @@ fn canonical_scope_counts_missing_pool_members_and_excludes_stale_ids() {
             .iter()
             .all(|b| b.identities == 1 && b.tokens.is_none())
     );
+}
+
+#[test]
+fn historical_provider_suffix_stops_at_gaps_boundaries_and_an_unusable_watermark() {
+    let grid = Grid::new(300_000, HOUR, HOUR).unwrap();
+    for boundary in ["gap", "discontinuous", "watermark", "sample", "driver"] {
+        let mut seed = history_seed(false, false);
+        seed.latest["driver"] = serde_json::json!("codex");
+        match boundary {
+            "gap" => {
+                seed.buckets[59].gap = true;
+                seed.buckets[59].complete = false;
+            }
+            "discontinuous" => seed.buckets[59].discontinuous = true,
+            "sample" => seed.sampled = None,
+            "driver" => seed.latest["driver"] = serde_json::json!("invalid\nname"),
+            _ => seed.latest = serde_json::Value::Null,
+        }
+        let mut rate = Rate::default();
+        rate.seed(&input(100), &[("a".into(), Some(seed))].into(), HOUR);
+        let series = project([&rate, &rate], grid);
+        assert!(
+            series.drivers.contains("claude"),
+            "current driver label survives a different historical watermark"
+        );
+        assert_eq!(
+            series
+                .buckets
+                .iter()
+                .filter_map(|bucket| bucket.tokens)
+                .sum::<u128>(),
+            7380
+        );
+        for (index, bucket) in series.buckets.iter().enumerate() {
+            assert_eq!(
+                bucket.providers.get("claude").copied().unwrap_or(0),
+                0,
+                "latest Codex never rewrites older Claude/unknown history"
+            );
+            assert_eq!(
+                bucket.providers.get("codex").copied().unwrap_or(0),
+                if index >= 6 && matches!(boundary, "gap" | "discontinuous") {
+                    bucket.tokens.unwrap()
+                } else {
+                    0
+                },
+                "{boundary} interval {index}"
+            );
+        }
+    }
+}
+
+#[test]
+fn live_driver_changes_and_repeated_sequences_never_relabel_or_double_count() {
+    let mut rate = Rate::default();
+    rate.sample(&input(100), 0);
+    rate.sample(&input(200), 5_000);
+    rate.sample(&input(200), 10_000);
+    let mut codex = input(900);
+    codex.resumes.get_mut("a").unwrap()["driver"] = serde_json::json!("codex");
+    rate.sample(&codex, 300_000); // New driver establishes a baseline, not 1,050 tokens.
+    let mut next = input(1_000);
+    next.resumes.get_mut("a").unwrap()["driver"] = serde_json::json!("codex");
+    rate.sample(&next, 305_000);
+    rate.sample(&next, 310_000);
+    let observed = project(
+        [&rate, &rate],
+        Grid::new(300_000, 600_000, 600_000).unwrap(),
+    );
+    assert_eq!(
+        observed
+            .buckets
+            .iter()
+            .map(|bucket| bucket.tokens.unwrap_or(0))
+            .sum::<u128>(),
+        300
+    );
+    assert_eq!(observed.buckets[0].providers.get("claude"), Some(&150));
+    assert_eq!(observed.buckets[1].providers.get("codex"), Some(&150));
+}
+
+#[test]
+fn a_same_slot_driver_switch_preserves_both_proven_increments_and_reseed_replaces_them() {
+    let mut rate = Rate::default();
+    rate.sample(&input(100), 0);
+    rate.sample(&input(200), 5_000);
+    let mut codex = input(900);
+    codex.resumes.get_mut("a").unwrap()["driver"] = serde_json::json!("codex");
+    rate.sample(&codex, 6_000);
+    let mut next = input(1_000);
+    next.resumes.get_mut("a").unwrap()["driver"] = serde_json::json!("codex");
+    rate.sample(&next, 7_000);
+    rate.sample(&next, 8_000);
+    let grid = Grid::new(300_000, 300_000, 300_000).unwrap();
+    let observed = project([&rate, &rate], grid);
+    assert_eq!(observed.buckets[0].tokens, Some(300));
+    assert_eq!(
+        observed.buckets[0].providers,
+        [("claude".into(), 150), ("codex".into(), 150)].into()
+    );
+    assert_eq!(rate.members["a"].provider_splits.len(), 1);
+    let mut seed = history_seed(false, false);
+    seed.latest = serde_json::Value::Null;
+    rate.seed(&input(100), &[("a".into(), Some(seed))].into(), HOUR);
+    assert!(
+        rate.members["a"].provider_splits.is_empty(),
+        "authoritative seeds revoke the old slot's split"
+    );
+    assert!(
+        project([&rate], Grid::new(300_000, HOUR, HOUR).unwrap())
+            .buckets
+            .iter()
+            .all(|bucket| bucket.providers.values().all(|value| *value == 0))
+    );
+}
+
+#[test]
+fn arbitrary_driver_ids_keep_three_same_slot_parts_and_recycle_only_expired_names() {
+    let mut rate = Rate::default();
+    for (driver, baseline, at) in [
+        ("driver-first", 100, 0),
+        ("driver-second", 900, 6_000),
+        ("driver-third", 2_000, 8_000),
+    ] {
+        let mut before = input(baseline);
+        before.resumes.get_mut("a").unwrap()["driver"] = serde_json::json!(driver);
+        rate.sample(&before, at);
+        let mut after = input(baseline + 100);
+        after.resumes.get_mut("a").unwrap()["driver"] = serde_json::json!(driver);
+        rate.sample(&after, if at == 0 { 5_000 } else { at + 1_000 });
+    }
+    let grid = Grid::new(300_000, 300_000, 300_000).unwrap();
+    let shown = project([&rate, &rate], grid);
+    assert_eq!(shown.buckets[0].tokens, Some(450));
+    assert_eq!(
+        shown.buckets[0].providers,
+        [
+            ("driver-first".into(), 150),
+            ("driver-second".into(), 150),
+            ("driver-third".into(), 150)
+        ]
+        .into()
+    );
+    let mut last = input(2_100);
+    last.resumes.get_mut("a").unwrap()["driver"] = serde_json::json!("driver-third");
+    rate.sample(&last, HOUR + 10_000);
+    assert!(rate.members["a"].provider_splits.is_empty());
+    let mut next = input(5_000);
+    next.resumes.get_mut("a").unwrap()["driver"] = serde_json::json!("driver-new");
+    rate.sample(&next, HOUR + 11_000);
+    next = input(5_100);
+    next.resumes.get_mut("a").unwrap()["driver"] = serde_json::json!("driver-new");
+    rate.sample(&next, HOUR + 12_000);
+    assert_eq!(
+        rate.members["a"].drivers.len(),
+        3,
+        "expired slots permit arena reuse"
+    );
+    let shown = project([&rate], Grid::new(300_000, 300_000, HOUR + 15_000).unwrap());
+    assert_eq!(shown.buckets[0].providers.get("driver-new"), Some(&150));
+    assert!(!shown.drivers.contains("driver-first"));
 }

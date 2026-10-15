@@ -404,7 +404,12 @@ fn quota_window_frames_show_partial_full_near_empty_and_unknown_in_both_shells()
                         .into_iter()
                         .enumerate()
                         .map(|(i, (left, short))| Standing {
-                            provider: Provider::named(&format!("provider{i}")),
+                            provider: Provider::named(match i {
+                                0 => "claude",
+                                1 => "codex",
+                                2 => "other-full",
+                                _ => "other-unknown",
+                            }),
                             latest: (i != 3).then_some(Reading {
                                 observed_at_ms: NOW - 60_000,
                                 weekly: Window {
@@ -430,7 +435,12 @@ fn quota_window_frames_show_partial_full_near_empty_and_unknown_in_both_shells()
                         .unwrap();
                     let buffer = terminal.backend().buffer();
                     let shown: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
-                    for expected in ["<1%", "44%", "100%", "no reading yet"] {
+                    let expected: &[&str] = if tab == OpsTab::Overview {
+                        &["<1%", "44%", "100%", "—"]
+                    } else {
+                        &["<1%", "44%", "100%", "no reading yet"]
+                    };
+                    for &expected in expected {
                         assert!(
                             shown.contains(expected),
                             "{tab:?}/{theme}/{width}: missing {expected}"

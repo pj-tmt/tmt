@@ -74,8 +74,9 @@ optional bands yield on short screens to preserve the conversation's usable budg
 Effective panel policy comes from acquired
 workspace preferences or the disposable Panels preview; its persisted IDs and
 save semantics belong to [config-and-effects](config-and-effects.md#views-pane-arrangements).
-Hidden panels receive no rectangle or stale hit/clock authority. Chart demand is
-derived before disjoint allocation; one painter consumes its own rectangle.
+Hidden panels receive no rectangle or stale hit/clock authority. Overview Usage
+is a fixed header band; its height is reserved once before body pane placement.
+Chart demand is derived before allocation; one painter consumes its rectangle.
 Only explicit message focus reveals a configured-off Overview conversation;
 Tab, pointer and refresh do not. Existing Escape handling ends the reveal and
 keeps the UUID draft. Digest has its own ordered panels and Details switch;
@@ -174,12 +175,16 @@ missing differs from measured zero, uncovered evidence is partial, sampling off
 has no token cells, and model metadata is best effort. Provider pace/trend remains
 a derived current-cycle observation, not a persisted field or new acquisition.
 See the meter reference for coverage, time fences and trend thresholds. Overview
-and Digest share the same admitted per-window quota bars: remaining percent,
-labelled reset and measured weekly pace. Quota width >= 90 pairs providers;
-narrower areas stack them. Paired rows omit reset/pace when they do not fit
-(terminal 160/100); stacked rows retain them at 80/60, while Quota Details always
-retain full values. Complete source timestamps and unknown
-evidence stay in on-demand details; paint and input perform no acquisition.
+places Usage across the frame above its body panes. Its provider rows include the
+held account quota: neutral 7d/5h bars and remaining percentages; a missing short
+window uses the weekly reset countdown. Stale, reset or unreported windows show
+an em dash. The Subscriptions panel ID controls these inline quota cells, without
+a standalone block; Usage visibility controls the whole section. The quota track
+is 36 cells plus a three-cell gap, reduces to percentages below 79 available cells,
+and yields to the trend below 59. Quota hits retain the existing full Details.
+Digest retains its existing per-window account meters and width rules. Complete
+source timestamps and unknown evidence stay in Details; paint and input perform
+no acquisition.
 
 `board::overview::chart::host` owns one session Each/Range selection for Overview
 and Digest. `u` resolves through effective bindings in their list scopes; Agents,
@@ -187,14 +192,52 @@ Reader, search and composers retain their own input. Arrows draft a choice, Ente
 applies or inspects, Tab selects Each/Range/buckets and Esc returns to the list.
 Invalid pairs preserve both controls. Direct control and bucket hits come from
 admitted, clipped nodes; resize and source replacement revoke their authority.
-If there is no positive observed count, or placement would leave fewer than six
-target rows, the chart collapses to one summary line. Its effective shortcut, summary click or Actions entry opens the
+Overview retains provider rows when counts are missing or measured zero. With no
+observed token bucket, M18 EmptyState paints one muted status in the trend track;
+provider names and available quotas remain, totals/shares are em dashes, and no
+axis, blank bar rows or invented unknown provider appears. Measured zero remains
+zero. Digest retains its existing summary collapse for nonpositive evidence. If
+placement would leave fewer than six target rows, the chart collapses to one
+summary line. Its effective shortcut, summary click or Actions entry opens the
 same controls in an opaque body modal; closing never replays input. A body with
 no spare target row omits the summary to retain the last usable row. At eight
 terminal rows, Overview keeps the table and omits summary/quota context; the
 effective filter, Details and usage-control keys remain reachable.
 
-One identity-total series uses the existing Rate rings. Details preserve exact
+Shared `board::m4_spark_row` owns the admitted trend rows, headings, numeric and
+quota tracks and drawn-width axis. `board::m13_chip_group` owns the reusable
+selector painter; `board::m18_empty_state` owns the empty-state line. These modules
+accept projected values and perform no acquisition. The Overview host adapts its
+model and handles admitted actions, so Agents can reuse the same elements.
+
+One identity-total series uses the existing Rate rings. Its header reads
+`Usage · last <range> · <total> tok`; two right-aligned selector groups expose the
+shipped Each 5/15/30/60m and Range 15/30/60m choices, separated by a muted dot.
+Each chip has one space of padding on both sides, with a one-cell gap between
+chips and `·` between groups. Selected values reverse; invalid pairs retain the existing refusal. No longer
+window is implied. Each provider has one neutral-grey spark row, then its observed
+total and share. The fixed tracks are name (8), a one-cell gap, spark, two spaces,
+total (7, right-aligned), two spaces and share (8, right-aligned, muted). The unknown
+row is muted. There is no y-axis or vertical plot. The row below the heading labels TOK, % of all and the two quota percentage
+tracks (left) in the muted role. Start/midpoint/now ticks occupy only the drawn
+spark width. Each exact bucket repeats one eighth-height glyph over
+`floor(spark_width / bucket_count)` cells, starting immediately after the name
+track; leftover cells pad the right. Narrowing
+changes only the spark track and never manufactures finer buckets.
+
+Provider shares divide by all observed tokens, including unknown provenance.
+Live continuous increments use their verified counter driver. History attributes
+only the complete gap-free, non-discontinuous suffix linked to its included latest
+driver watermark. Earlier or unproven evidence remains unknown; current model or
+identity metadata never relabels history. A mixed receipt slot keeps its proven
+portions beside that slot in the same bounded ring owner, removed on replacement.
+Driver IDs come from admitted counters, not a built-in name list. Compact local
+IDs keep each ring cell at 64 bytes; a driver name can be recycled only after its
+last owning cell expires. The interval projection merges keyed portions only after
+its existing whole-member UUID de-duplication. Held account IDs add quota-only
+rows without claiming token provenance. Numeric totals and shares retain the full
+source denominator even when a bucket exceeds the spark quantizer's range.
+This adds no separate history ledger or acquisition. Details preserve exact
 half-open bounds, observed tokens, missing identities and source durations;
 click, keyboard and optional received hover share that formatter. Different
 identities' durations are agent-time, not inferred joint elapsed coverage. An

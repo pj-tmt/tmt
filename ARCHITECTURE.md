@@ -424,6 +424,7 @@ own module/drawing boundaries and verification.
   only explicit Resume clears pause. Rename CAS keeps the room UUID, then moves
   Ops metadata/config and cron namespaces under owned locks; partial results
   offer repair without room rollback. [Surface ownership](.agents/skills/tmt-ops-dev/references/board-home.md).
+- **Board rendering.** Shared board modules own the reusable visual elements: M4 SparkRow paints provider trends, totals, shares and optional quota tracks; M13 ChipGroup paints admitted selector groups; M18 EmptyState paints one honest unavailable-state line. Overview adapts acquired data to these modules and owns control effects; the painters perform no acquisition or view-specific projection. Future Agents placements reuse these same modules.
 - **Discovery.** The board consumes [Core discovery
   v1](contracts/discovery-v1.md) through finite public `discover` and guarded
   `add` commands on its existing ordered lane. Its private controller owns
