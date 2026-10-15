@@ -79,7 +79,7 @@
   "adaptation": {
     "helper": "src/ui/utils.ts; typed/formatting change and fixed tmt prefix via extendTailwindMerge",
     "components": "Slice2 adapts Button, Input, Textarea, Checkbox, Switch, Separator, Badge, Alert and Tabs. Slice3 adapts Dialog, Sheet, DropdownMenu, Tooltip and Popover, with local token classes, originating-island portals, shared surface viewport observation and optional host-owned controlled close admission/menu handoff. Tooltip retains stock Radix behavior without busy veto. Select remains excluded pending #3057; Slice4 adapts the pinned Command family and composes controlled Combobox/Chip/Chips from cmdk plus the accepted Popover, Button and Badge. Original selection events are admitted locally, with host filtering and close admission; cmdk retains active-option navigation.",
-    "combobox": "Pinned Radix Popover plus Command/cmdk; CommandDialog depends on Dialog; do not use current Base UI combobox registry"
+    "combobox": "Pinned Radix Popover plus Command/cmdk; CommandDialog depends on Dialog; do not use current Base UI combobox registry; owner-approved PopoverContent outsidePress='dismiss-only' adds a transparent same-portal pointer shield for Chips with an external persistent input. Default 'through' remains stock nonmodal behavior; the shield always consumes a first press, including close veto, without new open state or document listener ownership."
   },
   "dependencies": {
     "clsx": {

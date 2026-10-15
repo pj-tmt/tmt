@@ -599,7 +599,14 @@ removed/disabled options never commit. Space in the editable query remains text.
 No selection/removal key dispatches an enclosing product Send operation.
 
 Combobox outside pointer dismissal allows the underlying action through. Chips
-outside pointer dismissal consumes the first press, while Escape follows the
+uses the UX-approved optional `PopoverContent outsidePress='dismiss-only'`
+shield, while ordinary Combobox and Popover retain default `'through'`. The
+transparent, nonfocusable, aria-hidden shield is owned by the layer, shares its
+originating portal and lifetime, and always consumes the first pointer press,
+even when host close admission vetoes it. The persistent external input remains
+usable above the shield with token-backed stacking; it is neither hidden nor
+focus-trapped by a modal substitute. No document click interceptor or second
+popup owner is involved. Escape follows the
 accepted layer contract. The host supplies persistent return/fallback targets
 when controls may disappear. Chip removal targets a surviving next/previous
 enabled remove control, then its input or explicit fallback. Empty-query

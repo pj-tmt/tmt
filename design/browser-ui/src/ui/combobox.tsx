@@ -9,7 +9,7 @@ import { cn } from './utils.js';
 export type SelectionItem = BrowserChipItem;
 export type SelectionOption = BrowserChipOption;
 export type SelectionEvent = KeyboardEvent<HTMLInputElement> | MouseEvent<HTMLDivElement>;
-export interface ComboboxProps extends LayerFocusOptions {
+export interface ComboboxProps extends Omit<LayerFocusOptions, 'initialFocus'> {
   controller: LayerController;
   label: string;
   query: string;
@@ -26,7 +26,7 @@ export interface ComboboxProps extends LayerFocusOptions {
   inputRef?: Ref<HTMLInputElement>;
   onKeyDown?: ComponentProps<'input'>['onKeyDown'];
   onEmptyBackspace?(event: KeyboardEvent<HTMLInputElement>): void;
-  outsidePress?: 'pass-through' | 'dismiss-only';
+  outsidePress?: ComponentProps<typeof PopoverContent>['outsidePress'];
   className?: string;
 }
 
@@ -54,13 +54,14 @@ function SelectionInput({
   inputRef,
   onKeyDown,
   onEmptyBackspace,
-  outsidePress = 'pass-through',
+  outsidePress = 'through',
   returnFocus,
   focusFallback,
 }: ComboboxProps) {
   const input = useRef<HTMLInputElement | null>(null);
   const anchor = useRef<HTMLDivElement>(null);
-  const tabClose = useRef(false);
+  const preserveFocus = useRef(false);
+  const restoringFocus = useRef(false);
   const active = useCommandState((state) => state.value);
   const blocked = disabled || readOnly || busy;
   if (blocked && !stateLabel) throw new Error('Blocked selection requires a visible stateLabel');
@@ -90,8 +91,8 @@ function SelectionInput({
         event.stopPropagation();
         return;
       }
-      tabClose.current = true;
-      if (outsidePress === 'pass-through' && option) onSelect(option, event);
+      preserveFocus.current = true;
+      if (outsidePress === 'through' && option) onSelect(option, event);
       return;
     }
     if (event.key === 'Enter') {
@@ -108,7 +109,14 @@ function SelectionInput({
   return (
     <Popover controller={controller}>
       <PopoverAnchor asChild>
-        <div ref={anchor} className="tmt:min-w-0">
+        <div
+          ref={anchor}
+          className={cn(
+            'tmt:min-w-0',
+            outsidePress === 'dismiss-only' &&
+              'tmt:relative tmt:z-[calc(var(--tmt-foundation-z-layer)+1)]',
+          )}
+        >
           <CommandInput asChild value={query} onValueChange={onQueryChange}>
             <input
               aria-label={label}
@@ -132,8 +140,8 @@ function SelectionInput({
               }}
               onKeyDown={keyDown}
               onFocus={() => {
-                if (!blocked) {
-                  tabClose.current = false;
+                if (!blocked && !restoringFocus.current) {
+                  preserveFocus.current = false;
                   controller.requestOpen();
                 }
               }}
@@ -150,15 +158,23 @@ function SelectionInput({
         </div>
       </PopoverAnchor>
       <PopoverContent
+        outsidePress={outsidePress}
         initialFocus={() => input.current}
         returnFocus={returnFocus ?? (() => input.current)}
         focusFallback={focusFallback}
         align="start"
         className="tmt:p-0"
         onCloseAutoFocus={(event) => {
-          if (tabClose.current) {
+          if (preserveFocus.current) {
             event.preventDefault();
-            tabClose.current = false;
+            preserveFocus.current = false;
+          } else {
+            // The layer owns synchronous return focus; do not reopen because
+            // that restoration focuses our persistent input again.
+            restoringFocus.current = true;
+            queueMicrotask(() => {
+              restoringFocus.current = false;
+            });
           }
         }}
         onInteractOutside={(event) => {
@@ -167,10 +183,9 @@ function SelectionInput({
             event.preventDefault();
             return;
           }
-          if (outsidePress === 'dismiss-only' && original.type === 'pointerdown') {
+          if (outsidePress === 'through') {
             event.preventDefault();
-            original.preventDefault();
-            controller.requestClose('outside', original);
+            if (controller.requestClose('outside', original)) preserveFocus.current = true;
           }
         }}
       >

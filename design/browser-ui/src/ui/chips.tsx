@@ -27,21 +27,29 @@ export function Chip({ item, onRemove, readOnly, busy, stateLabel, removeRef }: 
     <Badge variant="outline" className="tmt:max-w-full tmt:whitespace-normal tmt:break-words">
       <span>{item.label}</span>
       <Button
-        type="button"
+        asChild
         ref={removeRef}
         variant="ghost"
         size="icon-sm"
-        aria-label={item.removeLabel}
-        aria-describedby={stateLabel ? reason : undefined}
-        aria-disabled={blocked || undefined}
-        aria-busy={busy || undefined}
         disabled={item.disabled || busy}
-        onClick={(event) => {
-          if (!blocked && event.nativeEvent.isTrusted && !event.defaultPrevented)
-            onRemove(item, event);
-        }}
       >
-        <XIcon aria-hidden="true" />
+        <button
+          type="button"
+          aria-label={item.removeLabel}
+          aria-describedby={stateLabel ? reason : undefined}
+          aria-disabled={blocked || undefined}
+          aria-busy={busy || undefined}
+          disabled={item.disabled || busy}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') event.stopPropagation();
+          }}
+          onClick={(event) => {
+            if (!blocked && event.nativeEvent.isTrusted && !event.defaultPrevented)
+              onRemove(item, event);
+          }}
+        >
+          <XIcon aria-hidden="true" />
+        </button>
       </Button>
       {stateLabel && <span id={reason}>{stateLabel}</span>}
     </Badge>
@@ -118,7 +126,7 @@ export function Chips({
             item={item}
             readOnly={readOnly || disabled}
             busy={busy}
-            stateLabel={item.disabled ? (stateLabel ?? 'Unavailable') : stateLabel}
+            stateLabel={item.disabled || readOnly || disabled || busy ? stateLabel : undefined}
             removeRef={(node) => {
               if (node) controls.current.set(item.id, node);
               else controls.current.delete(item.id);

@@ -144,6 +144,9 @@
   .tmt\:inset-0 {
     inset: 0px;
   }
+  .tmt\:top-0 {
+    top: 0px;
+  }
   .tmt\:top-4 {
     top: calc(var(--tmt-foundation-spacing-unit) * 4);
   }
@@ -157,6 +160,9 @@
   }
   .tmt\:top-\[calc\(var\(--tmt-layer-top\,0px\)\+var\(--tmt-layer-height\,100dvh\)\/2\)\] {
     top: calc(var(--tmt-layer-top, 0px) + var(--tmt-layer-height, 100dvh) / 2);
+  }
+  .tmt\:right-0 {
+    right: 0px;
   }
   .tmt\:right-4 {
     right: calc(var(--tmt-foundation-spacing-unit) * 4);
@@ -180,6 +186,9 @@
   }
   .tmt\:z-\(--tmt-foundation-z-tooltip\) {
     z-index: var(--tmt-foundation-z-tooltip);
+  }
+  .tmt\:z-\[calc\(var\(--tmt-foundation-z-layer\)\+1\)\] {
+    z-index: calc(var(--tmt-foundation-z-layer) + 1);
   }
   .tmt\:col-start-2 {
     grid-column-start: 2;
@@ -213,6 +222,9 @@
   }
   .tmt\:block {
     display: block;
+  }
+  .tmt\:contents {
+    display: contents;
   }
   .tmt\:flex {
     display: flex;
