@@ -534,6 +534,37 @@ fn shared_header_uses_runtime_not_vendor_and_preserves_colab_reference() {
 }
 
 #[test]
+fn shared_header_marks_a_basic_driver_instead_of_hiding_the_runtime_line() {
+    let mut app = fixture();
+    let listed = |extra: serde_json::Value| {
+        let mut row = json!({"id":"a","name":"alpha"});
+        row.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        Ok(json!({"identities":[row]}))
+    };
+    app.references = crate::board::inventory::Inventory::from_listed(
+        &[],
+        &listed(json!({"driverSupport":"basic"})),
+    );
+    let shown = draw(&app, 80, 24);
+    assert!(shown.contains("basic · –"), "{shown}");
+    // Nothing observed and no basic marker: the line stays hidden, as before.
+    app.references = crate::board::inventory::Inventory::from_listed(&[], &listed(json!({})));
+    assert!(!draw(&app, 80, 24).contains("basic"));
+    // An observed runtime and model always win over the marker.
+    app.references = crate::board::inventory::Inventory::from_listed(
+        &[],
+        &listed(json!({"driverSupport":"basic","runningDriver":"pi","resume":{"model":"model-x"}})),
+    );
+    let shown = draw(&app, 80, 24);
+    assert!(
+        shown.contains("pi · model-x") && !shown.contains("basic ·"),
+        "{shown}"
+    );
+}
+
+#[test]
 fn conversation_prefers_latest_identity_result_across_room_contexts() {
     let mut app = fixture();
     app.view.as_mut().unwrap().replies[0]["submittedAtMs"] = json!(10);

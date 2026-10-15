@@ -15,6 +15,9 @@ pub(super) struct Inventory {
 pub(super) struct Agent {
     pub runtime: Option<String>,
     pub model: Option<String>,
+    /// Core's `driverSupport` is `basic`: the driver reports no activity, model or
+    /// runtime, so their absence is not idleness and the board says so.
+    pub basic: bool,
 }
 
 impl Inventory {
@@ -52,6 +55,7 @@ impl Inventory {
                     Agent {
                         runtime: text(&row["runningDriver"]),
                         model: super::rate::resume_model(&row["resume"]).map(str::to_owned),
+                        basic: row["driverSupport"] == "basic",
                     },
                 );
                 let id = format!("agent:{id}");
@@ -97,5 +101,24 @@ mod tests {
         assert_eq!(model("c"), None);
         assert_eq!(model("d"), None);
         assert_eq!(inventory.agents["a"].runtime.as_deref(), Some("claude"));
+    }
+
+    #[test]
+    fn only_an_exact_basic_driver_support_marks_an_agent_basic() {
+        let listed = Ok(json!({"identities": [
+            {"id": "a", "name": "pi-1", "driverSupport": "basic"},
+            {"id": "b", "name": "claude-1", "driverSupport": "full",
+             "runningDriver": "claude", "resume": {"model": "m"}},
+            {"id": "c", "name": "unknown"},
+            {"id": "d", "name": "odd", "driverSupport": "Basic"},
+            {"id": "e", "name": "typed", "driverSupport": 1},
+        ]}));
+        let inventory = Inventory::from_listed(&[], &listed);
+        let basic = |id: &str| inventory.agents[id].basic;
+        assert!(basic("a"));
+        assert!(!basic("b") && !basic("c") && !basic("d") && !basic("e"));
+        // The marker adds no runtime or model: those stay absent, never invented.
+        assert_eq!(inventory.agents["a"].runtime, None);
+        assert_eq!(inventory.agents["a"].model, None);
     }
 }

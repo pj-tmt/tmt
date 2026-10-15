@@ -767,7 +767,10 @@ and sends/acknowledges nothing; writing requires `tmt ops sq me`.
 The workspace shows the selected agent's conversation in its Auto/Side/Stack
 placement. All sections share response, reading position and composer by agent UUID, so renaming an agent or changing its membership does not
 create another draft. Runtime is the observed runtime name, not the model's vendor;
-missing runtime/model evidence is shown as unavailable.
+missing runtime/model evidence is shown as unavailable. For a basic driver (Core's
+`driverSupport`: detection and skills only) the Runtime column and the header's
+runtime line say `basic` instead, because its activity, model and runtime are not
+observable and a blank must not read as idle.
 The model shown is the last completed turn's model (`consumption.modelId`), falling back to
 the session-start model, so a mid-session `/model` switch appears after the next completed turn.
 

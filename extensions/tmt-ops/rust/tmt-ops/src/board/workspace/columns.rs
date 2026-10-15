@@ -497,6 +497,8 @@ pub struct WorkspaceColumnValues {
     pub cron: Option<(u32, u32)>,
     pub runtime: Option<String>,
     pub model: Option<String>,
+    /// A basic driver observes no runtime: say `basic` where the runtime is blank.
+    pub basic: bool,
 }
 
 impl WorkspaceColumnValues {
@@ -519,7 +521,10 @@ impl WorkspaceColumnValues {
             Column::Cron => self
                 .cron
                 .map_or_else(|| "unknown".into(), |(on, total)| format!("{on}/{total}")),
-            Column::Runtime => self.runtime.clone().unwrap_or_else(|| "—".into()),
+            Column::Runtime => self
+                .runtime
+                .clone()
+                .unwrap_or_else(|| if self.basic { "basic" } else { "—" }.into()),
             Column::Model => self.model.clone().unwrap_or_else(|| "—".into()),
         }
     }
@@ -572,6 +577,7 @@ pub fn project(input: WorkspaceColumnInput<'_>) -> Option<WorkspaceColumnValues>
         cron: input.timers,
         runtime: input.agent.and_then(|agent| agent.runtime.clone()),
         model: input.agent.and_then(|agent| agent.model.clone()),
+        basic: input.agent.is_some_and(|agent| agent.basic),
     })
 }
 
@@ -791,5 +797,37 @@ mod tests {
             assert_eq!(cells.len(), fields.len());
             assert!(cells.windows(2).all(|pair| pair[0].1.right() < pair[1].1.x));
         }
+    }
+
+    #[test]
+    fn a_basic_driver_says_basic_where_its_runtime_is_blank_and_nowhere_else() {
+        let row = OpsTreeRow {
+            target: OpsTarget::Pool,
+            title: "pi-1".into(),
+            depth: 0,
+            lead: false,
+            state: None,
+            presence: None,
+            usage: None,
+            count: None,
+            observation: crate::board::workspace::OpsObservation::Complete,
+        };
+        let values = |runtime: Option<&str>, basic: bool| WorkspaceColumnValues {
+            squad: None,
+            tokens: None,
+            partial: false,
+            digest: None,
+            digest_labels: Vec::new(),
+            cron: None,
+            runtime: runtime.map(str::to_owned),
+            model: None,
+            basic,
+        };
+        assert_eq!(values(None, true).text(Column::Runtime, &row), "basic");
+        assert_eq!(values(None, false).text(Column::Runtime, &row), "—");
+        // An observed runtime always wins, and no other cell changes.
+        assert_eq!(values(Some("pi"), true).text(Column::Runtime, &row), "pi");
+        assert_eq!(values(None, true).text(Column::Model, &row), "—");
+        assert_eq!(values(None, true).text(Column::State, &row), "—");
     }
 }
