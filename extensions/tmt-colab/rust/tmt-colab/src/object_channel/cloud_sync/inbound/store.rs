@@ -44,6 +44,18 @@ pub(crate) struct StoreInbound<A: Admission> {
     chains: HashMap<String, Vec<u8>>,
     /// Writers whose chain this machine keeps, so it is stored once.
     retained: HashSet<String>,
+    /// Pages this process has looked at once for edit requests left while it was not running.
+    swept: HashSet<PageRef>,
+    /// A link device's own original arrived, or the page is new to this process: its edit
+    /// requests are due to be settled.
+    requests_due: bool,
+}
+/// Whether a device chain was issued by a link, not by a member.
+pub(super) fn link_issued(chain: &[u8]) -> bool {
+    certificate::Chain::from_json(chain)
+        .ok()
+        .and_then(|chain| chain.certificate().ok().map(|c| c.issuer_kind == "link"))
+        .unwrap_or(false)
 }
 fn read_fault(error: &(dyn std::error::Error + 'static)) -> Fault {
     if store::contended(error) {
@@ -62,6 +74,8 @@ impl<A: Admission> StoreInbound<A> {
             admission: None,
             chains: HashMap::new(),
             retained: HashSet::new(),
+            swept: HashSet::new(),
+            requests_due: false,
         })
     }
     /// Keep the chain of a writer this machine did not register, once an original of it has
@@ -69,6 +83,12 @@ impl<A: Admission> StoreInbound<A> {
     /// the store, to verify what that writer wrote; without it the page could not be opened.
     /// A retained chain is not authority: roles and revocation still come from the owner log,
     /// and the device stays unregistered, so nothing of it is ever published from here.
+    /// Whether the cloud's chain for `device` was issued by a link.
+    fn is_link_device(&self, device: &str) -> bool {
+        self.chains
+            .get(device)
+            .is_some_and(|bytes| link_issued(bytes))
+    }
     fn retain(&mut self, device: &str) -> Result<(), Reject> {
         if self.retained.contains(device) {
             return Ok(());
@@ -147,6 +167,7 @@ impl<A: Admission> Inbound for StoreInbound<A> {
         }
     }
     fn begin(&mut self, page: &PageRef, chains: &[Vec<u8>]) -> Result<Vec<String>, Fault> {
+        self.requests_due |= self.swept.insert(page.clone());
         self.admission = None;
         self.chains.clear();
         let mut devices = Vec::new();
@@ -199,6 +220,20 @@ impl<A: Admission> Inbound for StoreInbound<A> {
         );
         Ok(foreign)
     }
+    fn settle(&mut self, page: &PageRef) {
+        if !std::mem::take(&mut self.requests_due) {
+            return;
+        }
+        let scope = SyncScope {
+            space: page.space.clone(),
+            page: page.page.clone(),
+            epoch: page.epoch.to_string(),
+        };
+        // An attempt that could not finish is made again with the next arrival or restart.
+        if self.server.apply_edit_requests(&scope).is_err() {
+            self.swept.remove(page);
+        }
+    }
     fn head(&mut self, page: &PageRef, stream: &str) -> Result<u64, Fault> {
         match self.store.stream_head(StreamScope {
             page: &page.page,
@@ -244,7 +279,11 @@ impl<A: Admission> Inbound for StoreInbound<A> {
             epoch: page.epoch.to_string(),
         };
         match self.server.ingest(&scope, original, &opened.key_bytes) {
-            Ok(store::Accepted::New) => Ok(Applied::New),
+            Ok(store::Accepted::New) => {
+                // A link device's own original may carry an edit request for this machine.
+                self.requests_due |= c.namespace == "own" && self.is_link_device(&c.author_device);
+                Ok(Applied::New)
+            }
             Ok(store::Accepted::Replay) => Ok(Applied::Replay),
             Err(Code::StaleEpoch) => Err(Reject::Moved),
             Err(Code::Capacity) => Err(Reject::Full),

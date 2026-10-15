@@ -936,6 +936,27 @@ impl crate::sync::Admission for OwnerAdmission {
             .and_then(|service| service.readers.device(principal))
             .unwrap_or_else(|| principal.to_owned())
     }
+    fn authorize_link_save(
+        &self,
+        device: &str,
+        scope: &crate::sync::SyncScope,
+    ) -> std::result::Result<(), crate::sync::Code> {
+        use crate::sync::Code as SyncCode;
+        let service = self.0.lock().map_err(|_| SyncCode::Denied)?;
+        if scope.space != service.keyring.space_id {
+            return Err(SyncCode::Denied);
+        }
+        crate::readers::device_writer(
+            &service.store,
+            &service.keyring,
+            scope,
+            device,
+            (service.reader_clock)().map_err(|_| SyncCode::Denied)?,
+        )
+        .map_err(reader_sync_error)
+        .and_then(|writer| writer.admit(&crate::sync::Access::Save))
+        .map(|_| ())
+    }
     fn save_source(&self) -> Option<crate::page::save::SourceOpener> {
         self.0.lock().ok()?.save_source()
     }

@@ -33,9 +33,15 @@ const A: &str = "30000000-0000-4000-8000-00000000000a";
 const B: &str = "30000000-0000-4000-8000-00000000000b";
 const C: &str = "30000000-0000-4000-8000-00000000000c";
 
-/// An admission that never admits: ingest brings its own admitted key.
-struct Never;
+/// An admission that never admits: ingest brings its own admitted key. It has no native writer, and
+/// counts the times the serve looks for one, which is how a pass shows it went to settle the
+/// page's edit requests.
+struct Never(Arc<std::sync::atomic::AtomicUsize>);
 impl Admission for Never {
+    fn save_source(&self) -> Option<crate::page::save::SourceOpener> {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        None
+    }
     fn catchup_context(&self, _: &str, _: &SyncScope, _: &Store) -> Result<CatchupContext, Code> {
         Err(Code::Denied)
     }
@@ -59,6 +65,8 @@ struct Rig {
     inbound: StoreInbound<Never>,
     puller: Puller,
     reports: Arc<Mutex<Vec<String>>>,
+    /// How many times a pass went to settle edit requests.
+    settles: Arc<std::sync::atomic::AtomicUsize>,
     _remote: ScriptedRemote,
     _peer: crate::object_channel::cloud_sync::fixture::Peer,
 }
@@ -73,7 +81,11 @@ fn rig() -> Rig {
         answer.answer(call, id)
     });
     let client = peer.channels.client.lock().unwrap().clone().unwrap();
-    let server = Server::new(Store::open(&reader.layout).unwrap(), Never);
+    let settles = Arc::<std::sync::atomic::AtomicUsize>::default();
+    let server = Server::new(
+        Store::open(&reader.layout).unwrap(),
+        Never(Arc::clone(&settles)),
+    );
     let inbound = StoreInbound::new(&reader.layout, server, reader.key.space_id.clone()).unwrap();
     Rig {
         puller: Puller::new(Reader::new(client, BINDING.into())),
@@ -82,6 +94,7 @@ fn rig() -> Rig {
         cloud,
         inbound,
         reports: Arc::default(),
+        settles,
         _remote: remote,
         _peer: peer,
     }
@@ -173,6 +186,41 @@ fn a_writers_stream_is_pulled_admitted_and_applied_in_order_then_nothing_more() 
     assert_eq!(rig.pass(), Ok(false));
     assert_eq!(rig.head(A).unwrap().0, 3);
     assert!(rig.reports.lock().unwrap().is_empty());
+}
+
+#[test]
+fn a_page_new_to_the_process_is_settled_once_and_a_members_originals_do_not_ask_again() {
+    use std::sync::atomic::Ordering;
+    let mut rig = rig();
+    let first: Vec<_> = (0..2).map(|_| rig.writer.append(A)).collect();
+    rig.publish_authority(&[A]);
+    first.iter().for_each(|bytes| rig.publish(bytes));
+    // Requests left while this process was not running are looked for when the page is first
+    // read here, once...
+    assert_eq!(rig.pass(), Ok(true));
+    assert_eq!(rig.settles.load(Ordering::SeqCst), 1);
+    // ...and a member's originals, which carry no link's request, do not ask for it again.
+    let more = rig.writer.append(A);
+    rig.publish(&more);
+    assert_eq!(rig.pass(), Ok(true));
+    assert_eq!(rig.pass(), Ok(false));
+    assert_eq!(rig.settles.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn only_a_chain_a_link_issued_is_a_link_device() {
+    let rig = rig();
+    let link = tmt_colab_model::link::device_chain(
+        &[3; 32],
+        &rig.writer.key.space_id,
+        "20000000-0000-4000-8000-000000000001",
+        "2",
+        &[9; 32],
+    )
+    .unwrap();
+    assert!(super::store::link_issued(&link));
+    assert!(!super::store::link_issued(&rig.writer.chain(A)));
+    assert!(!super::store::link_issued(b"not a chain"));
 }
 
 #[test]

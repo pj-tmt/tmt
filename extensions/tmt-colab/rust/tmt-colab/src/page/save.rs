@@ -229,6 +229,21 @@ impl SaveResult {
     pub fn pending(operation_id: &str) -> Self {
         Self::state(operation_id, "pending")
     }
+    /// How a request that asked for this save is settled by it: applied, in conflict with a page
+    /// that moved, or refused. `None` for a result a later try could change, or one that is not
+    /// final.
+    pub fn settles(&self) -> Option<crate::store::EditState> {
+        use crate::store::EditState;
+        match (self.state, self.code) {
+            ("committed" | "unchanged", _) => Some(EditState::Applied),
+            ("rejected", Some("COLAB_STALE_BASE" | "COLAB_PATCH_CONFLICT")) => {
+                Some(EditState::Conflict)
+            }
+            ("rejected", Some("COLAB_UNAVAILABLE" | "COLAB_STREAM_GAP") | None) => None,
+            ("rejected", Some(_)) => Some(EditState::Refused),
+            _ => None,
+        }
+    }
     pub fn absent(operation_id: &str) -> Self {
         Self::state(operation_id, "absent")
     }

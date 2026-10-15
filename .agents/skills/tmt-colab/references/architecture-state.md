@@ -546,6 +546,14 @@ changed scope, a second stale head and unknown outcomes never rebuild (colab-v1 
   save is prepared and sealed by the serve's root-local writer like any browser save (no link is named
   as author), and a save changing attachments needs `Publish`. Every other frame stays denied
   (`readers.rs`, `registration.rs`).
+- `sync/edit_requests.rs` settles a link device's `edit-request` records (grammar:
+  `edit_request.rs`): `Server::apply_edit_requests` reads the page's `own` projections from a fresh
+  read-only view outside every lock, authorizes the writer through
+  `Admission::authorize_link_save` (a live editor link, from the owner log) and runs the request as
+  a `SaveJob` with `for_request` through the same `run_save_job` and `finish_save` as a browser
+  Save, answering no peer. Decisions live in the Store's `edit_decisions` (schema 11). Two callers:
+  a link session's connection after its own original is stored (`State::requests_due`), and the
+  cloud pass (`Inbound::settle`) after it read new link originals or first read a page.
 
 The quick switcher's data (#2599) is React-free except one hook. `quick-switcher.ts` ranks the
 list's own `PageSummary` rows for the list's own `PageFilter` (no second index or parser): match
