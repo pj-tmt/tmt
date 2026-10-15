@@ -101,6 +101,33 @@ fn presentation_fields_do_not_change_active_identity_evidence() {
     );
 }
 
+/// The host's agent name is shown, never evidence: changing only it leaves
+/// every binding evaluation as it was, and the identity's own name as the
+/// agent name does not stand in for a missing marker.
+#[test]
+fn the_agent_name_alone_never_changes_binding_evidence() {
+    let (identity, binding, snapshot) = fixture("Alice");
+    let mut unmarked = snapshot.clone();
+    unmarked.panes[0].marker = None;
+    for base in [snapshot, unmarked] {
+        let evaluate = |agent_name: Option<&str>| {
+            let mut probe = base.clone();
+            probe.panes[0].agent_name = agent_name.map(str::to_owned);
+            match evaluate_binding(&entry(&identity, &binding), &live(probe)) {
+                BindingEvidence::Active(mut pane) => {
+                    pane.agent_name = None;
+                    BindingEvidence::Active(pane)
+                }
+                other => other,
+            }
+        };
+        let without = evaluate(None);
+        for agent_name in ["Alice", "alice", "bob"] {
+            assert_eq!(evaluate(Some(agent_name)), without, "{agent_name}");
+        }
+    }
+}
+
 #[test]
 fn server_endpoint_changes_are_classified_without_guessing_death() {
     let (identity, binding, snapshot) = fixture("Alice");
