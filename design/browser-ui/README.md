@@ -571,3 +571,45 @@ The allocated primitive gallery and existing-runner
 tokens, width containment and state captures. The separate foundation coexistence spec and legacy
 source/static hash guards remain required. CSS adds aliases of existing
 command-size/caption-size/eyebrow-weight metrics, never a second token palette.
+
+### Controlled selection (Slice4)
+
+`selection.ts` exports the pinned Command family, Combobox, Chip and Chips with
+selection prop/event types. CommandItem retains cmdk's stock value-only
+`onSelect(value)` callback; it does not promise an originating keyboard event.
+The composed Combobox/Chips callbacks instead receive the actual React event
+from the input key handler or item's click capture. Do not add a second host
+mutation callback to the underlying cmdk item, cache a last event or synthesize
+activation to recover an origin. Cmdk owns active-option navigation and
+active-descendant identity; no mirrored active index is maintained.
+
+The host controls open state through the delivered layer controller, options,
+selected IDs, query, filtering and all domain caps/dispatch. Supply stable option
+IDs and host-filtered options; the composed pattern disables duplicate cmdk
+filtering. Busy/read-only/disabled states require a visible `stateLabel`; unknown
+operation state is held by the host's busy/admission state with its own words.
+The input remains mounted when its originating-island option portal closes.
+
+Enter commits once with its original event after close admission. Combobox Tab
+commits once on admitted close; Chips Tab closes without committing. Native Tab
+traversal remains native; an admitted Tab close suppresses competing close
+return-focus only for that transition. A veto holds open state and makes no
+selection callback. Composition/code229, modified/prevented/untrusted keys and
+removed/disabled options never commit. Space in the editable query remains text.
+No selection/removal key dispatches an enclosing product Send operation.
+
+Combobox outside pointer dismissal allows the underlying action through. Chips
+outside pointer dismissal consumes the first press, while Escape follows the
+accepted layer contract. The host supplies persistent return/fallback targets
+when controls may disappear. Chip removal targets a surviving next/previous
+enabled remove control, then its input or explicit fallback. Empty-query
+Backspace removes only the last eligible supplied chip; nonempty editing is
+native. Caps are supplied through eligible options and state words, never
+inferred as a recipient/parser rule in this leaf.
+
+The allocated selection gallery/unit/spec own selection proofs, including
+original-event identity, exactly-once callbacks, blocked/veto cases, focus and
+viewport/theme coverage. Only `browser-ui-selection.spec.ts` is allocated in
+Colab; existing foundation HTML/runner remain its infrastructure. Added shard
+wall time and exact-head Colab acceptance accompany delivery. No consumer
+migration or Select revival is included.

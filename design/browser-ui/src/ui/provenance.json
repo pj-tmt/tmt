@@ -78,7 +78,7 @@
   "license": "MIT",
   "adaptation": {
     "helper": "src/ui/utils.ts; typed/formatting change and fixed tmt prefix via extendTailwindMerge",
-    "components": "Slice2 adapts Button, Input, Textarea, Checkbox, Switch, Separator, Badge, Alert and Tabs. Slice3 adapts Dialog, Sheet, DropdownMenu, Tooltip and Popover, with local token classes, originating-island portals, shared surface viewport observation and optional host-owned controlled close admission/menu handoff. Tooltip retains stock Radix behavior without busy veto. Select remains excluded pending #3057; selection sources remain references only.",
+    "components": "Slice2 adapts Button, Input, Textarea, Checkbox, Switch, Separator, Badge, Alert and Tabs. Slice3 adapts Dialog, Sheet, DropdownMenu, Tooltip and Popover, with local token classes, originating-island portals, shared surface viewport observation and optional host-owned controlled close admission/menu handoff. Tooltip retains stock Radix behavior without busy veto. Select remains excluded pending #3057; Slice4 adapts the pinned Command family and composes controlled Combobox/Chip/Chips from cmdk plus the accepted Popover, Button and Badge. Original selection events are admitted locally, with host filtering and close admission; cmdk retains active-option navigation.",
     "combobox": "Pinned Radix Popover plus Command/cmdk; CommandDialog depends on Dialog; do not use current Base UI combobox registry"
   },
   "dependencies": {
@@ -94,7 +94,9 @@
         "type": "git",
         "url": "git+https://github.com/pacocoursey/cmdk.git",
         "directory": "cmdk"
-      }
+      },
+      "module": "dist/index.mjs",
+      "moduleSha256": "9e11be720996de8ce85d7c31f91d87a92ddc903880b7b2e2d4f21859b4cbd09d"
     },
     "radix-ui": {
       "version": "1.8.1",
