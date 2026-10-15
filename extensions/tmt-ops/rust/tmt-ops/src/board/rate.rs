@@ -84,6 +84,16 @@ fn nonempty(value: &Value) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// The model a listed resume record reports. `consumption.modelId` is the
+/// model of the last accepted completed turn, so it follows a mid-session
+/// `/model` switch; the starting-hook `model` only changes when a session
+/// starts. A missing or unusable value is unknown, never a guess.
+pub(in crate::board) fn resume_model(resume: &Value) -> Option<&str> {
+    [&resume["consumption"]["modelId"], &resume["model"]]
+        .into_iter()
+        .find_map(|value| value.as_str().filter(|s| !s.is_empty() && s.len() <= 256))
+}
+
 impl Counter {
     fn read(resume: &Value) -> Option<Self> {
         let value = &resume["consumption"];
@@ -335,7 +345,7 @@ impl Rate {
         self.retain(input);
         for (id, resume) in &input.resumes {
             let state = self.members.entry(id.clone()).or_default();
-            state.model = nonempty(&resume["model"]);
+            state.model = resume_model(resume).map(str::to_owned);
             state.reporter |= resume["consumption"].is_object();
             let Some(next) = Counter::read(resume) else {
                 state.blocked = true;

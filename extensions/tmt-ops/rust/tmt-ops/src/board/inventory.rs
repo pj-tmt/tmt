@@ -51,7 +51,7 @@ impl Inventory {
                     id.to_owned(),
                     Agent {
                         runtime: text(&row["runningDriver"]),
-                        model: text(&row["resume"]["model"]),
+                        model: super::rate::resume_model(&row["resume"]).map(str::to_owned),
                     },
                 );
                 let id = format!("agent:{id}");
@@ -73,5 +73,29 @@ impl Inventory {
             agents,
             error: listed.as_ref().err().map(ToString::to_string),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Inventory;
+    use serde_json::json;
+
+    #[test]
+    fn agent_model_is_the_last_completed_turn_then_the_starting_hook_then_unknown() {
+        let listed = Ok(json!({"identities": [
+            {"id": "a", "name": "switched", "runningDriver": "claude",
+             "resume": {"model": "start", "consumption": {"modelId": "later"}}},
+            {"id": "b", "name": "no-turn-yet", "resume": {"model": "start"}},
+            {"id": "c", "name": "unusable", "resume": {"consumption": {"modelId": ""}}},
+            {"id": "d", "name": "no-resume"},
+        ]}));
+        let inventory = Inventory::from_listed(&[], &listed);
+        let model = |id: &str| inventory.agents[id].model.as_deref();
+        assert_eq!(model("a"), Some("later"));
+        assert_eq!(model("b"), Some("start"));
+        assert_eq!(model("c"), None);
+        assert_eq!(model("d"), None);
+        assert_eq!(inventory.agents["a"].runtime.as_deref(), Some("claude"));
     }
 }
