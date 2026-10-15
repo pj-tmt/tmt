@@ -52,6 +52,7 @@ export interface ComponentMap {
 }
 
 export interface CiSelectionRow extends CiAreas {
+  readonly colabHostedEmulator: boolean;
   readonly path: string;
   readonly owner: string;
   readonly rule: string;
@@ -109,6 +110,7 @@ export function selectColabHosted(paths: readonly string[]): boolean;
 export function selectRemoteFirestore(paths: readonly string[]): boolean;
 export function selectColabFirestore(paths: readonly string[]): boolean;
 export function selectNativeSyncEmulator(paths: readonly string[]): boolean;
+export function selectHostedReaderEmulator(paths: readonly string[]): boolean;
 export function selectNativeNotices(paths: readonly string[]): boolean;
 export function selectNativeScope(paths: readonly string[], map?: ComponentMap): string;
 export function scopedChecks(

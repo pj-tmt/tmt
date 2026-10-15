@@ -1,0 +1,22 @@
+name: Qualify the real producer and hosted reader with emulators
+description: Run the owned hosted-reader proof against loopback demo Auth and Firestore.
+runs:
+  using: composite
+  steps:
+    - name: Select the runner's Java 21
+      shell: bash
+      run: |
+        test -n "$JAVA_HOME_21_X64"
+        echo "JAVA_HOME=$JAVA_HOME_21_X64" >> "$GITHUB_ENV"
+        echo "$JAVA_HOME_21_X64/bin" >> "$GITHUB_PATH"
+    - name: Prepare pinned Firebase tooling and the Firestore emulator
+      shell: bash
+      env:
+        FIREBASE_CLI_DISABLE_UPDATE_CHECK: '1'
+      run: |
+        java -version
+        npm install --global firebase-tools@15.29.0
+        firebase setup:emulators:firestore
+    - name: Prove native publication and the hosted browser reader
+      shell: bash
+      run: node extensions/tmt-colab/scripts/hosted-reader-emulator.mjs
