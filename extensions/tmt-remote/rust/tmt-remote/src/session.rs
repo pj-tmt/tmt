@@ -1225,6 +1225,94 @@ mod restart_tests {
         });
     }
     #[test]
+    fn restart_held_approval_still_defers_and_preserves_the_row() {
+        with_sessions(|sessions| {
+            let id = uuid_v4().unwrap();
+            let grant = Grant {
+                client_id: uuid_v4().unwrap(),
+                public_key: [7; 32],
+                kind: "cli".into(),
+                origin: "cli".into(),
+                name: "Held device".into(),
+                agents: "all".into(),
+                scopes: vec!["talk".into()],
+                mode: "hold".into(),
+                issued_at_ms: 1,
+                expires_at_ms: None,
+                revision: 1,
+                disabled: false,
+            };
+            let frozen = serde_json::to_vec(&json!({
+                "version":1,"operation":"dispatch.create","originator":"anonymous",
+                "input":{"operationId":id,"recipientIds":[uuid_v4().unwrap()],"message":"Retain this held request","kind":"request"}
+            })).unwrap();
+            crate::operations::held_intent(&grant, &id, &frozen).unwrap();
+            let receipt = json!({"state":"held","operationId":id}).to_string();
+            {
+                let mut store = sessions.store.lock().unwrap();
+                store.insert_grant(&grant).unwrap();
+                store.connection.execute(
+                    "INSERT INTO operations(id,client_id,operation,digest,frozen,phase,receipt,updated_ms,grant_revision) VALUES(?1,?2,'dispatch.create',?3,?4,'held',?5,1,1)",
+                    rusqlite::params![id, grant.client_id, Sha256::digest(&frozen).as_slice(), frozen, receipt],
+                ).unwrap();
+            }
+            let snapshot = || {
+                sessions
+                    .store
+                    .lock()
+                    .unwrap()
+                    .connection
+                    .query_row(
+                        "SELECT phase,frozen,receipt,updated_ms FROM operations WHERE id=?1",
+                        [&id],
+                        |row| {
+                            Ok((
+                                row.get::<_, String>(0)?,
+                                row.get::<_, Vec<u8>>(1)?,
+                                row.get::<_, String>(2)?,
+                                row.get::<_, i64>(3)?,
+                            ))
+                        },
+                    )
+                    .unwrap()
+            };
+            let before = snapshot();
+            assert!(
+                !sessions
+                    .while_idle(
+                        Instant::now() + crate::limits::RESTART_IDLE_WAIT,
+                        || panic!("a held approval must not stop")
+                    )
+                    .unwrap()
+            );
+            assert_eq!(snapshot(), before);
+            assert_eq!(
+                sessions
+                    .store
+                    .lock()
+                    .unwrap()
+                    .grant(&grant.client_id)
+                    .unwrap()
+                    .as_ref(),
+                Some(&grant)
+            );
+            sessions
+                .store
+                .lock()
+                .unwrap()
+                .connection
+                .execute("DELETE FROM operations WHERE id=?1", [&id])
+                .unwrap();
+            assert!(
+                sessions
+                    .while_idle(Instant::now() + crate::limits::RESTART_IDLE_WAIT, || Ok(
+                        true
+                    ))
+                    .unwrap()
+            );
+        });
+    }
+    #[test]
     fn restart_active_session_effect_still_defers() {
         with_sessions(|sessions| {
             sessions.live.lock().unwrap().by_session.insert(
