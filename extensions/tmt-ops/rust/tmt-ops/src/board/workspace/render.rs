@@ -20,6 +20,14 @@ use tmt_tui::components::{Modal, Placement, strip};
 pub(super) fn safe(text: &str) -> String {
     tmt_cli_style::table::escape(&crate::board::notes::sanitize(text))
 }
+fn member_noun(count: Option<usize>) -> &'static str {
+    if count == Some(1) {
+        "member"
+    } else {
+        "members"
+    }
+}
+
 pub(in crate::board) fn tabs(app: &App, area: Rect) -> Line<'static> {
     let look = app.look();
     let mut spans = vec![Span::raw(" ")];
@@ -309,8 +317,9 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                         let group = !matches!(row.target, OpsTarget::Member { .. });
                         let state = if group {
                             format!(
-                                "{} members",
-                                row.count.map_or_else(|| "?".into(), |n| n.to_string())
+                                "{} {}",
+                                row.count.map_or_else(|| "?".into(), |n| n.to_string()),
+                                member_noun(row.count)
                             )
                         } else {
                             safe(row.state.as_deref().unwrap_or("unreported"))
@@ -810,20 +819,18 @@ fn roster_preview(frame: &mut Frame, app: &App, mut area: Rect, target: &OpsTarg
             .and_then(|s| s.lead.as_ref())
             .and_then(|id| snapshot.roster.members.get(id))
             .map_or("—", |m| m.name.as_str());
-        let count = if squad.is_some_and(|s| s.observation == OpsObservation::Complete)
-            || squad.is_none() && snapshot.roster.complete()
-        {
-            members.len().to_string()
-        } else {
-            "unknown".into()
-        };
+        let count = (squad.is_some_and(|s| s.observation == OpsObservation::Complete)
+            || squad.is_none() && snapshot.roster.complete())
+        .then_some(members.len());
         strip::paint_left(
             frame.buffer_mut(),
             Rect::new(area.x, area.y, area.width, 1),
             Line::styled(
                 format!(
-                    "Roster preview · Lead {} · {count} members{}",
+                    "Roster preview · Lead {} · {} {}{}",
                     safe(lead),
+                    count.map_or_else(|| "unknown".into(), |n| n.to_string()),
+                    member_noun(count),
                     if observation == OpsObservation::Complete {
                         ""
                     } else {
