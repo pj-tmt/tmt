@@ -30,6 +30,11 @@ excluding fences, inline code and HTML comments; it does not fetch URLs or valid
   Cargo checks, architecture guard, native tests and E2E file under the existing
   job names, and skip unchanged CLI runtime builds, packed installs and tooling
   unit tests. Any shared, CLI-owned or unknown native input requires full scope.
+- Colab browser source and test/spec trees select Code quality and their existing
+  browser lanes without the full native gate. Native chrome CSS, hosted-build
+  inputs, entry/build/config files, public assets, vectors, native skill text and
+  unknown inputs retain full verification. The renderer-style generator is checked
+  by the unconditional app quality/build commands; browser selectors are independent.
 - Workspace Rust checks cover every retained member; no retired product exclusions
   or producers remain. Reject empty Remote test discovery before execution.
 

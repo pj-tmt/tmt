@@ -631,7 +631,7 @@ describe('CI area selection', () => {
       readFileSync(new URL('../../../.github/components.json', import.meta.url), 'utf8')
     );
     expect(isReleased(map, 'colab-app')).toBe(false);
-    expect(selectCiAreas([file])).toEqual({ native: true });
+    expect(selectCiAreas([file])).toEqual({ native: false });
     const workflow = readFileSync(
       new URL('../../../.github/workflows/ci.yml', import.meta.url),
       'utf8'
@@ -1250,6 +1250,90 @@ describe('component map', () => {
     expect(readers, 'these files read or name inert prose; map the prose to its consumer').toEqual(
       []
     );
+  });
+});
+
+describe('Colab browser-only native scope', () => {
+  const app = 'extensions/tmt-colab/typescript/app/';
+
+  it.each([
+    'src/style.css',
+    'src/reader.ts',
+    'src/hosted-reader.ts',
+    'test/reader-editor-browser.tsx',
+    'e2e/reader-editor.spec.ts',
+    'acceptance/hosted-reader.proof.ts',
+    'acceptance/harness/firestore-proxy.ts',
+  ])('retains the browser consumer without full native work for %s', (relative) => {
+    const file = app + relative;
+    expect(selectNativeScope([file])).toBe('none');
+    expect(selectColabApp([file])).toBe(true);
+    expect(selectNativeScope(['README.md', file])).toBe('none');
+  });
+
+  it('keeps the generator checked by unconditional app quality/build commands', () => {
+    const file = 'extensions/tmt-colab/scripts/generate-renderer-style.mjs';
+    expect(selectNativeScope([file])).toBe('none');
+    const scripts = JSON.parse(
+      readFileSync(new URL('../../../' + app + 'package.json', import.meta.url), 'utf8')
+    ).scripts;
+    for (const command of ['check', 'build'])
+      expect(scripts[command]).toContain('generate-renderer-style.mjs --check');
+  });
+
+  it.each([
+    'src/colab-header.css',
+    'src/reader-style.css',
+    'src/notice-card.css',
+    'src/app-build.ts',
+    'src/main.tsx',
+    'src/reader-main.tsx',
+    'src/hosted-main.tsx',
+    'src/hosted-entry.ts',
+    'src/new.config.ts',
+    'public/renderer.html',
+    'index.html',
+    'package.json',
+    'vite.config.ts',
+    'playwright.hosted.config.ts',
+    'acceptance/hosted-bundle.spec.ts',
+  ])('keeps native/build/entry/config input %s full', (relative) => {
+    expect(selectNativeScope([app + relative])).toBe('full');
+  });
+
+  it.each([
+    'rust/crates/tmt-core/src/lib.rs',
+    'extensions/tmt-colab/rust/tmt-colab/app-entries.txt',
+    'extensions/tmt-colab/skills/tmt-colab/SKILL.md',
+    'extensions/tmt-colab/skills/tmt-colab/references/editing.md',
+    'extensions/tmt-colab/contracts/colab-v1.md',
+    'extensions/tmt-colab/contracts/vectors/authority-v1.json',
+    'extensions/tmt-colab/scripts/cloud-sync-emulator.mjs',
+    'extensions/tmt-colab/scripts/hosted-reader-emulator.mjs',
+    'extensions/tmt-colab/typescript/colab-client/src/link.ts',
+    'extensions/tmt-remote/typescript/remote-client/test/vectors.json',
+    'typescript/scripts/ci-scope.mjs',
+    'typescript/test/e2e/mock-claude-channel.mjs',
+    '.github/workflows/ci.yml',
+    'extensions/tmt-colab/typescript/app-other/src/reader.ts',
+    'extensions/tmt-colab/typescript/app/src-other/reader.ts',
+    'extensions/tmt-colab/typescript/app/src/new.input',
+    'extensions/tmt-colab/scripts/generate-renderer-style.mjs.backup',
+    'unknown/new-input',
+  ])('retains full native coverage for %s, alone or mixed with browser input', (file) => {
+    expect(selectNativeScope([file])).toBe('full');
+    expect(selectNativeScope([app + 'src/style.css', file])).toBe('full');
+  });
+
+  it('keeps every tracked hosted-bundle input native as that consumer evolves', () => {
+    const root = fileURLToPath(new URL('../../../', import.meta.url));
+    const inventory: string = runPackedCommand('git', ['ls-files', '-z'], {
+      cwd: root,
+      env: process.env,
+    });
+    const files = inventory.split('\0').filter((file) => file && selectColabHosted([file]));
+    expect(files).toContain(app + 'acceptance/hosted-bundle.spec.ts');
+    for (const file of files) expect(selectNativeScope([file]), file).toBe('full');
   });
 });
 
@@ -2164,6 +2248,28 @@ esac
       expect(colabQueue.outputs).toEqual(select([base, colabRules]).outputs);
       expect(select(['full']).outputs.colab_firestore).toBe('false');
       expect(select(['seed']).outputs.colab_firestore).toBe('false');
+      git(['checkout', '--quiet', '--detach', base]);
+      commit('extensions/tmt-colab/typescript/app/src/style.css', 'browser');
+      const browserTip = commit(
+        'extensions/tmt-colab/typescript/app/e2e/reader-editor.spec.ts',
+        'browser spec'
+      );
+      expect(select(['merge-group', browserTip]).outputs).toMatchObject({
+        native_scope: 'none',
+        colab_app: 'false',
+      });
+      expect(select([base, browserTip]).outputs).toMatchObject({
+        native_scope: 'none',
+        colab_app: 'true',
+      });
+      const native = commit('rust/native.rs', '// earlier queued native input');
+      const browserOnlyTip = commit(
+        'extensions/tmt-colab/typescript/app/test/reader.test.ts',
+        'browser-only tip'
+      );
+      expect(select([native, browserOnlyTip]).outputs.native_scope).toBe('none');
+      expect(select(['merge-group', browserOnlyTip]).outputs.native_scope).toBe('full');
+      expect(select(['merge-group', browserOnlyTip]).evidence).toContain('rust/native.rs');
       // The earlier queued workspace change selects native, even when HEADGREEN's last tip is site-only.
       git(['checkout', '--quiet', '--detach', base]);
       mkdirSync(path.join(root, 'rust'), { recursive: true });

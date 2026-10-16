@@ -284,6 +284,46 @@
         "typescript/test/tooling/**",
         "typescript/test/e2e/*.e2e.test.ts"
       ]
+    },
+    {
+      "id": "colab-protected-hosting",
+      "consumers": ["native"],
+      "why": "Hosted-bundle build and entry/config inputs retain full native verification ahead of browser-only rules.",
+      "paths": [
+        ".github/workflows/colab-browser.yml",
+        "extensions/tmt-remote/typescript/remote-client/firebase-build-pin.json",
+        "extensions/tmt-remote/typescript/remote-client/vite.firebase.config.ts",
+        "extensions/tmt-colab/rust/tmt-colab/build/hosting.rs",
+        "extensions/tmt-colab/typescript/app/package.json",
+        "extensions/tmt-colab/typescript/app/vite.config.ts",
+        "extensions/tmt-colab/typescript/app/acceptance/hosted-bundle.spec.ts",
+        "extensions/tmt-colab/typescript/app/src/**-build.*",
+        "extensions/tmt-colab/typescript/app/src/main.*",
+        "extensions/tmt-colab/typescript/app/src/**-main.*",
+        "extensions/tmt-colab/typescript/app/src/**-entry.*",
+        "extensions/tmt-colab/typescript/app/**config.*"
+      ]
+    },
+    {
+      "id": "colab-browser-only",
+      "consumers": [],
+      "why": "Code quality always checks, tests and builds the app; existing Colab component and hosted-reader selectors retain their independent coverage. Required native jobs do not read these browser sources.",
+      "paths": [
+        "extensions/tmt-colab/typescript/app/src/**.ts",
+        "extensions/tmt-colab/typescript/app/src/**.tsx",
+        "extensions/tmt-colab/typescript/app/src/**.css",
+        "extensions/tmt-colab/typescript/app/test/**.ts",
+        "extensions/tmt-colab/typescript/app/test/**.tsx",
+        "extensions/tmt-colab/typescript/app/test/**.html",
+        "extensions/tmt-colab/typescript/app/e2e/**.ts",
+        "extensions/tmt-colab/typescript/app/acceptance/**.ts"
+      ]
+    },
+    {
+      "id": "colab-renderer-generator",
+      "consumers": [],
+      "why": "Code quality app check/build always checks the generated renderer style.",
+      "paths": ["extensions/tmt-colab/scripts/generate-renderer-style.mjs"]
     }
   ]
 }
