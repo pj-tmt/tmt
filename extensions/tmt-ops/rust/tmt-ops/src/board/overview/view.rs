@@ -154,9 +154,18 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                         } else {
                             empty_state::paint(
                                 frame.buffer_mut(),
-                                slot,
-                                if scene.summary.complete {
+                                Rect::new(
+                                    slot.x.saturating_add(1),
+                                    slot.y,
+                                    slot.width.saturating_sub(1),
+                                    slot.height,
+                                ),
+                                if !app.workspace.query.is_empty()
+                                    || app.overview_filter != monitor::Filter::All
+                                {
                                     "No matching squads"
+                                } else if scene.summary.complete {
+                                    "No squads yet."
                                 } else {
                                     "Squads unavailable"
                                 },
@@ -240,11 +249,16 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                         } else {
                             empty_state::paint(
                                 frame.buffer_mut(),
-                                slot,
+                                Rect::new(
+                                    slot.x.saturating_add(1),
+                                    slot.y,
+                                    slot.width.saturating_sub(1),
+                                    slot.height,
+                                ),
                                 if !app.workspace.query.is_empty() {
                                     "No matching waiting agents"
                                 } else if scene.summary.complete {
-                                    "No agents waiting on you"
+                                    "No agents waiting on you."
                                 } else {
                                     "Waiting agents unavailable"
                                 },

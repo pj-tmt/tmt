@@ -93,7 +93,7 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
         (screen) =>
           screen.includes('OPS / UI') &&
           /^ SQUAD[ \t]+TEAM[ \t]+TOK 1h[ \t]+NOW\b/m.test(screen) &&
-          screen.includes('No matching squads') &&
+          screen.includes('No squads yet.') &&
           screen.includes('No agents waiting on you'),
         shell.pane
       );

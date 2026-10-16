@@ -1452,11 +1452,28 @@ fn no_squads_is_a_known_empty_workspace_with_an_explicit_creation_action() {
     app.shell.tab = OpsTab::Overview;
     app.workspace_reconcile();
     assert!(app.workspace_rows().is_empty());
+    assert!(paint(&app, 80, 24).join("\n").contains(" No squads yet."));
+    let empty = paint(&app, 80, 24);
+    assert!(
+        empty
+            .iter()
+            .any(|line| line.starts_with(" No agents waiting on you."))
+    );
+    assert!(empty.last().unwrap().starts_with(' '));
+    app.workspace.query = "missing".into();
     assert!(
         paint(&app, 80, 24)
-            .join("\n")
-            .contains("No matching squads")
+            .iter()
+            .any(|line| line.starts_with(" No matching squads"))
     );
+    app.workspace.query.clear();
+    app.overview_filter = crate::board::overview::monitor::Filter::NeedsYou;
+    assert!(
+        paint(&app, 80, 24)
+            .iter()
+            .any(|line| line.starts_with(" No matching squads"))
+    );
+    app.overview_filter = crate::board::overview::monitor::Filter::All;
     assert_eq!(key(&mut app, KeyCode::Char('n')), Effect::None);
     assert_eq!(app.workspace_form.as_ref().unwrap().kind, Kind::Create);
 }

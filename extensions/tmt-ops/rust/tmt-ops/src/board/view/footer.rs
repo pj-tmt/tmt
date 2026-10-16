@@ -535,11 +535,20 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
         hint_line(hint, look)
     } else {
         let text = legend.as_ref().map_or_else(
-            || hints(app, usize::from(footer.width)),
+            || {
+                hints(
+                    app,
+                    usize::from(footer.width.saturating_sub(u16::from(
+                        app.shell.tab == crate::board::shell::OpsTab::Overview,
+                    ))),
+                )
+            },
             |lines| lines[1].clone(),
         );
         if app.shell.tab == crate::board::shell::OpsTab::Overview {
-            crate::board::key_hints::line(&text, look, look.role(Role::Text), "  ")
+            let mut line = crate::board::key_hints::line(&text, look, look.role(Role::Text), "  ");
+            line.spans.insert(0, Span::raw(" "));
+            line
         } else {
             hint_line(&text, look)
         }
