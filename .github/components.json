@@ -324,6 +324,12 @@
       "consumers": [],
       "why": "Code quality app check/build always checks the generated renderer style.",
       "paths": ["extensions/tmt-colab/scripts/generate-renderer-style.mjs"]
+    },
+    {
+      "id": "colab-contract-prose",
+      "consumers": [],
+      "why": "The Colab app unit tests in unconditional Code quality check shipped-skill error codes against this contract; no native job reads it. Contract vectors retain native verification.",
+      "paths": ["extensions/tmt-colab/contracts/colab-v1.md"]
     }
   ]
 }
