@@ -11,6 +11,65 @@ fn moved(app: &mut App, x: u16, y: u16) -> bool {
 }
 
 #[test]
+fn shared_groups_use_the_same_padding_style_hover_and_disabled_hit_contract() {
+    use crate::board::chip_group::{self, ChipGroup, Choice};
+    use tmt_cli_style::{Base, Depth, Theme};
+    for depth in [Depth::TrueColor, Depth::Ansi16, Depth::None] {
+        let mut app = App::default();
+        app.initial_look = Some(crate::look::Look {
+            theme: Theme::new(Base::Tmt),
+            depth,
+        });
+        let groups = [ChipGroup {
+            label: "Each ".into(),
+            choices: [
+                ("5m", true, false),
+                ("15m", false, false),
+                ("30m", false, true),
+            ]
+            .into_iter()
+            .map(|(label, selected, disabled)| Choice {
+                id: label.into(),
+                actionable: true,
+                text: format!(" {label:>3} "),
+                gap: " ".into(),
+                selected,
+                disabled,
+                cursor: false,
+            })
+            .collect(),
+        }];
+        let area = Rect::new(3, 2, 24, 1);
+        let mut buffer = Buffer::empty(area);
+        let hits = chip_group::paint(&mut buffer, area, &groups, &app, None);
+        assert_eq!(
+            hits.iter().map(|hit| hit.id.as_str()).collect::<Vec<_>>(),
+            ["5m", "15m"]
+        );
+        let selected = hits[0].area;
+        let look = app.look();
+        let hot = screen::chip(&look.theme, ChipKind::Secondary, ChipState::Hot, depth);
+        for x in selected.x..selected.right() {
+            assert_eq!(buffer[(x, selected.y)].modifier, hot.add_modifier);
+            assert_eq!(buffer[(x, selected.y)].bg, hot.bg.unwrap_or_default());
+        }
+        let idle = hits[1].area;
+        assert!(moved(&mut app, idle.x, idle.y));
+        app.buttons.begin_frame();
+        let hovered = chip_group::paint(&mut buffer, area, &groups, &app, None);
+        assert_eq!(hovered[1].area, idle, "hover must not move the group");
+        for x in idle.x..idle.right() {
+            assert_eq!(buffer[(x, idle.y)].modifier, hot.add_modifier);
+            assert_eq!(buffer[(x, idle.y)].bg, hot.bg.unwrap_or_default());
+        }
+        app.buttons.invalidate();
+        let clipped = Rect { width: 13, ..area };
+        let hits = chip_group::paint(&mut buffer, clipped, &groups, &app, None);
+        assert_eq!(hits.len(), 1, "a partially clipped chip is not actionable");
+    }
+}
+
+#[test]
 fn padding_hover_repaints_only_the_whole_chip_and_leaving_restores_idle() {
     let mut app = App::default();
     app.initial_look = Some(crate::look::Look {
