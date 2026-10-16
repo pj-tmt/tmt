@@ -84,7 +84,10 @@ test('a section confirmed in the browser is a resolved thread to the CLI, and an
 
     // An agent's own resolve is labelled as the agent's and does not close the section.
     const resolved = JSON.parse(
-      colab(['threads', 'resolve', created.pageId, thread('Section two')!.id, '--json'], agent.pane),
+      colab(
+        ['threads', 'resolve', created.pageId, thread('Section two')!.id, '--json'],
+        agent.pane,
+      ),
     ) as { changed: boolean; action: { actor: string } };
     expect(resolved.changed).toBe(true);
     expect(resolved.action.actor).toBe('agent');
