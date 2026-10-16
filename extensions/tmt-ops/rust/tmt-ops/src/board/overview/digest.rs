@@ -1,6 +1,6 @@
 //! The existing scoped Digest evidence adapted to reusable metric rows.
 use crate::{
-    board::{app::App, digest_dashboard, m10_key_value},
+    board::{app::App, digest_dashboard, key_value},
     config::SavingsUnit,
     look::Look,
 };
@@ -29,15 +29,15 @@ impl Metric {
             self.note
                 .map_or_else(String::new, |note| format!(" ({note})"))
         );
-        m10_key_value::paint(
+        key_value::paint(
             buffer,
             area,
-            &m10_key_value::Row {
+            &key_value::Row {
                 key: &self.key,
                 value: if self.amount.is_some() {
-                    m10_key_value::Value::Observed(&value)
+                    key_value::Value::Observed(&value)
                 } else {
-                    m10_key_value::Value::Unreported(&value)
+                    key_value::Value::Unreported(&value)
                 },
             },
             look,

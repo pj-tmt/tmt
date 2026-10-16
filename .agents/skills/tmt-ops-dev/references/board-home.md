@@ -93,8 +93,8 @@ explicit message focus reveals a configured-off Overview conversation; Escape
 keeps the UUID draft. Hidden Digest Status still exposes failed/loading/stale
 observations.
 
-The narrow lower band places shared M9 TimerRows beside M10 KeyValue, joined by
-M14 Divider. M9 shows at most three soonest jobs from the acquired all-room cron
+The narrow lower band places shared timer rows beside key/value, joined by
+divider. Timer rows show at most three soonest jobs from the acquired all-room cron
 snapshot, deduplicated by room/job identity; the more control opens that same
 all-room list. Its key hint resolves only an effective `all-timers` binding.
 A scoped, searched or hidden roster labels these global facts in the Timers title.
@@ -103,14 +103,14 @@ a missing clock does not become a promised fire time. Countdown formatting uses
 the acquired read instant, with no new wall clock, scan or service read in paint.
 Observed empty and unavailable timer sources use distinct M18 states.
 
-M10 uses the existing scoped numeric Summary and supplier estimate/price-table
+Key/value uses the existing scoped numeric Summary and supplier estimate/price-table
 projection. Held and mode counts retain unknown/partial distinctions; values align
 right. Context and list-price quote rows use the existing unit/coverage formatter,
 independent of the shared savings-unit preference. An unreported cost is a dash;
 reported quotes retain their distinct coverage and list-price assumption. Stale
 supplier data does not become current zero. Narrow layouts stack these modules
 when their named minimum widths cannot fit; they remain in the primary scroll
-owner. The wide lower band remains absent until its final M9/M19 placement, so no
+owner. The wide lower band remains absent until its final timer-row/Digest-matrix placement, so no
 interim wide key/value Digest is introduced.
 
 `workspace::render` retains the Agents tree and squad detail. Conversation, editor,

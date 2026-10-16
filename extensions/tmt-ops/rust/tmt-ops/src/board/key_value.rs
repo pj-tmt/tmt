@@ -1,4 +1,4 @@
-//! M10 KeyValue: neutral labels and right-aligned observed values.
+//! KeyValue: neutral labels and right-aligned observed values.
 use crate::look::Look;
 use ratatui::{
     buffer::Buffer,

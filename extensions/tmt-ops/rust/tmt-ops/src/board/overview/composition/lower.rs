@@ -2,8 +2,9 @@
 use crate::{
     board::{
         app::{App, Hit, HitTarget},
-        m3_section_rule, m9_timer_rows, m14_divider, m18_empty_state,
+        divider, m3_section_rule, m18_empty_state,
         overview::{digest, timers},
+        timer_rows,
     },
     look::Look,
 };
@@ -60,7 +61,7 @@ impl Band {
                 ..slot
             };
             self.timer(frame, app, timer, row, look);
-            m14_divider::paint(
+            divider::paint(
                 frame.buffer_mut(),
                 Rect::new(slot.x + TIMER_CELLS, slot.y, 1, 1),
                 row == 0,
@@ -103,7 +104,7 @@ impl Band {
             );
         } else if row <= self.timers.rows.len().max(1) {
             if let Some(timer) = self.timers.rows.get(row - 1) {
-                m9_timer_rows::paint(frame.buffer_mut(), slot, timer, look);
+                timer_rows::paint(frame.buffer_mut(), slot, timer, look);
             } else {
                 m18_empty_state::paint(frame.buffer_mut(), slot, self.timers.empty, None, look);
             }
@@ -120,7 +121,7 @@ impl Band {
                         .find(|(_, action)| action.verb == Verb::Ui(OpsUiAction::AllTimers))
                         .map(|(key, _)| key.as_str())
                 });
-            let footer = m9_timer_rows::footer(
+            let footer = timer_rows::footer(
                 self.timers.total.saturating_sub(self.timers.rows.len()),
                 key,
                 usize::from(slot.width),

@@ -1,4 +1,4 @@
-//! M14 Divider: one neutral vertical separator, optionally joined to a top rule.
+//! Divider: one neutral vertical separator, optionally joined to a top rule.
 use crate::look::Look;
 use ratatui::{buffer::Buffer, layout::Rect, text::Line};
 use tmt_cli_style::Role;

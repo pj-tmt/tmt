@@ -1,10 +1,10 @@
 //! A bounded preview over the held global cron observation; never a service read.
-use crate::board::{app::App, cronboard, m9_timer_rows};
+use crate::board::{app::App, cronboard, timer_rows};
 use std::collections::BTreeSet;
 use tmt_ops::cron::ClockStatus;
 
 pub(super) struct Model {
-    pub rows: Vec<m9_timer_rows::Row>,
+    pub rows: Vec<timer_rows::Row>,
     pub total: usize,
     pub title: &'static str,
     pub note: String,
@@ -92,7 +92,7 @@ pub(super) fn project(app: &App) -> Model {
     }
     let rows = jobs
         .iter()
-        .take(m9_timer_rows::MAX_ROWS)
+        .take(timer_rows::MAX_ROWS)
         .map(|view| {
             let state = view.state_label();
             let next = if stale {
@@ -111,7 +111,7 @@ pub(super) fn project(app: &App) -> Model {
             } else {
                 next(view).map(|at| cronboard::countdown(at, cron.read_ms))
             };
-            m9_timer_rows::Row {
+            timer_rows::Row {
                 id: view.job.id(),
                 squad: view.job.squad.clone(),
                 schedule: crate::cron_service::schedule_text(&view.job.schedule),

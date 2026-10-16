@@ -1,4 +1,4 @@
-//! M9 TimerRows: fitted, inert timer observations and a shared maximum row budget.
+//! TimerRows: fitted, inert timer observations and a shared maximum row budget.
 use crate::look::Look;
 use ratatui::{
     buffer::Buffer,
