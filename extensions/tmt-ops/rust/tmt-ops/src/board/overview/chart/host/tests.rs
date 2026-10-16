@@ -97,14 +97,19 @@ fn current_controls_and_keyboard_share_grid_without_recipient_or_draft_changes()
         press(&mut app, KeyCode::Esc);
         press(&mut app, KeyCode::Char('3'));
         let shown = text(&paint(&mut app, 100, 36));
-        assert!(
-            shown.contains("Usage · last 30m")
-                && shown.contains(" 5m   15m   30m   60m   ·  15m   30m   60m  ")
-        );
+        assert!(shown.contains("Usage · last 30m"));
         press(&mut app, KeyCode::Char('u'));
         paint(&mut app, 100, 36);
         assert_eq!(app.workspace.selected, target);
         assert!(app.input.is_none());
+        for hit in &app.usage_chart.borrow().hits {
+            if matches!(hit.target, Target::Each(_) | Target::Range(_)) {
+                assert_eq!(
+                    hit.area.width, 5,
+                    "interval labels retain numeric alignment inside shared chip padding"
+                );
+            }
+        }
         let previously_enabled = app
             .usage_chart
             .borrow()

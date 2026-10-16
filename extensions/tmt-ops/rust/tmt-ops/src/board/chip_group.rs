@@ -114,7 +114,11 @@ pub(in crate::board) fn paint(
             if cell.cut {
                 continue;
             }
-            let button = super::buttons::Button::secondary(value.trim())
+            let label = value
+                .strip_prefix(' ')
+                .and_then(|value| value.strip_suffix(' '))
+                .unwrap_or(value);
+            let button = super::buttons::Button::secondary(label)
                 .focused(choice.selected || choice.cursor)
                 .enabled(!choice.disabled)
                 .idle(look.role(Role::Muted));

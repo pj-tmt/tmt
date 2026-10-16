@@ -46,12 +46,8 @@ fn groups(
                 Choice {
                     id: format!("{prefix}-{value}"),
                     actionable: true,
-                    text: if inline {
-                        format!(" {value}m ")
-                    } else {
-                        format!(" {value:>2}m  ")
-                    },
-                    gap: if inline { " ".into() } else { String::new() },
+                    text: format!(" {value:>2}m "),
+                    gap: " ".into(),
                     selected,
                     disabled: if prefix == "each" {
                         *value > selection.range_minutes
@@ -147,7 +143,7 @@ pub(super) fn header(
             }]
         };
     }
-    let width = 44;
+    let width = 45;
     let controls = Rect::new(area.right() - width, area.y, width, 1);
     let title_area = Rect::new(area.x, area.y, area.width.saturating_sub(width + 1), 1);
     let title = crate::board::view::fit(title, usize::from(title_area.width));

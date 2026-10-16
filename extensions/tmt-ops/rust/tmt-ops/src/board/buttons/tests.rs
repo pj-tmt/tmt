@@ -46,6 +46,13 @@ fn shared_groups_use_the_same_padding_style_hover_and_disabled_hit_contract() {
             hits.iter().map(|hit| hit.id.as_str()).collect::<Vec<_>>(),
             ["5m", "15m"]
         );
+        assert_eq!(hits[0].area.width, 5);
+        assert_eq!(hits[1].area.width, 5);
+        assert_eq!(
+            hits[1].area.x - hits[0].area.right(),
+            1,
+            "one neutral gap separates chips"
+        );
         let selected = hits[0].area;
         let look = app.look();
         let hot = screen::chip(&look.theme, ChipKind::Secondary, ChipState::Hot, depth);
