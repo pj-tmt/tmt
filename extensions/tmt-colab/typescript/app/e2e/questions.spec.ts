@@ -318,6 +318,19 @@ for (const width of [1440, 390])
           await (await pageAction(page.locator('#ask-page-fixture'), 'Theme: Dark')).click();
         const proposal = page.locator('[data-inline-proposal]');
         await expect(proposal).not.toHaveAttribute('data-detached');
+        await expect
+          .poll(async () => {
+            const questionBox = await card.boundingBox();
+            const proposalBox = await proposal.locator('.proposal-card').boundingBox();
+            if (!questionBox || !proposalBox) return null;
+            return {
+              left: Math.round(proposalBox.x - questionBox.x),
+              right: Math.round(
+                proposalBox.x + proposalBox.width - questionBox.x - questionBox.width,
+              ),
+            };
+          })
+          .toEqual({ left: 0, right: 0 });
         const frame = page.frameLocator('#ask-page-fixture iframe');
         await expect(frame.locator('html')).toHaveAttribute('data-theme', theme);
         const question = frame.locator('[data-colab-question]');
