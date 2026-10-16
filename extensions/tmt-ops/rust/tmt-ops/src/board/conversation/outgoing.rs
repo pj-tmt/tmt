@@ -224,10 +224,13 @@ impl Session {
             self.refresh_outgoing();
         }
     }
-    pub(super) fn agent_observed(&mut self, name: &str, state: &str, stale: bool) {
+    /// `state` picks the glyph; `words` are the STATE cell's words, so the
+    /// status and the header never disagree.
+    pub(super) fn agent_observed(&mut self, name: &str, state: &str, words: &str, stale: bool) {
         let glyph = match state {
             "working" => "●",
             "idle" => "◌",
+            "ended" => "○",
             "blocked" => "✗",
             "waiting" => "◆",
             _ => "?",
@@ -235,8 +238,12 @@ impl Session {
         let mark = format!(
             "{glyph} {} {}{}",
             crate::board::notes::sanitize(name),
-            crate::board::notes::sanitize(state),
-            if stale { " · stale" } else { "" }
+            crate::board::notes::sanitize(words),
+            if stale && state != "stale" {
+                " · stale"
+            } else {
+                ""
+            }
         );
         if self.agent_mark != mark {
             self.agent_mark = mark;
