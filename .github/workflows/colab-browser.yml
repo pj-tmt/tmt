@@ -396,13 +396,17 @@ jobs:
       # dev-dependency features (tmt-adapters test-isolation), and that `tmt` then refuses to run in a world.
       - name: Build Remote's offline Hosting composer example
         run: cargo build --locked --manifest-path rust/Cargo.toml -j 2 -p tmt-remote --example compose_hosting
+      # Core's native fixture the recipient provider runs as (codex/claude basename, managed launch
+      # options accepted, then the recipient script under Node). Its own invocation, like the example above.
+      - name: Build Core's interpreted provider fixture
+        run: cargo build --locked --manifest-path rust/Cargo.toml -j 2 -p tmt-adapters --example provider-script-fixture
       - name: Record the tested source and exact build hashes
         shell: bash
         env:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           printf 'pr-head: %s\ntested-merge: %s\n' "$PR_HEAD_SHA" "$(git rev-parse HEAD)" > "$RUNNER_TEMP/colab-acceptance-results/tested-head.txt"
-          sha256sum rust/target/debug/tmt rust/target/debug/tmt-remote rust/target/debug/tmt-colab > "$RUNNER_TEMP/colab-acceptance-results/binaries.sha256"
+          sha256sum rust/target/debug/tmt rust/target/debug/tmt-remote rust/target/debug/tmt-colab rust/target/debug/examples/provider-script-fixture > "$RUNNER_TEMP/colab-acceptance-results/binaries.sha256"
           find extensions/tmt-colab/typescript/app/dist -type f -print0 | sort -z | xargs -0 sha256sum > "$RUNNER_TEMP/colab-acceptance-results/assets.sha256"
           find extensions/tmt-colab/typescript/app/dist-hosted -type f -print0 | sort -z | xargs -0 sha256sum > "$RUNNER_TEMP/colab-acceptance-results/hosted-assets.sha256"
       - name: Run this shard of the real-binary suite with one worker

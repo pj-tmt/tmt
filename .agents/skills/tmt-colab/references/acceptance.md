@@ -13,13 +13,23 @@ three binaries (default `rust/target/debug`):
 corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-app --fail-if-no-match build
 CARGO_BUILD_JOBS=2 TMT_COLAB_APP_DIR="$PWD/extensions/tmt-colab/typescript/app/dist" \
   cargo build --locked --manifest-path rust/Cargo.toml -p tmt-cli -p tmt-remote -p tmt-colab --bins
+cargo build --locked --manifest-path rust/Cargo.toml -p tmt-adapters --example provider-script-fixture
 corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-app --fail-if-no-match test:acceptance
 ```
+
+The second build is Core's interpreted-provider fixture, its own invocation (an example selected
+next to `tmt-cli` enables test-isolation features that make `tmt` refuse to run in a world).
+A recipient started as a `claude` or `codex` driver is that fixture copied under the provider
+basename, with `TMT_TEST_PROVIDER_INTERPRETER` set to the absolute Node: it accepts Core's managed
+launch options and runs the recipient script. The harness reads it from `examples/` of the binaries
+directory (so a dedicated execution directory carries `examples/provider-script-fixture` too), and
+a missing one fails with the build command. The fixture reaps its child; the world keeps the
+process-group and tmux-server cleanup and the no-leftovers assertion.
 
 If also running [native Chromium fixtures](development.md#app-and-browser-client),
 compile those fixtures before the final binary build: their test configuration can
 replace the regular `tmt-colab` artifact in a shared target directory. Copy the final
-three binaries into a dedicated execution directory, select it with
+three binaries (and `examples/provider-script-fixture`) into a dedicated execution directory, select it with
 `TMT_ACCEPTANCE_BIN_DIR`, and record the tested head, binary and embedded asset hashes
 before execution. Keep that directory unchanged throughout both acceptance runs.
 
