@@ -195,6 +195,9 @@ test('queued trusted download selects the current message revision without a sec
   await invoke(page, 'advanceWithoutRender');
   await invoke(page, 'finish');
   expect((await pending).suggestedFilename()).toBe('image-1.png');
+  // The download event does not join the replacement thumbnail's FileReader. Its rendered
+  // image marks the current preview read complete before checking all returned bytes.
+  await expect(page.locator('.attachment-thumbnail img')).toBeVisible();
   const result = await proof(page);
   expect(result.reads.slice(0, 2)).toEqual(['image-1.png:1', 'image-1.png:2']);
   expect(result.readScopes.slice(0, 2)).toEqual(['head:1', 'head:2']);
