@@ -198,7 +198,12 @@ Digest uses the existing scoped numeric and supplier estimate owners, with value
 right-aligned and unreported values shown as an em dash. Fixed context-token and
 list-price quote rows retain their source coverage independently of the saved
 unit preference. The modules stack when their minimum widths cannot fit. Wide
-screens retain the preceding layout until the final matrix composition.
+screens place the selected waiting exchange and a filled three-row input above
+Timers and the direct Digest matrix. The joined divider separates that column
+from the Squads / Agents list. The matrix uses fixed ten-cell all/member columns,
+ranked by observed HOUR tokens, and honest fixed-24h supplier estimates. Shared
+shell paint colours only nonzero waiting/blocked glyphs; tabs and other values
+remain neutral. The Talk matrix stays absent until its data is shipped.
 
 Provider usage/quota and shell attention remain global under launch scope; local
 roster totals intersect the visible scoped identities. Missing, partial and stale

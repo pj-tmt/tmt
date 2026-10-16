@@ -22,6 +22,16 @@ pub(in crate::board) struct Band {
     pub height: usize,
 }
 impl Band {
+    pub(super) fn timers(app: &App) -> Self {
+        let timers = timers::project(app);
+        let height = timers.height();
+        Self {
+            timers,
+            digest: None,
+            split: false,
+            height,
+        }
+    }
     pub fn new(app: &App, frame_width: u16, width: u16) -> Option<Self> {
         // S4 introduces the final wide right column with the Digest matrix.
         if frame_width >= 140 || width == 0 {
@@ -122,16 +132,20 @@ impl Band {
         } else if row == self.timers.height() - 1 {
             use crate::action::{OpsUiAction, Verb};
             let bindings = app.bindings();
-            let key = bindings
-                .get("c")
-                .filter(|action| action.verb == Verb::Ui(OpsUiAction::AllTimers))
-                .map(|_| "c")
-                .or_else(|| {
-                    bindings
-                        .iter()
-                        .find(|(_, action)| action.verb == Verb::Ui(OpsUiAction::AllTimers))
-                        .map(|(key, _)| key.as_str())
-                });
+            let key = if app.input.is_none() && !app.modal_open() && !app.loading() {
+                bindings
+                    .get("c")
+                    .filter(|action| action.verb == Verb::Ui(OpsUiAction::AllTimers))
+                    .map(|_| "c")
+                    .or_else(|| {
+                        bindings
+                            .iter()
+                            .find(|(_, action)| action.verb == Verb::Ui(OpsUiAction::AllTimers))
+                            .map(|(key, _)| key.as_str())
+                    })
+            } else {
+                None
+            };
             let footer = timer_rows::footer(
                 self.timers.total.saturating_sub(self.timers.rows.len()),
                 key,

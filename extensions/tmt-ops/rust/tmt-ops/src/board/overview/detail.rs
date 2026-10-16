@@ -142,7 +142,9 @@ impl App {
                 crate::config::OpsKeyScope::Member => "selected squad member",
                 crate::config::OpsKeyScope::Squad => "selected squad",
                 crate::config::OpsKeyScope::Pool => "Common pool",
-                crate::config::OpsKeyScope::Reader => "conversation reader",
+                crate::config::OpsKeyScope::Reader | crate::config::OpsKeyScope::OverviewReader => {
+                    "conversation reader"
+                }
             };
             lines.push(format!(
                 "Binding scope: {scope}; configuration: {}",

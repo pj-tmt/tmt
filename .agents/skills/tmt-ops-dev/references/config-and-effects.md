@@ -195,7 +195,7 @@ neither cancels its admitted write nor applies a late result to a reopened picke
 `workspace.overview_panels` stores `order`, `hidden` and `conversation` over IDs
 `summary`, `digest`, `subscriptions`, `usage`, `monitor`, `exchanges`.
 Overview exposes only Usage, inline quota, Squads / Agents and Conversation in
-its picker, plus the narrow Digest toggle; fixed positions ignore retained vertical
+its picker, plus the Digest toggle; fixed positions ignore retained vertical
 order. Retired Summary and Recent controls remain absent. Usage has a fixed full-width header position and `subscriptions`
 controls quota cells inside its provider rows. Their order entries are retained
 in the stored complete ID set, but the picker identifies them as fixed and refuses
@@ -208,6 +208,11 @@ The explicit `all-timers` action opens the all-room read context and is Overview
 new default `c`. Authored `timers` keeps the selected scope, and compatible global,
 host and section overrides retain their normal precedence. The preview advertises
 only a key that actually resolves to `all-timers`.
+Overview list and reader factory defaults resolve Enter to `reply`. The internal
+Overview reader context inherits reader scrolling before the existing authored
+key merge. Authored global, host and section overrides keep their meaning;
+Agents/Digest reader defaults remain independent. The filled input advertises the
+effective admitted Reply/Talk start key, and pointer focus uses that same action.
 `workspace.digest_panels` stores `order`, `hidden` and `details` over IDs `status`,
 `usage`, `subscriptions`, `chart`, `list`, `report`. Saved order retains its relative order;
 omitted known IDs are inserted at their default indices with default visibility.

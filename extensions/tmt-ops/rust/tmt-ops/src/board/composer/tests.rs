@@ -495,13 +495,21 @@ fn scoped_enter_preserves_group_inspect_and_explicit_keys_in_help_and_hints() {
         OpsKeyScope::Member,
         OpsKeyScope::Overview,
         OpsKeyScope::Reader,
+        OpsKeyScope::OverviewReader,
     ] {
         let keys = crate::config::workspace_defaults(scope);
-        assert_eq!(keys["enter"].verb, crate::action::Verb::Talk);
+        assert_eq!(
+            keys["enter"].verb,
+            if matches!(scope, OpsKeyScope::Overview | OpsKeyScope::OverviewReader) {
+                crate::action::Verb::Reply
+            } else {
+                crate::action::Verb::Talk
+            }
+        );
         assert!(!keys.contains_key("t"));
         assert_eq!(
             keys.get("double-click").map(|action| action.text.as_str()),
-            if scope == OpsKeyScope::Reader {
+            if scope.is_reader() {
                 None
             } else {
                 Some("inspect")

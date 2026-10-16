@@ -87,7 +87,7 @@ Overview Usage is a fixed full-width band reserved once before body placement.
 Panels exposes Usage, its inline quota, Squads / Agents, and Conversation;
 retired Summary, Recent exchanges and table controls are absent. Overview section
 positions are fixed, while Digest keeps its independent ordered panels and Details
-switch. The narrow Overview also exposes its retained Digest toggle. Timers are
+switch. Overview also exposes its retained Digest toggle. Timers are
 a fixed overview module. Persisted Config IDs and compare-and-save semantics remain with
 [config-and-effects](config-and-effects.md#views-pane-arrangements); unrelated
 preferences are retained. Hidden surfaces have no stale hits or clocks. Only
@@ -113,8 +113,39 @@ reported quotes retain their distinct coverage and list-price assumption. Stale
 supplier data does not become current zero. Narrow layouts stack these modules
 when their named minimum widths cannot fit. Placement reserves their space below
 the primary list. Filter bar, section rule and column header remain fixed above the
-scrolling data rows; there is still only one list scroll/selection owner. The wide lower band remains absent until its final timer-row/Digest-matrix placement, so no
-interim wide key/value Digest is introduced.
+scrolling data rows; there is still only one list scroll/selection owner.
+The wide right column uses `digest_matrix` directly: all scoped identities,
+then highest observed HOUR-usage identities in ten-cell columns. Its fixed 24h
+estimate rows consume matching held supplier evidence; another acquired window
+stays unavailable under those captions. Ratios and price-version conflicts keep
+the supplier's existing aggregation policy. There is no wide key/value copy.
+
+At wide widths, the divider joins the left Squads/Agents column to the selected
+row's `exchange_view`, three-row filled `input_field`, Timers and Digest matrix.
+The exchange keeps sender/recipient metadata separate from the grouped body gutter and reply
+name. Its measured wrapped content grows top-down without a fixed minimum or cap.
+The filled input follows the final observed group with one blank row above; only
+overflow pins it to the bottom, with an earlier-content count and the effective
+reader paging key. That hint yields while the editor owns typing. Read-only or
+unadmitted inputs reserve no empty editor band.
+The existing exact-request reader supplies the selected incoming question;
+a preview is not a response attachment. The same exact-question helper supplies
+answers after a compact editor moves to Agents. Confirmed answers join the
+existing bounded session feedback through one `tmt answer` worker call; failed
+answers keep their draft. A new question cannot discard an unsettled send, and a
+note to a different UUID cannot borrow the selected agent's question. The fill keeps a one-cell column gutter on both sides; text is inset two cells
+and the right hint ends one cell before the fill edge. The same geometry owns
+editor cursors and send hits. The input has no section rule or frame, uses the
+existing UUID draft/editor/quote owners, and publishes only its clipped input and
+send geometry. Overview list and reader defaults use Reply on Enter; authored
+bindings merge afterward without a rewrite. Paint, action admission and host-key
+provenance share the selected exact membership or the squad's observed current lead.
+Short columns drop optional static
+modules before the response and editor. The Talk matrix is absent until its data is shipped.
+
+Shared `top_bar` and `tab_strip` own shell paint; the host supplies held counts
+and publishes whole tab hits. Only nonzero waiting/blocked glyphs use state colour.
+Attention keeps priority over a truncated named-layer caption.
 
 `workspace::render` retains the Agents tree and squad detail. Conversation, editor,
 drafts, reply reader and Send keep their existing owners. Digest projects the
@@ -291,6 +322,15 @@ ports. Capture packets include cells, styles, exact targets and hits across widt
 height and colour depth; they are evidence, not regenerated fixtures.
 
 Frozen HOME and TUI parity baselines retain their provenance until a decoded
-cells/styles/hits/oracle diff is approved by UX and Core. Regeneration follows the
+cells/styles/hits/oracle diff is approved by the UX primary reviewer. Regeneration follows the
 [TUI parity gate](../../tmt-tui/references/development.md#board-parity-baseline).
 [development.md](development.md#checks) owns commands and isolated captures.
+
+## Shared board components
+
+`top_bar` and `tab_strip` paint the neutral shared shell from held values.
+`exchange_view` paints grouped exchange headers and body gutters, `input_field`
+paints the filled editor surface, and `digest_matrix` paints observed metrics
+across identity columns. The host retains data projection, recipient authority,
+editor/session state, effective keys and clipped hits; these painters acquire no
+data and perform no effects.

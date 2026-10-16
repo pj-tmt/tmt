@@ -42,6 +42,7 @@ enum Indicator {
     Overflow(Look),
     Table(Look),
     List(Look),
+    Exchange(Look, Option<String>),
 }
 
 impl Scrolls {
@@ -191,14 +192,54 @@ impl Scrolls {
         area: Rect,
         lines: &[Line<'a>],
         look: Look,
+        decorate: impl FnMut(usize, &Line<'a>) -> Line<'a>,
+    ) -> (usize, usize) {
+        self.show_decorated(
+            frame,
+            pane,
+            area,
+            lines,
+            Indicator::Overflow(look),
+            decorate,
+        )
+    }
+
+    /// Exchanges keep the same viewport/offset owner and name the effective
+    /// reader paging key only when earlier content is hidden.
+    pub fn show_exchange<'a>(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        lines: &[Line<'a>],
+        look: Look,
+        earlier_key: Option<String>,
+        decorate: impl FnMut(usize, &Line<'a>) -> Line<'a>,
+    ) -> (usize, usize) {
+        self.show_decorated(
+            frame,
+            Pane::Replies,
+            area,
+            lines,
+            Indicator::Exchange(look, earlier_key),
+            decorate,
+        )
+    }
+
+    fn show_decorated<'a>(
+        &self,
+        frame: &mut Frame,
+        pane: Pane,
+        area: Rect,
+        lines: &[Line<'a>],
+        indicator: Indicator,
         mut decorate: impl FnMut(usize, &Line<'a>) -> Line<'a>,
     ) -> (usize, usize) {
-        self.show_paint(
+        self.paint_viewport(
             frame,
             pane,
             area,
             lines.len(),
-            look,
+            indicator,
             |frame, body, offset| {
                 let shown = &lines[offset..(offset + usize::from(body.height)).min(lines.len())];
                 for (index, line) in shown.iter().enumerate() {
@@ -264,10 +305,11 @@ impl Scrolls {
         indicator: Indicator,
         paint: impl FnOnce(&mut Frame, Rect, usize),
     ) -> (usize, usize) {
-        let (look, table, list) = match indicator {
-            Indicator::Overflow(look) => (look, false, false),
-            Indicator::Table(look) => (look, true, false),
-            Indicator::List(look) => (look, false, true),
+        let (look, table, list, exchange) = match indicator {
+            Indicator::Overflow(look) => (look, false, false, None),
+            Indicator::Table(look) => (look, true, false, None),
+            Indicator::List(look) => (look, false, true, None),
+            Indicator::Exchange(look, key) => (look, false, false, Some(key)),
         };
         let viewport = if table {
             Self::table_viewport(area)
@@ -304,7 +346,25 @@ impl Scrolls {
                 height: 1,
                 ..area
             };
-            if list {
+            if let Some(key) = exchange {
+                let mut text = Vec::new();
+                if above > 0 {
+                    text.push(format!("↑ {above} earlier"));
+                }
+                if below > 0 {
+                    text.push(format!("↓ {below} later"));
+                }
+                if above > 0
+                    && let Some(key) = key
+                {
+                    text.push(key);
+                }
+                strip::paint_left(
+                    frame.buffer_mut(),
+                    indicator,
+                    Line::styled(text.join(" · "), look.role(Role::Dim)),
+                );
+            } else if list {
                 let text = if below > 0 {
                     format!("↓ {below} more")
                 } else {

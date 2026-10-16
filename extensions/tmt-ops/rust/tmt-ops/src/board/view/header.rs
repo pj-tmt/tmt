@@ -11,84 +11,38 @@ use tmt_tui::components::strip;
 
 /// Common shell counts are held snapshot evidence, independent of the active tab.
 pub(super) fn render_shell(frame: &mut Frame, app: &App, area: Rect) {
-    let look = app.look();
-    let named = app.view_layer.name() != "default";
-    let mut caption = Line::from(vec![
-        Span::styled(" ▚ TMT   ", look.role(Role::Text)),
-        Span::styled("OPS / UI", look.role(Role::Muted)),
-    ]);
-    let caption_width = caption.width() as u16;
-    let attention = app
-        .workspace_snapshot()
-        .map(|snapshot| {
-            let counts = &snapshot.shell_counts;
-            let complete = counts.complete && snapshot.roster.complete() && app.error.is_none();
-            let number = |count: usize| {
-                if complete {
-                    count.to_string()
-                } else if count > 0 {
-                    format!("≥{count}")
-                } else {
-                    "?".into()
-                }
-            };
-            let ascii = matches!(
+    let attention = app.workspace_snapshot().map(|snapshot| {
+        let counts = &snapshot.shell_counts;
+        let complete = counts.complete && snapshot.roster.complete() && app.error.is_none();
+        let number = |count: usize| {
+            if complete {
+                count.to_string()
+            } else if count > 0 {
+                format!("≥{count}")
+            } else {
+                "?".into()
+            }
+        };
+        crate::board::top_bar::Attention {
+            online: number(counts.online),
+            waiting: number(counts.waiting),
+            blocked: number(counts.blocked),
+            waiting_positive: counts.waiting > 0,
+            blocked_positive: counts.blocked > 0,
+            complete,
+            ascii: matches!(
                 app.cron_glyphs,
                 crate::board::overview::cron_counts::GlyphSet::Ascii
-            );
-            let text = format!(
-                "{} {} online  {} {} waiting  {} {} blocked{}",
-                if ascii { "+" } else { "●" },
-                number(counts.online),
-                if ascii { "!" } else { "◆" },
-                number(counts.waiting),
-                if ascii { "x" } else { "✗" },
-                number(counts.blocked),
-                if complete { "" } else { " · totals unknown" }
-            );
-            let width = unicode_width::UnicodeWidthStr::width(text.as_str()) as u16;
-            (text, width)
-        })
-        .filter(|(_, width)| {
-            // A named layer is optional caption evidence; it never displaces attention.
-            // Default layers retain their existing admission and captured cells.
-            named || width.saturating_add(caption_width + 2) <= area.width
-        });
-    let left_width = attention.as_ref().map_or(area.width, |(_, width)| {
-        area.width.saturating_sub(width.saturating_add(2))
+            ),
+        }
     });
-    let name_width = left_width.saturating_sub(caption_width + 3);
-    if named && name_width > 0 {
-        let name = app.view_layer.name();
-        let fitted = tmt_cli_style::grid::fit(
-            name,
-            usize::from(name_width).min(name.len()),
-            tmt_cli_style::grid::Align::Left,
-            tmt_cli_style::grid::Truncate::End,
-        );
-        caption
-            .spans
-            .push(Span::styled(format!(" · {fitted}"), look.role(Role::Muted)));
-    }
-    strip::paint_left(
+    crate::board::top_bar::paint(
         frame.buffer_mut(),
-        if named {
-            Rect {
-                width: left_width,
-                ..area
-            }
-        } else {
-            area
-        },
-        caption,
+        area,
+        (app.view_layer.name() != "default").then(|| app.view_layer.name()),
+        attention.as_ref(),
+        app.look(),
     );
-    if let Some((text, _)) = attention {
-        strip::paint_right(
-            frame.buffer_mut(),
-            area,
-            Line::styled(text, look.role(Role::Muted)),
-        );
-    }
 }
 
 /// Scope and hidden-room reveal share the shell's existing boundary band.

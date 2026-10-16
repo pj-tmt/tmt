@@ -677,7 +677,7 @@ fn workspace(app: &mut App, width: u16, height: u16) {
 }
 
 #[test]
-fn switching_shell_with_a_link_keeps_response_and_effective_link_hint() {
+fn switching_shell_keeps_uuid_and_link_while_overview_discusses_only_an_observed_question() {
     use crate::board::shell::OpsTab;
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     let mut app = workspace_fixture();
@@ -721,6 +721,16 @@ fn switching_shell_with_a_link_keeps_response_and_effective_link_hint() {
             assert!(
                 !text.contains("worker line 089"),
                 "Digest shows status details"
+            );
+        } else if tab == OpsTab::Overview {
+            assert!(text.contains("No question observed"), "{text}");
+            assert!(
+                !text.contains("worker line 089"),
+                "an unrelated outgoing result is not the incoming question"
+            );
+            assert_eq!(
+                app.workspace_bindings()["o"].verb,
+                crate::action::Verb::Open
             );
         } else {
             assert!(

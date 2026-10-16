@@ -28,12 +28,30 @@ fn populated_chart_frame_cost() {
     if cfg!(debug_assertions) {
         panic!("run this probe with --release");
     }
+    let height = if std::env::var_os("TMT_OPS_FINAL_WIDE_PROFILE").is_some() {
+        51
+    } else {
+        36
+    };
     crate::status::with_now_ms(fixtures::NOW, || {
         for agents in [150, 1_000, 10_000] {
             let mut app = waiting_board(agents);
-            let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
+            let mut terminal = Terminal::new(TestBackend::new(160, height)).unwrap();
             for _ in 0..10 {
                 measure(&mut app, &mut terminal, |_, _| {});
+            }
+            if height == 51 {
+                assert!(
+                    terminal
+                        .backend()
+                        .buffer()
+                        .content
+                        .iter()
+                        .map(|cell| cell.symbol())
+                        .collect::<String>()
+                        .contains("% of input"),
+                    "final matrix must actually paint"
+                );
             }
             assert_eq!(
                 app.usage_chart
@@ -79,8 +97,8 @@ fn populated_chart_frame_cost() {
                             "chart-resize" => {
                                 app.invalidate_frame_geometry();
                                 let width = if index % 2 == 0 { 100 } else { 160 };
-                                terminal.backend_mut().resize(width, 36);
-                                terminal.resize(Rect::new(0, 0, width, 36)).unwrap();
+                                terminal.backend_mut().resize(width, height);
+                                terminal.resize(Rect::new(0, 0, width, height)).unwrap();
                             }
                             "chart-controls" => {
                                 let mut state = app.usage_chart.borrow_mut();
@@ -113,6 +131,11 @@ fn populated_chart_ansi_phase_timing() {
     let output = std::env::var_os("TMT_OPS_M08_ANSI_SAMPLES")
         .expect("set a task-owned TMT_OPS_M08_ANSI_SAMPLES path");
     let mut reports = Vec::new();
+    let height = if std::env::var_os("TMT_OPS_FINAL_WIDE_PROFILE").is_some() {
+        51
+    } else {
+        36
+    };
     crate::status::with_now_ms(fixtures::NOW, || {
         for agents in [150, 1_000, 10_000] {
             let mut app = waiting_board(agents);
@@ -122,13 +145,26 @@ fn populated_chart_ansi_phase_timing() {
             let mut terminal = Terminal::with_options(
                 backend,
                 ratatui::TerminalOptions {
-                    viewport: ratatui::Viewport::Fixed(Rect::new(0, 0, 160, 36)),
+                    viewport: ratatui::Viewport::Fixed(Rect::new(0, 0, 160, height)),
                 },
             )
             .unwrap();
             let mut previous = None;
             for _ in 0..10 {
                 ansi_measure(&mut app, &mut terminal, &sink, &mut previous, |_| {});
+            }
+            if height == 51 {
+                assert!(
+                    previous
+                        .as_ref()
+                        .unwrap()
+                        .content
+                        .iter()
+                        .map(|cell| cell.symbol())
+                        .collect::<String>()
+                        .contains("% of input"),
+                    "final matrix must actually paint"
+                );
             }
             let source = app.usage_chart.borrow();
             assert_eq!(source.observed.as_ref().unwrap().buckets.len(), 12);
@@ -205,7 +241,7 @@ fn populated_chart_ansi_phase_timing() {
             }
         }
     });
-    let value = serde_json::json!({"viewport":{"cols":160,"rows":36},
+    let value = serde_json::json!({"viewport":{"cols":160,"rows":height},
         "reportingIdentities":1,"sourceBuckets":120,"initialIntervalBars":12,
         "clockMs":fixtures::NOW,"output":"Crossterm ANSI encoded into a private memory sink",
         "scope":"Populated Overview chart event/paint/diff+encoding; process CPU measured externally; no PTY or terminal emulator latency",

@@ -306,7 +306,7 @@ hidden or missing selected scopes still refuse to widen.
 
 Workspace settings → Panels previews each dashboard's visibility and its separate
 Conversation/Details switch. Overview sections have fixed positions; its picker
-exposes Usage, quota inside Usage, Squads / Agents, and its narrow Digest section. The Digest destination keeps ordered
+exposes Usage, quota inside Usage, Squads / Agents, and its Digest section. The Digest destination keeps ordered
 panels with visible Move up/down controls and plain `u`/`d`. Save, Cancel or Reset
 to default through the same picker. Keep at least one
 interactive surface visible. Cancel discards the preview; stale Save retains it
@@ -331,8 +331,14 @@ clock never becomes a promised countdown. Timers remain global and say so when
 the roster is filtered or scoped. Digest counts and estimates use the visible
 scoped roster, retain unknown values as `—`, and show list-price quotes separately
 from avoided context tokens. These fixed token/cost rows do not change the saved
-savings-unit preference. Small widths stack the lower modules; wide screens keep
-the existing conversation placement until the final matrix layout is available.
+savings-unit preference. Small widths stack the lower modules. Wide screens put the selected waiting
+agent's exchange and a filled three-row reply field above Timers and a Digest
+matrix: all scoped identities, then the agents with the highest observed TOK 1h.
+Unreported cells stay `—`. The matrix's fixed 24h estimate rows require matching
+supplier observations. The idle field shows its effective start key; factory Enter
+replies to the selected incoming request, and authored bindings retain precedence.
+The active field uses Enter to send and Escape to retain its draft. Its fill is
+the boundary; there is no frame or heading rule. The Talk matrix is hidden until its data ships.
 
 The Agents tree is a fixed-column table: SQUAD / AGENT, LEAD, MEMBERS / STATE,
 TOK 1h, DIGEST and ◷ CRON. LEAD and room token totals appear at 100 inner list cells;

@@ -19,6 +19,7 @@ use tmt_cli_style::Role;
 use tmt_tui::components::strip;
 use unicode_width::UnicodeWidthStr;
 
+pub(in crate::board) mod exchange;
 pub(super) mod layout;
 pub(super) mod outgoing;
 mod source;
@@ -59,6 +60,21 @@ enum Change {
     Unavailable,
 }
 
+#[derive(Clone, Copy)]
+enum AuthoredLine {
+    Outgoing { answer: bool },
+    ReplyHeading,
+    Status,
+}
+impl AuthoredLine {
+    fn role(self) -> Role {
+        match self {
+            Self::ReplyHeading => Role::Accent,
+            _ => Role::Muted,
+        }
+    }
+}
+
 struct Session {
     reply: Option<Reply>,
     text: String,
@@ -75,7 +91,7 @@ struct Session {
     )>,
     exact_source: Option<source::Source>,
     agent_mark: String,
-    authored_roles: BTreeMap<usize, Role>,
+    authored_lines: BTreeMap<usize, AuthoredLine>,
     compact_separators: std::collections::BTreeSet<usize>,
 }
 
@@ -93,7 +109,7 @@ impl Default for Session {
             response_spans: Default::default(),
             exact_source: None,
             agent_mark: String::new(),
-            authored_roles: Default::default(),
+            authored_lines: Default::default(),
             compact_separators: Default::default(),
         }
     }
@@ -103,6 +119,31 @@ impl Session {
     /// A replaced request must not steal the text somebody is reading. It is
     /// admitted when follow resumes; appending to the same source keeps its anchor.
     fn update(&mut self, incoming: Option<Reply>) {
+        if incoming.as_ref().is_some_and(|reply| {
+            reply
+                .key
+                .as_ref()
+                .is_some_and(|key| key.kind == super::home_leads::Kind::Question)
+        }) && self
+            .reply
+            .as_ref()
+            .zip(incoming.as_ref())
+            .is_none_or(|(old, new)| !same_source(old, new))
+        {
+            if self.outgoing.iter().any(outgoing::Entry::pending)
+                || !self.follow && self.reply.is_some()
+            {
+                self.change = Change::NewOutput;
+                return;
+            }
+            // A new incoming request starts a new bounded feedback group. Old
+            // explicit sends do not replace the selected agent's new question.
+            self.outgoing.clear();
+            self.before_send = None;
+            self.response_spans.clear();
+            self.authored_lines.clear();
+            self.compact_separators.clear();
+        }
         if !self.outgoing.is_empty() {
             self.correlate(incoming.as_ref());
             return;
@@ -188,8 +229,8 @@ impl Session {
                 if line.width() == 0 && self.compact_separators.contains(&source) {
                     continue;
                 }
-                if let Some(role) = self.authored_roles.get(&source) {
-                    let style = look.role(*role);
+                if let Some(kind) = self.authored_lines.get(&source) {
+                    let style = look.role(kind.role());
                     line.style = style;
                     for span in &mut line.spans {
                         span.style = span.style.patch(style);
@@ -309,8 +350,52 @@ impl App {
     }
 }
 
-/// Header and response are shared verbatim between Overview and Agents.
-/// The composer remains owned by App, not by either placement of this painter.
+struct LinkPreview {
+    value: String,
+    key: String,
+    wording: String,
+}
+fn link_preview(
+    app: &App,
+    row: &serde_json::Value,
+    bindings: &crate::action::Bindings,
+) -> Option<LinkPreview> {
+    let (key, action) = bindings.get("o").map(|action| ("o", action)).or_else(|| {
+        bindings
+            .iter()
+            .find(|(_, action)| action.verb == crate::action::Verb::Open)
+            .map(|(key, action)| (key.as_str(), action))
+    })?;
+    if action.verb == crate::action::Verb::Open
+        && action.args.is_empty()
+        && crate::effects::default_link(row).is_none()
+    {
+        return None;
+    }
+    let value = if action.verb == crate::action::Verb::Open {
+        crate::effects::resolve_open(action, row)
+    } else {
+        super::overview::actions::link_preview(
+            action,
+            row,
+            app.view.as_ref().and_then(|view| view.opener.as_deref()),
+        )
+    }
+    .unwrap_or_else(|error| format!("Unavailable: {error}"));
+    let wording = if action.verb == crate::action::Verb::Open && action.args.is_empty() {
+        "open $link"
+    } else {
+        &action.text
+    };
+    Some(LinkPreview {
+        value: sanitize(&value),
+        key: key.into(),
+        wording: sanitize(wording),
+    })
+}
+
+/// Agents and compact explicit conversations retain this metadata header.
+/// Session, response and editor owners are shared with the shared exchange adapter.
 pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
     let look = app.look();
     app.conversation.borrow_mut().header_hits.clear();
@@ -374,45 +459,18 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
     // Effective bindings depend on logical conversation placement. Acquire them
     // before mutably borrowing the response sessions that own that placement.
     let bindings = app.bindings();
-    let activation = bindings.get("o").map(|action| ("o", action)).or_else(|| {
-        bindings
-            .iter()
-            .find(|(_, action)| action.verb == crate::action::Verb::Open)
-            .map(|(key, action)| (key.as_str(), action))
+    let link = link_preview(app, row, &bindings).map(|preview| {
+        let hint = format!(" (press {} - {})", preview.key, preview.wording);
+        let hint = super::view::fit(&hint, hint.width().min(usize::from(area.width)));
+        let text = super::view::fit(
+            &preview.value,
+            usize::from(area.width).saturating_sub(hint.width()),
+        );
+        Line::from(vec![
+            Span::styled(text, look.role(Role::Link)),
+            Span::styled(hint, look.role(Role::Dim)),
+        ])
     });
-    let link = activation
-        .filter(|(_, action)| {
-            action.verb != crate::action::Verb::Open
-                || !action.args.is_empty()
-                || crate::effects::default_link(row).is_some()
-        })
-        .map(|(key, action)| {
-            let preview = if action.verb == crate::action::Verb::Open {
-                crate::effects::resolve_open(action, row)
-            } else {
-                super::overview::actions::link_preview(
-                    action,
-                    row,
-                    app.view.as_ref().and_then(|view| view.opener.as_deref()),
-                )
-            }
-            .unwrap_or_else(|error| format!("Unavailable: {error}"));
-            let wording = if action.verb == crate::action::Verb::Open && action.args.is_empty() {
-                "open $link"
-            } else {
-                &action.text
-            };
-            let hint = format!(" (press {key} - {})", sanitize(wording));
-            let hint = super::view::fit(&hint, hint.width().min(usize::from(area.width)));
-            let text = super::view::fit(
-                &sanitize(&preview),
-                usize::from(area.width).saturating_sub(hint.width()),
-            );
-            Line::from(vec![
-                Span::styled(text, look.role(Role::Link)),
-                Span::styled(hint, look.role(Role::Dim)),
-            ])
-        });
     let mut state = app.conversation.borrow_mut();
     let switched = state.active.as_ref() != Some(&identity);
     state.active = Some(identity.clone());
@@ -823,7 +881,18 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
     let (offset, shown) = app
         .scrolls
         .show(frame, Pane::Replies, body, &mapped.lines, look);
-    super::member_links::paint_hits(frame, app, body, offset, shown, &mapped.mentions, true);
+    super::member_links::paint_hits(
+        frame,
+        app,
+        body,
+        offset,
+        shown,
+        &mapped.mentions,
+        super::member_links::Paint {
+            reader: true,
+            role: Role::Link,
+        },
+    );
     if let Some(position) = position {
         let visible = shown.min(mapped.lines.len().saturating_sub(offset));
         strip::paint_left(

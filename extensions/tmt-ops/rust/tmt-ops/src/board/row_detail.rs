@@ -211,6 +211,18 @@ impl App {
             }
         };
         let sender = self.view.as_ref().and_then(|view| view.me_id.clone());
+        // Overview discusses the acquired request the member is waiting on,
+        // not an unrelated newer response to one of our outgoing messages.
+        let overview =
+            self.workspace_snapshot().is_some() && self.shell.tab == super::shell::OpsTab::Overview;
+        if overview && let Some(question) = self.pending_question(target, None) {
+            detail.reply = Some(question);
+            return Some(detail.additional(visible));
+        }
+        if overview {
+            // A board decision without an observed request is not a transcript.
+            return Some(detail.additional(visible));
+        }
         if let Some(reply) = self
             .home_leads
             .replies
@@ -245,6 +257,45 @@ impl App {
             });
         }
         Some(detail.additional(visible))
+    }
+
+    /// One held request projection for Overview and explicit answers, even if
+    /// a compact editor has moved to the Agents placement.
+    pub(in crate::board) fn pending_question(
+        &self,
+        target: &RowTarget,
+        request: Option<&str>,
+    ) -> Option<Reply> {
+        let row = self.target_row(target)?;
+        let question = if let Some(request) = request {
+            row["waitingOnYou"]
+                .as_array()?
+                .iter()
+                .find(|item| item["requestId"].as_str() == Some(request))?
+        } else {
+            super::view::waiting::oldest(row)?
+        };
+        let request = question["requestId"].as_str()?;
+        let identity = row["id"].as_str()?;
+        let key = self.view.as_ref()?.me_id.clone().map(|sender| MessageKey {
+            sender,
+            lead: identity.into(),
+            squad: self.target_squad(target).unwrap_or_default(),
+            request: request.into(),
+            kind: Kind::Question,
+        });
+        let body = key.as_ref().and_then(|key| self.row_details.body(key));
+        Some(Reply {
+            from: row["name"].as_str().unwrap_or("unknown agent").into(),
+            age: age(question["preparedAtMs"].as_u64(), crate::status::now_ms()),
+            body: body
+                .or_else(|| question["preview"].as_str())
+                .unwrap_or("(question unavailable)")
+                .into(),
+            acquired: body.is_some(),
+            source: false,
+            key,
+        })
     }
 
     pub(super) fn selected_detail_target(&self) -> Option<Target> {
@@ -347,7 +398,15 @@ impl App {
         self.row_details.bodies.push((
             key.clone(),
             body.map_err(|error| {
-                format!("(reply unavailable: {})", super::notes::sanitize(&error))
+                format!(
+                    "({} unavailable: {})",
+                    if key.kind == Kind::Question {
+                        "question"
+                    } else {
+                        "reply"
+                    },
+                    super::notes::sanitize(&error)
+                )
             }),
         ));
     }

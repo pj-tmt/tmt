@@ -258,8 +258,20 @@ impl App {
         })
     }
     pub(in crate::board) fn workspace_scope(&self) -> OpsKeyScope {
+        if self.workspace_snapshot().is_none() {
+            // The generic row surface has no Overview request context.
+            return if self.focused() == Pane::Replies {
+                OpsKeyScope::Reader
+            } else {
+                OpsKeyScope::Member
+            };
+        }
         if self.focused_pane() == Some(Pane::Replies) {
-            return OpsKeyScope::Reader;
+            return if self.shell.tab == OpsTab::Overview {
+                OpsKeyScope::OverviewReader
+            } else {
+                OpsKeyScope::Reader
+            };
         }
         if self.shell.tab == OpsTab::Overview {
             return OpsKeyScope::Overview;
@@ -318,7 +330,7 @@ impl App {
     }
     pub(in crate::board) fn workspace_bindings(&self) -> Bindings {
         let mut keys = self.workspace_effective_bindings();
-        if self.shell.tab != OpsTab::Agents || self.workspace_scope() == OpsKeyScope::Reader {
+        if self.shell.tab != OpsTab::Agents || self.workspace_scope().is_reader() {
             keys.retain(|_, action| {
                 !matches!(
                     action.verb,
@@ -387,15 +399,12 @@ impl App {
                 .get(*target)
                 .is_some_and(|tables| tables.contains_key(&scope))
         });
-        let host = self
-            .selected_row()
-            .and_then(|row| row["pane"]["location"]["host"].as_str())
-            .filter(|host| {
-                snapshot
-                    .hosts
-                    .get(*host)
-                    .is_some_and(|tables| tables.contains_key(&scope))
-            });
+        let host = self.workspace_selected_host().filter(|host| {
+            snapshot
+                .hosts
+                .get(*host)
+                .is_some_and(|tables| tables.contains_key(&scope))
+        });
         let key = if let Some(target) = section {
             (
                 scope,
@@ -413,14 +422,19 @@ impl App {
         snapshot.binding_sources.get(&key)
     }
     fn workspace_effective_bindings(&self) -> Bindings {
-        let host = self
-            .selected_row()
-            .and_then(|row| row["pane"]["location"]["host"].as_str());
+        let host = self.workspace_selected_host();
         self.workspace_context_bindings(
             self.workspace.selected.as_ref(),
             self.workspace_scope(),
             host,
         )
+    }
+    fn workspace_selected_host(&self) -> Option<&str> {
+        let row = self
+            .workspace_message_target()
+            .and_then(|target| self.workspace_snapshot()?.rows.get(&target))
+            .or_else(|| self.selected_row())?;
+        row["pane"]["location"]["host"].as_str()
     }
     /// A displayed mention has an explicit member context; ordinary bindings
     /// use the selected context through the same section/host/global owner.
@@ -855,7 +869,7 @@ impl App {
         &mut self,
         filter: crate::board::workspace::AgentsFilter,
     ) -> Effect {
-        if self.shell.tab != OpsTab::Agents || self.workspace_scope() == OpsKeyScope::Reader {
+        if self.shell.tab != OpsTab::Agents || self.workspace_scope().is_reader() {
             return Effect::None;
         }
         self.workspace.filter = filter;

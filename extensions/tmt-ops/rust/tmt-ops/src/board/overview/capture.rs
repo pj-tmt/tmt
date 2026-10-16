@@ -124,6 +124,7 @@ fn capture_overview_mock_packet() {
     let output = std::env::var("TMT_OVERVIEW_CAPTURE").expect("task-owned evidence path");
     if std::env::var_os("TMT_OVERVIEW_S2_CAPTURE").is_some()
         || std::env::var_os("TMT_OVERVIEW_S3_CAPTURE").is_some()
+        || std::env::var_os("TMT_OVERVIEW_S4_CAPTURE").is_some()
     {
         capture_squads_packet(&output);
         return;
@@ -282,7 +283,9 @@ fn pinned_large_case(look: crate::look::Look) -> crate::board::app::App {
 
 /// S2 evidence uses acquired fixture documents and the actual App painter.
 fn capture_squads_packet(output: &str) {
-    let now = if std::env::var_os("TMT_OVERVIEW_S3_CAPTURE").is_some() {
+    let now = if std::env::var_os("TMT_OVERVIEW_S3_CAPTURE").is_some()
+        || std::env::var_os("TMT_OVERVIEW_S4_CAPTURE").is_some()
+    {
         1_792_108_800_000
     } else {
         1_791_600_000_000
@@ -290,15 +293,30 @@ fn capture_squads_packet(output: &str) {
     crate::status::with_now_ms(now, || {
         let _no_commands = crate::runner::forbid_commands();
         let mut frames = Vec::new();
-        for scene in [
+        let s4 = std::env::var_os("TMT_OVERVIEW_S4_CAPTURE").is_some();
+        let mut scenes = vec![
             "squads",
             "agents",
             "squads-empty",
             "agents-empty",
             "squads-partial",
             "agents-partial",
-        ] {
+        ];
+        if s4 {
+            scenes.extend([
+                "squads-valued",
+                "squads-focused",
+                "squads-reply",
+                "squads-readonly",
+            ]);
+        }
+        for scene in scenes {
             for width in [60, 103, 148] {
+                if width < 140
+                    && matches!(scene, "squads-focused" | "squads-reply" | "squads-readonly")
+                {
+                    continue;
+                }
                 for (base, depth) in [
                     ("tmt", tmt_cli_style::Depth::TrueColor),
                     ("tmt-light", tmt_cli_style::Depth::TrueColor),
@@ -352,13 +370,19 @@ fn capture_squads_packet(output: &str) {
                         snapshot.roster.membership_complete = false;
                     }
                     snapshot.shell_counts = snapshot.roster.shell_counts();
-                    if std::env::var_os("TMT_OVERVIEW_S3_CAPTURE").is_some() {
+                    if std::env::var_os("TMT_OVERVIEW_S3_CAPTURE").is_some()
+                        || std::env::var_os("TMT_OVERVIEW_S4_CAPTURE").is_some()
+                    {
                         populate_lower_band(&mut app, scene);
                     }
                     app.overview_rows.borrow_mut().clear();
                     app.workspace_reconcile();
                     app.workspace.selected =
                         app.workspace_rows().first().map(|row| row.target.clone());
+                    if s4 {
+                        populate_final(&mut app, scene);
+                        app.workspace_reconcile();
+                    }
                     let height = 51;
                     let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
                     terminal
@@ -367,6 +391,29 @@ fn capture_squads_packet(output: &str) {
                             crate::board::view::render(frame, &app);
                         })
                         .unwrap();
+                    if matches!(scene, "squads-focused" | "squads-reply") {
+                        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+                        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+                        if scene == "squads-reply" {
+                            app.paste("Approved. Keep the startup budget unchanged.");
+                            let crate::board::app::Effect::Act(request) =
+                                app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+                            else {
+                                panic!("fixture answer");
+                            };
+                            let ticket = app.outgoing_ticket(&request).unwrap();
+                            let to = app.composer_projection().unwrap().recipient.to_owned();
+                            app.finished_answer(crate::board::conversation::outgoing::Answered {
+                                ticket,
+                                outcome: Ok(()),
+                                to,
+                            });
+                            app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+                        }
+                        terminal
+                            .draw(|frame| crate::board::view::render(frame, &app))
+                            .unwrap();
+                    }
                     let buffer = terminal.backend().buffer();
                     let cells = buffer.content.iter().map(|cell| json!({
                         "symbol":cell.symbol(), "fg":format!("{:?}",cell.fg),
@@ -377,19 +424,32 @@ fn capture_squads_packet(output: &str) {
                         .chunks(usize::from(width))
                         .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
                         .collect();
+                    let cursor = if app.input.is_some()
+                        && app.input_viewport.get().is_some()
+                        && !app.modal_open()
+                    {
+                        ratatui::backend::Backend::get_cursor_position(terminal.backend_mut())
+                            .ok()
+                            .map(|position| [position.x, position.y])
+                    } else {
+                        None
+                    };
                     frames.push(json!({"scene":scene,"width":width,"height":height,"base":base,
                         "depth":format!("{depth:?}"),"lines":lines,"cells":cells,
-                        "selected":format!("{:?}",app.workspace.selected),"hits":format!("{:?}",app.hits.borrow()),"controls":format!("{:?}",app.workspace_strip_hits.borrow())}));
+                        "selected":format!("{:?}",app.workspace.selected),"hits":format!("{:?}",app.hits.borrow()),"controls":format!("{:?}",app.workspace_strip_hits.borrow()),
+                        "inputBand":format!("{:?}",app.input_band.get()),"inputViewport":format!("{:?}",app.input_viewport.get()),"cursor":cursor,
+                        "sendHit":app.composer.send_hit.borrow().as_ref().map(|hit|json!({"area":format!("{:?}",hit.area),"sender":hit.key.0,"recipient":hit.key.1})),
+                        "quoteHit":app.composer.quote_hit.borrow().as_ref().map(|hit|format!("{:?}",hit.area))}));
                 }
             }
         }
-        assert_eq!(frames.len(), 54);
+        assert_eq!(frames.len(), if s4 { 72 } else { 54 });
         std::fs::write(output, serde_json::to_vec(&frames).unwrap()).unwrap();
     });
 }
 
 /// Admitted fixture observations pass through the normal label/cron projections.
-fn populate_lower_band(app: &mut crate::board::app::App, scene: &str) {
+pub(super) fn populate_lower_band(app: &mut crate::board::app::App, scene: &str) {
     use crate::board::cronboard::{test_cron, test_views};
     use tmt_ops::cron::{ClockStatus, Holder};
     let now = crate::status::now_ms() as i64;
@@ -446,4 +506,135 @@ fn populate_lower_band(app: &mut crate::board::app::App, scene: &str) {
         app.cron
             .replace(Err("Timer observation unavailable".into()));
     }
+}
+
+/// S4 fixture data enters the same held RateView/Meter and exact-question ports.
+pub(super) fn populate_final(app: &mut crate::board::app::App, scene: &str) {
+    use crate::board::{
+        app::RateView,
+        rate::{
+            Input,
+            tests::{fixture_seeds, history_fixture},
+        },
+    };
+    use std::collections::BTreeMap;
+    let now = crate::status::now_ms();
+    if scene.ends_with("-empty") {
+        return;
+    }
+    for row in app
+        .view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .rows
+        .values_mut()
+    {
+        for (index, question) in row["waitingOnYou"]
+            .as_array_mut()
+            .into_iter()
+            .flatten()
+            .enumerate()
+        {
+            question["preparedAtMs"] = json!(now - (index as u64 + 1) * 60_000);
+        }
+    }
+    if scene == "squads-valued" {
+        let mut document = crate::board::digest_dashboard::tests::valued_document();
+        let template = document["members"][0].clone();
+        document["observedAtMs"] = json!(now);
+        document["members"] = json!(
+            app.workspace_snapshot()
+                .unwrap()
+                .roster
+                .members
+                .iter()
+                .map(|(id, member)| {
+                    let mut value = template.clone();
+                    value["identityId"] = json!(id);
+                    value["name"] = json!(member.name);
+                    value["statsObservedAtMs"] = json!(now - 1_000);
+                    value
+                })
+                .collect::<Vec<_>>()
+        );
+        app.labels = crate::labels::Supplied::from_document("digest", &document, false);
+    }
+    if scene == "squads-readonly" {
+        app.view.as_mut().unwrap().me_id = None;
+    }
+    let squad = app.workspace_snapshot().unwrap().roster.squads[0].clone();
+    let roster = &app.workspace_snapshot().unwrap().roster;
+    let mut seeds = BTreeMap::new();
+    for (index, id) in squad.members.iter().take(3).enumerate() {
+        let mut seed = fixture_seeds(&history_fixture())
+            .remove("a")
+            .unwrap()
+            .unwrap();
+        let offset = now / 5_000 * 5_000 - 25_000;
+        seed.from += offset;
+        seed.through += offset;
+        seed.available = seed.available.map(|at| at + offset);
+        seed.sampled = seed.sampled.map(|at| at + offset);
+        let factor = (3 - index) as u64;
+        for bucket in &mut seed.buckets {
+            bucket.from_ms += offset;
+            bucket.to_ms += offset;
+            bucket.input_tokens *= factor;
+            bucket.output_tokens *= factor;
+            bucket.cached_input_tokens *= factor;
+        }
+        seed.latest["session"] = json!(id);
+        seed.latest["consumption"]["observedAtMs"] =
+            json!(seed.latest["consumption"]["observedAtMs"].as_u64().unwrap() + offset);
+        for field in ["inputTokens", "outputTokens", "cachedInputTokens"] {
+            seed.latest["consumption"][field] =
+                json!(seed.latest["consumption"][field].as_u64().unwrap() * factor);
+        }
+        seeds.insert(id.clone(), Some(seed));
+    }
+    let input = Input {
+        room: squad.room_id.clone(),
+        resumes: seeds
+            .iter()
+            .map(|(id, seed)| (id.clone(), seed.as_ref().unwrap().latest.clone()))
+            .collect(),
+        names: seeds
+            .keys()
+            .map(|id| (id.clone(), roster.members[id].name.clone()))
+            .collect(),
+    };
+    let settings = crate::config::TokenRate {
+        enabled: true,
+        ..Default::default()
+    };
+    crate::board::app::tests::install_rate_observation(
+        app,
+        squad.name,
+        RateView {
+            input,
+            settings,
+            history: Some(seeds),
+        },
+    );
+    if let Some(target @ crate::board::workspace::OpsTarget::Member { .. }) =
+        app.workspace_message_target()
+        && let Some(row) = app
+            .view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .rows
+            .get_mut(&target)
+    {
+        row["waitingOnYou"] = json!([{"requestId":"req_99999999-9999-4999-8999-999999999999","preparedAtMs":now-6*3_600_000,"preview":"The implementation and checks are ready. Should I proceed with the reviewed change, or hold it for the next window?"}]);
+        row["fields"]["pr_link"] = json!("https://github.com/pj-tmt/tmt/pull/3176");
+    }
+    app.overview_rows.borrow_mut().clear();
 }

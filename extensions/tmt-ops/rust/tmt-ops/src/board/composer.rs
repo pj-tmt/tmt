@@ -124,6 +124,37 @@ impl App {
         );
         format!("{prefix}{}\"", excerpt.trim_end())
     }
+    /// The final Overview field advertises an admitted message key, retaining
+    /// authored Enter even when it chooses Talk instead of the factory Reply.
+    pub(in crate::board) fn composer_start(&self) -> Option<(String, crate::action::Action)> {
+        use crate::action::Verb;
+        let bindings = self.bindings();
+        bindings
+            .get("enter")
+            .filter(|action| {
+                !self.member_link_owns_enter()
+                    && matches!(action.verb, Verb::Reply | Verb::Talk)
+                    && super::view::footer::row_allows(self, action)
+            })
+            .map(|action| ("enter".into(), action.clone()))
+            .or_else(|| {
+                bindings.into_iter().find(|(key, action)| {
+                    !(key == "enter" && self.member_link_owns_enter())
+                        && matches!(action.verb, Verb::Reply | Verb::Talk)
+                        && super::view::footer::row_allows(self, action)
+                })
+            })
+    }
+    pub(in crate::board) fn focus_composer(&mut self) -> super::app::Effect {
+        let action = if self.shell.tab == super::shell::OpsTab::Overview {
+            self.composer_start()
+                .map(|(_, action)| action)
+                .unwrap_or_else(|| crate::action::Action::parse("reply").expect("built-in Reply"))
+        } else {
+            crate::action::Action::parse("talk").expect("built-in Talk")
+        };
+        self.perform(&action)
+    }
     pub(in crate::board) fn composer_focus_hint(&self) -> String {
         let bindings = self.bindings();
         let key = bindings
@@ -184,7 +215,7 @@ impl App {
             return;
         }
         if self.input.is_none() {
-            self.perform(&crate::action::Action::parse("talk").expect("built-in Talk action"));
+            self.focus_composer();
         }
         if let Some(input) = self.input.as_mut().filter(|input| {
             input.draft_key.as_ref() == Some(&hit.key)

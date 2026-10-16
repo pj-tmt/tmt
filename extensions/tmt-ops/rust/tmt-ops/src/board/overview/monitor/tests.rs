@@ -17,6 +17,70 @@ use ratatui::{
 use serde_json::json;
 const OTHER: &str = "33333333-3333-4333-8333-333333333333";
 const BLOCKED: &str = "44444444-4444-4444-8444-444444444444";
+
+#[test]
+fn section_counts_use_singular_for_one_and_preserve_filtered_and_partial_counts() {
+    for count in [0, 1, 2] {
+        let mut app = crate::board::app::workspace::tests::populated_board(count, count);
+        app.shell.tab = OpsTab::Overview;
+        for view in [View::Squads, View::Agents] {
+            app.overview_view = view;
+            app.workspace.selected = None;
+            app.workspace_reconcile();
+            let buffer = paint(&mut app, 103, 51);
+            let shown = text(&buffer);
+            if count == 1 {
+                assert!(
+                    shown.contains(if view == View::Squads {
+                        "1 squad · 1 agent"
+                    } else {
+                        "1 agent"
+                    }),
+                    "{shown}"
+                );
+                assert!(!shown.contains("1 squads") && !shown.contains("1 agents"));
+            } else {
+                assert!(shown.contains(&format!("{count} agents")), "{shown}");
+            }
+            app.workspace.query = "agent-00000".into();
+            app.overview_rows.borrow_mut().clear();
+            let filtered = text(&paint(&mut app, 103, 51));
+            assert!(
+                filtered.contains(&format!(
+                    "{} of {count} {}",
+                    usize::from(count > 0),
+                    if count == 1 { "agent" } else { "agents" }
+                )),
+                "{filtered}"
+            );
+            if count == 1 {
+                app.view
+                    .as_mut()
+                    .unwrap()
+                    .home
+                    .as_mut()
+                    .unwrap()
+                    .workspace
+                    .roster
+                    .observation = OpsObservation::Partial;
+                app.overview_rows.borrow_mut().clear();
+                let partial = text(&paint(&mut app, 103, 51));
+                assert!(partial.contains("~1 of ~1 agent"), "{partial}");
+                app.view
+                    .as_mut()
+                    .unwrap()
+                    .home
+                    .as_mut()
+                    .unwrap()
+                    .workspace
+                    .roster
+                    .observation = OpsObservation::Complete;
+            }
+            app.workspace.query.clear();
+        }
+    }
+}
+
 #[test]
 fn agents_use_available_height_before_reporting_overflow() {
     let _no_commands = crate::runner::forbid_commands();

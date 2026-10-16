@@ -10,6 +10,7 @@ use ratatui::{
     crossterm::event::{KeyCode, KeyEvent, KeyModifiers},
 };
 use serde_json::json;
+use tmt_cli_style::Role;
 
 struct Fake {
     core: crate::core::Core,
@@ -63,7 +64,7 @@ fn fixture() -> App {
     app
 }
 fn send(app: &mut App, fake: &Fake, text: &str) -> Completed {
-    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    app.perform(&crate::action::Action::parse("talk").unwrap());
     assert!(matches!(
         app.input.as_ref().unwrap().compose,
         Compose::Talk { .. }
@@ -504,4 +505,146 @@ fn outgoing_preserves_exact_effect_bytes_without_painting_terminal_controls() {
     assert!(!painted.contains("delivered"));
     assert!(!painted.contains('\u{1b}') && !painted.contains('\u{7}'));
     assert!(painted.contains("queued · inbox"));
+}
+
+#[test]
+fn answers_use_the_existing_worker_once_and_keep_the_question_and_reply_in_one_group() {
+    use crate::board::{
+        app::workspace::tests::{board, observe_waiting_member},
+        shell::OpsTab,
+    };
+    for failure in [false, true] {
+        let mut app = board();
+        observe_waiting_member(&mut app);
+        app.shell.tab = OpsTab::Overview;
+        let target = app.workspace.selected.clone().unwrap();
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .rows
+            .get_mut(&target)
+            .unwrap()["waitingOnYou"] = json!([{"requestId":"req_99999999-9999-4999-8999-999999999999","preview":"Question retained","preparedAtMs":crate::status::now_ms()-1_000}]);
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(matches!(
+            app.input.as_ref().unwrap().compose,
+            Compose::Reply { .. }
+        ));
+        app.paste("Exact answer");
+        let Effect::Act(request) = app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+        else {
+            panic!("explicit answer");
+        };
+        let expected = match &request {
+            Request::Reply { request, .. } => request.clone(),
+            _ => panic!("answer owns request identity"),
+        };
+        let ticket = app.outgoing_ticket(&request).unwrap();
+        let fake = Fake::new(
+            if failure {
+                json!({"error":{"code":"REFUSED","message":"Not submitted."}})
+            } else {
+                json!({"status":"submitted","requestId":expected})
+            },
+            failure,
+        );
+        let BoardEvent::Acted {
+            outcome: Ok(ActionOutcome::Answer(completed)),
+            sends: true,
+            ..
+        } = lane::run(&fake.core, None, lane::Job::Send { request, ticket })
+        else {
+            panic!("typed answer completion");
+        };
+        assert_eq!(completed.outcome.is_err(), failure);
+        let frozen = completed.ticket.clone();
+        app.finished_answer(*completed);
+        assert_eq!(
+            fake.arguments(),
+            [
+                "answer",
+                "--identity",
+                "Owner",
+                "--request",
+                &expected,
+                "--json",
+                "--",
+                "worker",
+                "Exact answer"
+            ]
+        );
+        let state = app.conversation.borrow();
+        let session = &state.sessions[&(Some(frozen.key.0), frozen.key.1)];
+        assert!(
+            session.text.contains("Question retained") && session.text.contains("Exact answer")
+        );
+        assert!(session.text.contains(if failure {
+            "reply failed"
+        } else {
+            "✓ replied"
+        }));
+        drop(state);
+        assert_eq!(app.composer.has_drafts(), failure);
+        app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert_eq!(
+            app.reload_blocked(),
+            failure,
+            "only the retained failed draft blocks reload after leaving the editor"
+        );
+    }
+}
+
+#[test]
+fn a_new_incoming_question_does_not_discard_an_unsettled_send() {
+    let mut app = fixture();
+    app.perform(&crate::action::Action::parse("talk").unwrap());
+    app.paste("in flight");
+    let Effect::Act(request) = app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)) else {
+        panic!("send");
+    };
+    let ticket = app.outgoing_ticket(&request).unwrap();
+    let identity = (Some(ticket.key.0.clone()), ticket.key.1.clone());
+    let incoming = Reply {
+        from: "auth-fix".into(),
+        age: "now".into(),
+        body: "New exact question".into(),
+        key: Some(crate::board::home_leads::MessageKey {
+            sender: ticket.key.0.clone(),
+            lead: ticket.key.1.clone(),
+            squad: "product".into(),
+            request: "incoming".into(),
+            kind: crate::board::home_leads::Kind::Question,
+        }),
+        acquired: true,
+        source: false,
+    };
+    app.conversation
+        .borrow_mut()
+        .sessions
+        .get_mut(&identity)
+        .unwrap()
+        .update(Some(incoming.clone()));
+    app.finished_send(Completed {
+        ticket: Some(ticket),
+        outcome: Ok(Accepted {
+            request: "sent".into(),
+            disposition: Disposition::Queued,
+        }),
+        what: "Message".into(),
+        to: "auth-fix".into(),
+    });
+    assert!(!app.composer.has_drafts());
+    app.conversation
+        .borrow_mut()
+        .sessions
+        .get_mut(&identity)
+        .unwrap()
+        .update(Some(incoming));
+    assert_eq!(
+        app.conversation.borrow().sessions[&identity].text,
+        "New exact question"
+    );
 }

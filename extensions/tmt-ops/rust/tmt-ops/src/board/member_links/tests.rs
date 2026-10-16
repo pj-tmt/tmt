@@ -65,7 +65,8 @@ mod interaction_tests {
                     frame,
                     app,
                     Rect::new(2, y, width - 4, 1),
-                    "Ask #tmt:worker, please."
+                    "Ask #tmt:worker, please.",
+                    tmt_cli_style::Role::Link
                 ));
             })
             .unwrap();
@@ -320,7 +321,18 @@ mod additional_tests {
         terminal
             .draw(|frame| {
                 app.member_links.borrow_mut().begin_frame(frame.area());
-                paint_hits(frame, &app, frame.area(), 0, 24, &mapped.mentions, true);
+                paint_hits(
+                    frame,
+                    &app,
+                    frame.area(),
+                    0,
+                    24,
+                    &mapped.mentions,
+                    Paint {
+                        reader: true,
+                        role: tmt_cli_style::Role::Link,
+                    },
+                );
             })
             .unwrap();
         app.member_link_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));

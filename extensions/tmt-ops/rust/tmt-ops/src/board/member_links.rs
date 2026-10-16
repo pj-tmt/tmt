@@ -104,6 +104,11 @@ impl State {
 }
 
 /// Geometry is clipped to cells actually painted in the current viewport.
+pub(super) struct Paint {
+    pub reader: bool,
+    pub role: tmt_cli_style::Role,
+}
+
 pub(super) fn paint_hits(
     frame: &mut Frame,
     app: &App,
@@ -111,7 +116,7 @@ pub(super) fn paint_hits(
     offset: usize,
     shown: usize,
     lines: &[Vec<Link>],
-    reader: bool,
+    presentation: Paint,
 ) {
     let mut state = app.member_links.borrow_mut();
     for (index, links) in lines
@@ -136,7 +141,7 @@ pub(super) fn paint_hits(
                     1,
                 ),
                 identity: link.identity.clone(),
-                reader,
+                reader: presentation.reader,
                 occurrence: link.occurrence,
             };
             let focused = state.focused.as_ref().is_some_and(|focused| {
@@ -146,7 +151,7 @@ pub(super) fn paint_hits(
             });
             for x in hit.area.x..hit.area.right() {
                 frame.buffer_mut()[(x, hit.area.y)].set_style(
-                    app.look().role(tmt_cli_style::Role::Link).add_modifier(
+                    app.look().role(presentation.role).add_modifier(
                         Modifier::UNDERLINED
                             | if focused {
                                 Modifier::BOLD
@@ -315,14 +320,27 @@ impl App {
             .cloned()?;
         Some(self.open_member_link(hit))
     }
+    fn reader_link_default_key(&self, event: &str) -> bool {
+        self.input.is_none()
+            && self.focus == 1
+            && !self
+                .workspace_binding_sources()
+                .and_then(|sources| sources.get(event))
+                .is_some_and(|source| source != "workspace default")
+    }
+    pub(in crate::board) fn member_link_owns_enter(&self) -> bool {
+        if !self.reader_link_default_key("enter") {
+            return false;
+        }
+        let state = self.member_links.borrow();
+        state
+            .focused
+            .as_ref()
+            .is_some_and(|focused| state.hits.iter().any(|hit| hit.reader && hit == focused))
+    }
     pub(super) fn member_link_key(&mut self, key: KeyEvent) -> Option<Effect> {
-        if self.focus != 1
-            || !key.modifiers.is_empty()
-            || super::app::event_name(key).is_some_and(|event| {
-                self.workspace_binding_sources()
-                    .and_then(|sources| sources.get(&event))
-                    .is_some_and(|source| source != "workspace default")
-            })
+        if !key.modifiers.is_empty()
+            || super::app::event_name(key).is_none_or(|event| !self.reader_link_default_key(&event))
         {
             return None;
         }
@@ -404,7 +422,13 @@ impl App {
 }
 
 /// Plain preview projection: only resolved member markup changes its display.
-pub(super) fn paint_preview(frame: &mut Frame, app: &App, area: Rect, text: &str) -> bool {
+pub(super) fn paint_preview(
+    frame: &mut Frame,
+    app: &App,
+    area: Rect,
+    text: &str,
+    role: tmt_cli_style::Role,
+) -> bool {
     if resolve(text, &app.references).is_empty() {
         return false;
     }
@@ -433,7 +457,10 @@ pub(super) fn paint_preview(frame: &mut Frame, app: &App, area: Rect, text: &str
         0,
         usize::from(area.height),
         &mapped.mentions,
-        false,
+        Paint {
+            reader: false,
+            role,
+        },
     );
     true
 }

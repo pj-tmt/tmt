@@ -1046,53 +1046,66 @@ fn workspace_authored_labels_use_registered_glyphs_at_each_width() {
 #[test]
 fn shell_tabs_are_plain_labels_and_clipped_labels_have_no_pointer_authority() {
     let mut app = board();
-    for state in ["waiting", "partial", "stale"] {
-        let home = app.view.as_mut().unwrap().home.as_mut().unwrap();
-        home.summary.waiting = 13;
-        home.summary.blocked = 3;
-        home.incomplete = state == "partial";
-        app.error = (state == "stale").then(|| "Roster unavailable".into());
-        app.attention.insert(
-            "product".into(),
-            crate::attention::Attention {
-                waiting: 13,
-                blocked: 3,
-            },
-        );
-        app.tab_hits.borrow_mut().clear();
-        let line = crate::board::workspace::render::tabs(&app, Rect::new(0, 0, 80, 1));
-        assert_eq!(line.to_string(), "  1 Overview   2 Agents   3 Digest  ");
-        let hits = app.tab_hits.borrow();
-        assert_eq!(hits.len(), 3);
-        for (hit, (x, width)) in hits.iter().zip([(1, 12), (14, 10), (25, 10)]) {
-            assert_eq!((hit.x, hit.y, hit.width), (x, 0, width));
-        }
-        for gap_x in [13, 24, 35] {
-            assert!(
-                !hits
-                    .iter()
-                    .any(|hit| gap_x >= hit.x && gap_x < hit.x + hit.width)
+    for look in [
+        crate::look::Look::default(),
+        crate::look::Look {
+            theme: tmt_cli_style::Theme::new(tmt_cli_style::theme::Base::Terminal),
+            depth: tmt_cli_style::Depth::Ansi16,
+        },
+        crate::look::Look {
+            theme: tmt_cli_style::Theme::new(tmt_cli_style::theme::Base::Terminal),
+            depth: tmt_cli_style::Depth::None,
+        },
+    ] {
+        app.view.as_mut().unwrap().look = look;
+        for state in ["waiting", "partial", "stale"] {
+            let home = app.view.as_mut().unwrap().home.as_mut().unwrap();
+            home.summary.waiting = 13;
+            home.summary.blocked = 3;
+            home.incomplete = state == "partial";
+            app.error = (state == "stale").then(|| "Roster unavailable".into());
+            app.attention.insert(
+                "product".into(),
+                crate::attention::Attention {
+                    waiting: 13,
+                    blocked: 3,
+                },
             );
-        }
-        drop(hits);
-        for gap in [2, 4, 6] {
-            assert_eq!(line.spans[gap].content, " ");
-            assert_eq!(line.spans[gap].style, ratatui::style::Style::default());
-        }
-        for (index, span) in line.spans.iter().skip(1).step_by(2).enumerate() {
-            let selected = index == 1; // The fixture starts in Agents.
-            let expected = if selected {
-                app.look()
-                    .role(tmt_cli_style::Role::Accent)
-                    .patch(app.look().selection())
-                    .add_modifier(ratatui::style::Modifier::BOLD)
-            } else {
-                app.look().role(tmt_cli_style::Role::Muted)
-            };
-            assert_eq!(
-                span.style, expected,
-                "attention cannot recolor shell labels"
-            );
+            app.tab_hits.borrow_mut().clear();
+            let line = crate::board::workspace::render::tabs(&app, Rect::new(0, 0, 80, 1));
+            assert_eq!(line.to_string(), "  1 Overview   2 Agents   3 Digest  ");
+            let hits = app.tab_hits.borrow();
+            assert_eq!(hits.len(), 3);
+            for (hit, (x, width)) in hits.iter().zip([(1, 12), (14, 10), (25, 10)]) {
+                assert_eq!((hit.x, hit.y, hit.width), (x, 0, width));
+            }
+            for gap_x in [13, 24, 35] {
+                assert!(
+                    !hits
+                        .iter()
+                        .any(|hit| gap_x >= hit.x && gap_x < hit.x + hit.width)
+                );
+            }
+            drop(hits);
+            for gap in [2, 4, 6] {
+                assert_eq!(line.spans[gap].content, " ");
+                assert_eq!(line.spans[gap].style, ratatui::style::Style::default());
+            }
+            for (index, span) in line.spans.iter().skip(1).step_by(2).enumerate() {
+                let selected = index == 1; // The fixture starts in Agents.
+                let expected = if selected {
+                    app.look()
+                        .role(tmt_cli_style::Role::Text)
+                        .patch(app.look().selection())
+                        .add_modifier(ratatui::style::Modifier::BOLD)
+                } else {
+                    app.look().role(tmt_cli_style::Role::Muted)
+                };
+                assert_eq!(
+                    span.style, expected,
+                    "attention cannot recolor shell labels"
+                );
+            }
         }
     }
     app.tab_hits.borrow_mut().clear();
@@ -2049,7 +2062,7 @@ fn compact_overview_talk_opens_agents_but_wide_overview_keeps_the_shared_convers
         app.shell.tab = OpsTab::Overview;
         paint(&app, width, 36);
         let selected = app.workspace.selected.clone();
-        key(&mut app, KeyCode::Enter);
+        app.perform(&crate::action::Action::parse("talk").unwrap());
         assert_eq!(app.focused_pane(), Some(Pane::Replies));
         assert_eq!(
             app.shell.tab,
@@ -2061,7 +2074,11 @@ fn compact_overview_talk_opens_agents_but_wide_overview_keeps_the_shared_convers
         );
         let lines = paint(&app, width, 36);
         assert!(app.input_band.get().is_some());
-        assert!(lines.iter().any(|line| line.contains("Message → worker")));
+        assert!(lines.iter().any(|line| line.contains(if width >= 140 {
+            "› worker as you…"
+        } else {
+            "Message → worker"
+        })));
         assert_eq!(app.workspace.selected, selected);
         key(&mut app, KeyCode::Char('2')); // Message input owns digits.
         assert_eq!(app.input.as_ref().unwrap().text.as_str(), "2");

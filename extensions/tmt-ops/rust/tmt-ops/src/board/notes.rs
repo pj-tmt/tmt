@@ -91,6 +91,11 @@ pub fn sanitize(text: &str) -> String {
     out
 }
 
+/// Sanitizes a metadata label without admitting a second display row.
+pub fn single_line(text: &str) -> String {
+    sanitize(text).replace(['\n', '\u{2028}', '\u{2029}'], " ")
+}
+
 /// Wraps sanitized text to `width` display cells. Breaks at spaces where
 /// possible; a longer word is split between characters, never inside one.
 pub fn wrap(text: &str, width: usize) -> Vec<String> {
@@ -183,6 +188,14 @@ impl NotesCursor {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn metadata_labels_keep_words_on_one_row_and_strip_terminal_controls() {
+        assert_eq!(
+            super::single_line("one\n\u{2028}two\u{2029}three\x1b[31m!\x1b[0m"),
+            "one  two three!"
+        );
+        assert_eq!(super::sanitize("one\ntwo"), "one\ntwo");
+    }
     use super::*;
 
     #[test]

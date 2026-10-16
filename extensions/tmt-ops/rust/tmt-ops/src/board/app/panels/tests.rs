@@ -299,6 +299,8 @@ fn pending_save_keeps_mouse_cancel_reachable_and_other_controls_disabled() {
 
 fn overview_with_hidden_conversation() -> App {
     let mut app = board();
+    // Preserve the explicit-message scenario through an authored Talk key.
+    crate::board::app::tests::configure_workspace(&mut app, "[bind]\nenter='talk'\n");
     let mut policy = OverviewPanels::default();
     policy.set_side_shown(false).unwrap();
     app.view
