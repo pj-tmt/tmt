@@ -302,6 +302,7 @@ jobs:
           node --version
           test "$(node --version)" = v22.23.2
       - name: Install pinned Rust toolchains
+        id: toolchain
         run: |
           sh scripts/install-ci-rust.sh 1.97.0 --profile minimal --component rustfmt,clippy
       - name: Cache Rust dependencies
@@ -317,8 +318,43 @@ jobs:
           remote_tests="$(cargo test --locked -p tmt-remote -- --list)"
           printf '%s\n' "$remote_tests"
           grep -q ': test$' <<< "$remote_tests"
-          node ../typescript/scripts/private-world.mjs -- cargo test --locked --workspace
+          mkdir -p "$RUNNER_TEMP/nextest-tool" "$RUNNER_TEMP/nextest-evidence"
+          curl --fail --location --max-time 90 https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.148/cargo-nextest-0.9.148-x86_64-unknown-linux-gnu.tar.gz -o "$RUNNER_TEMP/nextest-tool/tool.tar.gz"
+          printf '%s  %s\n' 223ba936714cc861a9cdedad5a8eb664dfdd69d6fbdf6cea6aa8184f523290dc "$RUNNER_TEMP/nextest-tool/tool.tar.gz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/nextest-tool/tool.tar.gz" -C "$RUNNER_TEMP/nextest-tool"
+          export PATH="$RUNNER_TEMP/nextest-tool:$PATH"
+          cargo nextest --version
+          started=$SECONDS
+          node ../typescript/scripts/private-world.mjs -- node ../typescript/scripts/workspace-nextest.mjs inventory "$RUNNER_TEMP/nextest-evidence"
+          echo "#3261 inventory including compile: $((SECONDS - started)) s"
+          node ../typescript/scripts/private-world.mjs -- cargo test --locked -p tmt-adapters process::cleanup_policy_tests
+          started=$SECONDS
+          node ../typescript/scripts/private-world.mjs -- cargo nextest run --locked --workspace --no-fail-fast 2>&1 | tee "$RUNNER_TEMP/nextest-evidence/nextest.log"
+          echo "#3261 nextest execution: $((SECONDS - started)) s"
+          node ../typescript/scripts/workspace-nextest.mjs verify "$RUNNER_TEMP/nextest-evidence"
+      - name: Test workspace documentation separately
+        if: always() && needs.changes.outputs.native_scope == 'full' && steps.toolchain.outcome == 'success'
+        working-directory: rust
+        run: |
+          mkdir -p "$RUNNER_TEMP/nextest-evidence"
+          started=$SECONDS
+          node ../typescript/scripts/private-world.mjs -- cargo test --locked --workspace --doc 2>&1 | tee "$RUNNER_TEMP/nextest-evidence/doctests.log"
+          echo "#3261 doctests: $((SECONDS - started)) s"
+      - name: Build workspace development binaries
+        if: needs.changes.outputs.native_scope == 'full'
+        working-directory: rust
+        run: |
+          started=$SECONDS
           cargo build --locked --workspace
+          echo "#3261 dev build: $((SECONDS - started)) s"
+      - name: Preserve nextest equivalence evidence
+        if: always() && needs.changes.outputs.native_scope == 'full'
+        uses: actions/upload-artifact@v4
+        with:
+          name: workspace-nextest-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/nextest-evidence/
+          retention-days: 1
+          if-no-files-found: error
       - name: Select hosted Temurin 21 for native sync acceptance
         if: needs.changes.outputs.native_scope == 'full' && needs.changes.outputs.native_sync_emulator == 'true'
         run: |

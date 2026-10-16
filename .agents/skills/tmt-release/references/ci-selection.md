@@ -49,6 +49,7 @@ package target. Full and Ops scopes require every selected worker. Required-chec
 names stay stable; `none` skips the aggregate. Invalid scope, missing/extra worker
 results and failed or unexpectedly skipped work fail closed.
 Native process verification discovers every retained suite without a product blacklist.
+The #3261 draft tests one nextest pool on the workspace runner, with independent Cargo/libtest inventory equality, separate doctests and the existing private-world wrapper. This is a CI-only experiment; local guidance remains `cargo test`, and rollout needs its own decision.
 
 For current small packages, apt acquisition allows three attempts per phase (60 s for update, 120 s for install), with 10 s termination grace and 5/10 s backoff; native-process contracts have a 20 min job budget without changing test deadlines. After the first install timeout, the shared action removes only Azure from the verified runner-image mirror list for remaining attempts; unexpected source/list layouts are logged and left unchanged.
 

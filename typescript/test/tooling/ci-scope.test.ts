@@ -1350,8 +1350,21 @@ describe('remote Rust retains full CI coverage', () => {
 printf '%s\\n' "$*" >> "$CALLS"
 case "$*" in
   'test --locked -p tmt-remote -- --list') printf '%s\\n' "$DISCOVERY"; exit "$LIST_STATUS" ;;
-  'test --locked --workspace') exit "$TEST_STATUS" ;;
+  'nextest run --locked --workspace --no-fail-fast') exit "$TEST_STATUS" ;;
 esac
+`,
+        0o755
+      );
+      for (const tool of ['curl', 'sha256sum', 'tar']) {
+        writeExecutable(path.join(root, tool), '#!/bin/sh\nexit 0\n', 0o755);
+      }
+      writeExecutable(
+        path.join(root, 'node'),
+        `#!/bin/sh
+case "$1" in
+  *workspace-nextest.mjs) exit 0 ;;
+esac
+exec '${process.execPath}' "$@"
 `,
         0o755
       );
@@ -1361,6 +1374,7 @@ esac
           ...process.env,
           PATH: `${root}:${process.env.PATH}`,
           CALLS: path.join(root, 'calls'),
+          RUNNER_TEMP: root,
           DISCOVERY: fixture.discovery,
           LIST_STATUS: String(fixture.listStatus),
           TEST_STATUS: String(fixture.testStatus),
@@ -1370,8 +1384,12 @@ esac
       const calls = readFileSync(path.join(root, 'calls'), 'utf8').trim().split('\n');
       const expected = ['test --locked -p tmt-remote -- --list'];
       if (fixture.status === 0 || fixture.testStatus !== 0)
-        expected.push('test --locked --workspace');
-      if (fixture.status === 0) expected.push('build --locked --workspace');
+        expected.push(
+          'nextest --version',
+          'test --locked -p tmt-adapters process::cleanup_policy_tests',
+          'nextest run --locked --workspace --no-fail-fast'
+        );
+
       expect(calls).toEqual(expected);
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -2895,7 +2913,14 @@ describe('required CI gate', () => {
         .map((step) => step.name);
     expect(scoped('native-clippy', 'full')).toEqual(['Lint workspace']);
     expect(scoped('native-clippy', 'ops')).toEqual(['Lint Ops']);
-    expect(scoped('native-workspace-tests', 'full')).toEqual(['Test and build workspace']);
+    expect(scoped('native-workspace-tests', 'full')).toEqual([
+      'Test and build workspace',
+      'Build workspace development binaries',
+    ]);
+    expect(job('native-workspace-tests')).toContain(
+      "always() && needs.changes.outputs.native_scope == 'full' && steps.toolchain.outcome == 'success'"
+    );
+    expect(job('native-workspace-tests')).toContain('cargo test --locked --workspace --doc');
     expect(scoped('native-workspace-tests', 'ops')).toEqual(['Test Ops and architecture']);
     expect(scoped('native-process-tests', 'full')).toEqual([
       'Build independent native process fixtures',
