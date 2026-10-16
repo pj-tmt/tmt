@@ -725,6 +725,13 @@ impl App {
                 }
             }
             Sort | ReverseSort => {
+                if self.shell.tab == OpsTab::Overview
+                    && self.overview_view == crate::board::overview::monitor::View::Squads
+                {
+                    self.notice =
+                        Some("Switch to Agents to sort; squads are ordered by TOK 1h.".into());
+                    return Effect::None;
+                }
                 let mut order = self.workspace_order();
                 match (action, self.shell.tab) {
                     (Sort, OpsTab::Overview) => {
@@ -806,6 +813,7 @@ impl App {
                 }
                 return self.workspace_save(next);
             }
+            AllTimers => return self.workspace_owner_timers(None, None),
             Timers => {
                 if self.shell.tab == OpsTab::Overview && self.workspace.selected.is_none() {
                     return self.workspace_owner_timers(None, None);

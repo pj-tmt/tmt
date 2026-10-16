@@ -26,6 +26,7 @@ pub enum OpsUiAction {
     OverviewView,
     AgentsFilter,
     Timers,
+    AllTimers,
     WorkspaceSnapshots,
     DiscoverAgents,
     Pin,
@@ -201,6 +202,13 @@ const SPECS: &[OpsUiSpec] = &[
         "timers",
         "timers",
         "show the selected scope's timers",
+        12
+    ),
+    spec!(
+        AllTimers,
+        "all-timers",
+        "timers",
+        "show all-room timers",
         12
     ),
     spec!(

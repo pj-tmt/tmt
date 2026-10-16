@@ -809,7 +809,7 @@ fn lifetime_detail_uses_individual_source_starts_in_local_dates() {
     );
 }
 
-fn savings_document() -> serde_json::Value {
+pub(in crate::board) fn savings_document() -> serde_json::Value {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../../tmt-digest/contracts/vectors/status-v1.json");
     let mut document: serde_json::Value =
@@ -823,7 +823,7 @@ fn savings_document() -> serde_json::Value {
     document
 }
 
-fn savings_board() -> crate::board::app::App {
+pub(in crate::board) fn savings_board() -> crate::board::app::App {
     let mut app = board();
     app.labels = crate::labels::Supplied::from_document("digest", &savings_document(), false);
     app
@@ -855,7 +855,7 @@ fn selected_squad_summary_shows_the_same_supplied_estimate() {
     assert!(shown.contains("Est. ctx avoided 24h: 18.2k"), "{shown}");
 }
 
-fn valued_document() -> serde_json::Value {
+pub(in crate::board) fn valued_document() -> serde_json::Value {
     let mut document = savings_document();
     document["members"][0]["savings"]["cost"] = serde_json::json!({
         "usdMicros": 12_398_600, "modelId": "gpt-6-sol", "modelObservedAtMs": 1000,
@@ -874,7 +874,7 @@ fn valued_document() -> serde_json::Value {
     document
 }
 
-fn valued_board() -> crate::board::app::App {
+pub(in crate::board) fn valued_board() -> crate::board::app::App {
     let mut app = board();
     app.labels = crate::labels::Supplied::from_document("digest", &valued_document(), false);
     bind_unit_key(&mut app);

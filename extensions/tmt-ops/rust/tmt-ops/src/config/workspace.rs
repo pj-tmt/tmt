@@ -210,6 +210,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
     match scope {
         OpsKeyScope::Reader => {}
         OpsKeyScope::Overview => entries.extend([
+            ("c", "all-timers"),
             ("enter", "talk"),
             ("j", "jump"),
             ("o", "open"),
@@ -260,6 +261,11 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
 }
 
 pub(crate) fn admit_action(action: &Action, path: &str) -> Result<(), SquadError> {
+    if action.verb == Verb::OverviewFilter {
+        return Err(invalid(format!(
+            "`{path}`: 'overview-filter' is retired; choose 'overview-view' for Squads/Agents explicitly. The authored binding is preserved for migration."
+        )));
+    }
     if matches!(
         action.verb,
         Verb::Toggle
@@ -1105,6 +1111,7 @@ mod tests {
             "L='jump lead'",
             "V='view'",
             "N='notes'",
+            "f='overview-filter'",
         ] {
             let config = config(&format!("[bind]\n{binding}"));
             let before = config.document.to_string();
@@ -1117,6 +1124,25 @@ mod tests {
                     == 1
             );
             assert_eq!(config.document.to_string(), before);
+        }
+    }
+    #[test]
+    fn retired_overview_filter_reports_migration_without_retargeting_the_key() {
+        for text in [
+            "[bind]\nf = 'overview-filter'",
+            "[bind.tmux]\nf = 'overview-filter'",
+        ] {
+            let config = config(text);
+            let before = config.document.to_string();
+            let keys = config
+                .workspace_keys(OpsKeyScope::Overview, Some("tmux"), None)
+                .unwrap();
+            assert!(keys.notices.iter().any(
+                |notice| notice.contains("overview-filter") && notice.contains("overview-view")
+            ));
+            assert!(!keys.bindings.contains_key("f"));
+            assert_eq!(config.document.to_string(), before);
+            assert_eq!(keys.bindings["v"].text, "overview-view");
         }
     }
     #[test]

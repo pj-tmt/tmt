@@ -74,156 +74,205 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             look.role(Role::Muted),
         )
     };
-    let total = LIST_HEADER_ROWS + rows.len().max(1);
-    *app.row_starts.borrow_mut() = (0..rows.len()).map(|i| LIST_HEADER_ROWS + i).collect();
+    let band = super::composition::lower::Band::new(app, frame.area().width, area.width);
+    let monitor_shown = app
+        .overview_panels()
+        .shown(crate::config::OverviewPanel::Monitor);
+    // Reserve the lower band through placement. Only data rows belong to Rows scroll.
+    let band_height = band
+        .as_ref()
+        .map_or(0, |band| band.height as u16)
+        .min(if monitor_shown {
+            area.height.saturating_sub(LIST_HEADER_ROWS as u16 + 3)
+        } else {
+            area.height
+        });
+    let gap = u16::from(band_height > 0 && monitor_shown);
+    let list_height = if monitor_shown {
+        (LIST_HEADER_ROWS + rows.len().max(1))
+            .min(usize::from(area.height.saturating_sub(band_height + gap))) as u16
+    } else {
+        0
+    };
+    if let Some(band) = &band {
+        for y in 0..band_height {
+            band.paint(
+                frame,
+                app,
+                Rect::new(area.x, area.y + list_height + gap + y, area.width, 1),
+                usize::from(y),
+            );
+        }
+    }
+    if !monitor_shown {
+        return;
+    }
+    let header_height = (LIST_HEADER_ROWS as u16).min(list_height.saturating_sub(1));
+    let data = Rect::new(
+        area.x,
+        area.y + header_height,
+        area.width,
+        list_height.saturating_sub(header_height),
+    );
+    let total = rows.len().max(1);
+    *app.row_starts.borrow_mut() = (0..rows.len()).collect();
     if app.follow
         && let Some(i) = rows
             .iter()
             .position(|r| Some(&r.target) == app.workspace.selected.as_ref())
     {
-        app.scrolls.reveal_range(
-            Pane::Rows,
-            LIST_HEADER_ROWS + i..LIST_HEADER_ROWS + i + 1,
-            area,
-            total,
+        app.scrolls.reveal_range(Pane::Rows, i..i + 1, data, total);
+    }
+    let paint = |frame: &mut Frame, slot: Rect, index: usize| match index {
+        0 => {
+            for hit in filter_bar::paint(
+                frame.buffer_mut(),
+                slot,
+                &[("squads", "Squads"), ("agents", "Agents")],
+                usize::from(agents),
+                &app.workspace.query,
+                look,
+            ) {
+                let view = if hit.id == "agents" {
+                    monitor::View::Agents
+                } else {
+                    monitor::View::Squads
+                };
+                app.workspace_strip_hits
+                    .borrow_mut()
+                    .push((hit.area, Choice::OverviewView(view)));
+            }
+        }
+        1 => (),
+        2 => section_rule::paint(
+            frame.buffer_mut(),
+            slot,
+            if agents { "Agents" } else { "Squads" },
+            count.clone(),
+            app.focused() == Pane::Rows,
+            look,
+        ),
+        3 => strip::paint_left(
+            frame.buffer_mut(),
+            slot,
+            Line::styled(
+                if agents {
+                    format!(
+                        " {:<23} {:<11} {:<12} {:>7}   NOW",
+                        "AGENT", "SQUAD", "STATE", "TOK 1h"
+                    )
+                } else {
+                    format!(" {:<12}{:<10}{:>7}   NOW", "SQUAD", "TEAM", "TOK 1h")
+                },
+                look.role(Role::Muted),
+            ),
+        ),
+        at if at >= LIST_HEADER_ROWS => {
+            let Some(row) = rows.get(at - LIST_HEADER_ROWS) else {
+                if at == LIST_HEADER_ROWS {
+                    empty_state::paint(
+                        frame.buffer_mut(),
+                        Rect::new(
+                            slot.x.saturating_add(1),
+                            slot.y,
+                            slot.width.saturating_sub(1),
+                            1,
+                        ),
+                        if !scene.summary.complete {
+                            if agents {
+                                "Agents unavailable."
+                            } else {
+                                "Squads unavailable."
+                            }
+                        } else if filtered {
+                            if agents {
+                                "No matching agents."
+                            } else {
+                                "No matching squads."
+                            }
+                        } else if agents {
+                            "No agents yet."
+                        } else {
+                            "No squads yet."
+                        },
+                        None,
+                        look,
+                    );
+                }
+                return;
+            };
+            let mut line = if agents {
+                agent_line(app, snapshot, row, look)
+            } else {
+                let Some(squad) = scene.squads.get(at - LIST_HEADER_ROWS) else {
+                    return;
+                };
+                squad_line(squad, look)
+            };
+            let remaining = usize::from(slot.width).saturating_sub(line.width());
+            line.spans.push(Span::raw(" ".repeat(remaining)));
+            let selected =
+                Some(&row.target) == app.workspace.selected.as_ref() && app.focused() == Pane::Rows;
+            if selected {
+                line.style = look.selection();
+                let mut x = 0;
+                for span in &mut line.spans {
+                    let state = if agents {
+                        (37..49).contains(&x)
+                    } else {
+                        (13..23).contains(&x)
+                    };
+                    span.style = look.row_span(
+                        true,
+                        span.style,
+                        state && matches!(span.content.as_ref(), "◆" | "✗"),
+                    );
+                    x += unicode_width::UnicodeWidthStr::width(span.content.as_ref());
+                }
+            }
+            strip::paint_left(frame.buffer_mut(), slot, line);
+            app.workspace_state_cells.borrow_mut().push(
+                Rect::new(
+                    slot.x.saturating_add(if agents { 37 } else { 13 }),
+                    slot.y,
+                    if agents { 12 } else { 10 },
+                    1,
+                )
+                .intersection(slot),
+            );
+            app.hits.borrow_mut().push(Hit {
+                x: slot.x,
+                y: slot.y,
+                width: slot.width,
+                target: HitTarget::Row(at - LIST_HEADER_ROWS),
+            });
+        }
+        _ => (),
+    };
+    for y in 0..header_height {
+        paint(
+            frame,
+            Rect::new(area.x, area.y + y, area.width, 1),
+            if header_height < LIST_HEADER_ROWS as u16 && y > 0 {
+                usize::from(y) + 1
+            } else {
+                usize::from(y)
+            },
         );
     }
     app.scrolls.show_list(
         frame,
         Pane::Rows,
-        area,
+        data,
         total,
         look,
         |frame, viewport, offset| {
             for y in 0..viewport.height {
-                let index = offset + usize::from(y);
-                let slot = Rect::new(viewport.x, viewport.y + y, viewport.width, 1);
-                match index {
-                    0 => {
-                        for hit in filter_bar::paint(
-                            frame.buffer_mut(),
-                            slot,
-                            &[("squads", "Squads"), ("agents", "Agents")],
-                            usize::from(agents),
-                            &app.workspace.query,
-                            look,
-                        ) {
-                            let view = if hit.id == "agents" {
-                                monitor::View::Agents
-                            } else {
-                                monitor::View::Squads
-                            };
-                            app.workspace_strip_hits
-                                .borrow_mut()
-                                .push((hit.area, Choice::OverviewView(view)));
-                        }
-                    }
-                    1 => (),
-                    2 => section_rule::paint(
-                        frame.buffer_mut(),
-                        slot,
-                        if agents { "Agents" } else { "Squads" },
-                        count.clone(),
-                        app.focused() == Pane::Rows,
-                        look,
-                    ),
-                    3 => strip::paint_left(
-                        frame.buffer_mut(),
-                        slot,
-                        Line::styled(
-                            if agents {
-                                format!(
-                                    " {:<23} {:<11} {:<12} {:>7}   NOW",
-                                    "AGENT", "SQUAD", "STATE", "TOK 1h"
-                                )
-                            } else {
-                                format!(" {:<12}{:<10}{:>7}   NOW", "SQUAD", "TEAM", "TOK 1h")
-                            },
-                            look.role(Role::Muted),
-                        ),
-                    ),
-                    at if at >= LIST_HEADER_ROWS => {
-                        let Some(row) = rows.get(at - LIST_HEADER_ROWS) else {
-                            if at == LIST_HEADER_ROWS {
-                                empty_state::paint(
-                                    frame.buffer_mut(),
-                                    Rect::new(
-                                        slot.x.saturating_add(1),
-                                        slot.y,
-                                        slot.width.saturating_sub(1),
-                                        1,
-                                    ),
-                                    if !scene.summary.complete {
-                                        if agents {
-                                            "Agents unavailable"
-                                        } else {
-                                            "Squads unavailable"
-                                        }
-                                    } else if filtered {
-                                        if agents {
-                                            "No matching agents"
-                                        } else {
-                                            "No matching squads"
-                                        }
-                                    } else if agents {
-                                        "No agents yet."
-                                    } else {
-                                        "No squads yet."
-                                    },
-                                    None,
-                                    look,
-                                );
-                            }
-                            continue;
-                        };
-                        let mut line = if agents {
-                            agent_line(app, snapshot, row, look)
-                        } else {
-                            let Some(squad) = scene.squads.get(at - LIST_HEADER_ROWS) else {
-                                continue;
-                            };
-                            squad_line(squad, look)
-                        };
-                        let remaining = usize::from(slot.width).saturating_sub(line.width());
-                        line.spans.push(Span::raw(" ".repeat(remaining)));
-                        let selected = Some(&row.target) == app.workspace.selected.as_ref()
-                            && app.focused() == Pane::Rows;
-                        if selected {
-                            line.style = look.selection();
-                            let mut x = 0;
-                            for span in &mut line.spans {
-                                let state = if agents {
-                                    (37..49).contains(&x)
-                                } else {
-                                    (13..23).contains(&x)
-                                };
-                                span.style = look.row_span(
-                                    true,
-                                    span.style,
-                                    state && matches!(span.content.as_ref(), "◆" | "✗"),
-                                );
-                                x += unicode_width::UnicodeWidthStr::width(span.content.as_ref());
-                            }
-                        }
-                        strip::paint_left(frame.buffer_mut(), slot, line);
-                        app.workspace_state_cells.borrow_mut().push(
-                            Rect::new(
-                                slot.x.saturating_add(if agents { 37 } else { 13 }),
-                                slot.y,
-                                if agents { 12 } else { 10 },
-                                1,
-                            )
-                            .intersection(slot),
-                        );
-                        app.hits.borrow_mut().push(Hit {
-                            x: slot.x,
-                            y: slot.y,
-                            width: slot.width,
-                            target: HitTarget::Row(at - LIST_HEADER_ROWS),
-                        });
-                    }
-                    _ => (),
-                }
+                paint(
+                    frame,
+                    Rect::new(viewport.x, viewport.y + y, viewport.width, 1),
+                    LIST_HEADER_ROWS + offset + usize::from(y),
+                );
             }
         },
     );

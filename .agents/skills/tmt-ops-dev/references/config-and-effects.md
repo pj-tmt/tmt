@@ -195,11 +195,19 @@ neither cancels its admitted write nor applies a late result to a reopened picke
 `workspace.overview_panels` stores `order`, `hidden` and `conversation` over IDs
 `summary`, `digest`, `subscriptions`, `usage`, `monitor`, `exchanges`.
 Overview exposes only Usage, inline quota, Squads / Agents and Conversation in
-its picker; fixed positions ignore retained vertical order. Retired Summary, Digest
-and Recent controls remain absent. Usage has a fixed full-width header position and `subscriptions`
+its picker, plus the narrow Digest toggle; fixed positions ignore retained vertical
+order. Retired Summary and Recent controls remain absent. Usage has a fixed full-width header position and `subscriptions`
 controls quota cells inside its provider rows. Their order entries are retained
 in the stored complete ID set, but the picker identifies them as fixed and refuses
 move actions. Digest retains independently movable panels.
+Authored `overview-filter` actions receive a located retirement notice. Their
+text stays intact and is not applied; choose `overview-view` explicitly for
+Squads/Agents.
+
+The explicit `all-timers` action opens the all-room read context and is Overview's
+new default `c`. Authored `timers` keeps the selected scope, and compatible global,
+host and section overrides retain their normal precedence. The preview advertises
+only a key that actually resolves to `all-timers`.
 `workspace.digest_panels` stores `order`, `hidden` and `details` over IDs `status`,
 `usage`, `subscriptions`, `chart`, `list`, `report`. Saved order retains its relative order;
 omitted known IDs are inserted at their default indices with default visibility.

@@ -125,11 +125,11 @@ in different squads. A collapsed squad keeps its worst observed child state,
 with attention priority. Display names preserve authored text, including `tmt-`
 prefixes, and fit through the shared text policy.
 
-| Section  | Composition                                         | Placement                                                                            |
-| -------- | --------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| Overview | Full-width Usage, one switchable Squads/Agents list | Missing observations stay unknown; selected rows retain acquired recipient authority |
-| Agents   | Tree plus exact agent conversation or squad detail  | Auto/Side/Stack uses actual minimum usable areas                                     |
-| Digest   | Same tree/context and existing policy chooser       | No new Digest store, permission or parallel editor                                   |
+| Section  | Composition                                                              | Placement                                                                            |
+| -------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| Overview | Full-width Usage, switchable Squads/Agents list and narrow Timers/Digest | Missing observations stay unknown; selected rows retain acquired recipient authority |
+| Agents   | Tree plus exact agent conversation or squad detail                       | Auto/Side/Stack uses actual minimum usable areas                                     |
+| Digest   | Same tree/context and existing policy chooser                            | No new Digest store, permission or parallel editor                                   |
 
 Auto/Side/Stack, pin and sort are per-user Ops preferences. The new default keys
 replace old squad tabs, Left/Right tab switching, tab reorder/pick/hide and factory
@@ -170,6 +170,9 @@ One scroll owner paints clipped rows and `↓ N more` when they overflow. The sh
 filter bar, section rule, team strip, state cell and key hints have one board owner
 for later Agents reuse. Only ◆ and ✗ carry attention color. Search interaction is
 separate from the idle field presentation. Details stays read-only.
+The default Overview Timers key opens the explicit all-room context. An authored
+selected-scope `timers` action keeps its admission and refuses to widen a missing
+or hidden scope.
 
 Workspace settings → Panels retains separate policies for Overview and Digest.
 Overview exposes Usage, quota inside Usage, Squads / Agents, and Conversation;
@@ -181,6 +184,16 @@ and shared preferences remain preserved. Hidden surfaces publish no stale hits o
 clock marks. Configured-off Overview Conversation appears only for explicit
 message focus; Escape keeps its UUID draft. Failed/stale/loading Digest Status
 remains visible even when hidden.
+
+Narrow Overview places at most three soonest timer observations beside Digest
+key/value rows below the switchable Squads/Agents list. The Timers more control and effective shortcut
+open the same all-room list; filtered rosters label that global scope. Paused rows
+are dim, stale countdowns stay unknown, and known empty is distinct from unread.
+Digest uses the existing scoped numeric and supplier estimate owners, with values
+right-aligned and unreported values shown as an em dash. Fixed context-token and
+list-price quote rows retain their source coverage independently of the saved
+unit preference. The modules stack when their minimum widths cannot fit. Wide
+screens retain the preceding layout until the final matrix composition.
 
 Provider usage/quota and shell attention remain global under launch scope; local
 roster totals intersect the visible scoped identities. Missing, partial and stale

@@ -19,6 +19,7 @@ use tmt_ops::cron::ClockStatus;
 
 pub(super) use act::{CronRequest, Op, act};
 pub(super) use forms::Draft;
+pub(in crate::board) use line::countdown;
 #[cfg(test)]
 pub(super) use line::tests::{
     NOW as TEST_NOW, cron as test_cron, view as test_view, views as test_views,
