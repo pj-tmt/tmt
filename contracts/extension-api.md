@@ -81,9 +81,10 @@ create the root or read its files. `capabilities` remains a constant document.
 Proposed contract; the operation is not implemented yet.
 
 `responses.recent` reads one exact identity's locally retained provider-final
-text. Input is `{identityId, limit}`: a canonical identity UUID and an integer
-from 1 through 10. Both fields are required; names, unknown fields and envelope
-originator attribution are not accepted. Invalid input is `API_INPUT_INVALID`.
+text. Input is `{identityId, limit?}`: a required canonical identity UUID and an
+optional integer from 1 through 10, default 10. Names, unknown fields and envelope
+originator attribution are not accepted. Invalid input, including an explicit
+out-of-range limit, is `API_INPUT_INVALID`.
 The resource is `{identityId, items:[...]}`, with no pagination. A valid UUID
 with no retained entries, including an unknown or retired UUID, returns an empty
 `items` array; a same-name successor never inherits the previous UUID's entries.
@@ -117,8 +118,11 @@ from its admitted turn-end payload. Neither driver scrapes pane text or follows
 an unverified transcript path. This is bounded turn-end observation, not a
 complete transcript backup or a guarantee that an identity has prior text.
 
-Core's SQLite store retains at most the newest 10 captures per identity. In one
-admitted write transaction it appends the capture and removes overflow. Each
+Core's SQLite store retains at most the newest 10 captures per identity. Capture
+occurs only when the existing Stop admission commits a turn end, in that same
+CAS transaction; a duplicate Stop treated as a no-op captures nothing. Text is
+not deduplicated: two distinct committed turns with identical text are retained
+separately. The transaction appends the capture and removes overflow. Each
 capture freezes the current global `exchange.retentionDays` policy (default 90,
 allowed 1–3650) and expires at `endedMs + retentionDays * 86,400,000`.
 At equality it is expired: reads omit it even before opportunistic cleanup.
