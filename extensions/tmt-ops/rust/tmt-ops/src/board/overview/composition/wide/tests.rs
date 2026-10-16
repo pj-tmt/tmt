@@ -51,19 +51,27 @@ fn final_wide_composition_has_joined_divider_direct_matrix_and_filled_reply_fiel
     assert!(!shown.contains("Auto · timed · Off") && !shown.contains("Conversation ·"));
     let band = app.input_band.get().unwrap();
     assert_eq!(band.height, 3);
-    assert_eq!(band.x, 89);
-    assert_eq!(band.width, 59);
+    assert_eq!(band.x, 90);
+    assert_eq!(band.width, 57);
     assert!(shown.contains("⏎ to reply to worker"));
     assert!(!shown.contains("[ Send ]"));
     let rule = app.conversation.borrow().pane.unwrap().y;
     assert_eq!(buffer[(88, rule)].symbol(), "┬");
     assert_eq!(buffer[(88, rule + 1)].symbol(), "│");
     assert_eq!(
-        buffer[(89, band.y)].bg,
+        buffer[(band.x, band.y)].bg,
         crate::board::input_field::style(app.look(), false)
             .bg
             .unwrap()
     );
+    for y in band.y..band.bottom() {
+        assert_eq!(buffer[(89, y)].bg, ratatui::style::Color::Reset);
+        assert_eq!(buffer[(147, y)].bg, ratatui::style::Color::Reset);
+        for x in band.x..band.right() {
+            assert_eq!(buffer[(x, y)].bg, buffer[(band.x, band.y)].bg);
+        }
+    }
+    assert_eq!(buffer[(92, band.y + 1)].symbol(), "⏎");
     assert!(shown.contains("worker → Owner"));
 }
 
@@ -237,6 +245,14 @@ fn enter_and_pointer_reply_to_the_exact_question_and_an_unrelated_result_never_r
     );
     let shown = text(&paint(&mut app, 148, 51));
     assert!(shown.contains("⏎ send · Esc cancel"));
+    let band = app.input_band.get().unwrap();
+    let hint = crate::board::input_field::send_hint(band).unwrap();
+    assert_eq!(hint.right(), band.right() - 1);
+    assert_eq!(
+        app.composer.send_hit.borrow().as_ref().unwrap().area.x,
+        hint.x
+    );
+    assert_eq!(app.input_viewport.get().unwrap().0.x, band.x + 2);
     app.paste("Approved");
     assert!(
         matches!(key(&mut app,KeyCode::Enter),Effect::Act(Request::Reply {request,text,..}) if request==read.request && text=="Approved")

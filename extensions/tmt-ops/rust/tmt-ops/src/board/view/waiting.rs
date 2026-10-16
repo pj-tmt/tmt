@@ -683,13 +683,12 @@ fn final_input(
         );
     }
     if projection.focused
-        && band.width >= 23
         && app.in_flight == 0
+        && let Some(hint) = field::send_hint(band)
         && let Some(key) = projection.key.clone()
     {
-        let hint_width = unicode_width::UnicodeWidthStr::width("⏎ send · Esc cancel") as u16;
         *app.composer.send_hit.borrow_mut() = Some(crate::board::composer::SendHit {
-            area: Rect::new(band.right() - hint_width, band.y, 6, 1),
+            area: Rect { width: 6, ..hint },
             key,
         });
     }
@@ -699,11 +698,11 @@ fn final_input(
     {
         strip::paint_left(
             frame.buffer_mut(),
-            Rect::new(band.x, band.bottom() - 1, band.width, 1),
+            Rect::new(editor_area.x, band.bottom() - 1, editor_area.width, 1),
             Line::styled(
                 super::fit(
                     &format!("Reply: {}", crate::board::notes::single_line(question)),
-                    usize::from(band.width),
+                    usize::from(editor_area.width),
                 ),
                 base.patch(look.role(Role::Dim)),
             ),
@@ -712,9 +711,9 @@ fn final_input(
     if let Some(quote) = projection
         .quotes
         .last()
-        .filter(|_| band.height >= 3 && band.width >= 4)
+        .filter(|_| band.height >= 3 && editor_area.width >= 2)
     {
-        let row = Rect::new(band.x, band.bottom() - 1, band.width - 2, 1);
+        let row = Rect::new(editor_area.x, band.bottom() - 1, editor_area.width - 2, 1);
         strip::paint_left(
             frame.buffer_mut(),
             row,
@@ -723,7 +722,7 @@ fn final_input(
                 base.patch(look.role(Role::Muted)),
             ),
         );
-        let remove = Rect::new(band.right() - 1, band.bottom() - 1, 1, 1);
+        let remove = Rect::new(editor_area.right() - 1, band.bottom() - 1, 1, 1);
         strip::paint_left(frame.buffer_mut(), remove, Line::styled("✕", base));
         if let Some(key) = projection.key {
             *app.composer.quote_hit.borrow_mut() = Some(QuoteHit {

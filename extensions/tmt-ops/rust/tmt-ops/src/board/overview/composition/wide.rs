@@ -91,7 +91,13 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, left: Option<Rect>,
         .min(conversation::exchange::desired_height(app, area.width));
     let conversation_area = Rect::new(area.x, area.y + 1, area.width, exchange);
     conversation::exchange::render(frame, app, conversation_area);
-    let input_area = Rect::new(area.x, conversation_area.bottom() + gap, area.width, input);
+    let input_area = Rect::new(
+        area.x + area.width.min(crate::board::input_field::GUTTER),
+        conversation_area.bottom() + gap,
+        area.width
+            .saturating_sub(crate::board::input_field::GUTTER * 2),
+        input,
+    );
     if admitted_input {
         app.input_band.set(Some(input_area));
     }

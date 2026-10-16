@@ -133,7 +133,9 @@ a preview is not a response attachment. The same exact-question helper supplies
 answers after a compact editor moves to Agents. Confirmed answers join the
 existing bounded session feedback through one `tmt answer` worker call; failed
 answers keep their draft. A new question cannot discard an unsettled send, and a
-note to a different UUID cannot borrow the selected agent's question. The input has no section rule or frame, uses the
+note to a different UUID cannot borrow the selected agent's question. The fill keeps a one-cell column gutter on both sides; text is inset two cells
+and the right hint ends one cell before the fill edge. The same geometry owns
+editor cursors and send hits. The input has no section rule or frame, uses the
 existing UUID draft/editor/quote owners, and publishes only its clipped input and
 send geometry. Overview list and reader defaults use Reply on Enter; authored
 bindings merge afterward without a rewrite. Paint, action admission and host-key
