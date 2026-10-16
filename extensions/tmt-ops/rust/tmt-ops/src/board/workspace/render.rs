@@ -191,11 +191,39 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
     } else {
         area
     };
-    let slots = app.agents_layout.borrow_mut().slots(inside);
+    // The section rule yields before the table header, range and last target.
+    let rule_height = u16::from(inside.height >= 4);
     let header_height = u16::from(inside.height >= 3);
+    let slots = app.agents_layout.borrow_mut().slots(Rect {
+        y: inside.y + rule_height,
+        ..inside
+    });
+    let note = if app.workspace.query.is_empty() {
+        Line::default()
+    } else {
+        let (matched, total) = app
+            .workspace
+            .search_counts(&snapshot.roster, &snapshot.preferences);
+        Line::styled(
+            format!("{matched} of {total} agents"),
+            look.role(Role::Muted),
+        )
+    };
+    crate::board::section_rule::paint(
+        frame.buffer_mut(),
+        Rect {
+            height: rule_height,
+            ..inside
+        },
+        "Squads",
+        note,
+        app.focused() == Pane::Rows,
+        look,
+    );
     columns::paint_agents_header(
         frame.buffer_mut(),
         Rect {
+            y: inside.y + rule_height,
             height: header_height,
             ..inside
         },
@@ -205,9 +233,9 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
     );
     let body = Rect::new(
         inside.x,
-        inside.y + header_height,
+        inside.y + rule_height + header_height,
         inside.width,
-        inside.height.saturating_sub(header_height),
+        inside.height.saturating_sub(rule_height + header_height),
     );
     let rows = app.workspace_rows();
     *app.row_starts.borrow_mut() = (0..rows.len()).collect();
@@ -470,9 +498,12 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                 strip::paint_left(
                     frame.buffer_mut(),
                     cell,
-                    Line::styled(
-                        crate::board::view::fit(&text, usize::from(cell.width)),
-                        style,
+                    crate::board::search_field::highlight_line(
+                        Line::styled(
+                            crate::board::view::fit(&text, usize::from(cell.width)),
+                            style,
+                        ),
+                        &app.workspace.query,
                     ),
                 );
             }
@@ -483,20 +514,13 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                 target: HitTarget::Row(index),
             });
         }
-        let no_matches =
-            !app.workspace.query.is_empty() && rows.iter().all(|row| row.target == OpsTarget::Pool);
-        if rows.is_empty() || no_matches {
-            let line = rows.len().saturating_sub(offset);
-            if line < usize::from(viewport.height) {
-                strip::paint_left(
-                    frame.buffer_mut(),
-                    Rect::new(viewport.x, viewport.y + line as u16, viewport.width, 1),
-                    Line::styled(
-                        "No matches in this view · clear search or change filter",
-                        look.role(Role::Muted),
-                    ),
-                );
-            }
+        if rows.is_empty() && offset == 0 {
+            let (message, action) = if app.workspace.query.is_empty() {
+                ("No agents in this view", None)
+            } else {
+                ("No matching agents", Some(("Esc", "clear filter")))
+            };
+            crate::board::empty_state::paint(frame.buffer_mut(), viewport, message, action, look);
         }
     };
     app.scrolls
@@ -517,60 +541,22 @@ fn agents_controls(
     use super::AgentsFilter;
     use crate::action::OpsUiAction;
     let look = app.look();
-    let filters = [
-        AgentsFilter::All,
-        AgentsFilter::NeedsYou,
-        AgentsFilter::Pinned,
-    ];
-    let buttons: Vec<_> = filters
-        .iter()
-        .map(|filter| {
-            crate::board::buttons::Button::secondary(filter.label())
-                .focused(*filter == app.workspace.filter)
-        })
-        .collect();
-    let painted = crate::board::buttons::paint(
-        app,
+    for hit in crate::board::filter_bar::paint(
         frame.buffer_mut(),
-        Rect::new(inside.x + 1, inside.y, inside.width.saturating_sub(1), 1),
-        &buttons,
-        tmt_cli_style::grid::Align::Left,
-        None,
-    );
-    let x = painted
-        .iter()
-        .flatten()
-        .last()
-        .map_or(inside.x + 1, |rect| rect.right().saturating_add(2));
-    for (filter, rect) in filters.into_iter().zip(painted) {
-        if let Some(rect) = rect {
-            app.workspace_strip_hits
-                .borrow_mut()
-                .push((rect, Choice::AgentsFilter(filter)));
-        }
-    }
-    if x < inside.right() {
-        let label = format!(
-            "/ {}",
-            if app.workspace.query.is_empty() {
-                "Search…"
-            } else {
-                &app.workspace.query
-            }
-        );
-        let text_width = unicode_width::UnicodeWidthStr::width(label.as_str()) as u16;
-        let area = Rect::new(x, inside.y, text_width.min(inside.right() - x), 1);
-        strip::paint_left(
-            frame.buffer_mut(),
-            area,
-            Line::styled(safe(&label), look.role(Role::Dim)),
-        );
-        if area.width == text_width {
-            app.workspace_strip_hits.borrow_mut().push((
-                area,
-                Choice::Action(crate::action::Action::parse("search").unwrap()),
-            ));
-        }
+        inside,
+        &[("all", "All"), ("pinned", "Pinned")],
+        usize::from(app.workspace.filter == AgentsFilter::Pinned),
+        &app.workspace.query,
+        app,
+    ) {
+        let choice = match hit.id.as_str() {
+            "all" => Choice::AgentsFilter(AgentsFilter::All),
+            "pinned" => Choice::AgentsFilter(AgentsFilter::Pinned),
+            _ => Choice::Action(crate::action::Action::parse("search").unwrap()),
+        };
+        app.workspace_strip_hits
+            .borrow_mut()
+            .push((hit.area, choice));
     }
     let total = app
         .cron

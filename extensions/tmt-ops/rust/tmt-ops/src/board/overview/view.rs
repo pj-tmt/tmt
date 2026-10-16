@@ -47,9 +47,9 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         Line::styled(
             format!(
                 "{} of {} {}",
-                observed(scene.matching_agents),
-                observed(scene.summary.total),
-                agent_noun(scene.summary.total),
+                observed(if agents { scene.matching_agents } else { scene.squads.len() }),
+                observed(if agents { scene.summary.total } else { scene.total_squads }),
+                if agents { agent_noun(scene.summary.total) } else if scene.total_squads == 1 { "squad" } else { "squads" },
             ),
             look.role(Role::Muted),
         )
@@ -144,14 +144,14 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 &app.workspace.query,
                 app,
             ) {
-                let view = if hit.id == "agents" {
-                    monitor::View::Agents
-                } else {
-                    monitor::View::Squads
+                let choice = match hit.id.as_str() {
+                    "agents" => Choice::OverviewView(monitor::View::Agents),
+                    "squads" => Choice::OverviewView(monitor::View::Squads),
+                    _ => Choice::Action(crate::action::Action::parse("search").unwrap()),
                 };
                 app.workspace_strip_hits
                     .borrow_mut()
-                    .push((hit.area, Choice::OverviewView(view)));
+                    .push((hit.area, choice));
             }
         }
         1 => (),
@@ -220,6 +220,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 };
                 squad_line(squad, look)
             };
+            line = crate::board::search_field::highlight_line(line, &app.workspace.query);
             let remaining = usize::from(slot.width).saturating_sub(line.width());
             line.spans.push(Span::raw(" ".repeat(remaining)));
             let selected =

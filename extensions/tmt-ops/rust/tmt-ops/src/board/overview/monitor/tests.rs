@@ -157,10 +157,12 @@ fn filtered_counts_keep_the_admitted_denominator_in_both_views() {
     let mut app = board();
     for view in [View::Squads, View::Agents] {
         app.overview_view = view;
-        for (query, expected) in [
-            ("worker", "1 of 3 agents"),
-            ("no-such-agent", "0 of 3 agents"),
-        ] {
+        let expected = if view == View::Squads {
+            ["1 of 1 squads", "0 of 1 squads"]
+        } else {
+            ["1 of 3 agents", "0 of 3 agents"]
+        };
+        for (query, expected) in ["worker", "no-such-agent"].into_iter().zip(expected) {
             app.search = query.into();
             app.overview_rows.borrow_mut().clear();
             app.workspace_reconcile();
@@ -797,4 +799,20 @@ fn hidden_empty_lists_are_filtered_and_missing_sources_never_claim_a_fresh_empty
         .observation = OpsObservation::Unavailable;
     app.overview_rows.borrow_mut().clear();
     assert!(text(&paint(&mut app, 103, 51)).contains("Agents unavailable"));
+}
+
+#[test]
+fn filtered_section_counts_follow_the_current_squads_or_agents_mode() {
+    let mut app = crate::board::app::workspace::tests::populated_board(8, 28);
+    app.shell.tab = OpsTab::Overview;
+    app.search = "squad-00".into();
+    app.workspace_reconcile();
+    app.select_overview_view(View::Squads);
+    let squads = text(&paint(&mut app, 103, 51));
+    assert!(squads.contains("1 of 8 squads"), "{squads}");
+    app.search = "agent-00000".into();
+    app.workspace_reconcile();
+    app.select_overview_view(View::Agents);
+    let agents = text(&paint(&mut app, 103, 51));
+    assert!(agents.contains("1 of 28 agents"), "{agents}");
 }

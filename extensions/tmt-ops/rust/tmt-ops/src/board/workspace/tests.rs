@@ -58,7 +58,7 @@ fn hidden_squads_do_not_leak_members_into_pool_or_search_and_keep_global_attenti
         matches!(&rows[1].target, OpsTarget::Member { room_id: None, identity_id } if identity_id == "free")
     );
     workspace.query = "Alice".into();
-    assert_eq!(workspace.rows(&roster, &preferences).len(), 1);
+    assert!(workspace.rows(&roster, &preferences).is_empty());
     assert_eq!(roster.shell_counts(), counts);
     assert_eq!(counts.waiting, 1);
     assert_eq!(counts.blocked, 1);
@@ -203,11 +203,10 @@ fn agents_filters_preserve_targets_expansion_and_saved_preferences() {
     workspace.expanded.insert("room".into());
     let mut preferences = OpsPreferences::default();
     let original = preferences.clone();
-    workspace.filter = AgentsFilter::NeedsYou;
     let rows = workspace.rows(&roster, &preferences);
-    assert_eq!(rows.len(), 3);
-    assert_eq!(rows[0].target, OpsTarget::Squad("room".into()));
-    assert_eq!(rows[0].count, Some(2));
+    assert_eq!(rows.len(), 4);
+    assert_eq!(rows[1].target, OpsTarget::Squad("room".into()));
+    assert_eq!(rows[1].count, Some(2));
     assert_eq!(
         workspace.selection_state(&roster, &rows),
         SelectionState::Visible
@@ -223,7 +222,7 @@ fn agents_filters_preserve_targets_expansion_and_saved_preferences() {
     assert_eq!(workspace.rows(&roster, &preferences).len(), 3);
     assert_eq!(workspace.expanded, BTreeSet::from(["room".into()]));
     assert_eq!(workspace.selected, Some(selected));
-    assert_eq!(AgentsFilter::All.next().next().next(), AgentsFilter::All);
+    assert_eq!(AgentsFilter::All.next().next(), AgentsFilter::All);
 }
 
 #[test]
@@ -234,9 +233,13 @@ fn search_reveals_matching_members_without_changing_expansion_or_group_count() {
         ..Default::default()
     };
     let rows = workspace.rows(&roster, &OpsPreferences::default());
-    assert_eq!(rows.len(), 3);
-    assert_eq!(rows[1].count, Some(2));
-    assert_eq!(rows[2].target, target(Some("room"), "one"));
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].count, Some(2));
+    assert_eq!(rows[1].target, target(Some("room"), "one"));
+    assert_eq!(
+        workspace.search_counts(&roster, &OpsPreferences::default()),
+        (1, 3)
+    );
     assert!(workspace.expanded.is_empty() && !workspace.pool_expanded);
     workspace.query.clear();
     assert_eq!(workspace.rows(&roster, &OpsPreferences::default()).len(), 2);
@@ -248,12 +251,36 @@ fn search_reveals_matching_members_without_changing_expansion_or_group_count() {
 }
 
 #[test]
-fn attention_filter_does_not_turn_incomplete_evidence_into_a_known_non_match() {
+fn search_counts_distinct_identities_and_keeps_only_matching_ancestors() {
     let mut roster = roster();
-    let workspace = OpsWorkspace {
-        filter: AgentsFilter::NeedsYou,
+    roster.squads.push(OpsSquad {
+        room_id: "second".into(),
+        ..roster.squads[0].clone()
+    });
+    let mut workspace = OpsWorkspace {
+        query: "Lead".into(),
         ..Default::default()
     };
+    let preferences = OpsPreferences::default();
+    let rows = workspace.rows(&roster, &preferences);
+    assert_eq!(rows.len(), 4);
+    assert!(
+        rows.iter()
+            .all(|row| row.title == "product" || row.title == "Lead")
+    );
+    assert_eq!(workspace.search_counts(&roster, &preferences), (1, 3));
+    workspace.query = "missing".into();
+    assert!(workspace.rows(&roster, &preferences).is_empty());
+    assert_eq!(workspace.search_counts(&roster, &preferences), (0, 3));
+    workspace.query = "Common pool".into();
+    assert_eq!(workspace.rows(&roster, &preferences).len(), 2);
+    assert_eq!(workspace.search_counts(&roster, &preferences), (1, 3));
+}
+
+#[test]
+fn all_filter_keeps_incomplete_observations_visible_without_claiming_counts() {
+    let mut roster = roster();
+    let workspace = OpsWorkspace::default();
     for observation in [
         OpsObservation::Partial,
         OpsObservation::Stale,
@@ -267,11 +294,9 @@ fn attention_filter_does_not_turn_incomplete_evidence_into_a_known_non_match() {
         assert_eq!(rows[1].observation, observation);
     }
     roster.squads[0].observation = OpsObservation::Complete;
-    assert!(
-        workspace
-            .rows(&roster, &OpsPreferences::default())
-            .is_empty()
-    );
+    let rows = workspace.rows(&roster, &OpsPreferences::default());
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[1].count, Some(2));
 }
 
 fn target(room: Option<&str>, member: &str) -> OpsTarget {
@@ -586,7 +611,7 @@ fn dense_roster_preserves_selected_target_across_reversal_and_search() {
     }
     workspace.query = "Member 020".into();
     let rows = workspace.rows(&roster, &preferences);
-    assert_eq!(rows.len(), 3); // Pool header, owning squad, exact member.
+    assert_eq!(rows.len(), 2); // Only the owning squad and exact member.
     assert_eq!(
         workspace.selection_state(&roster, &rows),
         SelectionState::Visible

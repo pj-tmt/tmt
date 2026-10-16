@@ -472,9 +472,12 @@ impl App {
                 self.workspace.selected = Some(OpsTarget::Squad(squad.room_id.clone()));
                 self.shell.tab = OpsTab::Agents;
             } else {
-                self.notice = Some(format!(
-                    "Scoped squad '{id}' is unavailable; choose a visible target explicitly."
-                ));
+                self.set_notice(
+                    Some(format!(
+                        "Scoped squad '{id}' is unavailable; choose a visible target explicitly."
+                    )),
+                    false,
+                );
             }
         }
         let rows = self.workspace_rows();
@@ -1192,7 +1195,7 @@ impl App {
                 )
             }
         };
-        self.notice = Some(message.clone());
+        self.set_notice(Some(message.clone()), false);
         if let Some(draft) = self
             .workspace_form
             .as_mut()

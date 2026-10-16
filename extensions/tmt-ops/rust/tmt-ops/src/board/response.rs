@@ -65,7 +65,7 @@ impl Attachment {
         match self {
             Self::Composer(effect) => effect,
             Self::Opened { effect, reason } => {
-                app.notice = Some(reason.into());
+                app.set_notice(Some(reason.into()), false);
                 effect
             }
             Self::Refused(reason) => app.say(reason),
@@ -173,7 +173,10 @@ impl super::app::App {
                 reader.frozen = Some(reply);
                 *reader.scroll.borrow_mut() = Default::default();
             } else {
-                self.notice = Some("Wait for the exact response source before selecting.".into());
+                self.set_notice(
+                    Some("Wait for the exact response source before selecting.".into()),
+                    false,
+                );
             }
             return Effect::None;
         }
@@ -195,7 +198,7 @@ impl super::app::App {
         if matches!(event, Event::Key(key) if key.code == KeyCode::Char('a') && key.modifiers.is_empty())
         {
             let Some(quote) = quote else {
-                self.notice = Some("Select a response range first.".into());
+                self.set_notice(Some("Select a response range first.".into()), false);
                 return Effect::None;
             };
             let attached = self.attach_response_quote(target, quote);

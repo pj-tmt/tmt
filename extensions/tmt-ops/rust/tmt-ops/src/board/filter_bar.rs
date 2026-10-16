@@ -1,13 +1,7 @@
 //! Shared list mode chips, idle search field.
 //! Hosts supply options and own selection, filtering and command admission.
 use crate::board::{app::App, chip_group};
-use ratatui::{
-    buffer::Buffer,
-    layout::Rect,
-    text::{Line, Span},
-};
-use tmt_cli_style::Role;
-use tmt_tui::components::strip;
+use ratatui::{buffer::Buffer, layout::Rect};
 
 pub(in crate::board) fn paint(
     buffer: &mut Buffer,
@@ -18,6 +12,13 @@ pub(in crate::board) fn paint(
     app: &App,
 ) -> Vec<chip_group::Hit> {
     let look = app.look();
+    let area = Rect {
+        height: area.height.min(1),
+        ..area
+    };
+    if area.is_empty() {
+        return Vec::new();
+    }
     let groups = [chip_group::ChipGroup {
         label: " ".into(),
         choices: options
@@ -38,7 +39,7 @@ pub(in crate::board) fn paint(
         .iter()
         .map(|(_, label)| unicode_width::UnicodeWidthStr::width(*label) + 3)
         .sum::<usize>();
-    let hits = chip_group::paint(
+    let mut hits = chip_group::paint(
         buffer,
         Rect {
             width: area.width.min(chips as u16),
@@ -53,35 +54,13 @@ pub(in crate::board) fn paint(
     let search_width = available.min(34);
     if search_width > 0 {
         let search = Rect::new(x, area.y, search_width, area.height.min(1));
-        strip::paint_left(
-            buffer,
-            search,
-            Line::from(vec![
-                Span::raw(" "),
-                Span::styled(
-                    "/ ",
-                    look.role(Role::Text)
-                        .add_modifier(ratatui::style::Modifier::BOLD),
-                ),
-                Span::styled(
-                    crate::board::view::fit(
-                        &if query.is_empty() {
-                            "Search".into()
-                        } else {
-                            crate::board::notes::sanitize(query)
-                        },
-                        usize::from(search_width.saturating_sub(3)),
-                    ),
-                    look.role(Role::Muted),
-                ),
-            ])
-            .style(tmt_cli_style::theme::screen::chip(
-                &look.theme,
-                tmt_cli_style::theme::screen::ChipKind::Secondary,
-                tmt_cli_style::theme::screen::ChipState::Idle,
-                look.depth,
-            )),
-        );
+        super::search_field::paint(buffer, search, query, app.searching, look);
+        if search.width >= 3 {
+            hits.push(chip_group::Hit {
+                area: search,
+                id: "search".into(),
+            });
+        }
     }
     hits
 }
@@ -103,7 +82,7 @@ mod tests {
                 let hits = paint(&mut buffer, area, &options, 1, "", &app);
                 for hit in hits {
                     assert_eq!(hit.area.intersection(area), hit.area);
-                    assert!(options.iter().any(|(id, _)| *id == hit.id));
+                    assert!(hit.id == "search" || options.iter().any(|(id, _)| *id == hit.id));
                 }
                 if width >= 60 {
                     let text: String = (area.x..area.right())

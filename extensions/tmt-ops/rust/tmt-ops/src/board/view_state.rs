@@ -95,7 +95,7 @@ impl Controls {
         use super::workspace::AgentsFilter;
         use crate::config::{OpsSort, OverviewDirection};
         json!({ "query": self.query,
-            "agentsFilter": match self.agents_filter { AgentsFilter::All => "all", AgentsFilter::NeedsYou => "needs-you", AgentsFilter::Pinned => "pinned" },
+            "agentsFilter": match self.agents_filter { AgentsFilter::All => "all", AgentsFilter::Pinned => "pinned" },
             "overviewView": match self.overview_view { super::overview::monitor::View::Squads => "squads", super::overview::monitor::View::Agents => "agents" },
             "sort": match self.order.agents { OpsSort::Name => "name", OpsSort::Attention => "attention", OpsSort::Members => "members" },
             "reversed": self.order.reversed,
@@ -105,14 +105,14 @@ impl Controls {
         use super::workspace::AgentsFilter;
         use crate::config::{OpsSort, OverviewColumn, OverviewDirection, OverviewSort};
         let query = value["query"].as_str()?;
-        if query.len() > 4096 || query.chars().any(char::is_control) {
+        if query.len() > super::search_field::MAX_BYTES || query.chars().any(char::is_control) {
             return None;
         }
         Some(Self {
             query: query.into(),
             agents_filter: match value["agentsFilter"].as_str()? {
                 "all" => AgentsFilter::All,
-                "needs-you" => AgentsFilter::NeedsYou,
+                "needs-you" => AgentsFilter::All,
                 "pinned" => AgentsFilter::Pinned,
                 _ => return None,
             },

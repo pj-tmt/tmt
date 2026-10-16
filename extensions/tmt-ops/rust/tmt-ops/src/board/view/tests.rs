@@ -259,11 +259,11 @@ fn a_due_reload_is_named_beside_the_open_prompt_and_only_then() {
     let mut app = workspace_board();
     let footer = |app: &App| draw(app, 100, 24).last().unwrap().trim_end().to_owned();
     app.searching = true;
-    assert_eq!(footer(&app), "/▏");
+    assert_eq!(footer(&app), "↑↓ move · ⏎ done · Esc clear");
     app.reload = crate::board::reload::Watch::due();
     assert_eq!(
         footer(&app),
-        "/▏  reload waiting",
+        "↑↓ move · ⏎ done · Esc clear  reload waiting",
         "a search being typed holds it back"
     );
     app.searching = false;
@@ -611,7 +611,7 @@ fn refresh_hint_and_help_render_exact_lowercase_ctrl_r() {
 }
 
 #[test]
-fn workspace_search_help_and_errors_use_the_footer_and_overlay() {
+fn workspace_search_stays_in_place_with_footer_hints_and_empty_result_authority() {
     let mut app = workspace_board();
     let selected = app.workspace.selected.clone();
     app.key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
@@ -622,19 +622,17 @@ fn workspace_search_help_and_errors_use_the_footer_and_overlay() {
     assert!(
         screen
             .iter()
-            .any(|line| line.contains("No matches in this view")),
+            .any(|line| line.contains("No matching agents")),
         "{screen:?}"
     );
-    assert!(screen.iter().any(|line| line.contains("Common pool")));
-    assert_eq!(screen[11], "/zz▏");
+    assert!(!screen.iter().any(|line| line.contains("Common pool")));
+    assert_eq!(screen[11], "↑↓ move · ⏎ done · Esc clear");
     assert_eq!(
         app.workspace.selected, selected,
         "filtering cannot replace identity"
     );
     assert!(
-        app.hits.borrow().iter().all(
-            |hit| !matches!(hit.target, crate::board::app::HitTarget::Row(index) if index > 0)
-        ),
+        app.hits.borrow().iter().all(|hit| hit.row().is_none()),
         "the empty message has no click target"
     );
     app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
@@ -1270,6 +1268,48 @@ fn supplied_digest_zero_held_and_mode_changes_replace_old_labels_and_keep_the_ch
                     }
                 }
             });
+        }
+    }
+}
+
+#[test]
+fn applied_search_and_footer_notices_fit_whole_effective_hints() {
+    use crate::board::shell::OpsTab;
+    for width in [103, 148] {
+        for tab in [OpsTab::Overview, OpsTab::Agents] {
+            let mut app = workspace_board();
+            app.shell.tab = tab;
+            app.search = "worker".into();
+            app.workspace_reconcile();
+            let screen = draw(&app, width, 51);
+            let footer = screen.last().unwrap();
+            assert!(
+                footer.contains("/ edit filter"),
+                "{tab:?}/{width}: {footer}"
+            );
+            assert!(
+                footer.contains("Esc clear filter"),
+                "{tab:?}/{width}: {footer}"
+            );
+        }
+        for tab in [OpsTab::Overview, OpsTab::Agents, OpsTab::Digest] {
+            let mut app = workspace_board();
+            app.shell.tab = tab;
+            app.finished(Err("Could not show worker".into()));
+            let screen = draw(&app, width, 51);
+            let footer = screen.last().unwrap();
+            assert!(
+                footer.contains("✗ Could not show worker"),
+                "{tab:?}/{width}: {footer}"
+            );
+            assert!(
+                footer.contains("? help") && footer.contains("q quit"),
+                "{tab:?}/{width}: {footer}"
+            );
+            assert!(
+                !footer.contains("/ se "),
+                "a notice must not bisect a fitted hint"
+            );
         }
     }
 }

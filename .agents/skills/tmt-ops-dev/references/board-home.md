@@ -36,21 +36,35 @@ Refresh, sorting, pinning and search preserve the anchor; a hidden or removed
 anchor disables actions rather than selecting its neighbour. A confirmed explicit
 Hide of the currently visible squad intentionally selects the next visible row;
 a failed save or unrelated preference change cannot transfer that authority. The session-local
-Agents filter selects All, Needs you or Pinned without saving
-preferences. All keeps Common pool first; Needs you retains qualifying groups and
-incomplete evidence; Pinned selects real pinned squads. Search keeps matching
+Agents filter selects All or Pinned without saving preferences. All keeps Common
+pool first; Pinned selects real pinned squads. Retained `needs-you` view state
+loads as All; an authored `agents-filter needs-you` binding gets a located
+retirement notice without rewriting its text or falling through to a default key.
+Waiting agents remain visible through their state marks. Search keeps matching
 ancestors and temporarily reveals matching children without changing saved
 expansion. Group totals remain unfiltered room totals. Empty filtered results are
 non-interactive; retained hidden targets grant no action authority.
 
+Overview and Agents share the always-visible search field after FilterBar chips.
+`/` edits the retained query; typing filters live, with bold-only matches. Up/Down
+move through filtered rows while typing; Enter keeps the filter and returns list
+keys; Escape clears from typing or applied state; empty Backspace ends typing.
+Counts belong to section rules, not FilterBar. Transient footer feedback keeps
+key hints and uses a right-hand neutral filled chip; only a failure mark is red.
+App owns its message and failure/expiry metadata; the existing UI loop expires it
+after four seconds, and the next key dismisses it. Notices resolve identity names
+from held observations, never perform acquisition or display raw UUIDs. Persistent
+migration and acquisition failures retain their existing footer priority.
+
 ## Shell, geometry and input
 
 `board::shell` owns Overview, Agents and Digest selection. Overview uses one
-switchable Squads/Agents list. The shared filter bar paints mode chips and an idle
-search field; section rules own right-aligned counts. `v` switches the view through
-the effective binding table; active searches show matching agents out of the
-admitted unsearched total on that rule. Explicit authored keys win. Search interaction belongs
-to its existing controller. The dedicated in-place search redesign is separate.
+switchable Squads/Agents list. The shared FilterBar paints mode chips and the
+in-place search field; section rules own right-aligned counts. `v` switches the
+view through the effective binding table; active searches show matching squads or
+agents out of that mode's admitted unsearched total. Agents counts deduplicate
+identities across memberships and include collapsed matching children. Explicit
+authored keys win; App retains the only search query and editing state.
 `overview::monitor` caches canonical rows and the scoped numeric summary; acquired
 roster, preferences, label and meter/job updates invalidate it. Waiting membership
 occurrences are admitted before UUID deduplication, so an unobserved or nonwaiting
@@ -191,7 +205,7 @@ without rewriting the authored file or redirecting to a different recipient.
 Before a snapshot arrives, the same Config-owned defaults drive the three shell
 tabs; no named-squad tab or old-key fallback is admitted. Text, search, completion, overlays and conversation take their keys before shell
 shortcuts. A composer with an in-pane key legend suppresses the base list
-legend; a draft-close notice keeps its footer priority until the next key. Tab moves between the tree and conversation; arrows expand/collapse
+legend; draft-close feedback uses the same transient Notice chip. Tab moves between the tree and conversation; arrows expand/collapse
 squads in the tree. Exact painted rectangles own pointer actions and are cleared
 on resize/model replacement and shell changes by `App::invalidate_frame_geometry`.
 Offsets and drafts survive; only repaint grants fresh pointer geometry. Single-line

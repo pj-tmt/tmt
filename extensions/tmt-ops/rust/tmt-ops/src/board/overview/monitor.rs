@@ -95,6 +95,7 @@ impl View {
 pub(in crate::board) struct Scene {
     pub rows: Rc<[OpsTreeRow]>,
     pub matching_agents: usize,
+    pub total_squads: usize,
     pub waiting: usize,
     pub summary: super::summary::Summary,
     pub squads: Vec<Squad>,
@@ -375,7 +376,17 @@ pub(in crate::board) fn scene(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<
     } else {
         agents
     };
+    let total_squads = snapshot
+        .roster
+        .squads
+        .iter()
+        .filter(|squad| {
+            key.visibility
+                .shows_squad(&squad.room_id, &snapshot.preferences)
+        })
+        .count();
     let scene = Rc::new(Scene {
+        total_squads,
         squads,
         matching_agents,
         waiting,

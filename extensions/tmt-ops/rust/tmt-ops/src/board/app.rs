@@ -686,6 +686,7 @@ pub struct App {
     /// Index among visible rows (headers excluded).
     pub selected: usize,
     pub notice: Option<String>,
+    pub(super) notice_clock: super::notice::Clock,
     pub(super) migration_notice: Option<String>,
     /// Why `tmt whoami` could not name this pane, when it failed outright.
     pub(super) caller_failure: Option<String>,
@@ -1384,7 +1385,7 @@ impl App {
             }
             self.current = shown;
             self.loading_since = None;
-            self.notice = None;
+            self.set_notice(None, false);
             self.error = Some(error.clone());
             self.project_usage(now);
             return;
@@ -1560,7 +1561,7 @@ impl App {
             .is_some_and(|overlay| overlay.settings.context != self.shown)
         {
             self.settings = None;
-            self.notice = Some("Shown tab changed; reopen settings.".into());
+            self.set_notice(Some("Shown tab changed; reopen settings.".into()), false);
         }
         self.settings_preview();
         self.clamp();
@@ -1927,8 +1928,47 @@ impl App {
         self.workspace_bindings()
     }
 
+    pub(in crate::board) fn set_notice(&mut self, notice: Option<String>, failed: bool) {
+        self.notice = notice.map(|text| {
+            super::notice::names(&text, |id| {
+                self.references
+                    .agents
+                    .get(id)
+                    .map(|agent| agent.name.clone())
+                    .or_else(|| {
+                        self.workspace_snapshot()?
+                            .roster
+                            .members
+                            .get(id)
+                            .map(|member| member.name.clone())
+                    })
+                    .or_else(|| {
+                        self.workspace_snapshot()?
+                            .roster
+                            .squads
+                            .iter()
+                            .find(|squad| squad.room_id == id)
+                            .map(|squad| squad.name.clone())
+                    })
+            })
+        });
+        if self.notice.is_some() {
+            self.notice_clock.start(Instant::now(), failed);
+        } else {
+            self.notice_clock.clear();
+        }
+    }
+    pub(in crate::board) fn expire_notice(&mut self, now: Instant) -> bool {
+        if self.notice_clock.expired(now) {
+            self.set_notice(None, false);
+            true
+        } else {
+            false
+        }
+    }
+
     pub(super) fn say(&mut self, notice: impl Into<String>) -> Effect {
-        self.notice = Some(notice.into());
+        self.set_notice(Some(notice.into()), false);
         Effect::None
     }
 
@@ -1967,7 +2007,8 @@ impl App {
             return self.say("Usage chart is hidden by the panel policy.");
         }
         if let Err(error) = crate::config::admit_workspace_action(action, "action") {
-            return self.say(error.message);
+            self.set_notice(Some(error.message), true);
+            return Effect::None;
         }
         if let Verb::Ui(action) = action.verb {
             return self.workspace_action(action);
@@ -2020,7 +2061,7 @@ impl App {
                 return Effect::None;
             }
             Verb::Refresh => {
-                self.notice = Some("Refreshing…".into());
+                self.set_notice(Some("Refreshing…".into()), false);
                 return Effect::Refresh;
             }
             Verb::Notes => return self.say("The old lead notebook pane is retired. The binding is preserved in Config for explicit migration; it does not change the selected agent."),
@@ -2701,8 +2742,11 @@ impl App {
                 .as_ref()
                 .is_some_and(|send| !send.valid(self, input))
         }) {
-            self.notice = Some(
-                "The composer target changed; close and reopen it before changing mode.".into(),
+            self.set_notice(
+                Some(
+                    "The composer target changed; close and reopen it before changing mode.".into(),
+                ),
+                false,
             );
             return;
         }
@@ -2819,6 +2863,14 @@ impl App {
             return self
                 .overlay_event(&Event::Paste(text.to_owned()))
                 .unwrap_or(Effect::None);
+        }
+        if self.searching && self.input.is_none() && !self.modal_open() {
+            if !super::search_field::paste(&mut self.search, text) {
+                return self.say("Search exceeds 4,096 bytes; query unchanged.");
+            }
+            self.clamp();
+            self.invalidate_frame_geometry();
+            return Effect::None;
         }
         if self
             .input
@@ -3089,7 +3141,8 @@ impl App {
     pub(super) fn finished_status(&mut self, outcome: crate::membership::status_update::Outcome) {
         if let Some(draft) = &mut self.status_draft {
             draft.finished(outcome);
-            self.notice = draft.error.clone();
+            let notice = draft.error.clone();
+            self.set_notice(notice, true);
         }
     }
     /// Shows the observed outcome without a second row-feedback cache.
@@ -3098,7 +3151,8 @@ impl App {
             self.panels_finished(outcome);
             return;
         }
-        self.notice = Some(outcome.unwrap_or_else(|error| error));
+        let failed = outcome.is_err();
+        self.set_notice(Some(outcome.unwrap_or_else(|error| error)), failed);
     }
 
     /// A click on an entry runs it, as Enter on that entry would; the wheel moves
@@ -3433,6 +3487,7 @@ impl App {
         if key.kind == ratatui::crossterm::event::KeyEventKind::Release {
             return Effect::None;
         }
+        self.set_notice(None, false);
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             return Effect::Quit;
         }
@@ -3521,7 +3576,7 @@ impl App {
         if let Some(effect) = self.overlay_event(&Event::Key(key)) {
             return effect;
         }
-        self.notice = None;
+        self.set_notice(None, false);
         // Refresh keeps text inputs intact and uses the same override owner
         // as ordinary keys; rebinding ctrl-r does not force a refresh.
         if event_name(key).as_deref() == Some("ctrl-r")
@@ -3552,25 +3607,17 @@ impl App {
         if self.menu.is_some() {
             return self.menu_key(key);
         }
-        if self.searching {
-            match key.code {
-                KeyCode::Char(character)
-                    if !character.is_control()
-                        && !key.modifiers.contains(KeyModifiers::CONTROL) =>
-                {
-                    self.search.push(character);
-                }
-                KeyCode::Backspace => {
-                    self.search.pop();
-                }
-                KeyCode::Enter => self.searching = false,
-                KeyCode::Esc => {
-                    self.search.clear();
-                    self.searching = false;
-                }
-                _ => {}
-            }
+        if let Some(input) = super::search_field::key(&mut self.search, &mut self.searching, key) {
             self.clamp();
+            match input {
+                super::search_field::Input::Previous => {
+                    self.workspace_select(self.selected.saturating_sub(1))
+                }
+                super::search_field::Input::Next => {
+                    self.workspace_select(self.selected.saturating_add(1))
+                }
+                super::search_field::Input::Changed => self.invalidate_frame_geometry(),
+            }
             return Effect::None;
         }
         if let Some(effect) = super::overview::chart::host::key(self, key) {
@@ -3950,7 +3997,7 @@ impl App {
                 // Scope controls and the savings figure work on every tab that paints them.
                 let visibility = matches!(choice, Choice::SavingsUnit | Choice::OverviewView(_))
                     || matches!(&choice, Choice::Action(action) if matches!(action.verb,
-                    Verb::Ui(crate::action::OpsUiAction::ClearScope | crate::action::OpsUiAction::RevealHidden)));
+                    Verb::Ui(crate::action::OpsUiAction::ClearScope | crate::action::OpsUiAction::RevealHidden | crate::action::OpsUiAction::Search)));
                 if !self.searching && (self.shell.tab == super::shell::OpsTab::Agents || visibility)
                 {
                     self.focus = 0;
@@ -3999,7 +4046,7 @@ impl App {
                 .find(|(area, _)| area.contains((event.column, event.row).into()))
                 .map(|(_, row)| *row);
             if let Some(row) = chip {
-                self.notice = None;
+                self.set_notice(None, false);
                 self.select(row);
                 return self.digest_row(row);
             }
@@ -4082,7 +4129,7 @@ impl App {
         else {
             return Effect::None;
         };
-        self.notice = None;
+        self.set_notice(None, false);
         let row = hit.row().unwrap();
         self.select(row);
         let double = self.last_click.is_some_and(|(previous, at)| {
@@ -4439,7 +4486,7 @@ pub(crate) mod tests {
         assert_eq!(app.notice.as_deref(), Some(prompt));
         assert!(app.input.is_none());
         // `whoami` failed outright: the host's own words and the way out.
-        app.notice = None;
+        app.set_notice(None, false);
         app.caller_failure = Some("Herdr reported an invalid pane.".into());
         app.perform(&talk());
         assert_eq!(
@@ -4450,7 +4497,7 @@ pub(crate) mod tests {
         );
         assert!(app.input.is_none());
         // A recorded sender needs no pane identity, so the failure is never shown.
-        app.notice = None;
+        app.set_notice(None, false);
         app.view.as_mut().unwrap().me = Some("Ben".into());
         app.view.as_mut().unwrap().me_id = Some("ben-id".into());
         app.perform(&talk());
@@ -5140,7 +5187,8 @@ mod token_window_tests {
             )
             .unwrap();
         let saved = Config::read(path.clone()).unwrap();
-        app.notice = Some(app.apply_token_window(&saved));
+        let notice = app.apply_token_window(&saved);
+        app.set_notice(Some(notice), false);
         std::fs::remove_dir_all(root).unwrap();
     }
 

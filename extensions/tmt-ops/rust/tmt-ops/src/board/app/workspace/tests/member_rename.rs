@@ -275,10 +275,16 @@ fn no_op_fault_and_uncertain_results_never_replay_and_escape_untrusted_text() {
         assert!(text.starts_with(label), "{text}");
         assert!(!text.contains('\u{1b}'));
         assert_eq!(app.workspace_confirm(), Effect::None);
-        let notice = app.notice.clone();
+        assert_eq!(
+            app.notice.as_deref(),
+            Some("This operation is already pending or finished; close and refresh.")
+        );
         key(&mut app, KeyCode::Esc);
         assert!(app.workspace_form.is_none());
-        assert_eq!(app.notice, notice);
+        assert!(
+            app.notice.is_none(),
+            "the next key dismisses transient footer feedback"
+        );
     }
 }
 

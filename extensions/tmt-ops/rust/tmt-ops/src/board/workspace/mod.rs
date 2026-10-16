@@ -142,15 +142,13 @@ pub struct OpsWorkspace {
 pub enum AgentsFilter {
     #[default]
     All,
-    NeedsYou,
     Pinned,
 }
 
 impl AgentsFilter {
     pub fn next(self) -> Self {
         match self {
-            Self::All => Self::NeedsYou,
-            Self::NeedsYou => Self::Pinned,
+            Self::All => Self::Pinned,
             Self::Pinned => Self::All,
         }
     }
@@ -158,7 +156,6 @@ impl AgentsFilter {
     pub fn label(self) -> &'static str {
         match self {
             Self::All => "All",
-            Self::NeedsYou => "Needs you",
             Self::Pinned => "Pinned",
         }
     }
@@ -434,22 +431,48 @@ impl OpsWorkspace {
     }
 
     pub fn rows(&self, roster: &OpsRoster, preferences: &OpsPreferences) -> Vec<OpsTreeRow> {
-        let query = self.query.to_lowercase();
+        self.project_rows(roster, preferences, &self.query, false)
+    }
+
+    /// Count identities, not their repeated memberships or collapsed rows.
+    pub fn search_counts(
+        &self,
+        roster: &OpsRoster,
+        preferences: &OpsPreferences,
+    ) -> (usize, usize) {
+        let count = |query: &str| {
+            self.project_rows(roster, preferences, query, true)
+                .into_iter()
+                .filter_map(|row| match row.target {
+                    OpsTarget::Member { identity_id, .. } => Some(identity_id),
+                    _ => None,
+                })
+                .collect::<BTreeSet<_>>()
+                .len()
+        };
+        (count(&self.query), count(""))
+    }
+
+    fn project_rows(
+        &self,
+        roster: &OpsRoster,
+        preferences: &OpsPreferences,
+        query: &str,
+        expand: bool,
+    ) -> Vec<OpsTreeRow> {
+        let query = query.to_lowercase();
         let matches = |name: &str| name.to_lowercase().contains(&query);
         let pool: Vec<_> = roster.pool().collect();
-        // All keeps the virtual pool first, including unknown/empty observations.
-        // Attention filtering retains incomplete evidence instead of proving no match.
+        // Keep an unfiltered unknown/empty pool, but search only shows matching
+        // identities and their containing group.
         let show_pool = self.visibility.scope.is_empty()
             && match self.filter {
                 AgentsFilter::All => true,
-                AgentsFilter::NeedsYou => {
-                    !roster.complete()
-                        || pool.iter().any(|member| {
-                            member.waiting || member.state.as_deref() == Some("blocked")
-                        })
-                }
                 AgentsFilter::Pinned => false,
-            };
+            }
+            && (query.is_empty()
+                || matches("Common pool")
+                || pool.iter().any(|member| matches(&member.name)));
         let mut rows = Vec::new();
         if show_pool {
             rows.push(OpsTreeRow {
@@ -470,10 +493,13 @@ impl OpsWorkspace {
                 },
             });
         }
-        if show_pool && (self.pool_expanded || !query.is_empty()) {
+        if show_pool && (expand || self.pool_expanded || !query.is_empty()) {
             let mut pool = pool;
             pool.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.id.cmp(&b.id)));
-            for member in pool.into_iter().filter(|member| matches(&member.name)) {
+            for member in pool
+                .into_iter()
+                .filter(|member| matches("Common pool") || matches(&member.name))
+            {
                 rows.push(member_row(member, None, false, roster.observation, None));
             }
         }
@@ -513,19 +539,11 @@ impl OpsWorkspace {
         for squad in squads {
             if match self.filter {
                 AgentsFilter::All => false,
-                AgentsFilter::NeedsYou => {
-                    squad.observation == OpsObservation::Complete && roster.attention(squad) == 0
-                }
                 AgentsFilter::Pinned => !preferences.pinned.contains(&squad.room_id),
             } {
                 continue;
             }
-            let squad_matches = matches(&squad.name)
-                || squad
-                    .lead
-                    .as_ref()
-                    .and_then(|id| roster.members.get(id))
-                    .is_some_and(|lead| matches(&lead.name));
+            let squad_matches = matches(&squad.name);
             let mut members: Vec<_> = roster.members(squad).collect();
             let mut seen = BTreeSet::new();
             members.retain(|member| seen.insert(&member.id));
@@ -554,7 +572,7 @@ impl OpsWorkspace {
                     .then(|| squad.members.iter().collect::<BTreeSet<_>>().len()),
                 observation: squad.observation,
             });
-            if self.expanded.contains(&squad.room_id) || !query.is_empty() {
+            if expand || self.expanded.contains(&squad.room_id) || !query.is_empty() {
                 let unknown = OpsMembershipState::default();
                 members.sort_by(|a, b| {
                     (squad.lead.as_deref() != Some(&a.id))
