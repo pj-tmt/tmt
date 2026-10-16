@@ -72,56 +72,40 @@ impl Launch {
     }
 }
 
-/// How the thread ended.
+/// How the thread ended, as far as `tmt run` needs to know: every other
+/// outcome is silent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Outcome {
-    /// The host confirmed the name.
-    Named,
-    /// The agent already has a name, the identity's or another: never replaced.
-    Kept,
-    /// The host never had an agent to name within the attempts.
-    NoAgent,
-    /// The driver no longer offers agent names.
-    NotLinked,
-    /// The launch no longer holds the binding, a process is gone or its
-    /// evidence is unknown, or the pane is not this binding's.
-    Ended,
-    /// `tmt run` asked the thread to stop.
-    Stopped,
-    /// A refusal, a failed or uncertain call, or a failed read.
-    Failed { cleanup_failed: bool },
+pub(super) struct Outcome {
+    pub cleanup_failed: bool,
 }
 
-impl Outcome {
-    pub(super) fn cleanup_failed(self) -> bool {
-        matches!(
-            self,
-            Self::Failed {
-                cleanup_failed: true
-            }
-        )
-    }
+const ENDED: Outcome = Outcome {
+    cleanup_failed: false,
+};
 
-    fn failed(error: &impl CallFailure) -> Self {
-        Self::Failed {
+/// A failed host or process call as the attempts classify it. A
+/// `HostError` itself carries a cleanup failure that only the adapters can
+/// build, so the effects classify it here and tests inject this.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct CallError {
+    pub refusal: AgentNameRefusal,
+    pub cleanup_failed: bool,
+}
+
+impl From<HostError> for CallError {
+    fn from(error: HostError) -> Self {
+        Self {
+            refusal: AgentNameRefusal::of(&error),
             cleanup_failed: error.cleanup_failed(),
         }
     }
 }
 
-/// What the attempts need to know about a failed host call.
-pub(super) trait CallFailure {
-    fn cleanup_failed(&self) -> bool;
-    fn refusal(&self) -> AgentNameRefusal;
-}
-
-impl CallFailure for HostError {
-    fn cleanup_failed(&self) -> bool {
-        HostError::cleanup_failed(self)
-    }
-
-    fn refusal(&self) -> AgentNameRefusal {
-        AgentNameRefusal::of(self)
+impl From<CallError> for Outcome {
+    fn from(error: CallError) -> Self {
+        Self {
+            cleanup_failed: error.cleanup_failed,
+        }
     }
 }
 
@@ -137,17 +121,16 @@ pub(super) enum Probe {
 
 /// The effects one attempt needs. Each call is bounded by its own deadline.
 pub(super) trait Ports {
-    type Error: CallFailure;
     /// The identity's stored binding entry, or `None` when it can't be read.
     fn entry(&mut self) -> Option<BindingEntry>;
     /// Whether `process` is alive as that exact incarnation; unknown is not.
-    fn alive(&mut self, process: &ProcessIncarnation) -> bool;
-    fn probe(&mut self, entry: &BindingEntry) -> Result<Probe, Self::Error>;
+    fn alive(&mut self, process: &ProcessIncarnation) -> Result<bool, CallError>;
+    fn probe(&mut self, entry: &BindingEntry) -> Result<Probe, CallError>;
     fn name_agent(
         &mut self,
         binding: &Binding,
         identity: &Identity,
-    ) -> Result<AgentNaming, Self::Error>;
+    ) -> Result<AgentNaming, CallError>;
 }
 
 /// The pause between attempts and the stop request.
@@ -157,59 +140,79 @@ pub(super) trait Pacing {
     fn stopped(&self) -> bool;
 }
 
-/// The attempts. A stop is checked after every blocking step and right
-/// before the set, so once it observes a stop it starts no new set; a set
-/// already started runs to its own deadline.
+/// The attempts. Once it observes a stop it starts no new step; a set
+/// already started runs to its own deadline. A cleanup failure is returned
+/// even when a stop came meanwhile, so `tmt run` can report it.
 pub(super) fn name_launched_agent(
     launch: &Launch,
     ports: &mut impl Ports,
     pacing: &impl Pacing,
     started: Instant,
 ) -> Outcome {
+    match attempts(launch, ports, pacing, started) {
+        Ok(()) => ENDED,
+        Err(outcome) => outcome,
+    }
+}
+
+/// `Err` ends the attempts with that outcome.
+fn attempts(
+    launch: &Launch,
+    ports: &mut impl Ports,
+    pacing: &impl Pacing,
+    started: Instant,
+) -> Result<(), Outcome> {
     for due in ATTEMPTS {
         if !pacing.until(started + due) {
-            return Outcome::Stopped;
+            return Err(ENDED);
         }
-        let entry = ports.entry();
-        if pacing.stopped() {
-            return Outcome::Stopped;
-        }
-        let Some(entry) = entry.filter(|entry| launch.holds(entry)) else {
-            return Outcome::Ended;
-        };
-        for process in [&launch.owner, &launch.child] {
-            let alive = ports.alive(process);
-            if pacing.stopped() {
-                return Outcome::Stopped;
-            }
-            if !alive {
-                return Outcome::Ended;
-            }
-        }
-        let probe = ports.probe(&entry);
-        if pacing.stopped() {
-            return Outcome::Stopped;
-        }
-        match probe {
-            Err(error) => return Outcome::failed(&error),
-            Ok(Probe::NotActive) => return Outcome::Ended,
+        let entry = held(launch, ports, pacing)?;
+        match ports.probe(&entry)? {
             // An agent with any name keeps it: only an explicit bind replaces one.
-            Ok(Probe::Active(Some(_))) => return Outcome::Kept,
-            Ok(Probe::Active(None)) => {}
+            Probe::Active(None) => {}
+            Probe::Active(Some(_)) | Probe::NotActive => return Err(ENDED),
         }
+        // The probe may have taken its whole deadline: check the exact launch
+        // again right before the set, and set the name stored now.
+        stopped(pacing)?;
+        let entry = held(launch, ports, pacing)?;
         let binding = entry.binding.as_ref().expect("a held entry has a binding");
         match ports.name_agent(binding, &entry.identity) {
-            Ok(AgentNaming::Done) => return Outcome::Named,
-            Ok(AgentNaming::NotLinked) => return Outcome::NotLinked,
-            Err(error) => match error.refusal() {
-                AgentNameRefusal::NoAgent | AgentNameRefusal::NotReady => {}
-                AgentNameRefusal::Refused | AgentNameRefusal::Uncertain => {
-                    return Outcome::failed(&error);
-                }
-            },
+            Err(error)
+                if !error.cleanup_failed
+                    && matches!(
+                        error.refusal,
+                        AgentNameRefusal::NoAgent | AgentNameRefusal::NotReady
+                    ) => {}
+            Err(error) => return Err(error.into()),
+            Ok(_) => return Err(ENDED),
         }
     }
-    Outcome::NoAgent
+    Ok(())
+}
+
+fn stopped(pacing: &impl Pacing) -> Result<(), Outcome> {
+    if pacing.stopped() { Err(ENDED) } else { Ok(()) }
+}
+
+/// The entry while this exact launch still holds its binding and both of
+/// its processes are alive, checking the stop after each read.
+fn held(
+    launch: &Launch,
+    ports: &mut impl Ports,
+    pacing: &impl Pacing,
+) -> Result<BindingEntry, Outcome> {
+    let entry = ports.entry();
+    stopped(pacing)?;
+    let entry = entry.filter(|entry| launch.holds(entry)).ok_or(ENDED)?;
+    for process in [&launch.owner, &launch.child] {
+        let alive = ports.alive(process)?;
+        stopped(pacing)?;
+        if !alive {
+            return Err(ENDED);
+        }
+    }
+    Ok(entry)
 }
 
 /// The real effects: a fresh storage read and a fresh host for each call, so
@@ -220,8 +223,6 @@ pub(super) struct Effects {
 }
 
 impl Ports for Effects {
-    type Error = HostError;
-
     fn entry(&mut self) -> Option<BindingEntry> {
         let now = tmt_adapters::request_runtime::wall_time_ms();
         Storage::context_by_identity(&self.database, &self.identity_id, now)
@@ -230,12 +231,17 @@ impl Ports for Effects {
             .map(|context| context.entry)
     }
 
-    fn alive(&mut self, process: &ProcessIncarnation) -> bool {
-        observe_runtime_process(&UnixCommandRunner, process.pid(), Instant::now() + STEP)
-            .is_ok_and(|observation| observation.matches(process) == RuntimeLiveness::Alive)
+    fn alive(&mut self, process: &ProcessIncarnation) -> Result<bool, CallError> {
+        match observe_runtime_process(&UnixCommandRunner, process.pid(), Instant::now() + STEP) {
+            Ok(observation) => Ok(observation.matches(process) == RuntimeLiveness::Alive),
+            Err(error) => Err(CallError {
+                refusal: AgentNameRefusal::Uncertain,
+                cleanup_failed: error.cleanup_failed(),
+            }),
+        }
     }
 
-    fn probe(&mut self, entry: &BindingEntry) -> Result<Probe, HostError> {
+    fn probe(&mut self, entry: &BindingEntry) -> Result<Probe, CallError> {
         let binding = entry.binding.as_ref().expect("a held entry has a binding");
         // `UnixCommandRunner` gives each driver process its own group. Never
         // `SupervisedProbeRunner` here: it kills its caller's own group, and
@@ -256,8 +262,12 @@ impl Ports for Effects {
         &mut self,
         binding: &Binding,
         identity: &Identity,
-    ) -> Result<AgentNaming, HostError> {
-        Host::for_server(&binding.server).name_agent(binding, identity, Some(Instant::now() + STEP))
+    ) -> Result<AgentNaming, CallError> {
+        Ok(Host::for_server(&binding.server).name_agent(
+            binding,
+            identity,
+            Some(Instant::now() + STEP),
+        )?)
     }
 }
 
@@ -365,9 +375,14 @@ impl Naming {
     /// outcome comes only from a thread that ended; when the bound runs out
     /// the thread is left to finish on its own (detached) and its outcome,
     /// cleanup failure included, is lost. A panic gives `None`.
+    /// Asks the thread to stop; it starts no new step after it sees this.
+    pub(super) fn request_stop(&self) {
+        self.stop.request();
+    }
+
     pub(super) fn finish(mut self, within: Duration) -> Option<Outcome> {
         let deadline = Instant::now() + within;
-        self.stop.request();
+        self.request_stop();
         let outcome = match self.done.recv_timeout(within) {
             Ok(outcome) => Some(outcome),
             Err(RecvTimeoutError::Timeout) => return None,
@@ -387,7 +402,7 @@ impl Naming {
 
 impl Drop for Naming {
     fn drop(&mut self) {
-        self.stop.request();
+        self.request_stop();
     }
 }
 

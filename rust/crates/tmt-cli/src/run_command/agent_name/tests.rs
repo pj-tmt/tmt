@@ -21,7 +21,7 @@ fn launch() -> Launch {
 }
 
 /// The entry this launch holds: its binding, its owner and child, running.
-fn held(name: &str) -> BindingEntry {
+fn held_by_launch(name: &str) -> BindingEntry {
     BindingEntry {
         identity: Identity {
             id: "identity".into(),
@@ -57,39 +57,72 @@ fn held(name: &str) -> BindingEntry {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-struct Failure {
-    refusal: AgentNameRefusal,
-    cleanup_failed: bool,
+/// What the store holds now. Tests change it in the middle of a step to
+/// stand for a concurrent command.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Stored {
+    Held,
+    Renamed,
+    SecondRun,
+    Unbound,
 }
 
-impl CallFailure for Failure {
-    fn cleanup_failed(&self) -> bool {
-        self.cleanup_failed
-    }
-
-    fn refusal(&self) -> AgentNameRefusal {
-        self.refusal
+impl Stored {
+    fn entry(self) -> BindingEntry {
+        let mut entry = held_by_launch(if self == Self::Renamed {
+            "other"
+        } else {
+            "worker"
+        });
+        match self {
+            Self::Held | Self::Renamed => {}
+            Self::SecondRun => {
+                let session = &mut entry.binding.as_mut().unwrap().session;
+                session.launch_owner = Some(incarnation(300));
+                session.key.as_mut().unwrap().incarnation = incarnation(400);
+            }
+            Self::Unbound => entry.binding = None,
+        }
+        entry
     }
 }
 
-fn refused(refusal: AgentNameRefusal) -> Result<AgentNaming, Failure> {
-    Err(Failure {
+fn error(refusal: AgentNameRefusal, cleanup_failed: bool) -> CallError {
+    CallError {
         refusal,
-        cleanup_failed: false,
-    })
+        cleanup_failed,
+    }
 }
 
-type Step<T> = Box<dyn FnMut(&Calls) -> T + Send>;
-type Alive = Box<dyn FnMut(&Calls, &ProcessIncarnation) -> bool + Send>;
+/// The calls the fake received, shared with a thread that owns the fake.
+#[derive(Clone, Default)]
+struct Calls(Arc<Mutex<Vec<String>>>);
 
-/// The effects one test scripts, and the calls they received in order.
+impl Calls {
+    fn list(&self) -> Vec<String> {
+        self.0.lock().unwrap().clone()
+    }
+
+    fn sets(&self) -> Vec<String> {
+        let mut sets = self.list();
+        sets.retain(|call| call.starts_with("set "));
+        sets
+    }
+}
+
+type Hook = Box<dyn FnMut(&str) + Send>;
+
+/// Scripted effects. `stored` is what `entry` reads; `hook` runs inside
+/// each call, by name, before it answers, so a test can change the store,
+/// raise a stop or block there.
 struct Fake {
     calls: Calls,
-    entry: Step<Option<BindingEntry>>,
-    alive: Alive,
-    probe: Step<Result<Probe, Failure>>,
-    set: Step<Result<AgentNaming, Failure>>,
+    stored: Arc<Mutex<Stored>>,
+    dead: Option<u64>,
+    alive_error: Option<CallError>,
+    probe: Result<Probe, CallError>,
+    answers: Vec<Result<AgentNaming, CallError>>,
+    hook: Hook,
     ended: Ended,
 }
 
@@ -103,67 +136,61 @@ impl Drop for Ended {
     }
 }
 
-#[derive(Clone, Default)]
-struct Calls(Arc<Mutex<Vec<String>>>);
-
-impl Calls {
-    fn push(&self, call: impl Into<String>) {
-        self.0.lock().unwrap().push(call.into());
-    }
-
-    fn list(&self) -> Vec<String> {
-        self.0.lock().unwrap().clone()
-    }
-
-    fn sets(&self) -> Vec<String> {
-        self.list()
-            .into_iter()
-            .filter(|call| call.starts_with("set "))
-            .collect()
-    }
-}
-
 impl Default for Fake {
     /// A held binding, both processes alive, an agent without a name, and a
     /// host that confirms the name.
     fn default() -> Self {
         Self {
             calls: Calls::default(),
-            entry: Box::new(|_| Some(held("worker"))),
-            alive: Box::new(|_, _| true),
-            probe: Box::new(|_| Ok(Probe::Active(None))),
-            set: Box::new(|_| Ok(AgentNaming::Done)),
+            stored: Arc::new(Mutex::new(Stored::Held)),
+            dead: None,
+            alive_error: None,
+            probe: Ok(Probe::Active(None)),
+            answers: Vec::new(),
+            hook: Box::new(|_| {}),
             ended: Ended::default(),
         }
     }
 }
 
+impl Fake {
+    fn call(&mut self, call: String) {
+        self.calls.0.lock().unwrap().push(call.clone());
+        (self.hook)(&call);
+    }
+}
+
 impl Ports for Fake {
-    type Error = Failure;
-
     fn entry(&mut self) -> Option<BindingEntry> {
-        self.calls.push("entry");
-        (self.entry)(&self.calls)
+        self.call("entry".into());
+        Some(self.stored.lock().unwrap().entry())
     }
 
-    fn alive(&mut self, process: &ProcessIncarnation) -> bool {
-        self.calls.push(format!("alive {}", process.pid()));
-        (self.alive)(&self.calls, process)
+    fn alive(&mut self, process: &ProcessIncarnation) -> Result<bool, CallError> {
+        self.call(format!("alive {}", process.pid()));
+        match self.alive_error {
+            Some(error) => Err(error),
+            None => Ok(self.dead != Some(process.pid())),
+        }
     }
 
-    fn probe(&mut self, _: &BindingEntry) -> Result<Probe, Failure> {
-        self.calls.push("probe");
-        (self.probe)(&self.calls)
+    fn probe(&mut self, _: &BindingEntry) -> Result<Probe, CallError> {
+        self.call("probe".into());
+        self.probe.clone()
     }
 
     fn name_agent(
         &mut self,
         binding: &Binding,
         identity: &Identity,
-    ) -> Result<AgentNaming, Failure> {
+    ) -> Result<AgentNaming, CallError> {
         assert_eq!(binding.id, "binding");
-        self.calls.push(format!("set {}", identity.name));
-        (self.set)(&self.calls)
+        self.call(format!("set {}", identity.name));
+        if self.answers.is_empty() {
+            Ok(AgentNaming::Done)
+        } else {
+            self.answers.remove(0)
+        }
     }
 }
 
@@ -185,99 +212,77 @@ impl Pacing for Clock {
     }
 }
 
-fn run(fake: &mut Fake) -> (Outcome, Vec<Duration>) {
-    let clock = Clock::default();
-    let started = Instant::now();
-    let outcome = name_launched_agent(&launch(), fake, &clock, started);
-    let waits = clock
-        .waits
-        .into_inner()
-        .unwrap()
-        .into_iter()
-        .map(|at| at - started)
-        .collect();
-    (outcome, waits)
+/// Runs the attempts on `fake` with a clock that never sleeps.
+fn run(fake: &mut Fake, clock: &Clock) -> Outcome {
+    name_launched_agent(&launch(), fake, clock, Instant::now())
 }
 
-/// Waits, with a bound, until `ended` is set.
-fn wait_for(ended: &AtomicBool) {
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while !ended.load(Ordering::SeqCst) {
-        assert!(Instant::now() < deadline, "the thread ends");
-        std::thread::sleep(Duration::from_millis(5));
-    }
-}
+/// One full attempt that ends in a set.
+const ATTEMPT: [&str; 8] = [
+    "entry",
+    "alive 100",
+    "alive 200",
+    "probe",
+    "entry",
+    "alive 100",
+    "alive 200",
+    "set worker",
+];
 
 /// The attempts follow the schedule and stop after the fifth, so a host
 /// that never has an agent gets exactly five calls.
 #[test]
 fn a_host_without_an_agent_gets_five_attempts_on_schedule() {
     let mut fake = Fake {
-        set: Box::new(|_| refused(AgentNameRefusal::NoAgent)),
+        answers: vec![Err(error(AgentNameRefusal::NoAgent, false)); 5],
         ..Fake::default()
     };
-    let (outcome, waits) = run(&mut fake);
-    assert_eq!(outcome, Outcome::NoAgent);
+    let clock = Clock::default();
+    let started = Instant::now();
+    let outcome = name_launched_agent(&launch(), &mut fake, &clock, started);
+    assert!(!outcome.cleanup_failed);
+    let waits: Vec<_> = clock
+        .waits
+        .into_inner()
+        .unwrap()
+        .into_iter()
+        .map(|at| at - started)
+        .collect();
     assert_eq!(waits, ATTEMPTS);
-    assert_eq!(fake.calls.sets(), vec!["set worker"; 5]);
+    assert_eq!(fake.calls.list(), ATTEMPT.repeat(5));
 }
 
-/// Only "no agent yet" and "not ready" lead to another attempt; the first
-/// attempt the host confirms is the last.
+/// Only "no agent yet" and "not ready" lead to another attempt; any other
+/// answer is the last. Only a cleanup failure is reported.
 #[test]
 fn only_no_agent_and_not_ready_try_again() {
-    let mut answers = vec![
-        refused(AgentNameRefusal::NotReady),
-        refused(AgentNameRefusal::NoAgent),
-        Ok(AgentNaming::Done),
-    ]
-    .into_iter();
-    let mut fake = Fake {
-        set: Box::new(move |_| answers.next().unwrap()),
-        ..Fake::default()
-    };
-    assert_eq!(run(&mut fake).0, Outcome::Named);
-    assert_eq!(fake.calls.sets().len(), 3);
-
-    for (answer, outcome) in [
-        (Ok(AgentNaming::NotLinked), Outcome::NotLinked),
+    use AgentNameRefusal::*;
+    for (answers, sets, cleanup_failed) in [
         (
-            refused(AgentNameRefusal::Refused),
-            Outcome::Failed {
-                cleanup_failed: false,
-            },
+            vec![
+                Err(error(NotReady, false)),
+                Err(error(NoAgent, false)),
+                Ok(AgentNaming::Done),
+            ],
+            3,
+            false,
         ),
+        (vec![Ok(AgentNaming::NotLinked)], 1, false),
+        (vec![Err(error(Refused, false))], 1, false),
         // A failed or timed-out call, or an output limit: the name may be set.
-        (
-            refused(AgentNameRefusal::Uncertain),
-            Outcome::Failed {
-                cleanup_failed: false,
-            },
-        ),
-        (
-            Err(Failure {
-                refusal: AgentNameRefusal::Uncertain,
-                cleanup_failed: true,
-            }),
-            Outcome::Failed {
-                cleanup_failed: true,
-            },
-        ),
+        (vec![Err(error(Uncertain, false))], 1, false),
+        (vec![Err(error(Uncertain, true))], 1, true),
+        // A cleanup failure ends the attempts whatever the host said.
+        (vec![Err(error(NoAgent, true))], 1, true),
     ] {
         let mut fake = Fake {
-            set: Box::new(move |_| answer),
+            answers,
             ..Fake::default()
         };
-        assert_eq!(run(&mut fake).0, outcome);
-        assert_eq!(fake.calls.sets().len(), 1, "{outcome:?}");
+        let outcome = run(&mut fake, &Clock::default());
+        assert_eq!(outcome.cleanup_failed, cleanup_failed, "{sets}");
+        assert_eq!(fake.calls.sets().len(), sets, "{cleanup_failed}");
     }
-    assert!(
-        Outcome::Failed {
-            cleanup_failed: true
-        }
-        .cleanup_failed()
-    );
-    assert!(!Outcome::Named.cleanup_failed());
 }
 
 /// Each attempt checks that this exact launch still holds the binding and
@@ -299,282 +304,240 @@ fn a_launch_that_no_longer_holds_its_binding_is_never_named() {
         |entry| entry.binding.as_mut().unwrap().session.state = RuntimeState::Ended,
     ];
     for (case, change) in changed.into_iter().enumerate() {
-        let mut fake = Fake {
-            entry: Box::new(move |_| {
-                let mut entry = held("worker");
-                change(&mut entry);
-                Some(entry)
-            }),
-            ..Fake::default()
-        };
-        assert_eq!(run(&mut fake).0, Outcome::Ended, "case {case}");
-        assert_eq!(fake.calls.list(), ["entry"], "case {case}");
+        let mut entry = held_by_launch("worker");
+        change(&mut entry);
+        assert!(!launch().holds(&entry), "case {case}");
     }
+    assert!(launch().holds(&held_by_launch("worker")));
 
-    // Storage that can't be read is not a held binding.
-    let mut fake = Fake {
-        entry: Box::new(|_| None),
-        ..Fake::default()
-    };
-    assert_eq!(run(&mut fake).0, Outcome::Ended);
-    assert_eq!(fake.calls.list(), ["entry"]);
-
-    // A dead owner or child, or one whose evidence is unknown.
-    for gone in [100, 200] {
+    // The store as the attempts read it, and a dead or unknown process.
+    for (stored, dead, calls) in [
+        (Stored::SecondRun, None, &ATTEMPT[..1]),
+        (Stored::Unbound, None, &ATTEMPT[..1]),
+        (Stored::Held, Some(100), &ATTEMPT[..2]),
+        (Stored::Held, Some(200), &ATTEMPT[..3]),
+    ] {
         let mut fake = Fake {
-            alive: Box::new(move |_, process| process.pid() != gone),
+            stored: Arc::new(Mutex::new(stored)),
+            dead,
             ..Fake::default()
         };
-        assert_eq!(run(&mut fake).0, Outcome::Ended, "{gone}");
-        assert!(fake.calls.sets().is_empty(), "{gone}");
-        assert!(!fake.calls.list().contains(&"probe".to_owned()), "{gone}");
+        assert!(!run(&mut fake, &Clock::default()).cleanup_failed);
+        assert_eq!(fake.calls.list(), calls, "{stored:?} {dead:?}");
     }
 }
 
 /// An agent that already has a name keeps it, the identity's or another:
 /// the automatic naming never replaces a name. A pane that is not this
-/// binding's ends it, and a failed probe asks nothing more.
+/// binding's ends it. Failed process or host evidence asks nothing more.
 #[test]
-fn an_agent_with_any_name_or_an_unbound_pane_is_left_alone() {
-    for (probe, outcome) in [
-        (Ok(Probe::Active(Some("worker".into()))), Outcome::Kept),
-        (Ok(Probe::Active(Some("ann".into()))), Outcome::Kept),
-        (Ok(Probe::NotActive), Outcome::Ended),
-        (
-            Err(Failure {
-                refusal: AgentNameRefusal::Uncertain,
-                cleanup_failed: true,
-            }),
-            Outcome::Failed {
-                cleanup_failed: true,
-            },
-        ),
+fn a_named_agent_an_unbound_pane_or_failed_evidence_ends_the_naming() {
+    for (probe, cleanup_failed) in [
+        (Ok(Probe::Active(Some("worker".into()))), false),
+        (Ok(Probe::Active(Some("ann".into()))), false),
+        (Ok(Probe::NotActive), false),
+        (Err(error(AgentNameRefusal::Uncertain, false)), false),
+        (Err(error(AgentNameRefusal::Uncertain, true)), true),
     ] {
         let mut fake = Fake {
-            probe: Box::new(move |_| probe.clone()),
+            probe: probe.clone(),
             ..Fake::default()
         };
-        assert_eq!(run(&mut fake).0, outcome);
-        assert!(fake.calls.sets().is_empty(), "{outcome:?}");
+        let outcome = run(&mut fake, &Clock::default());
+        assert_eq!(outcome.cleanup_failed, cleanup_failed, "{probe:?}");
+        assert_eq!(fake.calls.list(), &ATTEMPT[..4], "{probe:?}");
     }
+    let mut fake = Fake {
+        alive_error: Some(error(AgentNameRefusal::Uncertain, true)),
+        ..Fake::default()
+    };
+    assert!(run(&mut fake, &Clock::default()).cleanup_failed);
+    assert_eq!(fake.calls.list(), &ATTEMPT[..2]);
 }
 
-/// A stop observed after any blocking step, or right before the set,
-/// starts no set.
+/// A stop observed after any step starts no further step and no set. A
+/// cleanup failure of the probe that ran when the stop came is still
+/// reported.
 #[test]
-fn a_stop_after_any_step_starts_no_set() {
-    for step in ["entry", "alive 100", "alive 200", "probe"] {
+fn a_stop_after_any_step_starts_no_further_step() {
+    let mut cases: Vec<(usize, bool)> = (0..7).map(|at| (at, false)).collect();
+    cases.push((3, true));
+    for (at, probe_cleanup_failed) in cases {
         let clock = Clock::default();
         let stop = clock.stop.clone();
-        let raise = move |calls: &Calls| {
-            if calls.list().last().map(String::as_str) == Some(step) {
+        let mut fake = Fake::default();
+        if probe_cleanup_failed {
+            fake.probe = Err(error(AgentNameRefusal::Uncertain, true));
+        }
+        let seen = fake.calls.clone();
+        fake.hook = Box::new(move |_| {
+            if seen.list().len() == at + 1 {
                 stop.store(true, Ordering::SeqCst);
             }
-        };
-        let (on_entry, on_alive, on_probe) = (raise.clone(), raise.clone(), raise);
-        let mut fake = Fake {
-            entry: Box::new(move |calls| {
-                on_entry(calls);
-                Some(held("worker"))
-            }),
-            alive: Box::new(move |calls, _| {
-                on_alive(calls);
-                true
-            }),
-            probe: Box::new(move |calls| {
-                on_probe(calls);
-                Ok(Probe::Active(None))
-            }),
-            ..Fake::default()
-        };
-        let outcome = name_launched_agent(&launch(), &mut fake, &clock, Instant::now());
-        assert_eq!(outcome, Outcome::Stopped, "{step}");
-        assert!(fake.calls.sets().is_empty(), "{step}");
-        assert_eq!(fake.calls.list().last().unwrap(), step);
+        });
+        let outcome = run(&mut fake, &clock);
+        assert_eq!(fake.calls.list(), &ATTEMPT[..=at], "{at}");
+        assert_eq!(outcome.cleanup_failed, probe_cleanup_failed, "{at}");
     }
 
     // A stop before the first attempt asks nothing at all.
     let clock = Clock::default();
     clock.stop.store(true, Ordering::SeqCst);
     let mut fake = Fake::default();
-    let outcome = name_launched_agent(&launch(), &mut fake, &clock, Instant::now());
-    assert_eq!(outcome, Outcome::Stopped);
+    assert!(!run(&mut fake, &clock).cleanup_failed);
     assert!(fake.calls.list().is_empty());
 }
 
-/// A second `tmt run` takes the binding while the first run's set is in
-/// flight: the first run's next attempt sees another owner and child, and
-/// asks the host nothing more.
+/// A concurrent command that commits while the probe or the set runs. The
+/// launch key is read again after the probe, so a second run or an unbind
+/// during the probe gets no set, and a rename during the probe sets the
+/// name stored now. A change during a set is read at the next attempt: a
+/// second run or an unbind ends the naming without a clear, and a rename is
+/// carried by the next set; there is no corrective call.
 #[test]
-fn a_second_run_ends_the_first_runs_naming() {
-    let taken = Arc::new(AtomicBool::new(false));
-    let read = taken.clone();
-    let mut fake = Fake {
-        entry: Box::new(move |_| {
-            let mut entry = held("worker");
-            if read.load(Ordering::SeqCst) {
-                let session = &mut entry.binding.as_mut().unwrap().session;
-                session.launch_owner = Some(incarnation(300));
-                session.key.as_mut().unwrap().incarnation = incarnation(400);
+fn a_command_that_commits_during_a_probe_or_a_set_is_seen_at_the_next_read() {
+    for (during, change, sets) in [
+        ("probe", Stored::SecondRun, vec![]),
+        ("probe", Stored::Unbound, vec![]),
+        // Still held: each "not ready" set carries the name stored now.
+        ("probe", Stored::Renamed, vec!["set other"; 5]),
+        ("set worker", Stored::SecondRun, vec!["set worker"]),
+        ("set worker", Stored::Unbound, vec!["set worker"]),
+        // Still held: the later attempts carry the new name.
+        (
+            "set worker",
+            Stored::Renamed,
+            vec![
+                "set worker",
+                "set other",
+                "set other",
+                "set other",
+                "set other",
+            ],
+        ),
+    ] {
+        let mut fake = Fake {
+            // "Not ready", so only a change in the store ends the attempts.
+            answers: vec![Err(error(AgentNameRefusal::NotReady, false)); 5],
+            ..Fake::default()
+        };
+        let stored = fake.stored.clone();
+        let mut done = false;
+        fake.hook = Box::new(move |call| {
+            if call == during && !done {
+                *stored.lock().unwrap() = change;
+                done = true;
             }
-            Some(entry)
-        }),
-        set: Box::new(move |_| {
-            // The second run commits while this call is in flight.
-            taken.store(true, Ordering::SeqCst);
-            refused(AgentNameRefusal::NotReady)
-        }),
-        ..Fake::default()
-    };
-    assert_eq!(run(&mut fake).0, Outcome::Ended);
-    assert_eq!(fake.calls.sets(), ["set worker"]);
-    assert_eq!(fake.calls.list().last().unwrap(), "entry");
-}
-
-/// An unbind while the set is in flight: the next attempt sees no binding
-/// and stops. The thread never takes a name away, so the name the set may
-/// have given stays: the documented best-effort result.
-#[test]
-fn an_unbind_during_a_set_ends_the_naming_without_a_clear() {
-    let unbound = Arc::new(AtomicBool::new(false));
-    let read = unbound.clone();
-    let mut fake = Fake {
-        entry: Box::new(move |_| {
-            let mut entry = held("worker");
-            if read.load(Ordering::SeqCst) {
-                entry.binding = None;
-            }
-            Some(entry)
-        }),
-        set: Box::new(move |_| {
-            unbound.store(true, Ordering::SeqCst);
-            refused(AgentNameRefusal::NoAgent)
-        }),
-        ..Fake::default()
-    };
-    assert_eq!(run(&mut fake).0, Outcome::Ended);
-    assert_eq!(fake.calls.sets(), ["set worker"]);
-}
-
-/// A `tmt mv` while the set is in flight: the set carries the name read
-/// before it and is the only one; there is no corrective call. The rename's
-/// own call decides the final name (best effort, documented).
-#[test]
-fn a_rename_during_a_set_gets_no_corrective_call() {
-    let renamed = Arc::new(AtomicBool::new(false));
-    let read = renamed.clone();
-    let mut fake = Fake {
-        entry: Box::new(move |_| {
-            Some(held(if read.load(Ordering::SeqCst) {
-                "other"
-            } else {
-                "worker"
-            }))
-        }),
-        set: Box::new(move |_| {
-            renamed.store(true, Ordering::SeqCst);
-            Ok(AgentNaming::Done)
-        }),
-        ..Fake::default()
-    };
-    assert_eq!(run(&mut fake).0, Outcome::Named);
-    assert_eq!(fake.calls.sets(), ["set worker"]);
+        });
+        let outcome = run(&mut fake, &Clock::default());
+        assert!(!outcome.cleanup_failed);
+        assert_eq!(fake.calls.sets(), sets, "{during} {change:?}");
+    }
 }
 
 fn spawn(work: Work) -> io::Result<JoinHandle<()>> {
     std::thread::Builder::new().spawn(work)
 }
 
-/// `finish` stops a waiting thread at once and returns the outcome of a
-/// thread that ended.
-#[test]
-fn finish_stops_a_waiting_thread_and_returns_its_outcome() {
-    let fake = Fake::default();
-    let ended = fake.ended.0.clone();
-    let naming = Naming::start_with(launch(), fake, spawn).expect("a thread");
-    assert_eq!(naming.finish(FINISH_WITHIN), Some(Outcome::Stopped));
-    assert!(ended.load(Ordering::SeqCst));
-}
-
-/// Dropping the handle, as every early return of `tmt run` does, stops the
-/// thread too.
-#[test]
-fn dropping_the_handle_stops_the_thread() {
-    let fake = Fake::default();
-    let ended = fake.ended.0.clone();
-    drop(Naming::start_with(launch(), fake, spawn).expect("a thread"));
-    wait_for(&ended);
-}
-
-/// A thread blocked in a step past the bound is left to finish on its own:
-/// `finish` returns without an outcome, so a cleanup failure it might
-/// report later is lost.
-#[test]
-fn a_thread_blocked_past_the_bound_is_detached() {
+/// A probe that blocks in the thread until the test releases it, then
+/// answers `probe`, or panics when `probe` is `None`.
+fn blocked_probe(
+    probe: Option<Result<Probe, CallError>>,
+) -> (Fake, mpsc::Receiver<()>, mpsc::Sender<()>) {
     let (entered, inside) = mpsc::channel();
     let (release, released) = mpsc::channel::<()>();
     let released = Mutex::new(released);
     let fake = Fake {
-        entry: Box::new(move |_| {
-            entered.send(()).unwrap();
-            // A storage read that does not return until the test says so.
-            let _ = released.lock().unwrap().recv();
-            Some(held("worker"))
-        }),
-        set: Box::new(|_| {
-            Err(Failure {
-                refusal: AgentNameRefusal::Uncertain,
-                cleanup_failed: true,
-            })
+        probe: probe.clone().unwrap_or(Ok(Probe::Active(None))),
+        hook: Box::new(move |call| {
+            if call == "probe" {
+                entered.send(()).unwrap();
+                let _ = released.lock().unwrap().recv();
+                assert!(probe.is_some(), "a broken probe");
+            }
         }),
         ..Fake::default()
     };
+    (fake, inside, release)
+}
+
+/// Waits, with a bound, until `ended` is set.
+fn wait_for(ended: &AtomicBool) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !ended.load(Ordering::SeqCst) {
+        assert!(Instant::now() < deadline, "the thread ends");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+/// `finish` stops the thread and returns the outcome only of a thread that
+/// ended: a waiting thread stops at once; a stop that comes during a probe
+/// that then fails to clean up still reports it; a panic gives none; a
+/// thread past the bound is detached without an outcome.
+#[test]
+fn finish_returns_the_outcome_of_an_ended_thread_only() {
+    let fake = Fake::default();
+    let ended = fake.ended.0.clone();
+    let naming = Naming::start_with(launch(), fake, spawn).expect("a thread");
+    assert_eq!(naming.finish(FINISH_WITHIN), Some(ENDED));
+    assert!(ended.load(Ordering::SeqCst));
+
+    for (probe, finished) in [
+        (
+            Some(Err(error(AgentNameRefusal::Uncertain, true))),
+            Some(Outcome {
+                cleanup_failed: true,
+            }),
+        ),
+        (None, None),
+    ] {
+        let (fake, inside, release) = blocked_probe(probe);
+        let ended = fake.ended.0.clone();
+        let calls = fake.calls.clone();
+        let naming = Naming::start_with(launch(), fake, spawn).expect("a thread");
+        inside
+            .recv_timeout(Duration::from_secs(10))
+            .expect("the probe runs");
+        naming.request_stop();
+        release.send(()).unwrap();
+        assert_eq!(naming.finish(FINISH_WITHIN), finished);
+        assert!(ended.load(Ordering::SeqCst));
+        assert!(calls.sets().is_empty());
+    }
+
+    let (fake, inside, release) = blocked_probe(Some(Ok(Probe::Active(None))));
     let ended = fake.ended.0.clone();
     let calls = fake.calls.clone();
     let naming = Naming::start_with(launch(), fake, spawn).expect("a thread");
     inside
         .recv_timeout(Duration::from_secs(10))
-        .expect("the first attempt starts");
+        .expect("the probe runs");
     assert_eq!(naming.finish(Duration::from_millis(50)), None);
     assert!(!ended.load(Ordering::SeqCst), "the thread still runs");
-    // Test-owned cleanup: release the read; the stop it then observes ends
-    // the thread before any set.
     release.send(()).unwrap();
     wait_for(&ended);
-    assert!(calls.sets().is_empty());
-}
-
-/// A panic in the thread gives no outcome and nothing to report.
-#[test]
-fn a_panicking_thread_gives_no_outcome() {
-    let (entered, inside) = mpsc::channel();
-    let fake = Fake {
-        entry: Box::new(move |_| {
-            entered.send(()).unwrap();
-            panic!("a broken read")
-        }),
-        ..Fake::default()
-    };
-    let ended = fake.ended.0.clone();
-    let naming = Naming::start_with(launch(), fake, spawn).expect("a thread");
-    inside
-        .recv_timeout(Duration::from_secs(10))
-        .expect("the first attempt starts");
-    assert_eq!(naming.finish(FINISH_WITHIN), None);
     assert!(
-        ended.load(Ordering::SeqCst),
-        "the unwind dropped the effects"
+        calls.sets().is_empty(),
+        "the stop it then saw starts no set"
     );
 }
 
-/// No thread, no naming, no output: the launch goes on as before.
+/// Dropping the handle, as every early return of `tmt run` does, stops the
+/// thread; a thread that could not start is silent and its work never runs.
 #[test]
-fn a_thread_that_cannot_start_is_silent() {
+fn dropping_the_handle_stops_the_thread_and_a_failed_start_is_silent() {
     let fake = Fake::default();
     let ended = fake.ended.0.clone();
+    drop(Naming::start_with(launch(), fake, spawn).expect("a thread"));
+    wait_for(&ended);
+
+    let fake = Fake::default();
+    let ended = fake.ended.0.clone();
+    let calls = fake.calls.clone();
     let naming = Naming::start_with(launch(), fake, |_| Err(io::Error::other("no threads")));
     assert!(naming.is_none());
     assert!(ended.load(Ordering::SeqCst), "the work was dropped unrun");
+    assert!(calls.list().is_empty());
 }
 
 /// The real pacing returns once the due time has passed, and a stop request

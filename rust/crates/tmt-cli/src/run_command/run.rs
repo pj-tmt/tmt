@@ -670,7 +670,7 @@ pub(super) fn run_bound(
     if let Some(naming) = naming
         && naming
             .finish(agent_name::FINISH_WITHIN)
-            .is_some_and(agent_name::Outcome::cleanup_failed)
+            .is_some_and(|outcome| outcome.cleanup_failed)
     {
         diagnostic(
             "could not clean up the process that named this agent; it may still be running.",
