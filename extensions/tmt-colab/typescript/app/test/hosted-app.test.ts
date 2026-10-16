@@ -127,7 +127,11 @@ it.each([
 });
 
 it.each([
-  ['refused', 'Edit request not sent. Ask the owner for a current link.', 'blocked'],
+  [
+    'refused',
+    'Save again to retry. If it keeps failing, ask the owner for a current link.',
+    'blocked',
+  ],
   [
     'unconfirmed',
     'Couldn&#x27;t confirm the edit request. It may still reach the owner; check the page before sending it again.',
@@ -166,16 +170,11 @@ it.each(['viewer', 'commenter', 'editor'] as const)(
   },
 );
 
-it('never labels definitive writer occupancy sent, refused-before-effect or unknown', () => {
-  const html = renderToStaticMarkup(
-    createElement(HostedRequestNotice, { outcome: 'writer-in-use' }),
-  );
+it('shows a request that was not sent as Not sent, never as a standing block of the link', () => {
+  const html = renderToStaticMarkup(createElement(HostedRequestNotice, { outcome: 'refused' }));
   expect(html).toContain('data-tone="blocked"');
+  expect(html).toContain('Not sent');
+  expect(html).not.toContain('Link in use');
   expect(html).not.toContain('>Sent<');
-  expect(html).not.toContain('>Not sent<');
   expect(html).not.toContain('>Unconfirmed<');
-  expect(html).toContain('Link in use');
-  expect(html).toContain(
-    'Another browser is already sending edits through this link, so this one can only read. Ask the owner for an editor link of your own.',
-  );
 });

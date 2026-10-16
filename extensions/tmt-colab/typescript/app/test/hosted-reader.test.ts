@@ -616,7 +616,7 @@ it('refuses missing or forged referenced writer proof even with a valid unrelate
   }
 });
 
-it('definitively refuses a different uid on the observed own stream before fresh seal/create', async () => {
+it('an own entry another uid wrote does not stop a send: the Rules decide, so a link-mate continues the stream', async () => {
   vi.stubGlobal('navigator', {
     locks: { request: async (_key: string, _options: unknown, action: () => unknown) => action() },
   });
@@ -624,20 +624,21 @@ it('definitively refuses a different uid on the observed own stream before fresh
     f = await fixture(author);
   try {
     await f.log(await f.seal({ namespace: 'own' }));
-    expect(
-      await f.reader.submitOwn(
-        [{ root: 'messages', key: 'comment', value: { text: 'Hello' } }],
-        call(),
-      ),
-    ).toEqual({ outcome: 'writer-in-use', confirmed: 0 });
-    expect(author).not.toHaveBeenCalled();
-    expect(f.port.publish).not.toHaveBeenCalled();
-    expect(f.folded.some((command) => command.type === 'prepare-own')).toBe(false);
+    const sent = await f.reader.submitOwn(
+      [{ root: 'messages', key: 'comment', value: { text: 'Hello' } }],
+      call(),
+    );
+    // Nothing pre-empts it: it is prepared and authored afresh; whatever the provider answers
+    // (a 403 refusal or an occupied ID) is reported as that outcome, never as a standing block.
+    expect(author).toHaveBeenCalled();
+    expect(f.folded.some((command) => command.type === 'prepare-own')).toBe(true);
+    expect(sent.outcome).not.toBe('writer-in-use');
   } finally {
     await f.reader.close();
     vi.unstubAllGlobals();
   }
 });
+
 it('fresh author refusal is typed before decoder preparation, sealing or provider publication', async () => {
   vi.stubGlobal('navigator', {
     locks: { request: async (_key: string, _options: unknown, action: () => unknown) => action() },

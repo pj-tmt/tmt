@@ -29,6 +29,26 @@
   width: auto;
   margin: 0;
 }
+/* A hosted request notice: standard 16px padding, and only its mark carries colour; the state
+ * word reads as text. */
+.source-notice[data-request] .tmt-ui-notice {
+  --tmt-ui-notice-padding: 16px;
+}
+.source-notice[data-request] .tmt-ui-notice .tmt-ui-notice-mark {
+  color: var(--tmt-ui-color-text);
+}
+.source-notice[data-request]
+  .tmt-ui-notice[data-tone='blocked']
+  .tmt-ui-notice-mark
+  > [aria-hidden] {
+  color: var(--tmt-ui-color-blocked);
+}
+.source-notice[data-request]
+  .tmt-ui-notice[data-tone='waiting']
+  .tmt-ui-notice-mark
+  > [aria-hidden] {
+  color: var(--tmt-ui-color-waiting);
+}
 .source-notice .tmt-ui-notice-actions {
   align-items: baseline;
 }

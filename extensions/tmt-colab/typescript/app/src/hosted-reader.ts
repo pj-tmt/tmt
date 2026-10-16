@@ -36,7 +36,6 @@ export class HostedPageReader {
   private readonly fold: Pick<Fold, 'run' | 'close'>;
   private readonly knownWriters = new Set<string>();
   private started = false;
-  private ownStreamInUse = false;
   private closed = false;
   private readonly controller = new AbortController();
   private changes: Promise<void> = Promise.resolve();
@@ -168,11 +167,6 @@ export class HostedPageReader {
         }
         for (const document of documents) {
           const original = await hostedLog(document, this.scope);
-          if (
-            original.header.context.authorDevice === a.registration.deviceId &&
-            original.publisherUid !== this.port.context.uid
-          )
-            this.ownStreamInUse = true;
           await this.admit(catchup, original, 'update', call);
         }
       }
@@ -244,8 +238,6 @@ export class HostedPageReader {
           this.live(bound);
           await this.refreshNow(bound, new Set(['authority', 'log', 'checkpoints']));
           this.live(bound);
-          // Rules bind a stream continuation to its predecessor uid. This observation grants nothing.
-          if (this.ownStreamInUse) return { outcome: 'writer-in-use' as const, confirmed: 0 };
           await this.authorize(a.registration.deviceId, a.head!.revision.toString());
           const prepared = await this.fold.run({
             type: 'prepare-own',

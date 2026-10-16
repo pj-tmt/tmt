@@ -20,7 +20,10 @@
 //   its own row by equality with the link's secret (Rules cannot hash a join proof).
 // log/{space_page_epoch_stream_seq}: immutable encrypted envelope, contiguous per member stream. A stream
 //   belongs to the uid that wrote its first entry: seq 1 is safe because a stream ID is unknown until
-//   used. Members need the predecessor uid; the space owner may bootstrap a pruned prefix.
+//   used. Members need the predecessor uid, or a members row naming the same link as the predecessor
+//   writer's (holders of one share link share its derived stream, each with a uid of its own; the
+//   link on a row is set only by the link's secret, so equal links mean one secret and an owner-
+//   enrolled row, whose link is null, never matches). The space owner may bootstrap a pruned prefix.
 //   Consumers still verify the signed checkpoint cut and contiguous tail.
 // checkpoints/{space_page_epoch_object_index}: immutable encrypted chunk, owned by the
 //   uid that wrote index 0 the same way, so no one can fill an object's later chunks with garbage.
@@ -145,7 +148,10 @@ match /log/{id} {
     && ext.get(/members/$(request.resource.data.space + '_' + request.resource.data.page + '_' + request.auth.uid)).data.role != 'viewer'
     && (request.resource.data.seq == 1
       || ext.get(/spaces/$(request.resource.data.space)).data.owner == request.auth.uid
-      || ext.getAfter(/log/$(request.resource.data.space + '_' + request.resource.data.page + '_' + string(request.resource.data.epoch) + '_' + request.resource.data.stream + '_' + string(request.resource.data.seq - 1))).data.uid == request.auth.uid);
+      || ext.getAfter(/log/$(request.resource.data.space + '_' + request.resource.data.page + '_' + string(request.resource.data.epoch) + '_' + request.resource.data.stream + '_' + string(request.resource.data.seq - 1))).data.uid == request.auth.uid
+      || (ext.get(/members/$(request.resource.data.space + '_' + request.resource.data.page + '_' + request.auth.uid)).data.link is string
+        && ext.get(/members/$(request.resource.data.space + '_' + request.resource.data.page + '_' + ext.getAfter(/log/$(request.resource.data.space + '_' + request.resource.data.page + '_' + string(request.resource.data.epoch) + '_' + request.resource.data.stream + '_' + string(request.resource.data.seq - 1))).data.uid)).data.link
+          == ext.get(/members/$(request.resource.data.space + '_' + request.resource.data.page + '_' + request.auth.uid)).data.link));
   allow update: if request.auth != null
     && ext.get(/spaces/$(resource.data.space)).data.owner == request.auth.uid
     && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['expiresAt'])

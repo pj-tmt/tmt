@@ -32,7 +32,7 @@ Standard edition. Quotas are project-wide: every page, user and attachment share
 
 ## Model (one page; N members with it open, W of them writers)
 
-The lookup count is derived from Colab's deployed [log-create Rules](../../../../extensions/tmt-colab/firestore/admission.rules), not provider billing measurements. A non-first append by a non-owner member reads four distinct dependent documents: page, member, space owner and predecessor (`ext.getAfter`). An owner skips the predecessor (three); a first append can skip continuity reads. The guard pessimistically treats every writer as the four-lookup member. Each other N-1 listener still pays the delivered document plus two Rules lookups. The optimistic column assumes listener dependents are cached.
+The lookup count is derived from Colab's deployed [log-create Rules](../../../../extensions/tmt-colab/firestore/admission.rules), not provider billing measurements. A non-first append by a non-owner member reads four distinct dependent documents: page, member, space owner and predecessor (`ext.getAfter`). An owner skips the predecessor (three); a first append can skip continuity reads; a continuation after another uid of the same editor link also reads that writer's member row (five). The guard models every writer as the four-lookup member and does not count that fifth read; it is advisory and its listener term is pessimistic. Each other N-1 listener still pays the delivered document plus two Rules lookups. The optimistic column assumes listener dependents are cached.
 
 | N   | Reads per append (guard) | Appends/day (guard) | Appends/day (optimistic) | Min flush interval at 70% of 2 active h                                                                                                                                                                                                                                                                              |
 | --- | ------------------------ | ------------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -108,6 +108,6 @@ ideals are 416 and 52 such objects; manifest writes reduce those to 408 and 51.
 These are not available headroom: Rules lookups, recovery, other pages, deletes,
 listeners and storage also consume the shared project budget. No per-user/per-space
 counter companions or preparation reads are part of a sealed-document append: it
-is one write plus its resource's Rules lookups; the continuing member log append above uses four. The shipped modeled
+is one write plus its resource's Rules lookups; the continuing member log append above uses four (five after another link-mate). The shipped modeled
 page-share guard remains a guard, not a hint or aggregate project enforcement.
 Native polling/read costs are in [door and discovery](door-and-discovery.md#native-firestore-sign-in-and-transport); this payload profile adds none.

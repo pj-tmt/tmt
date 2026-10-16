@@ -387,18 +387,40 @@ it('a request too large to send says how large, not that the link was refused', 
   await f.entry.close();
 });
 
-it.each(['refused', 'unconfirmed', 'writer-in-use'] as const)(
-  'a %s request ends without waiting for the page',
-  async (outcome) => {
-    const f = await fixture();
-    const edit = await ready(f);
-    publication.outcome = outcome;
-    expect(await edit('<main>mine</main>', 'verified only', () => {})).toEqual({
-      request: outcome,
-    });
-    await f.entry.close();
-  },
-);
+it.each([
+  ['refused', 'refused'],
+  ['unconfirmed', 'unconfirmed'],
+  // An occupied ID is a race lost to another holder of the link: not sent, and not a standing block.
+  ['writer-in-use', 'refused'],
+] as const)('a %s request ends without waiting for the page, as %s', async (outcome, ended) => {
+  const f = await fixture();
+  const edit = await ready(f);
+  publication.outcome = outcome;
+  expect(await edit('<main>mine</main>', 'verified only', () => {})).toEqual({ request: ended });
+  await f.entry.close();
+});
+
+it('a request that lost a race to another holder of the link can be sent again, and each send is one original', async () => {
+  const f = await fixture();
+  const edit = await ready(f);
+  publication.outcome = 'writer-in-use';
+  const sends: unknown[][] = [];
+  const record = () => sends.push(publication.records);
+  expect(await edit('<main>mine</main>', 'verified only', () => {})).toEqual({
+    request: 'refused',
+  });
+  record();
+  // Nothing sent it again by itself; the next deliberate Save is a new request at the new head.
+  expect(sends).toHaveLength(1);
+  publication.outcome = 'sent';
+  const source = '<main>mine</main>';
+  const answered = edit(source, 'verified only', () => {});
+  f.change(source);
+  expect(await answered).toEqual({ kind: 'applied', source });
+  record();
+  expect(sends).toHaveLength(2);
+  await f.entry.close();
+});
 
 it('a request still waiting is answered by the page shown after the tab was hidden and shown', async () => {
   const f = await fixture();

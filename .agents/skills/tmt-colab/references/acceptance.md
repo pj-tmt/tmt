@@ -55,9 +55,11 @@ Finite Firestore REST calls use one fresh loopback HTTP connection each, without
 forwarding the original status, headers and body. Upstream failure aborts the browser request
 and fails the proof; only Listen long-polls use the pooled Playwright fetch path.
 This advisory proof is separate from the signed-fixture browser suites; Remote owns
-its producer scenario. Its last phase is Colab's cross-transport case: a door holder and a
-hosted holder of one editor link each send two edit requests, every request is applied, and
-the owner's store holds the link's two own streams with two receipts each, none frozen. Selection and lane topology stay in the
+its producer scenario. Its last phases are Colab's: a door holder and a hosted holder of one
+editor link each send two edit requests, every request is applied, and a second hosted holder (a
+browser profile of its own, so a Firebase uid of its own) then alternates sends with the first on
+the link's one hosted stream. The owner applies every request, and its store holds the door stream
+with two receipts and the hosted stream with five, none frozen. Selection and lane topology stay in the
 [CI reference](../../tmt-release/references/ci-selection.md#advisory-browser-selection).
 
 ## World

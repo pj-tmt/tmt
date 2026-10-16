@@ -214,7 +214,7 @@
   ],
   "admission": {
     "artifact": "firestore/admission.rules",
-    "digest": "f02fdb76b1a8ecafc2d2f631b2a821aa065f7dd32ae8fae9c02241ae898bc946",
+    "digest": "8af39d34e2f05d9c93d0755e5491c11d945902f004c30999e19a2220225eeef5",
     "entryPoint": "colabAdmitted"
   }
 }
