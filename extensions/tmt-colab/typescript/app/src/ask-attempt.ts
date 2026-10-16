@@ -16,6 +16,7 @@ import {
   type SendState,
 } from './ask-remote.js';
 import { AskRecordStore } from './ask-record-store.js';
+import { OwnRecordConflict } from './own-publication.js';
 import { ASK_MESSAGE_BYTES, ASK_REPLY_BYTES, type AskLedgerView } from './ask-records.js';
 const ACTIVATION_READ_LIMIT = 256;
 const ACTIVE_OBSERVATION_MS = 10 * 60 * 1000;
@@ -263,7 +264,19 @@ export class AskController {
     this.#sending.set(id, { preview, task });
     return task;
   }
-  recover(id: string): Promise<AskLedgerView> {
+  /** Read the operation again and record what it shows. If another tab of this device already
+   * wrote that record with a different value (its view of the operation was ahead of ours), the
+   * own stream keeps the first value and nothing is written: this pass ends, and the next
+   * observation reads the operation again. */
+  async recover(id: string): Promise<AskLedgerView> {
+    try {
+      return await this.#recover(id);
+    } catch (error) {
+      if (error instanceof OwnRecordConflict) return this.options.store.view(id);
+      throw error;
+    }
+  }
+  #recover(id: string): Promise<AskLedgerView> {
     return this.options.store.exclusive(id, async () => {
       requireValue(!this.#ended);
       const { store, remote } = this.options;

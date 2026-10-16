@@ -314,6 +314,69 @@ it('admitted discussion updates cannot overwrite or remove existing immutable ke
   }
 });
 
+it('flags an update that sets an own key already holding a different value, whichever client wrote first', async () => {
+  const key = `${a}:2`;
+  const record = (state: string) => ({
+    version: 1,
+    kind: 'ask-state',
+    operationId: a,
+    revision: '2',
+    state,
+    requestId: null,
+    reason: null,
+  });
+  /** One tab's update for `key`: its own Yjs client, as the tab's own fold would make it. */
+  const tab = (client: number, name: string, value: unknown) => {
+    const doc = new Y.Doc();
+    doc.clientID = client;
+    for (const root of ['threads', 'messages', 'intents', 'replies']) doc.getMap(root);
+    const before = Y.encodeStateVector(doc);
+    doc.getMap('messages').set(name, value);
+    return Y.encodeStateAsUpdate(doc, before);
+  };
+  for (const [admittedClient, rivalClient] of [
+    [100, 200],
+    [200, 100],
+  ]) {
+    const run = await worker();
+    const none = await run({
+      type: 'own-conflict',
+      writer: a,
+      update: tab(rivalClient, key, record('uncertain')),
+    });
+    expect(none.update.length, 'nothing held yet').toBe(0);
+    // The parent admits an answer only if it names exactly the writers it asked about.
+    expect(Object.keys(none.own), 'a writer not yet admitted is still named').toEqual([a]);
+    await run({
+      type: 'apply',
+      updates: [],
+      own: [{ writer: a, update: tab(admittedClient, key, record('accepted')) }],
+    });
+    const held = (await run({ type: 'apply', updates: [] })).own;
+    // A different value for the held key is a conflict, a plain answer and not a rejection.
+    const conflict = await run({
+      type: 'own-conflict',
+      writer: a,
+      update: tab(rivalClient, key, record('uncertain')),
+    });
+    expect(conflict.update.length).toBeGreaterThan(0);
+    // The same bytes from another client are already present; a new key is no conflict.
+    for (const same of [
+      tab(rivalClient, key, record('accepted')),
+      tab(rivalClient, `${a}:3`, record('uncertain')),
+    ])
+      expect((await run({ type: 'own-conflict', writer: a, update: same })).update.length).toBe(0);
+    // Another writer's stream never conflicts with this one's keys.
+    expect(
+      (await run({ type: 'own-conflict', writer: b, update: tab(rivalClient, key, record('x')) }))
+        .update.length,
+    ).toBe(0);
+    // Asking commits nothing.
+    expect((await run({ type: 'apply', updates: [] })).own).toEqual(held);
+    expect(held[a].messages[key]).toEqual(record('accepted'));
+  }
+});
+
 function snapshot(value: FoldResult): ContentSnapshot {
   const { source, title, publisherAgent, creationRecipient, own } = value;
   return {

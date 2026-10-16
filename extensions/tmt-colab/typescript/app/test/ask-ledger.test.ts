@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { binary } from '@tmt/colab-client';
 import { AskController } from '../src/ask-attempt.js';
 import { AskRecordStore } from '../src/ask-record-store.js';
+import { OwnRecordConflict } from '../src/own-publication.js';
 import { ASK_OBSERVATION_MS, readAskViews, type AskLedgerView } from '../src/ask-records.js';
 import { FrozenAsk } from '../src/ask-intent.js';
 import {
@@ -131,6 +132,24 @@ it('a lost effect response stays uncertain through absent recovery and abandon n
   );
   expect((await controller.recover(frozen.view.operationId)).state).toBe('abandoned');
   expect(remote.sends).toHaveLength(1);
+});
+it('a record another tab of the device already wrote with a different value ends the recovery pass without a write or a failure; the next pass records it', async () => {
+  // The device's leader refused the write: the own stream keeps the first value (#3083).
+  let refuse = true;
+  const { controller, own } = await setup((root) => {
+    if (refuse && root === 'replies') throw new OwnRecordConflict();
+  });
+  await controller.destinations();
+  const sent = await controller.send(controller.prepare(destination()));
+  expect(sent.state).toBe('accepted');
+  const operationId = sent.intent.operationId;
+  const quiet = await controller.recover(operationId);
+  expect(quiet.state).toBe('accepted');
+  expect(quiet.reply).toBeNull();
+  expect(own[id(4)].replies[operationId]).toBeUndefined();
+  refuse = false;
+  expect((await controller.recover(operationId)).reply?.body).toBe('');
+  expect(own[id(4)].replies[operationId]).toBeDefined();
 });
 it('a rename or changed grant revision before publication refuses without sending', async () => {
   const { controller, remote, store } = await setup();

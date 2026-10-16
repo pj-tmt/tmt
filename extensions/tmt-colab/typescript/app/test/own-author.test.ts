@@ -188,7 +188,11 @@ for (const kind of ['link', 'member'] as Kind[])
       run: (fn: () => Promise<unknown>) => fn(),
       fold: {
         run: vi.fn(async (command: { type: string }) =>
-          command.type === 'prepare-own' ? { update: new Uint8Array([1, 2, 3]) } : {},
+          command.type === 'prepare-own'
+            ? { update: new Uint8Array([1, 2, 3]) }
+            : command.type === 'own-conflict'
+              ? { update: new Uint8Array() }
+              : {},
         ),
       },
       append: vi.fn(async (entry: unknown) => void appended.push(entry)),
@@ -342,7 +346,11 @@ async function writerOver(appends: (Error | undefined)[]) {
     run: (fn: () => Promise<unknown>) => fn(),
     fold: {
       run: vi.fn(async (command: { type: string }) =>
-        command.type === 'prepare-own' ? { update: new Uint8Array([1, 2, 3]) } : {},
+        command.type === 'prepare-own'
+          ? { update: new Uint8Array([1, 2, 3]) }
+          : command.type === 'own-conflict'
+            ? { update: new Uint8Array() }
+            : {},
       ),
     },
     append: vi.fn(async (entry: { seq: string; envelope: string }) => {
