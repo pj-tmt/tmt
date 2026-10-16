@@ -8,7 +8,7 @@ Run from the repository root; `(cd rust && ...)` runs from `rust/`. Use
 `extensions/tmt-colab/skills/tmt-colab/SKILL.md` is the canonical user-facing agent
 skill; this development skill remains the repository guide. The executable embeds
 the root and named references. `tmt colab skill` prints the exact root bytes;
-`tmt colab skill <name>` reads a compile-time key (`attachments`, `editing`, `links`, `page-style`, `questions`), never a path. Both work without core, state or a checkout.
+`tmt colab skill <name>` reads a compile-time key (`attachments`, `editing`, `links`, `page-style`, `questions`, `reviews`), never a path. Both work without core, state or a checkout.
 The Page look starter in `references/page-style.md` is generated from `design/tokens/tokens.json`. After changing
 those tokens or the starter generator, run
 `node extensions/tmt-colab/scripts/generate-page-style.mjs --write`, then `--check`.
@@ -286,7 +286,7 @@ page_markup_vectors --lib page_check`. For the browser side, with `TMT_AGENT=1` 
 e2e/question-vectors.spec.ts` (headless Chromium, the oracle) and the app's unit test
 `test/question-vectors.test.ts` (limits and code coverage). A new rule is a row in
 `QUESTION_RULES` (`questions.ts`) and in `RULES` (`page_check/question.rs`; a group rule is its
-counterpart in `page_check/group.rs`), a reason-code row in colab-v1 and at least one vector case. The native CLI cases are in `tests/cli.rs`
+counterpart in `page_check/group.rs`, a review-section rule in `REVIEW_RULES` and `page_check/review.rs`), a reason-code row in colab-v1 and at least one vector case. The native CLI cases are in `tests/cli.rs`
 (`page_check_*`); they need no serve and no Remote.
 
 ## App and browser client

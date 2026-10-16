@@ -1152,8 +1152,8 @@ The shared inline renderer channel carries admitted proposal/question-group IDs 
 heights clamped to 0–2000 px (at most 250 slots: 200 proposals and 50 question groups),
 scoped to the render ID and request ID. A slot is `{id,height}` or, for an answer card,
 `{id,height,before}`; both heights have the same bound. The iframe inserts the after spacer
-beside exactly one live `tmt-proposal[data-id]`, `tmt-question[data-id]` or
-`tmt-questions[data-id]`. A group uses its parent-selected active question for placement.
+beside exactly one live `tmt-proposal[data-id]`, `tmt-question[data-id]`,
+`tmt-questions[data-id]` or `tmt-review[data-id]`. A group uses its parent-selected active question for placement.
 Its before spacer reserves the trusted tabs/state band above the authored description;
 the after spacer reserves controls below it. Responses use explicit closed key sets selected by the currently requested slot kind:
 `{id,top}` for proposals, or `{id,top,beforeTop,descriptionHeight,left,width}` for
@@ -2279,6 +2279,93 @@ supplies authoritative groups. Its closed response is
 drawn only from the current request, exact quote text equal to the admitted title,
 and only requested thread IDs. Unknown fields, stale IDs and over-budget responses
 are ignored. No answer, recipient, count or activation authority enters this channel.
+
+### Review sections
+
+A review section is authored page HTML, not a new discussion record, CLI command or concept. It
+asks the reader to confirm one part of a page, and underneath it is an ordinary annotation thread:
+
+```html
+<tmt-review data-id="10000000-0000-4000-8000-000000000301" data-agent="Agent name">
+  <h2 data-title>Hosting plan</h2>
+  …the content to confirm, which may hold answer blocks…
+</tmt-review>
+```
+
+`data-id` is a canonical UUID used only for control identity; it shares one namespace with
+questions and groups and never appears as a quote. The section has exactly one immediate
+`data-title` child, whose whitespace-normalized text (1–200 code points, no control character)
+is its title. `data-agent` names the asking agent (at most 64 code points). At most 50 sections
+are admitted per page, and a section may not sit inside another section, a question or a question
+group. `tmt-question` and `tmt-questions` may sit inside a section. An ignored section supplies no
+controls, and its questions remain ordinary questions. The page markup check below owns the
+admission rules and reason codes.
+
+**Thread.** The renderer's existing text-map owner produces a normal QuoteSelector for the
+heading text and its surrounding context. A section's thread is an ordinary anchored annotation
+thread whose quote is exactly that whole heading; a thread anchored on part of the heading, or
+anywhere else in the section, stays an ordinary annotation. Only the reader's explicit action
+creates it, never render, sync or reload. Concurrent first actions can create sibling threads. The
+canonical thread prefers one holding a nondeleted verified device section comment (below), then
+orders by writer and thread identity, like an answer block's.
+
+**State.** The parent derives it from the canonical thread only; page HTML never supplies it.
+
+- _Closed_: the thread's effective status is a Resolve whose `actor` is `person`. A
+  `threads resolve` by an agent is labelled `agent` and leaves the section waiting. The label is
+  the publisher's assertion, so this guards against an agent confirming in the reader's place; it
+  is not authentication, and page HTML can publish no status at all.
+- _Changes requested_: not closed, and the newest verified device section comment is a Needs
+  change note with no admitted agent reply to it.
+- _Waiting_: anything else, including a section with no thread yet.
+
+**Section comments** are fixed plain text. The head is `Confirmed “<title>”` (optionally
+`: <note>`), `Needs change to “<title>”: <note>` or `Answered “<title>”`, followed by
+`Page: <page title>` and the visible recipient mention text. A Confirm note is one line of at most
+200 code points without control characters; a Needs change note is required and at most 8192 UTF-8
+bytes; the whole comment stays within the 16 KiB comment limit. Only verified device comments
+record an action: agent replies and bridge comments never do.
+
+**Actions** are explicit trusted parent activations. Choosing, rendering, reloading and syncing
+publish nothing.
+
+- `✓ Confirm and close` records the Confirmed comment, naming the asking agent when `data-agent`
+  resolves to one directory entry (page names grant no routing authority), then publishes the
+  person Resolve through the thread-status coordinator, which tells the named agent once. A
+  thread an agent resolved is reopened first. If the comment lands and the Resolve fails, the
+  section stays waiting and a retry in the same tab publishes only the Resolve.
+- `✎ Needs change…` records the note and sends one Ask per recipient through the answer-block
+  path. It publishes no status, so the thread stays open and the section shows _Changes
+  requested_ until the agent replies. The note applies to the whole section; a reader who wants to
+  point at one spot uses the normal Annotate.
+- `Reopen`, offered on a closed section, is the ordinary person Reopen and notifies no one. An
+  agent's `threads reopen` has the same effect on the section.
+- Answering the questions inside: when an explicit Send of answers leaves every admitted question
+  inside the section, grouped or lone, with a verified current device answer, that same
+  activation then publishes the section's person Resolve (with an `Answered` opening comment and
+  no mention when the thread is new). A partial group does not close it. If the Resolve fails the
+  answers stay recorded and the section stays waiting; a state is never derived as closed.
+  Changing an answer later does not reopen the section.
+
+**Presentation.** The parent draws one band below the section: state, who closed it and when,
+the note, the controls and `Goes to @<agent>` or `Stays on the page, no one is asked`. It follows
+Colab's effective theme and takes its position from the inline slot channel (`{id,height}`, no
+answer geometry). A closed section fades but stays expanded: the frame sets a renderer-managed
+attribute from the parent's closed set, so its content stays in the DOM, selectable and in the
+text map, and annotations inside it keep resolving. The page head shows `✓ n / m closed` as a
+status chip once the anchors resolve and at least one section is admitted (`m` admitted
+sections, `n` closed ones). It is separate from `openThreadCount`: an open section thread also
+counts in the Comments badge like any open annotation, and a section with no thread yet counts
+only in `m`. Archived pages show state and count without controls. The page-list and collection
+counts do not include sections, as for unanswered questions, until a recorded state exists to read.
+
+**Channel.** The `colab.render.questions` request carries a closed `reviews` array of
+`{id,title,closed}` (at most 50, unique IDs, none shared with a question or group) and its
+closed response carries `reviews` of `{id,selector,threads}`, drawn only from the current
+request: the quote must equal the admitted title and only requested thread IDs are accepted. The
+frame returns, for a section, only threads whose quote is exactly the whole heading. `closed`
+only changes the fade, so a change of it keeps the resolved anchors; a new title does not. Unknown
+fields, stale IDs and over-budget responses are ignored.
 
 ### Inline annotation conversations (#1587)
 
@@ -4510,7 +4597,7 @@ skipped group adds `questionsSkipped`, the number of `tmt-question` elements ins
 are ordered by line, element, ordinal and code.
 
 Success is `{format:"tmt-colab-page-check",version:1,ok,bytes,questions:{admitted,ignored},
-findings}`. With no finding it exits 0. With any finding the command exits 1 with
+reviews:{admitted,ignored},findings}`. With no finding it exits 0. With any finding the command exits 1 with
 `COLAB_PAGE_CHECK`, and `--json` prints the same report with `ok:false` and the usual
 `{error:{code,message}}` attached; human output lists each finding with its line first.
 
@@ -4548,6 +4635,12 @@ the choice-shape rules for a valid kind, so one defect is not reported twice):
 | `group-questions-too-many`                                        | ignored  | more than 12 direct `tmt-question` children                                                                                                                                               |
 | `group-empty`                                                     | ignored  | the group passed its rules but none of its questions is shown                                                                                                                             |
 | `group-label-too-long` / `-control`                               | warning  | a shown question's `data-label` is over 24 code points or has a control character; its tab shows `Q<n>`; the finding is on the question                                                   |
+| `review-page-limit`                                               | ignored  | more than 50 `tmt-review` on the page; no section is shown (its questions are unaffected), and this is the only section finding (on the 51st)                                             |
+| `review-id-invalid` / `-duplicate`                                | ignored  | a section `data-id` missing or not a canonical lowercase UUID, or shared with another section, a question or a group; every holder is ignored                                             |
+| `review-nested`                                                   | ignored  | inside another `tmt-review`, a `tmt-question` or a `tmt-questions` group                                                                                                                  |
+| `review-heading-missing` / `-multiple`                            | ignored  | not exactly one direct child with `data-title`                                                                                                                                            |
+| `review-title-empty` / `-too-long` / `-control`                   | ignored  | the heading text fails the question heading bounds (non-empty, 200 code points, no control character)                                                                                     |
+| `review-agent-invalid`                                            | ignored  | `data-agent` over 64 code points or with a control character                                                                                                                              |
 | `image-data-oversized`                                            | warning  | an `<img>` whose `src` is a `data:image/` URL over 32 KiB                                                                                                                                 |
 | `image-data-total`                                                | warning  | all `data:image/` sources together over 256 KiB; one finding, on the image that crosses it                                                                                                |
 | `attachment-ref-invalid`                                          | warning  | an `<img>` `src` starting `colab-attachment:` that is not the scheme plus 8 lowercase hex digits or a full lowercase UUID                                                                 |
@@ -4561,10 +4654,12 @@ questions and any group inside it are silent, with no finding, and its finding c
 findings, and `group-empty` is added when none is shown. A lone `tmt-question` outside any group
 stays a group of one. A tab label is the authored `data-label`, else `Q<n>` by the question's
 order among the group's shown questions; a bad label only warns. The 50-question page limit
-counts every `tmt-question`, grouped or not, and then reports nothing else.
+counts every `tmt-question`, grouped or not, and then reports nothing else, sections included.
+A section that fails a rule is ignored alone: the questions inside it are judged as usual.
 
-Question, group and lone-question IDs are one namespace and every holder of a shared ID is
-ignored. Every group holds its own `data-id` wherever it sits. A question holds its ID only as a
+Question, group, section and lone-question IDs are one namespace and every holder of a shared ID
+is ignored. Every group, and every section on a page within the 50-section cap, holds its own
+`data-id` wherever it sits. A question holds its ID only as a
 lone question or as a direct child of a group that passes the structural rules other than a
 duplicate ID, so the questions of a group skipped for any other structural rule hold none, and
 neither does a question wrapped in another element. Holders are counted once and never

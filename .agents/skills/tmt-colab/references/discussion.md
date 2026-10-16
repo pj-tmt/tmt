@@ -85,6 +85,16 @@ owns record fields, limits, revision semantics and trust boundaries.
   its latest answer wins and later answers append there. `comment-send.ts` and
   `comment-send-failures.tsx` share annotation/answer preparation and explicit retry
   behavior. Grammar and bounds live in [Answer blocks](../../../../extensions/tmt-colab/contracts/colab-v1.md#answer-blocks).
+- Review sections: `questions.ts` admits inert `tmt-review` structure beside the questions (one
+  ID namespace, one rule table shared with Rust). `reviews.ts` is pure: the fixed section comments,
+  the canonical thread, the person-only closed rule, the derived state and `n / m`. `review-layer.tsx`
+  associates each section's heading-anchored threads from the renderer's quote answer and owns the
+  parent bands; `components/review-card.tsx` presents them. `review-actions.ts` is the only writer:
+  explicit Confirm (comment, then the person Resolve through `ThreadStatusCoordinator`), Needs
+  change (comment, then the existing Ask), Reopen, and closing a section whose questions a trusted
+  Send just answered. `AdmittedView` waits for the admitted fold before the next step. The frame
+  only fades a closed section and reports heading quotes on the questions handshake. Grammar,
+  state rules and limits live in [Review sections](../../../../extensions/tmt-colab/contracts/colab-v1.md#review-sections).
 - Recipient Ask again: `CommentExchange` supplies the original own comment and
   preceding conversation to the shared `ask-again.tsx` action; `AnnotationInput`
   retains only authoritative pre-adoption failures for its current send capture.
@@ -227,7 +237,9 @@ device.` once per failure and keeps the in-tab draft. Resolve/Reopen is the pare
   ordinals bounded by the parent's admitted thread count; the unsaved quote is
   separate. These values paint only and grant no routing or trust authority.
 
-Verification: `test/questions.test.ts` checks answer bounds and verified Lamport selection;
+Verification: `test/reviews.test.ts` checks the section comments, the person-only closed rule and
+the derived states; `e2e/reviews.spec.ts` checks the bands, forged page claims and the answer-closes-section flow;
+`test/questions.test.ts` checks answer bounds and verified Lamport selection;
 `e2e/questions.spec.ts` checks kinds, normal anchors, changes, recipient isolation,
 concurrent readers, retained delivery failures and shared slot/theme captures.
 `test/thread-records.test.ts` and native `tests/discussion.rs`

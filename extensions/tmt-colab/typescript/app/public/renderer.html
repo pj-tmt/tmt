@@ -56,6 +56,7 @@
             stopped = false,
             timer;
           let questionBlocks = [],
+            reviewBlocks = [],
             questionGroups = [],
             questionThreads = [],
             questionRequestId = '';
@@ -233,6 +234,8 @@
             [data-colab-question]>[data-question]{margin:0!important;font:inherit!important;font-weight:500!important;color:inherit!important}
             [data-colab-question]>[data-question][data-colab-question-number]::before{content:attr(data-colab-question-number) " ";font-weight:400;color:color-mix(in srgb,currentColor 55%,transparent)}
             [data-colab-question-active="false"]{display:none!important}
+            [data-colab-review]{display:block}
+            [data-colab-review-closed="true"]{opacity:.55!important}
           `;
           sheet.textContent = highlightStyle;
           document.head.append(sheet);
@@ -570,7 +573,7 @@
             const positions = [];
             for (const slot of slots) {
               const matches = document.querySelectorAll(
-                `tmt-proposal[data-id="${slot.id}"],tmt-question[data-id="${slot.id}"],tmt-questions[data-id="${slot.id}"]`,
+                `tmt-proposal[data-id="${slot.id}"],tmt-question[data-id="${slot.id}"],tmt-questions[data-id="${slot.id}"],tmt-review[data-id="${slot.id}"]`,
               );
               const group = questionGroups.find((group) => group.id === slot.id);
               const active =
@@ -692,9 +695,31 @@
             range.setEnd(b.node, b.end);
             return range;
           }
+          // The quote of an authored heading: its normalized text between the whitespace that
+          // surrounds it, accepted only when it equals the title the parent admitted.
+          function headingSelector(map, heading, title) {
+            const start = map.spans.findIndex((span) => heading.contains(span.node));
+            let end = start;
+            while (end >= 0 && end < map.spans.length && heading.contains(map.spans[end].node))
+              end++;
+            if (start < 0 || end <= start) return;
+            // Normalized whitespace at the edges is surrounding context, not question text.
+            let first = start,
+              last = end;
+            while (map.points[first] === ' ') first++;
+            while (map.points[last - 1] === ' ') last--;
+            const selector = {
+              exact: map.points.slice(first, last).join(''),
+              prefix: map.points.slice(Math.max(0, first - 32), first).join(''),
+              suffix: map.points.slice(last, last + 32).join(''),
+            };
+            if (!validQuote(selector) || selector.exact !== title) return;
+            return selector;
+          }
           function resolveQuestions() {
             if (stopped || !questionRequestId) return;
             const questions = [];
+            const reviews = [];
             try {
               for (const group of questionGroups) {
                 if (group.title !== null) {
@@ -728,10 +753,18 @@
                   if (child.hasAttribute('data-choice') && !child.hasAttribute('hidden'))
                     child.setAttribute('hidden', '');
               }
+              // A section keeps its own content; the parent's closed set only fades it.
+              for (const block of reviewBlocks) {
+                const matches = document.querySelectorAll(`tmt-review[data-id="${block.id}"]`);
+                if (matches.length !== 1) continue;
+                matches[0].setAttribute('data-colab-review', '');
+                matches[0].setAttribute('data-colab-review-closed', String(block.closed));
+              }
               const map = collect(),
                 deadline = performance.now() + 20;
               const threads = questionThreads.map((thread) => ({
                 id: thread.id,
+                exact: thread.selector.exact,
                 range: quoteRange(map, thread.selector, deadline),
               }));
               for (const block of questionBlocks) {
@@ -743,23 +776,8 @@
                     node.hasAttribute('data-question'),
                   );
                 if (headings.length !== 1) continue;
-                const heading = headings[0];
-                const start = map.spans.findIndex((span) => heading.contains(span.node));
-                let end = start;
-                while (end >= 0 && end < map.spans.length && heading.contains(map.spans[end].node))
-                  end++;
-                if (start < 0 || end <= start) continue;
-                // Normalized whitespace at the edges is surrounding context, not question text.
-                let first = start,
-                  last = end;
-                while (map.points[first] === ' ') first++;
-                while (map.points[last - 1] === ' ') last--;
-                const selector = {
-                  exact: map.points.slice(first, last).join(''),
-                  prefix: map.points.slice(Math.max(0, first - 32), first).join(''),
-                  suffix: map.points.slice(last, last + 32).join(''),
-                };
-                if (!validQuote(selector) || selector.exact !== block.title) continue;
+                const selector = headingSelector(map, headings[0], block.title);
+                if (!selector) continue;
                 questions.push({
                   id: block.id,
                   selector,
@@ -773,14 +791,42 @@
                     .map((thread) => thread.id),
                 });
               }
+              for (const block of reviewBlocks) {
+                if (performance.now() > deadline) throw new Error('review budget');
+                const matches = document.querySelectorAll(`tmt-review[data-id="${block.id}"]`);
+                if (matches.length !== 1) continue;
+                const headings = [...matches[0].children].filter((node) =>
+                  node.hasAttribute('data-title'),
+                );
+                if (headings.length !== 1) continue;
+                const selector = headingSelector(map, headings[0], block.title);
+                if (!selector) continue;
+                // Only a thread anchored on the whole heading is the section's thread; a note on
+                // part of it, or anywhere else in the section, stays an ordinary annotation.
+                reviews.push({
+                  id: block.id,
+                  selector,
+                  threads: threads
+                    .filter(
+                      (thread) =>
+                        thread.range &&
+                        thread.exact === block.title &&
+                        headings[0].contains(thread.range.startContainer) &&
+                        headings[0].contains(thread.range.endContainer),
+                    )
+                    .map((thread) => thread.id),
+                });
+              }
             } catch {
               questions.length = 0;
+              reviews.length = 0;
             }
             port.postMessage({
               type: 'colab.render.questions',
               renderId,
               requestId: questionRequestId,
               questions,
+              reviews,
             });
           }
           function resolve() {
@@ -981,7 +1027,7 @@
             }
             if (
               v?.type === 'colab.render.questions' &&
-              Object.keys(v).length === 6 &&
+              Object.keys(v).length === 7 &&
               v.renderId === renderId &&
               typeof v.requestId === 'string' &&
               /^[0-9a-f-]{36}$/.test(v.requestId) &&
@@ -1018,6 +1064,22 @@
               ) &&
               v.groups.flatMap((group) => group.questions).length === v.blocks.length &&
               new Set(v.groups.flatMap((group) => group.questions)).size === v.blocks.length &&
+              Array.isArray(v.reviews) &&
+              v.reviews.length <= 50 &&
+              new Set(v.reviews.map((review) => review?.id)).size === v.reviews.length &&
+              v.reviews.every(
+                (review) =>
+                  review &&
+                  Object.keys(review).length === 3 &&
+                  typeof review.id === 'string' &&
+                  /^[0-9a-f-]{36}$/.test(review.id) &&
+                  typeof review.title === 'string' &&
+                  review.title &&
+                  [...review.title].length <= 200 &&
+                  typeof review.closed === 'boolean' &&
+                  !v.blocks.some((block) => block.id === review.id) &&
+                  !v.groups.some((group) => group.id === review.id),
+              ) &&
               Array.isArray(v.threads) &&
               v.threads.length <= 1000 &&
               v.threads.every(
@@ -1029,6 +1091,7 @@
               )
             ) {
               questionBlocks = v.blocks;
+              reviewBlocks = v.reviews;
               questionGroups = v.groups;
               questionThreads = v.threads;
               questionRequestId = v.requestId;
