@@ -37,34 +37,9 @@ pub(in crate::board) fn render(
     let area =
         crate::board::pane_chrome::paint(frame, app, area, crate::config::Pane::Rows, "Overview");
     let scene = super::super::monitor::scene(app, snapshot);
-    let limits = if crate::board::home::limits_enabled(app) {
-        super::super::quota::lines(
-            app.limits.as_deref(),
-            crate::status::now_ms(),
-            area.width,
-            app.look(),
-        )
-    } else {
-        Vec::new()
-    };
-    let quota_rows = if limits.is_empty() {
-        0
-    } else {
-        limits.len().saturating_add(1).min(usize::from(u16::MAX)) as u16
-    };
+    let limits: Vec<ratatui::text::Line<'static>> = Vec::new();
     let policy = app.overview_panels();
-    let budget = super::Budget::new(area.height, quota_rows, &policy);
-    let chart_now = crate::status::now_ms();
-    let chart_demand =
-        super::super::chart::host::demand(app, area.width, budget.chart_and_target, chart_now);
-    let placed = app
-        .overview_layout
-        .borrow_mut()
-        .panels(area, quota_rows, &policy, chart_demand);
-    // The existing chart host clears its prior-frame visibility/hits even when its panel cannot fit.
-    if !placed.iter().any(|(panel, _)| *panel == Panel::Chart) {
-        let _ = super::super::chart::host::render(frame, app, Rect { height: 0, ..area });
-    }
+    let placed = app.overview_layout.borrow_mut().panels(area, 0, &policy, 0);
     for (panel, mut rect) in placed.iter().copied() {
         match panel {
             Panel::Summary => {
@@ -182,7 +157,9 @@ pub(in crate::board) fn render(
                     );
                 }
             }
-            Panel::Chart => super::super::chart::host::render_panel(frame, app, rect, chart_now),
+            Panel::Chart => {
+                super::super::chart::host::render_panel(frame, app, rect, crate::status::now_ms())
+            }
             Panel::Table => {
                 let sort = snapshot
                     .preferences

@@ -85,3 +85,61 @@ fn last_surface_refusal_and_pending_save_keep_the_draft() {
         Some(Input::Cancel)
     ));
 }
+
+#[test]
+fn overview_usage_and_quota_are_truthful_fixed_controls_while_body_order_moves() {
+    let mut draft = Draft::Overview(Some(OverviewPanels::default()));
+    for key in ["usage", "subscriptions"] {
+        let before = draft.clone();
+        assert!(
+            draft
+                .edit(Edit::Down, key)
+                .unwrap_err()
+                .contains("fixed header")
+        );
+        assert_eq!(draft, before);
+    }
+    draft.edit(Edit::Toggle, "subscriptions").unwrap();
+    assert!(
+        !draft
+            .overview()
+            .unwrap()
+            .shown(OverviewPanel::Subscriptions)
+    );
+    let labels = draft.rows();
+    assert!(
+        labels
+            .iter()
+            .any(|row| row.0 == "usage" && row.2.contains("fixed header"))
+    );
+    assert!(
+        labels
+            .iter()
+            .any(|row| row.0 == "subscriptions" && row.2.contains("Quota in Usage"))
+    );
+    draft.edit(Edit::Down, "digest").unwrap();
+    let body: Vec<_> = draft
+        .overview()
+        .unwrap()
+        .order()
+        .iter()
+        .copied()
+        .filter(|panel| !matches!(panel, OverviewPanel::Usage | OverviewPanel::Subscriptions))
+        .collect();
+    assert_eq!(
+        body,
+        [
+            OverviewPanel::Summary,
+            OverviewPanel::Monitor,
+            OverviewPanel::Digest,
+            OverviewPanel::Exchanges
+        ]
+    );
+    let mut digest = Draft::Digest(Some(DigestPanels::default()));
+    let before = digest.clone();
+    digest.edit(Edit::Down, "subscriptions").unwrap();
+    assert_ne!(
+        digest, before,
+        "Digest keeps its independent movable quota panel"
+    );
+}

@@ -79,29 +79,30 @@ fn index_of(rows: &[String], needle: &str) -> usize {
 fn the_row_holds_its_place_before_the_first_sample_and_moves_nothing_when_it_fills() {
     for width in [100, 160] {
         let mut app = app(true);
+        let mut pending_readings = standings();
+        pending_readings[0].latest = None;
+        app.set_limits(pending_readings);
         let before = rows(&app, width);
-        let pending = index_of(&before, "Updating limits…");
+        let pending = index_of(&before, "Codex");
         let body_before = index_of(&before, "worker");
         let hits_before = format!("{:?}", app.hits.borrow());
         assert!(app.set_limits(standings()));
         let after = rows(&app, width);
-        assert_eq!(index_of(&after, "7d 78%"), pending, "{width}");
+        assert_eq!(index_of(&after, "78%"), pending, "{width}");
         assert_eq!(index_of(&after, "worker"), body_before, "{width}");
         assert_eq!(format!("{:?}", app.hits.borrow()), hits_before);
     }
 }
 
 #[test]
-fn the_row_sits_directly_under_the_header_and_the_body_follows() {
+fn provider_quota_shares_its_usage_row_and_the_body_follows() {
     let mut app = app(true);
     app.set_limits(standings());
     let rows = rows(&app, 100);
-    let quota = &rows[index_of(&rows, "7d 78%")];
-    assert!(quota.contains("Codex"), "{quota}");
-    assert_eq!(
-        index_of(&rows, "7d 78%"),
-        index_of(&rows, "Subscriptions") + 1
-    );
+    let quota = &rows[index_of(&rows, "78%")];
+    assert!(quota.contains("Codex") && quota.contains("7d"), "{quota}");
+    assert!(rows.iter().all(|row| !row.contains("Subscriptions")));
+    assert_eq!(index_of(&rows, "78%"), index_of(&rows, "Usage · last") + 2);
     crate::status::with_now_ms(NOW, || {
         assert_eq!(app.open_quota_details(), crate::board::app::Effect::None);
         let mut terminal = Terminal::new(TestBackend::new(100, 24)).unwrap();
@@ -121,7 +122,7 @@ fn the_row_sits_directly_under_the_header_and_the_body_follows() {
         );
         assert!(details.contains("Weekly pace: ~0.4%/h"), "{details}");
     });
-    assert!(index_of(&rows, "worker") > index_of(&rows, "7d 78%"));
+    assert!(index_of(&rows, "worker") > index_of(&rows, "78%"));
 }
 
 #[test]
@@ -131,7 +132,7 @@ fn meters_remain_at_narrow_widths_but_sampling_off_hides_them() {
     for width in [160, 100, 80, 60] {
         let shown = rows(&narrow, width);
         assert!(
-            shown.iter().any(|row| row.contains("7d 78%")),
+            shown.iter().any(|row| row.contains("78%")),
             "{width}: {shown:#?}"
         );
     }
@@ -146,13 +147,33 @@ fn meters_remain_at_narrow_widths_but_sampling_off_hides_them() {
 }
 
 #[test]
-fn a_board_with_no_provider_gives_the_row_back_once_the_first_sample_says_so() {
+fn a_board_without_provider_evidence_keeps_one_honest_empty_state() {
     let mut app = app(true);
     let waiting = rows(&app, 100);
-    assert!(index_of(&waiting, "Updating limits…") > 0);
+    assert_eq!(
+        waiting
+            .iter()
+            .filter(|row| row.contains("No token observations yet"))
+            .count(),
+        1
+    );
+    let status = index_of(&waiting, "No token observations yet");
+    assert!(!waiting[status].contains("unknown"));
     app.set_limits(Vec::new());
     let settled = rows(&app, 100);
-    assert!(settled.iter().all(|row| !row.contains("limits")));
+    assert!(
+        settled
+            .iter()
+            .all(|row| !row.contains("limits") && !row.contains("Codex"))
+    );
+    assert_eq!(
+        settled
+            .iter()
+            .filter(|row| row.contains("No token observations yet"))
+            .count(),
+        1
+    );
+    assert_eq!(index_of(&settled, "worker"), index_of(&waiting, "worker"));
 }
 
 #[test]

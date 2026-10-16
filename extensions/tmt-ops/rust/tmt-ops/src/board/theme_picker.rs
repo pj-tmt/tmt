@@ -454,7 +454,7 @@ mod tests {
                 app.key(key(KeyCode::Down));
             }
             assert_eq!(app.look().theme.base, Base::Mono);
-            let mut terminal = Terminal::new(TestBackend::new(108, 28)).unwrap();
+            let mut terminal = Terminal::new(TestBackend::new(108, 36)).unwrap();
             terminal
                 .draw(|frame| super::super::view::render(frame, &app))
                 .unwrap();
@@ -462,7 +462,10 @@ mod tests {
             let expected = app.look().role(Role::Waiting).fg.unwrap_or_default();
             let find = |row: u16, text: &str| {
                 let line: String = (0..108).map(|x| buffer[(x, row)].symbol()).collect();
-                line[..line.find(text).expect("header text")].width() as u16
+                line[..line
+                    .find(text)
+                    .unwrap_or_else(|| panic!("no {text:?} in row {row}: {line:?}"))]
+                    .width() as u16
             };
             let tabs_y = app
                 .tab_hits

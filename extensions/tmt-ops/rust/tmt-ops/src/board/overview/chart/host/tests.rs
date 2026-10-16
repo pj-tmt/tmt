@@ -1,4 +1,5 @@
 use super::*;
+use crate::action::{OpsUiAction, Verb};
 
 #[test]
 fn invalid_control_change_preserves_grid_and_inspected_bucket() {
@@ -82,6 +83,7 @@ fn current_controls_and_keyboard_share_grid_without_recipient_or_draft_changes()
         paint(&mut app, 100, 36);
         assert!(!app.usage_chart.borrow().focused());
         press(&mut app, KeyCode::Char('u'));
+        paint(&mut app, 100, 36);
         assert!(app.usage_chart.borrow().focused());
         press(&mut app, KeyCode::Right);
         press(&mut app, KeyCode::Enter);
@@ -95,7 +97,12 @@ fn current_controls_and_keyboard_share_grid_without_recipient_or_draft_changes()
         press(&mut app, KeyCode::Esc);
         press(&mut app, KeyCode::Char('3'));
         let shown = text(&paint(&mut app, 100, 36));
-        assert!(shown.contains("[15m]") && shown.contains("[30m]"));
+        assert!(
+            shown.contains("Usage · last 30m")
+                && shown.contains(" 5m   15m   30m   60m   ·  15m   30m   60m  ")
+        );
+        press(&mut app, KeyCode::Char('u'));
+        paint(&mut app, 100, 36);
         assert_eq!(app.workspace.selected, target);
         assert!(app.input.is_none());
         let range = app
@@ -161,10 +168,18 @@ fn bucket_click_keyboard_and_hover_share_exact_unknown_evidence_with_no_close_re
         );
         assert_eq!(app.usage_chart.borrow().hover, Some(2));
         assert!(text(&paint(&mut app, 160, 36)).contains("Observed tokens: unavailable"));
+        let expected =
+            project::details(&app.usage_chart.borrow().observed.as_ref().unwrap().buckets[2]);
+        assert!(
+            expected
+                .iter()
+                .any(|line| line == "Observed tokens: unavailable")
+        );
         click(&mut app, hit);
         assert!(app.usage_details.is_some());
         assert!(app.reload_blocked());
         let captured = app.usage_details.as_ref().unwrap().borrow().lines.clone();
+        assert_eq!(captured, expected);
         assert!(captured.iter().any(|line| line.contains("0/1 agents")));
         let shown = text(&paint(&mut app, 80, 18));
         assert!(shown.contains("Usage · exact interval") && shown.contains("unavailable"));
@@ -179,6 +194,7 @@ fn bucket_click_keyboard_and_hover_share_exact_unknown_evidence_with_no_close_re
         assert_eq!(app.workspace.selected, target);
         paint(&mut app, 160, 36);
         press(&mut app, KeyCode::Char('u'));
+        paint(&mut app, 100, 36);
         press(&mut app, KeyCode::Tab);
         press(&mut app, KeyCode::Tab);
         press(&mut app, KeyCode::Enter);
@@ -255,7 +271,7 @@ fn resize_reader_agents_and_custom_binding_remove_old_chart_authority() {
 }
 
 mod evidence;
-mod fixtures;
+pub(in crate::board) mod fixtures;
 mod performance;
 
 #[test]
@@ -300,6 +316,7 @@ fn chart_shortcuts_do_not_escape_search_composers_or_modal_input() {
         paint(&mut app, 100, 36);
         press(&mut app, KeyCode::Char('/'));
         press(&mut app, KeyCode::Char('u'));
+        paint(&mut app, 100, 36);
         assert_eq!(app.search, "u");
         assert!(!app.usage_chart.borrow().focused());
         press(&mut app, KeyCode::Esc);
@@ -307,6 +324,7 @@ fn chart_shortcuts_do_not_escape_search_composers_or_modal_input() {
         press(&mut app, KeyCode::Enter);
         assert!(app.input.is_some());
         press(&mut app, KeyCode::Char('u'));
+        paint(&mut app, 100, 36);
         assert_eq!(app.input.as_ref().unwrap().text.as_str(), "u");
         assert!(!app.usage_chart.borrow().focused());
         press(&mut app, KeyCode::Esc);
@@ -315,10 +333,12 @@ fn chart_shortcuts_do_not_escape_search_composers_or_modal_input() {
         press(&mut app, KeyCode::Char('1'));
         paint(&mut app, 100, 36);
         press(&mut app, KeyCode::Char('u'));
+        paint(&mut app, 100, 36);
         press(&mut app, KeyCode::Tab);
         press(&mut app, KeyCode::Tab);
         press(&mut app, KeyCode::Enter);
         press(&mut app, KeyCode::Char('u'));
+        paint(&mut app, 100, 36);
         assert!(app.usage_details.is_some());
         assert_eq!(app.usage_chart.borrow().selection, Selection::default());
     });
@@ -353,8 +373,8 @@ fn short_terminals_collapse_to_summary_and_open_the_same_controls_without_close_
             fixtures::populate(&mut app);
             app.shell.tab = tab;
             let selected = app.workspace.selected.clone();
-            let shown = text(&paint(&mut app, 60, 18));
-            assert!(shown.contains("TOK / 5m · observed 689 tok · partial"));
+            let shown = text(&paint(&mut app, 60, 14));
+            assert!(shown.contains("Usage · last 60m · ~689 tok"));
             assert!(
                 app.usage_chart
                     .borrow()
@@ -363,10 +383,11 @@ fn short_terminals_collapse_to_summary_and_open_the_same_controls_without_close_
                     .all(|hit| hit.target == Target::Controls)
             );
             press(&mut app, KeyCode::Char('u'));
+            paint(&mut app, 100, 36);
             assert!(app.usage_controls);
-            let shown = text(&paint(&mut app, 60, 18));
+            let shown = text(&paint(&mut app, 60, 14));
             assert!(shown.contains("Usage · Each / Range"));
-            assert!(shown.contains("Each") && shown.contains("Range"));
+            assert!(shown.contains("5m") && shown.contains("60m"));
             assert_eq!(app.workspace.selected, selected);
             press(&mut app, KeyCode::Right);
             press(&mut app, KeyCode::Enter);
@@ -374,7 +395,7 @@ fn short_terminals_collapse_to_summary_and_open_the_same_controls_without_close_
             assert_eq!(press(&mut app, KeyCode::Esc), Effect::None);
             assert!(!app.usage_controls);
             assert_eq!(app.workspace.selected, selected);
-            paint(&mut app, 60, 18);
+            paint(&mut app, 60, 14);
             let summary = app
                 .usage_chart
                 .borrow()
@@ -453,14 +474,26 @@ fn no_positive_reading_uses_one_summary_without_false_bar_authority() {
                 state.hits.iter().all(|hit| hit.target == Target::Controls),
                 "no-positive data must not expose bars: {shown}"
             );
-            assert!(shown.contains("TOK / 5m"));
-            assert!(shown.contains(if known_zero {
-                "observed 0 tok"
+            assert!(
+                shown.contains("Usage · last 60m")
+                    && shown.contains(" 5m   15m   30m   60m   ·  15m   30m   60m  ")
+            );
+            let expected = if known_zero {
+                format!(
+                    "Usage · last 60m · {}0 tok",
+                    if data.buckets.iter().all(|bucket| bucket.complete()) {
+                        ""
+                    } else {
+                        "~"
+                    }
+                )
             } else {
-                "unavailable"
-            }));
+                "Usage · last 60m · — tok".into()
+            };
+            assert!(shown.contains(&expected), "{shown}");
             drop(state);
             press(&mut app, KeyCode::Char('u'));
+            paint(&mut app, 100, 36);
             assert!(
                 app.usage_controls,
                 "the same Each/Range controls remain reachable"
@@ -481,7 +514,7 @@ fn missing_snapshot_refuses_keyboard_action_and_retained_mouse_controls() {
             let mut app = board();
             fixtures::populate(&mut app);
             app.shell.tab = tab;
-            paint(&mut app, 60, 18);
+            paint(&mut app, 60, 14);
             let summary = app
                 .usage_chart
                 .borrow()
@@ -500,6 +533,7 @@ fn missing_snapshot_refuses_keyboard_action_and_retained_mouse_controls() {
                     .any(|action| action.verb == Verb::Ui(OpsUiAction::UsageControls))
             );
             press(&mut app, KeyCode::Char('u'));
+            paint(&mut app, 100, 36);
             assert!(!app.usage_controls);
             super::focus(&mut app);
             assert!(!app.usage_controls);
@@ -513,77 +547,42 @@ fn missing_snapshot_refuses_keyboard_action_and_retained_mouse_controls() {
 }
 
 #[test]
-fn tail_wrapper_and_own_rectangle_have_equal_cells_hits_and_remaining_budget() {
+fn demand_bounds_cells_hits_and_remaining_target_budget() {
     crate::status::with_now_ms(fixtures::NOW, || {
         for populated in [false, true] {
             for tab in [OpsTab::Overview, OpsTab::Digest] {
                 for width in [0, 37, 38, 53, 54, 60, 100, 160] {
                     for height in 0..=44 {
                         let mut app = board();
-                        app.shell.tab = tab;
                         if populated {
                             fixtures::populate(&mut app);
                         }
-                        let area = Rect::new(2, 2, width, height);
-                        let mut tail = Terminal::new(TestBackend::new(164, 48)).unwrap();
-                        let mut returned = area;
-                        tail.draw(|frame| returned = render(frame, &app, area))
-                            .unwrap();
-                        let tail_hits: Vec<_> = app
-                            .usage_chart
-                            .borrow()
-                            .hits
-                            .iter()
-                            .map(|hit| (hit.area, hit.target))
-                            .collect();
+                        app.shell.tab = tab;
                         let used = demand(&app, width, height, fixtures::NOW);
-                        assert_eq!(
-                            returned,
-                            Rect {
-                                y: area.y + used,
-                                height: area.height - used,
-                                ..area
-                            }
-                        );
-                        let mut owned = Terminal::new(TestBackend::new(164, 48)).unwrap();
-                        owned
-                            .draw(|frame| {
-                                render_panel(
-                                    frame,
-                                    &app,
-                                    Rect {
-                                        height: used,
-                                        ..area
-                                    },
-                                    fixtures::NOW,
-                                )
-                            })
+                        assert!(used <= height);
+                        let rect = Rect::new(2, 2, width, used);
+                        let mut terminal = Terminal::new(TestBackend::new(164, 48)).unwrap();
+                        terminal
+                            .draw(|frame| render_panel(frame, &app, rect, fixtures::NOW))
                             .unwrap();
-                        assert_eq!(
-                            owned.backend().buffer(),
-                            tail.backend().buffer(),
-                            "{populated}/{tab:?}/{width}/{height}"
-                        );
-                        assert_eq!(
-                            app.usage_chart
-                                .borrow()
-                                .hits
-                                .iter()
-                                .map(|hit| (hit.area, hit.target))
-                                .collect::<Vec<_>>(),
-                            tail_hits
-                        );
-                        let final_rect = Rect {
-                            height: used,
-                            ..area
-                        };
                         assert!(
                             app.usage_chart
                                 .borrow()
                                 .hits
                                 .iter()
-                                .all(|hit| hit.area.intersection(final_rect) == hit.area)
+                                .all(|hit| hit.area.intersection(rect) == hit.area)
                         );
+                        let buffer = terminal.backend().buffer();
+                        for y in 0..48 {
+                            for x in 0..164 {
+                                if !rect.contains((x, y).into()) {
+                                    assert_eq!(buffer[(x, y)].symbol(), " ");
+                                }
+                            }
+                        }
+                        if used > 1 {
+                            assert!(height - used >= 6, "{tab:?}/{width}/{height}");
+                        }
                     }
                 }
             }
@@ -602,7 +601,15 @@ fn chart_budget_and_painter_share_the_captured_existing_clock_across_a_rollover(
         let used = demand(&app, area.width, area.height, fixtures::NOW);
         original
             .draw(|frame| {
-                render(frame, &app, area);
+                render_panel(
+                    frame,
+                    &app,
+                    Rect {
+                        height: used,
+                        ..area
+                    },
+                    fixtures::NOW,
+                );
             })
             .unwrap();
         used
@@ -624,4 +631,48 @@ fn chart_budget_and_painter_share_the_captured_existing_clock_across_a_rollover(
             .unwrap();
     });
     assert_eq!(rolled.backend().buffer(), original.backend().buffer());
+}
+
+#[test]
+#[ignore = "writes task-owned current Overview evidence; never frozen fixtures"]
+fn capture_overview_usage_packet() {
+    use tmt_cli_style::{Depth, Theme, theme::Base};
+    let path = std::env::var("TMT_OVERVIEW_CAPTURE").expect("task-owned evidence path");
+    let mut captures = Vec::new();
+    crate::status::with_now_ms(fixtures::NOW, || {
+        let _no_commands = crate::runner::forbid_commands();
+        for width in [160, 148, 103, 100, 60] {
+            for height in [51, 36, 18, 8] {
+                for (base, depth) in [
+                    (Base::Tmt, Depth::TrueColor),
+                    (Base::TmtLight, Depth::TrueColor),
+                    (Base::Tmt, Depth::None),
+                ] {
+                    for no_data in [false, true] {
+                        let mut app = board();
+                        if no_data {
+                            fixtures::unreported(&mut app);
+                        } else {
+                            fixtures::mixed(&mut app);
+                        }
+                        app.view.as_mut().unwrap().look = crate::look::Look {
+                            theme: Theme::new(base),
+                            depth,
+                        };
+                        app.local_zone = Some(jiff::tz::TimeZone::UTC);
+                        let buffer = paint(&mut app, width, height);
+                        let cells=buffer.content.iter().map(|cell|serde_json::json!({"symbol":cell.symbol(),"fg":format!("{:?}",cell.fg),"bg":format!("{:?}",cell.bg),"modifier":format!("{:?}",cell.modifier)})).collect::<Vec<_>>();
+                        let lines = buffer
+                            .content
+                            .chunks(usize::from(width))
+                            .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+                            .collect::<Vec<_>>();
+                        captures.push(serde_json::json!({"scene":if no_data {"overview-usage-empty"}else{"overview-usage"},"width":width,"height":height,"base":base.name(),"depth":format!("{depth:?}"),"cells":cells,"lines":lines,"selected":format!("{:?}",app.workspace.selected),"chartHits":app.usage_chart.borrow().hits.len()}));
+                    }
+                }
+            }
+        }
+    });
+    assert_eq!(captures.len(), 120);
+    std::fs::write(path, serde_json::to_vec(&captures).unwrap()).unwrap();
 }

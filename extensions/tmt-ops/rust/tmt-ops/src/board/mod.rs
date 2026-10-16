@@ -4,6 +4,7 @@
 mod app;
 mod changes;
 mod checklist;
+mod chip_group;
 mod composer;
 mod conversation;
 mod cronboard;
@@ -11,6 +12,7 @@ mod derived;
 mod digest;
 mod digest_dashboard;
 mod discovery;
+mod empty_state;
 #[cfg(test)]
 mod glyph_guard;
 mod help;
@@ -39,6 +41,7 @@ mod row_chips;
 mod row_detail;
 mod scroll;
 mod settings;
+mod spark_row;
 mod status_update;
 pub(crate) use crate::tabs;
 mod shell;

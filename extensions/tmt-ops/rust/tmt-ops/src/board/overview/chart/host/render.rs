@@ -16,26 +16,61 @@ fn list_capacity(app: &App, area: Rect) -> usize {
     list.height = list.height.saturating_sub(3);
     crate::board::scroll::Scrolls::viewport(list, app.workspace_rows().len())
 }
-fn hint(app: &App) -> Option<String> {
-    app.workspace_bindings()
-        .into_iter()
-        .find(|(_, action)| action.verb == Verb::Ui(OpsUiAction::UsageControls))
-        .map(|(key, _)| key)
+fn display(app: &App, data: &Series, selection: Selection) -> super::super::model::Series {
+    let mut view = project::display(data, selection).expect("validated interval projection");
+    if app.shell.tab == OpsTab::Overview && quotas_visible(app) {
+        view.drivers.extend(
+            app.limits
+                .iter()
+                .flatten()
+                .map(|standing| standing.provider.id().to_owned()),
+        );
+    }
+    view
 }
-fn chart_height(app: &App, area: Rect) -> Option<u8> {
-    (1..=5).rev().find(|height| {
-        let used = u16::from(*height) + 3 + controls::height(area.width);
-        area.height >= used
-            && list_capacity(
-                app,
-                Rect::new(area.x, area.y + used, area.width, area.height - used),
-            ) >= 6
-    })
+fn chart_rows(app: &App, data: &Series, selection: Selection) -> u16 {
+    1 + Scene::rows_for(&project::spark_rows(&display(app, data, selection)))
 }
-/// Pure paint demand from held samples and the available chart/target budget.
-/// No chart visibility/cache, hit map, focus or clock mark is changed here.
-/// The existing clock is captured once and shared with the final painter.
+fn quotas_visible(app: &App) -> bool {
+    crate::board::home::limits_enabled(app)
+        && app
+            .overview_panels()
+            .shown(crate::config::OverviewPanel::Subscriptions)
+        && app.limits.as_ref().is_none_or(|limits| !limits.is_empty())
+}
+fn title(app: &App, data: &Series, selection: Selection) -> String {
+    let title = project::summary(data, selection.range_minutes);
+    if app.shell.tab == OpsTab::Overview
+        && app.view.as_ref().is_some_and(|view| view.history_pending)
+    {
+        format!("{title} · Updating usage…")
+    } else {
+        title
+    }
+}
+
+/// Overview's full-width Usage band precedes the existing body panes. This
+/// admission uses a fixed target minimum, so pane placement never recurses.
+pub(in crate::board) fn overview_demand(app: &App, width: u16, height: u16, now: u64) -> u16 {
+    if width == 0 || height <= 7 {
+        return 0;
+    }
+    let mut state = app.usage_chart.borrow_mut();
+    refresh(app, &mut state, now);
+    let selection = state.selection;
+    let source = Rc::clone(state.observed.as_ref().expect("refreshed source"));
+    let rows = chart_rows(app, &source, selection) + 1; // header breathing row and trailing gap
+    if width >= 40 && height >= rows + 7 {
+        rows
+    } else {
+        1
+    }
+}
+
 pub(in crate::board) fn demand(app: &App, width: u16, target_row_budget: u16, now: u64) -> u16 {
+    if app.shell.tab == OpsTab::Overview {
+        return overview_demand(app, width, target_row_budget, now);
+    }
     if width == 0 || target_row_budget <= 1 || app.workspace_snapshot().is_none() {
         return 0;
     }
@@ -46,54 +81,30 @@ pub(in crate::board) fn demand(app: &App, width: u16, target_row_budget: u16, no
         now,
     )
     .expect("admitted chart clock");
-    let positive = if let Some(data) = state.observed.as_ref().filter(|data| data.grid == grid) {
-        data.buckets
-            .iter()
-            .any(|bucket| bucket.tokens.is_some_and(|n| n > 0))
+    let data = if let Some(data) = state.observed.as_ref().filter(|data| data.grid == grid) {
+        Rc::clone(data)
     } else {
-        app.usage_series(state.selection, now)
-            .buckets
-            .iter()
-            .any(|bucket| bucket.tokens.is_some_and(|n| n > 0))
+        Rc::new(app.usage_series(state.selection, now))
     };
-    let area = Rect::new(0, 0, width, target_row_budget);
-    if positive
-        && width >= 38
+    let used = chart_rows(app, &data, state.selection);
+    if data
+        .buckets
+        .iter()
+        .any(|bucket| bucket.tokens.is_some_and(|tokens| tokens > 0))
+        && width >= 40
         && !app.usage_controls
-        && let Some(height) = chart_height(app, area)
+        && target_row_budget >= used
+        && list_capacity(app, Rect::new(0, used, width, target_row_budget - used)) >= 6
     {
-        return u16::from(height) + 3 + controls::height(width);
+        return used;
     }
     u16::from(list_capacity(app, Rect::new(0, 1, width, target_row_budget - 1)) > 0)
 }
-
-/// Legacy tail callers use exactly the same demand and own-rectangle painter.
-pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) -> Rect {
-    let now = crate::status::now_ms();
-    let used = demand(app, area.width, area.height, now).min(area.height);
-    render_panel(
-        frame,
-        app,
-        Rect {
-            height: used,
-            ..area
-        },
-        now,
-    );
-    Rect {
-        y: area.y + used,
-        height: area.height - used,
-        ..area
-    }
-}
-
 pub(in crate::board) fn render_panel(frame: &mut Frame, app: &App, area: Rect, now: u64) {
     let look = app.look();
-    let key = hint(app);
     let mut state = app.usage_chart.borrow_mut();
     state.hits.clear();
     state.visible = false;
-    // Do not project before acquisition, or displace the last usable target row.
     if area.is_empty() || app.workspace_snapshot().is_none() {
         state.hover = None;
         return;
@@ -101,45 +112,32 @@ pub(in crate::board) fn render_panel(frame: &mut Frame, app: &App, area: Rect, n
     state.visible = true;
     refresh(app, &mut state, now);
     let data = Rc::clone(state.observed.as_ref().unwrap());
-    // Unknown/zero data remains honest and reachable through the same controls,
-    // without reserving an empty plot or exposing meaningless bucket hit areas.
     let positive = data
         .buckets
         .iter()
-        .any(|bucket| bucket.tokens.is_some_and(|n| n > 0));
-    let height = (positive && area.width >= 38 && !app.usage_controls)
-        .then(|| {
-            (1..=5)
-                .rev()
-                .find(|height| u16::from(*height) + 3 + controls::height(area.width) <= area.height)
-        })
-        .flatten();
-    if let Some(height) = height {
-        paint_chart(frame, app, &mut state, area, look, key, height);
+        .any(|bucket| bucket.tokens.is_some_and(|tokens| tokens > 0));
+    if (positive || app.shell.tab == OpsTab::Overview)
+        && area.width >= 40
+        && !app.usage_controls
+        && area.height >= chart_rows(app, &data, state.selection)
+    {
+        if !positive {
+            state.release_focus();
+        }
+        paint_chart(frame, app, &mut state, area, look, now);
     } else {
         if !app.usage_controls {
             state.release_focus();
         }
-        let label = super::super::format::range_label(&data, state.selection.range_minutes);
-        let reading = label
-            .split_once(" · ")
-            .map_or(label.as_str(), |(_, reading)| reading);
-        let reading = if app.view.as_ref().is_some_and(|view| view.history_pending) {
-            "Updating usage…"
-        } else {
-            reading
-        };
-        let summary = format!(
-            "TOK / {}m · {reading}{}",
-            state.selection.each_minutes,
-            key.map_or(String::new(), |key| format!(" · {key} chart"))
-        );
-        state.hits = controls::summary(
+        let title = title(app, &data, state.selection);
+        state.hits = controls::header(
             frame.buffer_mut(),
-            Rect::new(area.x, area.y, area.width, 1),
+            area,
             state.selection,
-            &summary,
+            &title,
             look,
+            (None, 0),
+            false,
         );
     }
     if !app.modal_open() {
@@ -159,27 +157,18 @@ pub(in crate::board) fn render_controls(frame: &mut Frame, app: &App, body: Rect
     let mut state = app.usage_chart.borrow_mut();
     state.hits.clear();
     state.visible = false;
-    refresh(app, &mut state, crate::status::now_ms());
-    let partial = state
-        .observed
-        .as_ref()
-        .unwrap()
-        .buckets
-        .iter()
-        .any(|bucket| !bucket.complete());
+    let now = crate::status::now_ms();
+    refresh(app, &mut state, now);
     if areas.content.height >= 2 {
         state.visible = true;
         if state.focus.is_none() {
             state.set_focus(Focus::Each);
         }
-        let required = 7 + u16::from(partial);
-        if areas.content.height >= required {
-            let height = areas
-                .content
-                .height
-                .saturating_sub(6 + u16::from(partial))
-                .clamp(1, 5) as u8;
-            paint_chart(frame, app, &mut state, areas.content, look, None, height);
+        if areas.content.width >= 80
+            && areas.content.height
+                >= chart_rows(app, state.observed.as_ref().unwrap(), state.selection)
+        {
+            paint_chart(frame, app, &mut state, areas.content, look, now);
         } else {
             state.hits = controls::paint(
                 frame.buffer_mut(),
@@ -217,80 +206,111 @@ fn paint_chart(
     state: &mut State,
     area: Rect,
     look: crate::look::Look,
-    key: Option<String>,
-    plot_height: u8,
+    now: u64,
 ) -> u16 {
     let data = Rc::clone(state.observed.as_ref().unwrap());
     let active = state.focus.filter(|_| app.focused() == Pane::Rows);
-    let status = if app.view.as_ref().is_some_and(|view| view.history_pending) {
-        "Updating usage…"
-    } else {
-        "unique identities"
-    };
-    let title = format!(
-        "TOK / {}m · {status}{}",
-        state.selection.each_minutes,
-        key.map_or(String::new(), |key| format!(" · {key} controls"))
-    );
-    strip::paint_left(
+    let title = title(app, &data, state.selection);
+    state.hits.extend(controls::header(
         frame.buffer_mut(),
-        Rect::new(area.x, area.y, area.width, 1),
-        Line::styled(title, look.role(Role::Muted)),
-    );
-    let control_rows = controls::height(area.width);
-    let controls_area = Rect::new(area.x, area.y + 1, area.width, control_rows);
-    let controls = controls::paint(
-        frame.buffer_mut(),
-        controls_area,
+        area,
         state.selection,
-        active,
-        state.draft,
+        &title,
         look,
-    );
-    state.hits.extend(controls);
-    let mut plot = Rect::new(area.x, area.y + 1 + control_rows, area.width, 0);
-    let display = project::display(&data, state.selection).expect("validated interval projection");
-    if state.scene.as_ref().is_none_or(|(old, width, height, _)| {
-        old != &display || *width != plot.width || *height != plot_height
+        (active, state.draft),
+        app.usage_controls
+            || data
+                .buckets
+                .iter()
+                .any(|bucket| bucket.tokens.is_some_and(|tokens| tokens > 0)),
+    ));
+    let view = display(app, &data, state.selection);
+    let drivers: Vec<_> = view.drivers.iter().cloned().collect();
+    let rows = project::spark_rows(&view);
+    let quota_width = if app.shell.tab == OpsTab::Overview && quotas_visible(app) {
+        crate::board::spark_row::quota_width(area.width, &rows)
+    } else {
+        0
+    };
+    if state.scene.as_ref().is_none_or(|(old, width, scene)| {
+        old != &rows || *width != area.width || scene.quota_width() != quota_width
     }) {
-        let scene = Scene::new(&display, plot.width, plot_height).expect("bounded chart scene");
-        state.scene = Some((display, plot.width, plot_height, scene));
+        let scene = Scene::new(&rows, area.width, quota_width).expect("bounded shared spark rows");
+        state.scene = Some((rows, area.width, scene));
     }
-    // Scene solves/paints the actual sub-rectangle. Copy its bounded cells into
-    // the existing Frame buffer; Ratatui retains the sole terminal diff owner.
-    plot.height = state.scene.as_ref().unwrap().3.rows();
-    let mut buffer = Buffer::empty(plot);
-    let hits = state
-        .scene
-        .as_ref()
-        .unwrap()
-        .3
-        .paint(&mut buffer, &look.theme, look.depth)
-        .expect("admitted usage chart");
-    let owned_hits: Vec<_> = hits
+    let scene = &state.scene.as_ref().unwrap().2;
+    let plot = Rect::new(area.x, area.y + 1, area.width, scene.rows());
+    let quotas: Vec<_> = drivers
         .iter()
-        .filter_map(|hit| {
-            let id = hit.id?.last()?;
-            let (_, suffix) = id.rsplit_once("bar-")?;
-            let index = suffix.parse::<usize>().ok()?;
-            let rect = hit.rect;
-            Some(Hit {
-                area: Rect::new(
-                    rect.x.try_into().ok()?,
-                    rect.y.try_into().ok()?,
-                    rect.width.try_into().ok()?,
-                    rect.height.try_into().ok()?,
-                ),
-                target: Target::Bar(index),
+        .map(|driver| {
+            (quota_width > 0).then(|| {
+                crate::board::overview::quota::usage_row(
+                    app.limits.as_deref(),
+                    driver,
+                    now,
+                    quota_width,
+                    look,
+                )
             })
         })
         .collect();
-    state.hits.extend(owned_hits);
+    if quota_width > 0 {
+        app.frame_clocks
+            .borrow_mut()
+            .push(crate::board::view::ClockSurface::OverviewUsageQuota { width: quota_width });
+    }
+    let mut buffer = Buffer::empty(plot);
+    let inspection = state
+        .hover
+        .or(active
+            .filter(|focus| *focus == Focus::Bars)
+            .map(|_| state.bar))
+        .map(|index| project::details(&data.buckets[index]).join(" · "));
+    let hits = scene
+        .paint(
+            &mut buffer,
+            &look.theme,
+            look.depth,
+            &quotas,
+            inspection.as_deref(),
+        )
+        .expect("admitted provider rows");
+    for hit in &hits {
+        if hit
+            .id
+            .and_then(|path| path.last())
+            .is_some_and(|id| id.starts_with("quota-"))
+        {
+            app.hits.borrow_mut().push(crate::board::app::Hit {
+                x: hit.rect.x as u16,
+                y: hit.rect.y as u16,
+                width: hit.rect.width as u16,
+                target: crate::board::app::HitTarget::Quota,
+            });
+        }
+    }
+    state.hits.extend(hits.iter().filter_map(|hit| {
+        if !data
+            .buckets
+            .iter()
+            .any(|bucket| bucket.tokens.is_some_and(|tokens| tokens > 0))
+        {
+            return None;
+        }
+        let (_, suffix) = hit.id?.last()?.rsplit_once("bar-")?;
+        Some(Hit {
+            area: Rect::new(
+                hit.rect.x.try_into().ok()?,
+                hit.rect.y.try_into().ok()?,
+                hit.rect.width.try_into().ok()?,
+                hit.rect.height.try_into().ok()?,
+            ),
+            target: Target::Bar(suffix.parse().ok()?),
+        })
+    }));
     if active == Some(Focus::Bars) {
         for hit in &state.hits {
-            if hit.target == Target::Bar(state.bar)
-                && hit.area.y == plot.y + u16::from(plot_height) - 1
-            {
+            if hit.target == Target::Bar(state.bar) {
                 buffer.set_style(hit.area, look.selection());
             }
         }
@@ -300,17 +320,5 @@ fn paint_chart(
             frame.buffer_mut()[(x, y)] = buffer[(x, y)].clone();
         }
     }
-    let selected = state.hover.or(active
-        .filter(|focus| *focus == Focus::Bars)
-        .map(|_| state.bar));
-    let label = selected.map_or_else(
-        || super::super::format::range_label(&data, state.selection.range_minutes),
-        |index| project::details(&data.buckets[index]).join(" · "),
-    );
-    strip::paint_left(
-        frame.buffer_mut(),
-        Rect::new(area.x, plot.bottom(), area.width, 1),
-        Line::styled(label, look.role(Role::Muted)),
-    );
-    plot.bottom() + 1 - area.y
+    plot.bottom() - area.y
 }

@@ -528,7 +528,14 @@ fn workspace_pointer_uses_the_same_policy_rectangles_as_overview_paint() {
                 crate::board::view::render(frame, &app);
             })
             .unwrap();
-        let area = app.conversation.borrow().area;
+        let placement = app
+            .workspace_placement(app.conversation.borrow().area)
+            .unwrap();
+        let area = if side_shown {
+            placement.conversation.expect("painted conversation")
+        } else {
+            placement.list.expect("painted monitor below Usage")
+        };
         let expected = if side_shown {
             Pane::Replies
         } else {

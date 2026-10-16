@@ -11,6 +11,11 @@ const STRUCTURAL_GLYPHS: &[(&str, &str)] = &[
         "single-line rules and square overlay borders",
     ),
     ("━", "focused base-pane heavy top rule"),
+    (
+        "▁▂▃▄▅▆▇█▒░■",
+        "usage height fractions, provider segments and legend keys",
+    ),
+    ("↩", "Recent exchanges reply direction"),
     ("▶", "NO_COLOR receiving-pane marker"),
     ("·", "separates adjacent labels without implying a state"),
     ("…", "shared text fitter's truncation indicator"),
@@ -90,6 +95,8 @@ fn glyph_guard_rejects_unregistered_ambiguous_and_emoji_decorations_and_unspaced
         "😀 cron",
         "1️⃣ cron",
         "▶\u{fe0f} Agents",
+        "■\u{fe0f} Claude",
+        "↩\u{fe0f} reply",
         "◐0",
         "◆✗",
         "↻lead",
@@ -106,6 +113,7 @@ fn glyph_guard_rejects_unregistered_ambiguous_and_emoji_decorations_and_unspaced
         "Est. ctx avoided 24h: —",
         "◆ 0 ✗ 1 ◐ 2 ● 3 ◌ 4",
         "2 other",
+        "▁▂▃▄▅▆▇█▒░ ■ Claude · ↩ reply",
     ] {
         assert_eq!(glyph_error(good), None, "positive control {good:?}");
     }

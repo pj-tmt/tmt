@@ -129,6 +129,14 @@ pub(in crate::board) fn summary(app: &App, width: u16) -> Line<'static> {
     )
 }
 pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
+    if app.shell.tab == OpsTab::Overview {
+        crate::board::overview::chart::host::render_panel(
+            frame,
+            app,
+            app.overview_usage_band(area),
+            crate::status::now_ms(),
+        );
+    }
     let Some(placement) = app.workspace_placement(area) else {
         return;
     };

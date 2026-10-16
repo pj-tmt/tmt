@@ -42,6 +42,8 @@ pub(in crate::board) struct Interval {
     pub from_ms: i64,
     pub to_ms: i64,
     pub tokens: Option<u128>,
+    /// Verified provider portions; the remainder of tokens is unknown.
+    pub providers: BTreeMap<String, u128>,
     pub identities: usize,
     pub observed_identities: usize,
     pub complete_identities: usize,
@@ -65,13 +67,15 @@ impl Interval {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::board) struct Series {
+    pub drivers: BTreeSet<String>,
     pub grid: Grid,
     pub buckets: Vec<Interval>,
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Default)]
 struct Evidence {
     tokens: u128,
+    providers: BTreeMap<u16, u128>,
     known: bool,
     covered_ms: u64,
     source_duration: bool,
@@ -118,6 +122,13 @@ fn intervals(member: &Member, grid: Grid) -> Vec<Evidence> {
         match value.tokens.checked_add(bucket.tokens) {
             Some(total) => value.tokens = total,
             None => value.overflow = true,
+        }
+        for (id, part) in member.provider_tokens(bucket) {
+            let sum = value.providers.entry(id).or_default();
+            match sum.checked_add(part) {
+                Some(total) => *sum = total,
+                None => value.overflow = true,
+            }
         }
         if let BucketOrigin::History {
             covered_ms: Some(covered_ms),
@@ -174,6 +185,7 @@ pub(in crate::board) fn project<'a>(
                 from_ms,
                 to_ms: from_ms + grid.each_ms as i64,
                 tokens: None,
+                providers: BTreeMap::new(),
                 identities: expected.map_or(members.len(), BTreeSet::len),
                 observed_identities: 0,
                 complete_identities: 0,
@@ -202,6 +214,16 @@ pub(in crate::board) fn project<'a>(
             );
             if evidence.known {
                 bucket.observed_identities += 1;
+                for (id, part) in evidence.providers {
+                    let Some(driver) = member.drivers.get(usize::from(id)) else {
+                        continue;
+                    };
+                    let sum = bucket.providers.entry(driver.clone()).or_default();
+                    match sum.checked_add(part) {
+                        Some(total) => *sum = total,
+                        None => bucket.overflow = true,
+                    }
+                }
                 match bucket.tokens.unwrap_or(0).checked_add(evidence.tokens) {
                     Some(total) => bucket.tokens = Some(total),
                     None => bucket.overflow = true,
@@ -212,9 +234,24 @@ pub(in crate::board) fn project<'a>(
     for bucket in &mut buckets {
         if bucket.overflow {
             bucket.tokens = None;
+            bucket.providers.clear();
         }
     }
-    Series { grid, buckets }
+    let mut drivers: BTreeSet<_> = buckets
+        .iter()
+        .flat_map(|bucket| bucket.providers.keys().cloned())
+        .collect();
+    drivers.extend(members.values().flat_map(|member| {
+        member
+            .current_driver
+            .and_then(|id| member.drivers.get(usize::from(id)))
+            .cloned()
+    }));
+    Series {
+        drivers,
+        grid,
+        buckets,
+    }
 }
 
 #[cfg(test)]

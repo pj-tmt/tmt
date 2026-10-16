@@ -285,8 +285,19 @@ descending; other columns ascend. Unknown values stay last in either direction,
 UUID breaks ties, and the initial order puts blocked then waiting first. This
 saved monitor order is independent of the Agents tree order. `f` switches the
 layer-local All/Needs you filter without replacing a hidden selected UUID.
-Summary/Digest counts, provider limits, usage and recent exchanges have separate
-panels; unacquired/failed sources stay unknown. The Summary Timers control opens
+Summary/Digest counts and recent exchanges remain separate body panels;
+unacquired/failed sources stay unknown. Usage sits above the body panes and shows
+the selected window and total, followed by the shipped interval/window choices.
+Muted TOK, % of all and left headings label the numeric tracks. The share track
+is eight cells wide. Interval/window chips have padded labels with one-cell gaps.
+Each acquired driver has a neutral-grey trend row, observed total and share;
+unknown provenance has its own muted row. Shares include unknown tokens in the
+denominator. Trends start immediately after the names; unused cells follow the
+last exact bucket and time labels follow the drawn width. Narrowing shrinks the trend width; it never creates finer buckets or
+longer history. Provider quota occupies the same row, with neutral 7d/5h remaining
+bars and percentages. The Subscription quota toggle controls these inline cells;
+there is no separate Subscriptions block. Usage has a fixed header position. With no observed token bucket, provider names and available quota remain beside one muted empty-state line and em-dash totals; no axis or invented unknown row appears. A measured zero stays zero.
+The Summary Timers control opens
 all rooms. With no selected target, Overview `c` does the same; a hidden/missing
 selected scope still refuses to widen.
 
@@ -1096,18 +1107,17 @@ bridging uncovered intervals.
 Changing the observation policy starts fresh observations; core history seeds again
 on the next admitted source entry.
 
-While the usage meter is on, Overview shows provider account meters when panel
-height permits. A quota area at least 90 cells wide pairs providers; narrower
-areas stack them. Bars show 7d and 5h percentages. Paired rows omit reset and pace
-when they do not fit (terminal 160/100); stacked rows retain them at 80/60. Quota
-Details retain complete readings, resets and measured pace at every width.
-Warnings remain independent of fill: `! ~duration`, or `✗ ~duration` when depletion
-before reset is at or within 12 hours. Reset and pace show only for depletion
-before reset. No positive measured burn means no forecast. Fill follows remaining
-percent: above 40% Working, 15–40% Waiting, below 15% Blocked; Text over Track
-marks the unfilled portion, never selection. NO_COLOR reverses fill and underlines
-track. With enough history, ↗/→/↘ compare recent 1–2-hour pace with the displayed
-six-hour baseline; the whole-percent precision floor suppresses single-step changes.
+While the usage meter is on, Overview shows provider account quotas on the same
+Usage row when panel height permits. Bars show 7d and 5h remaining percentages in
+neutral grey; a provider without a short window shows its weekly reset countdown.
+Unreported, stale or reset readings show `—`. At less than 79 available cells,
+only percentages fit; below 59 the inline quota yields to the trend and remains
+available in Quota Details. Quota Details retain complete readings, resets,
+measured pace and depletion forecasts. Digest keeps its existing account meters:
+fill follows remaining percent and depletion warnings remain independent of fill.
+No positive measured burn means no forecast. With enough history, ↗/→/↘ compare
+recent 1–2-hour pace with the displayed six-hour baseline; the whole-percent
+precision floor suppresses single-step changes.
 Numbers use provider session reports or its captured statusline footer through
 Core `check --capture-only`; reads send nothing. A sample older than 2 hours says
 `no reading for 3h` (or `no reading yet`), never an old percentage. The board

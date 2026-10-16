@@ -194,6 +194,10 @@ neither cancels its admitted write nor applies a late result to a reopened picke
 
 `workspace.overview_panels` stores `order`, `hidden` and `conversation` over IDs
 `summary`, `digest`, `subscriptions`, `usage`, `monitor`, `exchanges`.
+On Overview, Usage has a fixed full-width header position and `subscriptions`
+controls quota cells inside its provider rows. Their order entries are retained
+in the stored complete ID set, but the picker identifies them as fixed and refuses
+move actions; body moves skip them. Digest retains independently movable panels.
 `workspace.digest_panels` stores `order`, `hidden` and `details` over IDs `status`,
 `usage`, `subscriptions`, `chart`, `list`. Order contains each ID once; hidden is
 a unique subset. Keep monitor/list or its side pane visible. Absence and omitted
