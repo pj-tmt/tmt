@@ -1,4 +1,12 @@
-import { createContext, useContext, useEffect, useSyncExternalStore, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from 'react';
 import {
   UiTheme,
   TooltipProvider,
@@ -19,11 +27,7 @@ import {
 import '@tmt/browser-ui/ui.css';
 import { Ellipsis } from 'lucide-react';
 import type { BrowserMenuItem } from '@tmt/browser-ui/react';
-import {
-  RemotePresence,
-  type RemotePresenceSnapshot,
-  type RemoteDevice,
-} from './remote-presence.js';
+import type { RemotePresence, RemotePresenceSnapshot, RemoteDevice } from './remote-presence.js';
 import { getTheme, subscribeTheme } from './theme.js';
 import { useNotificationModalPresence } from './reply-notification-context.js';
 import { text } from './strings.js';
@@ -177,17 +181,27 @@ export function RemoteMoreMenu({
   const { snapshot, refresh } = usePresence();
   const theme = useSyncExternalStore(subscribeTheme, getTheme, () => 'light' as const);
   const report = useNotificationModalPresence();
+  const [open, setOpen] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const pendingAction = useRef<string | undefined>(undefined);
   if (snapshot.kind === 'hidden' && !items.length) return null;
   const choices = items.filter((item) => item.checked !== undefined);
   return (
     <span className="remote-more-menu">
       <UiTheme theme={theme}>
-        <DropdownMenu onOpenChange={report}>
+        <DropdownMenu
+          open={open}
+          onOpenChange={(value) => {
+            setOpen(value);
+            report(value);
+          }}
+        >
           <DropdownMenuTrigger asChild>
             <button
               className="tmt-ui-action remote-chip-action remote-more-trigger"
               data-variant="text"
               type="button"
+              ref={trigger}
               aria-label={text.more}
               onPointerDownCapture={(event) => {
                 if (!event.isTrusted) {
@@ -207,6 +221,16 @@ export function RemoteMoreMenu({
           </DropdownMenuTrigger>
           <DropdownMenuContent
             align="end"
+            onCloseAutoFocus={(event) => {
+              const action = pendingAction.current;
+              if (action === undefined) return;
+              pendingAction.current = undefined;
+              event.preventDefault();
+              // Native page panels capture their opener on mount. Complete the
+              // shared menu's dismissal before invoking that existing owner.
+              trigger.current?.focus({ preventScroll: true });
+              onSelect(action);
+            }}
             onClickCapture={(event) => {
               if (!event.isTrusted) {
                 event.preventDefault();
@@ -250,7 +274,12 @@ export function RemoteMoreMenu({
                 <DropdownMenuItem
                   key={item.key}
                   disabled={item.disabled}
-                  onSelect={() => onSelect(item.key)}
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    pendingAction.current = item.key;
+                    setOpen(false);
+                    report(false);
+                  }}
                 >
                   {item.label}
                 </DropdownMenuItem>

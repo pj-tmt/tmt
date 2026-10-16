@@ -46,6 +46,7 @@ export async function mount(
     home?: boolean;
     unconfirmed?: boolean;
     pending?: boolean;
+    management?: boolean;
   } = {},
 ) {
   root?.unmount();
@@ -122,6 +123,25 @@ export async function mount(
   const router = createAppRouter({
     ...transport,
     backendName: 'Studio Mac',
+    management: input.management
+      ? {
+          read: async () => {
+            throw new Error('No management data in the header fixture');
+          },
+          prepare: async () => {
+            throw new Error('No writes in the header fixture');
+          },
+          send: async () => {
+            throw new Error('No sends in the header fixture');
+          },
+          verify: async () => {
+            throw new Error('No writes in the header fixture');
+          },
+          setLabels: async () => {
+            throw new Error('No writes in the header fixture');
+          },
+        }
+      : undefined,
     remotePresence: input.hidden ? undefined : owner,
   });
   await router.navigate({ to: input.home ? '/' : '/pages/$pageId', params: { pageId: id } });

@@ -1,3 +1,4 @@
+import { pageAction } from '../test/page-actions.js';
 import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 
@@ -9,6 +10,7 @@ async function fixture(
     home?: boolean;
     unconfirmed?: boolean;
     pending?: boolean;
+    management?: boolean;
   } = {},
 ) {
   await page.goto('/');
@@ -97,8 +99,10 @@ for (const width of [1440, 390])
         const source = page.getByRole('menuitem', { name: 'Source', exact: true });
         await source.evaluate((node: HTMLElement) => node.click());
         await expect(page.getByRole('dialog', { name: 'Source', exact: true })).toHaveCount(0);
-        await source.click();
+        await (await pageAction(page, 'Source')).click();
         await expect(page.getByRole('dialog', { name: 'Source', exact: true })).toBeVisible();
+        await page.getByRole('button', { name: 'Close Source', exact: true }).click();
+        await expect(header.getByRole('button', { name: 'More', exact: true })).toBeFocused();
       }
     });
     test(`zero, one, unconfirmed and hidden stay distinct ${width} ${theme}`, async ({ page }) => {
@@ -199,4 +203,30 @@ test('a pending snapshot does not replace the open More menu or its focused row'
   await expect(source).toBeFocused();
   expect(await original!.evaluate((node) => node.isConnected)).toBe(true);
   expect(await readCount(page)).toBe(1);
+});
+
+test('page-action lookup dismisses the modal Remote More before opening Discussion', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 900 });
+  await fixture(page);
+  const header = page.locator('#remote-header-fixture header');
+  await header.getByRole('button', { name: 'More', exact: true }).click();
+  await expect(await pageAction(page, 'Source')).toBeVisible();
+  await expect(await pageAction(page, 'Chat')).toBeVisible();
+  await expect(page.locator('[data-slot="dropdown-menu-content"]')).toBeHidden();
+  await page.keyboard.press('Escape');
+  await expect(header.getByRole('button', { name: /^Discussion \(/ })).toBeFocused();
+});
+
+test('Manage captures the persistent More opener after the shared menu closes', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 900 });
+  await fixture(page, { management: true });
+  await (await pageAction(page, 'Manage page')).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'More', exact: true })).toBeFocused();
 });
