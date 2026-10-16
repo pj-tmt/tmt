@@ -51,6 +51,9 @@ selected `colab-hosted` PR jobs and shard 1 of full label/weekly/manual acceptan
 after ordinary acceptance, whatever its result, unless the run is cancelled. The shared action prepares
 Java 21, pinned Firebase tools and the emulator JAR; the wrapper owns private state,
 loopback demo Auth/Firestore, real native producer builds and Chromium cleanup.
+Finite Firestore REST calls use one fresh loopback HTTP connection each, without retries,
+forwarding the original status, headers and body. Upstream failure aborts the browser request
+and fails the proof; only Listen long-polls use the pooled Playwright fetch path.
 This advisory proof is separate from the signed-fixture browser suites; Remote owns
 its producer scenario. Its last phase is Colab's cross-transport case: a door holder and a
 hosted holder of one editor link each send two edit requests, every request is applied, and
