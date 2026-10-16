@@ -51,24 +51,12 @@ product-neutral `rust/archive/NATIVE-INSTALL.md`; [dev-only embed](site/README.m
 
 ## Public blog boundary
 
-The site build owns `site/src/blog/` code and approved English content in
-`site/src/posts/<slug>/`. Each post holds canonical `article.html`, `meta.json`,
-`approval.json` and only referenced content-addressed modules/raster images.
-The local Colab importer binds exact metadata, source revision, proposal decision
-and asset hashes before writing; discussions and full exports remain private.
-Any paired owner device can authenticate approval; Ben performs approval as an
-operational policy. CI validates recorded digests, not Colab device signatures.
-PR review remains necessary because the approval record is not an independent
-public-key attestation.
-
-Vite builds the generated complete blog HTML alongside Home into one `site/dist`
-artifact. The blog path is `SITE_BASE` plus `blog/`; its feeds and canonical URLs
-use `SITE_ORIGIN`. No other deployment or product CI consumer is introduced.
-Article modules are bundled as external local scripts under the blog's existing
-CSP, with no inline scripts or additional resource origins. They are trusted code
-on the handbook's origin, with normal DOM/storage access; this is not isolation.
-Modules must be self-contained and may not import build dependencies. The local
-review protocol and commands live in [the site guide](site/README.md#blog).
+`site/src/blog/` builds approved English `site/src/posts/<slug>/` into static HTML
+and external modules in `site/dist`, under `SITE_BASE` plus `blog/`.
+The existing Site job checks and deploys the single artifact.
+[The site guide](site/README.md#blog) owns Colab approval binding, private data
+and module admission. CI validates recorded hashes, not Colab authority.
+Article scripts share Home's origin under the existing blog CSP.
 
 ## TypeScript workspace boundary
 
