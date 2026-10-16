@@ -201,16 +201,13 @@ controls quota cells inside its provider rows. Their order entries are retained
 in the stored complete ID set, but the picker identifies them as fixed and refuses
 move actions. Digest retains independently movable panels.
 `workspace.digest_panels` stores `order`, `hidden` and `details` over IDs `status`,
-`usage`, `subscriptions`, `chart`, `list`, `report`. Order contains each ID once
-(an older complete order that lacks `report` gets it appended; any other missing ID
-is invalid); hidden is
-a unique subset. Keep monitor/list or its side pane visible. Absence and omitted
+`usage`, `subscriptions`, `chart`, `list`, `report`. Saved order retains its relative order;
+omitted known IDs are inserted at their default indices with default visibility.
+Unknown IDs and duplicate IDs remain invalid; hidden is a unique subset. Keep monitor/list or its side pane visible. Absence and omitted
 fields select defaults; Save writes all three fields, preserving table or inline
 table form, comments and unrelated values. Only Reset removes the table. Invalid
 panel values yield a located notice and default policy; other invalid config
-still fails admission. IDs are persisted: older builds reject these keys, and a
-new ID makes an older complete order invalid until repaired, unless the panel is
-declared appended (`Panel::APPENDED`).
+still fails admission. IDs are persisted: older builds still reject IDs they do not know.
 
 Independent `view` CLI configuration, workflow/layout readers and offline markup
 validation retain their own command contracts. A CLI view key changes no roster,

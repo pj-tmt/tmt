@@ -110,6 +110,7 @@ fn rows<P: Panel>(policy: &Panels<P>) -> Vec<(String, String, String)> {
         if policy.side_shown() { "✓" } else { "" }.into(),
         label(P::SIDE_KEY).into(),
     ));
+    rows.push(("actions-divider".into(), String::new(), "─".into()));
     for (id, name) in [
         ("up", "Move selected panel up"),
         ("down", "Move selected panel down"),
@@ -356,7 +357,7 @@ fn component_rows(rows: &[(String, String, String)], saving: bool) -> Vec<ListRo
     rows.iter()
         .map(|(id, _, _)| ListRow {
             id: id.clone(),
-            disabled: saving && id != "cancel",
+            disabled: id == "actions-divider" || saving && id != "cancel",
         })
         .collect()
 }
@@ -365,13 +366,31 @@ pub(super) fn render(frame: &mut Frame, picker: &Picker, look: Look, area: Rect)
         .draft
         .rows()
         .into_iter()
-        .map(|(id, mark, label)| json!({"disabled":picker.saving && id != "cancel", "id":id,"mark":mark,"label":label}))
+        .map(|(id, mark, label)| json!({"disabled":id == "actions-divider" || picker.saving && id != "cancel", "id":id,"mark":mark,"label":label}))
         .collect();
     picker.surface.borrow_mut().render(FILE, template(), json!({
-        "rows": rows, "query": match picker.draft { Draft::Overview(_) => "Overview panels", Draft::Digest(_) => "Digest panels" },
+        "rows": rows, "query": "",
         "status": picker.notice.as_deref().unwrap_or(""),
         "footer": if picker.saving { "Saving… · Cancel/Esc close" } else { "↑↓ select · Enter toggle/action · u/d move · Esc cancel" }, "notes": []
     }), frame, look, area);
+    if let Some(row) = picker
+        .surface
+        .borrow()
+        .frame
+        .as_ref()
+        .and_then(|frame| frame.list.as_ref())
+        .and_then(|list| list.geometry.iter().find(|row| row.id == "actions-divider"))
+    {
+        let area = row.visible;
+        tmt_tui::components::strip::paint_left(
+            frame.buffer_mut(),
+            area,
+            ratatui::text::Line::styled(
+                "─".repeat(usize::from(area.width)),
+                look.role(tmt_cli_style::Role::Muted),
+            ),
+        );
+    }
 }
 
 #[cfg(test)]
