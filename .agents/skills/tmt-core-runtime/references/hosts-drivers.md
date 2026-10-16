@@ -76,8 +76,13 @@ channels and the driver protocol. The owner map is in
   core's `clear_observed`), before the marker, with half the budget left. `AgentNameRefusal`
   separates a definite `Refused` (JSON status `refused`) and no agent yet (`NoAgent`,
   `NotReady`) from `Uncertain`, where the host may have set it; the last three are JSON
-  `warnings` entries, never a status. `tmt run`, `tmt resume`, read commands and provider hooks
-  never set a name; `tmt ls` shows the snapshot's `agentName` and its advice. The
+  `warnings` entries, never a status. After `run_bound` admits the child of `tmt run` or
+  `tmt resume`, `run_command::agent_name` names it on one thread outside the wait tick: at most
+  five tries, no stored state, a stop when the exact launch no longer holds the binding, and
+  `Host::for_server` calls (never `SupervisedProbeRunner`, whose abort would kill the group
+  that holds the agent); `tmt run` waits at most 3 s for it after the child ends. Read commands
+  and provider hooks never set a name; `tmt ls` shows the snapshot's `agentName` and its
+  advice. The
   [contract](../../../../contracts/driver-protocol-v1.md#name-agent) owns the driver's guards.
 - Cosmetics: tmux badge and marker refresh (names sanitized before markup); `pane_badge` is
   bounded post-commit presentation, never routing evidence. A badge refresh prefixes the
