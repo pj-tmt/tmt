@@ -6,7 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const http = require('node:http');
 const crypto = require('node:crypto');
-const { execute, validate, run, fetchJson } = require('../../src/deploy_firestore/helper.cjs');
+const { execute, validate, run, fetchJson, providerOperation } = require('../../src/deploy_firestore/helper.cjs');
 const ACCOUNT = 'owner@example.test',
   PROJECT = 'demo-remote-1',
   ID = '3f2b8c1e-5d4a-4e7b-9c1d-2a6f8e0b4c11';
@@ -980,4 +980,36 @@ test('missing referenced ruleset and composite inventory retain their own HTTP d
     ),
     { version: 1, error: 'provider-rejected', provider: { operation: 'indexes', status: 404 } }
   );
+});
+
+test('provider operation route table keeps resource names out of fixed diagnostic labels', () => {
+  // Resource names deliberately resemble operation segments; query values are not route names.
+  const project = 'projects/versions';
+  const database = `${project}/databases/(default)`;
+  const site = 'sites/channels';
+  const version = `${site}/versions/files`;
+  const cases = [
+    ['firebase', project, 'project'],
+    ['firebase', `${project}/webApps?pageSize=200`, 'web-apps'],
+    ['firebase', `${project}/webApps/config/config`, 'web-app-config'],
+    ['firebase', 'operations/webApps', 'web-app-operation'],
+    ['firestore', database, 'database'],
+    ['firestore', `${database}/collectionGroups/-/fields?filter=ttlConfig:*`, 'fields'],
+    ['firestore', `${database}/collectionGroups/indexes/fields/sequence`, 'fields'],
+    ['firestore', `${database}/collectionGroups/-/indexes?pageSize=200`, 'indexes'],
+    ['firestore', `${database}/collectionGroups/fields/indexes`, 'indexes'],
+    ['rules', `${project}/releases/cloud.firestore`, 'rules-release'],
+    ['rules', `${project}/rulesets/releases`, 'rules-set'],
+    ['auth', `${project}/config`, 'sign-in-config'],
+    ['auth', `${project}/defaultSupportedIdpConfigs/google.com`, 'google-sign-in-config'],
+    ['hosting', `${project}/sites/channels`, 'hosting-site'],
+    ['hosting', `${site}/channels/live`, 'hosting-channel'],
+    ['hosting', `${site}/versions?pageSize=100&pageToken=files`, 'hosting-version'],
+    ['hosting', version, 'hosting-version'],
+    ['hosting', `${version}/files?pageSize=200`, 'hosting-files'],
+    ['hosting', `${site}/releases?versionName=sites/other/versions/files`, 'hosting-release'],
+  ];
+  for (const [service, route, expected] of cases) {
+    assert.equal(providerOperation(service, route), expected, `${service}: ${route}`);
+  }
 });
