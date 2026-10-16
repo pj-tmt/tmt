@@ -1,4 +1,4 @@
-//! M2 TabStrip: fitted neutral destinations; host owns the returned hit rectangles.
+//! TabStrip: fitted neutral destinations; host owns the returned hit rectangles.
 use crate::look::Look;
 use ratatui::{
     layout::Rect,

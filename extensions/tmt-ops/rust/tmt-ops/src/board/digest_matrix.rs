@@ -1,4 +1,4 @@
-//! M19 DigestMatrix: one neutral metric-by-identity grid, with fixed ten-cell columns.
+//! DigestMatrix: one neutral metric-by-identity grid, with fixed ten-cell columns.
 use crate::look::Look;
 use ratatui::{
     buffer::Buffer,

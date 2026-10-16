@@ -114,14 +114,14 @@ supplier data does not become current zero. Narrow layouts stack these modules
 when their named minimum widths cannot fit. Placement reserves their space below
 the primary list. Filter bar, section rule and column header remain fixed above the
 scrolling data rows; there is still only one list scroll/selection owner.
-The wide right column uses the Digest matrix directly: all scoped identities,
+The wide right column uses `digest_matrix` directly: all scoped identities,
 then highest observed HOUR-usage identities in ten-cell columns. Its fixed 24h
 estimate rows consume matching held supplier evidence; another acquired window
 stays unavailable under those captions. Ratios and price-version conflicts keep
 the supplier's existing aggregation policy. There is no wide key/value copy.
 
 At wide widths, the divider joins the left Squads/Agents column to the selected
-row's exchange view, three-row filled input, Timers and Digest matrix.
+row's `exchange_view`, three-row filled `input_field`, Timers and Digest matrix.
 The exchange keeps sender/recipient metadata separate from the grouped body gutter and reply
 name. The existing exact-request reader supplies the selected incoming question;
 a preview is not a response attachment. The same exact-question helper supplies
@@ -134,7 +134,7 @@ send geometry. Overview list and reader defaults use Reply on Enter; authored
 bindings merge afterward without a rewrite. Short columns drop optional static
 modules before the response and editor. The Talk matrix is absent until its data is shipped.
 
-Shared top-bar and tab-strip painters own shell paint; the host supplies held counts
+Shared `top_bar` and `tab_strip` own shell paint; the host supplies held counts
 and publishes whole tab hits. Only nonzero waiting/blocked glyphs use state colour.
 Attention keeps priority over a truncated named-layer caption.
 
@@ -316,3 +316,12 @@ Frozen HOME and TUI parity baselines retain their provenance until a decoded
 cells/styles/hits/oracle diff is approved by UX and Core. Regeneration follows the
 [TUI parity gate](../../tmt-tui/references/development.md#board-parity-baseline).
 [development.md](development.md#checks) owns commands and isolated captures.
+
+## Shared board components
+
+`top_bar` and `tab_strip` paint the neutral shared shell from held values.
+`exchange_view` paints grouped exchange headers and body gutters, `input_field`
+paints the filled editor surface, and `digest_matrix` paints observed metrics
+across identity columns. The host retains data projection, recipient authority,
+editor/session state, effective keys and clipped hits; these painters acquire no
+data and perform no effects.

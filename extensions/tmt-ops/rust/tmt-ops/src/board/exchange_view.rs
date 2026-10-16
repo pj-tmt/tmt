@@ -1,4 +1,4 @@
-//! M8 ExchangeView: neutral exchange headers and a shared grouped body gutter.
+//! ExchangeView: neutral exchange headers and a shared grouped body gutter.
 use crate::look::Look;
 use ratatui::{
     style::Modifier,

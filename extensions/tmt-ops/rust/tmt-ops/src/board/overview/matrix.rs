@@ -3,7 +3,7 @@ use crate::{
     board::{
         app::App,
         digest_dashboard,
-        m19_digest_matrix::{self, Column},
+        digest_matrix::{self, Column},
     },
     config::DigestWindow,
     labels::digest::{Mode, SavingsSummary},
@@ -118,7 +118,7 @@ impl Matrix {
                 (summary.held > 0).then(|| format!("~{}", summary.held))
             }
         });
-        // M19's fixed caption is 24h. A different acquired supplier window does
+        // The matrix's fixed caption is 24h. A different acquired supplier window does
         // not silently relabel its values or change the saved preference.
         let savings = crate::labels::digest::summarize_savings(
             app.labels.digest(),
@@ -159,7 +159,7 @@ impl Matrix {
         });
         for (id, _) in ranked
             .into_iter()
-            .take(m19_digest_matrix::columns(width).saturating_sub(1))
+            .take(digest_matrix::columns(width).saturating_sub(1))
         {
             let member = digest.and_then(|status| status.members.get(id));
             let mode = member.map(|member| match member.mode {

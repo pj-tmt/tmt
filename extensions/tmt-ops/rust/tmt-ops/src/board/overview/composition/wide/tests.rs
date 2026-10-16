@@ -63,7 +63,7 @@ fn final_wide_composition_has_joined_divider_direct_matrix_and_filled_reply_fiel
     assert_eq!(buffer[(88, rule + 1)].symbol(), "│");
     assert_eq!(
         buffer[(89, band.y)].bg,
-        crate::board::m11_input_field::style(app.look(), false)
+        crate::board::input_field::style(app.look(), false)
             .bg
             .unwrap()
     );

@@ -395,7 +395,7 @@ fn link_preview(
 }
 
 /// Agents and compact explicit conversations retain this metadata header.
-/// Session, response and editor owners are shared with the final M8 adapter.
+/// Session, response and editor owners are shared with the shared exchange adapter.
 pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
     let look = app.look();
     app.conversation.borrow_mut().header_hits.clear();

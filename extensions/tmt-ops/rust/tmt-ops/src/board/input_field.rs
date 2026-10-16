@@ -1,4 +1,4 @@
-//! M11 InputField: a three-row neutral filled block; the host retains the editor.
+//! InputField: a three-row neutral filled block; the host retains the editor.
 use crate::look::Look;
 use ratatui::{
     buffer::Buffer,

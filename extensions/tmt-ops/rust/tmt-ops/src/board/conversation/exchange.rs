@@ -1,6 +1,6 @@
 //! Final ExchangeView adapter over the existing UUID-owned conversation session.
 use super::*;
-use crate::board::{m8_exchange_view as exchange, m18_empty_state};
+use crate::board::{exchange_view as exchange, m18_empty_state};
 
 /// Pending questions retain the approved six rows. A held reply group may
 /// grow before optional observations yield; the same cached body measures it.

@@ -1,4 +1,4 @@
-//! M1 TopBar: fitted caption and globally observed attention; no acquisition.
+//! TopBar: fitted caption and globally observed attention; no acquisition.
 use crate::look::Look;
 use ratatui::{
     buffer::Buffer,

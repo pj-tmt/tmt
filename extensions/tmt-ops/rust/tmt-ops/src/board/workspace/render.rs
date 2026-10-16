@@ -30,7 +30,7 @@ pub(in crate::board) fn tabs(app: &App, area: Rect) -> Line<'static> {
         .position(|tab| *tab == app.shell.tab)
         .unwrap_or(0);
     let (line, hits) =
-        crate::board::m2_tab_strip::line(&tabs.map(OpsTab::label), selected, area, app.look());
+        crate::board::tab_strip::line(&tabs.map(OpsTab::label), selected, area, app.look());
     app.tab_hits
         .borrow_mut()
         .extend(hits.into_iter().map(|(tab, area)| TabHit {

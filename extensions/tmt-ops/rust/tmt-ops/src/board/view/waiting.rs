@@ -596,7 +596,7 @@ pub(in crate::board) fn inline_prompt(
         .retain(|hit| !covered(&Rect::new(hit.x, hit.y, hit.width, 1)));
 }
 
-/// Final M11 placement adapts the same editor, quotes and UUID draft admission.
+/// Final input-field placement adapts the same editor, quotes and UUID draft admission.
 fn final_input(
     frame: &mut ratatui::Frame,
     app: &crate::board::app::App,
@@ -604,7 +604,7 @@ fn final_input(
 ) {
     use crate::{
         action::Verb,
-        board::{composer::QuoteHit, m11_input_field as field},
+        board::{composer::QuoteHit, input_field as field},
     };
     use ratatui::{layout::Rect, text::Line};
     use tmt_cli_style::Role;

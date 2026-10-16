@@ -23,7 +23,7 @@ pub(super) fn render_shell(frame: &mut Frame, app: &App, area: Rect) {
                 "?".into()
             }
         };
-        crate::board::m1_top_bar::Attention {
+        crate::board::top_bar::Attention {
             online: number(counts.online),
             waiting: number(counts.waiting),
             blocked: number(counts.blocked),
@@ -36,7 +36,7 @@ pub(super) fn render_shell(frame: &mut Frame, app: &App, area: Rect) {
             ),
         }
     });
-    crate::board::m1_top_bar::paint(
+    crate::board::top_bar::paint(
         frame.buffer_mut(),
         area,
         (app.view_layer.name() != "default").then(|| app.view_layer.name()),

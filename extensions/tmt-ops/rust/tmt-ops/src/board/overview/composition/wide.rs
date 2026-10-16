@@ -1,7 +1,7 @@
 //! Final wide right column: one existing response viewport, then inert observations.
 use crate::{
     board::{
-        app::App, conversation, m3_section_rule, m14_divider, m19_digest_matrix, overview::matrix,
+        app::App, conversation, digest_matrix, m3_section_rule, m14_divider, overview::matrix,
     },
     config::Pane,
 };
@@ -41,7 +41,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, left: Option<Rect>,
         look,
     );
     let remaining = area.height.saturating_sub(1);
-    let input = remaining.min(crate::board::m11_input_field::ROWS);
+    let input = remaining.min(crate::board::input_field::ROWS);
     let gap = u16::from(remaining > input + 2);
     let exchange = remaining
         .saturating_sub(input + gap)
@@ -82,7 +82,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, left: Option<Rect>,
             look,
         );
         for row in 0..7 {
-            m19_digest_matrix::paint(
+            digest_matrix::paint(
                 frame.buffer_mut(),
                 Rect::new(area.x, y + 1 + row as u16, area.width, 1),
                 row,
