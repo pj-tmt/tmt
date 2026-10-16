@@ -48,7 +48,7 @@ pub trait HostDriver {
     fn publish(&mut self, binding: &Binding, identity: &Identity) -> Result<(), HostError>;
 
     /// Removes the binding's marker if the pane still carries it.
-    fn clear(&mut self, binding: &Binding) -> Result<bool, HostError>;
+    fn clear(&mut self, binding: &Binding, identity: &Identity) -> Result<bool, HostError>;
 
     /// Runtime liveness in a verified binding's pane.
     fn observed_runtime(&self, binding: &Binding) -> Result<RuntimeState, CommandError>;
@@ -96,6 +96,52 @@ pub trait HostDriver {
         _direction: SwapDirection,
     ) -> Result<PaneSwap, ActionError> {
         Err(ActionError::HostUnsupported)
+    }
+
+    /// Gives the agent the host recognizes in the binding's pane the agent
+    /// name `name`. Never a pane label. A driver's refusal is
+    /// [`HostError::Refused`]. Taking a name away belongs to `clear`.
+    fn name_agent(&mut self, binding: &Binding, name: &str) -> Result<AgentNaming, HostError>;
+}
+
+/// What a host did with an agent name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentNaming {
+    /// The host has no agent names, or its driver does not offer them.
+    NotLinked,
+    /// The host completed the requested operation.
+    Done,
+}
+
+/// Why a host did not set an agent name. Only `Refused` is a definite
+/// answer that the agent keeps its earlier name; `NoAgent` and `NotReady`
+/// say there was no agent to name yet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentNameRefusal {
+    /// The host refused this name, for example by its rule for names or
+    /// because another agent has it.
+    Refused,
+    /// The host recognizes no agent in the pane.
+    NoAgent,
+    /// The agent is still starting.
+    NotReady,
+    /// The outcome is not known: the call failed or timed out, possibly
+    /// after the host set the name.
+    Uncertain,
+}
+
+impl AgentNameRefusal {
+    pub fn of(error: &HostError) -> Self {
+        use tmt_driver_protocol::ErrorCode;
+        match error {
+            HostError::Refused { code, .. } => match code {
+                ErrorCode::Refused => Self::Refused,
+                ErrorCode::NoAgent => Self::NoAgent,
+                ErrorCode::NotReady => Self::NotReady,
+                _ => Self::Uncertain,
+            },
+            _ => Self::Uncertain,
+        }
     }
 }
 
@@ -332,7 +378,7 @@ impl HostDriver for Unavailable {
         Err(self.error())
     }
 
-    fn clear(&mut self, _: &Binding) -> Result<bool, HostError> {
+    fn clear(&mut self, _: &Binding, _: &Identity) -> Result<bool, HostError> {
         Err(self.error())
     }
 
@@ -373,5 +419,9 @@ impl HostDriver for Unavailable {
 
     fn focus(&mut self, _: &Binding) -> Result<Focused, ActionError> {
         Err(ActionError::Evidence(self.error()))
+    }
+
+    fn name_agent(&mut self, _: &Binding, _: &str) -> Result<AgentNaming, HostError> {
+        Err(self.error())
     }
 }

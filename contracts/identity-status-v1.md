@@ -121,6 +121,32 @@ its text and meaning as a display string: consumers read `location`, never parse
 `target`, for coordinates. The projection reuses the command's existing observation;
 it adds no probe and grants no dispatch authority.
 
+## List agent name
+
+Collection `tmt ls --json` identity rows with a live pane optionally include
+`agentName`, and the `pane` document of `tmt ls <target>` carries the same text:
+the name the pane's host gives the agent it recognizes there (Herdr's agent
+name). It is absent, never null, when the host has no agent names (tmux), the
+row has no live observation, or the host reports no name. TMT sets that name
+from the identity's name and never imports it into the identity, so `agentName`
+can differ from `name`; human `tmt ls` then shows the difference with `tmt this` to set TMT's name. The projection reuses the command's existing
+observation; it adds no probe and grants no dispatch authority.
+
+A bind (`tmt name`, `this`, `add`, `marked`) or a `tmt mv` of a binding on an
+external host asks that host for the agent name. A definite answer adds
+`agentName` to its JSON result: `{"status": "set", "name"}` when the host
+confirmed it, `{"status": "not_linked"}` when its driver does not offer agent
+names, and `{"status": "refused", "name", "message"}` when the host refused the
+name and the agent keeps its earlier name. Any other answer adds no `agentName`
+and one entry to `warnings`, `[{"code", "message"}]`: `AGENT_NAME_NO_AGENT` or
+`AGENT_NAME_NOT_READY` when there is no agent to name yet, and
+`AGENT_NAME_UNCONFIRMED` when the call failed, possibly after the host set the
+name. With `--json` the warning is only in the JSON document and stderr stays
+empty; human output gives the same message as one warning on stderr. Every
+answer leaves the binding as it is. An explicit bind repeated on the pane that
+already holds the binding asks again. A tmux binding, a rename to the same name,
+and a command that binds nothing ask nothing.
+
 ## Verification
 
 Verify byte/control/duration boundaries, exact expiry and clock rollback, atomic

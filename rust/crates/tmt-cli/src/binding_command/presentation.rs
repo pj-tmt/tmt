@@ -47,6 +47,10 @@ fn pane_document(pane: &PaneObservation) -> Value {
         }
         value["location"] = place;
     }
+    // Absent, never null, when the host reports no agent name for the pane.
+    if let Some(agent_name) = &pane.agent_name {
+        value["agentName"] = agent_name.clone().into();
+    }
     value
 }
 
@@ -66,7 +70,7 @@ fn presence_document(row: &IdentityPresence) -> Value {
         .into();
     if let Some(pane) = &row.pane {
         let details = pane_document(pane);
-        for key in ["target", "cwd", "location"] {
+        for key in ["target", "cwd", "location", "agentName"] {
             if let Some(detail) = details.get(key) {
                 value[key] = detail.clone();
             }
@@ -313,6 +317,38 @@ fn action(row: &IdentityPresence, remembered: Option<&RememberedSession>) -> Opt
     }
 }
 
+/// Advice on live rows of a host with agent names. TMT sets the agent name
+/// and never imports it into the identity, so a host's name that differs is
+/// repaired by an explicit `tmt this`, which replaces it. It never names the
+/// pane label.
+fn agent_name_advice(rows: &[ListedRow]) -> Vec<(String, String)> {
+    let mut advice = Vec::new();
+    for row in rows {
+        let presence = &row.presence;
+        let (Some(pane), Some(binding)) = (&presence.pane, &presence.binding) else {
+            continue;
+        };
+        let HostKind::External(host) = binding.server.host else {
+            continue;
+        };
+        if presence.presence != Presence::Active {
+            continue;
+        }
+        let name = &presence.identity.name;
+        let word = crate::output::shell_word(name);
+        if let Some(agent_name) = pane.agent_name.as_ref().filter(|agent| *agent != name) {
+            advice.push((
+                format!(
+                    "{name}'s agent has the {} agent name {agent_name}, not {name}",
+                    host.as_str()
+                ),
+                format!("In {word}'s pane run: tmt this {word}"),
+            ));
+        }
+    }
+    advice
+}
+
 fn folder(pane: Option<&PaneObservation>, home: Option<&Path>) -> String {
     pane.and_then(|pane| pane.cwd.as_deref())
         .map_or_else(String::new, |cwd| value::home_path(Path::new(cwd), home))
@@ -543,7 +579,11 @@ pub(super) fn text(output: &mut impl Write, terminal: Terminal, report: &Report)
                     ),
                 ),
                 None => Ok(()),
+            }?;
+            for (what, fix) in agent_name_advice(rows) {
+                message::warning(output, terminal, &what, Some(&fix))?;
             }
+            Ok(())
         }
         Report::Named {
             row, remembered, ..
@@ -617,9 +657,89 @@ pub(super) fn warnings(
     }
 }
 
+/// The host did not confirm the agent name after a committed bind or rename:
+/// the cause, that the binding stays, and the fix.
+pub(super) fn agent_name_warning(
+    output: &mut tmt_cli_style::stream::Stream<impl Write>,
+    name: &str,
+    error: &tmt_adapters::host::HostError,
+) -> io::Result<()> {
+    let terminal = output.terminal();
+    let (what, fix) = agent_name_text(name, error);
+    message::warning(output, terminal, &what, Some(&fix))
+}
+
+/// The JSON of a bind or rename that asked the host for the agent name: the
+/// `agentName` member for a definite answer, or one `warnings` entry when
+/// there was no agent yet or the outcome is unknown. `set`: the host confirmed
+/// it. `not_linked`: the host has no agent names. `refused`: the host said no,
+/// and the agent keeps its earlier name. An unknown outcome is never reported
+/// as `set` or `refused`.
+pub(super) fn agent_name_json(outcome: &super::AgentNameOutcome) -> (Option<Value>, Option<Value>) {
+    use tmt_adapters::host::{AgentNameRefusal, AgentNaming};
+    let name = &outcome.name;
+    let error = match &outcome.result {
+        Ok(AgentNaming::Done) => return (Some(json!({"status": "set", "name": name})), None),
+        Ok(AgentNaming::NotLinked) => return (Some(json!({"status": "not_linked"})), None),
+        Err(error) => error,
+    };
+    let code = match AgentNameRefusal::of(error) {
+        AgentNameRefusal::Refused => {
+            let refused = json!({"status": "refused", "name": name, "message": error.to_string()});
+            return (Some(refused), None);
+        }
+        AgentNameRefusal::NoAgent => "AGENT_NAME_NO_AGENT",
+        AgentNameRefusal::NotReady => "AGENT_NAME_NOT_READY",
+        AgentNameRefusal::Uncertain => "AGENT_NAME_UNCONFIRMED",
+    };
+    let (message, _) = agent_name_text(name, error);
+    (None, Some(json!({"code": code, "message": message})))
+}
+
+/// The warning and its fix for an agent name the host did not confirm. A
+/// definite refusal says the name was not set; any other failure says the
+/// outcome is unknown, since the host may have set the name before it failed.
+fn agent_name_text(name: &str, error: &tmt_adapters::host::HostError) -> (String, String) {
+    use tmt_adapters::host::AgentNameRefusal;
+    let name = crate::output::shell_word(name);
+    match AgentNameRefusal::of(error) {
+        AgentNameRefusal::Refused => (
+            format!("The agent name {name} was not set: {error}. The binding stays."),
+            format!("Choose a name the host takes: tmt mv {name} <name>"),
+        ),
+        AgentNameRefusal::NoAgent | AgentNameRefusal::NotReady => (
+            format!("No agent to name yet: {error}. The binding stays."),
+            format!("When the agent runs, in its pane run: tmt this {name}"),
+        ),
+        AgentNameRefusal::Uncertain => (
+            format!(
+                "TMT could not confirm the agent name {name}: {error}. The host may or may not \
+                 have set it; the ls command shows the agent name the host reports. The binding stays."
+            ),
+            format!("To retry setting the agent name, in the agent's pane run: tmt this {name}"),
+        ),
+    }
+}
+
 // Source-checked command samples for the printed-command guard.
 #[cfg(test)]
 pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
+        "Choose a name the host takes: tmt mv {name} <name>",
+        &[""],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "When the agent runs, in its pane run: tmt this {name}",
+        &[""],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "To retry setting the agent name, in the agent's pane run: tmt this {name}",
+        &[""],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core("In {word}'s pane run: tmt this {word}", &[""], &[]),
     crate::cli_style_tests::HintSpec::core("In pane {pane}, run: tmt this {}", &[""], &[]),
     crate::cli_style_tests::HintSpec::core("tmt add {label} <name>", &[""], &[]),
     crate::cli_style_tests::HintSpec::core("tmt name <name>", &[""], &[]),

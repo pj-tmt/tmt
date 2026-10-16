@@ -36,6 +36,7 @@ impl DiscoveryTarget {
                 server_start_time: self.server_start_time.clone(),
             },
             panes: vec![crate::endpoint::PaneObservation {
+                agent_name: None,
                 id: self.pane.clone(),
                 target: None,
                 cwd: None,

@@ -17,8 +17,11 @@ and guides link here instead of repeating it.
   delivers, reads and focuses through `prompt`, `input`, `capture` and
   `focus`. Users approve, list and remove drivers with
   `tmt driver install|ls|rm`. Herdr is served only by its first-party driver,
-  `tmt-driver-herdr`, which ships in the CLI release (#1082). TMT approves that
-  shipped driver itself on first use in a Herdr pane, unless the user removed it.
+  `tmt-driver-herdr`, which ships in the CLI release (#1082). TMT approves
+  that shipped driver itself on first use in a Herdr pane, unless the user
+  removed it. The Herdr driver implements `name-agent` and a pane's
+  `agentName`. Core calls `name-agent` after an explicit bind or rename and
+  before it clears a marker; it shows `agentName` in `tmt ls` (#2892).
 - **Runtime drivers:** the format, the crate's encoding and the conformance
   harness, approval registry and bounded client exist. `tmt driver install|ls|rm`
   accepts either kind. Runtime approval calls `locations`, validates its write
@@ -64,11 +67,13 @@ Error codes:
 | `unavailable` | The host server cannot be reached. |
 | `not_found` | The pane or server is gone, or is no longer the one asked about. |
 | `failed` | Anything else. |
-| `no_agent` | `prompt` only: the host recognizes no agent in the pane. Nothing was written. |
+| `no_agent` | `prompt` and `name-agent` only: the host recognizes no agent in the pane. No text was written and no agent name was set. |
 | `blocked` | `prompt` only: the agent waits on its user, for an approval or an answer. Nothing was written. |
-| `not_ready` | `prompt` only: the agent can't take a prompt now, for example because it isn't in the foreground or is still starting. Nothing was written. |
+| `not_ready` | `prompt` and `name-agent` only: the agent can't take a prompt or a name now, for example because it isn't in the foreground or is still starting. No text was written and no agent name was set. |
+| `refused` | `name-agent` only: the host refused the agent name, for example by its rule for names or because another agent has it. Nothing was changed. |
 
-`no_agent`, `blocked` and `not_ready` are answers of `prompt` alone. From any
+`no_agent` and `not_ready` are answers of `prompt` and `name-agent` alone,
+`blocked` of `prompt` alone, and `refused` of `name-agent` alone. From any
 other operation they are a failure.
 
 - `message` is at most 512 bytes and contains no control characters. Core shows
@@ -84,7 +89,7 @@ driver that runs past its operation's deadline.
 | `capabilities` | 1 s | 4 KiB |
 | `caller`, `server`, `resolve-target`, `publish`, `clear`, `focus` | 1 s | 4 KiB |
 | `snapshot`, `probe`, `capture` | 2 s | 1 MiB |
-| `input`, `prompt` | 2 s | 4 KiB |
+| `input`, `prompt`, `name-agent` | 2 s | 4 KiB |
 
 Requests are at most 1 MiB.
 
@@ -181,13 +186,21 @@ A `Pane`:
 
 ```json
 {"id": "term_7", "target": "w1:p2", "cwd": "/src", "command": "claude",
- "panePid": 4242, "suggestedName": null, "marker": Marker | null}
+ "panePid": 4242, "suggestedName": null, "agentName": "reviewer",
+ "marker": Marker | null}
 ```
 
 - **`id` and `target`:** follow the declared syntax.
 - **`cwd`:** an absolute path, or `null`.
 - **`command`:** the foreground command's name, at most 256 bytes.
 - **`panePid`:** the pane's shell. Like every pid, it is in 1 through 2^53 − 1.
+- **`agentName`:** optional. The name the host gives the agent it recognizes
+  in the pane, 1–256 bytes. It is absent when the host has no agent names
+  (tmux), recognizes no agent in the pane, the agent has no name, or the
+  driver could not read it. A driver that cannot read agent names still
+  answers the snapshot. It is the name of the agent, never a label of the
+  pane, and it is not evidence: it proves no binding and names no identity.
+  Core only shows it; it never copies a host's name into an identity.
 - **Text:** all text is free of control characters.
 
 ### `probe`
@@ -321,6 +334,60 @@ its own. Falling back is core's decision, because only core holds the runtime
 evidence. Each request makes one attempt; a `blocked` agent is not prompted
 again until a new request.
 
+### `name-agent`
+
+| Operation | Request | Answer |
+|---|---|---|
+| `name-agent` | `{"socket", "paneId", "panePid", "bindingId", "name", "expected"?}` | `{}` |
+
+`name-agent` is optional. Core calls it only when `capabilities.ops` lists it.
+A host without agent names does not list it.
+
+- **What it does:** with a `name`, the driver gives that agent name to the
+  agent the host recognizes in the pane, over any agent name it has. With
+  `name: null`, it takes the agent name away only when it equals `expected`;
+  a different name, or none, stays and the answer is `{}`. `expected` is
+  required with `name: null` and absent with a `name`; any other request is
+  `bad_request`, never a clear. It changes the host's agent name only, never
+  a label of the pane.
+- **Fence:** the driver refuses with `not_found` unless the pane still exists,
+  runs `panePid` and carries a marker with `bindingId`. It compares names
+  from a fresh read of the host, not from an earlier snapshot. A list that
+  does not say exactly what the pane hosts answers `failed`, and nothing is
+  changed.
+- **When core calls it:** with the identity's name after a committed explicit
+  bind (`tmt name`, `this`, `add`, `marked`) and after a changed `tmt mv`;
+  with `null` and the identity's name as `expected` just before `clear`.
+  `tmt run`, `tmt resume`, read commands and provider hooks never set a
+  name. A binding cleanup (unbind, `tmt rm`, or a failed `tmt run` launch)
+  may take away an agent name equal to the identity's name. Every answer
+  leaves the binding as it is. Before `clear` the call gets at most half of
+  the time left in the command's budget, and core goes on with the clear
+  whatever the answer, except when the driver process could not be cleaned
+  up.
+- **Limits (best effort):** the guards use what the driver observes. Equality
+  is not provenance: a clear also takes away an equal name that someone else
+  gave. After a `tmt mv` the host refused, the agent keeps the earlier name,
+  and a later clear with the new name leaves it. A host without
+  compare-and-set does not show the driver a rename, rebind or new agent
+  between its reads and its rename. `tmt this <name>` repairs a name.
+
+| Answer | Meaning |
+|---|---|
+| `{}` | The agent has the name, or the clear was done or had nothing to do. |
+| `refused` | The host refused the name. The agent keeps its earlier name. |
+| `no_agent` / `not_ready` | The host recognizes no agent in the pane, or it is still starting. |
+| `not_found` | The fence failed. |
+| `failed` | The driver could not read exact evidence, or the call failed; the name may or may not have changed. |
+
+The Herdr driver runs `herdr agent rename <target> <name>` or `--clear`, and
+reads names with `herdr agent list` before its fence (`pane list`,
+`pane process-info`). A Herdr agent name matches `[a-z][a-z0-9_-]{0,31}`; the
+driver answers `refused` to another name before any call, and to Herdr's
+`invalid_agent_name` and `agent_name_taken`. Herdr removes an agent name
+itself when the agent exits or is replaced. Herdr 0.9.3 has no
+compare-and-set for agent names.
+
 ## Runtime drivers
 
 A runtime driver tells TMT about one coding agent. Most of what core needs
@@ -439,8 +506,8 @@ for the built-in drivers' hooks.
 | `usage` | the hook's remaining time, at most 1 s | 4 KiB |
 
 A driver answers `unsupported` to any operation it doesn't list, including
-every host operation. `no_agent`, `blocked` and `not_ready` are a failure from
-these operations, as from any operation but `prompt`.
+every host operation. The agent and name codes (`no_agent`, `blocked`,
+`not_ready` and `refused`) are a failure from these operations.
 
 #### `locations`
 

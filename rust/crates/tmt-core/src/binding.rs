@@ -239,7 +239,9 @@ pub trait BindingEndpoint {
         panes: &[String],
     ) -> Result<EndpointProbe, Self::Error>;
     fn publish(&mut self, binding: &Binding, identity: &Identity) -> Result<(), Self::Error>;
-    fn clear(&mut self, binding: &Binding) -> Result<bool, Self::Error>;
+    /// Clears this binding's marker. `identity` is the binding's identity, so
+    /// a host with agent names takes away only the name that equals its name.
+    fn clear(&mut self, binding: &Binding, identity: &Identity) -> Result<bool, Self::Error>;
     /// The start token of a pane shell's [`ProcessIncarnation`], observed by
     /// core when a binding is made; `None` when it can't be observed. Read
     /// paths don't ask: on macOS one `ps` costs about 110 ms.

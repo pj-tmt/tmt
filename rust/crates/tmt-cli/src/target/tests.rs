@@ -53,6 +53,7 @@ fn recipient() -> PaneIdentity {
         session: Default::default(),
     };
     let pane = PaneObservation {
+        agent_name: None,
         id: binding.pane_id.clone(),
         target: Some("10.3".into()),
         cwd: None,

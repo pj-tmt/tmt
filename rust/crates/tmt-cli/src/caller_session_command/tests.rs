@@ -221,6 +221,7 @@ fn caller_commit_fences_binding_and_preferences_and_preserves_driver_state() {
             server_start_time: "server".into(),
         };
         let pane = PaneObservation {
+            agent_name: None,
             id: "%1".into(),
             target: None,
             cwd: None,
@@ -344,6 +345,7 @@ fn insert_discovery_binding(storage: &mut Storage, identity: &tmt_core::identity
         server_start_time: "server-start".into(),
     };
     let pane = tmt_core::endpoint::PaneObservation {
+        agent_name: None,
         id: "%1".into(),
         target: None,
         cwd: None,

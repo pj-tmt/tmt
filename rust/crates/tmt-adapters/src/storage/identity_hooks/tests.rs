@@ -168,6 +168,7 @@ fn saved_detach_does_not_enqueue_and_registration_serializes_with_retirement() {
                     server_start_time: "fixture".into(),
                 },
                 &tmt_core::endpoint::PaneObservation {
+                    agent_name: None,
                     id: "%1".into(),
                     target: None,
                     cwd: None,

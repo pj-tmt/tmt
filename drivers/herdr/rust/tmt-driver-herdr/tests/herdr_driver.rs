@@ -511,6 +511,113 @@ fn the_driver_reads_and_marks_a_real_herdr_server() {
     assert_eq!(prompt(&agent_pane, "more")["error"]["code"], "blocked");
     assert_eq!(read(), before);
 
+    // Agent names. The driver sets Herdr's agent name (`agent rename`) on a
+    // pane that carries the binding, over any name, and takes a name away
+    // only when it equals the expected one.
+    let binding = marker["bindingId"].as_str().unwrap();
+    let agent_shell = server.json(&["pane", "process-info", "--pane", "w2:p1"])["result"]
+        ["process_info"]["shell_pid"]
+        .as_u64()
+        .unwrap();
+    let name_agent = |pane: &str, pane_pid: u64, name: Value, expected: Option<&str>| {
+        let mut request = json!({"socket": socket, "paneId": pane, "panePid": pane_pid,
+                                 "bindingId": binding, "name": name});
+        if let Some(expected) = expected {
+            request["expected"] = json!(expected);
+        }
+        call(&env, "name-agent", request)
+    };
+    let set = |name: &str| name_agent(&agent_pane, agent_shell, json!(name), None);
+    let take_away =
+        |expected: &str| name_agent(&agent_pane, agent_shell, json!(null), Some(expected));
+    let herdr_name = || {
+        let agents = server.json(&["agent", "list"])["result"]["agents"].clone();
+        let agent = agents
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|agent| agent["terminal_id"] == agent_pane.as_str())
+            .expect("the agent pane is listed")
+            .clone();
+        agent["name"].clone()
+    };
+    let snapshot_name = || {
+        call(
+            &env,
+            "snapshot",
+            json!({"socket": socket, "panes": [agent_pane]}),
+        )["ok"]["panes"][0]["agentName"]
+            .clone()
+    };
+    // The driver keeps no token of its own beside the marker.
+    let tokens = || server.json(&["pane", "get", "w2:p1"])["result"]["pane"]["tokens"].clone();
+    // No marker with this binding yet: the pane is not the one asked about.
+    assert_eq!(set("ann")["error"]["code"], "not_found");
+    assert_eq!(
+        call(
+            &env,
+            "publish",
+            json!({"socket": socket, "paneId": agent_pane, "panePid": agent_shell,
+                   "marker": marker}),
+        ),
+        json!({"ok": {}})
+    );
+    let marked = tokens();
+    assert_eq!(snapshot_name(), json!(null));
+    let label_before = server.json(&["pane", "get", "w2:p1"])["result"]["pane"]["label"].clone();
+    assert_eq!(set("Not Valid")["error"]["code"], "refused");
+    assert_eq!(set("ann"), json!({"ok": {}}));
+    assert_eq!(
+        (herdr_name(), snapshot_name()),
+        (json!("ann"), json!("ann"))
+    );
+    assert_eq!(tokens(), marked);
+    // The pane label is another thing in Herdr and stays as it was.
+    assert_eq!(
+        server.json(&["pane", "get", "w2:p1"])["result"]["pane"]["label"],
+        label_before
+    );
+    // The same call again, then a new name, then a set over a user's name.
+    assert_eq!(set("ann"), json!({"ok": {}}));
+    assert_eq!(set("bea"), json!({"ok": {}}));
+    assert_eq!(herdr_name(), json!("bea"));
+    server.run(&["agent", "rename", "w2:p1", "users-own"]);
+    assert_eq!(set("ann"), json!({"ok": {}}));
+    assert_eq!(herdr_name(), json!("ann"));
+    // Taking away: only the expected name goes; without it nothing is asked.
+    assert_eq!(take_away("bea"), json!({"ok": {}}));
+    assert_eq!(herdr_name(), json!("ann"));
+    assert_eq!(
+        name_agent(&agent_pane, agent_shell, json!(null), None)["error"]["code"],
+        "bad_request"
+    );
+    assert_eq!(take_away("ann"), json!({"ok": {}}));
+    assert_eq!((herdr_name(), snapshot_name()), (json!(null), json!(null)));
+    // Equality is not provenance: a user's name equal to the expected one goes.
+    server.run(&["agent", "rename", "w2:p1", "cara"]);
+    assert_eq!(take_away("cara"), json!({"ok": {}}));
+    assert_eq!(herdr_name(), json!(null));
+    assert_eq!(tokens(), marked);
+    // A plain shell has no agent to name.
+    assert_eq!(publish(shell), json!({"ok": {}}));
+    assert_eq!(
+        name_agent(&terminal, shell, json!("ann"), None)["error"]["code"],
+        "no_agent"
+    );
+    // A name another live agent has is refused, and a refused replace keeps
+    // the old name: Herdr renames in one step.
+    server.run(&["pane", "run", &target, "claude"]);
+    server.until("Herdr to see the second agent", |server| {
+        server.json(&["pane", "get", &target])["result"]["pane"]["agent"] == "claude"
+    });
+    server.run(&["agent", "rename", &target, "ann"]);
+    assert_eq!(set("ann")["error"]["code"], "refused");
+    assert_eq!(herdr_name(), json!(null));
+    assert_eq!(set("bea"), json!({"ok": {}}));
+    assert_eq!(set("ann")["error"]["code"], "refused");
+    assert_eq!(herdr_name(), json!("bea"));
+    assert_eq!(tokens(), marked);
+
     let findings = conformance::check(
         &mut |args, request| invoke(&env, args, request),
         &Fixture {

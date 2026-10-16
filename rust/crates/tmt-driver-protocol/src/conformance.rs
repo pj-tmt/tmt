@@ -437,6 +437,17 @@ impl Missing<'_, '_> {
                     pane_id: pane,
                 },
             ),
+            Op::NameAgent => self.not_found(
+                op,
+                NameAgentRequest {
+                    socket,
+                    pane_id: pane,
+                    pane_pid: 1,
+                    binding_id: "00000000-0000-4000-8000-000000000002".into(),
+                    name: Some("conformance".into()),
+                    expected: None,
+                },
+            ),
         }
     }
 }
@@ -452,6 +463,7 @@ mod tests {
     struct NoPanes {
         clears_anything: bool,
         publishes_anywhere: bool,
+        names_anywhere: bool,
     }
 
     fn gone() -> DriverError {
@@ -473,6 +485,7 @@ mod tests {
                 "clear",
                 "capture",
                 "focus",
+                "name-agent",
             ]
             .map(String::from)
             .to_vec();
@@ -525,6 +538,13 @@ mod tests {
         }
         fn focus(&mut self, _: Request<FocusRequest>) -> Result<(), DriverError> {
             Err(gone())
+        }
+        fn name_agent(&mut self, _: Request<NameAgentRequest>) -> Result<(), DriverError> {
+            if self.names_anywhere {
+                Ok(())
+            } else {
+                Err(gone())
+            }
         }
     }
 
@@ -582,6 +602,13 @@ mod tests {
                 ..NoPanes::default()
             }),
             ["publish"]
+        );
+        assert_eq!(
+            checks(NoPanes {
+                names_anywhere: true,
+                ..NoPanes::default()
+            }),
+            ["name-agent"]
         );
         let slow: Vec<String> = findings_with(
             NoPanes::default(),

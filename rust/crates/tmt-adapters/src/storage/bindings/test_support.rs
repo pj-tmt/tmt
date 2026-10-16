@@ -31,6 +31,7 @@ impl Fixture {
 
 pub(super) fn pane(id: &str, pid: u64) -> PaneObservation {
     PaneObservation {
+        agent_name: None,
         id: id.into(),
         target: None,
         cwd: None,
@@ -75,7 +76,7 @@ impl<F: FnMut() -> Result<(), StorageError>> BindingEndpoint for DuringProbe<F> 
     fn publish(&mut self, _: &Binding, _: &Identity) -> Result<(), Self::Error> {
         unreachable!("presence reads never publish markers")
     }
-    fn clear(&mut self, _: &Binding) -> Result<bool, Self::Error> {
+    fn clear(&mut self, _: &Binding, _: &Identity) -> Result<bool, Self::Error> {
         unreachable!("presence reads never clear markers")
     }
     fn pane_incarnation(

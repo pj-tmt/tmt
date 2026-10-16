@@ -67,6 +67,7 @@ pub enum Op {
     Input,
     Prompt,
     Focus,
+    NameAgent,
     Locations,
     Resume,
     Usage,
@@ -84,7 +85,7 @@ const SMALL: usize = 4 * 1024;
 const LARGE: usize = 1024 * 1024;
 
 impl Op {
-    pub const ALL: [Self; 15] = [
+    pub const ALL: [Self; 16] = [
         Self::Capabilities,
         Self::Caller,
         Self::Server,
@@ -97,6 +98,7 @@ impl Op {
         Self::Input,
         Self::Prompt,
         Self::Focus,
+        Self::NameAgent,
         Self::Locations,
         Self::Resume,
         Self::Usage,
@@ -117,6 +119,7 @@ impl Op {
             Self::Input => "input",
             Self::Prompt => "prompt",
             Self::Focus => "focus",
+            Self::NameAgent => "name-agent",
             Self::Locations => "locations",
             Self::Resume => "resume",
             Self::Usage => "usage",
@@ -134,8 +137,8 @@ impl Op {
 
     /// Operations on a provider hook's path get 1 s: each call is a fresh
     /// process, and a cold exec alone can take 300 ms on a busy machine.
-    /// Those that read every pane or paste text get 2 s. A runtime
-    /// operation gets 1 s; `usage` gets less when its hook has less left.
+    /// Those that read every pane, paste text or name an agent get 2 s. A
+    /// runtime operation gets 1 s; `usage` gets less when its hook has less left.
     pub const fn bounds(self) -> OpLimits {
         let (millis, max_output_bytes) = match self {
             Self::Capabilities => (1000, SMALL),
@@ -149,7 +152,7 @@ impl Op {
             | Self::Resume
             | Self::Usage => (1000, SMALL),
             Self::Snapshot | Self::Probe | Self::Capture => (2000, LARGE),
-            Self::Input | Self::Prompt => (2000, SMALL),
+            Self::Input | Self::Prompt | Self::NameAgent => (2000, SMALL),
         };
         OpLimits {
             deadline: Duration::from_millis(millis),
@@ -179,6 +182,10 @@ mod tests {
             assert_eq!(op.bounds().max_output_bytes, 4096);
         }
         assert_eq!(Op::Snapshot.bounds().max_output_bytes, 1024 * 1024);
+        // Naming an agent reads the agents and the pane before it renames.
+        assert_eq!(Op::NameAgent.bounds().deadline, Duration::from_millis(2000));
+        assert_eq!(Op::NameAgent.bounds().max_output_bytes, 4096);
+        assert!(!Op::NameAgent.is_runtime());
     }
 
     #[test]

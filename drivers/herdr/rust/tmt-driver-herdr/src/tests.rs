@@ -131,6 +131,21 @@ fn list(panes: Vec<Value>) -> Value {
     json!({"id": "cli:pane:list", "result": {"panes": panes, "type": "pane_list"}})
 }
 
+/// One `agent list` row: the terminal that hosts the agent and, when it has
+/// one, its agent name. Herdr leaves an unset name out.
+fn agent(terminal: &str, name: Option<&str>) -> Value {
+    let mut agent = json!({"agent": "claude", "agent_status": "idle", "launch_pending": false,
+        "pane_id": "w1:p1", "terminal_id": terminal});
+    if let Some(name) = name {
+        agent["name"] = json!(name);
+    }
+    agent
+}
+
+fn agents(agents: Vec<Value>) -> Value {
+    json!({"id": "cli:agent:list", "result": {"agents": agents, "type": "agent_list"}})
+}
+
 fn got(pane: Value) -> Value {
     json!({"id": "cli:pane:get", "result": {"pane": pane, "type": "pane_info"}})
 }
@@ -195,7 +210,8 @@ fn the_declared_capabilities_decode_with_the_read_side_ops_only() {
             "clear",
             "capture",
             "input",
-            "prompt"
+            "prompt",
+            "name-agent"
         ]
     );
     assert!(grammar.is_pane_id("term_65ca1161edc141"));
@@ -331,7 +347,8 @@ fn a_snapshot_reports_the_scoped_panes_their_shells_and_markers() {
         ]))
         .json(process("w1:p1", 90593, "claude"))
         // `w1:p3` closed after the list.
-        .refuse("pane_not_found");
+        .refuse("pane_not_found")
+        .json(agents(vec![agent("term_a1", Some("reviewer"))]));
     let answer = serve(
         &runner,
         "snapshot",
@@ -341,8 +358,103 @@ fn a_snapshot_reports_the_scoped_panes_their_shells_and_markers() {
         answer["panes"],
         json!([{"id": "term_a1", "target": "w1:p1", "cwd": "/repo/src",
                 "command": "claude", "panePid": 90593, "suggestedName": null,
-                "marker": fixture()["marker"]}])
+                "agentName": "reviewer", "marker": fixture()["marker"]}])
     );
+    runner.done();
+}
+
+/// The agent name is Herdr's `agent list` name of the terminal, and nothing
+/// else: a pane with no agent, an agent with no name, a name outside Herdr's
+/// rule and a terminal listed twice all leave the member out. Agent names
+/// are read last and are no evidence: whatever stops Herdr from listing its agents,
+/// the pane evidence is the answer.
+#[test]
+fn a_snapshot_reads_each_agent_name_last_and_never_fails_for_it() {
+    let panes = || {
+        list(vec![
+            pane("w1:p1", "term_a1", None),
+            pane("w1:p2", "term_a2", None),
+            pane("w1:p3", "term_a3", None),
+            pane("w1:p4", "term_a4", None),
+            pane("w1:p5", "term_a5", None),
+        ])
+    };
+    let evidence = |runner: &Scripted| {
+        runner.json(panes());
+        for (target, shell) in [
+            ("w1:p1", 11),
+            ("w1:p2", 12),
+            ("w1:p3", 13),
+            ("w1:p4", 14),
+            ("w1:p5", 15),
+        ] {
+            runner.json(process(target, shell, "claude"));
+        }
+    };
+    let snapshot = |runner: &Scripted| {
+        let answer = serve(runner, "snapshot", json!({"socket": SOCKET, "panes": null}));
+        let panes = answer["panes"].as_array().expect("a snapshot").clone();
+        let pids: Vec<u64> = panes
+            .iter()
+            .map(|pane| pane["panePid"].as_u64().unwrap())
+            .collect();
+        assert_eq!(pids, [11, 12, 13, 14, 15], "the pane evidence is intact");
+        panes
+            .into_iter()
+            .map(|pane| pane.get("agentName").cloned())
+            .collect::<Vec<Option<Value>>>()
+    };
+
+    let runner = Scripted::default();
+    evidence(&runner);
+    runner.json(agents(vec![
+        agent("term_a1", Some("reviewer")),
+        agent("term_a2", None),
+        agent("term_a4", Some("Not A Herdr Name")),
+        agent("term_a5", Some("first")),
+        agent("term_a5", Some("second")),
+    ]));
+    assert_eq!(
+        snapshot(&runner),
+        [Some(json!("reviewer")), None, None, None, None]
+    );
+    assert_eq!(runner.commands().last().unwrap(), "herdr agent list");
+    assert_eq!(runner.commands().len(), 7);
+    runner.done();
+
+    for failure in [
+        |runner: &Scripted| {
+            runner.refuse("unknown_method");
+        },
+        |runner: &Scripted| {
+            runner.json(json!({"id": "cli:agent:list", "result": {"type": "agent_list"}}));
+        },
+        |runner: &Scripted| {
+            runner.json(agents(vec![json!({"name": "no-terminal"})]));
+        },
+        |runner: &Scripted| {
+            runner.fail(RunError::Unfinished);
+        },
+        |runner: &Scripted| {
+            runner.fail(RunError::NotStarted);
+        },
+    ] {
+        let runner = Scripted::default();
+        evidence(&runner);
+        failure(&runner);
+        assert_eq!(snapshot(&runner), vec![None; 5]);
+        runner.done();
+    }
+
+    // A scope that selects no pane asks Herdr for no agents.
+    let runner = Scripted::default();
+    runner.json(panes());
+    let answer = serve(
+        &runner,
+        "snapshot",
+        json!({"socket": SOCKET, "panes": ["term_gone"]}),
+    );
+    assert_eq!(answer["panes"], json!([]));
     runner.done();
 }
 
@@ -362,7 +474,8 @@ fn panes_numbered_with_letters_are_listed_resolved_and_the_caller() {
         .json(process("w1:p1E", 90593, "claude"))
         .json(process("wA:pG", 90594, "zsh"))
         .json(process("w3:p0", 90595, "zsh"))
-        .json(process("w3:p11", 90596, "zsh"));
+        .json(process("w3:p11", 90596, "zsh"))
+        .json(agents(vec![]));
     let answer = serve(
         &runner,
         "snapshot",
@@ -752,4 +865,339 @@ fn option_like_text_is_the_last_argument_with_no_separator() {
         drop(calls);
         runner.done();
     }
+}
+
+/// A `name-agent` request: a set with `name`, or a clear of `expected`.
+fn name_agent(name: Option<&str>, expected: Option<&str>) -> Value {
+    let mut request = json!({"socket": SOCKET, "paneId": "term_a1", "panePid": 90593,
+                             "bindingId": BINDING, "name": name});
+    if let Some(expected) = expected {
+        request["expected"] = json!(expected);
+    }
+    request
+}
+
+fn set(name: &str) -> Value {
+    name_agent(Some(name), None)
+}
+
+fn take_away(expected: &str) -> Value {
+    name_agent(None, Some(expected))
+}
+
+fn listed(tokens: Value) -> Value {
+    list(vec![pane("w1:p1", "term_a1", Some(tokens))])
+}
+
+/// Scripts the reads every `name-agent` call makes before it decides: the
+/// agents, then the pane with its marker and its shell (the fence, last).
+/// `agent_name` is the name of the agent in the pane.
+fn observed<'r>(runner: &'r Scripted, agent_name: Option<&str>) -> &'r Scripted {
+    runner
+        .json(agents(vec![
+            agent("term_other", Some("reviewer")),
+            agent("term_a1", agent_name),
+        ]))
+        .json(listed(fixture_tokens()))
+        .json(process("w1:p1", 90593, "claude"))
+}
+
+const READS: [&str; 3] = [
+    "herdr agent list",
+    "herdr pane list",
+    "herdr pane process-info --pane w1:p1",
+];
+
+/// The calls after the three reads.
+fn writes(runner: &Scripted) -> Vec<String> {
+    runner.commands()[3..].to_vec()
+}
+
+/// A set renames the agent over whatever agent name it has, someone else's
+/// too: the explicit command is the intent. It never touches the pane label
+/// and writes no token.
+#[test]
+fn a_set_renames_the_agent_over_any_name_and_never_its_pane_label() {
+    for current in [None, Some("users-own"), Some("bea")] {
+        let runner = Scripted::default();
+        observed(&runner, current).text("");
+        assert_eq!(serve(&runner, "name-agent", set("ann")), json!({}));
+        let mut expected: Vec<String> = READS.map(String::from).into();
+        expected.push("herdr agent rename w1:p1 ann".to_owned());
+        assert_eq!(runner.commands(), expected, "{current:?}");
+        assert!(
+            !runner
+                .commands()
+                .iter()
+                .any(|call| call.contains("pane rename") || call.contains("report-metadata")),
+            "{current:?}"
+        );
+        runner.done();
+    }
+    // The agent has the name already: nothing to rename.
+    let runner = Scripted::default();
+    observed(&runner, Some("ann"));
+    assert_eq!(serve(&runner, "name-agent", set("ann")), json!({}));
+    assert_eq!(runner.commands(), READS);
+    runner.done();
+}
+
+/// Herdr renames in one step: a refused new name leaves the old one, and no
+/// `--clear` comes first. The next read still lists the old name, and the
+/// same set as before changes nothing.
+#[test]
+fn a_refused_new_name_keeps_the_old_name_and_never_clears_first() {
+    let runner = Scripted::default();
+    observed(&runner, Some("ann")).refuse("agent_name_taken");
+    let answer = serve(&runner, "name-agent", set("bea"));
+    assert_eq!(error_code(&answer), "refused");
+    assert!(
+        answer["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("refused"),
+        "Herdr's message: {answer}"
+    );
+    assert_eq!(writes(&runner), ["herdr agent rename w1:p1 bea"]);
+    runner.done();
+    let runner = Scripted::default();
+    observed(&runner, Some("ann"));
+    assert_eq!(serve(&runner, "name-agent", set("ann")), json!({}));
+    assert_eq!(runner.commands(), READS);
+    runner.done();
+}
+
+/// `name: null` takes the agent name away only when it equals `expected`,
+/// the identity's name, even when someone else gave that equal name: the
+/// driver compares names, it does not know who set one. A different name,
+/// an agent without a name, or no agent at all changes nothing.
+#[test]
+fn taking_the_name_away_clears_only_the_expected_name() {
+    let runner = Scripted::default();
+    observed(&runner, Some("ann")).text("");
+    assert_eq!(serve(&runner, "name-agent", take_away("ann")), json!({}));
+    assert_eq!(writes(&runner), ["herdr agent rename w1:p1 --clear"]);
+    runner.done();
+    for (case, current) in [("another name", Some("bea")), ("no name", None)] {
+        let runner = Scripted::default();
+        observed(&runner, current);
+        assert_eq!(
+            serve(&runner, "name-agent", take_away("ann")),
+            json!({}),
+            "{case}"
+        );
+        assert_eq!(runner.commands(), READS, "{case}");
+        runner.done();
+    }
+    let runner = Scripted::default();
+    runner
+        .json(agents(vec![agent("term_other", Some("ann"))]))
+        .json(listed(fixture_tokens()))
+        .json(process("w1:p1", 90593, "zsh"));
+    assert_eq!(serve(&runner, "name-agent", take_away("ann")), json!({}));
+    assert_eq!(runner.commands(), READS);
+    runner.done();
+}
+
+/// `expected` goes with `name: null` and only there: without it a request
+/// could take away a name someone else gave, so it is refused before any
+/// call.
+#[test]
+fn expected_is_required_to_take_a_name_away_and_refused_with_a_name() {
+    let mut empty = take_away("ann");
+    empty["expected"] = json!("");
+    let mut null = take_away("ann");
+    null["expected"] = Value::Null;
+    for (case, request) in [
+        ("no expected", name_agent(None, None)),
+        ("empty expected", empty),
+        ("null expected", null),
+        ("a name with expected", name_agent(Some("ann"), Some("ann"))),
+    ] {
+        let runner = Scripted::default();
+        assert_eq!(
+            error_code(&serve(&runner, "name-agent", request)),
+            "bad_request",
+            "{case}"
+        );
+        assert!(runner.calls.borrow().is_empty(), "{case}");
+    }
+}
+
+/// A change needs exact evidence. A list that does not say what the
+/// terminal hosts changes nothing, where a snapshot would only show no name.
+#[test]
+fn naming_refuses_an_agent_list_it_cannot_read_exactly() {
+    let unreadable = |name: Value| {
+        let mut row = agent("term_a1", None);
+        row["name"] = name;
+        vec![row]
+    };
+    for (case, rows) in [
+        (
+            "two rows",
+            vec![agent("term_a1", None), agent("term_a1", Some("ann"))],
+        ),
+        ("a number", unreadable(json!(7))),
+        ("an object", unreadable(json!({"name": "ann"}))),
+        ("outside Herdr's rule", unreadable(json!("Users Own"))),
+        ("empty", unreadable(json!(""))),
+        (
+            "a row without a terminal",
+            vec![agent("term_a1", None), json!({"name": "ann"})],
+        ),
+    ] {
+        for request in [set("ann"), take_away("ann")] {
+            let runner = Scripted::default();
+            runner.json(agents(rows.clone()));
+            assert_eq!(
+                error_code(&serve(&runner, "name-agent", request.clone())),
+                "failed",
+                "{case} {request}"
+            );
+            assert_eq!(runner.commands(), ["herdr agent list"], "{case}");
+            runner.done();
+        }
+    }
+    // An explicit null is no name, as an absent member is.
+    let runner = Scripted::default();
+    runner
+        .json(agents(unreadable(json!(null))))
+        .json(listed(fixture_tokens()))
+        .json(process("w1:p1", 90593, "claude"))
+        .text("");
+    assert_eq!(serve(&runner, "name-agent", set("ann")), json!({}));
+    assert_eq!(writes(&runner), ["herdr agent rename w1:p1 ann"]);
+    runner.done();
+}
+
+#[test]
+fn a_name_herdr_would_not_take_is_refused_before_any_call() {
+    for name in [
+        "",
+        "Ann",
+        "9lives",
+        "has space",
+        "--clear",
+        "-x",
+        "ann.b",
+        "\u{e9}cole",
+        &"a".repeat(33),
+    ] {
+        let runner = Scripted::default();
+        assert_eq!(
+            error_code(&serve(&runner, "name-agent", set(name))),
+            "refused",
+            "{name:?}"
+        );
+        assert!(runner.calls.borrow().is_empty(), "{name:?}");
+    }
+    let runner = Scripted::default();
+    let longest = format!("a{}", "b-_9".repeat(7) + "bcd");
+    assert_eq!(longest.len(), 32);
+    observed(&runner, None).text("");
+    assert_eq!(serve(&runner, "name-agent", set(&longest)), json!({}));
+    runner.done();
+}
+
+#[test]
+fn herdrs_rename_refusals_map_to_the_agent_and_name_codes() {
+    for (herdr, code) in [
+        ("agent_name_taken", "refused"),
+        ("invalid_agent_name", "refused"),
+        ("agent_not_found", "no_agent"),
+        ("agent_launch_pending", "not_ready"),
+        ("pane_not_found", "not_found"),
+        ("permission_denied", "failed"),
+    ] {
+        let runner = Scripted::default();
+        observed(&runner, None).refuse(herdr);
+        assert_eq!(
+            error_code(&serve(&runner, "name-agent", set("ann"))),
+            code,
+            "{herdr}"
+        );
+        assert_eq!(writes(&runner), ["herdr agent rename w1:p1 ann"], "{herdr}");
+        runner.done();
+    }
+    // A pane Herdr sees no agent in has nothing to name.
+    let runner = Scripted::default();
+    runner
+        .json(agents(vec![agent("term_other", Some("reviewer"))]))
+        .json(listed(fixture_tokens()))
+        .json(process("w1:p1", 90593, "zsh"));
+    assert_eq!(
+        error_code(&serve(&runner, "name-agent", set("ann"))),
+        "no_agent"
+    );
+    assert_eq!(writes(&runner), [] as [String; 0]);
+    runner.done();
+}
+
+/// The fence is the last read before the rename: a pane that is gone,
+/// unmarked, bound again or running another shell is never renamed.
+#[test]
+fn naming_refuses_a_pane_that_is_gone_rebound_or_runs_another_shell() {
+    let no_agents = || agents(vec![agent("term_a1", Some("ann"))]);
+    for (case, request, script) in [
+        (
+            "gone",
+            set("ann"),
+            (|runner: &Scripted| {
+                runner.json(list(vec![]));
+            }) as fn(&Scripted),
+        ),
+        ("unmarked", set("ann"), |runner| {
+            runner.json(list(vec![pane("w1:p1", "term_a1", None)]));
+        }),
+        ("rebound", set("ann"), |runner| {
+            let mut other = fixture_tokens();
+            other["tmt_binding"] = json!("123e4567-e89b-42d3-a456-426614174099");
+            runner.json(listed(other));
+        }),
+        ("another shell", set("ann"), |runner| {
+            runner
+                .json(listed(fixture_tokens()))
+                .json(process("w1:p1", 777, "zsh"));
+        }),
+        ("closed", set("ann"), |runner| {
+            runner
+                .json(listed(fixture_tokens()))
+                .refuse("pane_not_found");
+        }),
+        ("gone, taking away", take_away("ann"), |runner| {
+            runner.json(list(vec![]));
+        }),
+        ("rebound, taking away", take_away("ann"), |runner| {
+            let mut other = fixture_tokens();
+            other["tmt_binding"] = json!("123e4567-e89b-42d3-a456-426614174099");
+            runner.json(listed(other));
+        }),
+    ] {
+        let runner = Scripted::default();
+        runner.json(no_agents());
+        script(&runner);
+        assert_eq!(
+            error_code(&serve(&runner, "name-agent", request)),
+            "not_found",
+            "{case}"
+        );
+        assert!(
+            !runner
+                .commands()
+                .iter()
+                .any(|call| call.contains("agent rename") || call.contains("report-metadata")),
+            "{case}"
+        );
+        runner.done();
+    }
+    let runner = Scripted::default();
+    assert_eq!(
+        error_code(&serve(&runner, "name-agent", {
+            let mut request = set("ann");
+            request["panePid"] = json!(0);
+            request
+        })),
+        "bad_request"
+    );
 }

@@ -12,8 +12,8 @@ use super::{CallError, DriverProcess, caller::ExternalCaller};
 use crate::driver_protocol::registry::DriverRecord;
 use crate::{
     host::{
-        ActionError, DeliveryError, DeliveryStage, HostError, driver::HostDriver,
-        driver::Unavailable,
+        ActionError, DeliveryError, DeliveryStage, HostError,
+        driver::{AgentNaming, HostDriver, Unavailable},
     },
     process::{
         CommandError, CommandRunner,
@@ -37,8 +37,8 @@ use tmt_core::{
 };
 use tmt_driver_protocol::{
     CaptureRequest, CaptureResponse, ClearRequest, ClearResponse, DriverError, ErrorCode,
-    FocusRequest, InputRequest, Marker, Op, Pane, PromptRequest, PublishRequest, ServerRequest,
-    ServerResponse, SnapshotRequest, SnapshotResponse,
+    FocusRequest, InputRequest, Marker, NameAgentRequest, Op, Pane, PromptRequest, PublishRequest,
+    ServerRequest, ServerResponse, SnapshotRequest, SnapshotResponse,
 };
 
 /// A handle's approved drivers and, when its primary host is external, that
@@ -382,6 +382,7 @@ struct Observed {
 
 fn observation(host: &HostName, pane: Pane, start: Option<ProcessIncarnation>) -> PaneObservation {
     PaneObservation {
+        agent_name: pane.agent_name,
         // An external host's wire has no session or window; only the host is known.
         location: Some(PaneLocation {
             host: host.as_str().into(),
@@ -501,7 +502,20 @@ impl<R: CommandRunner> HostDriver for ExternalDriver<'_, R> {
         answer.map_err(|error| refused(&self.process, error))
     }
 
-    fn clear(&mut self, binding: &Binding) -> Result<bool, HostError> {
+    /// The agent name goes before the marker, since the driver acts only on a
+    /// pane that carries the binding, and only when it equals the identity's
+    /// name: a different name stays. No answer stops the clear; only a driver
+    /// process that could not be cleaned up does. It gets half of the budget
+    /// left, so the clear itself keeps the rest.
+    fn clear(&mut self, binding: &Binding, identity: &Identity) -> Result<bool, HostError> {
+        let now = Instant::now();
+        if self.process.supports(Op::NameAgent) && now < self.deadline {
+            let half = now + (self.deadline - now) / 2;
+            match self.call_name_agent(binding, None, Some(&identity.name), half) {
+                Err(error) if error.cleanup_failed() => return Err(error),
+                _ => {}
+            }
+        }
         let answer = self.call::<ClearResponse>(ClearRequest {
             socket: binding.server.socket_path.clone(),
             pane_id: binding.pane_id.clone(),
@@ -563,7 +577,11 @@ impl<R: CommandRunner> HostDriver for ExternalDriver<'_, R> {
                     ErrorCode::NotReady | ErrorCode::NotFound | ErrorCode::BadRequest => {
                         SendFailure::NotSent(cause)
                     }
-                    ErrorCode::Unavailable | ErrorCode::Failed => SendFailure::Uncertain(cause),
+                    // Decoding refuses `refused` from `prompt`; listed so a
+                    // new code is a compile error here, not a silent default.
+                    ErrorCode::Unavailable | ErrorCode::Failed | ErrorCode::Refused => {
+                        SendFailure::Uncertain(cause)
+                    }
                 }
             }
             Err(error) if nothing_ran(&error) => {
@@ -602,9 +620,41 @@ impl<R: CommandRunner> HostDriver for ExternalDriver<'_, R> {
             Err(error) => Err(ActionError::Evidence(error)),
         }
     }
+
+    fn name_agent(&mut self, binding: &Binding, name: &str) -> Result<AgentNaming, HostError> {
+        // A caller with less time left keeps its own deadline.
+        let deadline = (Instant::now() + Op::NameAgent.bounds().deadline).min(self.deadline);
+        self.call_name_agent(binding, Some(name), None, deadline)
+    }
 }
 
 impl<R: CommandRunner> ExternalDriver<'_, R> {
+    /// A set with `name`, or a clear of exactly `expected` with no name.
+    fn call_name_agent(
+        &self,
+        binding: &Binding,
+        name: Option<&str>,
+        expected: Option<&str>,
+        deadline: Instant,
+    ) -> Result<AgentNaming, HostError> {
+        if !self.process.supports(Op::NameAgent) {
+            return Ok(AgentNaming::NotLinked);
+        }
+        let request = NameAgentRequest {
+            socket: binding.server.socket_path.clone(),
+            pane_id: binding.pane_id.clone(),
+            pane_pid: binding.pane_pid,
+            binding_id: binding.id.clone(),
+            name: name.map(str::to_owned),
+            expected: expected.map(str::to_owned),
+        };
+        self.process
+            .call_done(Op::NameAgent, request, deadline)
+            .map_err(HostError::Driver)?
+            .map_err(|error| refused(&self.process, error))?;
+        Ok(AgentNaming::Done)
+    }
+
     fn call_focus(&self, request: FocusRequest) -> Result<(), HostError> {
         self.process
             .call_done(

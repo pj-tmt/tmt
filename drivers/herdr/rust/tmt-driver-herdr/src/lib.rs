@@ -2,6 +2,7 @@
 //! (contracts/driver-protocol-v1.md). It reports what Herdr and `ps` show;
 //! core decides what any of it means.
 
+mod agents;
 mod herdr;
 pub mod marker;
 mod panes;
@@ -12,10 +13,10 @@ use panes::{Listed, valid_pid};
 use run::{Runner, deadline};
 use tmt_driver_protocol::{
     CallerPane, CallerRequest, CallerResponse, Capabilities, CaptureRequest, CaptureResponse,
-    ClearRequest, ClearResponse, DriverError, ErrorCode, Grammar, Handler, InputRequest, Pane,
-    PaneIdSyntax, PromptRequest, PublishRequest, Request, ResolveTargetRequest,
-    ResolveTargetResponse, ServerIncarnation, ServerRequest, ServerResponse, SnapshotRequest,
-    SnapshotResponse,
+    ClearRequest, ClearResponse, DriverError, ErrorCode, Grammar, Handler, InputRequest,
+    NameAgentRequest, Pane, PaneIdSyntax, PromptRequest, PublishRequest, Request,
+    ResolveTargetRequest, ResolveTargetResponse, ServerIncarnation, ServerRequest, ServerResponse,
+    SnapshotRequest, SnapshotResponse,
 };
 
 /// The most panes one snapshot reports, as the contract bounds it.
@@ -40,6 +41,7 @@ pub fn serve_call() -> u8 {
 /// effect. Messages reach agent panes through `prompt`, which Herdr submits
 /// whole. `focus` is not
 /// declared: Herdr has no command that focuses a pane by its ID.
+/// `name-agent` sets Herdr's agent name, never its pane label.
 pub fn capabilities() -> Capabilities {
     Capabilities {
         protocols: vec![tmt_driver_protocol::PROTOCOL],
@@ -56,6 +58,7 @@ pub fn capabilities() -> Capabilities {
             "capture",
             "input",
             "prompt",
+            "name-agent",
         ]
         .map(String::from)
         .into(),
@@ -245,6 +248,7 @@ impl<R: Runner> Handler for HerdrDriver<R> {
                 };
                 panes.push(Pane {
                     marker: marker::decode(pane.tokens.as_ref()),
+                    agent_name: None,
                     id: pane.id,
                     target: Some(pane.target),
                     cwd: pane.cwd,
@@ -257,6 +261,16 @@ impl<R: Runner> Handler for HerdrDriver<R> {
             Ok(panes)
         })()
         .map_err(HerdrError::into_driver)?;
+        // Agent names come last and are no evidence: whatever stops Herdr
+        // from listing its agents, the panes above are still the answer.
+        let mut panes = panes;
+        if !panes.is_empty()
+            && let Ok(rows) = self.herdr.agent_rows(socket, deadline)
+        {
+            for pane in &mut panes {
+                pane.agent_name = agents::name_of(&rows, &pane.id);
+            }
+        }
         Ok(SnapshotResponse { panes })
     }
 
@@ -470,6 +484,129 @@ impl<R: Runner> Handler for HerdrDriver<R> {
                     Some("agent_not_found") => Some(ErrorCode::NoAgent),
                     Some("agent_blocked") => Some(ErrorCode::Blocked),
                     Some("agent_not_ready") => Some(ErrorCode::NotReady),
+                    _ => None,
+                };
+                let mut error = error.into_driver();
+                if let Some(code) = code {
+                    error.code = code;
+                }
+                error
+            })
+    }
+
+    /// Herdr's `agent rename`. A name replaces whatever agent name the agent
+    /// has. With no name, the driver takes the agent name away only when it
+    /// equals `expected`, so a name someone else gave stays. The pane fence
+    /// is the last read before the rename. Herdr has no compare-and-set, so a
+    /// rename by someone else after the agent list was read is not seen.
+    fn name_agent(&mut self, request: Request<NameAgentRequest>) -> Result<(), DriverError> {
+        let deadline = deadline(request.deadline_ms);
+        let NameAgentRequest {
+            socket,
+            pane_id,
+            pane_pid,
+            binding_id,
+            name,
+            expected,
+        } = &request.body;
+        let socket = self.socket(socket)?;
+        let pane_id = self.pane_id(pane_id)?;
+        if !valid_pid(*pane_pid) {
+            return Err(bad_request("the pane pid is invalid"));
+        }
+        match (name.as_deref(), expected.as_deref()) {
+            (Some(_), Some(_)) => {
+                return Err(bad_request("expected goes only with name null"));
+            }
+            (None, None | Some("")) => {
+                return Err(bad_request("name null needs the expected agent name"));
+            }
+            (Some(name), None) if !agents::valid_name(name) => {
+                return Err(DriverError::new(
+                    ErrorCode::Refused,
+                    "a Herdr agent name starts with a lowercase letter and holds only lowercase \
+                     letters, digits, '-' or '_' (1-32 characters)",
+                ));
+            }
+            _ => {}
+        }
+        // A change needs exact evidence: a list that does not say what this
+        // terminal hosts changes nothing.
+        let agent = self
+            .herdr
+            .agent_rows(socket, deadline)
+            .and_then(|rows| agents::agent_of(&rows, pane_id))
+            .map_err(HerdrError::into_driver)?;
+        let pane = self.fenced(socket, pane_id, *pane_pid, binding_id, deadline)?;
+        let current = agent.as_ref().map(Option::as_deref);
+        match (name.as_deref(), current) {
+            (Some(_), None) => Err(DriverError::new(
+                ErrorCode::NoAgent,
+                "Herdr recognizes no agent in the pane",
+            )),
+            (Some(name), Some(current)) if current == Some(name) => Ok(()),
+            // Herdr renames in one step, so a refused new name leaves the old.
+            (Some(name), Some(_)) => self.rename(socket, &pane.target, Some(name), deadline),
+            (None, Some(current)) if current.is_some() && current == expected.as_deref() => {
+                self.rename(socket, &pane.target, None, deadline)
+            }
+            // No agent, no name, or another name: nothing of this identity's.
+            (None, _) => Ok(()),
+        }
+    }
+}
+
+impl<R: Runner> HerdrDriver<R> {
+    /// The pane, only while it carries this binding's marker and runs that
+    /// shell; `not_found` otherwise.
+    fn fenced(
+        &self,
+        socket: &str,
+        pane_id: &str,
+        pane_pid: u64,
+        binding_id: &str,
+        deadline: std::time::Instant,
+    ) -> Result<Listed, DriverError> {
+        let gone =
+            || DriverError::new(ErrorCode::NotFound, "the pane no longer holds that binding");
+        let pane = self
+            .find(socket, pane_id, deadline)
+            .map_err(HerdrError::into_driver)?
+            .ok_or_else(gone)?;
+        if marker::binding_id(pane.tokens.as_ref()) != Some(binding_id) {
+            return Err(gone());
+        }
+        let process = self
+            .herdr
+            .process(socket, &pane.target, deadline)
+            .map_err(HerdrError::into_driver)?;
+        if process.map(|process| process.shell_pid) != Some(pane_pid) {
+            return Err(gone());
+        }
+        Ok(pane)
+    }
+
+    /// `herdr agent rename <target> <name>`, or `--clear` for no name.
+    fn rename(
+        &self,
+        socket: &str,
+        target: &str,
+        name: Option<&str>,
+        deadline: std::time::Instant,
+    ) -> Result<(), DriverError> {
+        self.herdr
+            .act(
+                socket,
+                &["agent", "rename", target, name.unwrap_or("--clear")],
+                deadline,
+            )
+            .map_err(|error| {
+                // These codes are rename answers (the protocol's agent and
+                // name codes), so only this call maps them.
+                let code = match error.code() {
+                    Some("invalid_agent_name" | "agent_name_taken") => Some(ErrorCode::Refused),
+                    Some("agent_not_found") => Some(ErrorCode::NoAgent),
+                    Some("agent_launch_pending") => Some(ErrorCode::NotReady),
                     _ => None,
                 };
                 let mut error = error.into_driver();

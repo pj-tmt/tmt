@@ -142,9 +142,9 @@ impl<F: FnOnce()> BindingEndpoint for HeldHost<F> {
         }
         self.inner.publish(binding, identity)
     }
-    fn clear(&mut self, binding: &Binding) -> Result<bool, Self::Error> {
+    fn clear(&mut self, binding: &Binding, identity: &Identity) -> Result<bool, Self::Error> {
         self.hold();
-        self.inner.clear(binding)
+        self.inner.clear(binding, identity)
     }
     fn pane_incarnation(
         &mut self,
