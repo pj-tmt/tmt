@@ -62,7 +62,7 @@ independent of storage access.
 | `skills.install`         | `owner`, `consent: true`, `skills`, optional `force`                                               | `owner`, `published` targets                                                                                                                                      |
 | `skills.remove`          | `owner`, `consent: true`, optional `skills` (names)                                                | `owner`, `removed` and `kept` targets                                                                                                                             |
 | `references.resolve`     | optional `identityIds`, `roomIds` (canonical UUIDs, at most 256 in total)                          | `identities` (`id`, `found`, `name`, `lifetime`, `retired`) and `rooms` (`id`, `found`, `retired`)                                                                |
-| `consumption.history`    | `identityIds` (1–32 UUIDs), `windowsMs` (1–3), optional `maxBuckets`                               | Closed timestamped deltas, coverage and included cumulative seed watermark (see below)                                                                            |
+| `consumption.history`    | `identityIds` (1–32 UUIDs), `windowsMs` (1–3), optional `maxBuckets`, `includeRetired`             | Closed timestamped deltas, coverage and included cumulative seed watermark; windows above an hour read the 30-day rollup (see below)                              |
 | `identity.meta.apply`    | `identityId` (active canonical UUID), `changes`                                                    | `identityId`, `changed`; atomic conditional metadata update (see below)                                                                                           |
 | `identity.rename`        | `identityId` (canonical UUID), `expectedName`, `name`                                              | `outcome`: `applied`, `conflict` or `not-found`; atomic conditional rename (see below)                                                                            |
 | `identities.status`      | `identityIds` (canonical UUIDs, at most 256)                                                       | `identities`: `{id, found}` and, when found, `status`: the `tmt identity status` value or `null`                                                                  |
@@ -179,8 +179,14 @@ must not repeat a confirmed mutation to retry it.
 
 `consumption.history` v1 is a storage-only batch read. It accepts 1–32 distinct
 canonical `identityIds`, 1–3 distinct `windowsMs` (multiples of 5,000 from 5,000
-through 3,600,000), and `maxBuckets` (1–120, default 120). Other values or fields
-return `API_INPUT_INVALID`. Batch larger rosters. The normative shared vector is
+through 3,600,000, or multiples of 300,000 above that through 2,592,000,000, which
+read the [30-day rollup](#thirty-day-rollup)), `maxBuckets` (1–720, default 120) and
+`includeRetired` (default false). Other values or fields return `API_INPUT_INVALID`.
+One response carries at most 23,040 buckets: per identity, each window contributes
+`min(maxBuckets, windowMs / resolutionMs)` and the sum over identities and windows
+is bounded (today's largest request, 32 x 3 x 120, is well inside it). Batch larger
+rosters. A retired identity is `{id,found:false}` unless `includeRetired` is true,
+which answers it as found with `retired:true` (its name is `references.resolve`'s). The normative shared vector is
 [consumption-history-v1.json](consumption-history-v1.json); it includes an open
 sample beyond the returned seed, so clients can verify the first live delta.
 
@@ -283,7 +289,7 @@ cacheWriteTokens?}`. It preserves model changes within a single read; it is
   totals, coverage, gaps or retention. Existing stored rows are not backfilled.
 
 Core retains 5-second buckets for two hours: at most 1,440 closed buckets plus
-one open bucket per identity. Expired history is excluded immediately on reads;
+one open bucket per identity; the [rollup](#thirty-day-rollup) keeps coarser sums for 30 days. Expired history is excluded immediately on reads;
 accepted writes prune the identity and opportunistically prune expired inactive
 rows. Reads never renew history. Migration does not backfill history and core
 never replays old transcript prefixes. Provider formats are unofficial; missing
@@ -323,6 +329,31 @@ remains. No new per-request deduplication store is introduced. A cursor outside
 the latest 1 MiB is rebaselined at EOF with a gap rather than scanning the old
 prefix. Extensions never access private source locators, provider files or
 opaque driver state.
+
+### Thirty-day rollup
+
+A `windowsMs` above 3,600,000 (a multiple of 300,000 through 30 days) reads the
+rollup instead of the 5-second buckets; shorter windows are unchanged byte for byte.
+Core folds every accepted read into 5-minute buckets in the same transaction that
+writes the 5-second bucket, with one rule for both, so a rollup bucket is the sum of
+the fine buckets it covers: tokens, per-model attribution, covered time and the
+`gap`, `discontinuous` and incomplete flags. Retention is 30 days by time alone
+(a write prunes its identity's expired rows and a few of anyone's, so a retired
+identity ages out too); there is no row cap. Recording starts at the migration, with
+no backfill, and a gap in sampling is a gap, never a measured zero.
+
+A rollup window is `{windowMs,fromMs,toMs,bucketMs,buckets}` as above with these
+differences. `toMs` is the last closed 5-minute boundary, so up to five minutes of
+the newest activity is not yet in it. `bucketMs` is
+`ceil((windowMs/300000)/maxBuckets)*300000`. The window adds `resolutionMs` (300,000),
+`availableFromMs` (start of the identity's first rollup bucket with a successful read,
+or null) and `retainedFromMs` (`max(toMs - 30 days, availableFromMs)`; earlier intervals
+are uncovered). A bucket adds `rateLimits` (the public `resume.consumption` shape): the
+newest limits **observed inside the bucket**, absent when no provider line in it carried
+any. Account windows repeat across seats on one account and across buckets, so a reader
+dedupes by `(windowMinutes, resetsAtMs)` and never sums them. The identity-level
+`reporting`, `availableFromMs`, `lastSampleAtMs` and `latest` still describe the
+5-second tier.
 
 ## Dispatch readiness and input safety
 

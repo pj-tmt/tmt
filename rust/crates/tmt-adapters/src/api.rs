@@ -172,6 +172,7 @@ pub enum Request {
         identities: Vec<String>,
         windows: Vec<u64>,
         max_buckets: u64,
+        include_retired: bool,
     },
     /// Read-only: the selected data directory, without opening storage.
     StorageRoot,
@@ -406,7 +407,14 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
             identities,
             windows,
             max_buckets,
-        } => consumption::history(&mut storage, identities, windows, max_buckets),
+            include_retired,
+        } => consumption::history(
+            &mut storage,
+            identities,
+            windows,
+            max_buckets,
+            include_retired,
+        ),
         Request::Digest(operation) => digest::execute(
             &mut storage,
             *operation,

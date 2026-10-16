@@ -267,6 +267,10 @@ const MIGRATIONS: &[Migration] = &[
         "retain checklist settlement order and delivery inputs",
         "schema/053.sql"
     ),
+    migration!(
+        "keep a 30-day five-minute consumption rollup",
+        "schema/054.sql"
+    ),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

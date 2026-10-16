@@ -123,7 +123,7 @@ fn session_upgrade_preserves_binding_and_rolls_back_observations_with_history() 
         .execute_batch("DROP TRIGGER reject_session_migration;")
         .unwrap();
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 53);
+    assert_eq!(storage.health().unwrap().schema_version, 54);
     let row = oracle.query_row(
         "SELECT id, identity_id, pane_id, bound_at, last_verified_at, runtime_state, last_transition FROM bindings",
         [], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?, row.get::<_, String>(5)?, row.get::<_, Option<String>>(6)?)),
@@ -180,7 +180,7 @@ fn driver_state_upgrade_keeps_remembered_sessions_without_state() {
     .unwrap();
     old.close().unwrap();
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 53);
+    assert_eq!(storage.health().unwrap().schema_version, 54);
     storage.close().unwrap();
     let oracle = Connection::open(&path).unwrap();
     let row: (String, Option<String>, Option<i64>, Option<i64>) = oracle
@@ -278,7 +278,7 @@ fn consumption_attribution_migration_preserves_legacy_bucket_without_backfill() 
     let mut storage = Storage::open(&path).unwrap();
     assert_eq!(oracle.query_row("SELECT input_tokens,output_tokens,cached_input_tokens,details FROM consumption_buckets",[],|row| Ok((row.get::<_,i64>(0)?,row.get::<_,i64>(1)?,row.get::<_,i64>(2)?,row.get::<_,Option<String>>(3)?))).unwrap(),(10,3,5,None));
     let response = storage
-        .consumption_history(&["meter".into()], &[5000], 120, 15000)
+        .consumption_history(&["meter".into()], &[5000], 120, 15000, false)
         .unwrap();
     let bucket = &response["identities"][0]["windows"][0]["buckets"][0];
     assert_eq!(bucket["inputTokens"], 10);

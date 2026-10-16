@@ -256,6 +256,9 @@ I/O occurs in the holding transaction. `api::digest` and the Digest adapter proj
 the trusted local consumer seam; the owning local API contract defines stats,
 legacy-counter provenance and the difference between idle and turn-boundary eligibility.
 
+Schema 54 adds `consumption_tier5m`, the 30-day five-minute consumption rollup
+(see [identity bindings](identity-bindings.md)), with the usual change-cursor triggers.
+
 Schema 53 records claim opportunity/sealed count and first settlement time/order in
 the existing checklist owner. Settlement order uses the durable change cursor in
 the same transaction, never timestamps. The content-free history read shares one

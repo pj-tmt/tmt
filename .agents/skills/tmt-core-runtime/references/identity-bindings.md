@@ -214,7 +214,12 @@ delivery. They install and launch nothing.
   reading and commits against the captured snapshot. It never infers activity.
 - `storage::consumption_history` keeps five-second buckets for two hours (at most 1,440 closed
   plus one open per identity), stores no transcript content or absolute path, and commits cursor,
-  counter and history in one transaction. A history read keeps one snapshot and reads each
+  counter and history in one transaction. The same transaction folds every accepted read into
+  `consumption_tier5m`, a 30-day rollup of five-minute buckets that serves windows above an
+  hour. One `Bucket::absorb` rule feeds both tiers, so a rollup bucket is the sum of its fine
+  buckets; it keeps no per-read observation and only rate limits observed inside the bucket.
+  Writes prune the identity's expired rollup rows and a few of anyone's, so a retired identity
+  ages out too; there is no row cap, and no backfill before the migration. A history read keeps one snapshot and reads each
   identity's entire retained range, even for a shorter display window: older rows still determine
   availability, the latest watermark and corruption refusal. Ordered rows are shared by all
   requested windows; disjoint output buckets consume them once per window. Public bounds:
