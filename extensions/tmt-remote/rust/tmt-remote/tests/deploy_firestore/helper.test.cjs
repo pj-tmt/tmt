@@ -45,6 +45,22 @@ function fixture(route, account = ACCOUNT) {
         return { status: 200, body: { email: account, email_verified: true } };
       if (url === `https://firebase.googleapis.com/v1beta1/projects/${PROJECT}`)
         return { status: 200, body: { projectId: PROJECT, state: 'ACTIVE' } };
+      const parsed = new URL(url);
+      if (
+        options.method === 'GET' &&
+        parsed.origin === 'https://firestore.googleapis.com' &&
+        /^\/v1\/projects\/[^/]+\/databases\/[^/]+\/collectionGroups\/[^/]+\/fields$/.test(parsed.pathname) &&
+        (parsed.searchParams.get('filter') !== 'indexConfig.usesAncestorConfig:false OR ttlConfig:*' ||
+          [...parsed.searchParams.keys()].some((key) => !['filter', 'pageSize', 'pageToken'].includes(key)))
+      )
+        return { status: 400, body: { error: { code: 400, status: 'INVALID_ARGUMENT' } } };
+      if (
+        options.method === 'GET' &&
+        parsed.origin === 'https://firebaserules.googleapis.com' &&
+        /^\/v1\/projects\/[^/]+\/rulesets$/.test(parsed.pathname) &&
+        Number(parsed.searchParams.get('pageSize')) > 100
+      )
+        return { status: 400, body: { error: { code: 400, status: 'INVALID_ARGUMENT' } } };
       return route(url, options);
     },
   };
@@ -149,6 +165,63 @@ test('anonymous enable only patches the selected provider, not another setting',
   assert.match(mutations(f)[0].url, /updateMask=signIn.anonymous.enabled$/);
 });
 const indexInput = { project: PROJECT, collection: 'log', field: 'sequence', direction: 'asc' };
+test('fields fake rejects the old filter and unknown query parameters with HTTP 400', async () => {
+  let accepted = 0;
+  const f = fixture(() => {
+    accepted++;
+    return { status: 200, body: { fields: [] } };
+  });
+  const url = new URL(`https://firestore.googleapis.com/v1/${database}/collectionGroups/-/fields`);
+  for (const filter of [null, 'indexConfig.usesAncestorConfig=false OR ttlConfig:*']) {
+    url.search = '';
+    if (filter !== null) url.searchParams.set('filter', filter);
+    assert.equal((await f.http(url.href, { method: 'GET' })).status, 400);
+  }
+  url.searchParams.set('filter', 'indexConfig.usesAncestorConfig:false OR ttlConfig:*');
+  url.searchParams.set('unknown', 'true');
+  assert.equal((await f.http(url.href, { method: 'GET' })).status, 400);
+  assert.equal(accepted, 0);
+  url.searchParams.delete('unknown');
+  url.searchParams.set('pageSize', '200');
+  url.searchParams.set('pageToken', 'next page&token');
+  assert.equal((await f.http(url.href, { method: 'GET' })).status, 200);
+  assert.equal(accepted, 1);
+});
+for (const operation of ['index-budget', 'apply-index']) {
+  test(`${operation} sends the documented fields filter on every bounded page`, async () => {
+    let pages = 0;
+    const f = fixture((url, options) => ({
+      status: 200,
+      body: options.method !== 'GET'
+        ? {}
+        : url.includes('/-/fields')
+          ? { fields: [], ...(pages++ === 0 ? { nextPageToken: 'next page&token' } : {}) }
+          : url.includes('/-/indexes')
+            ? { indexes: [] }
+            : url.endsWith('/fields/sequence')
+              ? { name: field, indexConfig: { indexes: [] } }
+              : {},
+    }));
+    assert.equal(
+      await execute(request(operation, operation === 'index-budget'
+        ? { project: PROJECT, fields: [], composites: [] }
+        : indexInput), f),
+      operation === 'index-budget' ? 'within-budget' : 'done',
+    );
+    const listed = f.calls.filter((call) => call.url.includes('/-/fields'));
+    assert.equal(listed.length, 2);
+    for (const [index, call] of listed.entries()) {
+      const params = new URL(call.url).searchParams;
+      assert.equal(call.method, 'GET');
+      assert.equal(params.get('filter'), 'indexConfig.usesAncestorConfig:false OR ttlConfig:*');
+      assert.equal(params.get('pageSize'), '200');
+      assert.equal(params.get('pageToken'), index === 0 ? null : 'next page&token');
+      assert.deepEqual([...params.keys()].sort(), index === 0
+        ? ['filter', 'pageSize'] : ['filter', 'pageSize', 'pageToken']);
+    }
+    assert.equal(mutations(f).length, operation === 'index-budget' ? 0 : 1);
+  });
+}
 test('200 unrelated live field configs stop a new allocation at the shared ceiling', async () => {
   const f = fixture((url) => ({
     status: 200,
@@ -365,6 +438,38 @@ test('a version/layout stub gate runs before credential access and redacts throw
   }
 });
 
+test('Rules inventory stays within the documented 100-row page maximum', async () => {
+  const name = `projects/${PROJECT}/rulesets/existing`;
+  let listed = 0;
+  const f = fixture((url, options) => {
+    if (url.includes('/rulesets?'))
+      return { status: 200, body: listed++ === 0
+        ? { rulesets: [], nextPageToken: 'next rules&page' }
+        : { rulesets: [{ name }] } };
+    if (url.endsWith('/rulesets/existing'))
+      return { status: 200, body: { source: { files: [{ name: 'firestore.rules', content: source }] } } };
+    if (url.endsWith('/releases') && options.method === 'POST')
+      return { status: 200, body: JSON.parse(options.body) };
+    if (url.includes('/releases/'))
+      return mutations(f).length === 0
+        ? { status: 404, body: {} }
+        : { status: 200, body: { rulesetName: name } };
+    assert.fail(url);
+  });
+  const oversized = `https://firebaserules.googleapis.com/v1/projects/${PROJECT}/rulesets?pageSize=200`;
+  assert.equal((await f.http(oversized, { method: 'GET' })).status, 400);
+  assert.equal(listed, 0);
+  f.calls.length = 0;
+  assert.equal(await execute(request('apply-rules', rulesInput()), f), 'done');
+  const pages = f.calls.filter((call) => call.url.includes('/rulesets?'));
+  assert.equal(pages.length, 2);
+  assert.deepEqual(pages.map((call) => Object.fromEntries(new URL(call.url).searchParams)), [
+    { pageSize: '100' },
+    { pageSize: '100', pageToken: 'next rules&page' },
+  ]);
+  assert.equal(mutations(f).length, 1);
+  assert.equal(mutations(f)[0].url.endsWith('/releases'), true);
+});
 test('bounded inventory refuses incomplete pagination before Ruleset creation', async () => {
   const f = fixture((url) => {
     if (url.includes('/releases/')) return { status: 404, body: {} };

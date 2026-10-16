@@ -32,6 +32,18 @@ global.fetch = async (url, options) => {
     path.join(__dirname, '../calls.jsonl'),
     JSON.stringify({ url, method: options.method }) + '\n'
   );
+  const parsed = new URL(url);
+  if (
+    options.method === 'GET' &&
+    ((parsed.origin === 'https://firestore.googleapis.com' &&
+      /^\/v1\/projects\/[^/]+\/databases\/[^/]+\/collectionGroups\/[^/]+\/fields$/.test(parsed.pathname) &&
+      (parsed.searchParams.get('filter') !== 'indexConfig.usesAncestorConfig:false OR ttlConfig:*' ||
+        [...parsed.searchParams.keys()].some((key) => !['filter', 'pageSize', 'pageToken'].includes(key)))) ||
+      (parsed.origin === 'https://firebaserules.googleapis.com' &&
+        /^\/v1\/projects\/[^/]+\/rulesets$/.test(parsed.pathname) &&
+        Number(parsed.searchParams.get('pageSize')) > 100))
+  )
+    return new Response(JSON.stringify({ error: { code: 400, status: 'INVALID_ARGUMENT' } }), { status: 400 });
   if (value.readFailure && url.includes(value.readFailure.path)) {
     return new Response(JSON.stringify({ error: { message: value.canary } }), { status: value.readFailure.status });
   }

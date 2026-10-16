@@ -6,6 +6,7 @@ const crypto = require('node:crypto');
 const SUPPORTED = ['15.29.0'];
 const BYTES = 4 * 1024 * 1024;
 const PAGES = 10;
+const OVERRIDDEN_FIELDS_FILTER = 'indexConfig.usesAncestorConfig:false OR ttlConfig:*';
 const APP_OBSERVE_MS = 15000;
 const APP_POLL_MS = 250;
 const UPLOAD_BYTES = Math.ceil((4 * 1024 * 1024 + 65536) / 3) * 4 + 256 * 1024;
@@ -397,13 +398,14 @@ async function execute(request, deps) {
     return reply.body;
   }
   async function pages(service, route, key) {
+    const pageSize = service === 'rules' || (service === 'hosting' && key === 'versions') ? 100 : 200;
     const all = [];
     let token = '';
     const seen = new Set();
     for (let page = 0; page < PAGES; page++) {
       const result = await api(
         service,
-        `${route}${route.includes('?') ? '&' : '?'}pageSize=${service === 'hosting' && key === 'versions' ? 100 : 200}${token ? `&pageToken=${encodeURIComponent(token)}` : ''}`,
+        `${route}${route.includes('?') ? '&' : '?'}pageSize=${pageSize}${token ? `&pageToken=${encodeURIComponent(token)}` : ''}`,
       );
       if (!result || (result[key] !== undefined && !Array.isArray(result[key]))) fail('unknown');
       if ((result[key] ?? []).length > 200) fail('unknown');
@@ -925,7 +927,7 @@ async function execute(request, deps) {
           ? []
           : await pages(
               'firestore',
-              `${database}/collectionGroups/-/fields?filter=${encodeURIComponent('indexConfig.usesAncestorConfig=false OR ttlConfig:*')}`,
+              `${database}/collectionGroups/-/fields?filter=${encodeURIComponent(OVERRIDDEN_FIELDS_FILTER)}`,
               'fields',
             );
       const unique = new Set(configured.map((x) => x.name));
@@ -1045,7 +1047,7 @@ async function execute(request, deps) {
       if (r.operation.startsWith('observe')) return 'absent';
       const configured = await pages(
         'firestore',
-        `${database}/collectionGroups/-/fields?filter=${encodeURIComponent('indexConfig.usesAncestorConfig=false OR ttlConfig:*')}`,
+        `${database}/collectionGroups/-/fields?filter=${encodeURIComponent(OVERRIDDEN_FIELDS_FILTER)}`,
         'fields',
       );
       const unique = new Set(configured.map((x) => x.name));
