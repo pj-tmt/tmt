@@ -52,7 +52,9 @@ after ordinary acceptance, whatever its result, unless the run is cancelled. The
 Java 21, pinned Firebase tools and the emulator JAR; the wrapper owns private state,
 loopback demo Auth/Firestore, real native producer builds and Chromium cleanup.
 This advisory proof is separate from the signed-fixture browser suites; Remote owns
-its producer scenario. Selection and lane topology stay in the
+its producer scenario. Its last phase is Colab's cross-transport case: a door holder and a
+hosted holder of one editor link each send two edit requests, every request is applied, and
+the owner's store holds the link's two own streams with two receipts each, none frozen. Selection and lane topology stay in the
 [CI reference](../../tmt-release/references/ci-selection.md#advisory-browser-selection).
 
 ## World
