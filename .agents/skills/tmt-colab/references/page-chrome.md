@@ -18,6 +18,20 @@ field (`Unknown author` when absent) and the independently optional latest publi
 About this page (Page information for read-only readers). These are escaped publisher-provided display labels, never identity,
 permissions or Ask recipient selection. Long captions truncate with the full label in the tooltip and attribution panel.
 
+The mounted app also supplies a display-only Remote session snapshot through the existing
+Header status slot. It reads the admitted SDK device list, up to 20 pages of 50 rows,
+on mount, visible-tab return and opening the details. One read owns all pages; a
+refusal or unfinished traversal shows an unconfirmed count, never a partial sum or zero.
+Current browser comes first, then recent activity; revoked/expired device rows are omitted.
+Counts describe live Sessions, not tabs, and closing a tab may take about a minute to appear.
+The read time and this limit stay visible in the tooltip. A successful complete read supplies
+the same-origin `/settings` link. Hosted/detached adapters and missing Sessions show no chip.
+`remote-presence.ts` owns the finite snapshot and replacement/close fences; `mounted.ts`
+uses its already-admitted Session without reopening. `remote-header.tsx` owns only presentation
+and the three refresh triggers. Desktop uses the shared Tooltip; through 640px the existing
+More menu includes a Remote submenu with the same details and settings link. No shared header
+API, presence stream, periodic polling or new Remote operation is introduced.
+
 Native pairing/app-unavailable guidance stays static. `chrome.rs` compile-time embeds the same checked
 CSS and Colab host/reader/notice layout styles; `/assets/chrome.css` serves those immutable
 bytes even without an app build. `socket.rs` uses shared static header/notice slots, escapes
@@ -49,7 +63,7 @@ Owner page and space-home headers use one shared-height row: neutral ◉ and the
 existing display-only `local · <backendName>` attribution (`local` when absent),
 Colab, `/`, title, then muted original author. Full attribution remains named and
 in a tooltip. Author hides below 900px before attribution text hides below 640px;
-the title truncates without changing its DOM copy. The chip remains outside menus
+the title truncates without changing its DOM copy. The page connection chip remains outside menus
 and keeps its existing connection owner. At 640px and narrower, Discussion and More
 stay visible; Agents, Files (count), Source and Export move into More with the same
 handlers and disabled states. A single media-query observation selects those menu

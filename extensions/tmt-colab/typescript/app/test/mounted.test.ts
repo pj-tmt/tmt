@@ -12,7 +12,13 @@ const setup = vi.hoisted(() => {
   return {
     first,
     second,
-    sdk: { reopenSession: vi.fn(async () => ({})), certifyKey: vi.fn(async () => ({})) },
+    sdk: {
+      reopenSession: vi.fn(async () => ({})),
+      certifyKey: vi.fn(async () => ({})),
+      management: vi.fn((_session: unknown, _options?: { timeoutMs?: number }) => ({
+        devices: vi.fn(async () => ({ devices: [], nextCursor: null })),
+      })),
+    },
     signals: [] as AbortSignal[],
     ports: [] as RemoteClient[],
     events: [] as string[],
@@ -672,4 +678,48 @@ it('an unconfirmed read close blocks successors across Home generations', async 
   } finally {
     mounted.close();
   }
+});
+
+it('reads Remote presence with the admitted mounted Session and exposes settings only after success', async () => {
+  setup.register.mockReset().mockResolvedValueOnce(setup.first);
+  setup.remote.mockReset().mockResolvedValue({});
+  setup.sdk.management.mockClear();
+  const mounted = await mountedTransport();
+  const presence = mounted.transport.remotePresence!;
+  expect(presence.snapshot()).toEqual({ kind: 'hidden' });
+  await presence.refresh();
+  expect(setup.sdk.management).toHaveBeenCalledWith(setup.first.remoteSession, {
+    timeoutMs: 20000,
+  });
+  expect(presence.snapshot()).toMatchObject({
+    kind: 'confirmed',
+    count: 0,
+    settingsUrl: 'https://example.test/settings',
+  });
+  expect(setup.register).toHaveBeenCalledTimes(1);
+  mounted.close();
+  expect(presence.snapshot()).toEqual({ kind: 'hidden' });
+});
+
+it('a mounted Remote snapshot cannot publish after its Session has been replaced', async () => {
+  setup.register.mockReset().mockResolvedValueOnce(setup.first).mockResolvedValueOnce(setup.second);
+  setup.remote.mockReset().mockResolvedValue({});
+  let release!: (value: { devices: []; nextCursor: null }) => void;
+  setup.sdk.management.mockImplementationOnce(() => ({
+    devices: vi.fn(
+      () =>
+        new Promise<{ devices: []; nextCursor: null }>((resolve) => {
+          release = resolve;
+        }),
+    ),
+  }));
+  const mounted = await mountedTransport();
+  await mounted.transport.page('page');
+  const presence = mounted.transport.remotePresence!;
+  const reading = presence.refresh();
+  await setup.owner!.reconnect(setup.first as never);
+  release({ devices: [], nextCursor: null });
+  await reading;
+  expect(presence.snapshot()).toEqual({ kind: 'hidden' });
+  mounted.close();
 });

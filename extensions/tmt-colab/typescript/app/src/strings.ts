@@ -276,6 +276,29 @@ export const text = {
     `Your paired device is at its limit of ${limit} Remote sessions.`,
   sessionLimitCommand: 'To allow another tab, run:',
   remoteSettings: 'Open Remote settings',
+  remoteCount: (count: number) => `Remote · ${count}`,
+  remoteCountLabel: (count: number) =>
+    count === 0
+      ? 'Remote: no live sessions'
+      : `Remote: ${count} live ${count === 1 ? 'session' : 'sessions'}`,
+  remoteUnconfirmed: 'Remote · ?',
+  remoteUnconfirmedLabel: 'Remote: session count unconfirmed',
+  remoteThisBrowser: 'This browser',
+  remoteAddon: 'Browser add-on',
+  remoteCli: 'CLI',
+  remoteActivityUnknown: 'activity unknown',
+  remoteActiveNow: 'active now',
+  remoteJustNow: 'just now',
+  remoteMinutesAgo: (minutes: number) => `${minutes} min ago`,
+  remoteHoursAgo: (hours: number) => `${hours} hr ago`,
+  remoteDaysAgo: (days: number) => `${days} day${days === 1 ? '' : 's'} ago`,
+  remoteDeviceRow: (device: string, count: number, activity: string) =>
+    `${device} · ${count} ${count === 1 ? 'session' : 'sessions'} · ${activity}`,
+  remoteCouldNotConfirm: "Couldn't confirm live sessions right now.",
+  remoteSnapshot: (time: string) =>
+    `As of ${time} · counts live sessions; a closed tab can stay listed for about a minute.`,
+  remoteSnapshotUnconfirmed: (time: string) => `As of ${time}`,
+
   ask: 'Ask agent',
   asks: 'Page asks',
   askSelection: 'Select text in the page to ask your agent.',

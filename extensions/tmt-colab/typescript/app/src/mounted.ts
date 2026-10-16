@@ -1,3 +1,4 @@
+import { RemotePresence } from './remote-presence.js';
 import { createRemoteClient, type RemoteClient } from './ask-remote.js';
 import {
   ManagementClient,
@@ -73,6 +74,15 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
     return { registration, remote };
   }
   current = await attach(registration);
+  const remotePresence = new RemotePresence(() => {
+    const session = current.registration.remoteSession;
+    const readManagement = pairedSdk.management;
+    if (lifetime.signal.aborted || !session || !readManagement) return undefined;
+    return {
+      generation: current.registration,
+      devices: (input) => readManagement(session, { timeoutMs: 20000 }).devices(input),
+    };
+  }, new URL('/settings', mount).href);
   const titles = new TitleCache(bootstrap.space, registration.deviceId);
   const drafts = new LocalDraftStore(bootstrap.space, registration.deviceId);
   let managementClient = new ManagementClient(mount, current.registration);
@@ -169,6 +179,7 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
         titleGeneration.abort();
         titleGeneration = new AbortController();
         current = admitted;
+        remotePresence.invalidate();
         managementClient = new ManagementClient(mount, next);
         return current;
       }).finally(() => {
@@ -182,6 +193,7 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
     close: () => {
       signal?.removeEventListener('abort', abort);
       lifetime.abort();
+      void remotePresence.close();
     },
     transport: {
       get backendName() {
@@ -189,6 +201,7 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
       },
       drafts,
       management,
+      remotePresence,
       async spaceHome() {
         const client = managementClient;
         return managed(client, async () => {

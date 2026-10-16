@@ -1,3 +1,4 @@
+import { RemoteMoreMenu, useRemoteHeaderSource } from './remote-header.js';
 import { BrowserIconAction } from '@tmt/browser-ui/react';
 import { useSyncExternalStore } from 'react';
 import { PageMenu as BrowserMenu } from './page-menu.js';
@@ -95,6 +96,8 @@ export function PageHeaderActions({
   onSelect(action: PageHeaderAction): void;
 }) {
   const compact = useSyncExternalStore(subscribeCompact, isCompact);
+  const remoteAvailable = useRemoteHeaderSource();
+  const MoreMenu = compact && remoteAvailable ? RemoteMoreMenu : BrowserMenu;
   const choice = useSyncExternalStore(subscribeTheme, getThemeChoice);
   return (
     <nav className="page-header-actions" aria-label={text.pageHeaderActions}>
@@ -148,7 +151,7 @@ export function PageHeaderActions({
           />
         </>
       )}
-      <BrowserMenu
+      <MoreMenu
         label={text.more}
         icon={<PageHeaderIcon name="more" />}
         items={[

@@ -1,0 +1,202 @@
+import { expect, test, type Page } from '@playwright/test';
+import { mkdirSync } from 'node:fs';
+
+async function fixture(
+  page: Page,
+  input: {
+    count?: number;
+    hidden?: boolean;
+    home?: boolean;
+    unconfirmed?: boolean;
+    pending?: boolean;
+  } = {},
+) {
+  await page.goto('/');
+  await page.evaluate(async (input) => {
+    const path = '/test/remote-header-browser.tsx';
+    await (await import(path)).mount(input);
+  }, input);
+}
+async function readCount(page: Page) {
+  return page.evaluate(async () => {
+    const path = '/test/remote-header-browser.tsx';
+    return (await import(path)).reads();
+  });
+}
+async function capture(page: Page, name: string) {
+  const directory = process.env.COLAB_REMOTE_HEADER_CAPTURES;
+  if (!directory) return;
+  mkdirSync(directory, { recursive: true });
+  await page.screenshot({ path: `${directory}/${name}.png` });
+}
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const) {
+    test(`Remote snapshots, details, focus and settings ${width} ${theme}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await fixture(page);
+      const header = page.locator('#remote-header-fixture header');
+      if (width === 1440) {
+        const chip = header.getByRole('link', { name: 'Remote: 3 live sessions' });
+        await expect(chip).toBeVisible();
+        await expect.poll(() => readCount(page)).toBe(1);
+        await capture(page, `count-3-${width}-${theme}`);
+        await chip.hover();
+        const tooltip = page.getByRole('tooltip');
+        await expect(tooltip).toBeVisible();
+        await expect(tooltip).toContainText('This browser · 1 session · active now');
+        await expect(tooltip).toContainText('Browser add-on · 2 sessions · 1 min ago');
+        await expect(tooltip).toContainText('CLI · 0 sessions · activity unknown');
+        await expect(tooltip).toContainText(
+          'As of 10:42 · counts live sessions; a closed tab can stay listed for about a minute.',
+        );
+        const rows = await tooltip.locator('.remote-details > div').allTextContents();
+        expect(rows[0]).toBe('This browser · 1 session · active now');
+        await expect.poll(() => readCount(page)).toBe(2);
+        await capture(page, `tooltip-${width}-${theme}`);
+        await page.keyboard.press('Escape');
+        await expect(tooltip).toBeHidden();
+        await page.mouse.move(0, 899);
+        await chip.focus();
+        await expect(tooltip).toBeVisible();
+        await expect.poll(() => readCount(page)).toBe(3);
+        await page.keyboard.press('Escape');
+        await page.route('**/settings', (route) =>
+          route.fulfill({ body: '<h1>Remote settings destination</h1>', contentType: 'text/html' }),
+        );
+        await chip.click();
+        await expect(page).toHaveURL(new URL('/settings', page.url()).href);
+      } else {
+        await expect(header.getByRole('link', { name: /^Remote:/ })).toHaveCount(0);
+        await header.getByRole('button', { name: 'More', exact: true }).click();
+        const row = page.getByRole('menuitem', { name: 'Remote: 3 live sessions' });
+        await expect(row).toBeVisible();
+        await capture(page, `more-${width}-${theme}`);
+        await row.hover();
+        await expect(page.getByText('This browser · 1 session · active now')).toBeVisible();
+        await expect(page.getByText('CLI · 0 sessions · activity unknown')).toBeVisible();
+        await expect(page.getByRole('menuitem', { name: 'Open Remote settings' })).toBeVisible();
+        const submenu = page.locator('[data-slot="dropdown-menu-sub-content"]');
+        const bounds = await submenu.boundingBox();
+        expect(bounds).not.toBeNull();
+        expect(bounds!.x).toBeGreaterThanOrEqual(0);
+        expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
+        expect(
+          await submenu
+            .locator('.remote-details')
+            .evaluate((node) => node.scrollWidth <= node.clientWidth),
+        ).toBe(true);
+
+        await expect.poll(() => readCount(page)).toBe(2);
+        await capture(page, `submenu-${width}-${theme}`);
+        await page.keyboard.press('Escape');
+        await expect(page.getByText('This browser · 1 session · active now')).toBeHidden();
+        await page.keyboard.press('Escape');
+        await expect(header.getByRole('button', { name: 'More', exact: true })).toBeFocused();
+        await header.getByRole('button', { name: 'More', exact: true }).click();
+        const source = page.getByRole('menuitem', { name: 'Source', exact: true });
+        await source.evaluate((node: HTMLElement) => node.click());
+        await expect(page.getByRole('dialog', { name: 'Source', exact: true })).toHaveCount(0);
+        await source.click();
+        await expect(page.getByRole('dialog', { name: 'Source', exact: true })).toBeVisible();
+      }
+    });
+    test(`zero, one, unconfirmed and hidden stay distinct ${width} ${theme}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      for (const count of [0, 1]) {
+        await fixture(page, { count, home: true });
+        const header = page.locator('#remote-header-fixture header');
+        if (width === 390) await header.getByRole('button', { name: 'More', exact: true }).click();
+        const control =
+          width === 390
+            ? page.getByRole('menuitem', {
+                name: count ? 'Remote: 1 live session' : 'Remote: no live sessions',
+              })
+            : header.getByRole('link', {
+                name: count ? 'Remote: 1 live session' : 'Remote: no live sessions',
+              });
+        await expect(control).toBeVisible();
+        await expect(control).toContainText(`Remote · ${count}`);
+        await capture(page, `count-${count}-${width}-${theme}`);
+      }
+      await fixture(page, { unconfirmed: true, home: true });
+      const header = page.locator('#remote-header-fixture header');
+      if (width === 390) await header.getByRole('button', { name: 'More', exact: true }).click();
+      const control =
+        width === 390
+          ? page.getByRole('menuitem', { name: 'Remote: session count unconfirmed' })
+          : header.getByRole('button', { name: 'Remote: session count unconfirmed' });
+      await expect(control).toHaveText('Remote · ?');
+      await control.hover();
+      await expect(page.getByText("Couldn't confirm live sessions right now.")).toBeVisible();
+      await expect(page.getByRole('menuitem', { name: 'Open Remote settings' })).toHaveCount(0);
+      await capture(page, `unconfirmed-${width}-${theme}`);
+      await fixture(page, { hidden: true, home: true });
+      await expect(header.getByText(/^Remote ·/)).toHaveCount(0);
+      expect(await readCount(page)).toBe(0);
+      await capture(page, `hidden-${width}-${theme}`);
+    });
+  }
+
+test('mount, visible and tooltip are the only triggers, and concurrent triggers join one read', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await fixture(page);
+  const chip = page.getByRole('link', { name: 'Remote: 3 live sessions' });
+  await expect(chip).toBeVisible();
+  expect(await readCount(page)).toBe(1);
+  await page.evaluate(async () => {
+    const path = '/test/remote-header-browser.tsx';
+    const f = await import(path);
+    f.hold();
+    f.setCount(1);
+    f.visibility(false);
+  });
+  expect(await readCount(page)).toBe(1);
+  await page.evaluate(async () => {
+    const path = '/test/remote-header-browser.tsx';
+    (await import(path)).visibility(true);
+  });
+  await expect.poll(() => readCount(page)).toBe(2);
+  await chip.hover();
+  await expect(page.getByRole('tooltip')).toBeVisible();
+  expect(await readCount(page)).toBe(2);
+  await page.evaluate(async () => {
+    const path = '/test/remote-header-browser.tsx';
+    (await import(path)).resume();
+  });
+  await expect(page.getByRole('link', { name: 'Remote: 1 live session' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.mouse.move(0, 899);
+  await page.evaluate(async () => {
+    const path = '/test/remote-header-browser.tsx';
+    (await import(path)).refuse();
+  });
+  await page.getByRole('link', { name: 'Remote: 1 live session' }).hover();
+  await expect(
+    page.getByRole('button', { name: 'Remote: session count unconfirmed' }),
+  ).toBeVisible();
+  expect(await readCount(page)).toBe(3);
+});
+
+test('a pending snapshot does not replace the open More menu or its focused row', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 900 });
+  await fixture(page, { pending: true });
+  const more = page.getByRole('button', { name: 'More', exact: true });
+  await more.click();
+  const source = page.getByRole('menuitem', { name: 'Source', exact: true });
+  await source.focus();
+  const original = await source.elementHandle();
+  await page.evaluate(async () => {
+    const path = '/test/remote-header-browser.tsx';
+    (await import(path)).resume();
+  });
+  await expect(page.getByRole('menuitem', { name: 'Remote: 3 live sessions' })).toBeVisible();
+  await expect(source).toBeFocused();
+  expect(await original!.evaluate((node) => node.isConnected)).toBe(true);
+  expect(await readCount(page)).toBe(1);
+});
