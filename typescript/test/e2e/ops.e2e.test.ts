@@ -92,11 +92,19 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
       await fixture.waitForCapture(
         (screen) =>
           screen.includes('OPS / UI') &&
-          /^ AGENT[ \t]+SQUAD[ \t]+STATE[ \t]+TOK 1h[ \t]+MODE[ \t]+◷ CRON[ \t]+RUNTIME[ \t]+MODEL\b/m.test(
-            screen
-          ) &&
-          screen.includes('Ben') &&
-          screen.includes('worker'),
+          /^ SQUAD[ \t]+TEAM[ \t]+TOK 1h[ \t]+NOW\b/m.test(screen) &&
+          screen.includes('No matching squads') &&
+          screen.includes('No agents waiting on you'),
+        shell.pane
+      );
+      // Creation belongs to Agents; Overview no longer lists every identity.
+      fixture.tmux(['send-keys', '-t', shell.pane, '2', 'Right']);
+      await fixture.waitForCapture(
+        (screen) =>
+          /^ +SQUAD \/ AGENT[ \t]+MEMBERS \/ STATE[ \t]+DIGEST[ \t]+◷ CRON[ \t]*$/m.test(screen) &&
+          screen.includes('Common pool') &&
+          /^[ \t]+├ Ben[ \t]+— unreported[ \t]/m.test(screen) &&
+          /^[ \t]+└ worker[ \t]+— unreported[ \t]/m.test(screen),
         shell.pane
       );
       fixture.tmux(['send-keys', '-t', shell.pane, 'n']);
