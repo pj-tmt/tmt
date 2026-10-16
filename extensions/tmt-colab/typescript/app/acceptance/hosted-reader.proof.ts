@@ -1,5 +1,5 @@
 import { text } from '../src/strings.js';
-import { chromium, expect, test, type Page } from '@playwright/test';
+import { chromium, expect, test, type Page, type APIResponse } from '@playwright/test';
 import { Envelope, decodeHeader } from '@tmt/colab-client';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -8,6 +8,7 @@ import path from 'node:path';
 import { run } from './harness/ask.js';
 import { openReaderLink, startDoor } from './harness/browser.js';
 import { composed, serve } from './harness/hosting.js';
+import { finiteFirestore } from './harness/firestore-proxy.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
 // Run only via scripts/hosted-reader-emulator.mjs. The wrapper builds the exact private native
@@ -208,6 +209,10 @@ test('a hosted editor verifies native content, publishes own edit requests and o
       editConverged = false;
     let pageGets = 0;
     let holderToken = '';
+    const proxyLifetime = new AbortController();
+    world.onDispose(async () => {
+      proxyLifetime.abort();
+    });
     await context.addInitScript(() => {
       (window as unknown as { __violations: string[] }).__violations = [];
       document.addEventListener('securitypolicyviolation', (event) =>
@@ -239,28 +244,47 @@ test('a hosted editor verifies native content, publishes own edit requests and o
       } else if (url.origin === 'https://firestore.googleapis.com') {
         if (url.pathname.endsWith(':commit')) writes.push(request.postData() ?? '');
         const requestedPhase = phase;
-        const response = await route
-          .fetch({ url: `http://${firestore}${url.pathname}${url.search}` })
-          .catch(async (error: unknown) => {
+        const target = new URL(`http://${firestore}${url.pathname}${url.search}`);
+        let response: { status: number; headers: Record<string, string>; body: Buffer };
+        let poll: APIResponse | undefined;
+        if (url.pathname.includes('Listen/channel')) {
+          poll = await route.fetch({ url: target.href }).catch(async (error: unknown) => {
             if (!(error instanceof Error) || !error.message.includes('socket hang up')) throw error;
-            // An aborted long-poll must not replace the product assertion with proxy noise.
+            // Only Listen's cancelled long-polls use the pooled Playwright proxy.
             await route.abort();
+            return undefined;
           });
-        if (!response) return;
+          if (!poll) return;
+          response = { status: poll.status(), headers: poll.headers(), body: await poll.body() };
+        } else {
+          try {
+            response = await finiteFirestore({
+              url: target,
+              method: request.method(),
+              headers: await request.allHeaders(),
+              body: request.postDataBuffer(),
+              signal: proxyLifetime.signal,
+            });
+          } catch (error) {
+            // A real finite-call failure still fails the browser request and the proof.
+            await route.abort();
+            throw error;
+          }
+        }
         if (request.method() === 'GET' && url.pathname.includes('/documents/'))
           gets.push({
             phase: requestedPhase,
             collection: url.pathname.split('/').at(-2)!,
             target: url.pathname.split('/').at(-1)!,
-            status: response.status(),
+            status: response.status,
           });
         if (url.pathname.includes('Listen/channel'))
           listens.push({
             phase,
-            documentChangeMarkers: ((await response.text()).match(/"documentChange"\s*:/g) ?? [])
+            documentChangeMarkers: (response.body.toString().match(/"documentChange"\s*:/g) ?? [])
               .length,
           });
-        if (response.ok() && url.pathname.endsWith(':runQuery')) {
+        if (response.status >= 200 && response.status < 300 && url.pathname.endsWith(':runQuery')) {
           const input = request.postDataJSON() as {
             structuredQuery: {
               from: Array<{ collectionId: string }>;
@@ -272,7 +296,7 @@ test('a hosted editor verifies native content, publishes own edit requests and o
               };
             };
           };
-          const rows = (await response.json()) as Array<{ document?: unknown }>;
+          const rows = JSON.parse(response.body.toString()) as Array<{ document?: unknown }>;
           queries.push({
             phase: requestedPhase,
             streamFiltered:
@@ -284,9 +308,14 @@ test('a hosted editor verifies native content, publishes own edit requests and o
             documents: rows.filter((row) => row.document !== undefined).length,
           });
         }
-        if (response.ok() && request.method() === 'GET' && url.pathname.includes('/pages/'))
+        if (
+          response.status >= 200 &&
+          response.status < 300 &&
+          request.method() === 'GET' &&
+          url.pathname.includes('/pages/')
+        )
           pageGets += 1;
-        await route.fulfill({ response });
+        await route.fulfill(poll ? { response: poll } : response);
       } else {
         unexpected.push(url.origin);
         await route.abort();
