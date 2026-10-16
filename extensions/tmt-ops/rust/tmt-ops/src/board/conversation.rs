@@ -487,7 +487,11 @@ fn render_target(
     let area = inside;
     // Effective bindings depend on logical conversation placement. Acquire them
     // before mutably borrowing the response sessions that own that placement.
-    let bindings = if interactive { app.bindings() } else { Default::default() };
+    let bindings = if interactive {
+        app.bindings()
+    } else {
+        Default::default()
+    };
     let link = link_preview(app, row, &bindings).map(|preview| {
         let hint = format!(" (press {} - {})", preview.key, preview.wording);
         let hint = super::view::fit(&hint, hint.width().min(usize::from(area.width)));
@@ -917,18 +921,18 @@ fn render_target(
         .scrolls
         .show(frame, Pane::Replies, body, &mapped.lines, look);
     if interactive {
-    super::member_links::paint_hits(
-        frame,
-        app,
-        body,
-        offset,
-        shown,
-        &mapped.mentions,
-        super::member_links::Paint {
-            reader: true,
-            role: Role::Link,
-        },
-    );
+        super::member_links::paint_hits(
+            frame,
+            app,
+            body,
+            offset,
+            shown,
+            &mapped.mentions,
+            super::member_links::Paint {
+                reader: true,
+                role: Role::Link,
+            },
+        );
     }
     if let Some(position) = position {
         let visible = shown.min(mapped.lines.len().saturating_sub(offset));

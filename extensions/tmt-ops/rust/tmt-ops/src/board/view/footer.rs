@@ -593,7 +593,11 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
     } else if let Some(notice) = app.migration_notice.as_ref() {
         Line::from(Span::styled(
             notice.as_str(),
-            look.role(if app.shell.tab == crate::board::shell::OpsTab::Overview { Role::Muted } else { Role::Waiting }),
+            look.role(if app.shell.tab == crate::board::shell::OpsTab::Overview {
+                Role::Muted
+            } else {
+                Role::Waiting
+            }),
         ))
     } else if let Some(error) = &app.error {
         Line::from(Span::styled(

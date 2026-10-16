@@ -47,9 +47,23 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         Line::styled(
             format!(
                 "{} of {} {}",
-                observed(if agents { scene.matching_agents } else { scene.squads.len() }),
-                observed(if agents { scene.summary.total } else { scene.total_squads }),
-                if agents { agent_noun(scene.summary.total) } else if scene.total_squads == 1 { "squad" } else { "squads" },
+                observed(if agents {
+                    scene.matching_agents
+                } else {
+                    scene.squads.len()
+                }),
+                observed(if agents {
+                    scene.summary.total
+                } else {
+                    scene.total_squads
+                }),
+                if agents {
+                    agent_noun(scene.summary.total)
+                } else if scene.total_squads == 1 {
+                    "squad"
+                } else {
+                    "squads"
+                },
             ),
             look.role(Role::Muted),
         )
