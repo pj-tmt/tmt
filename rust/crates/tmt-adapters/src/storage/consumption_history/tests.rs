@@ -6,7 +6,7 @@ fn history_empty_and_missing_keep_complete_wire_shape() {
     let (_directory, path, id) = fixture();
     let mut storage = Storage::open(&path).unwrap();
     let response = storage
-        .consumption_history(&[id.clone(), "missing".into()], &[10000], 120, 15001)
+        .consumption_history(&[id.clone(), "missing".into()], &[10000], 120, 15001, false)
         .unwrap();
     assert_eq!(
         response,
@@ -49,11 +49,11 @@ fn history_populated_windows_preserve_gaps_and_exact_boundaries() {
             discontinuous,
             ..Bucket::default()
         }
-        .write(storage.connection().unwrap(), &id)
+        .write(storage.connection().unwrap(), FINE, &id)
         .unwrap();
     }
     let response = storage
-        .consumption_history(std::slice::from_ref(&id), &[15000, 5000], 2, 22500)
+        .consumption_history(std::slice::from_ref(&id), &[15000, 5000], 2, 22500, false)
         .unwrap();
     assert_eq!(
         response,
@@ -83,13 +83,13 @@ fn history_corrupt_retained_rows_outside_requested_window_still_fail() {
     Bucket {
         from: 0,
         sampled: Some(1000),
-        latest: Some("invalid json".into()),
+        snapshot: Some("invalid json".into()),
         ..Bucket::default()
     }
-    .write(storage.connection().unwrap(), &id)
+    .write(storage.connection().unwrap(), FINE, &id)
     .unwrap();
     let error = storage
-        .consumption_history(std::slice::from_ref(&id), &[5000], 120, 20000)
+        .consumption_history(std::slice::from_ref(&id), &[5000], 120, 20000, false)
         .unwrap_err();
     assert_eq!(error.code, StorageErrorCode::Corrupt);
     assert_eq!(error.message, "Invalid consumption history evidence");
@@ -122,7 +122,7 @@ fn shared_seed_fixture_excludes_open_counter() {
         .unwrap();
     }
     let response = storage
-        .consumption_history(&[id.to_owned()], &[15000], 120, 22500)
+        .consumption_history(&[id.to_owned()], &[15000], 120, 22500, false)
         .unwrap();
     assert_eq!(response, fixture["response"]);
     assert_eq!(
@@ -132,10 +132,10 @@ fn shared_seed_fixture_excludes_open_counter() {
     storage.close().unwrap();
 }
 
-fn insert_binding(connection: &Connection, id: &str) {
+pub(super) fn insert_binding(connection: &Connection, id: &str) {
     connection.execute("INSERT INTO bindings(id,identity_id,transport,pane_id,server_id,socket_path,server_pid,server_start_time,pane_pid,bound_at,last_verified_at) VALUES('fixture-binding',?,'tmux','%1','fixture-server','/tmp/fixture-socket',10,'start',11,'t','t')",[id]).unwrap();
 }
-fn fixture() -> (
+pub(super) fn fixture() -> (
     crate::test_support::TestDirectory,
     std::path::PathBuf,
     String,
@@ -155,7 +155,7 @@ fn fixture() -> (
     storage.close().unwrap();
     (directory, path, identity.id)
 }
-fn latest(input: u64, output: u64, sequence: u64, observed: u64) -> ConsumptionLatest {
+pub(super) fn latest(input: u64, output: u64, sequence: u64, observed: u64) -> ConsumptionLatest {
     ConsumptionLatest {
         driver: "claude".into(),
         session: "fixture-session".into(),
@@ -175,7 +175,7 @@ fn latest(input: u64, output: u64, sequence: u64, observed: u64) -> ConsumptionL
         },
     }
 }
-fn source(storage: &Storage, id: &str) {
+pub(super) fn source(storage: &Storage, id: &str) {
     storage.connection().unwrap().execute("INSERT INTO consumption_sources(identity_id,binding_id,driver,session) VALUES(?,'fixture-binding','claude','fixture-session')",[id]).unwrap();
 }
 #[test]
@@ -190,7 +190,7 @@ fn duplicate_read_is_zero_and_failure_never_bridges_coverage() {
     record_sample(connection, &id, Some(second), 12000).unwrap();
     record_sample(connection, &id, None, 13000).unwrap();
     let failed = storage
-        .consumption_history(std::slice::from_ref(&id), &[10000], 120, 15000)
+        .consumption_history(std::slice::from_ref(&id), &[10000], 120, 15000, false)
         .unwrap();
     assert_eq!(failed["identities"][0]["latest"], Value::Null);
     assert_eq!(failed["identities"][0]["lastSampleAtMs"], Value::Null);
@@ -206,7 +206,7 @@ fn duplicate_read_is_zero_and_failure_never_bridges_coverage() {
     )
     .unwrap();
     let history = storage
-        .consumption_history(std::slice::from_ref(&id), &[15000], 120, 20000)
+        .consumption_history(std::slice::from_ref(&id), &[15000], 120, 20000, false)
         .unwrap();
     let buckets = history["identities"][0]["windows"][0]["buckets"]
         .as_array()
@@ -247,7 +247,7 @@ fn rollback_discontinuity_and_expiry_are_fail_closed_and_bounded() {
     boundary.session = "other-session".into();
     record_sample(storage.connection().unwrap(), &id, Some(boundary), 11000).unwrap();
     let history = storage
-        .consumption_history(std::slice::from_ref(&id), &[10000], 120, 15000)
+        .consumption_history(std::slice::from_ref(&id), &[10000], 120, 15000, false)
         .unwrap();
     let row = &history["identities"][0]["windows"][0]["buckets"][1];
     assert_eq!(row["discontinuous"], true);
@@ -275,7 +275,7 @@ fn rollback_discontinuity_and_expiry_are_fail_closed_and_bounded() {
     let now = 15000 + 1443 * BUCKET_MS + HISTORY_MS + BUCKET_MS;
     let cursor = storage.change_cursor().unwrap();
     let expired = storage
-        .consumption_history(std::slice::from_ref(&id), &[3600000], 120, now)
+        .consumption_history(std::slice::from_ref(&id), &[3600000], 120, now, false)
         .unwrap();
     assert_eq!(expired["identities"][0]["reporting"], false);
     assert_eq!(expired["identities"][0]["latest"], Value::Null);
@@ -368,7 +368,7 @@ fn binding_and_preferences_cas_commits_counter_and_history_once() {
         latest(110, 55, 2, 11000).consumption
     ));
     let history = storage
-        .consumption_history(std::slice::from_ref(&id), &[15000], 120, 20000)
+        .consumption_history(std::slice::from_ref(&id), &[15000], 120, 20000, false)
         .unwrap();
     let sum: u64 = history["identities"][0]["windows"][0]["buckets"]
         .as_array()
@@ -412,7 +412,7 @@ fn first_gap_baseline_retains_known_following_delta_without_claiming_coverage() 
     )
     .unwrap();
     let result = storage
-        .consumption_history(std::slice::from_ref(&id), &[10000], 120, 15000)
+        .consumption_history(std::slice::from_ref(&id), &[10000], 120, 15000, false)
         .unwrap();
     let row = &result["identities"][0]["windows"][0]["buckets"][1];
     assert_eq!(row["inputTokens"], 10);
@@ -441,7 +441,7 @@ fn invalid_cached_delta_creates_gap_instead_of_freezing_future_reads() {
     next.consumption.cached_input_tokens = 1;
     record_sample(storage.connection().unwrap(), &id, Some(next), 16000).unwrap();
     let history = storage
-        .consumption_history(std::slice::from_ref(&id), &[15000], 120, 20000)
+        .consumption_history(std::slice::from_ref(&id), &[15000], 120, 20000, false)
         .unwrap();
     let rows = history["identities"][0]["windows"][0]["buckets"]
         .as_array()
@@ -456,7 +456,7 @@ fn invalid_cached_delta_creates_gap_instead_of_freezing_future_reads() {
     storage.close().unwrap();
 }
 
-fn attributed(
+pub(super) fn attributed(
     input: u64,
     output: u64,
     write: u64,
@@ -470,7 +470,7 @@ fn attributed(
     reading.consumption.delta_by_model = Some(rows);
     reading
 }
-fn model_row(model: &str, input: u64, output: u64, write: Option<u64>) -> ModelUsage {
+pub(super) fn model_row(model: &str, input: u64, output: u64, write: Option<u64>) -> ModelUsage {
     ModelUsage {
         model_id: model.into(),
         input_tokens: input,
@@ -528,7 +528,7 @@ fn model_changes_in_one_sample_and_bucket_survive_reopen_aggregation_and_replay(
     storage.close().unwrap();
     let mut storage = Storage::open(&path).unwrap();
     let history = storage
-        .consumption_history(std::slice::from_ref(&id), &[10000], 1, 15000)
+        .consumption_history(std::slice::from_ref(&id), &[10000], 1, 15000, false)
         .unwrap();
     let bucket = &history["identities"][0]["windows"][0]["buckets"][0];
     assert_eq!(bucket["inputTokens"], 40);
@@ -581,7 +581,7 @@ fn unknown_attribution_never_labels_the_whole_mixed_bucket_with_the_last_model()
     )
     .unwrap();
     let history = storage
-        .consumption_history(std::slice::from_ref(&id), &[5000], 120, 15000)
+        .consumption_history(std::slice::from_ref(&id), &[5000], 120, 15000, false)
         .unwrap();
     let bucket = &history["identities"][0]["windows"][0]["buckets"][0];
     assert_eq!(bucket["inputTokens"], 20);

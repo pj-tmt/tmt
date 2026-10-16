@@ -120,6 +120,7 @@ function expectNativeSchema(
     },
     { version: 52, name: 'retain content-free exchange flow aggregates' },
     { version: 53, name: 'retain checklist settlement order and delivery inputs' },
+    { version: 54, name: 'keep a 30-day five-minute consumption rollup' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
@@ -128,6 +129,7 @@ function expectNativeSchema(
       'change_cursor',
       'consumption_sources',
       'consumption_buckets',
+      'consumption_tier5m',
       'extension_storage_cutovers',
       'host_servers',
       'identity_hooks',

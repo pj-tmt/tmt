@@ -31,7 +31,10 @@ use std::{
 };
 
 pub use bindings::PurgedSession;
-pub use consumption_history::{BUCKET_MS, ConsumptionLatest, HISTORY_MS, RuntimeObservation};
+pub use consumption_history::{
+    BUCKET_MS, ConsumptionLatest, HISTORY_MS, MAX_BUCKETS, MAX_RESPONSE_BUCKETS,
+    RuntimeObservation, window_resolution_ms,
+};
 pub use context::{ContextRequests, IdentityContextSnapshot};
 pub use database_rename::{DatabaseRename, Kept, rename_database};
 pub use dispatch::DispatchError;

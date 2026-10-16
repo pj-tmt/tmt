@@ -18,6 +18,49 @@ use tmt_core::{
 
 pub const BUCKET_MS: u64 = 5_000;
 pub const HISTORY_MS: u64 = 2 * 60 * 60 * 1_000;
+/// The rollup keeps 5-minute sums of the 5-second buckets for 30 days (#3248).
+pub const ROLLUP_BUCKET_MS: u64 = 300_000;
+pub const ROLLUP_MS: u64 = 30 * 24 * 60 * 60 * 1_000;
+/// The longest window read from the 5-second buckets; a longer one reads the rollup.
+pub const FINE_WINDOW_MS: u64 = 3_600_000;
+pub const MAX_BUCKETS: u64 = 720;
+/// The most buckets one response carries across its identities and windows.
+pub const MAX_RESPONSE_BUCKETS: u64 = 23_040;
+
+/// The resolution that serves `window_ms`, or none when it is not a valid window:
+/// 5-second multiples up to an hour read the 5-second buckets, 5-minute multiples
+/// above an hour up to 30 days read the rollup.
+pub fn window_resolution_ms(window_ms: u64) -> Option<u64> {
+    if (BUCKET_MS..=FINE_WINDOW_MS).contains(&window_ms) && window_ms.is_multiple_of(BUCKET_MS) {
+        Some(BUCKET_MS)
+    } else if (FINE_WINDOW_MS + 1..=ROLLUP_MS).contains(&window_ms)
+        && window_ms.is_multiple_of(ROLLUP_BUCKET_MS)
+    {
+        Some(ROLLUP_BUCKET_MS)
+    } else {
+        None
+    }
+}
+
+/// One stored resolution of the same evidence. `snapshot` names the text column:
+/// the fine tier keeps the accepted observation there, the rollup only its newest
+/// rate limits.
+#[derive(Clone, Copy)]
+struct Tier {
+    table: &'static str,
+    snapshot: &'static str,
+    width: u64,
+}
+const FINE: Tier = Tier {
+    table: "consumption_buckets",
+    snapshot: "latest",
+    width: BUCKET_MS,
+};
+const ROLLUP: Tier = Tier {
+    table: "consumption_tier5m",
+    snapshot: "limits",
+    width: ROLLUP_BUCKET_MS,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -81,13 +124,18 @@ struct Bucket {
     gap: bool,
     discontinuous: bool,
     sampled: Option<u64>,
-    latest: Option<String>,
+    snapshot: Option<String>,
     details: Details,
 }
 
 impl Bucket {
-    fn read(connection: &Connection, id: &str, from: u64) -> Result<Self, StorageError> {
-        connection.query_row("SELECT input_tokens,output_tokens,cached_input_tokens,covered_ms,complete,gap,discontinuous,sampled_at_ms,latest,details FROM consumption_buckets WHERE identity_id=? AND from_ms=?", params![id,from as i64], |row| Self::from_row(row, from))
+    fn read(
+        connection: &Connection,
+        tier: Tier,
+        id: &str,
+        from: u64,
+    ) -> Result<Self, StorageError> {
+        connection.query_row(&format!("SELECT input_tokens,output_tokens,cached_input_tokens,covered_ms,complete,gap,discontinuous,sampled_at_ms,{},details FROM {} WHERE identity_id=? AND from_ms=?", tier.snapshot, tier.table), params![id,from as i64], |row| Self::from_row(row, from))
             .optional().map(|value| value.unwrap_or(Self { from, ..Self::default() })).map_err(|e| classify(e,"Read consumption bucket"))
     }
 
@@ -102,7 +150,7 @@ impl Bucket {
             gap: row.get(5)?,
             discontinuous: row.get(6)?,
             sampled: optional_integer(row, 7)?,
-            latest: row.get(8)?,
+            snapshot: row.get(8)?,
             details: row
                 .get::<_, Option<String>>(9)?
                 .map(|value| serde_json::from_str(&value))
@@ -129,20 +177,87 @@ impl Bucket {
         Ok(bucket)
     }
 
-    fn write(&self, connection: &Connection, id: &str) -> Result<(), StorageError> {
+    fn write(&self, connection: &Connection, tier: Tier, id: &str) -> Result<(), StorageError> {
         if self
             .input
             .checked_add(self.output)
             .is_none_or(|n| n > MAX_JS_SAFE_INTEGER)
             || self.cached > self.input
-            || self.covered > BUCKET_MS
+            || self.covered > tier.width
             || !self.details.valid(self.input, self.output, self.cached)
         {
             return Err(invalid());
         }
-        connection.execute("INSERT INTO consumption_buckets(identity_id,from_ms,input_tokens,output_tokens,cached_input_tokens,covered_ms,complete,gap,discontinuous,sampled_at_ms,latest,details) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(identity_id,from_ms) DO UPDATE SET input_tokens=excluded.input_tokens,output_tokens=excluded.output_tokens,cached_input_tokens=excluded.cached_input_tokens,covered_ms=excluded.covered_ms,complete=excluded.complete,gap=excluded.gap,discontinuous=excluded.discontinuous,sampled_at_ms=excluded.sampled_at_ms,latest=excluded.latest,details=excluded.details", params![id,self.from as i64,self.input as i64,self.output as i64,self.cached as i64,self.covered as i64,!self.incomplete,self.gap,self.discontinuous,self.sampled.map(|n|n as i64),self.latest,serde_json::to_string(&self.details).map_err(|_|invalid())?]).map_err(|e|classify(e,"Write consumption bucket"))?;
+        let (table, snapshot) = (tier.table, tier.snapshot);
+        connection.execute(&format!("INSERT INTO {table}(identity_id,from_ms,input_tokens,output_tokens,cached_input_tokens,covered_ms,complete,gap,discontinuous,sampled_at_ms,{snapshot},details) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(identity_id,from_ms) DO UPDATE SET input_tokens=excluded.input_tokens,output_tokens=excluded.output_tokens,cached_input_tokens=excluded.cached_input_tokens,covered_ms=excluded.covered_ms,complete=excluded.complete,gap=excluded.gap,discontinuous=excluded.discontinuous,sampled_at_ms=excluded.sampled_at_ms,{snapshot}=excluded.{snapshot},details=excluded.details"), params![id,self.from as i64,self.input as i64,self.output as i64,self.cached as i64,self.covered as i64,!self.incomplete,self.gap,self.discontinuous,self.sampled.map(|n|n as i64),self.snapshot,serde_json::to_string(&self.details).map_err(|_|invalid())?]).map_err(|e|classify(e,"Write consumption bucket"))?;
         Ok(())
     }
+
+    /// Folds one accepted read into the bucket. Every tier uses this one rule, so a
+    /// rollup bucket is the sum of the fine buckets it covers.
+    fn absorb(&mut self, read: &Accepted) -> Result<(), StorageError> {
+        self.incomplete |= read.incomplete;
+        self.gap |= read.delta.is_none();
+        self.discontinuous |= read.discontinuous;
+        if let Some(delta) = &read.delta {
+            if self.input == 0 && self.output == 0 {
+                self.details = delta.details.clone();
+            } else if delta.changed {
+                self.details.merge(&delta.details)?;
+            }
+            self.input = self.input.checked_add(delta.input).ok_or_else(invalid)?;
+            self.output = self.output.checked_add(delta.output).ok_or_else(invalid)?;
+            self.cached = self.cached.checked_add(delta.cached).ok_or_else(invalid)?;
+        }
+        Ok(())
+    }
+}
+
+/// What one accepted read adds to a bucket of any tier.
+struct Accepted {
+    /// The read failed or its source was incomplete.
+    incomplete: bool,
+    /// An observed driver, session or epoch boundary.
+    discontinuous: bool,
+    /// Present when the read continues the previous one, so its increments count.
+    delta: Option<Delta>,
+}
+
+struct Delta {
+    input: u64,
+    output: u64,
+    cached: u64,
+    /// The increment moved input or output, so its attribution merges.
+    changed: bool,
+    details: Details,
+}
+
+/// The newest rate limits observed inside the rollup bucket that starts at `from`,
+/// after one more read. A read repeats the newest provider line's limits for as long
+/// as the session idles; limits older than the bucket were observed in an earlier
+/// one, so they are not stored again.
+fn newest_limits(
+    held: Option<&str>,
+    seen: Option<&crate::runtime::consumption::RateLimits>,
+    from: u64,
+) -> Result<Option<String>, StorageError> {
+    let held: Option<crate::runtime::consumption::RateLimits> = held
+        .map(serde_json::from_str)
+        .transpose()
+        .map_err(|_| invalid())?;
+    if held.as_ref().is_some_and(|value| !value.valid()) {
+        return Err(invalid());
+    }
+    let seen = seen.filter(|value| value.observed_at_ms >= from);
+    let newest = match (held.as_ref(), seen) {
+        (Some(held), Some(seen)) if seen.observed_at_ms < held.observed_at_ms => Some(held),
+        (_, Some(seen)) => Some(seen),
+        (held, None) => held,
+    };
+    newest
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(|_| invalid())
 }
 
 impl Storage {
@@ -208,18 +323,21 @@ impl Storage {
     }
 
     /// One deferred read snapshot; no source access or history renewal/pruning.
+    /// Windows up to an hour read the 5-second buckets, longer ones the 5-minute
+    /// rollup. A retired identity is answered only when `include_retired` is set.
     pub fn consumption_history(
         &mut self,
         ids: &[String],
         windows: &[u64],
         max_buckets: u64,
         now: u64,
+        include_retired: bool,
     ) -> Result<Value, StorageError> {
         if now > MAX_JS_SAFE_INTEGER
-            || max_buckets == 0
+            || !(1..=MAX_BUCKETS).contains(&max_buckets)
             || windows
                 .iter()
-                .any(|window| *window < BUCKET_MS || *window > 3_600_000 || window % BUCKET_MS != 0)
+                .any(|window| window_resolution_ms(*window).is_none())
         {
             return Err(invalid());
         }
@@ -229,23 +347,32 @@ impl Storage {
             .map_err(|e| classify(e, "Read consumption history snapshot"))?;
         let through = now / BUCKET_MS * BUCKET_MS;
         let retained = through.saturating_sub(HISTORY_MS);
+        let rollup_through = now / ROLLUP_BUCKET_MS * ROLLUP_BUCKET_MS;
+        let rollup_longest = windows
+            .iter()
+            .copied()
+            .filter(|window| window_resolution_ms(*window) == Some(ROLLUP_BUCKET_MS))
+            .max();
         let mut identities = Vec::new();
-        // Keep both prepared statements for this snapshot. The adapter disables
+        // Keep the prepared statements for this snapshot. The adapter disables
         // rusqlite's optional statement cache; transaction-local reuse needs no
         // extra dependency or cache lifetime beyond this read.
         let mut identity = transaction
-            .prepare("SELECT EXISTS(SELECT 1 FROM identities WHERE id=? AND retired_at_ms IS NULL)")
+            .prepare("SELECT retired_at_ms IS NOT NULL FROM identities WHERE id=?")
             .map_err(|e| classify(e, "Read consumption identity"))?;
         let mut statement = transaction.prepare("SELECT input_tokens,output_tokens,cached_input_tokens,covered_ms,complete,gap,discontinuous,sampled_at_ms,latest,details,from_ms FROM consumption_buckets WHERE identity_id=? AND from_ms>=? AND from_ms<? ORDER BY from_ms")
             .map_err(|e| classify(e, "Read retained consumption buckets"))?;
+        let mut rollup = transaction.prepare("SELECT input_tokens,output_tokens,cached_input_tokens,covered_ms,complete,gap,discontinuous,sampled_at_ms,limits,details,from_ms FROM consumption_tier5m WHERE identity_id=? AND from_ms>=? AND from_ms<? ORDER BY from_ms")
+            .map_err(|e| classify(e, "Read retained consumption rollup"))?;
         for id in ids {
-            let found: bool = identity
+            let known: Option<bool> = identity
                 .query_row([id], |row| row.get(0))
+                .optional()
                 .map_err(|e| classify(e, "Read consumption identity"))?;
-            if !found {
+            let Some(retired) = known.filter(|retired| include_retired || !retired) else {
                 identities.push(json!({"id":id,"found":false}));
                 continue;
-            }
+            };
             // Read the whole retained range once: latest/availability and corruption
             // checks still include evidence outside the requested display windows.
             let rows: Vec<Bucket> = statement
@@ -254,9 +381,23 @@ impl Storage {
                 })
                 .and_then(|rows| rows.collect())
                 .map_err(|e| classify(e, "Read consumption bucket"))?;
+            let rolled: Vec<Bucket> = match rollup_longest {
+                Some(longest) => rollup
+                    .query_map(
+                        params![
+                            id,
+                            rollup_through.saturating_sub(longest) as i64,
+                            rollup_through as i64
+                        ],
+                        |row| Bucket::from_row(row, integer(row, 10)?),
+                    )
+                    .and_then(|rows| rows.collect())
+                    .map_err(|e| classify(e, "Read consumption rollup bucket"))?,
+                None => Vec::new(),
+            };
             let last = rows.iter().rev().find(|row| row.sampled.is_some());
             let latest: Option<ConsumptionLatest> = last
-                .and_then(|row| row.latest.as_deref())
+                .and_then(|row| row.snapshot.as_deref())
                 .map(serde_json::from_str)
                 .transpose()
                 .map_err(|_| invalid())?;
@@ -266,77 +407,49 @@ impl Storage {
             {
                 return Err(invalid());
             }
-            let reporting = rows.iter().any(|row| row.latest.is_some());
+            let reporting = rows.iter().any(|row| row.snapshot.is_some());
             let available = rows
                 .iter()
-                .filter(|row| row.latest.is_some())
+                .filter(|row| row.snapshot.is_some())
                 .filter_map(|row| row.sampled)
                 .min();
             let mut readings = Vec::new();
             for window in windows {
-                let from = through.saturating_sub(*window);
-                let slots = *window / BUCKET_MS;
-                let width = slots.div_ceil(max_buckets) * BUCKET_MS;
-                let mut buckets = Vec::new();
-                let mut start = from;
-                let mut cursor = rows.partition_point(|row| row.from < from);
-                while start < through {
-                    let end = (start + width).min(through);
-                    let mut aggregate = Bucket {
-                        from: start,
-                        ..Bucket::default()
-                    };
-                    // Sorted, disjoint output intervals consume each retained row
-                    // at most once per window instead of rescanning for every bin.
-                    while let Some(row) = rows.get(cursor).filter(|row| row.from < end) {
-                        cursor += 1;
-                        if aggregate.input == 0 && aggregate.output == 0 {
-                            aggregate.details = row.details.clone();
-                        } else if row.input != 0 || row.output != 0 {
-                            aggregate.details.merge(&row.details)?;
-                        }
-                        aggregate.input =
-                            aggregate.input.checked_add(row.input).ok_or_else(invalid)?;
-                        aggregate.output = aggregate
-                            .output
-                            .checked_add(row.output)
-                            .ok_or_else(invalid)?;
-                        aggregate.cached = aggregate
-                            .cached
-                            .checked_add(row.cached)
-                            .ok_or_else(invalid)?;
-                        aggregate.covered = aggregate
-                            .covered
-                            .checked_add(row.covered)
-                            .ok_or_else(invalid)?;
-                        aggregate.incomplete |= row.incomplete;
-                        aggregate.gap |= row.gap;
-                        aggregate.discontinuous |= row.discontinuous;
-                    }
-                    if aggregate
-                        .input
-                        .checked_add(aggregate.output)
-                        .is_none_or(|n| n > MAX_JS_SAFE_INTEGER)
-                    {
-                        return Err(invalid());
-                    }
-                    let complete =
-                        aggregate.covered == end - start && !aggregate.incomplete && !aggregate.gap;
-                    let mut projected = json!({"fromMs":start,"toMs":end,"inputTokens":aggregate.input,"outputTokens":aggregate.output,"cachedInputTokens":aggregate.cached,"coveredMs":aggregate.covered,"complete":complete,"gap":aggregate.gap || aggregate.covered<end-start,"discontinuous":aggregate.discontinuous});
-                    projected.as_object_mut().ok_or_else(invalid)?.extend(
-                        serde_json::to_value(&aggregate.details)
-                            .map_err(|_| invalid())?
-                            .as_object()
-                            .ok_or_else(invalid)?
-                            .clone(),
-                    );
-                    buckets.push(projected);
-                    start = end;
+                if window_resolution_ms(*window) == Some(BUCKET_MS) {
+                    readings.push(project(&rows, FINE, *window, through, max_buckets)?);
+                    continue;
                 }
-                readings.push(json!({"windowMs":window,"fromMs":from,"toMs":through,"bucketMs":width,"buckets":buckets}));
+                let mut reading = project(&rolled, ROLLUP, *window, rollup_through, max_buckets)?;
+                // The tier start: the first bucket that holds a successful read.
+                let from = rolled
+                    .iter()
+                    .filter(|row| row.sampled.is_some())
+                    .map(|row| row.from)
+                    .min();
+                let object = reading.as_object_mut().ok_or_else(invalid)?;
+                object.insert("resolutionMs".into(), json!(ROLLUP_BUCKET_MS));
+                object.insert("availableFromMs".into(), json!(from));
+                object.insert(
+                    "retainedFromMs".into(),
+                    json!(
+                        rollup_through
+                            .saturating_sub(ROLLUP_MS)
+                            .max(from.unwrap_or(0))
+                    ),
+                );
+                readings.push(reading);
             }
-            identities.push(json!({"id":id,"found":true,"reporting":reporting,"availableFromMs":available,"lastSampleAtMs":last.filter(|row|row.latest.is_some()).and_then(|row|row.sampled),"latest":latest,"windows":readings}));
+            let mut found = json!({"id":id,"found":true,"reporting":reporting,"availableFromMs":available,"lastSampleAtMs":last.filter(|row|row.snapshot.is_some()).and_then(|row|row.sampled),"latest":latest,"windows":readings});
+            if retired {
+                // The name stays with `references.resolve`, the one owner of labels.
+                found
+                    .as_object_mut()
+                    .ok_or_else(invalid)?
+                    .insert("retired".into(), json!(true));
+            }
+            identities.push(found);
         }
+        drop(rollup);
         drop(statement);
         drop(identity);
         transaction
@@ -346,6 +459,98 @@ impl Storage {
             json!({"asOfMs":now,"throughMs":through,"retainedFromMs":retained,"resolutionMs":BUCKET_MS,"identities":identities}),
         )
     }
+}
+
+/// One window of `rows` (sorted by `from`) as at most `max_buckets` closed buckets
+/// ending at `through`, uncovered intervals included. The rollup tier adds the
+/// newest rate limits seen in each bucket.
+fn project(
+    rows: &[Bucket],
+    tier: Tier,
+    window: u64,
+    through: u64,
+    max_buckets: u64,
+) -> Result<Value, StorageError> {
+    let from = through.saturating_sub(window);
+    let slots = window / tier.width;
+    let width = slots.div_ceil(max_buckets) * tier.width;
+    let mut buckets = Vec::new();
+    let mut start = from;
+    let mut cursor = rows.partition_point(|row| row.from < from);
+    while start < through {
+        let end = (start + width).min(through);
+        let mut aggregate = Bucket {
+            from: start,
+            ..Bucket::default()
+        };
+        let mut limits: Option<crate::runtime::consumption::RateLimits> = None;
+        // Sorted, disjoint output intervals consume each retained row
+        // at most once per window instead of rescanning for every bin.
+        while let Some(row) = rows.get(cursor).filter(|row| row.from < end) {
+            cursor += 1;
+            if aggregate.input == 0 && aggregate.output == 0 {
+                aggregate.details = row.details.clone();
+            } else if row.input != 0 || row.output != 0 {
+                aggregate.details.merge(&row.details)?;
+            }
+            aggregate.input = aggregate.input.checked_add(row.input).ok_or_else(invalid)?;
+            aggregate.output = aggregate
+                .output
+                .checked_add(row.output)
+                .ok_or_else(invalid)?;
+            aggregate.cached = aggregate
+                .cached
+                .checked_add(row.cached)
+                .ok_or_else(invalid)?;
+            aggregate.covered = aggregate
+                .covered
+                .checked_add(row.covered)
+                .ok_or_else(invalid)?;
+            aggregate.incomplete |= row.incomplete;
+            aggregate.gap |= row.gap;
+            aggregate.discontinuous |= row.discontinuous;
+            if tier.width == ROLLUP.width
+                && let Some(held) = row.snapshot.as_deref()
+            {
+                let held: crate::runtime::consumption::RateLimits =
+                    serde_json::from_str(held).map_err(|_| invalid())?;
+                if !held.valid() {
+                    return Err(invalid());
+                }
+                if limits
+                    .as_ref()
+                    .is_none_or(|newest| held.observed_at_ms >= newest.observed_at_ms)
+                {
+                    limits = Some(held);
+                }
+            }
+        }
+        if aggregate
+            .input
+            .checked_add(aggregate.output)
+            .is_none_or(|n| n > MAX_JS_SAFE_INTEGER)
+        {
+            return Err(invalid());
+        }
+        let complete = aggregate.covered == end - start && !aggregate.incomplete && !aggregate.gap;
+        let mut projected = json!({"fromMs":start,"toMs":end,"inputTokens":aggregate.input,"outputTokens":aggregate.output,"cachedInputTokens":aggregate.cached,"coveredMs":aggregate.covered,"complete":complete,"gap":aggregate.gap || aggregate.covered<end-start,"discontinuous":aggregate.discontinuous});
+        projected.as_object_mut().ok_or_else(invalid)?.extend(
+            serde_json::to_value(&aggregate.details)
+                .map_err(|_| invalid())?
+                .as_object()
+                .ok_or_else(invalid)?
+                .clone(),
+        );
+        if let Some(limits) = limits {
+            projected
+                .as_object_mut()
+                .ok_or_else(invalid)?
+                .insert("rateLimits".into(), json!(limits));
+        }
+        buckets.push(projected);
+        start = end;
+    }
+    Ok(json!({"windowMs":window,"fromMs":from,"toMs":through,"bucketMs":width,"buckets":buckets}))
 }
 
 fn record_sample(
@@ -395,50 +600,51 @@ fn record_sample(
             && (next.consumption.sequence != old.consumption.sequence
                 || next.consumption == old.consumption)
     });
-    let from = now / BUCKET_MS * BUCKET_MS;
-    let mut bucket = Bucket::read(connection, id, from)?;
     let encoded = next
         .as_ref()
         .map(serde_json::to_string)
         .transpose()
         .map_err(|_| invalid())?;
-    bucket.latest = encoded.clone();
+    let accepted = Accepted {
+        incomplete: next
+            .as_ref()
+            .is_none_or(|value| !value.consumption.complete),
+        discontinuous: old.as_ref().zip(next.as_ref()).is_some_and(|(old, next)| {
+            old.driver != next.driver
+                || old.session != next.session
+                || old.consumption.epoch != next.consumption.epoch
+        }),
+        delta: continuous.map(|(old, next)| Delta {
+            input: next.consumption.input_tokens - old.consumption.input_tokens,
+            output: next.consumption.output_tokens - old.consumption.output_tokens,
+            cached: next.consumption.cached_input_tokens - old.consumption.cached_input_tokens,
+            changed: next.consumption.input_tokens != old.consumption.input_tokens
+                || next.consumption.output_tokens != old.consumption.output_tokens,
+            details: Details::delta(&old.consumption, &next.consumption),
+        }),
+    };
+    let from = now / BUCKET_MS * BUCKET_MS;
+    let mut bucket = Bucket::read(connection, FINE, id, from)?;
+    bucket.snapshot = encoded.clone();
     bucket.sampled = Some(now);
-    bucket.incomplete |= next
-        .as_ref()
-        .is_none_or(|value| !value.consumption.complete);
-    bucket.gap |= continuous.is_none();
-    bucket.discontinuous |= old.as_ref().zip(next.as_ref()).is_some_and(|(old, next)| {
-        old.driver != next.driver
-            || old.session != next.session
-            || old.consumption.epoch != next.consumption.epoch
-    });
-    if let Some((old, next)) = continuous {
-        let details = Details::delta(&old.consumption, &next.consumption);
-        if bucket.input == 0 && bucket.output == 0 {
-            bucket.details = details;
-        } else if next.consumption.input_tokens != old.consumption.input_tokens
-            || next.consumption.output_tokens != old.consumption.output_tokens
-        {
-            bucket.details.merge(&details)?;
-        }
-        bucket.input = bucket
-            .input
-            .checked_add(next.consumption.input_tokens - old.consumption.input_tokens)
-            .ok_or_else(invalid)?;
-        bucket.output = bucket
-            .output
-            .checked_add(next.consumption.output_tokens - old.consumption.output_tokens)
-            .ok_or_else(invalid)?;
-        bucket.cached = bucket
-            .cached
-            .checked_add(next.consumption.cached_input_tokens - old.consumption.cached_input_tokens)
-            .ok_or_else(invalid)?;
+    bucket.absorb(&accepted)?;
+    bucket.write(connection, FINE, id)?;
+    // The rollup takes the same read in the same transaction. A failed read adds
+    // nothing it could mistake for a successful observation.
+    let rolled_from = now / ROLLUP_BUCKET_MS * ROLLUP_BUCKET_MS;
+    let mut rolled = Bucket::read(connection, ROLLUP, id, rolled_from)?;
+    rolled.snapshot = newest_limits(
+        rolled.snapshot.as_deref(),
+        next.as_ref()
+            .and_then(|value| value.consumption.rate_limits.as_ref()),
+        rolled_from,
+    )?;
+    if next.is_some() {
+        rolled.sampled = Some(now);
     }
-    bucket.write(connection, id)?;
-    if let Some((old, next)) = continuous
-        && old.consumption.complete
-        && next.consumption.complete
+    rolled.absorb(&accepted)?;
+    rolled.write(connection, ROLLUP, id)?;
+    if continuous.is_some_and(|(old, next)| old.consumption.complete && next.consumption.complete)
         && let Some(start) = old_time
         && now.saturating_sub(start) <= 2 * BUCKET_MS
     {
@@ -448,12 +654,15 @@ fn record_sample(
         while cursor < now {
             let slot = cursor / BUCKET_MS * BUCKET_MS;
             let end = (slot + BUCKET_MS).min(now);
-            let mut covered = Bucket::read(connection, id, slot)?;
-            covered.covered = covered
-                .covered
-                .checked_add(end - cursor)
-                .ok_or_else(invalid)?;
-            covered.write(connection, id)?;
+            for tier in [FINE, ROLLUP] {
+                let mut covered =
+                    Bucket::read(connection, tier, id, cursor / tier.width * tier.width)?;
+                covered.covered = covered
+                    .covered
+                    .checked_add(end - cursor)
+                    .ok_or_else(invalid)?;
+                covered.write(connection, tier, id)?;
+            }
             cursor = end;
         }
     }
@@ -471,8 +680,20 @@ fn record_sample(
         )
         .map_err(|e| classify(e, "Prune identity consumption history"))?;
     connection.execute("DELETE FROM consumption_buckets WHERE rowid IN (SELECT rowid FROM consumption_buckets WHERE from_ms<? ORDER BY from_ms LIMIT 256)",[cutoff as i64]).map_err(|e|classify(e,"Prune inactive consumption history"))?;
+    // The rollup ages out by time alone: this identity's expired rows on every write,
+    // and a few of anyone's, so a retired identity that never writes again expires too.
+    let rolled_cutoff = rolled_from.saturating_sub(ROLLUP_MS);
+    connection
+        .execute(
+            "DELETE FROM consumption_tier5m WHERE identity_id=? AND from_ms<?",
+            params![id, rolled_cutoff as i64],
+        )
+        .map_err(|e| classify(e, "Prune identity consumption rollup"))?;
+    connection.execute("DELETE FROM consumption_tier5m WHERE (identity_id,from_ms) IN (SELECT identity_id,from_ms FROM consumption_tier5m WHERE from_ms<? ORDER BY from_ms LIMIT 256)",[rolled_cutoff as i64]).map_err(|e|classify(e,"Prune inactive consumption rollup"))?;
     Ok(())
 }
 
+#[cfg(test)]
+mod rollup_tests;
 #[cfg(test)]
 mod tests;

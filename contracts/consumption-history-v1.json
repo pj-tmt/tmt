@@ -96,8 +96,12 @@
     "version": 1,
     "operation": "consumption.history",
     "input": {
-      "identityIds": ["11111111-1111-4111-8111-111111111111"],
-      "windowsMs": [15000],
+      "identityIds": [
+        "11111111-1111-4111-8111-111111111111"
+      ],
+      "windowsMs": [
+        15000
+      ],
       "maxBuckets": 120
     }
   },
@@ -218,5 +222,54 @@
     "inputTokens": 6,
     "outputTokens": 3,
     "cachedInputTokens": 1
+  },
+  "rollup": {
+    "description": "The same observations after the first 5-minute bucket closes. A window above 3,600,000 ms reads the 30-day rollup: one bucket holding the sum of the fine buckets, the newest rate limits observed inside it, and the window-level resolutionMs, availableFromMs and retainedFromMs. The 21000 ms sample belongs to this bucket, which is closed at asOfMs.",
+    "asOfMs": 322500,
+    "request": {
+      "version": 1,
+      "operation": "consumption.history",
+      "input": {
+        "identityIds": [
+          "11111111-1111-4111-8111-111111111111"
+        ],
+        "windowsMs": [
+          3900000
+        ],
+        "maxBuckets": 120
+      }
+    },
+    "window": {
+      "windowMs": 3900000,
+      "fromMs": 0,
+      "toMs": 300000,
+      "bucketMs": 300000,
+      "resolutionMs": 300000,
+      "availableFromMs": 0,
+      "retainedFromMs": 0,
+      "buckets": [
+        {
+          "fromMs": 0,
+          "toMs": 300000,
+          "inputTokens": 20,
+          "outputTokens": 10,
+          "cachedInputTokens": 4,
+          "coveredMs": 15000,
+          "complete": false,
+          "gap": true,
+          "discontinuous": false,
+          "rateLimits": {
+            "observedAtMs": 20000,
+            "windows": [
+              {
+                "windowMinutes": 10080,
+                "usedPercent": 43.5,
+                "resetsAtMs": 90000000
+              }
+            ]
+          }
+        }
+      ]
+    }
   }
 }
