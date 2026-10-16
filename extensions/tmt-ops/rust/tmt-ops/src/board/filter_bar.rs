@@ -1,6 +1,6 @@
 //! Shared list mode chips, idle search field.
 //! Hosts supply options and own selection, filtering and command admission.
-use crate::{board::chip_group, look::Look};
+use crate::board::{app::App, chip_group};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -15,8 +15,9 @@ pub(in crate::board) fn paint(
     options: &[(&str, &str)],
     selected: usize,
     query: &str,
-    look: Look,
+    app: &App,
 ) -> Vec<chip_group::Hit> {
+    let look = app.look();
     let groups = [chip_group::ChipGroup {
         label: " ".into(),
         choices: options
@@ -44,7 +45,8 @@ pub(in crate::board) fn paint(
             ..area
         },
         &groups,
-        look,
+        app,
+        None,
     );
     let x = area.x.saturating_add(chips as u16 + 1);
     let available = area.width.saturating_sub(chips as u16 + 1);
@@ -96,14 +98,9 @@ mod tests {
             for width in [1, 8, 20, 60, 103, 148] {
                 let area = Rect::new(2, 3, width, 1);
                 let mut buffer = Buffer::empty(Rect::new(0, 0, width + 4, 5));
-                let hits = paint(
-                    &mut buffer,
-                    area,
-                    &options,
-                    1,
-                    "",
-                    Look::new(tmt_cli_style::Theme::default()),
-                );
+                let mut app = App::default();
+                app.initial_look = Some(crate::look::Look::new(tmt_cli_style::Theme::default()));
+                let hits = paint(&mut buffer, area, &options, 1, "", &app);
                 for hit in hits {
                     assert_eq!(hit.area.intersection(area), hit.area);
                     assert!(options.iter().any(|(id, _)| *id == hit.id));
