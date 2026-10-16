@@ -808,6 +808,64 @@ mod cli_composition {
         assert_eq!(deploy_record::read(&layout).unwrap(), before);
     }
     #[test]
+    fn a_known_owner_action_is_not_described_as_an_unknown_effect() {
+        let root = Root::new();
+        let layout = root.layout();
+        let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
+        store.persist(&DeployRecord::new(ID)).unwrap();
+        drop(store);
+        let mut source = DeployCliSource(0, true);
+        let mut provider = DeployCliProvider(deploy_port::Fake::new("owner@example.test"), 0);
+        let preview = deploy_cli::execute(
+            &args(&[]).unwrap(),
+            &mut source,
+            &["colab"],
+            || Ok(&mut provider),
+            || Ok(root.layout()),
+            || Ok(1),
+        )
+        .unwrap();
+        let digest = preview.json["planDigest"].as_str().unwrap();
+        provider.0.owner_pending.insert(
+            "sign-in:anonymous".into(),
+            tmt_remote::deploy_run::DeployOwnerAction::InitializeAuth,
+        );
+        let output = deploy_cli::execute(
+            &args(&["--authorize", digest]).unwrap(),
+            &mut source,
+            &["colab"],
+            || Ok(&mut provider),
+            || Ok(root.layout()),
+            || Ok(2),
+        )
+        .unwrap();
+        assert_eq!(output.json["record"]["run"]["state"], "partial");
+        assert!(output.human.contains("REMOTE_DEPLOY_OWNER_INITIALIZE_AUTH"));
+        assert!(!output.human.contains("Deployment could not be confirmed"));
+        provider.0.owner_pending.clear();
+        provider
+            .0
+            .present
+            .insert("index:x/colab/log#sequence:asc".into());
+        provider
+            .0
+            .building
+            .insert("index:x/colab/log#sequence:asc".into());
+        let building = deploy_cli::execute(
+            &args(&["--authorize", digest]).unwrap(),
+            &mut source,
+            &["colab"],
+            || Ok(&mut provider),
+            || Ok(root.layout()),
+            || Ok(3),
+        )
+        .unwrap();
+        assert_eq!(building.json["record"]["run"]["state"], "partial");
+        assert!(building.human.contains("verify: building"));
+        assert!(!building.human.contains("Deployment could not be confirmed"));
+    }
+
+    #[test]
     fn discovered_plan_authorizes_whole_envelope_and_recovers_without_resending() {
         let root = Root::new();
         let layout = root.layout();
