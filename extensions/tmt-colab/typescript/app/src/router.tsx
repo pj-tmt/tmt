@@ -1,3 +1,4 @@
+import { RemotePresenceProvider } from './remote-header.js';
 import './source-editor.css';
 import { OwnPublicationTimeout } from './own-publication.js';
 import type { ComposerEdit } from './components/message-composer-edit.js';
@@ -748,33 +749,35 @@ function Shell() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const isPage = pathname.startsWith('/pages/');
   return (
-    <QuickSwitcherHost
-      transport={transport}
-      space={space}
-      pageId={isPage ? pathname.slice('/pages/'.length) : undefined}
-      routeKey={pathname}
-      allowed={isPage || pathname === '/'}
-      navigate={(pageId) => router.navigate({ to: '/pages/$pageId', params: { pageId } })}
-    >
-      {!isPage && (
-        <AppHeader
-          remote={pathname === '/' ? { deviceName: transport.backendName } : undefined}
-          title={
-            pathname.startsWith('/short/')
-              ? 'Open a page'
-              : pathname === '/'
-                ? text.pages
-                : text.error
-          }
-        />
-      )}
-      <main className={isPage ? 'page-main' : undefined}>
-        <Outlet />
-      </main>
-      {!isPage && (
-        <footer>{location.pathname.startsWith('/r/') ? text.mountedNote : text.adapter}</footer>
-      )}
-    </QuickSwitcherHost>
+    <RemotePresenceProvider owner={transport.remotePresence}>
+      <QuickSwitcherHost
+        transport={transport}
+        space={space}
+        pageId={isPage ? pathname.slice('/pages/'.length) : undefined}
+        routeKey={pathname}
+        allowed={isPage || pathname === '/'}
+        navigate={(pageId) => router.navigate({ to: '/pages/$pageId', params: { pageId } })}
+      >
+        {!isPage && (
+          <AppHeader
+            remote={pathname === '/' ? { deviceName: transport.backendName } : undefined}
+            title={
+              pathname.startsWith('/short/')
+                ? 'Open a page'
+                : pathname === '/'
+                  ? text.pages
+                  : text.error
+            }
+          />
+        )}
+        <main className={isPage ? 'page-main' : undefined}>
+          <Outlet />
+        </main>
+        {!isPage && (
+          <footer>{location.pathname.startsWith('/r/') ? text.mountedNote : text.adapter}</footer>
+        )}
+      </QuickSwitcherHost>
+    </RemotePresenceProvider>
   );
 }
 function Page() {
@@ -1477,6 +1480,7 @@ function Page() {
         isEligible={notifications.isEligible}
       />
       <ColabHeader
+        remoteMenu={false}
         headerRef={toolbar}
         title={view.title || snapshot.title || text.unknownPageTitle}
         remote={{ deviceName: transport.backendName }}

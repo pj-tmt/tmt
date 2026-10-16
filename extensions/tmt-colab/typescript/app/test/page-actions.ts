@@ -30,9 +30,18 @@ export async function pageAction(host: Page | Locator, name: string): Promise<Lo
       : (name === 'Source' || name === 'Export page') && (await sourceMenu.isVisible())
         ? 'Source and export'
         : 'More';
-  const trigger = header.getByRole('button', { name: menu, exact: typeof menu === 'string' });
+  // A shared modal menu aria-hides the background, including its own trigger.
+  // The header is still physically visible; inspect its disclosure state without
+  // forcing activation or treating the hidden background as an actionable target.
+  const trigger = header.getByRole('button', {
+    name: menu,
+    exact: typeof menu === 'string',
+    includeHidden: true,
+  });
   if ((await trigger.getAttribute('aria-expanded')) !== 'true') {
-    const previous = page.locator('.tmt-ui-menu-surface[open]');
+    const previous = page
+      .locator('.tmt-ui-menu-surface[open], [data-slot="dropdown-menu-content"]:visible')
+      .first();
     if (await previous.isVisible()) {
       const button = await trigger.boundingBox();
       if (!button) throw new Error('Menu switch has no visible trigger');

@@ -179,3 +179,66 @@ body {
     gap: 6px;
   }
 }
+
+/* Remote's device list is an observed snapshot; unknown and zero remain distinct. */
+.remote-chip-action {
+  display: inline-flex;
+  align-items: center;
+  border: 0;
+  padding: 4px;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+}
+.remote-chip-action:focus-visible {
+  outline: 1px solid var(--tmt-ui-color-focus);
+  outline-offset: -1px;
+}
+.remote-header-chip[data-muted='true'] .remote-chip-action,
+.remote-count[data-muted='true'],
+.remote-snapshot {
+  opacity: 0.65;
+}
+.remote-details {
+  max-height: min(60vh, 480px);
+  overflow-y: auto;
+  max-width: min(360px, 80vw);
+  font-weight: normal;
+}
+.remote-details > div + div {
+  margin-top: 4px;
+}
+.remote-more-trigger svg {
+  width: 20px;
+  height: 20px;
+}
+.remote-home-more {
+  display: none;
+}
+@media (max-width: 640px) {
+  .remote-header-chip {
+    display: none;
+  }
+  .remote-home-more {
+    display: inline;
+  }
+}
+
+.remote-chip-action:hover {
+  color: var(--tmt-ui-color-text);
+}
+.remote-submenu {
+  max-width: min(
+    360px,
+    var(--radix-dropdown-menu-content-available-width),
+    var(--tmt-layer-available-width)
+  );
+}
+.remote-submenu .remote-details {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}

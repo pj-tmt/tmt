@@ -12,7 +12,13 @@ const setup = vi.hoisted(() => {
   return {
     first,
     second,
-    sdk: { reopenSession: vi.fn(async () => ({})), certifyKey: vi.fn(async () => ({})) },
+    sdk: {
+      reopenSession: vi.fn(async () => ({})),
+      certifyKey: vi.fn(async () => ({})),
+      management: vi.fn((_session: unknown, _options?: { timeoutMs?: number }) => ({
+        devices: vi.fn(async () => ({ devices: [], nextCursor: null })),
+      })),
+    },
     signals: [] as AbortSignal[],
     ports: [] as RemoteClient[],
     events: [] as string[],
@@ -672,4 +678,68 @@ it('an unconfirmed read close blocks successors across Home generations', async 
   } finally {
     mounted.close();
   }
+});
+
+it('reads Remote presence with the admitted mounted Session and exposes settings only after success', async () => {
+  setup.register.mockReset().mockResolvedValueOnce(setup.first);
+  setup.remote.mockReset().mockResolvedValue({});
+  setup.sdk.management.mockClear();
+  const mounted = await mountedTransport();
+  const presence = mounted.transport.remotePresence!;
+  expect(presence.snapshot()).toEqual({ kind: 'hidden' });
+  await presence.refresh();
+  expect(setup.sdk.management).toHaveBeenCalledWith(setup.first.remoteSession, {
+    timeoutMs: 20000,
+  });
+  expect(presence.snapshot()).toMatchObject({
+    kind: 'confirmed',
+    count: 0,
+    settingsUrl: 'https://example.test/settings',
+  });
+  expect(setup.register).toHaveBeenCalledTimes(1);
+  mounted.close();
+  expect(presence.snapshot()).toEqual({ kind: 'hidden' });
+});
+
+it('a replacement Session reads once after the stale Remote snapshot settles', async () => {
+  setup.register.mockReset().mockResolvedValueOnce(setup.first).mockResolvedValueOnce(setup.second);
+  setup.remote.mockReset().mockResolvedValue({});
+  setup.sdk.management.mockClear();
+  let release!: (value: { devices: []; nextCursor: null }) => void;
+  let releaseSecond!: (value: { devices: []; nextCursor: null }) => void;
+  const firstRead = vi.fn(
+    () =>
+      new Promise<{ devices: []; nextCursor: null }>((resolve) => {
+        release = resolve;
+      }),
+  );
+  const secondRead = vi.fn(
+    () =>
+      new Promise<{ devices: []; nextCursor: null }>((resolve) => {
+        releaseSecond = resolve;
+      }),
+  );
+  setup.sdk.management
+    .mockImplementationOnce(() => ({ devices: firstRead }))
+    .mockImplementationOnce(() => ({ devices: secondRead }));
+  const mounted = await mountedTransport();
+  await mounted.transport.page('page');
+  const presence = mounted.transport.remotePresence!;
+  const reading = presence.refresh();
+  await setup.owner!.reconnect(setup.first as never);
+  expect(firstRead).toHaveBeenCalledTimes(1);
+  expect(secondRead).not.toHaveBeenCalled();
+  release({ devices: [], nextCursor: null });
+  await reading;
+  await vi.waitFor(() => expect(secondRead).toHaveBeenCalledTimes(1));
+  expect(presence.snapshot()).toEqual({ kind: 'hidden' });
+  expect(setup.sdk.management.mock.calls.map(([session]) => session)).toEqual([
+    setup.first.remoteSession,
+    setup.second.remoteSession,
+  ]);
+  releaseSecond({ devices: [], nextCursor: null });
+  await presence.refresh();
+  expect(presence.snapshot()).toMatchObject({ kind: 'confirmed', count: 0 });
+  expect(secondRead).toHaveBeenCalledTimes(1);
+  mounted.close();
 });

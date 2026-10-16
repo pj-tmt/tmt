@@ -4854,6 +4854,19 @@ reads. It uses the existing verified read catch-up and isolated fold, never an e
 Ask or a write. Each connection closes and joins before its successor; leaving Home or
 replacing the mounted session cancels its reads. A failure or exhausted budget keeps
 the existing fallback; no plaintext title endpoint or native title store is introduced.
+
+The paired mounted app may show a display-only Remote session snapshot in the shared
+header status slot. The existing signed SDK device list is read sequentially at mount,
+visible-tab return and details opening, at most 20 pages of 50 devices with one read in
+flight. Only a completed traversal supplies a total; refusal, timeout or the page bound
+shows unconfirmed, never a partial sum or zero. Revoked/expired zero-session rows are omitted, the
+current browser sorts first, and details show only positive-session rows, retaining nullable
+activity and read time. Counts are live Sessions, not tabs; a closed tab can remain counted for about a minute. Successful
+reads expose only same-origin `/settings`; hosted/detached apps or an absent admitted
+Session hide the control. Session replacement fences late results and starts one read after
+the stale read settles; close fences results and prevents that successor. This adds no
+Remote operation, authority, subscription or periodic polling.
+
 Only foreground page views (paired and shared-reader) send explicit `subscribe` after
 catch-up. A valid Subscribe selects the active cloud page, and every successful store still
 selects it. Existing early write wakes are unchanged; Hello and ACK, including Home title

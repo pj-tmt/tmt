@@ -1,3 +1,4 @@
+import type { RemoteDevicePage } from './remote-presence.js';
 import {
   binary,
   certificate,
@@ -20,6 +21,13 @@ interface CertifiedKey {
   signature: string;
 }
 export interface RemoteSdk {
+  /** Optional on older door SDKs; construction opens no new Session. */
+  management?(
+    session: unknown,
+    options?: { timeoutMs?: number },
+  ): {
+    devices(input: { cursor: string | null; limit: number }): Promise<RemoteDevicePage>;
+  };
   /** With `previous` and `retry: 'bounded'` the SDK admits again for that Session and throws its
    * typed `ReopenSessionError`; without options it is the one-shot boot reopen. */
   reopenSession(

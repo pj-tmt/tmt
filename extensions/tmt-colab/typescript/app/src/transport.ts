@@ -1,3 +1,4 @@
+import type { RemotePresence } from './remote-presence.js';
 import type { CompactReport, PageUsage } from './page-usage.js';
 import type { attachment } from '@tmt/colab-client';
 import type { ThreadPresentation } from './thread-status-presentation.js';
@@ -82,6 +83,8 @@ export interface TitleReadBudget {
 /** App data port. Mounted adapters own authentication and admission;
  * neither HTML nor the renderer receives that adapter or its capabilities. */
 export interface PageTransport {
+  /** Mounted-door snapshot only; absent for hosted and detached adapters. */
+  readonly remotePresence?: RemotePresence;
   /** Display-only name from the mounted session device context. */
   readonly backendName?: string;
   /** Device-local unsent-draft persistence; absent means drafts stay in memory. */

@@ -1,3 +1,4 @@
+import { RemoteHeaderChip, RemoteMoreMenu, useRemoteHeaderAvailable } from './remote-header.js';
 import type { ReactNode, Ref } from 'react';
 import { BrowserHeader } from '@tmt/browser-ui/react';
 import { text } from './strings.js';
@@ -13,6 +14,7 @@ export function ColabHeader({
   headerRef,
   status,
   remote,
+  remoteMenu = true,
 }: {
   title: string;
   caption?: string;
@@ -21,7 +23,9 @@ export function ColabHeader({
   headerRef?: Ref<HTMLElement>;
   status?: ReactNode;
   remote?: { deviceName?: string };
+  remoteMenu?: boolean;
 }) {
+  const remoteAvailable = useRemoteHeaderAvailable();
   const deviceName = remote?.deviceName?.trim();
   const remoteLabel = deviceName ? `local · ${deviceName}` : 'local';
   return (
@@ -57,9 +61,21 @@ export function ColabHeader({
         <>
           <QuickSwitcherControl />
           {actions}
+          {remoteMenu && (
+            <span className="remote-home-more">
+              <RemoteMoreMenu />
+            </span>
+          )}
         </>
       }
-      status={status}
+      status={
+        remoteAvailable || status !== undefined ? (
+          <>
+            <RemoteHeaderChip />
+            {status}
+          </>
+        ) : undefined
+      }
       headerRef={headerRef}
     />
   );
