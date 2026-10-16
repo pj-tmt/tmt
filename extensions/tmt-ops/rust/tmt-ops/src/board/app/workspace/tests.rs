@@ -449,7 +449,14 @@ pub(in crate::board) fn populated_board(squads: usize, agents: usize) -> App {
             waiting: false,
             presence: Some(true),
             usage: None,
-            activity: Default::default(),
+            activity: crate::board::activity::ObservedActivity {
+                phase: if ordinal == 0 {
+                    crate::board::activity::Phase::Idle
+                } else {
+                    crate::board::activity::Phase::Working
+                },
+                ..Default::default()
+            },
         };
         home.workspace.roster.members.insert(id.clone(), member);
         let room = if squads == 0 {

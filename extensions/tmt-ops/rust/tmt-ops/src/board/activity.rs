@@ -45,6 +45,25 @@ impl ObservedActivity {
     }
 }
 
+/// Agent counts by phase, each identity once. Ended is neither working nor idle.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Tally {
+    pub working: usize,
+    pub idle: usize,
+    pub unknown: usize,
+}
+
+impl Tally {
+    pub fn add(&mut self, activity: ObservedActivity) {
+        match activity.phase {
+            Phase::Working => self.working += 1,
+            Phase::Idle => self.idle += 1,
+            Phase::Unknown => self.unknown += 1,
+            Phase::Ended => {}
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
