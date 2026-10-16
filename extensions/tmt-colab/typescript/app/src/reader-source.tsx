@@ -20,7 +20,7 @@ export function EditRequestNotice({
 }) {
   const unconfirmed = outcome === 'unconfirmed';
   return (
-    <div className="source-notice">
+    <div className="source-notice" data-request>
       <BrowserNotice
         tone={unconfirmed ? 'waiting' : 'blocked'}
         announcement={unconfirmed ? 'status' : 'alert'}
@@ -29,7 +29,7 @@ export function EditRequestNotice({
         title={
           unconfirmed
             ? "Couldn't confirm the edit request. It may still reach the owner; check the page before sending it again."
-            : 'Edit request not sent. Save again to retry; if it keeps failing, ask the owner for a current link.'
+            : 'Save again to retry. If it keeps failing, ask the owner for a current link.'
         }
         body={null}
         actions={actions}

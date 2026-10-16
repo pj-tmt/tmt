@@ -129,7 +129,7 @@ it.each([
 it.each([
   [
     'refused',
-    'Edit request not sent. Save again to retry; if it keeps failing, ask the owner for a current link.',
+    'Save again to retry. If it keeps failing, ask the owner for a current link.',
     'blocked',
   ],
   [

@@ -199,7 +199,7 @@ for (const outcome of ['refused', 'unconfirmed'] as const) {
 }
 
 for (const width of [1440, 390])
-  test(`the not-sent notice names a retry first and a current link second at ${width}`, async ({
+  test(`the not-sent notice has a plain title, a body that does not repeat it and 16px padding at ${width}`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
@@ -211,10 +211,41 @@ for (const width of [1440, 390])
     await expect(page.getByText('Not sent', { exact: true })).toBeVisible();
     await expect(
       page.getByText(
-        'Edit request not sent. Save again to retry; if it keeps failing, ask the owner for a current link.',
-        { exact: true },
+        'Save again to retry. If it keeps failing, ask the owner for a current link.',
+        {
+          exact: true,
+        },
       ),
     ).toBeVisible();
+    // The title is the state word (the body does not repeat it); only the mark carries colour,
+    // and the box has the standard 16px padding at both widths.
+    const look = await page.evaluate(() => {
+      const notice = document.querySelector('.source-notice[data-request] .tmt-ui-notice')!;
+      const mark = notice.querySelector('.tmt-ui-notice-mark')!;
+      const resolve = (token: string) => {
+        const probe = document.createElement('i');
+        probe.style.color = `var(${token})`;
+        document.body.append(probe);
+        const value = getComputedStyle(probe).color;
+        probe.remove();
+        return value;
+      };
+      const box = getComputedStyle(notice);
+      return {
+        state: mark.lastElementChild!.textContent,
+        stateColor: getComputedStyle(mark.lastElementChild!).color,
+        text: resolve('--tmt-ui-color-text'),
+        markColor: getComputedStyle(mark.firstElementChild!).color,
+        blocked: resolve('--tmt-ui-color-blocked'),
+        padding: [box.paddingTop, box.paddingBottom, box.paddingLeft, box.paddingRight],
+        titleTop: mark.getBoundingClientRect().top - notice.getBoundingClientRect().top,
+      };
+    });
+    expect(look.state).toBe('Not sent');
+    expect(look.stateColor).toBe(look.text);
+    expect(look.markColor).toBe(look.blocked);
+    expect(look.padding).toEqual(['16px', '16px', '16px', '16px']);
+    expect(look.titleTop).toBeLessThan(20);
     const noOverflow = await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,
     );
