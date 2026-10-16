@@ -297,7 +297,9 @@ envelopes deduplicate as `Replay`. The Writer's leader tab also owns the immutab
 stream's keys: before sealing, the fold's read-only `own-conflict` command answers whether a
 write sets a key the stream holds with a different value, and the leader refuses it with
 `OwnRecordConflict` (a hint to the submitting tab, like the append refusal) without closing
-anything; `AskController.recover` then records nothing and the next observation reads again. If automatic recovery fails, the page's own bounded
+anything; `AskController.recover` then records nothing and the next observation reads again. The
+check is complete because the leader serializes writes and an append resolves only after the
+connection has admitted its receipt, in the queue that runs the next write's check. If automatic recovery fails, the page's own bounded
 reconnect loop and then explicit Reconnect first reuse the admitted mounted-owner replacement on the same Live binding. The
 stopped write fence remains until the fresh Connection and projection are verified;
 then a new Writer uses the identical stream key and the new Ask facade resumes

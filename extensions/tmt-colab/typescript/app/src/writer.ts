@@ -278,7 +278,9 @@ export class Writer {
       // Own records are immutable and this leader orders every append of the stream, so a write
       // to a key the stream already holds with a different value is refused here, before
       // anything is sealed, whichever tab wrote the first value. Two tabs are two Yjs clients:
-      // admitting the second value would let the higher client ID win, not the first write.
+      // admitting the second value would let the higher client ID win, not the first write. The
+      // admitted document is current here: writes run one at a time and `append` resolves only
+      // after the connection has admitted its receipt, ahead of the next write in `c.run`.
       const held = await c.fold.run({
         type: 'own-conflict',
         writer: c.admission.registration.deviceId,

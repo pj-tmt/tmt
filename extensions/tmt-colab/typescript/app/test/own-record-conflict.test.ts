@@ -74,6 +74,13 @@ async function tabs() {
   const run = await realFold();
   let head = 0n;
   const admitted: Uint8Array[] = [];
+  // Holds the leader's next append before its entry is admitted, as a receipt not yet processed.
+  let hold = Promise.resolve();
+  const gate = () => {
+    let open!: () => void;
+    hold = new Promise<void>((resolve) => (open = resolve));
+    return open;
+  };
   const leaderConnection = {
     ready: Promise.resolve(),
     active: true,
@@ -83,6 +90,7 @@ async function tabs() {
     fold: { run },
     // As Connection does at a receipt: the appended update is admitted into the fold.
     append: vi.fn(async (entry: { seq: string; update: Uint8Array }) => {
+      await hold;
       admitted.push(entry.update);
       head = BigInt(entry.seq);
       await run({ type: 'apply', updates: [], own: [{ writer: device, update: entry.update }] });
@@ -132,7 +140,7 @@ async function tabs() {
     memoryRecords(),
   );
   const accepted = async () => (await run({ type: 'apply', updates: [] })).own[device];
-  return { leader, peer, leaderConnection, peerConnection, admitted, run, accepted };
+  return { leader, peer, leaderConnection, peerConnection, admitted, run, accepted, gate };
 }
 
 it('refuses a lagging peer tab write to a key the stream already holds, and the sender keeps its value', async () => {
@@ -174,6 +182,36 @@ it('accepts a byte-identical write to a key the stream already holds as already 
     await t.leader.submitOwnRecords([{ root: 'messages', key, value: ledger('2', 'accepted') }]);
     await t.peer.submitOwnRecords([{ root: 'messages', key, value: ledger('2', 'accepted') }]);
     expect(t.peerConnection.waitForOwnRecords).toHaveBeenCalledOnce();
+    expect((await t.accepted()).messages[key]).toEqual(ledger('2', 'accepted'));
+  } finally {
+    t.leader.close();
+    t.peer.close();
+  }
+});
+
+it('holds a conflicting write behind an append whose admission is still pending, then refuses it', async () => {
+  const t = await tabs();
+  try {
+    // The sender's revision 2 is sent to the serve, but its receipt has not been admitted yet.
+    const open = t.gate();
+    const first = t.leader.submitOwnRecords([
+      { root: 'messages', key, value: ledger('2', 'accepted') },
+    ]);
+    await vi.waitFor(() => expect(t.leaderConnection.append).toHaveBeenCalledOnce());
+    // A lagging tab's conflicting write reaches the leader meanwhile. It is not checked against
+    // the stale document: it waits for the append, and the check then sees the admitted value.
+    const second = t.peer
+      .submitOwnRecords([{ root: 'messages', key, value: ledger('2', 'uncertain') }])
+      .then(
+        () => 'accepted',
+        (error: Error) => error.constructor.name,
+      );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(t.leaderConnection.append).toHaveBeenCalledOnce();
+    open();
+    await first;
+    await expect(second).resolves.toBe('OwnRecordConflict');
+    expect(t.leaderConnection.append).toHaveBeenCalledOnce();
     expect((await t.accepted()).messages[key]).toEqual(ledger('2', 'accepted'));
   } finally {
     t.leader.close();
