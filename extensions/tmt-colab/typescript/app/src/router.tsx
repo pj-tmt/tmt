@@ -16,6 +16,7 @@ import { ColabHeader } from './colab-header.js';
 import { PageAttribution } from './page-attribution.js';
 import { NoticeCard } from './notice-card.js';
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -45,6 +46,7 @@ import { noteOpened } from './recently-opened.js';
 import { QuickSwitcherHost, QuickSwitcherModalPresence } from './quick-switcher-dialog.js';
 import { useQuickSwitcher } from './quick-switcher-context.js';
 import { useQuestionLayer } from './question-layer.js';
+import { useReviewLayer } from './review-layer.js';
 import { useInlineSlots } from './inline-slots.js';
 import { inspectQuestions } from './questions.js';
 import { useReplyNotifications } from './use-reply-notifications.js';
@@ -53,11 +55,17 @@ import { ReplyNotificationContext } from './reply-notification-context.js';
 import { ThreadPanel, ThreadWindow } from './thread-panel.js';
 import { presentationOf } from './thread-status-presentation.js';
 import { isStatusThread, openThreadCount } from './thread-status-view.js';
-import type { QuoteSelector, DiscussionRef } from './thread-records.js';
+import type { QuoteSelector, DiscussionRef, ThreadView } from './thread-records.js';
 import { Home, validateHomeSearch } from './home.js';
 import { ManagePage } from './manage-page.js';
 import { mountRenderer, MAX_RENDER_SOURCE_BYTES } from './renderer.js';
-import type { AnchorPosition, RenderState, SelectionRect } from './renderer.js';
+import type {
+  AnchorPosition,
+  QuestionAnchor,
+  RenderState,
+  ReviewAnchor,
+  SelectionRect,
+} from './renderer.js';
 import { text } from './strings.js';
 import { getTheme, setThemeChoice, subscribeTheme } from './theme.js';
 import type { ConnectionState, EndedAction } from './connection-model.js';
@@ -1278,7 +1286,10 @@ function Page() {
     return () => document.removeEventListener('keydown', key);
   }, [canSelect, selectionMode]);
   const host = useRef<HTMLDivElement>(null);
-  const { questions, groups } = useMemo(() => inspectQuestions(view.source), [view.source]);
+  const { questions, groups, reviews } = useMemo(
+    () => inspectQuestions(view.source),
+    [view.source],
+  );
   const inlineSlots = useInlineSlots({
     renderer,
     host,
@@ -1287,11 +1298,27 @@ function Page() {
     identity: `${(view.threads ?? [])
       .filter((thread) => thread.proposal && !thread.deleted)
       .map((thread) => thread.threadId)
-      .join(',')}|${groups.map((group) => group.id).join(',')}`,
+      .join(
+        ',',
+      )}|${groups.map((group) => group.id).join(',')}|${reviews.map((review) => review.id).join(',')}`,
+  });
+  const associatedQuestionThreads = useRef<(id: string) => readonly ThreadView[]>(() => []);
+  const reviewLayer = useReviewLayer({
+    reviews,
+    questions,
+    snapshot,
+    view,
+    binding,
+    discussionBlocked,
+    statusCoordinator,
+    slotPositions: inlineSlots.positions,
+    questionThreads: associatedQuestionThreads,
   });
   const questionLayer = useQuestionLayer({
     questions,
     groups,
+    reviews: reviewLayer.blocks,
+    onRecorded: reviewLayer.answered,
     snapshot,
     view,
     renderer,
@@ -1300,6 +1327,16 @@ function Page() {
     blocked: discussionBlocked,
     connectionPresentation,
   });
+  associatedQuestionThreads.current = questionLayer.associated;
+  const { onQuestions } = questionLayer;
+  const { onAnchors: onReviewAnchors } = reviewLayer;
+  const onQuestionAnchors = useCallback(
+    (anchored: QuestionAnchor[], reviewed: ReviewAnchor[], checked = true) => {
+      onQuestions(anchored, checked);
+      onReviewAnchors(reviewed, checked);
+    },
+    [onQuestions, onReviewAnchors],
+  );
   const proposalLayer = useProposalLayer({
     slotPositions: inlineSlots.positions,
     snapshot,
@@ -1332,7 +1369,7 @@ function Page() {
       signal: controller.signal,
       onState: setState,
       onSlots: inlineSlots.onSlots,
-      onQuestions: questionLayer.onQuestions,
+      onQuestions: onQuestionAnchors,
       viewportInset: () =>
         (toolbar.current?.offsetHeight ?? 0) + (toolbar.current?.getBoundingClientRect().top ?? 0),
       onSelection: (_value, quote, rect) => {
@@ -1381,7 +1418,7 @@ function Page() {
       controller.abort();
       renderer.current = null;
     };
-  }, [view.source, endedError, inlineSlots.onSlots, questionLayer.onQuestions]);
+  }, [view.source, endedError, inlineSlots.onSlots, onQuestionAnchors]);
   useEffect(() => {
     if (state !== 'ready') return;
     renderer.current?.highlight(
@@ -1494,6 +1531,18 @@ function Page() {
         )}
         status={
           <div className="page-header-meta">
+            {reviewLayer.progress && (
+              <span
+                className="chip page-reviews"
+                role="status"
+                aria-label={text.reviewProgressLabel(
+                  reviewLayer.progress.closed,
+                  reviewLayer.progress.total,
+                )}
+              >
+                {text.reviewProgress(reviewLayer.progress.closed, reviewLayer.progress.total)}
+              </span>
+            )}
             <span
               className={`chip page-sharing status ${state === 'ready' ? 'live' : ''}`}
               title={
@@ -1581,6 +1630,7 @@ function Page() {
         <div className="canvas">
           <div className="frame-host" ref={host} />
           {proposalLayer.inline}
+          {reviewLayer.inline}
           {questionLayer.inline}
           {(state === 'navigation' || state === 'failed') && (
             <NoticeCard

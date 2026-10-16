@@ -50,8 +50,9 @@ async function mount(page: Page, source: string) {
         onSlots: (slots: unknown[]) => {
           host.dataset.slots = JSON.stringify(slots);
         },
-        onQuestions: (questions: unknown[]) => {
+        onQuestions: (questions: unknown[], reviews: unknown[]) => {
           host.dataset.questions = JSON.stringify(questions);
+          host.dataset.reviews = JSON.stringify(reviews);
         },
         onOpenThread: (id: string) => {
           host.dataset.opened = id;
@@ -1055,11 +1056,13 @@ test('question groups and split slot geometry admit only the current closed resp
     };
     const id = '80000000-0000-4000-8000-000000000001';
     const group = '80000000-0000-4000-8000-000000000002';
+    const section = '80000000-0000-4000-8000-000000000003';
     const blocks = [{ id, title: 'Which heading?' }];
     const groups = [{ id: group, title: 'Review', questions: [id], active: id }];
-    w.probe.handle.questions(blocks, [], groups);
+    const reviews = [{ id: section, title: 'Plan', closed: false }];
+    w.probe.handle.questions(blocks, [], groups, reviews);
     const stale = w.questionRequest.requestId;
-    w.probe.handle.questions(blocks, [], groups);
+    w.probe.handle.questions(blocks, [], groups, reviews);
     const current = {
       type: 'colab.render.questions',
       renderId: w.questionRequest.renderId,
@@ -1067,15 +1070,28 @@ test('question groups and split slot geometry admit only the current closed resp
       questions: [
         { id, selector: { exact: 'Which heading?', prefix: '', suffix: '' }, threads: [] },
       ],
+      reviews: [{ id: section, selector: { exact: 'Plan', prefix: '', suffix: '' }, threads: [] }],
     };
     const emit = (value: unknown) =>
       w.questionPort.dispatchEvent(new MessageEvent('message', { data: value }));
     const read = () => document.getElementById('probe')!.dataset.questions;
+    const readReviews = () => document.getElementById('probe')!.dataset.reviews;
+    const { reviews: _omitted, ...previousShape } = current;
     const rejected = [];
     for (const bad of [
       { ...current, requestId: stale },
       { ...current, renderId: 'old' },
       { ...current, groups },
+      // The previous four-key response and every unrequested, forged or repeated section.
+      previousShape,
+      { ...current, reviews: [{ ...current.reviews[0], answered: true }] },
+      { ...current, reviews: [{ ...current.reviews[0], id }] },
+      { ...current, reviews: [{ ...current.reviews[0], threads: ['foreign'] }] },
+      { ...current, reviews: [current.reviews[0], current.reviews[0]] },
+      {
+        ...current,
+        reviews: [{ ...current.reviews[0], selector: { exact: 'Forged', prefix: '', suffix: '' } }],
+      },
       { ...current, questions: [{ ...current.questions[0], answered: true }] },
       { ...current, questions: [{ ...current.questions[0], id: group }] },
       { ...current, questions: [{ ...current.questions[0], threads: ['foreign'] }] },
@@ -1092,6 +1108,7 @@ test('question groups and split slot geometry admit only the current closed resp
     }
     emit(current);
     const admitted = read();
+    const admittedReviews = readReviews();
     w.probe.handle.slots([{ id: group, height: 99999, before: 99999 }]);
     const slot = {
       id: group,
@@ -1147,6 +1164,7 @@ test('question groups and split slot geometry admit only the current closed resp
     return {
       rejected,
       admitted,
+      admittedReviews,
       groups: w.questionRequest.groups,
       rejectedGeometry,
       clamped: w.splitRequest.slots[0],
@@ -1155,8 +1173,9 @@ test('question groups and split slot geometry admit only the current closed resp
       restored: geometry(),
     };
   });
-  expect(result.rejected).toEqual(Array(8).fill('[]'));
+  expect(result.rejected).toEqual(Array(14).fill('[]'));
   expect(JSON.parse(result.admitted!)).toHaveLength(1);
+  expect(JSON.parse(result.admittedReviews!)).toHaveLength(1);
   expect(result.groups).toEqual([
     {
       id: '80000000-0000-4000-8000-000000000002',

@@ -11,7 +11,8 @@
     "labelPoints": 24,
     "dataImageBytes": 32768,
     "dataImagesTotalBytes": 262144,
-    "attachmentRefs": 128
+    "attachmentRefs": 128,
+    "pageReviews": 50
   },
   "cases": [
     {
@@ -6656,6 +6657,1592 @@
           "line": 9,
           "severity": "ignored",
           "code": "question-id-duplicate"
+        }
+      ]
+    },
+    {
+      "name": "review-valid",
+      "scope": "parser",
+      "why": "A section with one heading admits its normalized title and agent and lists the questions inside it.",
+      "source": [
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000301\" data-agent=\"Agent 1\">",
+        "  <h3 data-title>  Hosting   plan </h3>",
+        "  <p>Content to confirm.</p>",
+        "  <tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\">",
+        "    <p data-question>Question</p>",
+        "  </tmt-question>",
+        "</tmt-review>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000002\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>"
+      ],
+      "admitted": {
+        "questions": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000002",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          }
+        ],
+        "groups": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000001"]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000002",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000002"]
+          }
+        ],
+        "reviews": [
+          {
+            "id": "10000000-0000-4000-8000-000000000301",
+            "title": "Hosting plan",
+            "agent": "Agent 1",
+            "questions": ["10000000-0000-4000-8000-000000000001"]
+          }
+        ]
+      },
+      "findings": []
+    },
+    {
+      "name": "review-holds-a-question-group",
+      "scope": "parser",
+      "why": "A section may hold a question group; every admitted question of the group is listed in order.",
+      "source": [
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000301\">",
+        "  <h3 data-title>Decisions</h3>",
+        "  <tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\">",
+        "    <p data-title>Both</p>",
+        "    <tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\">",
+        "      <p data-question>First</p>",
+        "    </tmt-question>",
+        "    <tmt-question data-id=\"10000000-0000-4000-8000-000000000002\" data-kind=\"short\">",
+        "      <p data-question>Second</p>",
+        "    </tmt-question>",
+        "  </tmt-questions>",
+        "</tmt-review>"
+      ],
+      "admitted": {
+        "questions": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "kind": "short",
+            "title": "First",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "10000000-0000-4000-8000-000000000100",
+            "label": "Q1"
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000002",
+            "kind": "short",
+            "title": "Second",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "10000000-0000-4000-8000-000000000100",
+            "label": "Q2"
+          }
+        ],
+        "groups": [
+          {
+            "id": "10000000-0000-4000-8000-000000000100",
+            "title": "Both",
+            "questions": [
+              "10000000-0000-4000-8000-000000000001",
+              "10000000-0000-4000-8000-000000000002"
+            ]
+          }
+        ],
+        "reviews": [
+          {
+            "id": "10000000-0000-4000-8000-000000000301",
+            "title": "Decisions",
+            "agent": "",
+            "questions": [
+              "10000000-0000-4000-8000-000000000001",
+              "10000000-0000-4000-8000-000000000002"
+            ]
+          }
+        ]
+      },
+      "findings": []
+    },
+    {
+      "name": "review-without-questions-is-valid",
+      "scope": "parser",
+      "why": "A section needs no question; it lists none.",
+      "source": [
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000301\">",
+        "  <h3 data-title>Plain section</h3>",
+        "</tmt-review>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": [],
+        "reviews": [
+          {
+            "id": "10000000-0000-4000-8000-000000000301",
+            "title": "Plain section",
+            "agent": "",
+            "questions": []
+          }
+        ]
+      },
+      "findings": []
+    },
+    {
+      "name": "review-id-missing-or-malformed",
+      "scope": "parser",
+      "why": "A missing, uppercase or non-UUID data-id is ignored.",
+      "source": [
+        "<tmt-review data-id=\"not-a-uuid\">",
+        "  <h3 data-title>Section</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"ABCDEF00-0000-4000-8000-000000000301\">",
+        "  <h3 data-title>Upper</h3>",
+        "</tmt-review>",
+        "<tmt-review>",
+        "  <h3 data-title>Missing</h3>",
+        "</tmt-review>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": [],
+        "reviews": []
+      },
+      "findings": [
+        {
+          "element": "tmt-review",
+          "ordinal": 1,
+          "id": "not-a-uuid",
+          "line": 1,
+          "severity": "ignored",
+          "code": "review-id-invalid"
+        },
+        {
+          "element": "tmt-review",
+          "ordinal": 2,
+          "id": "ABCDEF00-0000-4000-8000-000000000301",
+          "line": 4,
+          "severity": "ignored",
+          "code": "review-id-invalid"
+        },
+        {
+          "element": "tmt-review",
+          "ordinal": 3,
+          "id": null,
+          "line": 7,
+          "severity": "ignored",
+          "code": "review-id-invalid"
+        }
+      ]
+    },
+    {
+      "name": "review-id-duplicate-ignores-every-copy",
+      "scope": "parser",
+      "why": "Two sections with one ID are both ignored.",
+      "source": [
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000301\">",
+        "  <h3 data-title>One</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000301\">",
+        "  <h3 data-title>Two</h3>",
+        "</tmt-review>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": [],
+        "reviews": []
+      },
+      "findings": [
+        {
+          "element": "tmt-review",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000301",
+          "line": 1,
+          "severity": "ignored",
+          "code": "review-id-duplicate"
+        },
+        {
+          "element": "tmt-review",
+          "ordinal": 2,
+          "id": "10000000-0000-4000-8000-000000000301",
+          "line": 4,
+          "severity": "ignored",
+          "code": "review-id-duplicate"
+        }
+      ]
+    },
+    {
+      "name": "review-id-shared-with-a-question",
+      "scope": "parser",
+      "why": "A section and a question share one ID namespace: every holder is ignored.",
+      "source": [
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000001\">",
+        "  <h3 data-title>Shares an ID</h3>",
+        "</tmt-review>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": [],
+        "reviews": []
+      },
+      "findings": [
+        {
+          "element": "tmt-review",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000001",
+          "line": 1,
+          "severity": "ignored",
+          "code": "review-id-duplicate"
+        },
+        {
+          "element": "tmt-question",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000001",
+          "line": 4,
+          "severity": "ignored",
+          "code": "question-id-duplicate"
+        }
+      ]
+    },
+    {
+      "name": "review-nested-is-ignored",
+      "scope": "parser",
+      "why": "A section inside another section is ignored; the outer one stays.",
+      "source": [
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000301\">",
+        "  <h3 data-title>Outer</h3>",
+        "  <tmt-review data-id=\"10000000-0000-4000-8000-000000000302\">",
+        "    <h3 data-title>Inner</h3>",
+        "  </tmt-review>",
+        "</tmt-review>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": [],
+        "reviews": [
+          {
+            "id": "10000000-0000-4000-8000-000000000301",
+            "title": "Outer",
+            "agent": "",
+            "questions": []
+          }
+        ]
+      },
+      "findings": [
+        {
+          "element": "tmt-review",
+          "ordinal": 2,
+          "id": "10000000-0000-4000-8000-000000000302",
+          "line": 3,
+          "severity": "ignored",
+          "code": "review-nested"
+        }
+      ]
+    },
+    {
+      "name": "review-inside-a-question-is-ignored",
+      "scope": "parser",
+      "why": "A section inside a question is ignored.",
+      "source": [
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\">",
+        "  <p data-question>Outer</p>",
+        "  <tmt-review data-id=\"10000000-0000-4000-8000-000000000301\">",
+        "    <h3 data-title>In a question</h3>",
+        "  </tmt-review>",
+        "</tmt-question>"
+      ],
+      "admitted": {
+        "questions": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "kind": "short",
+            "title": "Outer",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          }
+        ],
+        "groups": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000001"]
+          }
+        ],
+        "reviews": []
+      },
+      "findings": [
+        {
+          "element": "tmt-review",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000301",
+          "line": 3,
+          "severity": "ignored",
+          "code": "review-nested"
+        }
+      ]
+    },
+    {
+      "name": "review-inside-a-group-is-ignored",
+      "scope": "parser",
+      "why": "A section inside a question group is ignored; the group's questions stay.",
+      "source": [
+        "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\">",
+        "  <p data-title>Group</p>",
+        "  <tmt-review data-id=\"10000000-0000-4000-8000-000000000301\">",
+        "    <h3 data-title>In a group</h3>",
+        "  </tmt-review>",
+        "  <tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\">",
+        "    <p data-question>Question</p>",
+        "  </tmt-question>",
+        "</tmt-questions>"
+      ],
+      "admitted": {
+        "questions": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "10000000-0000-4000-8000-000000000100",
+            "label": "Q1"
+          }
+        ],
+        "groups": [
+          {
+            "id": "10000000-0000-4000-8000-000000000100",
+            "title": "Group",
+            "questions": ["10000000-0000-4000-8000-000000000001"]
+          }
+        ],
+        "reviews": []
+      },
+      "findings": [
+        {
+          "element": "tmt-review",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000301",
+          "line": 3,
+          "severity": "ignored",
+          "code": "review-nested"
+        }
+      ]
+    },
+    {
+      "name": "review-heading-missing",
+      "scope": "parser",
+      "why": "A section without a data-title child is ignored.",
+      "source": [
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000301\">",
+        "  <p>No heading</p>",
+        "</tmt-review>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": [],
+        "reviews": []
+      },
+      "findings": [
+        {
+          "element": "tmt-review",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000301",
+          "line": 1,
+          "severity": "ignored",
+          "code": "review-heading-missing"
+        }
+      ]
+    },
+    {
+      "name": "review-heading-multiple",
+      "scope": "parser",
+      "why": "Two data-title children are ignored, not guessed between.",
+      "source": [
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000301\">",
+        "  <h3 data-title>One</h3>",
+        "  <h3 data-title>Two</h3>",
+        "</tmt-review>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": [],
+        "reviews": []
+      },
+      "findings": [
+        {
+          "element": "tmt-review",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000301",
+          "line": 1,
+          "severity": "ignored",
+          "code": "review-heading-multiple"
+        }
+      ]
+    },
+    {
+      "name": "review-heading-must-be-a-direct-child",
+      "scope": "parser",
+      "why": "A data-title inside another element is not the section heading.",
+      "source": [
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000301\">",
+        "  <div><h3 data-title>Wrapped</h3></div>",
+        "</tmt-review>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": [],
+        "reviews": []
+      },
+      "findings": [
+        {
+          "element": "tmt-review",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000301",
+          "line": 1,
+          "severity": "ignored",
+          "code": "review-heading-missing"
+        }
+      ]
+    },
+    {
+      "name": "review-title-empty",
+      "scope": "parser",
+      "why": "A blank heading is ignored.",
+      "source": [
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000301\">",
+        "  <h3 data-title>   </h3>",
+        "</tmt-review>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": [],
+        "reviews": []
+      },
+      "findings": [
+        {
+          "element": "tmt-review",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000301",
+          "line": 1,
+          "severity": "ignored",
+          "code": "review-title-empty"
+        }
+      ]
+    },
+    {
+      "name": "review-title-too-long",
+      "scope": "parser",
+      "why": "A heading over 200 characters is ignored.",
+      "source": [
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000301\">",
+        "  <h3 data-title>xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</h3>",
+        "</tmt-review>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": [],
+        "reviews": []
+      },
+      "findings": [
+        {
+          "element": "tmt-review",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000301",
+          "line": 1,
+          "severity": "ignored",
+          "code": "review-title-too-long"
+        }
+      ]
+    },
+    {
+      "name": "review-title-counts-code-points",
+      "scope": "parser",
+      "why": "200 characters is the limit, counted as code points.",
+      "source": [
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000301\">",
+        "  <h3 data-title>éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé</h3>",
+        "</tmt-review>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": [],
+        "reviews": [
+          {
+            "id": "10000000-0000-4000-8000-000000000301",
+            "title": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+            "agent": "",
+            "questions": []
+          }
+        ]
+      },
+      "findings": []
+    },
+    {
+      "name": "review-title-control-character",
+      "scope": "parser",
+      "why": "A control character in the heading is ignored.",
+      "source": [
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000301\">",
+        "  <h3 data-title>Bell&#7;inside</h3>",
+        "</tmt-review>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": [],
+        "reviews": []
+      },
+      "findings": [
+        {
+          "element": "tmt-review",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000301",
+          "line": 1,
+          "severity": "ignored",
+          "code": "review-title-control"
+        }
+      ]
+    },
+    {
+      "name": "review-agent-too-long",
+      "scope": "parser",
+      "why": "An agent name over 64 characters is ignored.",
+      "source": [
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000301\" data-agent=\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\">",
+        "  <h3 data-title>Long agent</h3>",
+        "</tmt-review>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": [],
+        "reviews": []
+      },
+      "findings": [
+        {
+          "element": "tmt-review",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000301",
+          "line": 1,
+          "severity": "ignored",
+          "code": "review-agent-invalid"
+        }
+      ]
+    },
+    {
+      "name": "review-agent-control-character",
+      "scope": "parser",
+      "why": "A control character in the agent name is ignored.",
+      "source": [
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000301\" data-agent=\"Bell&#7;agent\">",
+        "  <h3 data-title>Control agent</h3>",
+        "</tmt-review>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": [],
+        "reviews": []
+      },
+      "findings": [
+        {
+          "element": "tmt-review",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000301",
+          "line": 1,
+          "severity": "ignored",
+          "code": "review-agent-invalid"
+        }
+      ]
+    },
+    {
+      "name": "review-several-defects-are-all-reported",
+      "scope": "parser",
+      "why": "Every failed rule is reported once for the same section.",
+      "source": [
+        "<tmt-review data-id=\"not-a-uuid\" data-agent=\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\">",
+        "  <h3 data-title></h3>",
+        "  <h3 data-title>Second</h3>",
+        "</tmt-review>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": [],
+        "reviews": []
+      },
+      "findings": [
+        {
+          "element": "tmt-review",
+          "ordinal": 1,
+          "id": "not-a-uuid",
+          "line": 1,
+          "severity": "ignored",
+          "code": "review-id-invalid"
+        },
+        {
+          "element": "tmt-review",
+          "ordinal": 1,
+          "id": "not-a-uuid",
+          "line": 1,
+          "severity": "ignored",
+          "code": "review-heading-multiple"
+        },
+        {
+          "element": "tmt-review",
+          "ordinal": 1,
+          "id": "not-a-uuid",
+          "line": 1,
+          "severity": "ignored",
+          "code": "review-agent-invalid"
+        }
+      ]
+    },
+    {
+      "name": "review-ignored-keeps-its-questions",
+      "scope": "parser",
+      "why": "An ignored section supplies no controls, but its question is still a normal question.",
+      "source": [
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000301\">",
+        "  <p>No heading</p>",
+        "  <tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\">",
+        "    <p data-question>Question</p>",
+        "  </tmt-question>",
+        "</tmt-review>"
+      ],
+      "admitted": {
+        "questions": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          }
+        ],
+        "groups": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000001"]
+          }
+        ],
+        "reviews": []
+      },
+      "findings": [
+        {
+          "element": "tmt-review",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000301",
+          "line": 1,
+          "severity": "ignored",
+          "code": "review-heading-missing"
+        }
+      ]
+    },
+    {
+      "name": "review-lists-only-the-questions-inside",
+      "scope": "parser",
+      "why": "A question before the section is not listed in it.",
+      "source": [
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000301\">",
+        "  <h3 data-title>Later</h3>",
+        "  <tmt-question data-id=\"10000000-0000-4000-8000-000000000002\" data-kind=\"short\">",
+        "    <p data-question>Question</p>",
+        "  </tmt-question>",
+        "</tmt-review>"
+      ],
+      "admitted": {
+        "questions": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000002",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          }
+        ],
+        "groups": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000001"]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000002",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000002"]
+          }
+        ],
+        "reviews": [
+          {
+            "id": "10000000-0000-4000-8000-000000000301",
+            "title": "Later",
+            "agent": "",
+            "questions": ["10000000-0000-4000-8000-000000000002"]
+          }
+        ]
+      },
+      "findings": []
+    },
+    {
+      "name": "review-page-at-the-limit-admits-all",
+      "scope": "parser",
+      "why": "Fifty sections are admitted.",
+      "source": [
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000301\">",
+        "  <h3 data-title>Section 1</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000302\">",
+        "  <h3 data-title>Section 2</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000303\">",
+        "  <h3 data-title>Section 3</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000304\">",
+        "  <h3 data-title>Section 4</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000305\">",
+        "  <h3 data-title>Section 5</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000306\">",
+        "  <h3 data-title>Section 6</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000307\">",
+        "  <h3 data-title>Section 7</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000308\">",
+        "  <h3 data-title>Section 8</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000309\">",
+        "  <h3 data-title>Section 9</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000310\">",
+        "  <h3 data-title>Section 10</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000311\">",
+        "  <h3 data-title>Section 11</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000312\">",
+        "  <h3 data-title>Section 12</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000313\">",
+        "  <h3 data-title>Section 13</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000314\">",
+        "  <h3 data-title>Section 14</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000315\">",
+        "  <h3 data-title>Section 15</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000316\">",
+        "  <h3 data-title>Section 16</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000317\">",
+        "  <h3 data-title>Section 17</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000318\">",
+        "  <h3 data-title>Section 18</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000319\">",
+        "  <h3 data-title>Section 19</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000320\">",
+        "  <h3 data-title>Section 20</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000321\">",
+        "  <h3 data-title>Section 21</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000322\">",
+        "  <h3 data-title>Section 22</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000323\">",
+        "  <h3 data-title>Section 23</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000324\">",
+        "  <h3 data-title>Section 24</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000325\">",
+        "  <h3 data-title>Section 25</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000326\">",
+        "  <h3 data-title>Section 26</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000327\">",
+        "  <h3 data-title>Section 27</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000328\">",
+        "  <h3 data-title>Section 28</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000329\">",
+        "  <h3 data-title>Section 29</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000330\">",
+        "  <h3 data-title>Section 30</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000331\">",
+        "  <h3 data-title>Section 31</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000332\">",
+        "  <h3 data-title>Section 32</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000333\">",
+        "  <h3 data-title>Section 33</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000334\">",
+        "  <h3 data-title>Section 34</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000335\">",
+        "  <h3 data-title>Section 35</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000336\">",
+        "  <h3 data-title>Section 36</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000337\">",
+        "  <h3 data-title>Section 37</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000338\">",
+        "  <h3 data-title>Section 38</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000339\">",
+        "  <h3 data-title>Section 39</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000340\">",
+        "  <h3 data-title>Section 40</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000341\">",
+        "  <h3 data-title>Section 41</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000342\">",
+        "  <h3 data-title>Section 42</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000343\">",
+        "  <h3 data-title>Section 43</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000344\">",
+        "  <h3 data-title>Section 44</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000345\">",
+        "  <h3 data-title>Section 45</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000346\">",
+        "  <h3 data-title>Section 46</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000347\">",
+        "  <h3 data-title>Section 47</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000348\">",
+        "  <h3 data-title>Section 48</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000349\">",
+        "  <h3 data-title>Section 49</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000350\">",
+        "  <h3 data-title>Section 50</h3>",
+        "</tmt-review>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": [],
+        "reviews": [
+          {
+            "id": "10000000-0000-4000-8000-000000000301",
+            "title": "Section 1",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000302",
+            "title": "Section 2",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000303",
+            "title": "Section 3",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000304",
+            "title": "Section 4",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000305",
+            "title": "Section 5",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000306",
+            "title": "Section 6",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000307",
+            "title": "Section 7",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000308",
+            "title": "Section 8",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000309",
+            "title": "Section 9",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000310",
+            "title": "Section 10",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000311",
+            "title": "Section 11",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000312",
+            "title": "Section 12",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000313",
+            "title": "Section 13",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000314",
+            "title": "Section 14",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000315",
+            "title": "Section 15",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000316",
+            "title": "Section 16",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000317",
+            "title": "Section 17",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000318",
+            "title": "Section 18",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000319",
+            "title": "Section 19",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000320",
+            "title": "Section 20",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000321",
+            "title": "Section 21",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000322",
+            "title": "Section 22",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000323",
+            "title": "Section 23",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000324",
+            "title": "Section 24",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000325",
+            "title": "Section 25",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000326",
+            "title": "Section 26",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000327",
+            "title": "Section 27",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000328",
+            "title": "Section 28",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000329",
+            "title": "Section 29",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000330",
+            "title": "Section 30",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000331",
+            "title": "Section 31",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000332",
+            "title": "Section 32",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000333",
+            "title": "Section 33",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000334",
+            "title": "Section 34",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000335",
+            "title": "Section 35",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000336",
+            "title": "Section 36",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000337",
+            "title": "Section 37",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000338",
+            "title": "Section 38",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000339",
+            "title": "Section 39",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000340",
+            "title": "Section 40",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000341",
+            "title": "Section 41",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000342",
+            "title": "Section 42",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000343",
+            "title": "Section 43",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000344",
+            "title": "Section 44",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000345",
+            "title": "Section 45",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000346",
+            "title": "Section 46",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000347",
+            "title": "Section 47",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000348",
+            "title": "Section 48",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000349",
+            "title": "Section 49",
+            "agent": "",
+            "questions": []
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000350",
+            "title": "Section 50",
+            "agent": "",
+            "questions": []
+          }
+        ]
+      },
+      "findings": []
+    },
+    {
+      "name": "review-page-over-the-limit-drops-all",
+      "scope": "parser",
+      "why": "A fifty-first section drops every section, with one finding on the first one over the cap.",
+      "source": [
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000301\">",
+        "  <h3 data-title>Section 1</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000302\">",
+        "  <h3 data-title>Section 2</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000303\">",
+        "  <h3 data-title>Section 3</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000304\">",
+        "  <h3 data-title>Section 4</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000305\">",
+        "  <h3 data-title>Section 5</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000306\">",
+        "  <h3 data-title>Section 6</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000307\">",
+        "  <h3 data-title>Section 7</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000308\">",
+        "  <h3 data-title>Section 8</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000309\">",
+        "  <h3 data-title>Section 9</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000310\">",
+        "  <h3 data-title>Section 10</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000311\">",
+        "  <h3 data-title>Section 11</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000312\">",
+        "  <h3 data-title>Section 12</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000313\">",
+        "  <h3 data-title>Section 13</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000314\">",
+        "  <h3 data-title>Section 14</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000315\">",
+        "  <h3 data-title>Section 15</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000316\">",
+        "  <h3 data-title>Section 16</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000317\">",
+        "  <h3 data-title>Section 17</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000318\">",
+        "  <h3 data-title>Section 18</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000319\">",
+        "  <h3 data-title>Section 19</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000320\">",
+        "  <h3 data-title>Section 20</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000321\">",
+        "  <h3 data-title>Section 21</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000322\">",
+        "  <h3 data-title>Section 22</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000323\">",
+        "  <h3 data-title>Section 23</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000324\">",
+        "  <h3 data-title>Section 24</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000325\">",
+        "  <h3 data-title>Section 25</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000326\">",
+        "  <h3 data-title>Section 26</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000327\">",
+        "  <h3 data-title>Section 27</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000328\">",
+        "  <h3 data-title>Section 28</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000329\">",
+        "  <h3 data-title>Section 29</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000330\">",
+        "  <h3 data-title>Section 30</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000331\">",
+        "  <h3 data-title>Section 31</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000332\">",
+        "  <h3 data-title>Section 32</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000333\">",
+        "  <h3 data-title>Section 33</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000334\">",
+        "  <h3 data-title>Section 34</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000335\">",
+        "  <h3 data-title>Section 35</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000336\">",
+        "  <h3 data-title>Section 36</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000337\">",
+        "  <h3 data-title>Section 37</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000338\">",
+        "  <h3 data-title>Section 38</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000339\">",
+        "  <h3 data-title>Section 39</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000340\">",
+        "  <h3 data-title>Section 40</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000341\">",
+        "  <h3 data-title>Section 41</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000342\">",
+        "  <h3 data-title>Section 42</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000343\">",
+        "  <h3 data-title>Section 43</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000344\">",
+        "  <h3 data-title>Section 44</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000345\">",
+        "  <h3 data-title>Section 45</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000346\">",
+        "  <h3 data-title>Section 46</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000347\">",
+        "  <h3 data-title>Section 47</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000348\">",
+        "  <h3 data-title>Section 48</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000349\">",
+        "  <h3 data-title>Section 49</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000350\">",
+        "  <h3 data-title>Section 50</h3>",
+        "</tmt-review>",
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000351\">",
+        "  <h3 data-title>Section 51</h3>",
+        "</tmt-review>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": [],
+        "reviews": []
+      },
+      "findings": [
+        {
+          "element": "tmt-review",
+          "ordinal": 51,
+          "id": "10000000-0000-4000-8000-000000000351",
+          "line": 151,
+          "severity": "ignored",
+          "code": "review-page-limit"
+        }
+      ]
+    },
+    {
+      "name": "question-page-over-the-limit-drops-sections-too",
+      "scope": "parser",
+      "why": "Past the question cap the whole inspection stops: the one question finding is all that is reported.",
+      "source": [
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000301\">",
+        "  <h3 data-title>Section</h3>",
+        "</tmt-review>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000002\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000003\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000004\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000005\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000006\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000007\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000008\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000009\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000010\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000011\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000012\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000013\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000014\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000015\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000016\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000017\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000018\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000019\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000020\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000021\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000022\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000023\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000024\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000025\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000026\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000027\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000028\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000029\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000030\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000031\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000032\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000033\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000034\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000035\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000036\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000037\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000038\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000039\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000040\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000041\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000042\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000043\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000044\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000045\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000046\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000047\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000048\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000049\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000050\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000051\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": [],
+        "reviews": []
+      },
+      "findings": [
+        {
+          "element": "tmt-question",
+          "ordinal": 51,
+          "id": "10000000-0000-4000-8000-000000000051",
+          "line": 154,
+          "severity": "ignored",
+          "code": "question-page-limit"
         }
       ]
     }

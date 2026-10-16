@@ -68,6 +68,24 @@ fn every_case_gets_the_verdict_the_browser_gave() {
             "{name}: groups"
         );
 
+        // A case with no sections omits the key.
+        let sections: Vec<Value> = report
+            .reviews
+            .iter()
+            .map(|r| {
+                json!({"id": r.id, "title": r.title, "agent": r.agent, "questions": r.questions})
+            })
+            .collect();
+        assert_eq!(
+            case["admitted"]
+                .get("reviews")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default(),
+            sections,
+            "{name}: reviews"
+        );
+
         let found: BTreeSet<String> = report
             .findings
             .iter()
@@ -105,6 +123,7 @@ fn the_vector_limits_equal_the_named_constants() {
     let limits_block = &vectors()["limits"];
     for (key, value) in [
         ("pageQuestions", limits::QUESTION_PAGE),
+        ("pageReviews", limits::REVIEW_PAGE),
         ("titlePoints", limits::QUESTION_TITLE_POINTS),
         ("choices", limits::QUESTION_CHOICES),
         ("choicePoints", limits::QUESTION_CHOICE_POINTS),

@@ -9,9 +9,13 @@ import { sameMessageIds } from '../ask-records.js';
 import { useAgentDirectory } from '../agent-directory.js';
 import { CommentSendFailures } from '../comment-send-failures.js';
 import type { MessageSendFailure } from '../comment-send.js';
-import type { ComposerEdit } from './message-composer-edit.js';
 import type { AgentDestination } from '../live-ask.js';
-import { messageRecipient, recipientId, MESSAGE_RECIPIENT_LIMIT } from '../message-recipient.js';
+import {
+  messageRecipient,
+  recipientEdit,
+  recipientId,
+  MESSAGE_RECIPIENT_LIMIT,
+} from '../message-recipient.js';
 import {
   answerComment,
   answerOf,
@@ -33,22 +37,6 @@ interface Draft extends QuestionDraft {
 }
 const emptyDraft = (): Draft => ({ choices: [], other: false, value: '', changing: false });
 
-/** Chips keep explicit directory keys. The existing recipient policy revalidates those keys. */
-function recipientEdit(recipients: readonly AgentDestination[]): ComposerEdit {
-  let value = '';
-  const mentions: NonNullable<ComposerEdit['mentions']> = [];
-  for (const recipient of recipients) {
-    const start = value.length;
-    value += `@${recipient.agentName}`;
-    mentions.push({
-      key: { machine: recipient.machine, agent: recipient.agent },
-      range: { start, end: value.length },
-    });
-    value += ' ';
-  }
-  return { value, mentions };
-}
-
 /** One admitted group owns all drafts, visible recipients, publication outcomes and its footer. */
 export function QuestionGroupCard({
   group,
@@ -66,6 +54,7 @@ export function QuestionGroupCard({
   blocked,
   readOnly = false,
   connectionPresentation,
+  onRecorded,
 }: {
   group: QuestionGroup;
   members: readonly Question[];
@@ -82,6 +71,8 @@ export function QuestionGroupCard({
   blocked: boolean;
   readOnly?: boolean;
   connectionPresentation?: ComposerConnectionPresentation;
+  /** Called after an explicit Send recorded answers, with the recorded comments. */
+  onRecorded?(questionIds: readonly string[], contexts: readonly CommentContext[]): void;
 }) {
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [recipientState, setRecipientState] = useState<{
@@ -237,6 +228,12 @@ export function QuestionGroupCard({
         return next;
       });
       setFailures((previous) => [...previous, ...result.failures]);
+      const recorded = result.answers.filter((outcome) => outcome.state === 'recorded');
+      if (recorded.length)
+        onRecorded?.(
+          recorded.map((outcome) => outcome.question),
+          recorded.map((outcome) => outcome.context!),
+        );
       section.current?.focus({ preventScroll: true });
     } catch {
       setError('Could not confirm these answers. Your drafts are kept.');

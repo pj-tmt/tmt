@@ -159,6 +159,8 @@ pub const LABEL_REQUEST_PAGES: usize = 64;
 /// checker's tree builder scans its open elements on every start tag, so deeper is not judged.
 pub const PAGE_DEPTH: usize = 512;
 pub const QUESTION_PAGE: usize = 50;
+/// `tmt-review` sections a page may hold (`REVIEW_LIMIT` in the app's `questions.ts`).
+pub const REVIEW_PAGE: usize = 50;
 pub const QUESTION_TITLE_POINTS: usize = 200;
 pub const QUESTION_CHOICES: usize = 20;
 pub const QUESTION_CHOICE_POINTS: usize = 200;

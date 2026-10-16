@@ -17,7 +17,7 @@ use tmt_colab::{
     limits::{
         ATTACHMENT_REFS, DATA_IMAGE_BYTES, DATA_IMAGES_TOTAL_BYTES, GROUP_LABEL_POINTS,
         GROUP_QUESTIONS, PAGE_DEPTH, QUESTION_AGENT_POINTS, QUESTION_CHOICE_POINTS,
-        QUESTION_CHOICES, QUESTION_PAGE, QUESTION_TITLE_POINTS,
+        QUESTION_CHOICES, QUESTION_PAGE, QUESTION_TITLE_POINTS, REVIEW_PAGE,
     },
     page_check::{self, Finding, Report},
     store::Store,
@@ -120,6 +120,18 @@ fn message(code: &str) -> String {
         "group-empty" => "No question of this group is shown, so the group is ignored.".into(),
         "group-label-too-long" => format!("data-label is over {GROUP_LABEL_POINTS} characters; the tab shows Q<n> instead."),
         "group-label-control" => "data-label contains a control character; the tab shows Q<n> instead.".into(),
+        "review-page-limit" => format!(
+            "More than {REVIEW_PAGE} review sections on the page: the browser shows none of them. Keep at most {REVIEW_PAGE}."
+        ),
+        "review-id-invalid" => "data-id must be a lowercase UUID such as 10000000-0000-4000-8000-000000000301; this section is ignored.".into(),
+        "review-id-duplicate" => "Another section, group or question uses the same data-id, so every holder is ignored. Give each its own UUID.".into(),
+        "review-nested" => "A tmt-review inside another section, a question or a group is ignored. Put it beside the outer one.".into(),
+        "review-heading-missing" => "No direct child has data-title to hold the section heading, so this section is ignored.".into(),
+        "review-heading-multiple" => "More than one direct child has data-title. Keep exactly one.".into(),
+        "review-title-empty" => "The section's data-title text is empty.".into(),
+        "review-title-too-long" => format!("The section's data-title text is over {QUESTION_TITLE_POINTS} characters."),
+        "review-title-control" => "The section's data-title text contains a control character.".into(),
+        "review-agent-invalid" => format!("data-agent is over {QUESTION_AGENT_POINTS} characters or contains a control character."),
         "question-marker-misplaced" => "data-question and data-choice count only on direct children of a tmt-question; here the element is plain content.".into(),
         "image-data-oversized" => format!(
             "This data: image is over {} KiB. Attach the file and reference it with colab-attachment: instead.",
@@ -168,6 +180,10 @@ fn report_json(report: &Report, bytes: usize) -> Value {
         "questions": {
             "admitted": report.questions.len(),
             "ignored": report.question_blocks.saturating_sub(report.questions.len()),
+        },
+        "reviews": {
+            "admitted": report.reviews.len(),
+            "ignored": report.review_blocks.saturating_sub(report.reviews.len()),
         },
         "findings": findings_json(&report.findings),
     })
@@ -304,6 +320,17 @@ pub fn run(state: Option<(&Store, &Keyring, &str, &mut Decoder)>, args: &ArgMatc
             format!("{} shown, {} ignored", report.questions.len(), ignored),
         ),
     ];
+    // Only a page that has sections mentions them, so a page without any reads as before.
+    if report.review_blocks > 0 {
+        rows.push((
+            "reviews",
+            format!(
+                "{} shown, {} ignored",
+                report.reviews.len(),
+                report.review_blocks.saturating_sub(report.reviews.len())
+            ),
+        ));
+    }
     let lines: Vec<String> = report
         .findings
         .iter()
