@@ -1,4 +1,4 @@
-//! The full Overview body consumes shared Squads/Waiting modules once.
+//! The Overview body composes the selectable list and its narrow lower band.
 use ratatui::layout::Rect;
 pub(in crate::board) fn render(
     frame: &mut ratatui::Frame,
