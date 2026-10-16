@@ -1,6 +1,7 @@
 //! SparkRow: shared provider/member trends, numeric fences and optional quota.
 //! Callers supply projected row values; selection, acquisition and effects stay outside.
 mod quantize;
+pub(in crate::board) use quantize::{glyph, scale};
 use ratatui::{layout::Rect, text::Line};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::board) struct Row {

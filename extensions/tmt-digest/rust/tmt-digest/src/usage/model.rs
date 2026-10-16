@@ -425,10 +425,25 @@ fn limits_unavailable(seats: &[Seat], lines: &BTreeMap<&'static str, Line>) -> V
         .collect()
 }
 
+/// The lines a seat's tokens belong to, as `lines[]` counts them.
+fn seat_lines(seat: &Seat) -> Vec<&'static str> {
+    match &seat.by_model {
+        Some(models) => models
+            .iter()
+            .map(|model| line_of(&model.model_id))
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect(),
+        None if seat.totals.is_zero() => Vec::new(),
+        None => vec![UNATTRIBUTED],
+    }
+}
+
 fn seat_json(seat: &Seat) -> Value {
     json!({
         "id": seat.label.id, "name": seat.label.name, "retired": seat.label.retired,
         "totals": seat.totals.json(),
+        "lines": seat_lines(seat),
         "byModel": seat.by_model.as_ref().map(|models| models.iter().map(|model| {
             let mut row = model.tokens.json();
             row["modelId"] = json!(model.model_id);

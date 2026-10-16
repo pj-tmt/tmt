@@ -490,6 +490,9 @@
                 "output": 200,
                 "cached": 600
               },
+              "lines": [
+                "claude"
+              ],
               "byModel": [
                 {
                   "modelId": "claude-opus-5-5",
@@ -532,6 +535,9 @@
                 "output": 800,
                 "cached": 3000
               },
+              "lines": [
+                "gpt"
+              ],
               "byModel": [
                 {
                   "modelId": "gpt-6.1-sol",
@@ -580,6 +586,9 @@
                 "output": 20,
                 "cached": 0
               },
+              "lines": [
+                "unattributed"
+              ],
               "byModel": null,
               "series": [
                 {
@@ -607,6 +616,9 @@
                 "output": 10,
                 "cached": 0
               },
+              "lines": [
+                "claude"
+              ],
               "byModel": [
                 {
                   "modelId": "claude-sonnet-5-5",

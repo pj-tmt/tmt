@@ -50,6 +50,15 @@ impl App {
                 snapshot.preferences.digest_window
             })
     }
+    /// The window the reader should read: only while the Digest tab shows the panel.
+    pub(in crate::board) fn usage_report_want(&self) -> Option<super::super::usage_report::Since> {
+        (self.shell.tab == OpsTab::Digest
+            && self.workspace_snapshot().is_some()
+            && self
+                .digest_panels()
+                .shown(crate::config::DigestPanel::Report))
+        .then_some(self.usage_report.since)
+    }
     pub(in crate::board) fn select_digest_window(
         &mut self,
         window: crate::config::DigestWindow,
@@ -1057,6 +1066,23 @@ impl App {
                 ),
                 choice: Choice::DigestWindow(window),
             });
+        }
+        if self.shell.tab == OpsTab::Digest {
+            for since in super::super::usage_report::Since::ALL {
+                entries.push(MenuEntry {
+                    key: String::new(),
+                    label: format!(
+                        "Usage report window: {}{}",
+                        since.text(),
+                        if self.usage_report.since == since {
+                            " (current)"
+                        } else {
+                            ""
+                        }
+                    ),
+                    choice: Choice::UsageReportSince(since),
+                });
+            }
         }
         for (label, action) in [
             ("Theme", "theme"),

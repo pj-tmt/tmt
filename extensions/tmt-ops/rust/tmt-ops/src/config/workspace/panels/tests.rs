@@ -49,7 +49,7 @@ fn explicit_order_is_a_complete_permutation_and_hidden_is_a_unique_subset() {
 
 #[test]
 fn dashboards_have_distinct_ids_and_side_panes() {
-    let document: DocumentMut = "[workspace.digest_panels]\norder = ['list','status','usage','subscriptions','chart']\nhidden = ['chart']\ndetails = false\n".parse().unwrap();
+    let document: DocumentMut = "[workspace.digest_panels]\norder = ['list','status','usage','subscriptions','chart','report']\nhidden = ['chart']\ndetails = false\n".parse().unwrap();
     let policy = DigestPanels::parse(&document["workspace"]["digest_panels"]).unwrap();
     assert_eq!(policy.order()[0], DigestPanel::List);
     assert!(!policy.shown(DigestPanel::Chart));
@@ -60,6 +60,26 @@ fn dashboards_have_distinct_ids_and_side_panes() {
         .parse()
         .unwrap();
     assert!(DigestPanels::parse(&wrong["workspace"]["digest_panels"]).is_err());
+}
+
+#[test]
+fn an_order_saved_before_a_panel_existed_gets_it_appended() {
+    let saved = |order: &str| -> Result<DigestPanels, String> {
+        let document: DocumentMut = format!("[workspace.digest_panels]\norder = [{order}]\n")
+            .parse()
+            .unwrap();
+        DigestPanels::parse(&document["workspace"]["digest_panels"])
+    };
+    let policy = saved("'list','status','usage','subscriptions','chart'").unwrap();
+    assert_eq!(policy.order()[0], DigestPanel::List);
+    assert_eq!(policy.order().last(), Some(&DigestPanel::Report));
+    assert!(policy.shown(DigestPanel::Report));
+    // Only panels added since may be omitted; the others stay required.
+    assert!(saved("'list','status','usage','subscriptions'").is_err());
+    // An order that already places it keeps its place; duplicates stay refused.
+    let placed = saved("'report','list','status','usage','subscriptions','chart'").unwrap();
+    assert_eq!(placed.order()[0], DigestPanel::Report);
+    assert!(saved("'report','report','list','status','usage','subscriptions','chart'").is_err());
 }
 
 #[test]

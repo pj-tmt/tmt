@@ -73,6 +73,7 @@ fn label(key: &str) -> &'static str {
         "status" => "Status",
         "chart" => "Usage chart",
         "list" => "Member list",
+        "report" => "Usage report",
         "conversation" => "Conversation side pane",
         "details" => "Details side pane",
         _ => unreachable!("typed panel ID"),
