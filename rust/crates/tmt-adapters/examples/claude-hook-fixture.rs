@@ -1,6 +1,9 @@
 //! Deterministic runtime-shaped parent for isolated hook lifecycle tests.
 //! No provider, credentials, transcript access or model calls are involved.
 
+mod provider_launch;
+
+use provider_launch::scripted_launch_options;
 use serde::Deserialize;
 use serde_json::json;
 use std::{
@@ -140,42 +143,6 @@ fn main() {
     }
 }
 
-// Legacy scripted scenarios retain their three positional paths. Both provider
-// launch-hook options and Codex's managed launch options are not scenario paths.
-// The model-free channel peers execute the generated hooks instead.
-fn scripted_launch_options(args: &mut Vec<std::ffi::OsString>) {
-    if args.first().is_some_and(|arg| arg == "--no-daemon") {
-        assert!(
-            args.get(1).is_some_and(|arg| arg == "--add-dir"),
-            "managed Codex must name its state root"
-        );
-        assert!(
-            args.get(2)
-                .is_some_and(|root| std::path::Path::new(root).is_absolute()),
-            "managed Codex state root must be absolute"
-        );
-        args.drain(..3);
-    }
-    if args.len() < 2 {
-        return;
-    }
-    let option = &args[args.len() - 2];
-    let value = args.last().unwrap().to_str().unwrap();
-    if option == "--settings" {
-        let settings: serde_json::Value = serde_json::from_str(value).unwrap();
-        assert!(settings.is_object(), "session settings must be an object");
-    } else if option == "-c" {
-        let settings: toml_edit::DocumentMut = value.parse().unwrap();
-        assert!(
-            settings.get("hooks").is_some_and(|v| v.is_table_like()),
-            "session override must contain hooks"
-        );
-    } else {
-        return;
-    }
-    args.truncate(args.len() - 2);
-}
-
 /// Keep the MCP server a direct child of the admitted native provider. The
 /// delegated JavaScript peer otherwise becomes the channel's recorded owner,
 /// unlike the native process its real lifecycle hooks correctly report.
@@ -293,82 +260,6 @@ fn forward_mcp(input: &mut impl Read, output: &mut impl Write) -> io::Result<u64
 mod tests {
     use super::*;
     use std::{net::Shutdown, os::unix::net::UnixStream, time::Duration};
-
-    #[test]
-    fn scripted_paths_survive_managed_codex_options_with_or_without_hooks_and_listen() {
-        for listen in [false, true] {
-            for hooks in [false, true] {
-                let mut original: Vec<std::ffi::OsString> =
-                    ["/cli", "/scenario", "/report"].map(Into::into).to_vec();
-                if listen {
-                    original.push("--listen".into());
-                }
-                let mut args: Vec<std::ffi::OsString> =
-                    ["--no-daemon", "--add-dir", "/private-state"]
-                        .map(Into::into)
-                        .to_vec();
-                args.extend(original.clone());
-                if hooks {
-                    args.extend(["-c".into(), "hooks={Stop=[]}".into()]);
-                }
-                scripted_launch_options(&mut args);
-                assert_eq!(args, original, "listen={listen}, hooks={hooks}");
-            }
-        }
-    }
-
-    #[test]
-    #[should_panic(expected = "managed Codex state root must be absolute")]
-    fn scripted_managed_codex_refuses_an_invalid_state_root() {
-        let mut args = [
-            "--no-daemon",
-            "--add-dir",
-            "relative",
-            "/cli",
-            "/scenario",
-            "/report",
-        ]
-        .map(Into::into)
-        .to_vec();
-        scripted_launch_options(&mut args);
-    }
-
-    #[test]
-    fn scripted_unknown_arguments_are_not_silently_discarded() {
-        let original = ["--unknown", "/cli", "/scenario", "/report"]
-            .map(Into::into)
-            .to_vec();
-        let mut args = original.clone();
-        scripted_launch_options(&mut args);
-        assert_eq!(args, original);
-    }
-
-    #[test]
-    fn scripted_paths_and_listen_survive_both_provider_launch_hook_options() {
-        let original: Vec<std::ffi::OsString> = ["/cli", "/scenario", "/report", "--listen"]
-            .map(Into::into)
-            .to_vec();
-        for (option, value) in [
-            ("--settings", r#"{"hooks":{"Stop":[]}}"#),
-            ("-c", "hooks={Stop=[]}"),
-        ] {
-            let mut args = original.clone();
-            args.extend([option.into(), value.into()]);
-            scripted_launch_options(&mut args);
-            assert_eq!(args, original);
-        }
-    }
-
-    #[test]
-    fn scripted_paths_and_listen_survive_the_claude_settings() {
-        let original: Vec<std::ffi::OsString> = ["/cli", "/scenario", "/report", "--listen"]
-            .map(Into::into)
-            .to_vec();
-        let mut args = original.clone();
-        args.extend(["--settings".into(), r#"{"hooks":{"Stop":[]}}"#.into()]);
-        scripted_launch_options(&mut args);
-        assert_eq!(args, original);
-    }
 
     #[test]
     fn forwards_two_short_frames_before_stream_eof_and_reaps_the_peer() {

@@ -61,6 +61,15 @@ Every additional helper needs its own two-caller justification and review.
 Follow [DEVELOPMENT's ETXTBSY rules](../../../../DEVELOPMENT.md#rust-checks)
 for the three publication cases; scenario-local readiness/assertions stay local.
 
+Adapters' `provider-script-fixture` and `claude-hook-fixture` share the scripted
+managed-launch option decoder in `examples/provider_launch`. Build the former
+with `cargo build --locked --manifest-path rust/Cargo.toml -p tmt-adapters --example provider-script-fixture`.
+Copy it under the provider basename and set `TMT_TEST_PROVIDER_INTERPRETER` to an
+absolute interpreter path. Remaining argv is literal, stdio inherited, and child
+exit status preserved (signal death is 128 + signal). The native parent forwards
+TERM/INT/HUP and reaps its child; the acceptance world owns process-group/tmux
+cleanup after uncatchable parent death and must assert no leftover child.
+
 The `colab-runtime-fixture` example owns embedded tiny app bytes and selectable
 defects; tooling scenarios own assertions. Its signal-hook dev dependency owns
 SIGTERM cleanup. The `recording-cli-fixture` example owns synthetic extension
