@@ -15,7 +15,11 @@ use tmt_core::request::{
     flow::{self, FlowReport},
 };
 
-fn run(window_ms: u64, human: bool) -> Result<(FlowReport, BTreeMap<String, String>), Failure> {
+fn run(
+    window_ms: u64,
+    bucket_ms: u64,
+    human: bool,
+) -> Result<(FlowReport, BTreeMap<String, String>), Failure> {
     let paths = ConfigPaths::discover()
         .map_err(|e| Failure::new("X_ERROR", "Could not read exchange flow.", 1).caused_by(e))?;
     let mut storage = Storage::open(&paths.database).map_err(|e| {
@@ -28,10 +32,18 @@ fn run(window_ms: u64, human: bool) -> Result<(FlowReport, BTreeMap<String, Stri
         )
     })?;
     let result = (|| {
-        let report = RequestService::new(&mut storage, wall_time_ms)
+        let mut report = RequestService::new(&mut storage, wall_time_ms)
             .exchange_flow(window_ms)
             .map_err(|e| {
                 Failure::new("X_ERROR", "Could not read exchange flow.", 1).caused_by(e)
+            })?;
+        report.rows = flow::rebucket(report.rows, report.since_ms, window_ms, bucket_ms)
+            .ok_or_else(|| {
+                Failure::new(
+                    "X_ERROR",
+                    "Exchange flow totals exceed the safe integer range.",
+                    1,
+                )
             })?;
         // IdentityReader excludes retired identities. Only the human projection
         // needs current display names; JSON remains a UUID-only aggregate read.
@@ -51,21 +63,21 @@ fn run(window_ms: u64, human: bool) -> Result<(FlowReport, BTreeMap<String, Stri
     })();
     after_cleanup(result, || storage.close())
 }
-fn document(report: &FlowReport) -> Value {
-    json!({"observedAtMs": report.observed_at_ms, "sinceMs": report.since_ms, "bucketMs": flow::BUCKET_MS,
+fn document(report: &FlowReport, bucket_ms: u64) -> Value {
+    json!({"observedAtMs": report.observed_at_ms, "sinceMs": report.since_ms, "bucketMs": bucket_ms,
         "rows": report.rows.iter().map(|row| json!({
             "senderIdentityId": row.sender_identity_id, "recipientIdentityId": row.recipient_identity_id,
             "kind": row.kind.as_str(), "bucketStartMs": row.bucket_start_ms, "count": row.count, "bytes": row.bytes
         })).collect::<Vec<_>>()})
 }
-pub fn execute(window_ms: u64, mode: OutputMode) -> io::Result<u8> {
-    let (report, names) = match run(window_ms, !mode.json) {
+pub fn execute(window_ms: u64, bucket_ms: u64, mode: OutputMode) -> io::Result<u8> {
+    let (report, names) = match run(window_ms, bucket_ms, !mode.json) {
         Ok(report) => report,
         Err(e) => return e.publish(mode),
     };
     let mut stdout = tmt_cli_style::stream::stdout(mode.json);
     if mode.json {
-        writeln!(stdout, "{}", document(&report))?;
+        writeln!(stdout, "{}", document(&report, bucket_ms))?;
     } else {
         write_human(&mut stdout, &report, &names, window_ms)?;
     }
@@ -195,7 +207,7 @@ mod tests {
             since_ms: since,
             rows,
         };
-        let original = document(&report);
+        let original = document(&report, flow::BUCKET_MS);
         let names = BTreeMap::from([(id.into(), "Ada".into())]);
         let mut output = Vec::new();
         write_human(&mut output, &report, &names, flow::DEFAULT_WINDOW_MS).unwrap();
@@ -203,7 +215,12 @@ mod tests {
             String::from_utf8(output).unwrap(),
             "Exchange flow since 2026-10-10 12:00 UTC (24h)\nSENDER   RECIPIENT  KIND   COUNT  BYTES\nunknown  Ada        reply  1      9\nAda      11111111   talk   3      12\n"
         );
-        assert_eq!(document(&report), original);
+        assert_eq!(document(&report, flow::BUCKET_MS), original);
+        assert_eq!(original["bucketMs"], flow::BUCKET_MS);
+        assert_eq!(
+            document(&report, 7 * 86_400_000)["bucketMs"],
+            7 * 86_400_000
+        );
         assert_eq!(original["rows"][0]["senderIdentityId"], id);
     }
 }

@@ -485,8 +485,18 @@ fn exchange_flow_has_a_bounded_window_and_no_identity_selector() {
     for values in [
         vec!["x", "flow", "--json"],
         vec!["x", "flow", "--since", "30d", "--json"],
+        vec!["x", "flow", "--since", "7d", "--bucket", "7d", "--json"],
+        vec!["x", "flow", "--bucket", "30m", "--json"],
     ] {
         assert!(parsed(&values).mode.json);
+    }
+    for values in [
+        vec!["x", "flow", "--bucket", "0"],
+        vec!["x", "flow", "--bucket", "45m"],
+        vec!["x", "flow", "--bucket", "31d"],
+        vec!["x", "flow", "--bucket", "1.5h"],
+    ] {
+        assert_eq!(parse_error(&values).code, "USAGE_ERROR", "{values:?}");
     }
     for values in [
         vec!["x", "flow", "--since", "0"],

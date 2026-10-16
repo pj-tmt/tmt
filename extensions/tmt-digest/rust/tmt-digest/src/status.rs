@@ -67,7 +67,7 @@ fn invalid() -> Error {
         "Core returned an invalid identity inventory",
     )
 }
-fn inventory(document: &Value) -> Result<Vec<(String, String)>, Error> {
+pub(crate) fn inventory(document: &Value) -> Result<Vec<(String, String)>, Error> {
     let mut identities = document["identities"]
         .as_array()
         .ok_or_else(invalid)?

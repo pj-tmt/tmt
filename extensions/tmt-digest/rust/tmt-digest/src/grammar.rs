@@ -1,6 +1,6 @@
 //! Member settings grammar, admitted before Core discovery or file effects.
 
-use clap::{Arg, ArgAction, Command};
+use clap::{Arg, ArgAction, ArgGroup, Command};
 use tmt_cli_style::{CommandSpec, Example, OutputModes};
 
 const ROOT: CommandSpec = CommandSpec {
@@ -57,6 +57,34 @@ const STATUS: CommandSpec = CommandSpec {
     details: "Reads Core identities and held-message stats in batches. Unavailable stats stay unknown. Savings estimate context inputs avoided since Digest collection began, never billed tokens. This command does not tick or deliver messages.",
 };
 
+const USAGE: CommandSpec = CommandSpec {
+    name: "usage",
+    summary: "Report token usage, account limits and message flow",
+    examples: &[Example {
+        command: "tmt digest usage report --json",
+        note: "Read the last 24 hours as one JSON document",
+    }],
+    outputs: OutputModes::Human,
+    details: "Reads Core only; Digest keeps no usage store.",
+};
+
+const REPORT: CommandSpec = CommandSpec {
+    name: "report",
+    summary: "Report token usage, account limits and message flow for all members",
+    examples: &[
+        Example {
+            command: "tmt digest usage report --json",
+            note: "Read the last 24 hours as one JSON document",
+        },
+        Example {
+            command: "tmt digest usage report --since 7d --csv usage",
+            note: "Export the week's token usage per member and model as CSV",
+        },
+    ],
+    outputs: OutputModes::Json,
+    details: "Windows end at the last completed 5-minute boundary (window.toMs). Missing evidence is reported as unavailable, never as zero; Claude account limits are unavailable because Core has no source for them. CSV rows equal the JSON rows; a text cell starting with =, +, -, @, tab or carriage return gets a leading ' so a spreadsheet never reads it as a formula.",
+};
+
 pub fn command() -> Command {
     tmt_cli_style::command(&ROOT)
         .bin_name("tmt digest")
@@ -64,6 +92,34 @@ pub fn command() -> Command {
         .subcommand_negates_reqs(true)
         .subcommand(tmt_cli_style::command(&TICK))
         .subcommand(tmt_cli_style::command(&SKILL))
+        .subcommand(
+            tmt_cli_style::command(&USAGE)
+                .subcommand_required(true)
+                .subcommand(
+                    tmt_cli_style::command(&REPORT)
+                        .arg(
+                            Arg::new("since")
+                                .long("since")
+                                .default_value("24h")
+                                .value_parser(["24h", "7d", "30d"])
+                                .help("Window ending at the last completed 5-minute boundary"),
+                        )
+                        .arg(
+                            Arg::new("json")
+                                .long("json")
+                                .action(ArgAction::SetTrue)
+                                .help("Output one JSON document"),
+                        )
+                        .arg(
+                            Arg::new("csv")
+                                .long("csv")
+                                .value_name("TABLE")
+                                .value_parser(["usage", "exchange"])
+                                .help("Output one CSV table: usage or exchange"),
+                        )
+                        .group(ArgGroup::new("format").args(["json", "csv"]).required(true)),
+                ),
+        )
         .subcommand(
             tmt_cli_style::command(&STATUS)
                 .arg(

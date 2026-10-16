@@ -1,0 +1,875 @@
+{
+  "contract": "../usage-v1.md#join",
+  "note": "Series are abbreviated to the buckets that matter; the join does not depend on their number. Numbers such as 40.0 are fractional on purpose: a percentage is never rounded to an integer. Expected values are written by hand from the contract's arithmetic.",
+  "cases": [
+    {
+      "name": "mixed-roster",
+      "asOfMs": 1800000060000,
+      "since": "24h",
+      "labels": [
+        {
+          "id": "10000000-0000-4000-8000-000000000001",
+          "name": "claude-seat",
+          "retired": false
+        },
+        {
+          "id": "10000000-0000-4000-8000-000000000002",
+          "name": "codex-a",
+          "retired": false
+        },
+        {
+          "id": "10000000-0000-4000-8000-000000000003",
+          "name": "codex-b",
+          "retired": false
+        },
+        {
+          "id": "10000000-0000-4000-8000-000000000004",
+          "name": "idle-seat",
+          "retired": false
+        },
+        {
+          "id": "10000000-0000-4000-8000-000000000005",
+          "name": "retired-seat",
+          "retired": true
+        }
+      ],
+      "ids": [
+        "10000000-0000-4000-8000-000000000001",
+        "10000000-0000-4000-8000-000000000002",
+        "10000000-0000-4000-8000-000000000003",
+        "10000000-0000-4000-8000-000000000004",
+        "10000000-0000-4000-8000-000000000005",
+        "10000000-0000-4000-8000-000000000006"
+      ],
+      "totals": {
+        "identities": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "found": true,
+            "windows": [
+              {
+                "windowMs": 86400000,
+                "fromMs": 1799913600000,
+                "toMs": 1800000000000,
+                "bucketMs": 3600000,
+                "resolutionMs": 300000,
+                "availableFromMs": 1799913600000,
+                "retainedFromMs": 1799913600000,
+                "buckets": [
+                  {
+                    "fromMs": 1799913600000,
+                    "toMs": 1800000000000,
+                    "inputTokens": 1000,
+                    "outputTokens": 200,
+                    "cachedInputTokens": 600,
+                    "coveredMs": 86400000,
+                    "complete": true,
+                    "gap": false,
+                    "discontinuous": false,
+                    "byModel": [
+                      {
+                        "modelId": "claude-opus-5-5",
+                        "inputTokens": 1000,
+                        "outputTokens": 200,
+                        "cachedInputTokens": 600
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000002",
+            "found": true,
+            "windows": [
+              {
+                "windowMs": 86400000,
+                "fromMs": 1799913600000,
+                "toMs": 1800000000000,
+                "bucketMs": 3600000,
+                "resolutionMs": 300000,
+                "availableFromMs": 1799913600000,
+                "retainedFromMs": 1799913600000,
+                "buckets": [
+                  {
+                    "fromMs": 1799913600000,
+                    "toMs": 1800000000000,
+                    "inputTokens": 5000,
+                    "outputTokens": 800,
+                    "cachedInputTokens": 3000,
+                    "coveredMs": 86400000,
+                    "complete": true,
+                    "gap": false,
+                    "discontinuous": false,
+                    "byModel": [
+                      {
+                        "modelId": "gpt-6.1-sol",
+                        "inputTokens": 3000,
+                        "outputTokens": 500,
+                        "cachedInputTokens": 2000
+                      },
+                      {
+                        "modelId": "gpt-6-astra",
+                        "inputTokens": 2000,
+                        "outputTokens": 300,
+                        "cachedInputTokens": 1000
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000003",
+            "found": true,
+            "windows": [
+              {
+                "windowMs": 86400000,
+                "fromMs": 1799913600000,
+                "toMs": 1800000000000,
+                "bucketMs": 3600000,
+                "resolutionMs": 300000,
+                "availableFromMs": 1799917200000,
+                "retainedFromMs": 1799913600000,
+                "buckets": [
+                  {
+                    "fromMs": 1799913600000,
+                    "toMs": 1800000000000,
+                    "inputTokens": 100,
+                    "outputTokens": 20,
+                    "cachedInputTokens": 0,
+                    "coveredMs": 43200000,
+                    "complete": false,
+                    "gap": true,
+                    "discontinuous": false
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000004",
+            "found": true,
+            "windows": [
+              {
+                "windowMs": 86400000,
+                "fromMs": 1799913600000,
+                "toMs": 1800000000000,
+                "bucketMs": 3600000,
+                "resolutionMs": 300000,
+                "availableFromMs": null,
+                "retainedFromMs": 1799913600000,
+                "buckets": [
+                  {
+                    "fromMs": 1799913600000,
+                    "toMs": 1800000000000,
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "cachedInputTokens": 0,
+                    "coveredMs": 0,
+                    "complete": false,
+                    "gap": true,
+                    "discontinuous": false
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000005",
+            "found": true,
+            "retired": true,
+            "windows": [
+              {
+                "windowMs": 86400000,
+                "fromMs": 1799913600000,
+                "toMs": 1800000000000,
+                "bucketMs": 3600000,
+                "resolutionMs": 300000,
+                "availableFromMs": 1799913600000,
+                "retainedFromMs": 1799913600000,
+                "buckets": [
+                  {
+                    "fromMs": 1799913600000,
+                    "toMs": 1800000000000,
+                    "inputTokens": 50,
+                    "outputTokens": 10,
+                    "cachedInputTokens": 0,
+                    "coveredMs": 3600000,
+                    "complete": false,
+                    "gap": false,
+                    "discontinuous": false,
+                    "byModel": [
+                      {
+                        "modelId": "claude-sonnet-5-5",
+                        "inputTokens": 50,
+                        "outputTokens": 10,
+                        "cachedInputTokens": 0
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000006",
+            "found": false
+          }
+        ]
+      },
+      "series": {
+        "identities": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "found": true,
+            "windows": [
+              {
+                "windowMs": 86400000,
+                "fromMs": 1799913600000,
+                "toMs": 1800000000000,
+                "bucketMs": 3600000,
+                "resolutionMs": 300000,
+                "availableFromMs": 1799913600000,
+                "retainedFromMs": 1799913600000,
+                "buckets": [
+                  {
+                    "fromMs": 1799913600000,
+                    "toMs": 1799917200000,
+                    "inputTokens": 400,
+                    "outputTokens": 80,
+                    "cachedInputTokens": 250,
+                    "coveredMs": 3600000,
+                    "complete": true,
+                    "gap": false,
+                    "discontinuous": false
+                  },
+                  {
+                    "fromMs": 1799917200000,
+                    "toMs": 1799920800000,
+                    "inputTokens": 600,
+                    "outputTokens": 120,
+                    "cachedInputTokens": 350,
+                    "coveredMs": 3600000,
+                    "complete": true,
+                    "gap": false,
+                    "discontinuous": false
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000002",
+            "found": true,
+            "windows": [
+              {
+                "windowMs": 86400000,
+                "fromMs": 1799913600000,
+                "toMs": 1800000000000,
+                "bucketMs": 3600000,
+                "resolutionMs": 300000,
+                "availableFromMs": 1799913600000,
+                "retainedFromMs": 1799913600000,
+                "buckets": [
+                  {
+                    "fromMs": 1799913600000,
+                    "toMs": 1799917200000,
+                    "inputTokens": 2000,
+                    "outputTokens": 300,
+                    "cachedInputTokens": 1500,
+                    "coveredMs": 3600000,
+                    "complete": true,
+                    "gap": false,
+                    "discontinuous": false,
+                    "rateLimits": {
+                      "observedAtMs": 1799992800000,
+                      "windows": [
+                        {
+                          "windowMinutes": 300,
+                          "usedPercent": 20.0,
+                          "resetsAtMs": 1800003660000
+                        },
+                        {
+                          "windowMinutes": 10080,
+                          "usedPercent": 50.0,
+                          "resetsAtMs": 1800086460000
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "fromMs": 1799917200000,
+                    "toMs": 1799920800000,
+                    "inputTokens": 3000,
+                    "outputTokens": 500,
+                    "cachedInputTokens": 1500,
+                    "coveredMs": 3600000,
+                    "complete": true,
+                    "gap": false,
+                    "discontinuous": false,
+                    "rateLimits": {
+                      "observedAtMs": 1799999400000,
+                      "windows": [
+                        {
+                          "windowMinutes": 300,
+                          "usedPercent": 40.0,
+                          "resetsAtMs": 1800003660000
+                        },
+                        {
+                          "windowMinutes": 10080,
+                          "usedPercent": 60.0,
+                          "resetsAtMs": 1800086460000
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000003",
+            "found": true,
+            "windows": [
+              {
+                "windowMs": 86400000,
+                "fromMs": 1799913600000,
+                "toMs": 1800000000000,
+                "bucketMs": 3600000,
+                "resolutionMs": 300000,
+                "availableFromMs": 1799917200000,
+                "retainedFromMs": 1799913600000,
+                "buckets": [
+                  {
+                    "fromMs": 1799913600000,
+                    "toMs": 1799917200000,
+                    "inputTokens": 100,
+                    "outputTokens": 20,
+                    "cachedInputTokens": 0,
+                    "coveredMs": 1800000,
+                    "complete": false,
+                    "gap": true,
+                    "discontinuous": false,
+                    "rateLimits": {
+                      "observedAtMs": 1799998800000,
+                      "windows": [
+                        {
+                          "windowMinutes": 300,
+                          "usedPercent": 90.0,
+                          "resetsAtMs": 1799999460000
+                        },
+                        {
+                          "windowMinutes": 10080,
+                          "usedPercent": 55.0,
+                          "resetsAtMs": 1800086460000
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000004",
+            "found": true,
+            "windows": [
+              {
+                "windowMs": 86400000,
+                "fromMs": 1799913600000,
+                "toMs": 1800000000000,
+                "bucketMs": 3600000,
+                "resolutionMs": 300000,
+                "availableFromMs": null,
+                "retainedFromMs": 1799913600000,
+                "buckets": []
+              }
+            ]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000005",
+            "found": true,
+            "retired": true,
+            "windows": [
+              {
+                "windowMs": 86400000,
+                "fromMs": 1799913600000,
+                "toMs": 1800000000000,
+                "bucketMs": 3600000,
+                "resolutionMs": 300000,
+                "availableFromMs": 1799913600000,
+                "retainedFromMs": 1799913600000,
+                "buckets": [
+                  {
+                    "fromMs": 1799913600000,
+                    "toMs": 1799917200000,
+                    "inputTokens": 50,
+                    "outputTokens": 10,
+                    "cachedInputTokens": 0,
+                    "coveredMs": 3600000,
+                    "complete": false,
+                    "gap": false,
+                    "discontinuous": false
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000006",
+            "found": false
+          }
+        ]
+      },
+      "flow": {
+        "sinceMs": 1799913600000,
+        "observedAtMs": 1800000060000,
+        "bucketMs": 86400000,
+        "rows": [
+          {
+            "senderIdentityId": null,
+            "recipientIdentityId": "10000000-0000-4000-8000-000000000001",
+            "kind": "talk",
+            "bucketStartMs": 1799913600000,
+            "count": 1,
+            "bytes": 40
+          },
+          {
+            "senderIdentityId": "10000000-0000-4000-8000-000000000001",
+            "recipientIdentityId": "10000000-0000-4000-8000-000000000002",
+            "kind": "talk",
+            "bucketStartMs": 1799913600000,
+            "count": 3,
+            "bytes": 300
+          },
+          {
+            "senderIdentityId": "10000000-0000-4000-8000-000000000001",
+            "recipientIdentityId": "10000000-0000-4000-8000-000000000006",
+            "kind": "ack",
+            "bucketStartMs": 1799913600000,
+            "count": 4,
+            "bytes": 0
+          },
+          {
+            "senderIdentityId": "10000000-0000-4000-8000-000000000002",
+            "recipientIdentityId": "10000000-0000-4000-8000-000000000001",
+            "kind": "reply",
+            "bucketStartMs": 1799913600000,
+            "count": 2,
+            "bytes": 120
+          },
+          {
+            "senderIdentityId": "10000000-0000-4000-8000-000000000002",
+            "recipientIdentityId": "10000000-0000-4000-8000-000000000001",
+            "kind": "result",
+            "bucketStartMs": 1799913600000,
+            "count": 1,
+            "bytes": 80
+          }
+        ]
+      },
+      "expected": {
+        "version": 1,
+        "observedAtMs": 1800000060000,
+        "since": "24h",
+        "window": {
+          "fromMs": 1799913600000,
+          "toMs": 1800000000000
+        },
+        "usage": {
+          "seats": [
+            {
+              "id": "10000000-0000-4000-8000-000000000001",
+              "name": "claude-seat",
+              "retired": false,
+              "totals": {
+                "input": 1000,
+                "output": 200,
+                "cached": 600
+              },
+              "byModel": [
+                {
+                  "modelId": "claude-opus-5-5",
+                  "input": 1000,
+                  "output": 200,
+                  "cached": 600
+                }
+              ],
+              "series": [
+                {
+                  "fromMs": 1799913600000,
+                  "toMs": 1799917200000,
+                  "input": 400,
+                  "output": 80,
+                  "cached": 250,
+                  "complete": true
+                },
+                {
+                  "fromMs": 1799917200000,
+                  "toMs": 1799920800000,
+                  "input": 600,
+                  "output": 120,
+                  "cached": 350,
+                  "complete": true
+                }
+              ],
+              "coverage": {
+                "coveredMs": 86400000,
+                "windowMs": 86400000,
+                "complete": true,
+                "gap": false
+              }
+            },
+            {
+              "id": "10000000-0000-4000-8000-000000000002",
+              "name": "codex-a",
+              "retired": false,
+              "totals": {
+                "input": 5000,
+                "output": 800,
+                "cached": 3000
+              },
+              "byModel": [
+                {
+                  "modelId": "gpt-6.1-sol",
+                  "input": 3000,
+                  "output": 500,
+                  "cached": 2000
+                },
+                {
+                  "modelId": "gpt-6-astra",
+                  "input": 2000,
+                  "output": 300,
+                  "cached": 1000
+                }
+              ],
+              "series": [
+                {
+                  "fromMs": 1799913600000,
+                  "toMs": 1799917200000,
+                  "input": 2000,
+                  "output": 300,
+                  "cached": 1500,
+                  "complete": true
+                },
+                {
+                  "fromMs": 1799917200000,
+                  "toMs": 1799920800000,
+                  "input": 3000,
+                  "output": 500,
+                  "cached": 1500,
+                  "complete": true
+                }
+              ],
+              "coverage": {
+                "coveredMs": 86400000,
+                "windowMs": 86400000,
+                "complete": true,
+                "gap": false
+              }
+            },
+            {
+              "id": "10000000-0000-4000-8000-000000000003",
+              "name": "codex-b",
+              "retired": false,
+              "totals": {
+                "input": 100,
+                "output": 20,
+                "cached": 0
+              },
+              "byModel": null,
+              "series": [
+                {
+                  "fromMs": 1799913600000,
+                  "toMs": 1799917200000,
+                  "input": 100,
+                  "output": 20,
+                  "cached": 0,
+                  "complete": false
+                }
+              ],
+              "coverage": {
+                "coveredMs": 43200000,
+                "windowMs": 86400000,
+                "complete": false,
+                "gap": true
+              }
+            },
+            {
+              "id": "10000000-0000-4000-8000-000000000005",
+              "name": "retired-seat",
+              "retired": true,
+              "totals": {
+                "input": 50,
+                "output": 10,
+                "cached": 0
+              },
+              "byModel": [
+                {
+                  "modelId": "claude-sonnet-5-5",
+                  "input": 50,
+                  "output": 10,
+                  "cached": 0
+                }
+              ],
+              "series": [
+                {
+                  "fromMs": 1799913600000,
+                  "toMs": 1799917200000,
+                  "input": 50,
+                  "output": 10,
+                  "cached": 0,
+                  "complete": false
+                }
+              ],
+              "coverage": {
+                "coveredMs": 3600000,
+                "windowMs": 86400000,
+                "complete": false,
+                "gap": false
+              }
+            }
+          ],
+          "unavailable": [
+            {
+              "id": "10000000-0000-4000-8000-000000000004",
+              "name": "idle-seat",
+              "retired": false,
+              "reason": "no_evidence"
+            },
+            {
+              "id": "10000000-0000-4000-8000-000000000006",
+              "name": null,
+              "retired": false,
+              "reason": "not_found"
+            }
+          ],
+          "lines": [
+            {
+              "line": "claude",
+              "totals": {
+                "input": 1050,
+                "output": 210,
+                "cached": 600
+              },
+              "seats": 2,
+              "partialSeats": 1
+            },
+            {
+              "line": "gpt",
+              "totals": {
+                "input": 5000,
+                "output": 800,
+                "cached": 3000
+              },
+              "seats": 1,
+              "partialSeats": 0
+            },
+            {
+              "line": "unattributed",
+              "totals": {
+                "input": 100,
+                "output": 20,
+                "cached": 0
+              },
+              "seats": 1,
+              "partialSeats": 1
+            }
+          ]
+        },
+        "limits": [
+          {
+            "windowMinutes": 300,
+            "resetsAtMs": 1799999460000,
+            "usedPercent": 90.0,
+            "observedAtMs": 1799998800000,
+            "elapsedPercent": null,
+            "paceDeltaPoints": null,
+            "stale": true,
+            "seats": [
+              "10000000-0000-4000-8000-000000000003"
+            ]
+          },
+          {
+            "windowMinutes": 300,
+            "resetsAtMs": 1800003660000,
+            "usedPercent": 40.0,
+            "observedAtMs": 1799999400000,
+            "elapsedPercent": 80.0,
+            "paceDeltaPoints": -40.0,
+            "stale": false,
+            "seats": [
+              "10000000-0000-4000-8000-000000000002"
+            ]
+          },
+          {
+            "windowMinutes": 10080,
+            "resetsAtMs": 1800086460000,
+            "usedPercent": 60.0,
+            "observedAtMs": 1799999400000,
+            "elapsedPercent": 85.71,
+            "paceDeltaPoints": -25.71,
+            "stale": false,
+            "seats": [
+              "10000000-0000-4000-8000-000000000002",
+              "10000000-0000-4000-8000-000000000003"
+            ]
+          }
+        ],
+        "limitsUnavailable": [
+          {
+            "line": "claude",
+            "reason": "no_source"
+          }
+        ],
+        "exchange": {
+          "sinceMs": 1799913600000,
+          "observedAtMs": 1800000060000,
+          "pairs": [
+            {
+              "count": 1,
+              "bytes": 40,
+              "sender": {
+                "id": null,
+                "name": null,
+                "retired": false
+              },
+              "recipient": {
+                "id": "10000000-0000-4000-8000-000000000001",
+                "name": "claude-seat",
+                "retired": false
+              },
+              "kind": "talk"
+            },
+            {
+              "count": 3,
+              "bytes": 300,
+              "sender": {
+                "id": "10000000-0000-4000-8000-000000000001",
+                "name": "claude-seat",
+                "retired": false
+              },
+              "recipient": {
+                "id": "10000000-0000-4000-8000-000000000002",
+                "name": "codex-a",
+                "retired": false
+              },
+              "kind": "talk"
+            },
+            {
+              "count": 4,
+              "bytes": 0,
+              "sender": {
+                "id": "10000000-0000-4000-8000-000000000001",
+                "name": "claude-seat",
+                "retired": false
+              },
+              "recipient": {
+                "id": "10000000-0000-4000-8000-000000000006",
+                "name": null,
+                "retired": false
+              },
+              "kind": "ack"
+            },
+            {
+              "count": 2,
+              "bytes": 120,
+              "sender": {
+                "id": "10000000-0000-4000-8000-000000000002",
+                "name": "codex-a",
+                "retired": false
+              },
+              "recipient": {
+                "id": "10000000-0000-4000-8000-000000000001",
+                "name": "claude-seat",
+                "retired": false
+              },
+              "kind": "reply"
+            },
+            {
+              "count": 1,
+              "bytes": 80,
+              "sender": {
+                "id": "10000000-0000-4000-8000-000000000002",
+                "name": "codex-a",
+                "retired": false
+              },
+              "recipient": {
+                "id": "10000000-0000-4000-8000-000000000001",
+                "name": "claude-seat",
+                "retired": false
+              },
+              "kind": "result"
+            }
+          ],
+          "bySender": [
+            {
+              "count": 7,
+              "bytes": 300,
+              "participant": {
+                "id": "10000000-0000-4000-8000-000000000001",
+                "name": "claude-seat",
+                "retired": false
+              }
+            },
+            {
+              "count": 3,
+              "bytes": 200,
+              "participant": {
+                "id": "10000000-0000-4000-8000-000000000002",
+                "name": "codex-a",
+                "retired": false
+              }
+            },
+            {
+              "count": 1,
+              "bytes": 40,
+              "participant": {
+                "id": null,
+                "name": null,
+                "retired": false
+              }
+            }
+          ],
+          "byRecipient": [
+            {
+              "count": 4,
+              "bytes": 240,
+              "participant": {
+                "id": "10000000-0000-4000-8000-000000000001",
+                "name": "claude-seat",
+                "retired": false
+              }
+            },
+            {
+              "count": 4,
+              "bytes": 0,
+              "participant": {
+                "id": "10000000-0000-4000-8000-000000000006",
+                "name": null,
+                "retired": false
+              }
+            },
+            {
+              "count": 3,
+              "bytes": 300,
+              "participant": {
+                "id": "10000000-0000-4000-8000-000000000002",
+                "name": "codex-a",
+                "retired": false
+              }
+            }
+          ]
+        },
+        "warnings": []
+      },
+      "csv": {
+        "usage": "id,name,retired,line,model,input,output,cached,coveredMs,windowMs,complete,unavailable\n10000000-0000-4000-8000-000000000001,claude-seat,false,claude,claude-opus-5-5,1000,200,600,86400000,86400000,true,\n10000000-0000-4000-8000-000000000002,codex-a,false,gpt,gpt-6.1-sol,3000,500,2000,86400000,86400000,true,\n10000000-0000-4000-8000-000000000002,codex-a,false,gpt,gpt-6-astra,2000,300,1000,86400000,86400000,true,\n10000000-0000-4000-8000-000000000003,codex-b,false,unattributed,,100,20,0,43200000,86400000,false,\n10000000-0000-4000-8000-000000000005,retired-seat,true,claude,claude-sonnet-5-5,50,10,0,3600000,86400000,false,\n10000000-0000-4000-8000-000000000004,idle-seat,false,,,,,,,,,no_evidence\n10000000-0000-4000-8000-000000000006,,false,,,,,,,,,not_found\n",
+        "exchange": "senderId,sender,recipientId,recipient,kind,count,bytes\n,,10000000-0000-4000-8000-000000000001,claude-seat,talk,1,40\n10000000-0000-4000-8000-000000000001,claude-seat,10000000-0000-4000-8000-000000000002,codex-a,talk,3,300\n10000000-0000-4000-8000-000000000001,claude-seat,10000000-0000-4000-8000-000000000006,,ack,4,0\n10000000-0000-4000-8000-000000000002,codex-a,10000000-0000-4000-8000-000000000001,claude-seat,reply,2,120\n10000000-0000-4000-8000-000000000002,codex-a,10000000-0000-4000-8000-000000000001,claude-seat,result,1,80\n"
+      }
+    }
+  ]
+}

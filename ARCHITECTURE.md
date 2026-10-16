@@ -385,6 +385,7 @@ build, publication and verification procedures are in the
 [tmt-release skill](.agents/skills/tmt-release/SKILL.md).
 
 Digest owns [history, pricing and valuation](extensions/tmt-digest/contracts/digest-v1.md); tick collects, status reads.
+The [usage report](extensions/tmt-digest/contracts/usage-v1.md) joins Core's rollup, limits and `x flow --bucket` per run; it stores nothing.
 
 ## Ops extension
 

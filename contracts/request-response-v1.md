@@ -713,13 +713,18 @@ define current commands or authorize new integrations.
 
 ## Content-free exchange flow
 
-`tmt x flow [--since <duration>] [--json]` reads the whole local team's flow,
+`tmt x flow [--since <duration>] [--bucket <duration>] [--json]` reads the whole local team's flow,
 without a caller selector or participant filter. It grants no sending authority:
 these are the same OS user's local metadata. The window defaults to `24h`; accept
 positive integer seconds or an `ms`, `s`, `m`, `h`, or `d` suffix, up to `30d`.
 Rows cover UTC 30-minute buckets intersecting the requested window, including the
-whole first bucket and the current partial bucket. JSON reports the effective
-bucket-aligned `sinceMs`, `observedAtMs`, `bucketMs:1800000`, and `rows`, ordered by
+whole first bucket and the current partial bucket. `--bucket` (default `30m`, the
+stored size) sums those rows into buckets of that length, a whole number of 30-minute
+buckets up to `30d`, anchored at `sinceMs`; the last bucket may be shorter, and a
+bucket at least as long as the window holds every row, so it gives one row per
+pair and kind. A total past the JavaScript-safe integer bound fails the command.
+JSON reports the effective bucket-aligned `sinceMs`, `observedAtMs`, `bucketMs`
+(`1800000` unless `--bucket` is given), and `rows`, ordered by
 bucket, sender UUID, recipient UUID and kind. Each row has only
 `senderIdentityId`, `recipientIdentityId`, `kind`, `bucketStartMs`, `count`, and
 `bytes`. Unknown participants are null. Human output sums the window by pair and

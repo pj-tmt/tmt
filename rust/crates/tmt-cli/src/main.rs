@@ -365,8 +365,11 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         Invocation::NotesPath { identity } => {
             return notes_command::execute(identity, parsed.mode);
         }
-        Invocation::ExchangeFlow { window_ms } => {
-            return exchange_flow_command::execute(window_ms, parsed.mode);
+        Invocation::ExchangeFlow {
+            window_ms,
+            bucket_ms,
+        } => {
+            return exchange_flow_command::execute(window_ms, bucket_ms, parsed.mode);
         }
         Invocation::Exchange {
             identity,
