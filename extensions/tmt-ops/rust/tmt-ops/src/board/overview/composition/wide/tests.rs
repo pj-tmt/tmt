@@ -55,10 +55,7 @@ fn final_wide_composition_has_joined_divider_direct_matrix_and_filled_reply_fiel
     assert_eq!(band.width, 59);
     assert!(shown.contains("⏎ to reply to worker"));
     assert!(!shown.contains("[ Send ]"));
-    let rule = shown
-        .lines()
-        .position(|line| line.contains("── Squads"))
-        .unwrap() as u16;
+    let rule = app.conversation.borrow().pane.unwrap().y;
     assert_eq!(buffer[(88, rule)].symbol(), "┬");
     assert_eq!(buffer[(88, rule + 1)].symbol(), "│");
     assert_eq!(
@@ -68,6 +65,145 @@ fn final_wide_composition_has_joined_divider_direct_matrix_and_filled_reply_fiel
             .unwrap()
     );
     assert!(shown.contains("worker → Owner"));
+}
+
+#[test]
+fn input_follows_natural_exchange_growth_and_pins_only_when_it_overflows() {
+    let _commands = crate::runner::forbid_commands();
+    let mut app = board_app();
+    paint(&mut app, 148, 51);
+    let read = app.detail_read().expect("existing exact-question reader");
+    app.apply_message(&read, Ok("One observed line.".into()));
+    paint(&mut app, 148, 51);
+    let pane = app.conversation.borrow().pane.unwrap();
+    let short = conversation::exchange::desired_height(&app, pane.width);
+    assert!(
+        short < 6,
+        "a short observation must not reserve six rows: {short}"
+    );
+    assert_eq!(app.input_band.get().unwrap().y, pane.y + 1 + short + 1);
+
+    let body = (0..14)
+        .map(|n| format!("Observed line {n}."))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    app.apply_message(&read, Ok(body));
+    paint(&mut app, 148, 51);
+    let grown = conversation::exchange::desired_height(&app, pane.width);
+    assert!(
+        grown > 12,
+        "the transcript must grow beyond the retired cap"
+    );
+    assert_eq!(app.input_band.get().unwrap().y, pane.y + 1 + grown + 1);
+
+    let body = (0..100)
+        .map(|n| format!("Observed line {n}."))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    app.apply_message(&read, Ok(body));
+    let shown = text(&paint(&mut app, 148, 51));
+    assert_eq!(app.input_band.get().unwrap().bottom(), pane.bottom());
+    assert!(shown.contains(" earlier · PgUp"), "{shown}");
+    assert!(!shown.contains("↑ 0 earlier"));
+    assert!(!shown.contains("── Input") && !shown.contains("[ Send ]"));
+    crate::board::app::tests::configure_workspace(
+        &mut app,
+        "[bind]\npageup='menu'\nu='scroll-page-up'\n",
+    );
+    let authored = text(&paint(&mut app, 148, 51));
+    assert!(authored.contains(" earlier · u"));
+    assert!(!authored.contains(" earlier · PgUp"));
+    key(&mut app, KeyCode::Enter);
+    let typing = text(&paint(&mut app, 148, 51));
+    assert!(
+        !typing.contains(" earlier · u"),
+        "the editor owns typing keys"
+    );
+}
+
+#[test]
+fn a_squad_uses_its_observed_lead_and_never_borrows_a_waiting_members_question() {
+    use crate::board::workspace::OpsTarget;
+    let mut app = board_app();
+    paint(&mut app, 148, 51);
+    let member_request = app.detail_read().unwrap().request;
+    let lead_id = "77777777-7777-4777-8777-777777777777";
+    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    let mut lead = snapshot.roster.members[crate::board::app::workspace::tests::MEMBER].clone();
+    lead.id = lead_id.into();
+    lead.name = "observed-lead".into();
+    lead.waiting = false;
+    snapshot.roster.members.insert(lead_id.into(), lead);
+    snapshot.roster.squads[0].lead = Some(lead_id.into());
+    snapshot.roster.squads[0].members.push(lead_id.into());
+    snapshot.roster.squads[0].member_states.insert(
+        lead_id.into(),
+        crate::board::workspace::OpsMembershipState {
+            state: Some("working".into()),
+            waiting: false,
+            rank: None,
+        },
+    );
+    snapshot.rows.insert(OpsTarget::Member { room_id: Some(crate::board::app::workspace::tests::ROOM.into()), identity_id: lead_id.into() }, serde_json::json!({"id":lead_id,"name":"observed-lead","state":"working","presence":"active","pane":{"location":{"host":"tmux"}}}));
+    app.overview_rows.borrow_mut().clear();
+    let squad = app.workspace_snapshot().unwrap().roster.squads[0].clone();
+    let lead = squad.lead.clone().unwrap();
+    app.overview_view = crate::board::overview::monitor::View::Squads;
+    app.workspace.selected = Some(OpsTarget::Squad(squad.room_id));
+    app.workspace_reconcile();
+    paint(&mut app, 148, 51);
+    let target = app.conversation_target().unwrap();
+    assert_eq!(
+        app.target_row(&target).unwrap()["id"].as_str(),
+        Some(lead.as_str())
+    );
+    assert_ne!(lead, crate::board::app::workspace::tests::MEMBER);
+    assert!(
+        app.detail_read()
+            .is_none_or(|read| read.request != member_request)
+    );
+    let selected = app.workspace.selected.clone();
+    let target = app.workspace_message_target().unwrap();
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .rows
+        .get_mut(&target)
+        .unwrap()["waitingOnYou"] = serde_json::json!([{
+        "requestId":"req_88888888-8888-4888-8888-888888888888",
+        "preparedAtMs":crate::status::now_ms(),
+        "preview":"The observed lead asks this exact question."
+    }]);
+    paint(&mut app, 148, 51);
+    assert!(
+        app.input_band.get().is_some(),
+        "the passive field must admit the exact lead reply"
+    );
+    key(&mut app, KeyCode::Enter);
+    assert!(matches!(app.input.as_ref().unwrap().compose,
+        Compose::Reply { ref request, .. } if request == "req_88888888-8888-4888-8888-888888888888"));
+    app.paste("Reply to the lead only.");
+    assert!(matches!(key(&mut app, KeyCode::Enter),
+        Effect::Act(Request::Reply { request, text, .. })
+        if request == "req_88888888-8888-4888-8888-888888888888" && text == "Reply to the lead only."));
+    assert_eq!(app.workspace.selected, selected);
+    key(&mut app, KeyCode::Esc);
+    crate::board::app::tests::configure_workspace(
+        &mut app,
+        "[bind.tmux]\nenter='menu'\nt='talk'\n",
+    );
+    assert_eq!(
+        app.workspace_bindings()["enter"].verb,
+        crate::action::Verb::Menu
+    );
+    let shown = text(&paint(&mut app, 148, 51));
+    assert!(shown.contains("t to message observed-lead"), "{shown}");
+    key(&mut app, KeyCode::Enter);
+    assert!(app.menu.is_some() && app.input.is_none());
 }
 #[test]
 fn enter_and_pointer_reply_to_the_exact_question_and_an_unrelated_result_never_replaces_it() {

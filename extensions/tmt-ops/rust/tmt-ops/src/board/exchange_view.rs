@@ -58,6 +58,8 @@ pub(in crate::board) fn header(
         spans.clear();
         spans.push(Span::raw(" ".repeat(left)));
     }
+    let used = spans.iter().map(Span::width).sum::<usize>();
+    spans.push(Span::raw(" ".repeat(left.saturating_sub(used))));
     spans.push(Span::styled(
         format!(" {} ", super::view::fit(&stamp, right.saturating_sub(2))),
         look.role(Role::Dim),
@@ -119,7 +121,18 @@ pub(in crate::board) fn link(
         ),
         Span::styled(" · ", look.role(Role::Dim)),
     ];
-    spans.extend(super::m12_key_hints::line(&hint, look, look.role(Role::Text), " · ").spans);
+    spans.extend(
+        super::key_hints::line(
+            &[(
+                &super::view::footer::key_label(key),
+                &super::notes::single_line(action),
+            )],
+            look,
+            look.role(Role::Text),
+            " · ",
+        )
+        .spans,
+    );
     spans.push(Span::raw(" "));
     Line::from(spans)
 }

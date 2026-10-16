@@ -1958,6 +1958,10 @@ impl App {
         action: &Action,
         member: Option<&super::workspace::OpsTarget>,
     ) -> Effect {
+        // The same verified occurrence owns paint and an explicit row action:
+        // an Overview squad resolves only to its observed current lead.
+        let target = member.cloned().or_else(|| self.workspace_message_target());
+        let member = target.as_ref();
         if self.panels_save_pending {
             return self.say("Wait for the panel save to finish.");
         }
@@ -2507,9 +2511,7 @@ impl App {
         // Workspace selection already owns the exact membership. Do not infer
         // its target from a filtered flat row index or equal row payload.
         let target = if self.workspace_snapshot().is_some() {
-            self.workspace_selected_member()
-                .cloned()
-                .map(RowTarget::Workspace)
+            self.workspace_message_target().map(RowTarget::Workspace)
         } else {
             let rows = self.rows();
             let index = rows

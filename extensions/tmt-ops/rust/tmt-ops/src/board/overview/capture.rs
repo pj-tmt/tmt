@@ -519,7 +519,7 @@ pub(super) fn populate_final(app: &mut crate::board::app::App, scene: &str) {
     };
     use std::collections::BTreeMap;
     let now = crate::status::now_ms();
-    if scene == "squads-empty" {
+    if scene.ends_with("-empty") {
         return;
     }
     for row in app
@@ -621,7 +621,7 @@ pub(super) fn populate_final(app: &mut crate::board::app::App, scene: &str) {
         },
     );
     if let Some(target @ crate::board::workspace::OpsTarget::Member { .. }) =
-        app.workspace.selected.clone()
+        app.workspace_message_target()
         && let Some(row) = app
             .view
             .as_mut()

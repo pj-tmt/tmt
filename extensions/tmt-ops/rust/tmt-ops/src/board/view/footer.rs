@@ -51,6 +51,8 @@ pub(in crate::board) fn key_label(event: &str) -> &str {
         "left" => "←",
         "right" => "→",
         "tab" => "Tab",
+        "pageup" => "PgUp",
+        "pagedown" => "PgDn",
         other => other,
     }
 }
@@ -93,7 +95,17 @@ pub(in crate::board) fn row_allows(app: &App, action: &crate::action::Action) ->
     if !acts_on_row {
         return true;
     }
-    let Some(row) = app.selected_row() else {
+    let target = action
+        .verb
+        .acts_on_member()
+        .then(|| app.workspace_message_target())
+        .flatten()
+        .map(crate::board::app::RowTarget::Workspace);
+    let Some(row) = target
+        .as_ref()
+        .and_then(|target| app.target_row(target))
+        .or_else(|| app.selected_row())
+    else {
         return false;
     };
     match action.verb {
@@ -578,7 +590,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
         Line::default()
     } else if let Some(hint) = app.member_link_hint() {
         if app.shell.tab == crate::board::shell::OpsTab::Overview {
-            crate::board::m12_key_hints::line(hint, look, look.role(Role::Text), "  ")
+            crate::board::key_hints::legacy_line(hint, look, look.role(Role::Text), "  ")
         } else {
             hint_line(hint, look)
         }

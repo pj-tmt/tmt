@@ -19,6 +19,7 @@ const STRUCTURAL_GLYPHS: &[(&str, &str)] = &[
     ("▶", "NO_COLOR receiving-pane marker"),
     ("·", "separates adjacent labels without implying a state"),
     ("…", "shared text fitter's truncation indicator"),
+    ("≈", "estimated list-price savings in the Digest matrix"),
     ("–", "unavailable evidence; distinct from measured zero"),
     (
         "—",
@@ -192,4 +193,30 @@ fn unavailable_table_cell_uses_the_registered_em_dash_without_broadening_decorat
     assert_eq!(glyph_error(&row), None);
     assert!(glyph_error("—\u{fe0f}").is_some());
     assert!(glyph_error("―").is_some());
+}
+
+#[test]
+fn digest_matrix_estimate_caption_registers_only_the_approximation_operator() {
+    use ratatui::{Terminal, backend::TestBackend};
+    let mut app = crate::board::app::workspace::tests::board();
+    app.shell.tab = crate::board::shell::OpsTab::Overview;
+    let mut terminal = Terminal::new(TestBackend::new(160, 51)).unwrap();
+    terminal
+        .draw(|frame| {
+            crate::board::view::prepare(&mut app, frame.area());
+            crate::board::view::render(frame, &app);
+        })
+        .unwrap();
+    let row = terminal
+        .backend()
+        .buffer()
+        .content
+        .chunks(160)
+        .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+        .find(|row| row.contains("≈ $ avoided"))
+        .expect("actual matrix estimate caption");
+    assert!(row.contains("≈ $ avoided"), "{row}");
+    assert_eq!(glyph_error(&row), None);
+    assert!(glyph_error("≈\u{fe0f}").is_some());
+    assert!(glyph_error("≒").is_some());
 }

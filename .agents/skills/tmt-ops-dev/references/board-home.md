@@ -123,7 +123,12 @@ the supplier's existing aggregation policy. There is no wide key/value copy.
 At wide widths, the divider joins the left Squads/Agents column to the selected
 row's `exchange_view`, three-row filled `input_field`, Timers and Digest matrix.
 The exchange keeps sender/recipient metadata separate from the grouped body gutter and reply
-name. The existing exact-request reader supplies the selected incoming question;
+name. Its measured wrapped content grows top-down without a fixed minimum or cap.
+The filled input follows the final observed group with one blank row above; only
+overflow pins it to the bottom, with an earlier-content count and the effective
+reader paging key. That hint yields while the editor owns typing. Read-only or
+unadmitted inputs reserve no empty editor band.
+The existing exact-request reader supplies the selected incoming question;
 a preview is not a response attachment. The same exact-question helper supplies
 answers after a compact editor moves to Agents. Confirmed answers join the
 existing bounded session feedback through one `tmt answer` worker call; failed
@@ -131,7 +136,9 @@ answers keep their draft. A new question cannot discard an unsettled send, and a
 note to a different UUID cannot borrow the selected agent's question. The input has no section rule or frame, uses the
 existing UUID draft/editor/quote owners, and publishes only its clipped input and
 send geometry. Overview list and reader defaults use Reply on Enter; authored
-bindings merge afterward without a rewrite. Short columns drop optional static
+bindings merge afterward without a rewrite. Paint, action admission and host-key
+provenance share the selected exact membership or the squad's observed current lead.
+Short columns drop optional static
 modules before the response and editor. The Talk matrix is absent until its data is shipped.
 
 Shared `top_bar` and `tab_strip` own shell paint; the host supplies held counts

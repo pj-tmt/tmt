@@ -399,15 +399,12 @@ impl App {
                 .get(*target)
                 .is_some_and(|tables| tables.contains_key(&scope))
         });
-        let host = self
-            .selected_row()
-            .and_then(|row| row["pane"]["location"]["host"].as_str())
-            .filter(|host| {
-                snapshot
-                    .hosts
-                    .get(*host)
-                    .is_some_and(|tables| tables.contains_key(&scope))
-            });
+        let host = self.workspace_selected_host().filter(|host| {
+            snapshot
+                .hosts
+                .get(*host)
+                .is_some_and(|tables| tables.contains_key(&scope))
+        });
         let key = if let Some(target) = section {
             (
                 scope,
@@ -425,14 +422,19 @@ impl App {
         snapshot.binding_sources.get(&key)
     }
     fn workspace_effective_bindings(&self) -> Bindings {
-        let host = self
-            .selected_row()
-            .and_then(|row| row["pane"]["location"]["host"].as_str());
+        let host = self.workspace_selected_host();
         self.workspace_context_bindings(
             self.workspace.selected.as_ref(),
             self.workspace_scope(),
             host,
         )
+    }
+    fn workspace_selected_host(&self) -> Option<&str> {
+        let row = self
+            .workspace_message_target()
+            .and_then(|target| self.workspace_snapshot()?.rows.get(&target))
+            .or_else(|| self.selected_row())?;
+        row["pane"]["location"]["host"].as_str()
     }
     /// A displayed mention has an explicit member context; ordinary bindings
     /// use the selected context through the same section/host/global owner.

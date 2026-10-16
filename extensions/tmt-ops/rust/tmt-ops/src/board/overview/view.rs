@@ -19,6 +19,10 @@ use tmt_tui::components::strip;
 
 const LIST_HEADER_ROWS: usize = 4;
 
+fn agent_noun(count: usize) -> &'static str {
+    if count == 1 { "agent" } else { "agents" }
+}
+
 pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     let Some(snapshot) = app.workspace_snapshot() else {
         return;
@@ -42,15 +46,16 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     let count = if !app.workspace.query.is_empty() {
         Line::styled(
             format!(
-                "{} of {} agents",
+                "{} of {} {}",
                 observed(scene.matching_agents),
-                observed(scene.summary.total)
+                observed(scene.summary.total),
+                agent_noun(scene.summary.total),
             ),
             look.role(Role::Muted),
         )
     } else if agents {
         let mut spans = vec![Span::styled(
-            format!("{} agents", observed(rows.len())),
+            format!("{} {}", observed(rows.len()), agent_noun(rows.len())),
             look.role(Role::Muted),
         )];
         if scene.waiting > 0 {
@@ -67,9 +72,15 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     } else {
         Line::styled(
             format!(
-                "{} squads · {} agents",
+                "{} {} · {} {}",
                 scene.squads.len(),
-                observed(scene.summary.total)
+                if scene.squads.len() == 1 {
+                    "squad"
+                } else {
+                    "squads"
+                },
+                observed(scene.summary.total),
+                agent_noun(scene.summary.total),
             ),
             look.role(Role::Muted),
         )
