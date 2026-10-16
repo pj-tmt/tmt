@@ -238,6 +238,9 @@ Human output shows readable forms (`value`). `--json` always keeps the full valu
 - Failure: `error: <what>` on stderr, then `hint: <next command>` when there is a
   next step. The error code belongs to `--json`, and exit codes are unchanged.
   A multi-line message keeps its further lines, such as a usage block.
+  A diagnosed runtime limitation instead shows the driver's explanation and
+  consequence, then `fix: <recovery action>`; JSON keeps the error code and adds
+  the driver's `reason` and copyable `fix` command.
 - Warning: `warning: <what>` on stderr for a non-fatal problem, when the command
   still did its work, optionally followed by `hint:`.
 - Line messages use these labels, lowercase everywhere; marks are for list rows.

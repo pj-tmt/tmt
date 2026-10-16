@@ -414,7 +414,8 @@ pub(super) fn run_bound(
             if save { "Saved" } else { "Temporary" }
         );
     }
-    let planned = lease.command(launch_command);
+    let mut planned = lease.command(launch_command).clone();
+    lifecycle.prepare_launch(&mut planned, &paths.global_dir, launch.resumed.is_some());
     tmt_adapters::workspace::refresh_server(paths, host, &binding.server);
     let child_environment = environment
         .iter()

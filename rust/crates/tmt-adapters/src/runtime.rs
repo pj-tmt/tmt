@@ -1,6 +1,6 @@
 //! Registered runtime recognition and exact resume commands.
-//! Explicit command selection preserves argv. Optional driver-owned launch hooks
-//! compose session settings before the channel's independent enrollment.
+//! Explicit command selection preserves argv until driver-owned foreground policy.
+//! Optional hooks compose settings before the channel's independent enrollment.
 
 use std::{
     ffi::{OsStr, OsString},
@@ -953,7 +953,7 @@ mod tests {
     }
 
     #[test]
-    fn exact_resume_is_runtime_owned_and_preserves_mode_without_last_selection() {
+    fn exact_resume_is_runtime_owned_without_last_selection() {
         let mut registry = RuntimeRegistry::first_party();
         for (harness, mode, expected) in [
             (
@@ -964,7 +964,11 @@ mod tests {
             (
                 "codex",
                 codex::MODE_SHARED,
-                vec!["resume", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"],
+                vec![
+                    "resume",
+                    "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+                    "--no-daemon",
+                ],
             ),
             (
                 "codex",
@@ -1133,7 +1137,10 @@ mod tests {
             let (expected, bare): (Vec<&str>, Vec<&str>) = if harness == "claude" {
                 (vec!["--resume", id, "--model", model], vec!["--resume", id])
             } else {
-                (vec!["resume", "-m", model, id], vec!["resume", id])
+                (
+                    vec!["resume", "-m", model, id, "--no-daemon"],
+                    vec!["resume", id, "--no-daemon"],
+                )
             };
             let expected = expected.into_iter().map(OsString::from).collect::<Vec<_>>();
             let bare = bare.into_iter().map(OsString::from).collect::<Vec<_>>();

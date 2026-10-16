@@ -182,7 +182,11 @@ fn preflight(
             });
         }
         Invocation::Bind { pane: None, .. } | Invocation::Whoami | Invocation::Unbind => {
-            crate::caller_context::require_independent_host()?;
+            let name = match request {
+                Invocation::Bind { name, .. } => Some(name.as_str()),
+                _ => None,
+            };
+            crate::caller_context::require_independent_host_for(name)?;
             return labeled_caller_pane(host, environment, || {
                 Failure::new(
                     "PANE_NOT_FOUND",

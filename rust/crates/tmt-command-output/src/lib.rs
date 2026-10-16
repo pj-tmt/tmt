@@ -47,6 +47,7 @@ struct FailureDetails {
     cause: Option<Box<dyn Error>>,
     secondary: Vec<Box<dyn Error>>,
     metadata_conflicts: Option<tmt_core::identity_metadata::MetadataConflicts>,
+    runtime_refusal: Option<tmt_adapters::runtime::lifecycle::RuntimeRefusal>,
 }
 
 #[derive(Debug)]
@@ -65,6 +66,16 @@ impl Failure {
         fallback_message: &str,
     ) -> Self {
         if error.code == StorageErrorCode::NotWritable {
+            if let Some(refusal) = tmt_adapters::drivers::Registry::builtin().storage_refusal() {
+                let mut failure = Self::new("STORAGE_NOT_WRITABLE", "", 1)
+                    .with_runtime_refusal(refusal)
+                    .caused_by(error);
+                failure.message.push_str(&format!(
+                    "\nTMT data directory: {}. {effect}",
+                    directory.display()
+                ));
+                return failure;
+            }
             Self::new(
                 "STORAGE_NOT_WRITABLE",
                 format!(
@@ -89,6 +100,26 @@ impl Failure {
             target: None,
             stage: None,
         }
+    }
+
+    pub fn with_runtime_refusal(
+        mut self,
+        refusal: tmt_adapters::runtime::lifecycle::RuntimeRefusal,
+    ) -> Self {
+        self.message = format!("{}\n{}", refusal.why, refusal.consequence);
+        self.suggestion = None;
+        self.details.get_or_insert_default().runtime_refusal = Some(refusal);
+        self
+    }
+
+    /// A diagnosed runtime limitation must be reported, not silently retried
+    /// as an anonymous sender or under another identity.
+    pub fn has_runtime_refusal(&self) -> bool {
+        self.runtime_refusal().is_some()
+    }
+
+    fn runtime_refusal(&self) -> Option<&tmt_adapters::runtime::lifecycle::RuntimeRefusal> {
+        self.details.as_ref()?.runtime_refusal.as_ref()
     }
 
     pub fn caused_by(mut self, cause: impl Error + 'static) -> Self {
@@ -182,6 +213,10 @@ impl Failure {
     pub fn document(&self) -> serde_json::Value {
         let mut document =
             serde_json::json!({"error": {"code": self.code, "message": self.message}});
+        if let Some(refusal) = self.runtime_refusal() {
+            document["error"]["reason"] = refusal.reason.into();
+            document["error"]["fix"] = refusal.fix.clone().into();
+        }
         if let Some(current) = self
             .details
             .as_ref()
@@ -242,6 +277,9 @@ impl Failure {
         tmt_cli_style::message::error(output, terminal, first, None)?;
         for line in lines {
             writeln!(output, "{}", tmt_cli_style::table::escape(line))?;
+        }
+        if let Some(refusal) = self.runtime_refusal() {
+            tmt_cli_style::message::fix(output, terminal, &refusal.instruction)?;
         }
         if let Some(suggestion) = &self.suggestion {
             let suggestion = ["Hint: ", "hint: "]
@@ -340,6 +378,48 @@ mod tests {
         assert_eq!(
             human(&usage),
             "error: the following required arguments were not provided:\n  <message>\n\nUsage: tmt talk <target> <message>\n"
+        );
+    }
+
+    #[test]
+    fn runtime_explanations_render_the_drivers_why_consequence_and_fix_without_reinterpretation() {
+        let failure = Failure::new("CALLER_IDENTITY_AMBIGUOUS", "old", 1)
+            .suggestion("old workaround".into())
+            .with_runtime_refusal(tmt_adapters::runtime::lifecycle::RuntimeRefusal {
+                reason: "fixture-mode",
+                why: "This runtime cannot identify its caller.",
+                consequence: "It can receive, but cannot reply.",
+                fix: "tmt run 'My Agent' fixture".into(),
+                instruction: "Restart with: tmt run 'My Agent' fixture".into(),
+            });
+        assert_eq!(
+            human(&failure),
+            "error: This runtime cannot identify its caller\nIt can receive, but cannot reply.\nfix: Restart with: tmt run 'My Agent' fixture\n"
+        );
+        assert_eq!(
+            failure.document(),
+            serde_json::json!({"error": {
+                "code": "CALLER_IDENTITY_AMBIGUOUS",
+                "message": "This runtime cannot identify its caller.\nIt can receive, but cannot reply.",
+                "reason": "fixture-mode", "fix": "tmt run 'My Agent' fixture"
+            }})
+        );
+        assert!(failure.has_runtime_refusal());
+        assert!(!Failure::new("OTHER", "unchanged", 1).has_runtime_refusal());
+    }
+
+    #[test]
+    fn other_storage_failures_keep_their_command_code_without_a_runtime_diagnosis() {
+        let failure = Failure::storage_access(
+            StorageError::new(StorageErrorCode::Busy, "busy"),
+            Path::new("/private/state"),
+            "Nothing stored.",
+            "API_UNAVAILABLE",
+            "Could not open storage.",
+        );
+        assert_eq!(
+            failure.document(),
+            serde_json::json!({"error": {"code": "API_UNAVAILABLE", "message": "Could not open storage."}})
         );
     }
 

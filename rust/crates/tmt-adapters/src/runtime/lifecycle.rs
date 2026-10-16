@@ -35,6 +35,17 @@ impl HostEvidence {
 #[derive(Debug)]
 pub struct LifecycleUnavailable;
 
+/// A runtime-owned explanation and recovery action. This is presentation, never
+/// caller admission or permission to retry an operation under another identity.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeRefusal {
+    pub reason: &'static str,
+    pub why: &'static str,
+    pub consequence: &'static str,
+    pub fix: String,
+    pub instruction: String,
+}
+
 pub trait LifecycleObservation {
     fn session(&self) -> &ProviderSessionId;
     fn starting(&self) -> bool;
@@ -105,6 +116,24 @@ impl CallerSessionRefusal {
 }
 
 pub trait RuntimeLifecycle {
+    /// Apply provider policy to the selected foreground command after optional
+    /// hook/channel composition, including their original-command fallback.
+    fn prepare_launch(
+        &self,
+        _command: &mut super::RuntimeCommand,
+        _state_directory: &std::path::Path,
+        _exact_resume: bool,
+    ) {
+    }
+
+    fn caller_refusal(&self, _name: Option<&str>) -> Option<RuntimeRefusal> {
+        None
+    }
+
+    fn storage_refusal(&self) -> Option<RuntimeRefusal> {
+        None
+    }
+
     fn launch_settings(
         &self,
         _args: &[std::ffi::OsString],

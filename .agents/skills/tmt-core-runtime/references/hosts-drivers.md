@@ -181,6 +181,16 @@ channels and the driver protocol. The owner map is in
 
 ## Agent launch environment
 
+The runtime lifecycle owns final foreground argv policy, after optional hooks and
+channel composition, so plain fallbacks retain it. Managed Codex interactive launches
+use `--no-daemon` and add only `ConfigPaths.global_dir` through `--add-dir`, including
+exact resume and Ops launches through Core. Explicit remote connections and provider
+utility commands retain their mode; an enrolled channel retains its private attributed
+endpoint. No launch edits provider configuration. Drivers also own typed refusal
+explanations (reason, why, consequence and fix); shared command output renders them
+without provider-name branches. Codex diagnoses confirmed storage write denial only
+when `CODEX_SANDBOX` is set, independently of caller attribution.
+
 Shared run/resume launch sets `TMT_AGENT=1` in the child environment, inherited by
 its tool shells. The shared browser opener treats a nonempty `TMT_AGENT` like CI:
 print the link without automatic opening. Explicit `--open` still overrides that
