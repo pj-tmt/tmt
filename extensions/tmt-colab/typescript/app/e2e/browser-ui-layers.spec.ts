@@ -159,7 +159,7 @@ async function assertTokens(
 ): Promise<void> {
   await expect(node).toHaveCSS('background-color', rgb(tokens.browser.surface[role][theme]));
   await expect(node).toHaveCSS('color', rgb(tokens.browser.color.text[theme]));
-  await expect(node).toHaveCSS('border-color', rgb(tokens.browser.color.edge[theme]));
+  await expect(node).toHaveCSS('border-color', rgb(tokens.browser.surface.rule[theme]));
   await expect(node).toHaveCSS('border-width', tokens.browser.metric['rule-width']);
   await expect(node).toHaveCSS('border-radius', '0px');
   await expect(node).toHaveCSS('box-shadow', 'none');

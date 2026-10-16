@@ -84,7 +84,7 @@ for (const width of [320, 390, 1440]) {
               rgb(tokens.browser.surface.paper[theme]),
             );
             await expect(probe).toHaveCSS('color', rgb(tokens.browser.color.text[theme]));
-            await expect(probe).toHaveCSS('border-color', rgb(tokens.browser.color.edge[theme]));
+            await expect(probe).toHaveCSS('border-color', rgb(tokens.browser.surface.rule[theme]));
             await expect(probe).toHaveCSS('padding', '8px');
             await expect(probe).toHaveCSS('border-width', tokens.browser.metric['rule-width']);
             await expect(probe).toHaveCSS('border-radius', '0px');
