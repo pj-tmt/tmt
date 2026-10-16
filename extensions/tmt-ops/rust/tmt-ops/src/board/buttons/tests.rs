@@ -219,6 +219,12 @@ fn chip_cells_use_the_shared_style_at_each_depth_without_relayout_on_hover() {
         let before = paint(&app, &mut buffer, area, &buttons, Align::Right, None);
         let send = before[0].unwrap();
         let disabled = before[1].unwrap();
+        let neutral = screen::chip(&look.theme, ChipKind::Secondary, ChipState::Hot, depth);
+        for x in send.x..send.right() {
+            assert_eq!(buffer[(x, send.y)].bg, neutral.bg.unwrap_or_default());
+            assert_eq!(buffer[(x, send.y)].fg, neutral.fg.unwrap_or_default());
+            assert_eq!(buffer[(x, send.y)].modifier, neutral.add_modifier);
+        }
         assert!(moved(&mut app, send.right() - 1, send.y));
         app.buttons.begin_frame();
         assert_eq!(
