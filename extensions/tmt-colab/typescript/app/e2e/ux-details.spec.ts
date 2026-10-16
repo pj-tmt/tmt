@@ -101,8 +101,7 @@ for (const width of [1440, 390])
       await multi.fill('@alpha @beta Review this page.');
       await multi.press('Enter');
       await expect(page.getByTestId('ask-state')).toHaveCount(2);
-      if (phase === 'after')
-        await expect(page.getByTestId('ask-state').last()).toHaveText('Waiting for beta');
+      if (phase === 'after') await expect(page.getByTestId('ask-state').last()).toHaveText('Sent');
       await shot('5-recipient-status');
 
       await page.goto('/');

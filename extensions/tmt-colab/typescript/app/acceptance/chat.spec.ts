@@ -126,9 +126,7 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
     const own = panel.getByTestId('chat-thread').first();
     const writer = (await own.getAttribute('data-writer'))!;
     await expect(own).toHaveAttribute('data-thread-id', writer);
-    await expect(askEntry(first, sent.operationId).getByTestId('ask-state')).toContainText(
-      'Waiting for',
-    );
+    await expect(askEntry(first, sent.operationId).getByTestId('ask-state')).toContainText('Sent');
     const requestId = agent.received()[0].requestId as string;
     fs.writeFileSync(`${agent.gate}/${requestId}.release`, '');
     const reply =

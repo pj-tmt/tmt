@@ -178,7 +178,7 @@ test('an agent sees the files of a Chat message in its request and reads them by
       // snapshot so a late reply cannot make the two conversation exports disagree.
       const requestId = agent.received()[0].requestId as string;
       const exchange = panel.getByTestId('ask-entry');
-      await expect(exchange.getByTestId('ask-state')).toContainText('Waiting for');
+      await expect(exchange.getByTestId('ask-state')).toContainText('Sent');
       fs.writeFileSync(`${agent.gate}/${requestId}.release`, '');
       const reply = `ask-reply:${sha(Buffer.from(request)).slice(0, 16)}`;
       await expect(exchange.getByTestId('ask-reply')).toHaveText(reply);

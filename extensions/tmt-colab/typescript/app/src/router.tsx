@@ -1,4 +1,5 @@
 import { usePageLayers } from './page-layers.js';
+import { AgentActivityProvider } from './components/agent-activity.js';
 import { RemotePresenceProvider } from './remote-header.js';
 import './source-editor.css';
 import { OwnPublicationTimeout } from './own-publication.js';
@@ -2071,7 +2072,13 @@ function Page() {
         }}
       >
         <QuickSwitcherModalPresence />
-        <AgentPresentation value={agents}>{content}</AgentPresentation>
+        <AgentPresentation value={agents}>
+          <AgentActivityProvider
+            observation={liveError || archived ? undefined : view.agentActivity}
+          >
+            {content}
+          </AgentActivityProvider>
+        </AgentPresentation>
       </ReplyNotificationContext>
     </CreatorDefaultProvider>
   );

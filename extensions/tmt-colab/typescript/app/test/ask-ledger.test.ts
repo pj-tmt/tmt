@@ -2,13 +2,14 @@ import { readFileSync } from 'node:fs';
 import { setTimeout as realWait } from 'node:timers/promises';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { binary } from '@tmt/colab-client';
-import { AskController } from '../src/ask-attempt.js';
+import { AskController, type AskControllerOptions } from '../src/ask-attempt.js';
 import { AskRecordStore } from '../src/ask-record-store.js';
 import { OwnRecordConflict } from '../src/own-publication.js';
 import { ASK_OBSERVATION_MS, readAskViews, type AskLedgerView } from '../src/ask-records.js';
 import { FrozenAsk } from '../src/ask-intent.js';
 import {
   createRemoteClient,
+  type RemoteAgent,
   SessionEndedError,
   SessionEvictedError,
   ReadRefusedError,
@@ -76,6 +77,46 @@ async function setup(onPublish?: (root: string) => void) {
   const controller = new AskController({ store, remote, key, selection });
   return { key, own, store, remote, controller };
 }
+it('coalesces concurrent inventory reads and never gates Send on missing optional activity', async () => {
+  const { controller, remote } = await setup();
+  const list = vi.spyOn(remote, 'listAgents');
+  await Promise.all([
+    controller.destinations(),
+    controller.observeDestinations(),
+    controller.observeDestinations(),
+  ]);
+  expect(list).toHaveBeenCalledTimes(1);
+  const preview = controller.prepare(destination());
+  const now = performance.now();
+  const clock = vi.spyOn(performance, 'now').mockReturnValue(now + 5000);
+  list.mockRejectedValueOnce(new Error('Optional inventory unavailable'));
+  try {
+    expect((await controller.send(preview)).state).toBe('accepted');
+    expect(list).toHaveBeenCalledTimes(2);
+    expect(remote.sends).toHaveLength(1);
+  } finally {
+    clock.mockRestore();
+  }
+});
+it('coalesced inventory refusals retain the directory phase for every observer', async () => {
+  const { controller, remote } = await setup();
+  const list = vi
+    .spyOn(remote, 'listAgents')
+    .mockRejectedValue(new ReadRefusedError('REMOTE_SCOPE_DENIED'));
+  const results = await Promise.all([
+    controller.observeDestinations(),
+    controller.observeDestinations(),
+  ]);
+  expect(list).toHaveBeenCalledTimes(1);
+  expect(results).toEqual(
+    [0, 1].map(() => ({
+      kind: 'unavailable',
+      phase: 'directory',
+      failure: 'refused',
+      code: 'REMOTE_SCOPE_DENIED',
+    })),
+  );
+});
 it('publishes immutable intent and dispatching before one effect, then reads an empty final without resend', async () => {
   const { controller, remote, store, own, key } = await setup();
   await controller.destinations();
@@ -217,10 +258,24 @@ it('SDK adapter keeps the shared session and observes the original ID and ignore
               presence: 'active',
               delivery: { future: 'unknown' },
               runningDriver: 'claude',
+              activity: { state: 'working', sinceMs: 123 },
+              observedAtMs: 200,
             },
-            { id: id(60), name: 'Agent', presence: 'active', runningDriver: 'codex' },
+            {
+              id: id(60),
+              name: 'Agent',
+              presence: 'active',
+              runningDriver: 'codex',
+              activity: { state: 'idle', sinceMs: null },
+            },
             { id: id(61), name: 'claude', presence: 'active', driver: 'claude' },
-            { id: id(62), name: 'codex', presence: 'active', runningDriver: 'driver' },
+            {
+              id: id(62),
+              name: 'codex',
+              presence: 'active',
+              runningDriver: 'driver',
+              activity: { state: 'working', sinceMs: '123' },
+            },
             { id: id(63), name: 'Agent', presence: 'active', runningDriver: null },
           ],
           send: async (input) => {
@@ -257,8 +312,21 @@ it('SDK adapter keeps the shared session and observes the original ID and ignore
       ),
   );
   expect(await adapter.listAgents()).toEqual([
-    { id: id(6), name: 'Agent', presence: 'active', runningDriver: 'claude' },
-    { id: id(60), name: 'Agent', presence: 'active', runningDriver: 'codex' },
+    {
+      id: id(6),
+      name: 'Agent',
+      presence: 'active',
+      runningDriver: 'claude',
+      activity: { state: 'working', sinceMs: 123 },
+      observedAtMs: 200,
+    },
+    {
+      id: id(60),
+      name: 'Agent',
+      presence: 'active',
+      runningDriver: 'codex',
+      activity: { state: 'idle', sinceMs: null },
+    },
     { id: id(61), name: 'claude', presence: 'active' },
     { id: id(62), name: 'codex', presence: 'active' },
     { id: id(63), name: 'Agent', presence: 'active' },
@@ -1313,7 +1381,10 @@ describe('active Ask observation', () => {
     }
     expect(performance.now()).toBe(target);
   }
-  async function pendingObservation() {
+  async function pendingObservation(
+    extra: Partial<AskControllerOptions> = {},
+    agents?: RemoteAgent[],
+  ) {
     let published!: () => void;
     const replied = new Promise<void>((resolve) => {
       published = resolve;
@@ -1336,7 +1407,8 @@ describe('active Ask observation', () => {
         ? { ...result, requestId: `req_${input.operationId}` }
         : result;
     };
-    const controller = new AskController({ store, remote, key, selection });
+    if (agents) remote.listAgents = async () => agents;
+    const controller = new AskController({ store, remote, key, selection, ...extra });
     await controller.destinations();
     vi.useFakeTimers({ toFake: ['Date', 'performance', 'setTimeout', 'clearTimeout'] });
     const clock = { active: true, sleepAt: 0 };
@@ -1382,6 +1454,101 @@ describe('active Ask observation', () => {
       },
     };
   }
+  it('shares one inventory read on each existing Ask tick and makes an aborted generation static', async () => {
+    const activityRead = vi.fn(async () => ({
+      kind: 'unavailable' as const,
+      phase: 'directory' as const,
+      failure: 'unavailable' as const,
+    }));
+    const activityObserved = vi.fn();
+    const f = await pendingObservation({ activityRead, activityObserved });
+    expect(activityRead).toHaveBeenCalledTimes(1);
+    expect(activityObserved.mock.calls.at(-1)![0]).toMatchObject({
+      active: true,
+      intervalMs: 2000,
+      entries: [{ kind: 'unknown' }],
+    });
+    expect(f.controller.observe(f.stop.signal)).toBe(f.observing);
+    await vi.advanceTimersByTimeAsync(2000);
+    await observationSleep();
+    expect(activityRead).toHaveBeenCalledTimes(2);
+    f.stop.abort();
+    await f.observing;
+    expect(activityObserved.mock.calls.at(-1)![0].active).toBe(false);
+    expect(f.remote.sends).toHaveLength(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it('discards an inventory read settling after the observer is aborted', async () => {
+    let release!: () => void;
+    let entered!: () => void;
+    const reading = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const activityRead = vi.fn(async () => ({
+      kind: 'unavailable' as const,
+      phase: 'directory' as const,
+      failure: 'unavailable' as const,
+    }));
+    const activityObserved = vi.fn();
+    const f = await pendingObservation({ activityRead, activityObserved });
+    activityRead.mockImplementationOnce(async () => {
+      entered();
+      await blocked;
+      return { kind: 'unavailable', phase: 'directory', failure: 'unavailable' };
+    });
+    f.releaseReadOnClose(release);
+    await vi.advanceTimersByTimeAsync(2000);
+    await reading;
+    const before = activityObserved.mock.calls.length;
+    f.stop.abort();
+    release();
+    await f.observing;
+    expect(activityObserved.mock.calls.slice(before).every(([value]) => !value.active)).toBe(true);
+    expect(activityRead).toHaveBeenCalledTimes(2);
+  });
+  it('classifies an anchored turn using only owner clocks and stops at the original horizon', async () => {
+    const remote = new RemoteDouble();
+    const context = await remote.context();
+    const activityObserved = vi.fn();
+    const snapshot = {
+      context,
+      machines: [
+        {
+          id: context.machineId,
+          name: 'Owner',
+          online: 'online' as const,
+          agents: [
+            {
+              id: id(6),
+              name: 'Agent',
+              activity: { state: 'working' as const, sinceMs: 1000 },
+              observedAtMs: 2000,
+            },
+          ],
+        },
+      ],
+    };
+    const f = await pendingObservation(
+      {
+        activityRead: async () => ({ kind: 'ready', checkedAt: Date.now(), snapshot }),
+        activityObserved,
+      },
+      [{ id: id(6), name: 'Agent', observedAtMs: 1000 }],
+    );
+    expect(activityObserved.mock.calls.at(-1)![0].entries[0]).toMatchObject({
+      kind: 'working',
+      elapsedMs: 1000,
+    });
+    vi.setSystemTime(Date.now() + ASK_OBSERVATION_MS);
+    await vi.advanceTimersToNextTimerAsync();
+    await f.observing;
+    expect(activityObserved.mock.calls.at(-1)![0].active).toBe(false);
+    expect(f.remote.sends).toHaveLength(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
   it('an accepted ask gets a prompt final at sixty seconds without extending its active window on reads', async () => {
     const f = await pendingObservation();
     try {

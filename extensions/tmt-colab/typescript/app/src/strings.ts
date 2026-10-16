@@ -376,6 +376,14 @@ export const text = {
   chatEmptyHint: 'Press @ to ask an agent, or write a comment below.',
   chatToday: 'Today',
   chatRetry: 'Retry',
+  agentSent: 'Sent',
+  agentSending: 'sending…',
+  agentWorking: (name: string, elapsed: string) => `${name} is working · ${elapsed}`,
+  agentQueued: (name: string, elapsed: string) =>
+    `${name} is finishing an earlier turn · ${elapsed}`,
+  agentFinished: (name: string, elapsed: string) =>
+    `${name} finished without replying · ${elapsed} ago`,
+  agentActivityUnknown: (name: string) => `sent · ${name}'s activity is not reported`,
   askWaiting: (agent: string) => `Waiting for ${agent}`,
   askNoReply: (agent: string) => `No reply yet from ${agent}`,
   askApproval: 'Waiting for approval',

@@ -66,7 +66,7 @@ for (const surface of ['chat', 'thread'])
       await expect(input).toHaveText('My next draft.', { useInnerText: true });
       await input.focus();
       expect(await input.evaluate(() => document.getSelection()?.anchorOffset)).toBe(caret);
-      await expect(page.getByTestId('ask-state').last()).toHaveText('Waiting for alpha');
+      await expect(page.getByTestId('ask-state').last()).toHaveText('Sent');
     });
 
 test('two trusted activations while preparation waits produce one fresh operation', async ({
@@ -112,7 +112,7 @@ for (const mode of ['uncertain', 'unknown', 'held'])
     ).toHaveCount(0);
     const proof = await run(page, 'proof');
     expect(proof.writes).toBe(1);
-    await expect(page.getByTestId('ask-state').last()).toHaveText('Waiting for beta');
+    await expect(page.getByTestId('ask-state').last()).toHaveText('Sent');
     if (mode === 'held')
       await expect(page.getByTestId('ask-state').first()).toHaveText(
         '@alpha · Waiting for approval',
