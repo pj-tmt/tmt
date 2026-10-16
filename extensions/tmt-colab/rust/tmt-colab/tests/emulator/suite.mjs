@@ -391,31 +391,113 @@ test("log append: create-only, contiguous per stream, current epoch, writer role
   assert.equal(await commit(batch(1, 2, 3), writer), 200, "a contiguous batch");
 });
 
-test("log append: holders of one editor link share a hosted stream only through one uid (one hosted writer per link, v1)", async () => {
+/** The link's `hosted` device ID the shared authority vector freezes: UUIDv4-shaped like every stream the Rules admit. */
+const HOSTED = JSON.parse(readFileSync(new URL("authority-v1.json", vectors), "utf8")).linkHostedDevice.id;
+const OTHER_HOSTED = "20000000-0000-4000-8000-0000000000c2";
+const holderRow = (t, uid, link, token, role = "editor") => ({ space: t.space, page: t.page, uid, role, link, token, seq: 1 });
+/** The owner mints an editor (or other role) link; each uid then enrolls by its secret with a row of its own. */
+async function shareLink(t, linkId, token, uids, role = "editor") {
+  assert.equal(await set(`links/${sp(t)}_${linkId}`, { space: t.space, page: t.page, link: linkId, role, token }, as(`owner${t === T.A ? "A" : "B"}`)), 200);
+  for (const uid of uids)
+    assert.equal(await set(`members/${sp(t)}_${uid}`, holderRow(t, uid, linkId, token, role), as(uid)), 200, `${uid} enrolls`);
+}
+const hostedAt = (t, stream = HOSTED) => (seq, uid, caller = uid) =>
+  set(`log/${logId(t, 1, stream, seq)}`, entry(t, seq, { stream, uid }), as(caller));
+const LINK_1 = "30000000-0000-4000-8000-0000000000c1", TOKEN_1 = "F".repeat(43);
+const LINK_2 = "30000000-0000-4000-8000-0000000000c2", TOKEN_2 = "G".repeat(43);
+
+test("log append: holders of one editor link share its hosted stream, each with a uid of its own", async () => {
   await boot();
   const t = T.A;
-  // The stream is the link's `hosted` device: the ID the shared authority vector freezes, which
-  // is UUIDv4-shaped like every stream the Rules admit.
-  const hosted = JSON.parse(readFileSync(new URL("authority-v1.json", vectors), "utf8")).linkHostedDevice.id;
-  assert.match(hosted, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
-  // Two holders enroll by one editor link, each with an anonymous uid of its own.
-  const linkId = "30000000-0000-4000-8000-0000000000cc", token = "F".repeat(43);
-  assert.equal(await set(`links/${sp(t)}_${linkId}`, { space: t.space, page: t.page, link: linkId, role: "editor", token }, as("ownerA")), 200);
-  for (const uid of ["holder1", "holder2"])
-    assert.equal(await set(`members/${sp(t)}_${uid}`, { space: t.space, page: t.page, uid, role: "editor", link: linkId, token, seq: 1 }, as(uid)), 200, `${uid} enrolls`);
-  const at = (seq, uid) => set(`log/${logId(t, 1, hosted, seq)}`, entry(t, seq, { stream: hosted, uid }), as(uid));
+  assert.match(HOSTED, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  await shareLink(t, LINK_1, TOKEN_1, ["holder1", "holder2"]);
+  const at = hostedAt(t);
 
   assert.equal(await at(1, "holder1"), 200, "the first holder starts the hosted stream");
   assert.equal(await at(2, "holder1"), 200, "and continues it");
-  // The second holder shares the derived device, and the Rules do not know that: the stream is
-  // the first holder's uid's, so the second holder can neither race it nor continue it.
-  assert.equal(await at(1, "holder2"), 403, "the same sequence is an update of an existing entry");
-  assert.equal(await at(2, "holder2"), 403, "a lost race stays lost: a create on an existing ID");
-  assert.equal(await at(3, "holder2"), 403, "the continuation of another uid's stream is refused, permanently");
-  assert.equal(await at(3, "holder1"), 200, "while the first holder still continues");
-  assert.equal(await at(4, "holder2"), 403, "still refused after the first holder advanced");
-  // The owner's own writes are not bound to a holder's uid.
+  assert.equal(await at(3, "holder2"), 200, "a second uid of the same link continues it");
+  assert.equal(await at(4, "holder1"), 200, "and the first continues the second's entry");
+  assert.equal(await at(5, "holder2"), 200);
+  // A race still has one winner: a create on an existing ID is an update, which only the owner may do.
+  assert.equal(await at(5, "holder1"), 403, "the loser of a race is refused");
+  assert.equal(await at(5, "holder2"), 403, "and so is a second create of the same ID by its writer");
+  // The SDK creates with an "absent" precondition, and Firestore evaluates the Rules for that write as a create.
+  // A link-mate passes them, so the loser of a race with one sees the precondition fail (409 ALREADY_EXISTS,
+  // which the SDK reads back), not a Rules refusal; a writer the Rules refuse sees 403 (see the next case).
+  const raced = (uid) => commit([[`log/${logId(t, 1, HOSTED, 5)}`, entry(t, 5, { stream: HOSTED, uid })]], as(uid));
+  assert.equal(await raced("holder1"), 409, "the loser of a race with a link-mate: the ID is taken");
+  assert.equal(await raced("holder2"), 409, "and a second create of the same ID by its writer");
+  assert.equal(await at(7, "holder1"), 403, "a gap is refused");
+  assert.equal(await at(6, "holder1"), 200, "the loser continues at the new head");
+  assert.equal(await get(`log/${logId(t, 1, HOSTED, 3)}`, as("holder1")), 200, "each holder reads the other's entry");
+  assert.equal(await get(`log/${logId(t, 1, HOSTED, 2)}`, as("holder2")), 200);
+});
+
+test("log append: only link-mates continue a link's stream; every other writer stays refused", async () => {
+  await boot();
+  const t = T.A;
+  await shareLink(t, LINK_1, TOKEN_1, ["holder1", "holder2"]);
+  await shareLink(t, LINK_2, TOKEN_2, ["holder3"]);
+  const viewerLink = "30000000-0000-4000-8000-0000000000c3";
+  await shareLink(t, viewerLink, "H".repeat(43), ["reader1"], "viewer");
+  const at = hostedAt(t);
+  assert.equal(await at(1, "holder1"), 200);
+  assert.equal(await at(2, "holder1"), 200);
+
+  assert.equal(await at(3, "holder3"), 403, "a holder of another link of the same page");
+  // The same writers through the SDK's create (absent precondition) on an ID that exists: Rules first.
+  const taken = (uid) => commit([[`log/${logId(t, 1, HOSTED, 2)}`, entry(t, 2, { stream: HOSTED, uid })]], as(uid));
+  assert.equal(await taken("holder3"), 403, "a holder of another link is a Rules refusal, not a taken ID");
+  assert.equal(await taken("writerA"), 403, "so is a member with no link");
+  assert.equal(await taken("holder2"), 409, "while a link-mate passes the Rules and finds the ID taken");
+  assert.equal(await at(3, "writerA"), 403, "an owner-enrolled member has no link, so it is no link-mate");
+  assert.equal(await at(3, "peerA"), 403);
+  assert.equal(await at(3, "viewerA"), 403, "a viewer never writes");
+  assert.equal(await at(3, "reader1"), 403, "nor does the holder of a viewer link");
+  assert.equal(await at(3, "stranger"), 403, "no member row, no entry");
+  assert.equal(await at(3, "holder2", "holder1"), 403, "the entry's uid must be the caller's");
+  assert.equal(await at(3, "holder1", "holder2"), 403, "not another holder's uid either");
+  assert.equal(await at(3, "holder2", "holder3"), 403, "and a link-mate's uid does not carry another link's caller");
+
+  // The link on a row comes only from the link's own secret, which a holder cannot forge or edit.
+  const forged = (uid, link, token) => set(`members/${sp(t)}_${uid}`, holderRow(t, uid, link, token), as(uid));
+  assert.equal(await forged("holder4", LINK_1, TOKEN_2), 403, "link 1 with link 2's secret");
+  assert.equal(await at(3, "holder4"), 403, "so the forger never became a member");
+  assert.equal(await forged("holder3", LINK_1, TOKEN_1), 403, "a holder cannot rewrite its own row to claim another link");
+  assert.equal(await at(3, "holder3"), 403);
+  // Another tenant's holder is no member of this page at all.
+  assert.equal(await set(`members/${sp(T.B)}_holderB`, holderRow(T.B, "holderB", T.B.link, TOKEN_B, "viewer"), as("holderB")), 200);
+  assert.equal(await at(3, "holderB"), 403, "another tenant's holder");
+
+  assert.equal(await at(3, "holder2"), 200, "after every refusal the link-mate still continues");
+  // The owner may write any stream; its row names no link, so a holder cannot continue the owner's entry.
   assert.equal(await at(4, "ownerA"), 200, "the owner may continue any stream");
+  assert.equal(await at(5, "holder1"), 403, "an entry the owner wrote makes no one a link-mate");
+});
+
+test("log append: ending a link stops every holder of it, in the order the owner retires it", async () => {
+  await boot();
+  const t = T.A, owner = as("ownerA");
+  await shareLink(t, LINK_1, TOKEN_1, ["holder1", "holder2"]);
+  await shareLink(t, LINK_2, TOKEN_2, ["holder3"]);
+  const at = hostedAt(t), other = hostedAt(t, OTHER_HOSTED);
+  assert.equal(await at(1, "holder1"), 200);
+  assert.equal(await at(2, "holder2"), 200);
+  assert.equal(await other(1, "holder3"), 200);
+
+  // The owner removes the link row first, so nobody enrolls again, then the rows it enrolled.
+  assert.equal(await remove(`links/${sp(t)}_${LINK_1}`, owner), 200);
+  assert.equal(await set(`members/${sp(t)}_late`, holderRow(t, "late", LINK_1, TOKEN_1), as("late")), 403, "an ended link enrolls no one");
+  const found = await list("members", { space: t.space, page: t.page, link: LINK_1 }, owner);
+  assert.deepEqual(found, { status: 200, found: 2 }, "the owner discovers both holders by their link");
+  for (const uid of ["holder1", "holder2"]) assert.equal(await remove(`members/${sp(t)}_${uid}`, owner), 200);
+
+  assert.equal(await at(3, "holder1"), 403, "the first holder can no longer continue");
+  assert.equal(await at(3, "holder2"), 403, "nor the second");
+  assert.equal(await get(`log/${logId(t, 1, HOSTED, 2)}`, as("holder1")), 403, "nor read");
+  assert.equal(await get(`log/${logId(t, 1, HOSTED, 2)}`, as("holder2")), 403);
+  assert.equal(await other(2, "holder3"), 200, "a holder of another link is unaffected");
+  assert.equal(await at(3, "ownerA"), 200, "and the owner still writes");
 });
 
 test("log owner bootstrap: only the owner skips a pruned predecessor; other guards remain", async () => {
