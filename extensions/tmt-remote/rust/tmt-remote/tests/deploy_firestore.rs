@@ -307,7 +307,7 @@ fn plan_inventory_counts_unrelated_live_configs_before_any_provider_mutation() {
     let mut adapter = DeployFirestore::at(node(), package.clone(), &stop).unwrap();
     assert_eq!(
         adapter.check_index_budget("demo-remote-1", &plan),
-        Err(DeployProviderError::Rejected(DeployFault::QuotaExceeded))
+        Err(DeployProviderError::Rejected(DeployFault::QuotaExceeded).into())
     );
     state["configs"] = serde_json::json!([]);
     fs::write(

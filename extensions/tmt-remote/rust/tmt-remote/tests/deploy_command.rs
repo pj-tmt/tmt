@@ -713,11 +713,14 @@ mod cli_composition {
             &mut self,
             _: &str,
             _: &tmt_remote::deploy_plan::Plan,
-        ) -> Result<(), DeployProviderError> {
+        ) -> Result<(), tmt_remote::deploy_firestore::DeployPreflightError> {
             self.1 += 1;
             Ok(())
         }
-        fn live_rules(&mut self, _: &str) -> Result<Option<Vec<u8>>, DeployProviderError> {
+        fn live_rules(
+            &mut self,
+            _: &str,
+        ) -> Result<Option<Vec<u8>>, tmt_remote::deploy_firestore::DeployPreflightError> {
             self.1 += 1;
             Ok(self.0.rules.clone())
         }

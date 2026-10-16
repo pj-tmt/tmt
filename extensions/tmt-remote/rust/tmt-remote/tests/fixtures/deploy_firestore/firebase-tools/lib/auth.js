@@ -32,6 +32,9 @@ global.fetch = async (url, options) => {
     path.join(__dirname, '../calls.jsonl'),
     JSON.stringify({ url, method: options.method }) + '\n'
   );
+  if (value.readFailure && url.includes(value.readFailure.path)) {
+    return new Response(JSON.stringify({ error: { message: value.canary } }), { status: value.readFailure.status });
+  }
   if (
     value.hosting &&
     (url.startsWith('https://firebasehosting.googleapis.com/') ||

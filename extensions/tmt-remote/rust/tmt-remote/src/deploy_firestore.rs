@@ -1,6 +1,7 @@
 //! Firestore and Hosting provider adapter. The embedded helper owns the installed
 //! firebase-tools login; the existing deploy engine owns authorization and recovery.
 //! The CLI composition wires it; verified publication does not enable cloud routes.
+use crate::error::DeployProviderDiagnostic;
 use crate::{
     deploy_run::{
         self, DeployApplied, DeployFault, DeployObserved, DeployOwnerAction, DeployPlan,
@@ -32,6 +33,95 @@ impl fmt::Display for DeploySetupError {
     }
 }
 impl std::error::Error for DeploySetupError {}
+
+/// Preflight has no effects; its HTTP evidence is separate from persisted step outcomes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DeployPreflightError {
+    pub reason: DeployProviderError,
+    pub provider: Option<DeployProviderDiagnostic>,
+}
+impl From<DeployProviderError> for DeployPreflightError {
+    fn from(reason: DeployProviderError) -> Self {
+        Self {
+            reason,
+            provider: None,
+        }
+    }
+}
+impl DeployPreflightError {
+    pub fn remote_error(self) -> crate::error::RemoteError {
+        let code = match self.reason {
+            DeployProviderError::Rejected(fault) => fault.code(),
+            DeployProviderError::Unknown => "REMOTE_DEPLOY_UNAVAILABLE",
+        };
+        let message = match self.provider {
+            Some(provider) => format!("Firebase could not read {} (HTTP {}). Nothing changed in your Firebase project.", provider.operation.label(), provider.status),
+            None => "Firebase refused to list the project's current setup. Nothing changed in your Firebase project.".into(),
+        };
+        let mut error = crate::error::RemoteError::new(code, &message);
+        error.provider = self.provider;
+        error
+    }
+}
+#[derive(Debug)]
+struct HelperFailure {
+    code: String,
+    provider: Option<DeployProviderDiagnostic>,
+}
+impl From<&str> for HelperFailure {
+    fn from(code: &str) -> Self {
+        Self {
+            code: code.into(),
+            provider: None,
+        }
+    }
+}
+fn preflight_error(error: HelperFailure) -> DeployPreflightError {
+    let provider = error.provider;
+    DeployPreflightError {
+        reason: provider_error(error),
+        provider,
+    }
+}
+fn parse_reply(bytes: &[u8]) -> Result<Value, HelperFailure> {
+    let value = wire::strict_json(bytes).ok_or("unknown")?;
+    let object = value.as_object().ok_or("unknown")?;
+    if object.get("version") != Some(&json!(1)) {
+        return Err("unknown".into());
+    }
+    if let Some(result) = object.get("result") {
+        if object.len() != 2 {
+            return Err("unknown".into());
+        }
+        return Ok(result.clone());
+    }
+    let code = object
+        .get("error")
+        .and_then(Value::as_str)
+        .ok_or("unknown")?;
+    let provider = match object.get("provider") {
+        Some(value) if object.len() == 3 => {
+            let diagnostic: DeployProviderDiagnostic =
+                serde_json::from_value(value.clone()).map_err(|_| "unknown")?;
+            if !diagnostic.valid() {
+                return Err("unknown".into());
+            }
+            Some(diagnostic)
+        }
+        None if object.len() == 2 => None,
+        _ => return Err("unknown".into()),
+    };
+    // Only fixed codes cross this process boundary. All other strings are discarded.
+    match code {
+        "unsupported-tool" | "login-required" | "account-changed" | "permission-denied"
+        | "api-disabled" | "quota-exceeded" | "database-mismatch" | "rules-foreign"
+        | "verify-failed" | "provider-rejected" | "unknown" => Err(HelperFailure {
+            code: code.into(),
+            provider,
+        }),
+        _ => Err("unknown".into()),
+    }
+}
 
 /// Uses one waited child per bounded request. Helper bytes are embedded in this binary,
 /// never loaded from cwd. Package paths select the explicitly installed external tool.
@@ -81,7 +171,7 @@ impl<'a> DeployFirestore<'a> {
         ["HOME", "PATH", "XDG_CONFIG_HOME"].map(OsString::from)
     }
     /// Read-only plan inputs; no deployment permission is implied by a successful read.
-    pub fn live_rules(&mut self, project: &str) -> Result<Option<Vec<u8>>, DeployProviderError> {
+    pub fn live_rules(&mut self, project: &str) -> Result<Option<Vec<u8>>, DeployPreflightError> {
         let value = self
             .exchange(
                 "live-rules",
@@ -89,15 +179,15 @@ impl<'a> DeployFirestore<'a> {
                 None,
                 Instant::now() + limits::DEPLOY_PROVIDER_CALL,
             )
-            .map_err(provider_error)?;
-        rules_bytes(&value)
+            .map_err(preflight_error)?;
+        rules_bytes(&value).map_err(Into::into)
     }
     /// Read-only live+planned field-config ceiling, including unrelated configurations.
     pub fn check_index_budget(
         &mut self,
         project: &str,
         plan: &crate::deploy_plan::Plan,
-    ) -> Result<(), DeployProviderError> {
+    ) -> Result<(), DeployPreflightError> {
         let fields: std::collections::BTreeSet<_> = plan
             .view()
             .extensions
@@ -120,9 +210,9 @@ impl<'a> DeployFirestore<'a> {
                 None,
                 Instant::now() + limits::DEPLOY_PROVIDER_CALL,
             )
-            .map_err(provider_error)?;
+            .map_err(preflight_error)?;
         if value != "within-budget" {
-            return Err(unknown());
+            return Err(unknown().into());
         }
         Ok(())
     }
@@ -147,7 +237,7 @@ impl<'a> DeployFirestore<'a> {
         input: Value,
         account: Option<&str>,
         deadline: Instant,
-    ) -> Result<Value, String> {
+    ) -> Result<Value, HelperFailure> {
         let remaining = deadline
             .checked_duration_since(Instant::now())
             .ok_or("unknown")?;
@@ -191,26 +281,9 @@ impl<'a> DeployFirestore<'a> {
         if output.stdout.len() > limits::DEPLOY_PROVIDER_BYTES {
             return Err("unknown".into());
         }
-        let value = wire::strict_json(&output.stdout).ok_or("unknown")?;
-        let object = value.as_object().ok_or("unknown")?;
-        if object.len() != 2 || object.get("version") != Some(&json!(1)) {
-            return Err("unknown".into());
-        }
-        if let Some(result) = object.get("result") {
-            return Ok(result.clone());
-        }
-        let code = object
-            .get("error")
-            .and_then(Value::as_str)
-            .ok_or("unknown")?;
-        // Only fixed codes cross this process boundary. All other strings are discarded.
-        match code {
-            "unsupported-tool" | "login-required" | "account-changed" | "permission-denied"
-            | "api-disabled" | "quota-exceeded" | "database-mismatch" | "rules-foreign"
-            | "verify-failed" | "provider-rejected" | "unknown" => Err(code.into()),
-            _ => Err("unknown".into()),
-        }
+        parse_reply(&output.stdout)
     }
+
     fn step(
         &mut self,
         operation: &str,
@@ -375,15 +448,15 @@ fn observed(value: &Value) -> Result<DeployObserved, DeployProviderError> {
         _ => Err(unknown()),
     }
 }
-fn setup_error(code: String) -> DeploySetupError {
-    match code.as_str() {
+fn setup_error(error: HelperFailure) -> DeploySetupError {
+    match error.code.as_str() {
         "unsupported-tool" => DeploySetupError::UnsupportedTool,
         "login-required" => DeploySetupError::LoginRequired,
         _ => DeploySetupError::Unavailable,
     }
 }
-fn provider_error(code: String) -> DeployProviderError {
-    let fault = match code.as_str() {
+fn provider_error(error: HelperFailure) -> DeployProviderError {
+    let fault = match error.code.as_str() {
         "permission-denied" => DeployFault::PermissionDenied,
         "api-disabled" => DeployFault::ApiDisabled,
         "quota-exceeded" => DeployFault::QuotaExceeded,
@@ -511,6 +584,50 @@ impl DeployFirestore<'_> {
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    #[test]
+    fn strict_diagnostic_reply_keeps_fixed_codes_and_rejects_untrusted_evidence() {
+        use crate::error::DeployOperation;
+        for (code, expected) in [
+            ("provider-rejected", "REMOTE_DEPLOY_PROVIDER_REJECTED"),
+            ("permission-denied", "REMOTE_DEPLOY_PERMISSION_DENIED"),
+            ("quota-exceeded", "REMOTE_DEPLOY_QUOTA_EXCEEDED"),
+            ("unknown", "REMOTE_DEPLOY_UNAVAILABLE"),
+        ] {
+            let raw =
+                json!({"version":1,"error":code,"provider":{"operation":"fields","status":400}});
+            let failure = parse_reply(&serde_json::to_vec(&raw).unwrap()).unwrap_err();
+            let error = preflight_error(failure).remote_error();
+            assert_eq!(error.code, expected);
+            assert_eq!(error.provider.unwrap().operation, DeployOperation::Fields);
+            assert_eq!(error.json_value()["error"]["provider"], raw["provider"]);
+        }
+        for provider in [
+            json!({"operation":"https://secret.invalid/project", "status":400}),
+            json!({"operation":"fields", "status":"400"}),
+            json!({"operation":"fields", "status":200}),
+            json!({"operation":"fields", "status":600}),
+            json!({"operation":"fields", "status":400,"body":"TOKEN_CANARY"}),
+        ] {
+            let raw = json!({"version":1,"error":"provider-rejected","provider":provider});
+            let failure = parse_reply(&serde_json::to_vec(&raw).unwrap()).unwrap_err();
+            assert_eq!(failure.code, "unknown");
+            assert!(failure.provider.is_none());
+        }
+        for raw in [
+            br#"{"version":1,"error":"provider-rejected","provider":{"operation":"fields","status":400,"status":404}}"#.as_slice(),
+            br#"{"version":1,"result":null,"provider":{"operation":"fields","status":400}}"#.as_slice(),
+        ] {
+            let failure = parse_reply(raw).unwrap_err();
+            assert_eq!(failure.code, "unknown");
+            assert!(failure.provider.is_none());
+        }
+        let error =
+            preflight_error(parse_reply(br#"{"version":1,"error":"login-required"}"#).unwrap_err())
+                .remote_error();
+        assert_eq!(error.code, "REMOTE_DEPLOY_PROVIDER_REJECTED");
+        assert!(error.json_value()["error"].get("provider").is_none());
+    }
 
     #[test]
     fn verify_gives_each_read_its_own_absolute_deadline_after_slow_prior_reads() {
