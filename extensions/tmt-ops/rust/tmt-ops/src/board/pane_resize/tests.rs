@@ -219,6 +219,16 @@ fn painted_panes_drag_without_row_effects_and_keyboard_uses_the_same_geometry() 
             Effect::None
         );
         paint(&mut app, width, 51);
+        assert_eq!(
+            app.pane_resize.hint(),
+            Some(if id.columns() { "↔" } else { "↕" }),
+            "a released drag still hovers its current painted divider"
+        );
+        assert!(app.move_pointer(event(MouseEventKind::Moved, 0, 0)));
+        assert!(
+            app.pane_resize.hint().is_none(),
+            "leaving the divider clears its cue"
+        );
         assert_eq!(app.workspace.selected, target);
         assert!(app.menu.is_none());
         assert!(app.input.is_none());

@@ -212,6 +212,9 @@ impl State {
                 }
                 if matches!(event.kind, MouseEventKind::Up(_)) {
                     self.drag.set(None);
+                    if drag.moved {
+                        self.move_pointer(point, true);
+                    }
                 }
                 Some(changed)
             }
