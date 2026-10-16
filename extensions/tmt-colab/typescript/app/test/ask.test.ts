@@ -151,6 +151,22 @@ it('keeps the shipped skill short-link instructions consistent with delivered As
     'if deleted or missing, report that instead of guessing a different page',
   );
 });
+it('names only error codes the contract defines in the shipped skill and its editing reference', () => {
+  // Read here, not in the native CLI test, so native CI does not depend on the contract (#3282).
+  const read = (path: string) => readFileSync(new URL(`../../../${path}`, import.meta.url), 'utf8');
+  const contract = read('contracts/colab-v1.md');
+  for (const file of ['skills/tmt-colab/SKILL.md', 'skills/tmt-colab/references/editing.md']) {
+    const codes = read(file)
+      .split(/[^A-Za-z0-9_-]/)
+      .filter((token) => token.length > 2 && token.startsWith('COLAB_'));
+    expect(
+      codes.length,
+      `${file} names no error code, so the check would pass vacuously`,
+    ).toBeGreaterThan(0);
+    for (const code of codes)
+      expect(contract, `${file} names ${code}, which the contract does not define`).toContain(code);
+  }
+});
 it('copies scopes and bytes before asynchronous signing, including paused-source inputs', async () => {
   const s = selection(),
     d = destination(),
