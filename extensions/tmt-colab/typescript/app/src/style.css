@@ -1134,9 +1134,9 @@ footer {
   overflow-wrap: anywhere;
 }
 
-/* Proposal controls pin the light palette; question cards inherit the app theme. */
+/* Parent-drawn in-page cards inherit the effective app theme throughout. */
 .proposal-inline {
-  color-scheme: light;
+  color-scheme: inherit;
   position: absolute;
   left: 0;
   right: 0;
@@ -1191,6 +1191,9 @@ footer {
 .proposal-author {
   color: var(--c-muted);
   font-size: 12px;
+}
+.proposal-card .conversation-turn:not([data-running-driver]) .conversation-avatar {
+  color: var(--c-text);
 }
 .proposal-body {
   white-space: pre-wrap;
@@ -1302,9 +1305,6 @@ footer {
   color: var(--tmt-ui-color-text);
   background: transparent;
   padding: 0;
-}
-.proposal-inline.question-inline {
-  color-scheme: inherit;
 }
 .question-inline {
   right: auto;
