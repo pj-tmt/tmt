@@ -379,8 +379,9 @@ Ops markers never acknowledge Core results.
 
 The Agents tree is a fixed-column table: SQUAD / AGENT, LEAD, MEMBERS / STATE,
 TOK 1h, DIGEST and ◷ CRON. LEAD and room token totals appear at 100 inner list cells;
-narrower tables drop whole optional columns. Only state glyphs/words carry state
-colour, and selection uses a background or the existing NO_COLOR reverse cue.
+narrower tables drop whole optional columns. Only the state glyph and the task
+state carry state colour, and selection uses a background or the existing
+NO_COLOR reverse cue.
 All keeps Common pool first, then pinned squads and the selected sort order.
 `f` cycles the layer-local All / Pinned filter; explicit bindings win. Pinned shows
 pinned squads and individually pinned agents with their containing group. `p`
@@ -934,9 +935,22 @@ own reader and validation; it is not a second interactive editor or shell.
 ## Squad member list
 
 Agents shows one expandable squad tree and Common pool, with explicit room and
-identity targets. Lead badges and member counts include the lead once. State,
-attention and presence are scoped observations; missing state says `unreported`
-and failed observations remain partial/stale rather than becoming idle or zero.
+identity targets. Lead badges and member counts include the lead once.
+
+A member's STATE shows core's provider activity first and the squad task state
+second, such as `● working 12m · review`. The first word is `waiting` when a
+request waits on you; otherwise it is core's `working` or `idle` with how long
+that phase has run, `ended`, or `unknown`. When the board's last read failed, or
+is older than its refresh interval (at least 5 s) plus 10 s, the word is `stale`
+with the time of core's last event, such as `stale 4m ago`; with refresh off,
+rows go stale and stay stale until you refresh. Stale and unknown never mean
+idle, and the age is never made up when core gives no time. A narrow cell clips
+the task first, then drops the age. The working and idle counts follow core
+activity, each agent once, and count a stale agent as unknown. In Overview's
+Squads view each TEAM glyph shows a waiting request (◆) or a blocked task (✗)
+first, otherwise core activity (`?` when stale or unknown). Attention and
+presence are scoped observations, and failed observations remain partial/stale
+rather than becoming idle or zero.
 A collapsed squad shows its worst observed state. Display names never provide
 operation authority.
 

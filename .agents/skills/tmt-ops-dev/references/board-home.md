@@ -342,7 +342,10 @@ effective view, Details and usage-control keys remain reachable.
 
 Shared board modules own visual elements once. `section_rule` owns neutral rules
 and right-side counts; `team_strip` owns lead-first glyphs; `state_cell` owns
-attention glyph roles; `filter_bar` composes `chip_group` selectors and the idle
+attention glyph roles; `activity` owns the one typed projection of core's
+`session.activity`, the STATE words (`Label`) and the agent `Tally`, and
+`workspace::columns::activity_spans`/`paint_activity` own every member STATE
+cell's spans, task colour and state-cell areas; `filter_bar` composes `chip_group` selectors and the idle
 search field; `key_hints` owns fitted effective-key hints. `spark_row` owns admitted
 trends, numeric headings, totals, shares, optional quota tracks and drawn-width
 time axes. `chip_group` owns option padding, selection and clipped option hits;
@@ -351,7 +354,11 @@ job tracks and their more hint, `key_value` owns aligned metric values, and
 `divider` owns joined band separators. Overview adapts acquired
 observations and owns effects. These painters perform no acquisition or
 view-specific projection, and later Agents placements reuse the same modules.
-Only ◆ and ✗ carry attention color; state words and other marks remain neutral.
+Only ◆ and ✗ carry attention color; activity words and other marks remain neutral,
+and a member's secondary task state keeps its own state colour. Agent working/idle
+counts tally core activity once per identity and count a stale read as unknown;
+Overview TEAM glyphs put request and blocked-task attention first, then the same
+activity label. Needs-you counts stay task and request facts.
 
 One identity-total series uses the existing Rate owner. Its header reads
 `Usage · last <range> · <total> tok`; two right-aligned selector groups expose the
