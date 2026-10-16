@@ -87,19 +87,21 @@ function activity(device: RemoteDevice, atMs: number) {
 function details(snapshot: Exclude<RemotePresenceSnapshot, { kind: 'hidden' }>) {
   const rows =
     snapshot.kind === 'confirmed'
-      ? snapshot.devices.map((device) =>
-          text.remoteDeviceRow(
-            device.thisBrowser
-              ? text.remoteThisBrowser
-              : device.kind === 'addon'
-                ? text.remoteAddon
-                : device.kind === 'cli'
-                  ? text.remoteCli
-                  : device.name,
-            device.liveSessionCount,
-            activity(device, snapshot.atMs),
-          ),
-        )
+      ? snapshot.devices
+          .filter((device) => device.liveSessionCount > 0)
+          .map((device) =>
+            text.remoteDeviceRow(
+              device.thisBrowser
+                ? text.remoteThisBrowser
+                : device.kind === 'addon'
+                  ? text.remoteAddon
+                  : device.kind === 'cli'
+                    ? text.remoteCli
+                    : device.name,
+              device.liveSessionCount,
+              activity(device, snapshot.atMs),
+            ),
+          )
       : [text.remoteCouldNotConfirm];
   const time = new Date(snapshot.atMs).toLocaleTimeString([], {
     hour: '2-digit',

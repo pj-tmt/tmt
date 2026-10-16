@@ -701,25 +701,45 @@ it('reads Remote presence with the admitted mounted Session and exposes settings
   expect(presence.snapshot()).toEqual({ kind: 'hidden' });
 });
 
-it('a mounted Remote snapshot cannot publish after its Session has been replaced', async () => {
+it('a replacement Session reads once after the stale Remote snapshot settles', async () => {
   setup.register.mockReset().mockResolvedValueOnce(setup.first).mockResolvedValueOnce(setup.second);
   setup.remote.mockReset().mockResolvedValue({});
+  setup.sdk.management.mockClear();
   let release!: (value: { devices: []; nextCursor: null }) => void;
-  setup.sdk.management.mockImplementationOnce(() => ({
-    devices: vi.fn(
-      () =>
-        new Promise<{ devices: []; nextCursor: null }>((resolve) => {
-          release = resolve;
-        }),
-    ),
-  }));
+  let releaseSecond!: (value: { devices: []; nextCursor: null }) => void;
+  const firstRead = vi.fn(
+    () =>
+      new Promise<{ devices: []; nextCursor: null }>((resolve) => {
+        release = resolve;
+      }),
+  );
+  const secondRead = vi.fn(
+    () =>
+      new Promise<{ devices: []; nextCursor: null }>((resolve) => {
+        releaseSecond = resolve;
+      }),
+  );
+  setup.sdk.management
+    .mockImplementationOnce(() => ({ devices: firstRead }))
+    .mockImplementationOnce(() => ({ devices: secondRead }));
   const mounted = await mountedTransport();
   await mounted.transport.page('page');
   const presence = mounted.transport.remotePresence!;
   const reading = presence.refresh();
   await setup.owner!.reconnect(setup.first as never);
+  expect(firstRead).toHaveBeenCalledTimes(1);
+  expect(secondRead).not.toHaveBeenCalled();
   release({ devices: [], nextCursor: null });
   await reading;
+  await vi.waitFor(() => expect(secondRead).toHaveBeenCalledTimes(1));
   expect(presence.snapshot()).toEqual({ kind: 'hidden' });
+  expect(setup.sdk.management.mock.calls.map(([session]) => session)).toEqual([
+    setup.first.remoteSession,
+    setup.second.remoteSession,
+  ]);
+  releaseSecond({ devices: [], nextCursor: null });
+  await presence.refresh();
+  expect(presence.snapshot()).toMatchObject({ kind: 'confirmed', count: 0 });
+  expect(secondRead).toHaveBeenCalledTimes(1);
   mounted.close();
 });

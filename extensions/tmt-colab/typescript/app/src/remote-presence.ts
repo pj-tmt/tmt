@@ -110,6 +110,8 @@ export class RemotePresence {
   };
   invalidate(): void {
     this.publish({ kind: 'hidden' });
+    // A replacement Session gets its mount read after the stale read has settled.
+    void (this.pending ?? Promise.resolve()).then(() => this.refresh());
   }
   async close(): Promise<void> {
     this.closed = true;

@@ -184,3 +184,39 @@ it('keeps the door session count when the browser clock is ahead of the expiry t
   await owner.refresh();
   expect(owner.snapshot()).toMatchObject({ kind: 'confirmed', count: 2 });
 });
+
+it('replacement invalidations coalesce and closing prevents the queued successor read', async () => {
+  let release!: (page: RemoteDevicePage) => void;
+  const devices = vi.fn(
+    () =>
+      new Promise<RemoteDevicePage>((resolve) => {
+        release = resolve;
+      }),
+  );
+  const { owner, current, source } = setup(devices);
+  const reading = owner.refresh();
+  current.value = { ...source, generation: {} };
+  owner.invalidate();
+  owner.invalidate();
+  release({ devices: [row()], nextCursor: null });
+  await reading;
+  await vi.waitFor(() => expect(devices).toHaveBeenCalledTimes(2));
+  expect(owner.snapshot()).toEqual({ kind: 'hidden' });
+  owner.invalidate();
+  const closing = owner.close();
+  release({ devices: [row()], nextCursor: null });
+  await closing;
+  await owner.refresh();
+  expect(devices).toHaveBeenCalledTimes(2);
+  expect(owner.snapshot()).toEqual({ kind: 'hidden' });
+});
+
+it('an idle replacement starts its mount read without another visibility trigger', async () => {
+  const { owner, current, source, devices } = setup();
+  await owner.refresh();
+  current.value = { ...source, generation: {} };
+  owner.invalidate();
+  expect(owner.snapshot()).toEqual({ kind: 'hidden' });
+  await vi.waitFor(() => expect(owner.snapshot()).toMatchObject({ kind: 'confirmed', count: 0 }));
+  expect(devices).toHaveBeenCalledTimes(2);
+});

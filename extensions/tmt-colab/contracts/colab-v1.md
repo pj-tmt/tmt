@@ -4860,10 +4860,11 @@ header status slot. The existing signed SDK device list is read sequentially at 
 visible-tab return and details opening, at most 20 pages of 50 devices with one read in
 flight. Only a completed traversal supplies a total; refusal, timeout or the page bound
 shows unconfirmed, never a partial sum or zero. Revoked/expired zero-session rows are omitted, the
-current browser sorts first, and details retain nullable activity and read time. Counts
-are live Sessions, not tabs; a closed tab can remain counted for about a minute. Successful
+current browser sorts first, and details show only positive-session rows, retaining nullable
+activity and read time. Counts are live Sessions, not tabs; a closed tab can remain counted for about a minute. Successful
 reads expose only same-origin `/settings`; hosted/detached apps or an absent admitted
-Session hide the control. Session replacement and close fence late results. This adds no
+Session hide the control. Session replacement fences late results and starts one read after
+the stale read settles; close fences results and prevents that successor. This adds no
 Remote operation, authority, subscription or periodic polling.
 
 Only foreground page views (paired and shared-reader) send explicit `subscribe` after

@@ -22,11 +22,13 @@ The mounted app also supplies a display-only Remote session snapshot through the
 Header status slot. It reads the admitted SDK device list, up to 20 pages of 50 rows,
 on mount, visible-tab return and opening the details. One read owns all pages; a
 refusal or unfinished traversal shows an unconfirmed count, never a partial sum or zero.
-Current browser comes first, then recent activity; revoked/expired zero-session rows are omitted.
+Current browser comes first, then recent activity; details omit zero-session rows without
+changing the confirmed count.
 Counts describe live Sessions, not tabs, and closing a tab may take about a minute to appear.
 The read time and this limit stay visible in the tooltip. A successful complete read supplies
 the same-origin `/settings` link. Hosted/detached adapters and missing Sessions show no chip.
-`remote-presence.ts` owns the finite snapshot and replacement/close fences; `mounted.ts`
+`remote-presence.ts` owns the finite snapshot and replacement/close fences. Replacement
+starts one read after any stale read settles; close prevents that successor. `mounted.ts`
 uses its already-admitted Session without reopening. `remote-header.tsx` owns only presentation
 and the three refresh triggers. Desktop uses the shared Tooltip; through 640px the existing
 More menu includes a Remote submenu with the same details and settings link. No shared header

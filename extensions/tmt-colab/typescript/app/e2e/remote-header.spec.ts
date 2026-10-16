@@ -48,7 +48,7 @@ for (const width of [1440, 390])
         await expect(tooltip).toBeVisible();
         await expect(tooltip).toContainText('This browser · 1 session · active now');
         await expect(tooltip).toContainText('Browser add-on · 2 sessions · 1 min ago');
-        await expect(tooltip).toContainText('CLI · 0 sessions · activity unknown');
+        await expect(tooltip).not.toContainText('CLI · 0 sessions');
         await expect(tooltip).toContainText(
           'As of 10:42 · counts live sessions; a closed tab can stay listed for about a minute.',
         );
@@ -76,7 +76,7 @@ for (const width of [1440, 390])
         await capture(page, `more-${width}-${theme}`);
         await row.hover();
         await expect(page.getByText('This browser · 1 session · active now')).toBeVisible();
-        await expect(page.getByText('CLI · 0 sessions · activity unknown')).toBeVisible();
+        await expect(page.getByText('CLI · 0 sessions · activity unknown')).toHaveCount(0);
         await expect(page.getByRole('menuitem', { name: 'Open Remote settings' })).toBeVisible();
         const submenu = page.locator('[data-slot="dropdown-menu-sub-content"]');
         const bounds = await submenu.boundingBox();
