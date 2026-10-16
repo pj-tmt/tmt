@@ -66,6 +66,29 @@ fn pool_row(row: &Value) -> Value {
 }
 
 impl OpsWorkspaceSnapshot {
+    /// When this snapshot's provider activity goes stale by read age; `None`
+    /// when the roster read is not complete (stale now) or when it has no read
+    /// time (only hand-built test snapshots, which never age).
+    pub(crate) fn activity_deadline(
+        &self,
+        refresh: Option<std::time::Duration>,
+    ) -> Option<std::time::Instant> {
+        (self.roster.observation == OpsObservation::Complete)
+            .then_some(self.read_at?)
+            .map(|read| read + crate::board::activity::stale_after(refresh))
+    }
+    /// The one stale decision for STATE cells and counters: the roster read
+    /// failed, or it is older than `activity::stale_after`. Never idle.
+    pub(crate) fn activity_stale(
+        &self,
+        refresh: Option<std::time::Duration>,
+        now: std::time::Instant,
+    ) -> bool {
+        self.roster.observation != OpsObservation::Complete
+            || self
+                .activity_deadline(refresh)
+                .is_some_and(|deadline| now > deadline)
+    }
     pub(crate) fn set_preferences(&mut self, preferences: OpsPreferences) {
         self.hidden_count = self
             .roster

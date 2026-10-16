@@ -61,6 +61,8 @@ pub struct Label {
     pub state: &'static str,
     /// How long the phase has run (`12m`), or when core last saw an event (`4m ago`).
     pub age: Option<String>,
+    /// The core time `age` counts from, so a frame clock can follow it.
+    pub at: Option<u64>,
     pub task: Option<String>,
 }
 
@@ -82,7 +84,8 @@ impl Member {
         };
         let running = matches!(state, "working" | "idle");
         // A future time (clock rollback) shows no age rather than a made-up one.
-        let age = since.filter(|at| *at <= now_ms).map(|at| {
+        let at = since.filter(|at| *at <= now_ms);
+        let age = at.map(|at| {
             let age = crate::requests::age(now_ms, at);
             if running { age } else { format!("{age} ago") }
         });
@@ -91,7 +94,12 @@ impl Member {
             .as_deref()
             .map(crate::board::notes::sanitize)
             .filter(|task| !task.is_empty() && task != state);
-        Label { state, age, task }
+        Label {
+            state,
+            age,
+            at,
+            task,
+        }
     }
 }
 
@@ -125,6 +133,14 @@ impl Label {
     }
 }
 
+/// How old the board's core read may be before its activity is stale:
+/// `max(refresh interval, 5 s) + 10 s`. Refresh off uses the 5 s floor.
+pub fn stale_after(refresh: Option<std::time::Duration>) -> std::time::Duration {
+    const FLOOR: std::time::Duration = std::time::Duration::from_secs(5);
+    const GRACE: std::time::Duration = std::time::Duration::from_secs(10);
+    refresh.unwrap_or_default().max(FLOOR) + GRACE
+}
+
 /// Agent counts by phase over an identity set the caller has already
 /// deduplicated; the tally itself takes no ID. Ended is neither working nor idle.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -135,7 +151,12 @@ pub struct Tally {
 }
 
 impl Tally {
-    pub fn add(&mut self, activity: ObservedActivity) {
+    /// A stale read counts as unknown, never as working or idle.
+    pub fn add(&mut self, activity: ObservedActivity, stale: bool) {
+        if stale {
+            self.unknown += 1;
+            return;
+        }
         match activity.phase {
             Phase::Working => self.working += 1,
             Phase::Idle => self.idle += 1,
@@ -312,13 +333,16 @@ mod tests {
     }
 
     #[test]
-    fn tallies_skip_ended_agents() {
+    fn tallies_skip_ended_agents_and_count_stale_reads_as_unknown() {
         let mut tally = Tally::default();
         for phase in [Phase::Working, Phase::Idle, Phase::Ended, Phase::Unknown] {
-            tally.add(ObservedActivity {
-                phase,
-                ..Default::default()
-            });
+            tally.add(
+                ObservedActivity {
+                    phase,
+                    ..Default::default()
+                },
+                false,
+            );
         }
         assert_eq!(
             tally,
@@ -326,6 +350,25 @@ mod tests {
                 working: 1,
                 idle: 1,
                 unknown: 1
+            }
+        );
+        // A stale read counts every agent as unknown, never working or idle.
+        let mut stale = Tally::default();
+        for phase in [Phase::Working, Phase::Idle, Phase::Ended] {
+            stale.add(
+                ObservedActivity {
+                    phase,
+                    ..Default::default()
+                },
+                true,
+            );
+        }
+        assert_eq!(
+            stale,
+            Tally {
+                working: 0,
+                idle: 0,
+                unknown: 3
             }
         );
     }

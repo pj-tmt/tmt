@@ -421,6 +421,9 @@ pub fn activity_spans(
 ) {
     use ratatui::text::Span;
     use unicode_width::UnicodeWidthStr;
+    if width == 0 {
+        return (Vec::new(), None);
+    }
     let symbol = state_symbol(Some(label.state));
     let (head, task) = label.fit(width.saturating_sub(symbol.width() + 1));
     let words = format!(" {head}");
@@ -459,7 +462,9 @@ pub fn paint_activity(
         (task.width() as u16).min(cell.width.saturating_sub(width))
     });
     let mut states = app.workspace_state_cells.borrow_mut();
-    states.push(Rect::new(cell.x, cell.y, width, 1));
+    if width > 0 {
+        states.push(Rect::new(cell.x, cell.y, width, 1));
+    }
     if task_width > 0 {
         states.push(Rect::new(cell.x + width, cell.y, task_width, 1));
     }

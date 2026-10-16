@@ -291,6 +291,8 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 let Some(squad) = scene.squads.get(at - LIST_HEADER_ROWS) else {
                     return;
                 };
+                // Its TEAM glyphs follow core activity and the stale rule.
+                app.admit_activity_clock(None);
                 squad_line(
                     app,
                     squad,

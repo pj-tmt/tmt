@@ -4641,36 +4641,163 @@ fn activity_goes_stale_after_the_read_age_limit_and_never_becomes_idle() {
 }
 
 #[test]
-fn painted_activity_admits_a_clock_that_moves_when_the_read_goes_stale() {
+fn painted_activity_records_its_stale_deadline_and_ages_without_rescanning_rows() {
+    use crate::board::view::ClockSurface;
     use std::time::{Duration, Instant};
+    let read = Instant::now();
     let mut app = board();
-    app.view
-        .as_mut()
+    app.view.as_mut().unwrap().refresh = Some(Duration::from_secs(5));
+    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    snapshot.read_at = Some(read);
+    snapshot
+        .roster
+        .members
+        .get_mut(MEMBER)
         .unwrap()
-        .home
-        .as_mut()
-        .unwrap()
-        .workspace
-        .read_at = Some(Instant::now());
-    paint(&app, 100, 24);
+        .activity
+        .since_ms = Some(1_000);
+    // Collapse the tree and select the squad: only its roster preview paints
+    // the member, which the tree rows no longer hold.
+    app.workspace.expanded.clear();
+    let room = OpsTarget::Squad(ROOM.into());
+    let index = app
+        .workspace_rows()
+        .iter()
+        .position(|row| row.target == room)
+        .unwrap();
+    app.select(index);
     assert!(
-        app.frame_clocks
-            .borrow()
+        app.workspace_rows()
             .iter()
-            .any(|clock| matches!(clock, crate::board::view::ClockSurface::Activity))
+            .all(|row| row.activity.is_none())
     );
-    let fresh = crate::board::view::time_marks(&app, 0);
-    app.view
-        .as_mut()
-        .unwrap()
-        .home
-        .as_mut()
-        .unwrap()
-        .workspace
-        .read_at = Instant::now().checked_sub(Duration::from_secs(60));
-    assert_ne!(crate::board::view::time_marks(&app, 0), fresh);
+    crate::status::with_now_ms(61_000, || paint(&app, 160, 36));
+    let clocks = app.frame_clocks.borrow();
+    let deadline = read + Duration::from_secs(15);
+    assert!(
+        clocks
+            .iter()
+            .any(|clock| matches!(clock, ClockSurface::ActivityStale(at) if *at == deadline))
+    );
+    assert!(
+        clocks
+            .iter()
+            .any(|clock| matches!(clock, ClockSurface::ActivityAge(1_000)))
+    );
+    drop(clocks);
     let _no_commands = crate::runner::forbid_commands();
-    assert!(crate::board::view::time_marks(&app, 0)[0].contains("stale"));
+    let at = crate::board::view::time_marks(&app, 61_000);
+    assert_eq!(at, crate::board::view::time_marks(&app, 61_500));
+    assert_ne!(
+        at,
+        crate::board::view::time_marks(&app, 121_000),
+        "the minute age moves"
+    );
+    // The stale switch follows the recorded deadline alone.
+    *app.frame_clocks.borrow_mut() = vec![ClockSurface::ActivityStale(
+        Instant::now()
+            .checked_sub(Duration::from_millis(1))
+            .unwrap(),
+    )];
+    assert_eq!(crate::board::view::time_marks(&app, 0), ["true"]);
+    *app.frame_clocks.borrow_mut() = vec![ClockSurface::ActivityStale(
+        Instant::now() + Duration::from_secs(3600),
+    )];
+    assert_eq!(crate::board::view::time_marks(&app, 0), ["false"]);
+}
+
+#[test]
+fn counters_state_and_status_turn_stale_together() {
+    use crate::board::overview::monitor;
+    use std::time::{Duration, Instant};
+    let read = |app: &mut App, at: Option<Instant>, observation: OpsObservation| {
+        let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+        snapshot.read_at = at;
+        snapshot.roster.observation = observation;
+    };
+    let mut app = board();
+    app.view.as_mut().unwrap().refresh = Some(Duration::from_secs(5));
+    let status = |app: &App| {
+        app.conversation
+            .borrow()
+            .active_agent_mark()
+            .unwrap_or_default()
+            .to_owned()
+    };
+    let overview = |app: &mut App| {
+        app.shell.tab = OpsTab::Overview;
+        app.overview_view = monitor::View::Squads;
+        // Squads view: a frame that shows the counters but no member STATE cell.
+        let screen = paint(app, 160, 36).join("\n");
+        let summary = monitor::scene(app, app.workspace_snapshot().unwrap())
+            .summary
+            .clone();
+        app.shell.tab = OpsTab::Agents;
+        (screen, summary)
+    };
+    for (case, at, observation) in [
+        ("fresh", Some(Instant::now()), OpsObservation::Complete),
+        (
+            "aged",
+            Instant::now().checked_sub(Duration::from_secs(16)),
+            OpsObservation::Complete,
+        ),
+        ("failed", Some(Instant::now()), OpsObservation::Stale),
+    ] {
+        read(&mut app, at, observation);
+        let (screen, summary) = overview(&mut app);
+        let row = painted_member_row(&app, 160, 36);
+        let mark = status(&app);
+        // The TEAM glyph is the counter this frame shows for the member.
+        let team = screen
+            .lines()
+            .find(|line| line.starts_with("   product "))
+            .unwrap_or_default()
+            .to_owned();
+        if case == "fresh" {
+            assert!(team.contains("product   ●"), "{case}: {team}");
+            assert_eq!((summary.working, summary.unknown_activity), (1, 0));
+            assert!(
+                row.contains("● working") && mark.ends_with("worker working"),
+                "{row} / {mark}"
+            );
+        } else {
+            assert!(team.contains("product   ?"), "{case}: {team}");
+            assert_eq!(
+                (summary.working, summary.unknown_activity),
+                (0, 1),
+                "{case}"
+            );
+            assert!(
+                row.contains("stale") && !row.contains("idle"),
+                "{case}: {row}"
+            );
+            assert!(mark.contains("worker stale"), "{case}: {mark}");
+        }
+    }
+}
+
+#[test]
+fn a_zero_width_state_cell_paints_nothing_and_records_no_area() {
+    let app = board();
+    let rows = app.workspace_rows();
+    let row = rows.iter().find(|row| row.activity.is_some()).unwrap();
+    let label = app.activity_label(row).unwrap();
+    let (primary, task) =
+        crate::board::workspace::columns::activity_spans(&app, row, &label, 0, false);
+    assert!(primary.is_empty() && task.is_none());
+    app.workspace_state_cells.borrow_mut().clear();
+    let mut buffer = ratatui::buffer::Buffer::empty(Rect::new(0, 0, 10, 1));
+    let used = crate::board::workspace::columns::paint_activity(
+        &mut buffer,
+        &app,
+        row,
+        &label,
+        Rect::new(0, 0, 0, 1),
+        false,
+    );
+    assert_eq!(used, 0);
+    assert!(app.workspace_state_cells.borrow().is_empty());
 }
 
 /// One board where core says working but the squad task says blocked, with

@@ -34,6 +34,7 @@ pub(super) fn project(
     snapshot: &OpsWorkspaceSnapshot,
     labels: &Supplied,
     visibility: &crate::board::workspace::OpsVisibility,
+    activity_stale: bool,
 ) -> Summary {
     let roster = &snapshot.roster;
     // Visibility affects this view's counts, never the acquired global roster
@@ -74,7 +75,7 @@ pub(super) fn project(
             continue;
         }
         // Agent activity is core's observation; the task state stays a human fact.
-        activity.add(member.activity);
+        activity.add(member.activity, activity_stale);
         if super::sort::needs_attention(member.state.as_deref()) {
             summary.needs_you += 1;
         }
@@ -105,7 +106,7 @@ mod tests {
     use crate::board::workspace::OpsMember;
 
     fn project(snapshot: &OpsWorkspaceSnapshot, labels: &Supplied) -> Summary {
-        super::project(snapshot, labels, &Default::default())
+        super::project(snapshot, labels, &Default::default(), false)
     }
 
     #[test]
@@ -253,7 +254,7 @@ mod tests {
             scope: vec!["no-such-room".into()],
             reveal_hidden: false,
         };
-        let summary = super::project(&snapshot, &labels, &scoped);
+        let summary = super::project(&snapshot, &labels, &scoped, false);
         assert_eq!((summary.savings.tokens, summary.savings.total), (None, 0));
     }
     #[test]

@@ -85,7 +85,7 @@ pub(in crate::board) fn summary(app: &App, width: u16) -> Line<'static> {
             && app.error.is_none()
             && let Some(view) = &app.view
         {
-            return crate::board::home::summary_of(view, width, app.look());
+            return crate::board::home::summary_of(app, view, width, app.look());
         }
         let status = if app.error.is_some() || snapshot.roster.observation == OpsObservation::Stale
         {

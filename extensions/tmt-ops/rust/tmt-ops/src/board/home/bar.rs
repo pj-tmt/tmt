@@ -92,7 +92,7 @@ pub(super) fn paint(key: &Key, file: &str, template: &Template<()>) -> Painted {
     )
 }
 
-fn summary_pieces(home: &Home, width: u16) -> Vec<Piece> {
+fn summary_pieces(home: &Home, width: u16, stale: bool) -> Vec<Piece> {
     let names = home
         .squads
         .iter()
@@ -115,7 +115,13 @@ fn summary_pieces(home: &Home, width: u16) -> Vec<Piece> {
     } else {
         format!("◆ Needs you  {}", names.join(" · "))
     };
-    let totals = if width >= super::MD.cells {
+    // A stale core read counts nobody as working or idle.
+    let agents = home.workspace.roster.members.len();
+    let totals = if stale && width >= super::MD.cells {
+        format!("? {agents} stale  ✗ {} blocked", home.summary.blocked)
+    } else if stale && width >= super::SM.cells {
+        format!("? {agents} stale")
+    } else if width >= super::MD.cells {
         format!(
             "● {} working  ◌ {} idle  ✗ {} blocked",
             home.summary.working, home.summary.idle, home.summary.blocked
@@ -187,7 +193,7 @@ pub(super) fn lines(painted: Painted) -> Option<Line<'static>> {
 /// Needs-you names lead; state totals use the remaining space.
 #[cfg(test)]
 pub(crate) fn summary(home: &Home, width: u16, look: Look) -> Line<'static> {
-    summary_in(&mut Kept::default(), home, width, look)
+    summary_in(&mut Kept::default(), home, width, look, false)
 }
 
 /// The summary, painted again only when its key changed.
@@ -196,6 +202,7 @@ pub(super) fn summary_in(
     home: &Home,
     width: u16,
     look: Look,
+    stale: bool,
 ) -> Line<'static> {
     static TEMPLATE: OnceLock<Template<()>> = OnceLock::new();
     const FILE: &str = "squad.home.summary.xml";
@@ -203,7 +210,7 @@ pub(super) fn summary_in(
         let markup = format!(r#"<tmt-view version="1">{}</tmt-view>"#, row("summary"));
         scene::compile(FILE, &markup, &schema(&["summary"]))
     });
-    let pieces = summary_pieces(home, width);
+    let pieces = summary_pieces(home, width, stale);
     let key = Key {
         width,
         look,

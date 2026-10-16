@@ -119,8 +119,9 @@ impl Home {
     /// activity, each identity once however many squads it is in.
     fn observe(&mut self, workspace: super::workspace::observe::OpsWorkspaceSnapshot) {
         let mut tally = super::activity::Tally::default();
+        let failed = workspace.roster.observation != super::workspace::OpsObservation::Complete;
         for member in workspace.roster.members.values() {
-            tally.add(member.activity);
+            tally.add(member.activity, failed);
         }
         self.summary.working = tally.working;
         self.summary.idle = tally.idle;

@@ -47,6 +47,16 @@ pub(super) struct State {
     pub pane: Option<Rect>,
 }
 
+#[cfg(test)]
+impl State {
+    /// The active conversation's agent status mark, for integrated board tests.
+    pub(in crate::board) fn active_agent_mark(&self) -> Option<&str> {
+        self.sessions
+            .get(self.active.as_ref()?)
+            .map(|session| session.agent_mark.as_str())
+    }
+}
+
 struct Rendered {
     width: usize,
     look: Look,

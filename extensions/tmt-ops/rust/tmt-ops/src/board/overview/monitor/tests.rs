@@ -651,14 +651,17 @@ fn global_waiting_does_not_attribute_an_unobserved_room_membership() {
         "global waiting must not be attributed to this unobserved membership"
     );
     assert_eq!(scene.waiting, 1);
-    assert!(
+    // The TEAM glyph shows the identity's global core activity (unknown in
+    // this fixture), never the global waiting request.
+    assert_eq!(
         scene.squads[0]
             .members
             .iter()
             .find(|(id, _)| id == MEMBER)
             .unwrap()
             .1
-            .is_none()
+            .as_deref(),
+        Some("unknown")
     );
     assert!(
         snapshot.roster.shell_counts().waiting > 0,
