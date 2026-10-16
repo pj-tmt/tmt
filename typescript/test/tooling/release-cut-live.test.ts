@@ -11,7 +11,7 @@ import {
 import { availableParallelism, cpus, loadavg, tmpdir } from 'node:os';
 import { performance, type EventLoopUtilization } from 'node:perf_hooks';
 import { basename, join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import {
   createCutClient,
   runReleaseCuts,
@@ -21,8 +21,15 @@ import {
 import type { CutMetadata } from '../../scripts/release-cut.mjs';
 import { parseComponentMap } from '../../scripts/ci-scope.mjs';
 import { checkMigration, releaseCommits } from '../../scripts/publication-gates.mjs';
+import { readCargoWorkspace, type CargoWorkspace } from '../../scripts/cargo-workspace.mjs';
+import { readReleaseSourceAtRef } from '../../scripts/release-source-at-ref.mjs';
 
 import { writeReleaseWorkspace } from '../support/release-workspace-fixture.js';
+
+vi.mock('../../scripts/cargo-workspace.mjs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../scripts/cargo-workspace.mjs')>();
+  return { ...actual, readCargoWorkspace: vi.fn(actual.readCargoWorkspace) };
+});
 
 // File-scoped wrappers also observe synchronous calls made by imported release tooling.
 // They delegate unchanged; no process-wide builtin patch or production observer is installed.
@@ -260,7 +267,29 @@ function privateCargoHome() {
 }
 let caseCargoHome: ReturnType<typeof privateCargoHome>;
 let diagnostics: ReturnType<typeof releaseCutDiagnostics>;
+const fixtureWorkspaces = new Map<boolean, CargoWorkspace>();
+beforeAll(async () => {
+  const actual = await vi.importActual<typeof import('../../scripts/cargo-workspace.mjs')>(
+    '../../scripts/cargo-workspace.mjs'
+  );
+  const cargoHome = privateCargoHome();
+  try {
+    // Lifecycle cases change Git/release state, never these two dependency-free Cargo graphs.
+    for (const activated of [false, true]) {
+      const root = mkdtempSync(join(tmpdir(), 'release-live-workspace-'));
+      try {
+        writeReleaseWorkspace(root, activated ? ['remote', 'colab'] : []);
+        fixtureWorkspaces.set(activated, actual.readCargoWorkspace(root));
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }
+  } finally {
+    cargoHome.cleanup();
+  }
+}, 60_000);
 beforeEach(() => {
+  vi.mocked(readCargoWorkspace).mockReset();
   caseCargoHome = privateCargoHome();
   diagnostics = releaseCutDiagnostics(() => performance.now(), {
     loadavg: loadavg(),
@@ -326,6 +355,9 @@ describe('release cut private Cargo home', () => {
 });
 
 function fixture(activateExtensions = false) {
+  const workspace = fixtureWorkspaces.get(activateExtensions);
+  if (!workspace) throw new Error('Release lifecycle fixture workspace was not read.');
+  vi.mocked(readCargoWorkspace).mockReturnValue(workspace);
   const root = mkdtempSync(join(tmpdir(), 'release-live-test-'));
   roots.push(root);
   const command = (args: string[]) => {
@@ -436,6 +468,30 @@ function fixture(activateExtensions = false) {
   const git = vi.fn((args: string[]) => (args[0] === 'fetch' ? '' : command(args)));
   return { client, git, state, releases, cut, previous, commit, root, command };
 }
+
+it('reads the exact release-source ref through real Cargo metadata', async () => {
+  const f = fixture(true);
+  const actual = await vi.importActual<typeof import('../../scripts/cargo-workspace.mjs')>(
+    '../../scripts/cargo-workspace.mjs'
+  );
+  vi.mocked(readCargoWorkspace).mockImplementation(actual.readCargoWorkspace);
+  const source = readReleaseSourceAtRef(f.cut, { root: f.root, warm: true });
+  expect(source.map).toEqual(
+    parseComponentMap(f.command(['show', `${f.cut}:.github/components.json`]), {
+      historical: true,
+    })
+  );
+  expect(
+    source.workspace.packages.map(({ name, version, manifest }) => [name, version, manifest]).sort()
+  ).toEqual([
+    ['tmt-cli', '5.0.0-dev', 'rust/crates/tmt-cli/Cargo.toml'],
+    ['tmt-colab', '0.1.0-dev', 'extensions/tmt-colab/rust/tmt-colab/Cargo.toml'],
+    ['tmt-ops', '0.1.0-dev', 'extensions/ops/Cargo.toml'],
+    ['tmt-remote', '0.1.0-dev', 'extensions/tmt-remote/rust/tmt-remote/Cargo.toml'],
+  ]);
+  expect(readCargoWorkspace).toHaveBeenCalledExactlyOnceWith(expect.any(String));
+  // A real metadata read can encounter cold/contended I/O; lifecycle cases keep their 10 s budget.
+}, 30_000);
 
 describe('live release cut lifecycle', () => {
   it('automatically allocates both approved first alphas using prefixed component identities', async () => {
