@@ -2544,6 +2544,16 @@ ends the run as partial with a fixed instruction code, and the retry continues a
 in the same save that completes the last step. From the moment the Rules call may have been made
 until the run completes no binding is usable; a failure before that call leaves the earlier binding
 valid; running a finished plan again is a fresh check that keeps the binding until a Rules call is made.
+Preflight HTTP failures expose `error.provider: {operation, status}` in JSON and name the
+operation and numeric HTTP status in fixed human text. `operation` is one of `identity`,
+`project`, `database`, `fields`, `indexes`, `rules-release`, `rules-set`, `web-apps`,
+`web-app-config`, `web-app-operation`, `sign-in-config`, `google-sign-in-config`,
+`hosting-site`, `hosting-channel`, `hosting-version`, `hosting-files`, `hosting-release`,
+`hosting-upload`; `status` is a numeric HTTP code. No URL, resource name, project ID or
+provider body crosses this error boundary. Non-HTTP failures omit `provider`. Classification
+and accepted absence are unchanged: database/release 404 is accepted, list/ruleset 404 refuses;
+403/429 retain their dedicated codes, 408/409/5xx remain unknown (SERVICE_DISABLED retains
+its API-disabled code). No automatic retry or new retryable-state inference is made.
 Records carry fixed reason codes, never provider text, and Remote fixes the owner-step instruction text:
 
 - Refusals before any effect: `REMOTE_DEPLOY_PROJECT_INVALID`, `_LOCATION_INVALID`,

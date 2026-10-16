@@ -951,3 +951,53 @@ fn invalid_remote_argument_is_distinct_from_an_unreadable_catalog() {
     );
     assert_eq!(fs::read(&path).unwrap(), b"damaged catalog");
 }
+
+#[test]
+fn preflight_http_failure_names_the_operation_and_status_without_provider_text_or_effects() {
+    let root = Root::new();
+    available(&root);
+    let package = installed(&root, "normal");
+    let state_path = package.join("state.json");
+    let mut state: serde_json::Value =
+        serde_json::from_slice(&fs::read(&state_path).unwrap()).unwrap();
+    state["readFailure"] = serde_json::json!({"path":"/collectionGroups/-/fields?", "status":400});
+    fs::write(&state_path, serde_json::to_vec(&state).unwrap()).unwrap();
+    for json in [true, false] {
+        let output = invoke(&root, if json { &["--json"] } else { &[] });
+        assert!(!output.status.success());
+        if json {
+            assert!(output.stderr.is_empty());
+            let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+            assert_eq!(value["error"]["code"], "REMOTE_DEPLOY_PROVIDER_REJECTED");
+            assert_eq!(
+                value["error"]["provider"],
+                serde_json::json!({"operation":"fields","status":400})
+            );
+            assert_eq!(
+                value["error"]["message"],
+                "Firebase could not read Firestore field configurations (HTTP 400). Nothing changed in your Firebase project."
+            );
+        } else {
+            assert!(output.stdout.is_empty());
+            let text = String::from_utf8(output.stderr.clone()).unwrap();
+            assert!(text.contains("Firestore field configurations (HTTP 400)"));
+            assert!(!text.contains("wait"));
+        }
+        assert!(!String::from_utf8_lossy(&output.stdout).contains("TOKEN_CANARY"));
+        assert!(!String::from_utf8_lossy(&output.stderr).contains("TOKEN_CANARY"));
+    }
+    let calls = fs::read_to_string(package.join("calls.jsonl")).unwrap();
+    assert!(
+        calls.lines().all(
+            |line| serde_json::from_str::<serde_json::Value>(line).unwrap()["method"] == "GET"
+        )
+    );
+    assert_eq!(
+        calls
+            .lines()
+            .filter(|line| line.contains("/collectionGroups/-/fields?"))
+            .count(),
+        2,
+        "one attempt per explicit command, no retry"
+    );
+}

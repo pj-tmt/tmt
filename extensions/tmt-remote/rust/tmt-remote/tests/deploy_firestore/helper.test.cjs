@@ -910,3 +910,74 @@ test('incomplete composite inventory never allocates and invalid input never ask
   );
   assert.equal(credentials, 0);
 });
+
+test('preflight HTTP diagnostics name only the closed operation and numeric status', async () => {
+  const root = path.join(__dirname, '../fixtures/deploy_firestore/firebase-tools');
+  for (const [status, code] of [
+    [400, 'provider-rejected'],
+    [404, 'provider-rejected'],
+    [412, 'provider-rejected'],
+    [403, 'permission-denied'],
+    [429, 'quota-exceeded'],
+    [408, 'unknown'],
+    [409, 'unknown'],
+  ]) {
+    const f = fixture((url) =>
+      url.endsWith('/(default)')
+        ? { status: 200, body: {} }
+        : { status, body: { error: { message: CANARY } } }
+    );
+    const result = await run(
+      JSON.stringify(request('index-budget', { project: PROJECT, fields: [], composites: [] })),
+      root,
+      f
+    );
+    assert.deepEqual(result, {
+      version: 1,
+      error: code,
+      provider: { operation: 'fields', status },
+    });
+    assert.equal(JSON.stringify(result).includes(CANARY), false);
+    assert.equal(JSON.stringify(result).includes(PROJECT), false);
+    assert.equal(mutations(f).length, 0);
+    assert.equal(f.calls.filter((c) => c.url.includes('/-/fields')).length, 1);
+  }
+});
+test('absent database skips inventories, and missing release stays accepted', async () => {
+  const f = fixture(() => ({ status: 404, body: {} }));
+  assert.equal(
+    await execute(request('index-budget', { project: PROJECT, fields: [], composites: [] }), f),
+    'within-budget'
+  );
+  assert.equal(
+    f.calls.some((c) => c.url.includes('/collectionGroups/')),
+    false
+  );
+  assert.equal(await execute(request('live-rules', { project: PROJECT }), f), null);
+  assert.equal(mutations(f).length, 0);
+});
+test('missing referenced ruleset and composite inventory retain their own HTTP diagnostics', async () => {
+  const root = path.join(__dirname, '../fixtures/deploy_firestore/firebase-tools');
+  const f = fixture((url) =>
+    url.includes('/releases/')
+      ? { status: 200, body: { rulesetName: `projects/${PROJECT}/rulesets/one` } }
+      : { status: 404, body: { error: { message: CANARY } } }
+  );
+  assert.deepEqual(
+    await run(JSON.stringify(request('live-rules', { project: PROJECT })), root, f),
+    { version: 1, error: 'provider-rejected', provider: { operation: 'rules-set', status: 404 } }
+  );
+  const indexes = fixture((url) =>
+    url.includes('/-/indexes')
+      ? { status: 404, body: {} }
+      : { status: 200, body: url.includes('/-/fields') ? { fields: [] } : {} }
+  );
+  assert.deepEqual(
+    await run(
+      JSON.stringify(request('index-budget', { project: PROJECT, fields: [], composites: [] })),
+      root,
+      indexes
+    ),
+    { version: 1, error: 'provider-rejected', provider: { operation: 'indexes', status: 404 } }
+  );
+});

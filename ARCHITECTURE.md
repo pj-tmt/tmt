@@ -566,10 +566,10 @@ the extension object channel (`tmt-extension-objects`), never through Remote sta
 
 `object_service`: leased object/v3 carrier; `firebase_auth` credentials/HTTP.
 Serve: Auth/runtime/factory/tick/joins/flush; v3 opt-in.
-`native_sync` COUNT/read budgets; Colab cursors; no Core state/provider carrier.
+`native_sync` COUNT/read limits; Colab cursors; no Core state/carrier.
 Emulation never ships.
 [object-backends](.agents/skills/tmt-remote/references/object-backends.md) owns channels,
-backends/quotas. Rules/indexes/Hosting feed deploy; Hosting serves declarations; records feed index readiness.
+backends/quotas. Deploy: Rules/indexes/Hosting, call/status errors; Hosting serves declarations; records feed readiness.
 [Remote internals](.agents/skills/tmt-remote/references/architecture-internals.md) owns module rules;
 [door and discovery](.agents/skills/tmt-remote/references/door-and-discovery.md) owns lifecycle,
 status and management. Shared background start is [extension-serve-v1](contracts/extension-serve-v1.md).

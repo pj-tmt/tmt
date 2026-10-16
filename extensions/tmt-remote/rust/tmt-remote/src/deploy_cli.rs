@@ -4,7 +4,7 @@ use crate::{
     deploy_command::{self, DeployCommandInput, DeployCommandOptions, DeployCommandOutput},
     deploy_discovery::{self, DeclarationSource, DiscoveryRefusal},
     deploy_record::DeployRecordStore,
-    deploy_run::{DeployPort, DeployProviderError, SignInProvider},
+    deploy_run::{DeployPort, SignInProvider},
 };
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use serde_json::json;
@@ -25,7 +25,7 @@ pub enum DeployCliError {
     Setup(crate::deploy_firestore::DeploySetupError),
     Local(crate::error::RemoteError),
     Discovery(DiscoveryRefusal),
-    Provider(DeployProviderError),
+    Provider(crate::deploy_firestore::DeployPreflightError),
     Command(deploy_command::DeployCommandError, std::path::PathBuf),
 }
 /// Live Rules are an observation; the engine retains all mutation ownership.
@@ -37,8 +37,11 @@ pub trait FirestoreCommandPort: DeployPort {
         &mut self,
         project: &str,
         plan: &crate::deploy_plan::Plan,
-    ) -> Result<(), DeployProviderError>;
-    fn live_rules(&mut self, project: &str) -> Result<Option<Vec<u8>>, DeployProviderError>;
+    ) -> Result<(), crate::deploy_firestore::DeployPreflightError>;
+    fn live_rules(
+        &mut self,
+        project: &str,
+    ) -> Result<Option<Vec<u8>>, crate::deploy_firestore::DeployPreflightError>;
     /// Ports without Hosting support refuse rather than invent an empty inventory.
     fn hosting_inventory(
         &mut self,
@@ -65,10 +68,13 @@ impl FirestoreCommandPort for crate::deploy_firestore::DeployFirestore<'_> {
         &mut self,
         project: &str,
         plan: &crate::deploy_plan::Plan,
-    ) -> Result<(), DeployProviderError> {
+    ) -> Result<(), crate::deploy_firestore::DeployPreflightError> {
         self.check_index_budget(project, plan)
     }
-    fn live_rules(&mut self, project: &str) -> Result<Option<Vec<u8>>, DeployProviderError> {
+    fn live_rules(
+        &mut self,
+        project: &str,
+    ) -> Result<Option<Vec<u8>>, crate::deploy_firestore::DeployPreflightError> {
         self.live_rules(project)
     }
 }

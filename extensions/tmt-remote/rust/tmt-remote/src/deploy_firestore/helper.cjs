@@ -22,13 +22,14 @@ const FAULTS = new Set([
   'unknown',
 ]);
 class DeployFailure extends Error {
-  constructor(code) {
+  constructor(code, provider) {
     super('Firebase request could not be confirmed');
     this.code = code;
+    this.provider = provider;
   }
 }
-const fail = (code) => {
-  throw new DeployFailure(code);
+const fail = (code, provider) => {
+  throw new DeployFailure(code, provider);
 };
 const sha = (source) => crypto.createHash('sha256').update(source).digest('hex');
 function keys(value, expected) {
@@ -269,6 +270,29 @@ function fault(response, body) {
     return 'unknown';
   return 'provider-rejected';
 }
+// Routes are fixed by this adapter. Only these names, never route/resource bytes,
+// may cross the helper boundary when an HTTP response is rejected.
+function providerOperation(service, route) {
+  const parts = route.split('?', 1)[0].split('/');
+  if (service === 'firebase') {
+    if (parts[0] === 'operations') return 'web-app-operation';
+    if (parts[2] === 'webApps') return parts[4] === 'config' ? 'web-app-config' : 'web-apps';
+    return 'project';
+  }
+  if (service === 'firestore') {
+    if (parts[4] === 'collectionGroups' && parts[6] === 'fields') return 'fields';
+    if (parts[4] === 'collectionGroups' && parts[6] === 'indexes') return 'indexes';
+    return 'database';
+  }
+  if (service === 'rules') return parts[2] === 'rulesets' ? 'rules-set' : 'rules-release';
+  if (service === 'auth')
+    return parts[2] === 'defaultSupportedIdpConfigs' ? 'google-sign-in-config' : 'sign-in-config';
+  const site = parts[0] === 'projects' ? parts.slice(2) : parts;
+  if (site[2] === 'channels') return 'hosting-channel';
+  if (site[2] === 'versions') return site[4] === 'files' ? 'hosting-files' : 'hosting-version';
+  if (site[2] === 'releases') return 'hosting-release';
+  return 'hosting-site';
+}
 async function fetchJson(url, options, deadline) {
   const left = deadline - Date.now();
   if (left <= 0) fail('unknown');
@@ -322,7 +346,10 @@ async function execute(request, deps) {
       actual.body?.email !== credential.account ||
       actual.body?.email_verified !== true
     )
-      fail('login-required');
+      fail(
+        'login-required',
+        actual.status !== 200 ? { operation: 'identity', status: actual.status } : undefined,
+      );
     if (r.account !== null && credential.account !== r.account) fail('account-changed');
     return credential;
   }
@@ -365,7 +392,7 @@ async function execute(request, deps) {
     if (reply.status < 200 || reply.status >= 300) {
       const code = fault(reply, reply.body);
       if (method !== 'GET' && code !== 'unknown' && !earlierEffect) effect = false;
-      fail(code);
+      fail(code, { operation: providerOperation(service, route), status: reply.status });
     }
     return reply.body;
   }
@@ -737,7 +764,8 @@ async function execute(request, deps) {
         },
         deadline,
       );
-      if (result.status !== 200) fail(fault(result, result.body));
+      if (result.status !== 200)
+        fail(fault(result, result.body), { operation: 'hosting-upload', status: result.status });
       return reply('done');
     }
     if (i.action === 'finalize') {
@@ -1096,7 +1124,7 @@ async function execute(request, deps) {
     }
     fail('provider-rejected');
   } catch (error) {
-    if (effect) fail('unknown');
+    if (effect) fail('unknown', error instanceof DeployFailure ? error.provider : undefined);
     if (error instanceof DeployFailure) throw error;
     fail('provider-rejected');
   }
@@ -1122,6 +1150,7 @@ async function run(raw, root, deps) {
     return {
       version: 1,
       error: error instanceof DeployFailure && FAULTS.has(error.code) ? error.code : 'unknown',
+      ...(error instanceof DeployFailure && error.provider ? { provider: error.provider } : {}),
     };
   }
 }
