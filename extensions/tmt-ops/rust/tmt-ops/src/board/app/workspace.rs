@@ -202,6 +202,47 @@ impl App {
             .iter()
             .find(|squad| &squad.room_id == id)
     }
+    pub(in crate::board) fn select_overview_view(
+        &mut self,
+        view: crate::board::overview::monitor::View,
+    ) -> Effect {
+        if self.shell.tab != OpsTab::Overview || self.overview_view == view {
+            return Effect::None;
+        }
+        self.overview_view = view;
+        self.overview_rows.borrow_mut().clear();
+        self.workspace.selected = self.workspace_rows().first().map(|row| row.target.clone());
+        self.scrolls
+            .scroll(Pane::Rows, crate::board::scroll::Step::Top);
+        self.workspace_reconcile();
+        self.invalidate_frame_geometry();
+        Effect::None
+    }
+    /// A squad selection grants a conversation only to its observed, current lead.
+    pub(in crate::board) fn workspace_message_target(&self) -> Option<OpsTarget> {
+        if self.shell.tab == OpsTab::Overview
+            && self.workspace_selection_visible()
+            && let Some(OpsTarget::Squad(room)) = self.workspace.selected.as_ref()
+        {
+            let snapshot = self.workspace_snapshot()?;
+            let squad = snapshot.roster.squads.iter().find(|s| &s.room_id == room)?;
+            let lead = squad.lead.as_ref()?;
+            if !squad.members.contains(lead) {
+                return None;
+            }
+            let target = OpsTarget::Member {
+                room_id: Some(room.clone()),
+                identity_id: lead.clone(),
+            };
+            return (snapshot.roster.contains(&target)
+                && snapshot
+                    .rows
+                    .get(&target)
+                    .is_some_and(|row| row["id"].as_str() == Some(lead.as_str())))
+            .then_some(target);
+        }
+        self.workspace_selected_member().cloned()
+    }
     pub(in crate::board) fn workspace_selected_member(&self) -> Option<&OpsTarget> {
         self.workspace.selected.as_ref().filter(|target| {
             self.workspace_selection_visible() && matches!(target, OpsTarget::Member { .. })
@@ -241,7 +282,7 @@ impl App {
     /// Compact Overview retains its monitor, so the editor opens in Agents;
     /// wide Overview keeps its existing shared conversation placement.
     pub(super) fn workspace_focus_conversation(&mut self) {
-        let Some(selected) = self.workspace_selected_member().cloned() else {
+        let Some(selected) = self.workspace_message_target() else {
             return;
         };
         let target = RowTarget::Workspace(selected);
@@ -621,12 +662,10 @@ impl App {
                 return self.agents_filter(self.workspace.filter.next());
             }
             AgentsFilter => return Effect::None,
-            OverviewFilter if self.shell.tab == OpsTab::Overview => {
-                self.overview_filter = self.overview_filter.next();
-                self.overview_rows.borrow_mut().clear();
-                self.workspace_reconcile();
+            OverviewView if self.shell.tab == OpsTab::Overview => {
+                return self.select_overview_view(self.overview_view.next());
             }
-            OverviewFilter => return Effect::None,
+            OverviewView => return Effect::None,
             MonitorDetails => return self.overview_details(),
             WorkspaceSnapshots => return self.open_recovery(),
             DiscoverAgents => return self.open_discovery(),

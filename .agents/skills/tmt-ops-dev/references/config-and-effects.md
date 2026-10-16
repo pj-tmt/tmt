@@ -173,7 +173,7 @@ live hidden count. Pins remain independent. Session launch scope/reveal belongs
 to App and ephemeral reload carry, never Config or retained view hints.
 `workspace.overview_sort` names an existing identity sort field;
 `workspace.overview_reverse` reverses its initial direction; optional
-`workspace.agent_pins` retains up to 1,024 canonical identity UUIDs; it does not reorder waiting-only Needs you.
+`workspace.agent_pins` retains up to 1,024 canonical identity UUIDs; it does not replace the waiting-first Overview ordering.
 `workspace.digest_window` selects 24h (default), 7d or lifetime (shown as all time)
 for every Digest estimate surface, through the same format-preserving Config CAS;
 `workspace.savings_unit` (`tokens` default, `percent`, `cost`) is the sibling key on the
@@ -194,7 +194,7 @@ neither cancels its admitted write nor applies a late result to a reopened picke
 
 `workspace.overview_panels` stores `order`, `hidden` and `conversation` over IDs
 `summary`, `digest`, `subscriptions`, `usage`, `monitor`, `exchanges`.
-Overview exposes only Usage, inline quota, Squads / Needs you and Conversation in
+Overview exposes only Usage, inline quota, Squads / Agents and Conversation in
 its picker; fixed positions ignore retained vertical order. Retired Summary, Digest
 and Recent controls remain absent. Usage has a fixed full-width header position and `subscriptions`
 controls quota cells inside its provider rows. Their order entries are retained
@@ -365,3 +365,9 @@ manual cron sends. Before dispatch, a private 0600 intent under
 acceptance removes it; uncertain acceptance retains it for manual inspection.
 One `dispatch.show` read can recover lost output. There is no automatic resend or wake retry. An explicit status notification retry first recovers uncertain acceptance; after the owned invocation has closed and a definitive missing receipt, it may create only the same frozen operation/intent again. Confirmed acceptance is never created again. Feedback distinguishes each recipient's queued or
 unavailable acceptance without claiming delivery or processing.
+
+The per-layer view-state controls store the Overview list choice as `overviewView`
+(`squads` or `agents`). A file written before the list redesign keeps its committed
+query, Agents filter, sort and scroll controls and defaults the new choice to Squads;
+the removed `overviewFilter` is not reinterpreted as a list choice. A present invalid
+new choice is refused by the existing control decoder. Config remains unchanged.

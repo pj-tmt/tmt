@@ -125,11 +125,11 @@ in different squads. A collapsed squad keeps its worst observed child state,
 with attention priority. Display names preserve authored text, including `tmt-`
 prefixes, and fit through the shared text policy.
 
-| Section  | Composition                                         | Placement                                                              |
-| -------- | --------------------------------------------------- | ---------------------------------------------------------------------- |
-| Overview | Full-width Usage, Squads and waiting-only Needs you | Missing observations stay unknown; only waiting rows select recipients |
-| Agents   | Tree plus exact agent conversation or squad detail  | Auto/Side/Stack uses actual minimum usable areas                       |
-| Digest   | Same tree/context and existing policy chooser       | No new Digest store, permission or parallel editor                     |
+| Section  | Composition                                         | Placement                                                                            |
+| -------- | --------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Overview | Full-width Usage, one switchable Squads/Agents list | Missing observations stay unknown; selected rows retain acquired recipient authority |
+| Agents   | Tree plus exact agent conversation or squad detail  | Auto/Side/Stack uses actual minimum usable areas                                     |
+| Digest   | Same tree/context and existing policy chooser       | No new Digest store, permission or parallel editor                                   |
 
 Auto/Side/Stack, pin and sort are per-user Ops preferences. The new default keys
 replace old squad tabs, Left/Right tab switching, tab reorder/pick/hide and factory
@@ -157,26 +157,22 @@ modal; provider names and quota remain visible before token observations arrive.
 Missing totals use an em dash, measured zero stays zero, and one neutral empty
 state replaces an unavailable trend without bars or a time axis.
 
-The primary body contains a read-only Squads table followed by Needs you. Squads
-show a lead-first TEAM strip, TOK 1h from the existing HOUR observations, and NOW
-from pending questions before tasks. Needs you contains waiting agents only,
-ordered by oldest known request first with unknown times last. It does not show
-waiting durations. Blocked state alone does not manufacture a pending question.
-Rows retain UUID anchors and exact acquired membership scope. Section rules and
-squad rows grant no recipient authority; only visible waiting rows publish hits.
-The shared modules own section rules, team and state glyphs, waiting tracks and
-fitted key hints. Only ◆ and ✗ carry attention colors; words remain neutral.
-
-The All/Needs you filter is session-local and preserves the selected UUID.
-Committed search is visible in the Squads title. The primary container has one
-scroll owner, and short screens reveal the selected waiting target. One neutral
-footer advertises effective keys; Help and Actions retain other admitted actions.
-Details shows full acquired values without extra command authority. The Timers
-key opens all rooms only with no selected target; missing or hidden selected
-scopes refuse to widen.
+The primary body contains one switchable Squads/Agents list. Its shared filter
+bar contains mode chips and the idle search field; the section rule below owns
+counts. Squads show lead-first TEAM, existing HOUR-derived TOK 1h and NOW from
+pending questions before tasks. Agents show AGENT, SQUAD, STATE, TOK 1h and NOW,
+waiting first with oldest proven request first; no waiting duration is rendered.
+The footer's effective `v` switches views, and authored bindings take precedence.
+Source refresh/search retains hidden targets without selecting a neighbor. A
+selected squad addresses only its observed lead; an agent retains its exact
+membership. The existing owner still admits message, host and guarded effects.
+One scroll owner paints clipped rows and `↓ N more` when they overflow. The shared
+filter bar, section rule, team strip, state cell and key hints have one board owner
+for later Agents reuse. Only ◆ and ✗ carry attention color. Search interaction is
+separate from the idle field presentation. Details stays read-only.
 
 Workspace settings → Panels retains separate policies for Overview and Digest.
-Overview exposes Usage, quota inside Usage, Squads / Needs you, and Conversation;
+Overview exposes Usage, quota inside Usage, Squads / Agents, and Conversation;
 its section positions are fixed. Digest keeps movable panels and its Details
 switch. Preview is disposable, Save uses the existing guarded write, Cancel
 restores acquired preferences, and Reset restores defaults. Retired Overview

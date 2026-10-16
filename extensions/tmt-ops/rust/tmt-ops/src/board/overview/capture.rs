@@ -283,7 +283,14 @@ fn capture_squads_packet(output: &str) {
     crate::status::with_now_ms(1_791_600_000_000, || {
         let _no_commands = crate::runner::forbid_commands();
         let mut frames = Vec::new();
-        for scene in ["squads", "squads-empty", "squads-partial"] {
+        for scene in [
+            "squads",
+            "agents",
+            "squads-empty",
+            "agents-empty",
+            "squads-partial",
+            "agents-partial",
+        ] {
             for width in [60, 103, 148] {
                 for (base, depth) in [
                     ("tmt", tmt_cli_style::Depth::TrueColor),
@@ -292,6 +299,11 @@ fn capture_squads_packet(output: &str) {
                 ] {
                     let mut app = crate::board::app::workspace::tests::populated_board(8, 28);
                     app.shell.tab = crate::board::shell::OpsTab::Overview;
+                    app.overview_view = if scene.starts_with("agents") {
+                        super::monitor::View::Agents
+                    } else {
+                        super::monitor::View::Squads
+                    };
                     let view = app.view.as_mut().unwrap();
                     view.look = crate::look::Look {
                         theme: tmt_cli_style::Theme::new(
@@ -325,11 +337,11 @@ fn capture_squads_packet(output: &str) {
                             }
                         }
                     }
-                    if scene == "squads-empty" {
+                    if scene.ends_with("-empty") {
                         snapshot.roster.squads.clear();
                         snapshot.roster.members.clear();
                         snapshot.rows.clear();
-                    } else if scene == "squads-partial" {
+                    } else if scene.ends_with("-partial") {
                         snapshot.roster.membership_complete = false;
                     }
                     snapshot.shell_counts = snapshot.roster.shell_counts();
@@ -357,11 +369,11 @@ fn capture_squads_packet(output: &str) {
                         .collect();
                     frames.push(json!({"scene":scene,"width":width,"height":height,"base":base,
                         "depth":format!("{depth:?}"),"lines":lines,"cells":cells,
-                        "selected":format!("{:?}",app.workspace.selected),"hits":format!("{:?}",app.hits.borrow())}));
+                        "selected":format!("{:?}",app.workspace.selected),"hits":format!("{:?}",app.hits.borrow()),"controls":format!("{:?}",app.workspace_strip_hits.borrow())}));
                 }
             }
         }
-        assert_eq!(frames.len(), 27);
+        assert_eq!(frames.len(), 54);
         std::fs::write(output, serde_json::to_vec(&frames).unwrap()).unwrap();
     });
 }

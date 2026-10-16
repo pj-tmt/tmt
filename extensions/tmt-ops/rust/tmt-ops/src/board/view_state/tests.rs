@@ -491,7 +491,7 @@ fn layers_share_by_name_and_reset_only_the_selected_file() {
     write(&default, &saved());
     let mut first = board();
     first.workspace.filter = super::super::workspace::AgentsFilter::Pinned;
-    first.overview_filter = super::super::overview::monitor::Filter::NeedsYou;
+    first.overview_view = super::super::overview::monitor::View::Agents;
     first.search = "committed".into();
     first.workspace.query = first.search.clone();
     first.workspace.order = Some(Order {
@@ -519,7 +519,7 @@ fn layers_share_by_name_and_reset_only_the_selected_file() {
     assert!(reopened.tick(&mut second, Instant::now()).0);
     assert_eq!(second.search, "committed");
     assert_eq!(second.workspace.filter, first.workspace.filter);
-    assert_eq!(second.overview_filter, first.overview_filter);
+    assert_eq!(second.overview_view, first.overview_view);
     assert_eq!(second.workspace_order(), first.workspace_order());
     assert_eq!(second.scrolls.offset(crate::config::Pane::Rows), 9);
     reset(&popup).unwrap();
@@ -618,4 +618,38 @@ fn original_reset_flag_is_never_replayed_after_exec_and_reset_errors_preserve_by
     fs::write(&child, b"preserve").unwrap();
     assert!(Session::open(scratch.file(), false, false, true).is_err());
     assert_eq!(fs::read(child).unwrap(), b"preserve");
+}
+
+#[test]
+fn replaced_overview_filter_does_not_erase_other_layer_controls() {
+    let mut app = board();
+    app.search = "committed".into();
+    app.workspace.filter = super::super::workspace::AgentsFilter::Pinned;
+    let mut encoded = Controls::capture(&app).json();
+    encoded.as_object_mut().unwrap().remove("overviewView");
+    encoded["overviewFilter"] = json!("needs-you");
+    let decoded =
+        Controls::decode(&encoded).expect("old controls retain query, sort and Agents filter");
+    assert_eq!(decoded.query, "committed");
+    assert_eq!(
+        decoded.agents_filter,
+        super::super::workspace::AgentsFilter::Pinned
+    );
+    assert_eq!(
+        decoded.overview_view,
+        super::super::overview::monitor::View::Squads
+    );
+    let current = decoded.json();
+    assert_eq!(current["overviewView"], "squads");
+    assert!(current.get("overviewFilter").is_none());
+    encoded["overviewView"] = json!(42);
+    assert!(
+        Controls::decode(&encoded).is_none(),
+        "a present malformed mode is refused"
+    );
+    encoded["overviewView"] = json!("agents");
+    assert_eq!(
+        Controls::decode(&encoded).unwrap().overview_view,
+        super::super::overview::monitor::View::Agents
+    );
 }

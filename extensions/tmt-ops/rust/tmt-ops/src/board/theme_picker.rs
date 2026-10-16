@@ -491,11 +491,11 @@ mod tests {
                     (0..108)
                         .map(|x| buffer[(x, *y)].symbol())
                         .collect::<String>()
-                        .contains("Needs you")
+                        .contains("── Agents")
                 })
-                .expect("actual Needs you rule");
+                .expect("actual Agents rule");
             assert_eq!(
-                buffer[(find(summary_y, "Needs you"), summary_y)].fg,
+                buffer[(find(summary_y, "Agents"), summary_y)].fg,
                 app.look().role(Role::Text).fg.unwrap_or_default(),
                 "section title uses previewed text while attention retains its token"
             );

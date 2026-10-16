@@ -73,27 +73,28 @@ pub(in crate::board) struct Cache {
     held: Option<(Key, Rc<Scene>)>,
 }
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(in crate::board) enum Filter {
+pub(in crate::board) enum View {
     #[default]
-    All,
-    NeedsYou,
+    Squads,
+    Agents,
 }
-impl Filter {
+impl View {
     pub fn next(self) -> Self {
         match self {
-            Self::All => Self::NeedsYou,
-            Self::NeedsYou => Self::All,
+            Self::Squads => Self::Agents,
+            Self::Agents => Self::Squads,
         }
     }
     pub fn label(self) -> &'static str {
         match self {
-            Self::All => "All",
-            Self::NeedsYou => "Needs you",
+            Self::Squads => "Squads",
+            Self::Agents => "Agents",
         }
     }
 }
 pub(in crate::board) struct Scene {
     pub rows: Rc<[OpsTreeRow]>,
+    pub waiting: usize,
     pub summary: super::summary::Summary,
     pub squads: Vec<Squad>,
 }
@@ -126,7 +127,11 @@ pub(super) fn summary_text(row: Option<&serde_json::Value>) -> String {
         .unwrap_or("—")
         .to_owned()
 }
-fn waiting_since(snapshot: &OpsWorkspaceSnapshot, row: &OpsTreeRow, now: u64) -> Option<u64> {
+pub(super) fn waiting_since(
+    snapshot: &OpsWorkspaceSnapshot,
+    row: &OpsTreeRow,
+    now: u64,
+) -> Option<u64> {
     snapshot.rows.get(&row.target)?["waitingOnYou"]
         .as_array()?
         .iter()
@@ -134,7 +139,7 @@ fn waiting_since(snapshot: &OpsWorkspaceSnapshot, row: &OpsTreeRow, now: u64) ->
         .filter(|at| *at > 0 && *at <= now)
         .min()
 }
-fn waits(snapshot: &OpsWorkspaceSnapshot, row: &OpsTreeRow) -> bool {
+pub(super) fn waits(snapshot: &OpsWorkspaceSnapshot, row: &OpsTreeRow) -> bool {
     let OpsTarget::Member {
         room_id,
         identity_id,
@@ -182,13 +187,6 @@ fn squads(app: &App, snapshot: &OpsWorkspaceSnapshot, key: &Key) -> Vec<Squad> {
                     .to_lowercase()
                     .contains(&key.query.to_lowercase())
                 || squad.members.iter().any(|id| matching.contains(id))
-        })
-        .filter(|squad| {
-            key.filter == Filter::All
-                || squad
-                    .member_states
-                    .values()
-                    .any(|member| member.waiting || member.state.as_deref() == Some("blocked"))
         })
         .map(|squad| {
             let mut seen = std::collections::BTreeSet::new();
@@ -264,7 +262,7 @@ fn squads(app: &App, snapshot: &OpsWorkspaceSnapshot, key: &Key) -> Vec<Squad> {
 struct Key {
     order: Option<crate::config::OverviewSort>,
     query: String,
-    filter: Filter,
+    view: View,
     pins: std::collections::BTreeSet<String>,
     hidden: std::collections::BTreeSet<String>,
     digest_window: crate::config::DigestWindow,
@@ -285,7 +283,7 @@ pub(in crate::board) fn scene(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<
     let key = Key {
         order: app.workspace_order().overview,
         query: app.workspace.query.clone(),
-        filter: app.overview_filter,
+        view: app.overview_view,
         pins: snapshot.preferences.agent_pins.clone(),
         hidden: snapshot.preferences.hidden.clone(),
         digest_window: snapshot.preferences.digest_window,
@@ -301,14 +299,26 @@ pub(in crate::board) fn scene(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<
     // Choose a deterministic admitted membership occurrence for each UUID.
     // Cursor movement must not change row facts, ordering or rebuild this scene.
     // The existing projection owns pool/partial-roster admission.
-    let rows = crate::board::workspace::identity_rows_matching(
+    let waiting_rows = crate::board::workspace::identity_rows_matching(
         snapshot,
         &app.workspace.query,
         None,
         &key.visibility,
         |row| waits(snapshot, row),
-    )
-    .into_iter();
+    );
+    let all_rows = crate::board::workspace::identity_rows(
+        snapshot,
+        &app.workspace.query,
+        None,
+        &key.visibility,
+    );
+    let mut seen = std::collections::BTreeSet::new();
+    let rows = waiting_rows.into_iter().chain(all_rows).filter(|row| {
+        let OpsTarget::Member { identity_id, .. } = &row.target else {
+            return false;
+        };
+        seen.insert(identity_id.clone())
+    });
     let now = crate::status::now_ms();
     let mut projected: Vec<_> = rows
         .map(|row| {
@@ -316,28 +326,56 @@ pub(in crate::board) fn scene(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<
             (row, v)
         })
         .collect();
-    projected.sort_by(|(a, av), (b, bv)| match key.order {
-        Some(order) => sort::compare(&av.order(a), &bv.order(b), order),
-        None => match (
-            waiting_since(snapshot, a, now),
-            waiting_since(snapshot, b, now),
-        ) {
-            (Some(a), Some(b)) => a.cmp(&b),
-            (Some(_), None) => std::cmp::Ordering::Less,
-            (None, Some(_)) => std::cmp::Ordering::Greater,
-            (None, None) => std::cmp::Ordering::Equal,
-        }
-        .then_with(|| a.title.cmp(&b.title))
-        .then_with(|| av.order(a).id.cmp(bv.order(b).id)),
+    projected.sort_by(|(a, av), (b, bv)| {
+        waits(snapshot, b)
+            .cmp(&waits(snapshot, a))
+            .then_with(|| match key.order {
+                Some(order) => sort::compare(&av.order(a), &bv.order(b), order),
+                None => match (
+                    waiting_since(snapshot, a, now),
+                    waiting_since(snapshot, b, now),
+                ) {
+                    (Some(a), Some(b)) => a.cmp(&b),
+                    (Some(_), None) => std::cmp::Ordering::Less,
+                    (None, Some(_)) => std::cmp::Ordering::Greater,
+                    (None, None) => std::cmp::Ordering::Equal,
+                }
+                .then_with(|| a.title.cmp(&b.title))
+                .then_with(|| av.order(a).id.cmp(bv.order(b).id)),
+            })
     });
-    let rows: Rc<[OpsTreeRow]> = projected
+    let waiting = projected
+        .iter()
+        .filter(|(row, _)| waits(snapshot, row))
+        .count();
+    let agents: Rc<[OpsTreeRow]> = projected
         .into_iter()
         .map(|(row, _)| row)
         .collect::<Vec<_>>()
         .into();
     let squads = squads(app, snapshot, &key);
+    let rows = if key.view == View::Squads {
+        squads
+            .iter()
+            .map(|squad| OpsTreeRow {
+                target: OpsTarget::Squad(squad.room_id.clone()),
+                title: squad.name.clone(),
+                depth: 0,
+                lead: false,
+                state: None,
+                presence: None,
+                usage: None,
+                count: None,
+                observation: squad.observation,
+            })
+            .collect::<Vec<_>>()
+            .into()
+    } else {
+        agents
+    };
     let scene = Rc::new(Scene {
         squads,
+        waiting,
         rows,
         summary: super::summary::project(snapshot, &app.labels, &key.visibility),
     });

@@ -94,10 +94,10 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
           screen.includes('OPS / UI') &&
           /^ SQUAD[ \t]+TEAM[ \t]+TOK 1h[ \t]+NOW\b/m.test(screen) &&
           screen.includes('No squads yet.') &&
-          screen.includes('No agents waiting on you'),
+          /Squads[ \t]+Agents[ \t]+\/ Search/.test(screen),
         shell.pane
       );
-      // Creation belongs to Agents; Overview no longer lists every identity.
+      // Creation remains in the Agents tab; Overview starts in its Squads view.
       fixture.tmux(['send-keys', '-t', shell.pane, '2', 'Right']);
       await fixture.waitForCapture(
         (screen) =>

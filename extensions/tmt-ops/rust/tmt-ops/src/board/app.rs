@@ -265,6 +265,7 @@ pub enum Choice {
     DigestWindow(crate::config::DigestWindow),
     /// A click on a painted Digest estimate: the next unit.
     SavingsUnit,
+    OverviewView(super::overview::monitor::View),
     Panels,
     Checklist,
     Action(Action),
@@ -628,7 +629,7 @@ pub struct App {
     pub(super) workspace_form: Option<super::workspace::manage::Draft>,
     pub(in crate::board) cron_scope_hits: RefCell<Vec<TimerHit>>,
     pub(in crate::board) view_layer: super::view_state::Layer,
-    pub(in crate::board) overview_filter: super::overview::monitor::Filter,
+    pub(in crate::board) overview_view: super::overview::monitor::View,
     pub(in crate::board) overview_rows: RefCell<super::overview::monitor::Cache>,
     pub(in crate::board) agents_layout: RefCell<super::workspace::columns::AgentsLayout>,
     pub(in crate::board) workspace_strip_hits: RefCell<Vec<(ratatui::layout::Rect, Choice)>>,
@@ -2277,10 +2278,7 @@ impl App {
     pub(super) fn row_target(&self, index: usize) -> Option<RowTarget> {
         if self.workspace_snapshot().is_some() {
             if index == self.selected {
-                return self
-                    .workspace_selected_member()
-                    .cloned()
-                    .map(RowTarget::Workspace);
+                return self.workspace_message_target().map(RowTarget::Workspace);
             }
             let target = self.workspace_rows().get(index)?.target.clone();
             return matches!(target, super::workspace::OpsTarget::Member { .. })
@@ -2591,6 +2589,7 @@ impl App {
             Choice::WorkspaceLayout(layout) => self.workspace_layout(layout),
             Choice::DigestWindow(window) => self.select_digest_window(window),
             Choice::SavingsUnit => self.cycle_savings_unit(),
+            Choice::OverviewView(view) => self.select_overview_view(view),
             Choice::Panels => self.open_panels(),
             Choice::Checklist => self.open_checklist(),
             Choice::Action(action) => self.perform(&action),
@@ -3923,7 +3922,7 @@ impl App {
                 .map(|(_, choice)| choice.clone());
             if let Some(choice) = strip {
                 // Scope controls and the savings figure work on every tab that paints them.
-                let visibility = choice == Choice::SavingsUnit
+                let visibility = matches!(choice, Choice::SavingsUnit | Choice::OverviewView(_))
                     || matches!(&choice, Choice::Action(action) if matches!(action.verb,
                     Verb::Ui(crate::action::OpsUiAction::ClearScope | crate::action::OpsUiAction::RevealHidden)));
                 if !self.searching && (self.shell.tab == super::shell::OpsTab::Agents || visibility)

@@ -13,6 +13,7 @@ mod digest;
 mod digest_dashboard;
 mod discovery;
 mod empty_state;
+mod filter_bar;
 #[cfg(test)]
 mod glyph_guard;
 mod help;
@@ -47,7 +48,6 @@ mod spark_row;
 mod state_cell;
 mod status_update;
 mod team_strip;
-mod waiting_row;
 pub(crate) use crate::tabs;
 mod shell;
 mod terminal;

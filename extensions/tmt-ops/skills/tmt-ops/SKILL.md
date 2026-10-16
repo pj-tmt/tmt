@@ -277,16 +277,18 @@ The effective destination keys work from any non-typing pane or overlay; an
 overlay closes through its own back path before switching. Active text, search
 and completion keep `1`/`2`/`3` as input.
 
-Overview shows read-only Squads and waiting-only Needs you. Squads have a lead-first
-TEAM strip, TOK 1h from the existing HOUR readings, and NOW from pending questions
-before task text. Only waiting rows select a member; blocked state alone is not a
-pending question. Waiting agents sort by oldest known request first, with unknown
-times last and name/UUID ties; no waiting duration is shown. `e` opens full observed
-values, link/binding scopes, sources and management instructions. Authored `sort`
-and `reverse-sort` bindings change the current view layer; missing values remain
-last. `f` toggles the layer-local All/Needs you squad filter without replacing a
-hidden selected UUID. Committed search appears in the Squads title. Retired summary,
-Recent exchanges and identity-table columns are absent; unreported data stays unknown.
+Overview has one Squads/Agents list. Its shared filter bar shows the two mode
+chips and idle search field; the section rule below owns counts. `v` switches
+views unless an authored binding replaces it. Squads show a lead-first TEAM strip,
+TOK 1h from existing HOUR readings, and NOW from pending questions before tasks.
+Agents show AGENT, SQUAD, STATE, TOK 1h and NOW. Waiting agents come first, ordered
+by oldest proven request, then unknown age and name/UUID; no waiting duration is
+shown. Blocked state alone does not imply waiting. A squad selection messages its
+observed lead; an agent selection uses that exact member. Missing evidence refuses
+rather than choosing another recipient. Search and refresh retain hidden UUID
+anchors. `e` opens full observed member values. Authored sort changes the current
+layer within waiting/nonwaiting groups. Retired summaries, Recent exchanges and
+the separate Needs you section are absent. Unreported data stays unknown.
 Usage sits above the body panes and shows
 the selected window and total, followed by the shipped interval/window choices.
 Muted TOK, % of all and left headings label the numeric tracks. The share track
@@ -303,7 +305,7 @@ selected scope still refuses to widen.
 
 Workspace settings → Panels previews each dashboard's visibility and its separate
 Conversation/Details switch. Overview sections have fixed positions; its picker
-exposes Usage, quota inside Usage, and Squads / Needs you. Digest keeps ordered
+exposes Usage, quota inside Usage, and Squads / Agents. Digest keeps ordered
 panels with visible Move up/down controls and plain `u`/`d`. Save, Cancel or Reset
 to default through the same picker. Keep at least one
 interactive surface visible. Cancel discards the preview; stale Save retains it

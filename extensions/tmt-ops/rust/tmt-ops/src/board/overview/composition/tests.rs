@@ -14,6 +14,7 @@ fn board() -> App {
     app
 }
 fn waiting(app: &mut App) {
+    app.overview_view = crate::board::overview::monitor::View::Agents;
     let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
     snapshot.roster.members.get_mut(MEMBER).unwrap().waiting = true;
     snapshot.roster.squads[0]
@@ -163,7 +164,7 @@ fn hiding_the_primary_container_clears_its_previous_hit_owner() {
     assert!(app.hits.borrow().iter().all(|hit| hit.row().is_none()));
 }
 #[test]
-fn eight_rows_keep_filter_details_and_usage_keys_without_a_table_header() {
+fn eight_rows_keep_view_details_and_usage_keys_without_a_table_header() {
     for width in [60, 100, 160] {
         let mut app = board();
         waiting(&mut app);
@@ -174,10 +175,10 @@ fn eight_rows_keep_filter_details_and_usage_keys_without_a_table_header() {
         let text = paint(&mut app, width, 8);
         assert!(!text.contains("Subscriptions") && !text.contains("Digest status"));
         assert!(app.hits.borrow().iter().any(|hit| hit.row() == Some(0)));
-        key(&mut app, KeyCode::Char('f'));
-        assert!(app.overview_filter == crate::board::overview::monitor::Filter::NeedsYou);
-        key(&mut app, KeyCode::Char('f'));
-        assert!(app.overview_filter == crate::board::overview::monitor::Filter::All);
+        key(&mut app, KeyCode::Char('v'));
+        assert!(app.overview_view == crate::board::overview::monitor::View::Squads);
+        key(&mut app, KeyCode::Char('v'));
+        assert!(app.overview_view == crate::board::overview::monitor::View::Agents);
         assert_eq!(app.workspace.selected, selected);
         key(&mut app, KeyCode::Char('e'));
         assert!(app.monitor_details.is_some());

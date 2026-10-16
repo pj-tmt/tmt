@@ -17,6 +17,8 @@ fn waiting_board(agents: usize) -> App {
     snapshot.shell_counts = snapshot.roster.shell_counts();
     app.overview_rows.borrow_mut().clear();
     fixtures::populate(&mut app);
+    app.overview_view = crate::board::overview::monitor::View::Agents;
+    app.overview_rows.borrow_mut().clear();
     assert_eq!(app.workspace_rows().len(), agents);
     app
 }

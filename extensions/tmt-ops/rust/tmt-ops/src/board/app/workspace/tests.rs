@@ -9,8 +9,9 @@ use serde_json::json;
 pub(in crate::board) const ROOM: &str = "11111111-1111-4111-8111-111111111111";
 pub(in crate::board) const MEMBER: &str = "22222222-2222-4222-8222-222222222222";
 
-/// Observed waiting attention admits the fixture member to waiting-only Overview.
+/// Literal attention evidence and the agent-list mode for member-action scenarios.
 pub(in crate::board) fn observe_waiting_member(app: &mut App) {
+    app.overview_view = crate::board::overview::monitor::View::Agents;
     let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
     snapshot.roster.members.get_mut(MEMBER).unwrap().waiting = true;
     for squad in &mut snapshot.roster.squads {
@@ -1454,11 +1455,7 @@ fn no_squads_is_a_known_empty_workspace_with_an_explicit_creation_action() {
     assert!(app.workspace_rows().is_empty());
     assert!(paint(&app, 80, 24).join("\n").contains(" No squads yet."));
     let empty = paint(&app, 80, 24);
-    assert!(
-        empty
-            .iter()
-            .any(|line| line.starts_with(" No agents waiting on you."))
-    );
+    assert!(empty.iter().any(|line| line.starts_with(" No squads yet.")));
     assert!(empty.last().unwrap().starts_with(' '));
     app.workspace.query = "missing".into();
     assert!(
@@ -1467,13 +1464,20 @@ fn no_squads_is_a_known_empty_workspace_with_an_explicit_creation_action() {
             .any(|line| line.starts_with(" No matching squads"))
     );
     app.workspace.query.clear();
-    app.overview_filter = crate::board::overview::monitor::Filter::NeedsYou;
+    app.overview_view = crate::board::overview::monitor::View::Agents;
     assert!(
         paint(&app, 80, 24)
             .iter()
-            .any(|line| line.starts_with(" No matching squads"))
+            .any(|line| line.starts_with(" No agents yet."))
     );
-    app.overview_filter = crate::board::overview::monitor::Filter::All;
+    app.workspace.query = "missing".into();
+    assert!(
+        paint(&app, 80, 24)
+            .iter()
+            .any(|line| line.starts_with(" No matching agents"))
+    );
+    app.workspace.query.clear();
+    app.overview_view = crate::board::overview::monitor::View::Squads;
     assert_eq!(key(&mut app, KeyCode::Char('n')), Effect::None);
     assert_eq!(app.workspace_form.as_ref().unwrap().kind, Kind::Create);
 }
@@ -2580,7 +2584,8 @@ fn overview_never_claims_zero_from_incomplete_rosters_and_reports_the_global_obs
         assert!(complete.contains("✗ 1 blocked"), "{complete}");
         assert!(complete.contains("◆ 0 waiting"), "{complete}");
         assert!(
-            app.workspace_rows().is_empty(),
+            crate::board::overview::monitor::scene(&app, app.workspace_snapshot().unwrap()).waiting
+                == 0,
             "blocked is not a pending question"
         );
         assert_eq!(
@@ -2891,8 +2896,8 @@ fn agents_filter_uses_the_effective_key_and_painted_controls_without_retargeting
         app.workspace_strip_hits
             .borrow()
             .iter()
-            .all(|(_, choice)| *choice == Choice::SavingsUnit),
-        "Overview has no Agents controls; only a painted estimate is clickable"
+            .all(|(_, choice)| matches!(choice, Choice::SavingsUnit | Choice::OverviewView(_))),
+        "Overview paints only its own view controls and any admitted estimate"
     );
     assert_eq!(key(&mut app, KeyCode::Char('f')), Effect::None);
     assert_eq!(
@@ -3131,7 +3136,8 @@ fn confirmed_hide_moves_only_its_visible_squad_and_keeps_global_attention() {
     );
     app.workspace_action(OpsUiAction::RevealHidden);
     assert!(
-        app.workspace_rows().is_empty(),
+        crate::board::overview::monitor::scene(&app, app.workspace_snapshot().unwrap()).waiting
+            == 0,
         "revealing a squad does not manufacture waiting evidence"
     );
     assert_eq!(
@@ -3347,7 +3353,7 @@ fn visibility_capture_matrix_keeps_shell_global_and_views_scoped() {
                             app.workspace_snapshot().unwrap(),
                         );
                         assert!(
-                            scene.rows.is_empty(),
+                            scene.waiting == 0,
                             "these observed agents have no pending question"
                         );
                         assert_eq!(scene.summary.total, if mode == "revealed" { 4 } else { 2 });
@@ -3585,6 +3591,9 @@ fn overview_retains_supplier_values_without_recreating_the_removed_mode_cell() {
         depth: tmt_cli_style::Depth::TrueColor,
     };
     let mut app = supplied_label_fixture(look);
+    app.overview_view = crate::board::overview::monitor::View::Agents;
+    app.overview_rows.borrow_mut().clear();
+    app.workspace_reconcile();
     app.shell.tab = OpsTab::Overview;
     let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
     snapshot.roster.members.get_mut(MEMBER).unwrap().waiting = true;

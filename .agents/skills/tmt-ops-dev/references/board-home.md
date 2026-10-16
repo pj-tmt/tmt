@@ -45,39 +45,37 @@ non-interactive; retained hidden targets grant no action authority.
 
 ## Shell, geometry and input
 
-`board::shell` owns Overview, Agents and Digest selection. Overview projects
-read-only Squads and waiting-only Needs you from the acquired workspace roster.
-`overview::monitor` caches those projections and the scoped numeric summary;
-acquisition, preferences, labels and meter/job updates invalidate it. General UUID
-admission belongs to `workspace::identity_rows_matching`: a destination predicate
-runs before choosing one membership occurrence, so a nonwaiting preferred room
-cannot mask a waiting occurrence in another room. Digest uses the same roster
-admission with its own labels, counts and details. Its held summary intersects its
-scoped/search-filtered list; saved hiding does not apply to Digest. Shell attention
-and provider usage/quota remain global. Unknown hidden room IDs do not affect the
-visible roster or hidden count.
+`board::shell` owns Overview, Agents and Digest selection. Overview uses one
+switchable Squads/Agents list. The shared filter bar paints mode chips and an idle
+search field; section rules own right-aligned counts. `v` switches the view through
+the effective binding table; explicit authored keys win. Search interaction belongs
+to its existing controller. The dedicated in-place search redesign is separate.
+`overview::monitor` caches canonical rows and the scoped numeric summary; acquired
+roster, preferences, label and meter/job updates invalidate it. Waiting membership
+occurrences are admitted before UUID deduplication, so an unobserved or nonwaiting
+room cannot mask observed waiting in another eligible room. Global attention never
+supplies missing room evidence. Digest retains its own projection over the same
+acquisition. Shell attention and provider quota remain global.
 
-Squads use lead-first, UUID-deduplicated TEAM glyphs, the same HOUR observations
-and per-room sum as Agents' TOK 1h, and NOW from pending questions before task
-text. Missing tokens stay unavailable; any missing member makes a known sum
-partial. Only waiting agents receive Needs you rows and pointer targets. Default
-order is oldest known request first, unknown request times last, then name/UUID;
-no waiting duration is rendered. Authored layer sort/reverse-sort remains admitted.
-Saved identity pins remain retained without reordering Needs you; Agents squad pins keep their existing behavior. The filter
-key toggles All/Needs you squad admission without changing waiting-only row
-eligibility or the retained UUID. Committed search is visible in the Squads title.
+Squads use lead-first, UUID-deduplicated team strips, the existing HOUR readings
+and per-room sum for TOK 1h, and NOW from pending questions before tasks. Missing
+readings remain unavailable and incomplete sums stay partial. The Agents view
+contains all admitted identities, with waiting agents first: proven oldest request
+first, unknown request times last, then name/UUID. Authored sort operates within
+waiting/nonwaiting groups. No waiting duration is rendered, and blocked state alone
+does not manufacture waiting. Pins retain their existing owners.
 
-The primary container has one scroll owner, including section rules, read-only
-Squads, waiting targets and the inline effective-key hints. Sections and squad
-rows grant no recipient or sort authority. Short viewports reveal the selected
-waiting target rather than reserving obsolete table headers. The final footer is
-one neutral line. Help and Actions retain admitted bindings omitted from that line.
-Details retains complete source values without adding command authority. The
-explicit Timers key opens all rooms only when there is no selected target;
-hidden or missing selected scopes still refuse to widen.
+Each painted row grants only its current target and clipped hit. Selected agents
+retain their acquired membership; a selected squad can address only its currently
+observed lead in that room. Missing lead or row evidence refuses a conversation;
+there is no neighboring-target fallback. A deliberate view switch selects its first
+admitted row and starts at the top; source refresh or filtering keeps hidden/missing
+anchors without retargeting. The primary list has one scroll owner and a neutral
+`↓ N more` overflow caption. Short viewports reveal the selected target. Only the
+footer advertises effective keys; Help and Actions retain other admitted actions.
 
 Overview Usage is a fixed full-width band reserved once before body placement.
-Panels exposes Usage, its inline quota, Squads / Needs you, and Conversation;
+Panels exposes Usage, its inline quota, Squads / Agents, and Conversation;
 retired Summary, Recent exchanges and table controls are absent. Overview section
 positions are fixed, while Digest keeps its independent ordered panels and Details
 switch. Persisted Config IDs and compare-and-save semantics remain with
@@ -196,20 +194,21 @@ placement would leave fewer than six target rows, the chart collapses to one
 summary line. Its effective shortcut, summary click or Actions entry opens the
 same controls in an opaque body modal; closing never replays input. A body with
 no spare target row omits the summary to retain the last usable row. At eight
-terminal rows, Overview reveals waiting targets and omits the full Usage band; the
-effective filter, Details and usage-control keys remain reachable.
+terminal rows, Overview reveals selected targets and omits the full Usage band; the
+effective view, Details and usage-control keys remain reachable.
 
-Shared SectionRule owns section rules, TeamStrip owns lead-first glyphs,
-StateCell owns attention glyph roles, WaitingRow owns the fitted waiting
-tracks, and KeyHints owns fitted effective-key hints. Only ◆ and ✗ carry
-attention colors; waiting words and other state marks remain neutral. These
-modules perform no acquisition and are shared with later Agents placements.
+## Shared board components
 
-Shared `board::spark_row` owns the admitted trend rows, headings, numeric and
-quota tracks and drawn-width axis. `board::chip_group` owns the reusable
-selector painter; `board::empty_state` owns the empty-state line. These modules
-accept projected values and perform no acquisition. The Overview host adapts its
-model and handles admitted actions, so Agents can reuse the same elements.
+Shared board modules own visual elements once. `section_rule` owns neutral rules
+and right-side counts; `team_strip` owns lead-first glyphs; `state_cell` owns
+attention glyph roles; `filter_bar` composes `chip_group` selectors and the idle
+search field; `key_hints` owns fitted effective-key hints. `spark_row` owns admitted
+trends, numeric headings, totals, shares, optional quota tracks and drawn-width
+time axes. `chip_group` owns option padding, selection and clipped option hits;
+`empty_state` owns the honest unavailable/empty line. Overview adapts acquired
+observations and owns effects. These painters perform no acquisition or
+view-specific projection, and later Agents placements reuse the same modules.
+Only ◆ and ✗ carry attention color; state words and other marks remain neutral.
 
 One identity-total series uses the existing Rate rings. Its header reads
 `Usage · last <range> · <total> tok`; two right-aligned selector groups expose the

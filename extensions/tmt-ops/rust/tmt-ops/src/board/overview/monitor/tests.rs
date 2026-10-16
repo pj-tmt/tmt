@@ -20,6 +20,7 @@ const BLOCKED: &str = "44444444-4444-4444-8444-444444444444";
 fn board() -> App {
     let mut app = crate::board::app::workspace::tests::board();
     app.shell.tab = OpsTab::Overview;
+    app.overview_view = View::Agents;
     let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
     for member in snapshot.roster.members.values_mut() {
         member.waiting = false;
@@ -93,7 +94,7 @@ fn waiting_is_request_attention_not_a_state_word_or_blocked_status() {
             .iter()
             .map(|row| row.title.as_str())
             .collect::<Vec<_>>(),
-        ["waiting-other", "worker"]
+        ["waiting-other", "worker", "blocked-only"]
     );
     let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
     snapshot.roster.members.get_mut(BLOCKED).unwrap().state = Some("waiting".into());
@@ -104,7 +105,7 @@ fn waiting_is_request_attention_not_a_state_word_or_blocked_status() {
         .state = Some("waiting".into());
     app.overview_rows.borrow_mut().clear();
     assert_eq!(
-        app.workspace_rows().len(),
+        scene(&app, app.workspace_snapshot().unwrap()).waiting,
         2,
         "an authored word cannot manufacture a pending request"
     );
@@ -183,10 +184,10 @@ fn search_keeps_a_hidden_uuid_and_authored_filter_bindings_win() {
         .keys
         .get_mut(&OpsKeyScope::Overview)
         .unwrap()
-        .insert("f".into(), crate::action::Action::parse("search").unwrap());
-    press(&mut app, KeyCode::Char('f'));
+        .insert("v".into(), crate::action::Action::parse("search").unwrap());
+    press(&mut app, KeyCode::Char('v'));
     assert!(app.searching);
-    assert!(app.overview_filter == Filter::All);
+    assert!(app.overview_view == View::Agents);
 }
 #[test]
 fn authored_sort_changes_only_the_layer_order_and_retains_the_selected_uuid() {
@@ -249,7 +250,7 @@ fn the_retired_table_header_has_no_pointer_sort_or_recipient_authority() {
     assert_eq!(app.workspace.selected, selected);
 }
 #[test]
-fn real_frames_publish_only_clipped_waiting_hits_and_neutral_state_words() {
+fn real_frames_publish_only_clipped_agent_hits_and_neutral_state_words() {
     for width in [60, 103, 148, 160] {
         for height in [8, 18, 36, 51] {
             let mut app = board();
@@ -262,22 +263,15 @@ fn real_frames_publish_only_clipped_waiting_hits_and_neutral_state_words() {
                 .iter()
                 .filter_map(|hit| hit.row().map(|index| (index, *hit)))
                 .collect();
-            assert!(!hits.is_empty(), "{width}x{height} retains a waiting row");
+            assert!(!hits.is_empty(), "{width}x{height} retains an admitted row");
             let mut ys = std::collections::BTreeSet::new();
             for (index, hit) in hits {
                 assert!(index < rows.len());
                 assert!(hit.x + hit.width <= width && hit.y < height);
                 assert!(ys.insert(hit.y));
-                let state = crate::board::waiting_row::line(
-                    &crate::board::waiting_row::Data {
-                        name: &rows[index].title,
-                        squad: "product",
-                        summary: "",
-                    },
-                    usize::from(hit.width),
-                    app.look(),
-                );
-                assert!(state.to_string().contains("waiting"));
+                let state =
+                    crate::board::state_cell::word(rows[index].state.as_deref(), app.look());
+                assert!(!state.content.is_empty());
                 if hit.width >= 60 {
                     assert_eq!(
                         buffer[(hit.x + 39, hit.y)].fg,
@@ -307,7 +301,7 @@ fn refreshed_and_hidden_frames_revoke_the_previous_row_hits() {
     app.workspace_reconcile();
     paint(&mut app, 60, 18);
     assert!(app.hits.borrow().iter().all(|hit| hit.row().is_none()));
-    assert!(text(&paint(&mut app, 103, 51)).contains("No matching waiting agents"));
+    assert!(text(&paint(&mut app, 103, 51)).contains("No matching agents"));
 }
 #[test]
 fn missing_sources_stay_unknown_instead_of_claiming_zero_waiting() {
@@ -327,15 +321,28 @@ fn missing_sources_stay_unknown_instead_of_claiming_zero_waiting() {
     app.overview_rows.borrow_mut().clear();
     let shown = text(&paint(&mut app, 103, 51));
     assert!(shown.contains("— waiting"));
-    assert!(shown.contains("Waiting agents unavailable"));
+    assert!(shown.contains("AGENT") && !shown.contains("Needs you"));
     assert!(!shown.contains("◆ 0 waiting"));
 }
 #[test]
 fn final_primary_sections_replace_the_legacy_summaries_and_recent_table() {
     let mut app = board();
-    let shown = text(&paint(&mut app, 103, 51));
-    for required in ["Squads", "TEAM", "TOK 1h", "NOW", "Needs you", "filter"] {
-        assert!(shown.contains(required), "{required}");
+    app.select_overview_view(View::Squads);
+    let squads = text(&paint(&mut app, 103, 51));
+    for required in [
+        "Squads",
+        "TEAM",
+        "TOK 1h",
+        "NOW",
+        "/ Search",
+        "v squads/agents",
+    ] {
+        assert!(squads.contains(required), "{required}");
+    }
+    app.select_overview_view(View::Agents);
+    let agents = text(&paint(&mut app, 103, 51));
+    for required in ["AGENT", "SQUAD", "STATE", "TOK 1h", "NOW"] {
+        assert!(agents.contains(required), "{required}");
     }
     for retired in [
         "Recent exchanges",
@@ -343,11 +350,17 @@ fn final_primary_sections_replace_the_legacy_summaries_and_recent_table() {
         "MODE",
         "state unknown",
         "━",
+        "Needs you",
+        "f needs you",
+        "open chat",
     ] {
-        assert!(!shown.contains(retired), "retired {retired}");
+        assert!(
+            !squads.contains(retired) && !agents.contains(retired),
+            "retired {retired}"
+        );
     }
-    assert!(shown.contains("⏎ open chat"));
 }
+
 #[test]
 fn pin_requests_use_agent_identity_and_success_only_sanitized_text() {
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -451,9 +464,12 @@ fn global_waiting_does_not_attribute_an_unobserved_room_membership() {
     app.overview_rows.borrow_mut().clear();
     let snapshot = app.workspace_snapshot().unwrap();
     let scene = scene(&app, snapshot);
-    assert!(scene.rows.iter().all(
-        |row| !matches!(&row.target, OpsTarget::Member { identity_id, .. } if identity_id == MEMBER)
-    ));
+    let row = scene.rows.iter().find(|row| matches!(&row.target, OpsTarget::Member { identity_id, .. } if identity_id == MEMBER)).expect("all-agent view retains the observed identity");
+    assert!(
+        !waits(snapshot, row),
+        "global waiting must not be attributed to this unobserved membership"
+    );
+    assert_eq!(scene.waiting, 1);
     assert!(
         scene.squads[0]
             .members
@@ -467,4 +483,150 @@ fn global_waiting_does_not_attribute_an_unobserved_room_membership() {
         snapshot.roster.shell_counts().waiting > 0,
         "global evidence stays in its own scope"
     );
+}
+
+#[test]
+fn view_toggle_and_painted_chips_share_selection_while_authored_v_wins() {
+    let mut app = board();
+    app.select_overview_view(View::Squads);
+    assert!(matches!(app.workspace.selected, Some(OpsTarget::Squad(_))));
+    press(&mut app, KeyCode::Char('v'));
+    assert_eq!(app.overview_view, View::Agents);
+    assert!(matches!(
+        app.workspace.selected,
+        Some(OpsTarget::Member { .. })
+    ));
+    paint(&mut app, 103, 51);
+    let (area, _) = app
+        .workspace_strip_hits
+        .borrow()
+        .iter()
+        .find(|(_, choice)| {
+            matches!(
+                choice,
+                crate::board::app::Choice::OverviewView(View::Squads)
+            )
+        })
+        .unwrap()
+        .clone();
+    app.mouse(
+        MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: area.x,
+            row: area.y,
+            modifiers: KeyModifiers::NONE,
+        },
+        std::time::Instant::now(),
+    );
+    assert_eq!(app.overview_view, View::Squads);
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .keys
+        .get_mut(&OpsKeyScope::Overview)
+        .unwrap()
+        .insert("v".into(), crate::action::Action::parse("search").unwrap());
+    press(&mut app, KeyCode::Char('v'));
+    assert!(app.searching);
+    assert_eq!(
+        app.overview_view,
+        View::Squads,
+        "authored v must not toggle the view"
+    );
+}
+
+#[test]
+fn squad_message_target_is_only_its_current_observed_lead() {
+    let mut app = board();
+    app.select_overview_view(View::Squads);
+    assert!(
+        app.workspace_message_target().is_none(),
+        "no lead means no recipient"
+    );
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .roster
+        .squads[0]
+        .lead = Some(MEMBER.into());
+    app.overview_rows.borrow_mut().clear();
+    let target = app.workspace_message_target().expect("observed lead");
+    let OpsTarget::Member {
+        room_id: Some(room),
+        identity_id: lead,
+    } = &target
+    else {
+        panic!("canonical room member")
+    };
+    let snapshot = app.workspace_snapshot().unwrap();
+    assert_eq!(
+        snapshot
+            .roster
+            .squads
+            .iter()
+            .find(|s| &s.room_id == room)
+            .unwrap()
+            .lead
+            .as_ref(),
+        Some(lead)
+    );
+    assert_eq!(
+        app.conversation_target(),
+        Some(crate::board::app::RowTarget::Workspace(target.clone()))
+    );
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .rows
+        .remove(&target);
+    assert!(
+        app.workspace_message_target().is_none(),
+        "missing lead evidence cannot retarget to a neighbor"
+    );
+    assert!(app.conversation_target().is_none());
+}
+
+#[test]
+fn hidden_empty_lists_are_filtered_and_missing_sources_never_claim_a_fresh_empty() {
+    let mut app = board();
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .preferences
+        .hidden
+        .insert(ROOM.into());
+    app.overview_rows.borrow_mut().clear();
+    app.select_overview_view(View::Squads);
+    let squads = text(&paint(&mut app, 103, 51));
+    assert!(squads.contains("No matching squads"));
+    assert!(!squads.contains("No squads yet."));
+    app.select_overview_view(View::Agents);
+    assert!(text(&paint(&mut app, 103, 51)).contains("No matching agents"));
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .roster
+        .observation = OpsObservation::Unavailable;
+    app.overview_rows.borrow_mut().clear();
+    assert!(text(&paint(&mut app, 103, 51)).contains("Agents unavailable"));
 }

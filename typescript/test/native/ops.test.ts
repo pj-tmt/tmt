@@ -5049,7 +5049,8 @@ describe('verified former-board switching', () => {
                 const screen = tmux(['capture-pane', '-p', '-t', board.pane]);
                 expect(screen).toMatch(/^ SQUAD[ \t]+TEAM[ \t]+TOK 1h[ \t]+NOW[ \t]*$/m);
                 expect(screen).toMatch(/^ product[ \t]+\?[ \t]+—[ \t]+—[ \t]*$/m);
-                expect(screen).toContain('No agents waiting on you');
+                expect(screen).toMatch(/Squads[ \t]+Agents[ \t]+\/ Search/);
+                expect(screen).not.toContain('Needs you');
               },
               { timeout: 5000, interval: 50 }
             );

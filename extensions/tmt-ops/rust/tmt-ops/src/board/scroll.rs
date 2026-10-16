@@ -41,6 +41,7 @@ pub struct Scrolls {
 enum Indicator {
     Overflow(Look),
     Table(Look),
+    List(Look),
 }
 
 impl Scrolls {
@@ -229,6 +230,19 @@ impl Scrolls {
         self.paint_viewport(frame, pane, area, content, Indicator::Overflow(look), paint)
     }
 
+    /// List overflow uses the same position and viewport owner, with a left caption.
+    pub fn show_list(
+        &self,
+        frame: &mut Frame,
+        pane: Pane,
+        area: Rect,
+        content: usize,
+        look: Look,
+        paint: impl FnOnce(&mut Frame, Rect, usize),
+    ) -> (usize, usize) {
+        self.paint_viewport(frame, pane, area, content, Indicator::List(look), paint)
+    }
+
     pub fn show_table(
         &self,
         frame: &mut Frame,
@@ -250,9 +264,10 @@ impl Scrolls {
         indicator: Indicator,
         paint: impl FnOnce(&mut Frame, Rect, usize),
     ) -> (usize, usize) {
-        let (look, table) = match indicator {
-            Indicator::Overflow(look) => (look, false),
-            Indicator::Table(look) => (look, true),
+        let (look, table, list) = match indicator {
+            Indicator::Overflow(look) => (look, false, false),
+            Indicator::Table(look) => (look, true, false),
+            Indicator::List(look) => (look, false, true),
         };
         let viewport = if table {
             Self::table_viewport(area)
@@ -289,7 +304,23 @@ impl Scrolls {
                 height: 1,
                 ..area
             };
-            if table {
+            if list {
+                let text = if below > 0 {
+                    format!("↓ {below} more")
+                } else {
+                    format!("↑ {above} earlier")
+                };
+                strip::paint_left(
+                    frame.buffer_mut(),
+                    Rect::new(
+                        indicator.x.saturating_add(1),
+                        indicator.y,
+                        indicator.width.saturating_sub(1),
+                        1,
+                    ),
+                    Line::styled(text, look.role(Role::Dim)),
+                );
+            } else if table {
                 let end = content.min(offset.saturating_add(viewport));
                 let start = if content == 0 { 0 } else { offset + 1 };
                 strip::paint_left(

@@ -61,7 +61,7 @@ pub(in crate::board) fn row_allows(app: &App, action: &crate::action::Action) ->
     use crate::action::Verb;
     if app.workspace_snapshot().is_some()
         && action.verb.acts_on_member()
-        && app.workspace_selected_member().is_none()
+        && app.workspace_message_target().is_none()
     {
         return false;
     }
@@ -215,7 +215,18 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
     if let Some(action) = bindings.get("enter").filter(|action| {
         row_allows(app, action) && !matches!(action.verb, Verb::Ui(Ui::Quit | Ui::Help))
     }) {
-        first.push(format!("⏎ {}", hint_word(app, action)));
+        let word = if tab == crate::board::shell::OpsTab::Overview
+            && matches!(
+                app.workspace.selected,
+                Some(crate::board::workspace::OpsTarget::Squad(_))
+            )
+            && action.verb == Verb::Talk
+        {
+            "message lead"
+        } else {
+            hint_word(app, action)
+        };
+        first.push(format!("⏎ {word}"));
         seen.push(action.verb);
     }
     for (verb, preferred, word) in [
@@ -256,12 +267,12 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
     let filter = if tab == crate::board::shell::OpsTab::Agents {
         app.workspace.filter.next().label().to_owned()
     } else {
-        app.overview_filter.next().label().to_ascii_lowercase()
+        app.overview_view.next().label().to_ascii_lowercase()
     };
     let filter_verb = if tab == crate::board::shell::OpsTab::Agents {
         Ui::AgentsFilter
     } else {
-        Ui::OverviewFilter
+        Ui::OverviewView
     };
     if tab == crate::board::shell::OpsTab::Agents
         && let Some(key) = find(Verb::NextPane, "tab")
@@ -270,7 +281,7 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
     }
     let choices = if tab == crate::board::shell::OpsTab::Overview {
         vec![
-            (Verb::Ui(filter_verb), "f", filter.as_str()),
+            (Verb::Ui(filter_verb), "v", "squads/agents"),
             (Verb::Ui(Ui::Search), "/", "search"),
             (Verb::Settings, ",", "settings"),
             (Verb::Ui(Ui::Help), "?", "help"),

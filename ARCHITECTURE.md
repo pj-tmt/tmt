@@ -408,7 +408,7 @@ own module/drawing boundaries and verification.
   Ops uses CAS. `migration` owns locked byte-preserving legacy cutover. Its shared invocation notice decision warns once on CLI stderr; admitted UI projects the same notice through App without out-of-band terminal writes.
   `board_switch` owns the consented former-board switch: only its replacement launch drops retired `--tabs`, preserving the journal argv; startup runs neither. No Ops
   data enters `config.json` or Core's database.
-- **Workspace.** Overview/Agents/Digest share one acquired roster; Overview caches read-only squad and waiting-only identity projections, while tree projections are frame-scoped.
+- **Workspace.** Overview/Agents/Digest share one acquired roster; Overview caches selectable squad and canonical all-agent projections, while tree projections are frame-scoped.
   UUID squad anchors and virtual Common pool define selection; paint/input do no Core reads. WP1 owns conversation/editor/drafts.
   The existing quiet cache lane publishes per-name view hints (default keeps its
   original path): destination/UUID anchors, expansion, committed filters/sort/search
@@ -425,7 +425,7 @@ own module/drawing boundaries and verification.
   only explicit Resume clears pause. Rename CAS keeps the room UUID, then moves
   Ops metadata/config and cron namespaces under owned locks; partial results
   offer repair without room rollback. [Surface ownership](.agents/skills/tmt-ops-dev/references/board-home.md).
-- **Board rendering.** Shared board modules own the reusable visual elements: SectionRule, TeamStrip, StateCell, WaitingRow and KeyHints own neutral rules, lead-first states, waiting tracks and effective hints; SparkRow paints provider trends, totals, shares and optional quota tracks; ChipGroup paints admitted selector groups; EmptyState paints one honest unavailable-state line. Overview adapts acquired data to these modules and owns control effects; the painters perform no acquisition or view-specific projection. Future Agents placements reuse these same modules.
+- **Board rendering.** The [Ops board guide](.agents/skills/tmt-ops-dev/references/board-home.md#shared-board-components) owns shared painter responsibilities and their host adapters.
 - **Discovery.** The board consumes [Core discovery
   v1](contracts/discovery-v1.md) through finite public `discover` and guarded
   `add` commands on its existing ordered lane. Its private controller owns
