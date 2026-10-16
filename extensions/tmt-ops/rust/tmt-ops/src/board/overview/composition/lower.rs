@@ -63,6 +63,13 @@ impl Band {
             height,
         })
     }
+    pub fn rows_adjusted(&self, app: &App) -> bool {
+        !self.split
+            && self.digest.is_some()
+            && app
+                .pane_resize
+                .adjusted(crate::action::ResizeBoundary::OverviewLowerRows)
+    }
     fn timer_height(&self, app: &App, height: u16) -> usize {
         if self.digest.is_none() {
             return self.timers.height();
@@ -75,14 +82,14 @@ impl Band {
             6,
         ) as usize
     }
-    pub fn register(&self, app: &App, area: Rect, clip: Rect) {
+    pub fn register(&self, app: &App, area: Rect, available: u16, clip: Rect) {
         if self.split {
             let total = area.width.saturating_sub(1);
             let before = app.pane_resize.size(
                 crate::action::ResizeBoundary::OverviewLowerColumns,
                 total,
                 TIMER_CELLS,
-                32,
+                timer_rows::MIN_CELLS,
                 DIGEST_MIN,
             );
             app.pane_resize.record(
@@ -91,14 +98,14 @@ impl Band {
                     hit: Rect::new(area.x + before, area.y, 1, area.height),
                     total,
                     before,
-                    min: 32,
+                    min: timer_rows::MIN_CELLS,
                     max: total.saturating_sub(DIGEST_MIN),
                 },
                 clip,
             );
         } else if self.digest.is_some() {
-            let total = area.height.saturating_sub(1);
-            let before = self.timer_height(app, area.height) as u16;
+            let total = available.saturating_sub(1);
+            let before = self.timer_height(app, available) as u16;
             app.pane_resize.record(
                 crate::board::pane_resize::Boundary {
                     id: crate::action::ResizeBoundary::OverviewLowerRows,
@@ -119,7 +126,7 @@ impl Band {
                 crate::action::ResizeBoundary::OverviewLowerColumns,
                 slot.width.saturating_sub(1),
                 TIMER_CELLS,
-                32,
+                timer_rows::MIN_CELLS,
                 DIGEST_MIN,
             );
             let timer = Rect {

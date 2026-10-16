@@ -2140,7 +2140,7 @@ impl App {
             .into_iter()
             .filter(|(event, action)| {
                 !matches!(event.as_str(), "click" | "double-click")
-                    && !matches!(action.verb, Verb::Menu | Verb::NextPane | Verb::TokenWindow)
+                    && !matches!(action.verb, Verb::Menu | Verb::NextPane | Verb::TokenWindow | Verb::Ui(crate::action::OpsUiAction::ResizePane))
                     && (row.is_some() || !action.verb.acts_on_member())
                     && (action.verb != Verb::ViewReply || self.reply_hint())
                     // Without a digest source there is nothing for this entry to do.
@@ -3864,10 +3864,8 @@ impl App {
             return self.menu_mouse(event);
         }
         if self.resize_mouse(event, now) {
-            if event.kind == MouseEventKind::Down(MouseButton::Left)
-                && let Some(pane) = self.pointer_pane(event.column, event.row)
-            {
-                self.focus = usize::from(pane == Pane::Replies);
+            if event.kind == MouseEventKind::Down(MouseButton::Left) {
+                self.focus_at(event.column, event.row);
             }
             self.last_click = None;
             return Effect::None;

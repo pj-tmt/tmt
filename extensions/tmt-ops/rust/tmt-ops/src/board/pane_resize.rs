@@ -94,6 +94,7 @@ impl State {
         self.begin_frame();
         self.hovered.set(None);
         self.drag.set(None);
+        self.last_click.set(None);
     }
     /// The unchanged default is exact; only an explicitly adjusted split uses a ratio.
     pub fn size(&self, id: Id, total: u16, default: u16, min: u16, after_min: u16) -> u16 {
@@ -172,6 +173,9 @@ impl State {
     }
     fn mouse(&self, event: MouseEvent, now: Instant) -> Option<bool> {
         let point = Position::new(event.column, event.row);
+        if self.hovered.get().is_some() {
+            self.move_pointer(point, true);
+        }
         match event.kind {
             MouseEventKind::Down(MouseButton::Left) => {
                 let boundary = *self

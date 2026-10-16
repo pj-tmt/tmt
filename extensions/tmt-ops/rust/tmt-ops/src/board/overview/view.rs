@@ -145,10 +145,15 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             frame.area(),
         );
     }
+    let lower_available = area.height.saturating_sub(list_height + gap);
+    if band.as_ref().is_some_and(|band| band.rows_adjusted(app)) {
+        band_height = lower_available;
+    }
     if let Some(band) = &band {
         band.register(
             app,
             Rect::new(area.x, area.y + list_height + gap, area.width, band_height),
+            lower_available,
             frame.area(),
         );
         for y in 0..band_height {
@@ -157,7 +162,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 app,
                 Rect::new(area.x, area.y + list_height + gap + y, area.width, 1),
                 usize::from(y),
-                band_height,
+                lower_available,
             );
         }
     }

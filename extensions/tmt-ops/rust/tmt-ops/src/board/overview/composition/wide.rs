@@ -103,6 +103,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, left: Option<Rect>,
         .saturating_sub(input + gap)
         .min(conversation::exchange::desired_height(app, area.width));
     use crate::action::ResizeBoundary as Boundary;
+    let exchange_min = exchange.min(3);
     let natural = exchange + input + gap;
     let total = remaining.saturating_sub(1);
     let preserving_sections = [
@@ -113,7 +114,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, left: Option<Rect>,
     ]
     .into_iter()
     .any(|id| app.pane_resize.adjusted(id));
-    let natural = if preserving_sections && total >= input + gap + 3 + lower_min {
+    let natural = if preserving_sections && total >= input + gap + exchange_min + lower_min {
         natural.min(total - lower_min)
     } else {
         natural
@@ -122,7 +123,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, left: Option<Rect>,
         Boundary::OverviewExchange,
         total,
         natural,
-        input + gap + 3,
+        input + gap + exchange_min,
         lower_min,
     );
     let exchange = exchange.min(block.saturating_sub(input + gap));
@@ -148,7 +149,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, left: Option<Rect>,
                 hit: Rect::new(area.x, y, area.width, 1),
                 total,
                 before: block,
-                min: input + gap + 3,
+                min: input + gap + exchange_min,
                 max: total.saturating_sub(lower_min),
             },
             frame.area(),

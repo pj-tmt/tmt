@@ -294,10 +294,16 @@ fn hover_highlights_strokes_and_overlay_or_resize_revokes_drag_authority() {
 fn retained_controls_carry_ratios_but_not_drag_or_hover() {
     use crate::board::{shell::OpsTab, view_state::Controls};
     let first = app(OpsTab::Agents);
-    first.pane_resize.save(boundary(Id::AgentsColumns), 70);
+    first.pane_resize.restore(
+        Id::ALL
+            .into_iter()
+            .enumerate()
+            .map(|(i, id)| (id, 4000 + i as u16 * 100))
+            .collect(),
+    );
     let controls = Controls::capture(&first);
     let value = controls.json();
-    assert_eq!(value["paneRatios"]["agents-columns"], 7000);
+    assert_eq!(value["paneRatios"]["agents-columns"], 4100);
     let mut next = app(OpsTab::Agents);
     Controls::decode(&value).unwrap().apply(&mut next);
     assert_eq!(next.pane_resize.ratios(), first.pane_resize.ratios());
@@ -384,6 +390,18 @@ fn overview_section_rules_are_the_only_horizontal_resize_targets() {
     }
 }
 
+fn populated_app(tab: crate::board::shell::OpsTab, look: crate::look::Look) -> App {
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        let mut app = crate::board::home::tests::oracle::metered(look);
+        crate::board::app::workspace::tests::observe_waiting_member(&mut app);
+        app.shell.tab = tab;
+        crate::board::overview::capture::populate_lower_band(&mut app, "squads-valued");
+        crate::board::overview::capture::populate_final(&mut app, "squads-valued");
+        app.workspace_reconcile();
+        app
+    })
+}
+
 #[test]
 #[ignore = "exports task-owned native renderer evidence; never records fixtures"]
 fn capture_pane_resize_packet() {
@@ -402,15 +420,7 @@ fn capture_pane_resize_packet() {
                     theme: Theme::new(base),
                     depth,
                 };
-                let mut app = crate::status::with_now_ms(1_791_600_000_000, || {
-                    let mut app = crate::board::home::tests::oracle::metered(look);
-                    crate::board::app::workspace::tests::observe_waiting_member(&mut app);
-                    app.shell.tab = tab;
-                    crate::board::overview::capture::populate_lower_band(&mut app, "squads-valued");
-                    crate::board::overview::capture::populate_final(&mut app, "squads-valued");
-                    app.workspace_reconcile();
-                    app
-                });
+                let mut app = populated_app(tab, look);
                 let mut buffer = paint(&mut app, width, 51);
                 for stage in ["before", "after"] {
                     if stage == "after" {
@@ -466,7 +476,7 @@ fn capture_pane_resize_packet() {
                         .map(|row| row.iter().map(|cell| cell.symbol()).collect())
                         .collect();
                     let cells:Vec<_>=buffer.content.iter().map(|cell|json!({"symbol":cell.symbol(),"fg":format!("{:?}",cell.fg),"bg":format!("{:?}",cell.bg),"modifier":format!("{:?}",cell.modifier)})).collect();
-                    captures.push(json!({"tab":format!("{tab:?}"),"width":width,"height":51,"look":name,"stage":stage,"lines":lines,"cells":cells,"ratios":ratios_json(&app.pane_resize.ratios()),"boundaries":format!("{:?}",app.pane_resize.frame.borrow()),"inputBand":format!("{:?}",app.input_band.get())}));
+                    captures.push(json!({"tab":format!("{tab:?}"),"width":width,"height":51,"look":name,"stage":stage,"lines":lines,"cells":cells,"ratios":ratios_json(&app.pane_resize.ratios()),"boundaries":app.pane_resize.frame.borrow().iter().map(|b|json!({"id":b.id.name(),"x":b.hit.x,"y":b.hit.y,"width":b.hit.width,"height":b.hit.height,"total":b.total,"before":b.before,"min":b.min,"max":b.max})).collect::<Vec<_>>(),"inputBand":format!("{:?}",app.input_band.get())}));
                 }
             }
         }
@@ -556,4 +566,292 @@ fn an_active_drag_defers_exec_reload_until_release() {
         now,
     );
     assert!(!app.reload_blocked());
+}
+
+#[test]
+fn resize_footer_keeps_authored_help_quit_and_migration_notice_priority() {
+    use crate::board::shell::OpsTab;
+    let mut app = app(OpsTab::Agents);
+    crate::board::app::tests::configure_workspace(
+        &mut app,
+        "[bind]\n'?'='menu'\nq='menu'\nx='help'\nz='quit'\n",
+    );
+    paint(&mut app, 160, 51);
+    let b = app.pane_resize.frame.borrow()[0];
+    app.move_pointer(event(MouseEventKind::Moved, b.hit.x, b.hit.y + 1));
+    let buffer = paint(&mut app, 160, 51);
+    let footer = |buffer: &Buffer| {
+        buffer
+            .content
+            .chunks(160)
+            .skip(48)
+            .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let shown = footer(&buffer);
+    assert!(
+        shown.contains("↔ drag to resize") && shown.contains("x help") && shown.contains("z quit"),
+        "{shown}"
+    );
+    assert_eq!(
+        buffer[(0, 48)].symbol(),
+        " ",
+        "the shared footer keeps its one-cell gutter"
+    );
+    app.migration_notice = Some("Retired binding requires migration.".into());
+    let shown = footer(&paint(&mut app, 160, 51));
+    assert!(shown.contains("Retired binding requires migration."));
+    assert!(!shown.contains("drag to resize"));
+}
+
+#[test]
+fn every_visible_boundary_uses_real_painted_hits_and_restores_its_default() {
+    use crate::board::shell::OpsTab;
+    let _no_commands = crate::runner::forbid_commands();
+    for (tab, width, id) in [
+        (OpsTab::Overview, 148, Id::OverviewColumns),
+        (OpsTab::Agents, 160, Id::AgentsColumns),
+        (OpsTab::Agents, 100, Id::AgentsRows),
+        (OpsTab::Digest, 160, Id::DigestColumns),
+        (OpsTab::Digest, 100, Id::DigestRows),
+        (OpsTab::Overview, 148, Id::OverviewUsage),
+        (OpsTab::Overview, 103, Id::OverviewList),
+        (OpsTab::Overview, 103, Id::OverviewLowerColumns),
+        (OpsTab::Overview, 60, Id::OverviewLowerRows),
+        (OpsTab::Overview, 148, Id::OverviewExchange),
+        (OpsTab::Overview, 148, Id::OverviewTimers),
+    ] {
+        let mut app = populated_app(tab, crate::look::Look::default());
+        paint(&mut app, width, 51);
+        let get = |app: &App| {
+            app.pane_resize
+                .frame
+                .borrow()
+                .iter()
+                .find(|b| b.id == id)
+                .copied()
+        };
+        let b = get(&app).unwrap_or_else(|| panic!("{id:?} must expose a painted resize target"));
+        let selected = app.workspace.selected.clone();
+        let now = Instant::now();
+        let delta = if b.before < b.max { 1i16 } else { -1 };
+        let x = (b.hit.x as i32 + if id.columns() { i32::from(delta) } else { 0 }) as u16;
+        let y = (b.hit.y as i32 + if id.columns() { 0 } else { i32::from(delta) }) as u16;
+        assert_eq!(
+            app.mouse(
+                event(MouseEventKind::Down(MouseButton::Left), b.hit.x, b.hit.y),
+                now
+            ),
+            Effect::None
+        );
+        assert_eq!(
+            app.mouse(event(MouseEventKind::Drag(MouseButton::Left), x, y), now),
+            Effect::None
+        );
+        paint(&mut app, width, 51);
+        assert_eq!(
+            app.mouse(event(MouseEventKind::Up(MouseButton::Left), x, y), now),
+            Effect::None
+        );
+        paint(&mut app, width, 51);
+        assert_eq!(
+            get(&app).unwrap().before as i32,
+            b.before as i32 + i32::from(delta),
+            "{id:?}"
+        );
+        assert_eq!(app.workspace.selected, selected);
+        assert!(app.menu.is_none() && app.input.is_none());
+        let reset =
+            crate::action::Action::parse(&format!("resize-pane {} reset", id.name())).unwrap();
+        assert_eq!(app.perform(&reset), Effect::None);
+        paint(&mut app, width, 51);
+        assert_eq!(
+            get(&app).unwrap().before,
+            b.before,
+            "{id:?} resets to the exact natural default"
+        );
+    }
+}
+
+#[test]
+fn stored_stacked_lower_ratio_does_not_change_the_side_by_side_layout() {
+    use crate::board::shell::OpsTab;
+    let mut app = populated_app(OpsTab::Overview, crate::look::Look::default());
+    let original = paint(&mut app, 103, 51);
+    app.pane_resize
+        .restore([(Id::OverviewLowerRows, 7000)].into());
+    assert_eq!(paint(&mut app, 103, 51), original);
+    paint(&mut app, 60, 51);
+    assert!(
+        app.pane_resize
+            .frame
+            .borrow()
+            .iter()
+            .any(|b| b.id == Id::OverviewLowerRows)
+    );
+}
+
+#[test]
+fn pointer_events_clear_a_drag_hover_on_terminals_without_motion_events() {
+    use crate::board::shell::OpsTab;
+    let mut app = app(OpsTab::Agents);
+    paint(&mut app, 160, 51);
+    let b = app.pane_resize.frame.borrow()[0];
+    let now = Instant::now();
+    app.mouse(
+        event(MouseEventKind::Down(MouseButton::Left), b.hit.x, b.hit.y),
+        now,
+    );
+    app.mouse(
+        event(
+            MouseEventKind::Drag(MouseButton::Left),
+            b.hit.x + 2,
+            b.hit.y,
+        ),
+        now,
+    );
+    paint(&mut app, 160, 51);
+    app.mouse(
+        event(MouseEventKind::Up(MouseButton::Left), b.hit.x + 2, b.hit.y),
+        now,
+    );
+    assert_eq!(app.pane_resize.hint(), Some("↔"));
+    app.mouse(event(MouseEventKind::ScrollDown, 0, 0), now);
+    assert!(app.pane_resize.hint().is_none());
+}
+
+#[test]
+fn empty_wide_exchange_can_resize_without_borrowing_a_recipient() {
+    use crate::board::shell::OpsTab;
+    let mut app = crate::board::home::tests::oracle::metered(crate::look::Look::default());
+    app.shell.tab = OpsTab::Overview;
+    paint(&mut app, 148, 51);
+    assert!(app.conversation_target().is_none());
+    assert!(
+        app.pane_resize
+            .frame
+            .borrow()
+            .iter()
+            .any(|b| b.id == Id::OverviewExchange)
+    );
+    let selected = app.workspace.selected.clone();
+    app.perform(&crate::action::Action::parse("resize-pane overview-exchange down").unwrap());
+    paint(&mut app, 148, 51);
+    assert_eq!(app.workspace.selected, selected);
+    assert!(app.input.is_none() && app.menu.is_none());
+    assert!(app.conversation_target().is_none());
+}
+
+#[test]
+fn minimum_column_widths_keep_required_table_fields_whole() {
+    use crate::board::shell::OpsTab;
+    let mut app = populated_app(OpsTab::Overview, crate::look::Look::default());
+    app.pane_resize.restore([(Id::OverviewColumns, 0)].into());
+    let buffer = paint(&mut app, 148, 51);
+    let list_width = app
+        .pane_resize
+        .frame
+        .borrow()
+        .iter()
+        .find(|b| b.id == Id::OverviewColumns)
+        .unwrap()
+        .before;
+    let header = buffer
+        .content
+        .chunks(148)
+        .map(|row| {
+            row.iter()
+                .take(usize::from(list_width))
+                .map(|cell| cell.symbol())
+                .collect::<String>()
+        })
+        .find(|line| line.contains("AGENT"))
+        .expect("the actual painted table header");
+    assert!(
+        header.contains("TOK 1h") && header.contains("NOW"),
+        "{header}"
+    );
+    assert_eq!(
+        list_width,
+        crate::board::conversation::layout::OVERVIEW_MIN_COLUMNS
+    );
+    app.pane_resize
+        .restore([(Id::OverviewLowerColumns, 0)].into());
+    paint(&mut app, 103, 51);
+    assert_eq!(
+        app.pane_resize
+            .frame
+            .borrow()
+            .iter()
+            .find(|b| b.id == Id::OverviewLowerColumns)
+            .unwrap()
+            .before,
+        crate::board::timer_rows::MIN_CELLS
+    );
+    let row = crate::board::timer_rows::Row {
+        id: "c1".into(),
+        squad: "tmt-core".into(),
+        schedule: "every 30m".into(),
+        next: Some("in 9999m".into()),
+        purpose: "purpose".into(),
+        dim: false,
+    };
+    let shown = crate::board::timer_rows::line(
+        &row,
+        usize::from(crate::board::timer_rows::MIN_CELLS),
+        crate::look::Look::default(),
+    )
+    .to_string();
+    assert!(
+        shown.contains("c1")
+            && shown.contains("tmt-core")
+            && shown.contains("every 30m")
+            && shown.contains("in 9999m"),
+        "{shown}"
+    );
+}
+
+#[test]
+fn geometry_invalidation_cancels_the_double_click_sequence() {
+    let state = State::default();
+    let b = boundary(Id::AgentsColumns);
+    let now = Instant::now();
+    state.save(b, 70);
+    state.record(b, Rect::new(0, 0, 160, 100));
+    state.mouse(
+        event(MouseEventKind::Down(MouseButton::Left), b.hit.x, b.hit.y),
+        now,
+    );
+    state.mouse(
+        event(MouseEventKind::Up(MouseButton::Left), b.hit.x, b.hit.y),
+        now,
+    );
+    state.invalidate();
+    state.record(b, Rect::new(0, 0, 160, 100));
+    assert_eq!(
+        state.mouse(
+            event(MouseEventKind::Down(MouseButton::Left), b.hit.x, b.hit.y),
+            now + Duration::from_millis(100)
+        ),
+        Some(false)
+    );
+    assert_eq!(
+        state.ratios()[&Id::AgentsColumns],
+        7000,
+        "a fresh paint cannot turn a stale first click into a reset"
+    );
+}
+
+#[test]
+fn keyboard_resize_stays_out_of_a_covering_actions_menu() {
+    use crate::board::shell::OpsTab;
+    let mut app = app(OpsTab::Agents);
+    crate::board::app::tests::configure_workspace(
+        &mut app,
+        "[bind]\nr='resize-pane agents-columns right'\n",
+    );
+    paint(&mut app, 160, 51);
+    assert_eq!(app.context_menu(), Effect::None);
+    assert!(app.menu.as_ref().unwrap().entries.iter().all(|entry|!matches!(&entry.choice,crate::board::app::Choice::Action(action) if action.verb==crate::action::Verb::Ui(crate::action::OpsUiAction::ResizePane))));
 }

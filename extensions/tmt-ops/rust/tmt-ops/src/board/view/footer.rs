@@ -181,6 +181,45 @@ fn fit_hints(mut hints: Vec<Hint>, tail: Vec<Hint>, width: usize) -> Vec<Hint> {
     hints
 }
 
+fn effective_key(
+    app: &App,
+    bindings: &crate::action::Bindings,
+    verb: crate::action::Verb,
+    preferred: &str,
+) -> Option<String> {
+    bindings
+        .get(preferred)
+        .filter(|action| action.verb == verb && row_allows(app, action))
+        .map(|_| preferred.to_owned())
+        .or_else(|| {
+            bindings
+                .iter()
+                .find(|(_, action)| action.verb == verb && row_allows(app, action))
+                .map(|(key, _)| key.clone())
+        })
+}
+
+fn resize_hints(app: &App, axis: &str, width: usize) -> Vec<Hint> {
+    use crate::action::{OpsUiAction as Ui, Verb};
+    let bindings = app.bindings();
+    let mut tail = Vec::new();
+    for (action, preferred, word) in [(Ui::Help, "?", "help"), (Ui::Quit, "q", "quit")] {
+        if let Some(key) = effective_key(app, &bindings, Verb::Ui(action), preferred) {
+            tail.push((key_label(&key).into(), word.into()));
+        } else if action == Ui::Quit {
+            tail.push(("Ctrl-C".into(), "quit".into()));
+        }
+    }
+    fit_hints(
+        vec![
+            (axis.into(), "drag to resize".into()),
+            ("double-click".into(), "reset".into()),
+        ],
+        tail,
+        width,
+    )
+}
+
 fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints> {
     use crate::action::{OpsUiAction as Ui, Verb};
     if app.shell.tab != tab
@@ -193,18 +232,7 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
         return None;
     }
     let bindings = app.bindings();
-    let find = |verb, preferred: &str| {
-        bindings
-            .get(preferred)
-            .filter(|action| action.verb == verb && row_allows(app, action))
-            .map(|_| preferred.to_owned())
-            .or_else(|| {
-                bindings
-                    .iter()
-                    .find(|(_, action)| action.verb == verb && row_allows(app, action))
-                    .map(|(key, _)| key.clone())
-            })
-    };
+    let find = |verb, preferred: &str| effective_key(app, &bindings, verb, preferred);
     let mut seen = Vec::new();
     let mut first = Vec::new();
     if bindings
@@ -500,20 +528,20 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
         && !app.searching
         && app.notice.is_none()
         && app.error.is_none()
+        && app.migration_notice.is_none()
         && let Some(hint) = app.pane_resize.hint()
     {
+        let area = Rect::new(
+            footer.x + u16::from(footer.width > 0),
+            footer.y,
+            footer.width.saturating_sub(1),
+            footer.height.min(1),
+        );
+        let hints = resize_hints(app, hint, usize::from(area.width));
         strip::paint_left(
             frame.buffer_mut(),
-            Rect {
-                height: 1,
-                ..footer
-            },
-            crate::board::key_hints::line(
-                &[(hint, "drag to resize"), ("double-click", "reset")],
-                look,
-                look.role(Role::Muted),
-                "  ",
-            ),
+            area,
+            paint_hints(&hints, look, Role::Muted),
         );
         return;
     }
