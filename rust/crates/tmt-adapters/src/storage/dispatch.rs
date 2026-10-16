@@ -102,7 +102,7 @@ impl Storage {
             return Err(DispatchError::Invalid);
         }
         let digest = intent_digest(&input);
-        with_immediate_transaction(self, "Office request dispatch", |transaction| {
+        with_immediate_transaction(self, "Request dispatch", |transaction| {
             if let Some((stored_digest, receipt)) =
                 read_dispatch_operation(transaction, &input.operation_id)?
             {
@@ -177,7 +177,7 @@ impl Storage {
             transaction.execute(
                 "INSERT INTO office_dispatch_operations (operation_id,intent_digest,receipt) VALUES (?,?,?)",
                 params![receipt.operation_id,digest,encoded],
-            ).map_err(|error| classify(error, "Store Office dispatch receipt"))?;
+            ).map_err(|error| classify(error, "Store dispatch receipt"))?;
             Ok((receipt, true))
         })
     }
