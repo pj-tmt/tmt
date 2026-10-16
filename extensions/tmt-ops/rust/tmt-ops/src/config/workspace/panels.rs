@@ -10,9 +10,6 @@ pub trait Panel: sealed::Sealed + Copy + Debug + Ord + 'static {
     const ALL: &'static [Self];
     const TARGET: Self;
     const SIDE_KEY: &'static str;
-    /// Panels added after a complete `order` may already have been saved: a saved
-    /// order that omits one gets it appended at the end, shown unless hidden.
-    const APPENDED: &'static [Self] = &[];
     fn key(self) -> &'static str;
 
     fn parse(key: &str) -> Option<Self> {
@@ -75,7 +72,6 @@ impl Panel for DigestPanel {
     ];
     const TARGET: Self = Self::List;
     const SIDE_KEY: &'static str = "details";
-    const APPENDED: &'static [Self] = &[Self::Report];
 
     fn key(self) -> &'static str {
         match self {
@@ -123,9 +119,10 @@ impl<P: Panel> Panels<P> {
         let mut policy = Self::default();
         if let Some(item) = table.get("order") {
             policy.order = ids::<P>(item, "order")?;
-            for panel in P::APPENDED {
-                if !policy.order.contains(panel) {
-                    policy.order.push(*panel);
+            // Preserve the relative order the user saved across new panel IDs.
+            for (index, panel) in P::ALL.iter().copied().enumerate() {
+                if !policy.order.contains(&panel) {
+                    policy.order.insert(index.min(policy.order.len()), panel);
                 }
             }
         }

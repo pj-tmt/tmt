@@ -22,13 +22,13 @@ fn omitted_fields_and_both_table_forms_have_the_same_defaults() {
 }
 
 #[test]
-fn explicit_order_is_a_complete_permutation_and_hidden_is_a_unique_subset() {
+fn explicit_order_completes_known_ids_and_hidden_is_a_unique_subset() {
     let policy = overview("[workspace.overview_panels]\norder = ['monitor','usage','summary','digest','exchanges','subscriptions']\nhidden = ['usage','exchanges']\nconversation = false\n").unwrap();
     assert_eq!(policy.order()[0], OverviewPanel::Monitor);
     assert!(!policy.shown(OverviewPanel::Usage));
     assert!(!policy.side_shown());
     for field in [
-        "order = ['monitor']",
+        "order = ['future-panel']",
         "order = ['summary','digest','subscriptions','usage','monitor','monitor']",
         "hidden = ['usage','usage']",
         "hidden = ['future-panel']",
@@ -74,8 +74,10 @@ fn an_order_saved_before_a_panel_existed_gets_it_appended() {
     assert_eq!(policy.order()[0], DigestPanel::List);
     assert_eq!(policy.order().last(), Some(&DigestPanel::Report));
     assert!(policy.shown(DigestPanel::Report));
-    // Only panels added since may be omitted; the others stay required.
-    assert!(saved("'list','status','usage','subscriptions'").is_err());
+    // Every omitted known ID is completed by the same expansion rule.
+    let older = saved("'list','status','usage','subscriptions'").unwrap();
+    assert!(older.order().contains(&DigestPanel::Chart));
+    assert_eq!(older.order().last(), Some(&DigestPanel::Report));
     // An order that already places it keeps its place; duplicates stay refused.
     let placed = saved("'report','list','status','usage','subscriptions','chart'").unwrap();
     assert_eq!(placed.order()[0], DigestPanel::Report);
@@ -194,4 +196,134 @@ fn saving_changed_ids_and_repairing_unknown_fields_keep_displaced_comments() {
             .get("future")
             .is_none()
     );
+}
+
+#[test]
+fn older_panel_orders_keep_custom_order_visibility_and_round_trip_in_both_forms() {
+    for (key, side, order, hidden, expected) in [
+        (
+            "overview_panels",
+            "conversation",
+            "'monitor','exchanges','digest','summary','subscriptions'",
+            "summary",
+            vec![
+                "monitor",
+                "exchanges",
+                "digest",
+                "usage",
+                "summary",
+                "subscriptions",
+            ],
+        ),
+        (
+            "digest_panels",
+            "details",
+            "'list','usage','status','subscriptions'",
+            "status",
+            vec![
+                "list",
+                "usage",
+                "status",
+                "chart",
+                "subscriptions",
+                "report",
+            ],
+        ),
+    ] {
+        for inline in [false, true] {
+            let input = if inline {
+                format!(
+                    "[workspace]\nsort = 'name' # untouched\n{key} = {{ order = [{order}], hidden = ['{hidden}'], {side} = true }} # keep policy\n"
+                )
+            } else {
+                format!(
+                    "[workspace]\nsort = 'name' # untouched\n[workspace.{key}] # keep policy\norder = [{order}]\nhidden = ['{hidden}']\n{side} = true\n"
+                )
+            };
+            let mut document: DocumentMut = input.parse().unwrap();
+            fn round_trip<P: Panel>(item: &mut Item, expected: &[&str], hidden: &str) {
+                let parsed = Panels::<P>::parse(item)
+                    .expect("a new known panel must not discard the saved arrangement");
+                assert_eq!(
+                    parsed
+                        .order()
+                        .iter()
+                        .map(|panel| panel.key())
+                        .collect::<Vec<_>>(),
+                    expected
+                );
+                assert!(
+                    !parsed.shown(P::parse(hidden).unwrap()),
+                    "saved hidden state survives expansion"
+                );
+                let missing = if P::SIDE_KEY == "conversation" {
+                    "usage"
+                } else {
+                    "chart"
+                };
+                assert!(
+                    parsed.shown(P::parse(missing).unwrap()),
+                    "new panels use the default visibility"
+                );
+                PanelSetting::configured(parsed.clone()).write(item);
+                assert_eq!(Panels::<P>::parse(item).unwrap(), parsed);
+            }
+            if key == "overview_panels" {
+                round_trip::<OverviewPanel>(&mut document["workspace"][key], &expected, hidden);
+            } else {
+                round_trip::<DigestPanel>(&mut document["workspace"][key], &expected, hidden);
+            }
+            assert_eq!(document["workspace"][key].is_inline_table(), inline);
+            let output = document.to_string();
+            assert!(output.contains("sort = 'name' # untouched"));
+            assert!(output.contains("# keep policy"));
+            assert!(output.contains(hidden));
+        }
+    }
+}
+
+#[test]
+fn every_omitted_subset_preserves_saved_relative_order_and_completes_once() {
+    fn check<P: Panel>() {
+        for mask in 0..1usize << P::ALL.len() {
+            let saved: Vec<_> = P::ALL
+                .iter()
+                .copied()
+                .enumerate()
+                .filter(|(index, _)| mask & (1 << index) != 0)
+                .map(|(_, panel)| panel)
+                .rev()
+                .collect();
+            let order = saved
+                .iter()
+                .map(|panel| format!("'{}'", panel.key()))
+                .collect::<Vec<_>>()
+                .join(",");
+            let document: DocumentMut =
+                format!("panels = {{ order = [{order}] }}").parse().unwrap();
+            let policy = Panels::<P>::parse(&document["panels"]).unwrap();
+            assert_eq!(policy.order.len(), P::ALL.len());
+            assert_eq!(
+                policy.order.iter().copied().collect::<BTreeSet<_>>(),
+                P::ALL.iter().copied().collect()
+            );
+            assert_eq!(
+                policy
+                    .order
+                    .iter()
+                    .copied()
+                    .filter(|panel| saved.contains(panel))
+                    .collect::<Vec<_>>(),
+                saved
+            );
+            for (index, panel) in P::ALL.iter().enumerate() {
+                if !saved.contains(panel) {
+                    assert_eq!(&policy.order[index], panel);
+                    assert!(policy.shown(*panel));
+                }
+            }
+        }
+    }
+    check::<OverviewPanel>();
+    check::<DigestPanel>();
 }

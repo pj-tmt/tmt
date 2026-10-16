@@ -1707,11 +1707,12 @@ mod tests {
         }
     }
     #[test]
-    fn unrelated_saves_preserve_absent_partial_and_invalid_panel_observations() {
+    fn unrelated_saves_preserve_absent_partial_older_and_invalid_panel_observations() {
         for panel in [
             "",
             "overview_panels = 5\n",
             "overview_panels = { hidden = [] } # inline\n",
+            "overview_panels = { order = ['monitor'], hidden = [], conversation = true } # older order\n",
             "[workspace.overview_panels] # policy\nhidden = [] # partial\n",
         ] {
             let fixture = FileFixture::new();

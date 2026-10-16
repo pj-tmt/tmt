@@ -98,6 +98,7 @@ fn overview_picker_only_exposes_live_fixed_sections_and_keeps_durable_policy() {
             "usage",
             "monitor",
             "side",
+            "actions-divider",
             "reset",
             "save",
             "cancel"
@@ -126,4 +127,89 @@ fn overview_picker_only_exposes_live_fixed_sections_and_keeps_durable_policy() {
     let before = digest.clone();
     digest.edit(Edit::Down, "subscriptions").unwrap();
     assert_ne!(digest, before);
+}
+
+#[test]
+fn picker_has_one_title_and_one_noninteractive_divider_between_toggles_and_actions() {
+    use ratatui::crossterm::event::MouseEvent;
+    use ratatui::{Terminal, backend::TestBackend};
+    for (variant, look) in picker_surface::evidence::looks().into_iter().enumerate() {
+        for digest in [false, true] {
+            for (width, height) in [(160, 36), (100, 30), (60, 24)] {
+                let mut picker = Picker::open(OpsPreferences::default(), digest);
+                let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+                terminal
+                    .draw(|frame| render(frame, &picker, look, frame.area()))
+                    .unwrap();
+                let buffer = terminal.backend().buffer();
+                let text: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
+                assert_eq!(text.matches("Panels").count(), 1);
+                assert!(!text.contains("Overview panels") && !text.contains("Digest panels"));
+                let geometry = {
+                    let surface = picker.surface.borrow();
+                    let list = surface.frame.as_ref().unwrap().list.as_ref().unwrap();
+                    let divider = list
+                        .geometry
+                        .iter()
+                        .find(|row| row.id == "actions-divider")
+                        .unwrap()
+                        .visible;
+                    let side = list
+                        .geometry
+                        .iter()
+                        .find(|row| row.id == "side")
+                        .unwrap()
+                        .visible;
+                    let first_action = if digest { "up" } else { "reset" };
+                    let action = list
+                        .geometry
+                        .iter()
+                        .find(|row| row.id == first_action)
+                        .unwrap()
+                        .visible;
+                    assert!(
+                        list.rows
+                            .iter()
+                            .find(|row| row.id == "actions-divider")
+                            .unwrap()
+                            .disabled
+                    );
+                    assert_eq!(divider.y, side.bottom());
+                    assert_eq!(action.y, divider.bottom());
+                    assert_eq!(divider.height, 1);
+                    divider
+                };
+                for x in geometry.x..geometry.right() {
+                    assert_eq!(buffer[(x, geometry.y)].symbol(), "─");
+                    assert_eq!(
+                        buffer[(x, geometry.y)].fg,
+                        look.role(tmt_cli_style::Role::Muted).fg.unwrap_or_default()
+                    );
+                }
+                picker_surface::evidence::capture(
+                    &format!("panels-{digest}-{variant}-{width}x{height}"),
+                    buffer,
+                    &picker.surface.borrow(),
+                );
+                let before = picker.draft.clone();
+                assert!(
+                    picker
+                        .input(&Event::Mouse(MouseEvent {
+                            kind: MouseEventKind::Down(MouseButton::Left),
+                            column: geometry.x,
+                            row: geometry.y,
+                            modifiers: KeyModifiers::NONE,
+                        }))
+                        .is_none()
+                );
+                assert_eq!(picker.draft, before);
+                picker.surface.borrow_mut().select("side");
+                picker.input(&key(KeyCode::Down));
+                assert_eq!(
+                    picker.surface.borrow().picker.list.selected(),
+                    Some(if digest { "up" } else { "reset" })
+                );
+            }
+        }
+    }
 }
