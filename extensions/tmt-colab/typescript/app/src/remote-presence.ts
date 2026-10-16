@@ -70,8 +70,11 @@ export class RemotePresence {
           for (const device of result.devices) {
             if (identities.has(device.clientId)) throw new Error('Repeated device');
             identities.add(device.clientId);
-            if (!device.revoked && (device.expiresAtMs === null || device.expiresAtMs > this.now()))
-              devices.push(device);
+            // Only omit inactive tombstones. This browser's wall clock cannot
+            // overrule a positive count observed by the door's Session owner.
+            const inactive = device.liveSessionCount === 0 && device.lastActivityAtMs === null;
+            const expired = device.expiresAtMs !== null && device.expiresAtMs <= this.now();
+            if (!(inactive && (device.revoked || expired))) devices.push(device);
           }
           if (result.nextCursor === null) {
             const count = devices.reduce((sum, device) => sum + device.liveSessionCount, 0);

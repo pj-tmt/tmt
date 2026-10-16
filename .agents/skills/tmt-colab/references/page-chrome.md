@@ -22,7 +22,7 @@ The mounted app also supplies a display-only Remote session snapshot through the
 Header status slot. It reads the admitted SDK device list, up to 20 pages of 50 rows,
 on mount, visible-tab return and opening the details. One read owns all pages; a
 refusal or unfinished traversal shows an unconfirmed count, never a partial sum or zero.
-Current browser comes first, then recent activity; revoked/expired device rows are omitted.
+Current browser comes first, then recent activity; revoked/expired zero-session rows are omitted.
 Counts describe live Sessions, not tabs, and closing a tab may take about a minute to appear.
 The read time and this limit stay visible in the tooltip. A successful complete read supplies
 the same-origin `/settings` link. Hosted/detached adapters and missing Sessions show no chip.

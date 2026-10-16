@@ -174,3 +174,13 @@ it('hides without a mounted session and clears a previous confirmed observation'
   expect(owner.snapshot()).toEqual({ kind: 'hidden' });
   expect(devices).toHaveBeenCalledTimes(1);
 });
+
+it('keeps the door session count when the browser clock is ahead of the expiry timestamp', async () => {
+  const devices = vi.fn(async () => ({
+    devices: [row({ expiresAtMs: 900, liveSessionCount: 2, lastActivityAtMs: 800 })],
+    nextCursor: null,
+  }));
+  const { owner } = setup(devices);
+  await owner.refresh();
+  expect(owner.snapshot()).toMatchObject({ kind: 'confirmed', count: 2 });
+});
