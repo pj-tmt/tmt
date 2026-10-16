@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Template example</title>
+  </head>
+  <body>
+    <p>This private preview tests the article template. It is not a product announcement.</p>
+    <article id="blog-article">
+      <p>
+        An article can explain an idea and let the reader explore it. This example uses a
+        deliberately simple model: every member can talk directly to every other member.
+      </p>
+      <h2>Try the model</h2>
+      <p>
+        Move the slider to change the number of members. The result counts pairs, not real messages
+        or measured TMT performance.
+      </p>
+      <section class="interactive" aria-labelledby="experiment-title">
+        <h3 id="experiment-title">How many connections?</h3>
+        <p>
+          <label for="members">Members: <output id="member-count">4</output></label
+          ><input id="members" type="range" min="2" max="12" value="4" step="1" />
+        </p>
+        <p>
+          <strong><output id="connections" aria-live="polite">6</output> possible pairs</strong>
+        </p>
+        <p>Each pair is counted once: n × (n − 1) ÷ 2.</p>
+      </section>
+      <h2>Continue the story</h2>
+      <p>
+        The text stays in a readable column. An interactive example can use more width while keeping
+        the same type, palette and spacing. No iframe is needed.
+      </p>
+      <details>
+        <summary>Show the formula</summary>
+        <p>With four members, there are 4 × 3 ÷ 2 = 6 distinct pairs.</p>
+      </details>
+      <script type="module">
+        const slider = document.querySelector("#members");
+        const members = document.querySelector("#member-count");
+        const connections = document.querySelector("#connections");
+        slider.addEventListener("input", () => {
+          const count = Number(slider.value);
+          members.value = String(count);
+          connections.value = String((count * (count - 1)) / 2);
+        });
+      </script>
+    </article>
+    <tmt-proposal data-id="00000000-0000-4000-8000-000000000001"></tmt-proposal>
+  </body>
+</html>

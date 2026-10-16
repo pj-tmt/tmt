@@ -35,7 +35,7 @@ Infra reviews the [layout map/allowlist](.github/repository-layout.json).
 | `contracts/`              | Core public contracts and normative fixtures                                         |
 | `scripts/`                | Shared shell/build/development helpers                                               |
 | `skills/`                 | Canonical bundled user-agent guidance                                                |
-| `site/`                   | Public Home/Colab landing, handbook sources and translations                         |
+| `site/`                   | Public Home/Colab landing, blog, handbook sources and translations                   |
 | `design/`                 | Tokens/CLI; [private browser-ui](design/gui-components.md); no Core/CLI dep/embed    |
 
 New homes or exceptions need infra review and coordinated map/allowlist changes; ignored outputs
@@ -48,6 +48,11 @@ owns moves and the tracked-file guard. Handbook language exceptions belong to
 Layers retain Radix focus/dismiss ownership and host close admission; layer integration contracts live in the linked leaf README.
 [Release procedures](.agents/skills/tmt-release/SKILL.md) include the archive’s
 product-neutral `rust/archive/NATIVE-INSTALL.md`; [dev-only embed](site/README.md) stays site-owned.
+
+## Public blog boundary
+
+`site/src/blog/` builds `site/src/posts/` into the shared site artifact.
+[The site guide](site/README.md#blog) owns content, approval, CSP and base paths.
 
 ## TypeScript workspace boundary
 
