@@ -10,7 +10,7 @@ import { Diamond, X } from 'lucide-react';
 /** What a hosted request can end as before the page answers it. A request that was sent is
  * answered by the page like a native one (`EditOutcome`), so it has no state here. Provider
  * uncertainty never becomes a refusal or an automatic resend. */
-export type EditRequestOutcome = 'refused' | 'unconfirmed' | 'writer-in-use';
+export type EditRequestOutcome = 'refused' | 'unconfirmed';
 export function EditRequestNotice({
   outcome,
   actions,
@@ -24,16 +24,12 @@ export function EditRequestNotice({
       <BrowserNotice
         tone={unconfirmed ? 'waiting' : 'blocked'}
         announcement={unconfirmed ? 'status' : 'alert'}
-        stateLabel={
-          outcome === 'writer-in-use' ? 'Link in use' : unconfirmed ? 'Unconfirmed' : 'Not sent'
-        }
+        stateLabel={unconfirmed ? 'Unconfirmed' : 'Not sent'}
         mark={unconfirmed ? <Diamond fill="currentColor" /> : <X />}
         title={
-          outcome === 'writer-in-use'
-            ? 'Another browser is already sending edits through this link, so this one can only read. Ask the owner for an editor link of your own.'
-            : unconfirmed
-              ? "Couldn't confirm the edit request. It may still reach the owner; check the page before sending it again."
-              : 'Edit request not sent. Ask the owner for a current link.'
+          unconfirmed
+            ? "Couldn't confirm the edit request. It may still reach the owner; check the page before sending it again."
+            : 'Edit request not sent. Ask the owner for a current link.'
         }
         body={null}
         actions={actions}
@@ -59,16 +55,12 @@ export function ReaderSource({
   edit,
   open,
   onDismiss,
-  writerBlocked,
-  onWriterInUse,
 }: {
   /** The text of the page as the reader last admitted it. */
   source: string;
   edit: ReaderEdit;
   open: boolean;
   onDismiss: () => void;
-  writerBlocked: boolean;
-  onWriterInUse(): void;
 }) {
   const dirty = useRef(false),
     base = useRef(source);
@@ -87,7 +79,7 @@ export function ReaderSource({
     setDraft(source);
   }, [source]);
   async function save() {
-    if (saving || writerBlocked) return;
+    if (saving) return;
     setSaving(true);
     setProblem(null);
     setCopied(null);
@@ -98,7 +90,6 @@ export function ReaderSource({
       );
       if ('request' in answer) {
         setRequest(answer.request);
-        if (answer.request === 'writer-in-use') onWriterInUse();
         return;
       }
       if (answer.kind === 'applied') {
@@ -148,19 +139,11 @@ export function ReaderSource({
       <div className="source">
         <span>
           <label htmlFor="source-edit">{text.source}</label>
-          <button
-            disabled={saving || writerBlocked || draft === base.current}
-            onClick={() => void save()}
-          >
+          <button disabled={saving || draft === base.current} onClick={() => void save()}>
             {saving && !problem ? text.saving : text.save}
           </button>
         </span>
-        {request && (
-          <EditRequestNotice
-            outcome={request}
-            actions={request === 'writer-in-use' ? copyDraft : undefined}
-          />
-        )}
+        {request && <EditRequestNotice outcome={request} />}
         {problem && (
           <SaveNotice problem={problem} actions={problem.conflict ? copyDraft : undefined} />
         )}
@@ -171,7 +154,7 @@ export function ReaderSource({
           value={draft}
           onChange={(event) => {
             dirty.current = true;
-            if (!writerBlocked) setRequest(null);
+            setRequest(null);
             setDraft(event.target.value);
           }}
         />

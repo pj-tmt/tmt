@@ -166,7 +166,7 @@ for (const width of [390, 1280])
       await page.screenshot({ path: capturePath(`link-edit-save-disabled-${width}-${theme}.png`) });
     });
 
-for (const outcome of ['refused', 'unconfirmed', 'writer-in-use'] as const) {
+for (const outcome of ['refused', 'unconfirmed'] as const) {
   test(`a ${outcome} edit request retains its draft without claiming an owner-applied save`, async ({
     page,
   }) => {
@@ -178,14 +178,7 @@ for (const outcome of ['refused', 'unconfirmed', 'writer-in-use'] as const) {
     await area.fill('<main>requested draft</main>');
     await save.click();
     await expect(
-      page.getByText(
-        outcome === 'writer-in-use'
-          ? 'Link in use'
-          : outcome === 'refused'
-            ? 'Not sent'
-            : 'Unconfirmed',
-        { exact: true },
-      ),
+      page.getByText(outcome === 'refused' ? 'Not sent' : 'Unconfirmed', { exact: true }),
     ).toBeVisible();
     await expect(area).toHaveValue('<main>requested draft</main>');
     expect(await saves(page)).toHaveLength(1);
@@ -193,36 +186,10 @@ for (const outcome of ['refused', 'unconfirmed', 'writer-in-use'] as const) {
     await expect(
       page.frameLocator('iframe').getByRole('heading', { name: 'Release notes', exact: true }),
     ).toBeVisible();
-    if (outcome === 'writer-in-use') await expect(save).toBeDisabled();
-    else await expect(save).toBeEnabled();
-    if (outcome === 'writer-in-use') {
-      await area.fill('<main>kept after definitive loss</main>');
-      await expect(save).toBeDisabled();
-      await expect(page.getByText('Link in use', { exact: true })).toBeVisible();
-      await expect(page.locator('.source-notice [data-tone="blocked"]')).toBeVisible();
-      await expect(page.locator('.chip')).toHaveText('Read-only');
-      await expect(page.getByRole('button', { name: text.saveCopyDraft })).toBeVisible();
-      await page.keyboard.press('Escape');
-      await expect(area).not.toBeVisible();
-      await page.getByTestId('source-toggle').click();
-      await expect(save).toBeDisabled();
-      await expect(area).toHaveValue('<main>kept after definitive loss</main>');
-      await page.evaluate(() => {
-        Object.defineProperty(navigator, 'clipboard', {
-          value: {
-            writeText: async (value: string) => {
-              (window as unknown as { copiedDraft: string }).copiedDraft = value;
-            },
-          },
-          configurable: true,
-        });
-      });
-      await page.getByRole('button', { name: text.saveCopyDraft }).click();
-      await expect
-        .poll(() => page.evaluate(() => (window as unknown as { copiedDraft: string }).copiedDraft))
-        .toBe('<main>kept after definitive loss</main>');
-      expect(await saves(page)).toHaveLength(1);
-    }
+    await expect(save).toBeEnabled();
+    // Nothing is a standing block of the link: the header still says the link can edit.
+    await expect(page.locator('.chip')).toHaveText(text.readerCanEdit);
+    await expect(page.getByText('Link in use', { exact: true })).toHaveCount(0);
     if (outcome === 'unconfirmed') {
       await expect(page.locator('.source-notice [data-tone="waiting"]')).toBeVisible();
       // No observation or render effect can silently submit another operation.
@@ -231,28 +198,24 @@ for (const outcome of ['refused', 'unconfirmed', 'writer-in-use'] as const) {
   });
 }
 
-for (const width of [390, 1280])
-  for (const theme of ['light', 'dark'] as const)
-    test(`hosted Link in use keeps the draft at ${width} ${theme}`, async ({ page }) => {
-      await page.setViewportSize({ width, height: width === 390 ? 844 : 800 });
-      await page.emulateMedia({ colorScheme: theme });
-      await mount(page, 'editor');
-      await script(page, 'writer-in-use');
-      await page.getByTestId('source-toggle').click();
-      const area = page.locator('#source-edit'),
-        save = page.getByRole('button', { name: text.save, exact: true });
-      await area.fill('<main>A draft to keep</main>');
-      await save.click();
-      await expect(page.getByText('Link in use', { exact: true })).toBeVisible();
-      await expect(
-        page.getByText(
-          'Another browser is already sending edits through this link, so this one can only read. Ask the owner for an editor link of your own.',
-          { exact: true },
-        ),
-      ).toBeVisible();
-      await expect(page.locator('.chip')).toHaveText('Read-only');
-      await expect(page.getByRole('button', { name: text.saveCopyDraft })).toBeVisible();
-      await expect(area).toHaveValue('<main>A draft to keep</main>');
-      await expect(save).toBeDisabled();
-      await page.screenshot({ path: capturePath(`hosted-link-in-use-${width}-${theme}.png`) });
-    });
+test('a request that was not sent can be sent again with the next deliberate Save, once each', async ({
+  page,
+}) => {
+  await mount(page, 'editor');
+  await script(page, 'refused');
+  await page.getByTestId('source-toggle').click();
+  const area = page.locator('#source-edit'),
+    save = page.getByRole('button', { name: text.save, exact: true });
+  await area.fill('<main>a race lost to another holder</main>');
+  await save.click();
+  await expect(page.getByText('Not sent', { exact: true })).toBeVisible();
+  expect(await saves(page)).toHaveLength(1);
+  // The draft stays, Save stays enabled, and nothing resends by itself.
+  await expect(save).toBeEnabled();
+  await page.waitForTimeout(300);
+  expect(await saves(page)).toHaveLength(1);
+  await script(page, 'applied');
+  await save.click();
+  await expect.poll(async () => (await saves(page)).length).toBe(2);
+  await expect(page.getByText('Not sent', { exact: true })).toHaveCount(0);
+});

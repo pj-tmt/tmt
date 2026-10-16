@@ -10,15 +10,8 @@ const saves: { source: string; base: string }[] = [];
 /** What the scripted page does after the next request: shows the text (`applied`), shows other
  * text (`changed`), stays as it was (`waiting`, until `settle`), or the request is `large`, or
  * another user of the link `raced` it to the stream's next sequence. */
-let answer:
-  | 'applied'
-  | 'changed'
-  | 'waiting'
-  | 'large'
-  | 'raced'
-  | 'refused'
-  | 'unconfirmed'
-  | 'writer-in-use' = 'applied';
+let answer: 'applied' | 'changed' | 'waiting' | 'large' | 'raced' | 'refused' | 'unconfirmed' =
+  'applied';
 let release: ((source: string) => void) | undefined;
 
 export function proof() {
@@ -57,8 +50,7 @@ export async function mount(role: 'viewer' | 'editor') {
         editor
           ? async (source, base, onWaiting) => {
               saves.push({ source, base });
-              if (answer === 'refused' || answer === 'unconfirmed' || answer === 'writer-in-use')
-                return { request: answer };
+              if (answer === 'refused' || answer === 'unconfirmed') return { request: answer };
               if (answer === 'large') throw new EditTooLarge(200 * 1024, 128 * 1024);
               if (answer === 'raced') throw new OwnAppendRefused('CONFLICT');
               if (answer === 'waiting') {

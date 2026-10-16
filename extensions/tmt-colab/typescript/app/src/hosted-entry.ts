@@ -336,7 +336,10 @@ export class HostedEntry {
             );
             // The reader reports a request that does not fit as a refusal; the page names its size.
             if (result.failure instanceof EditTooLarge) throw result.failure;
-            outcome = result.outcome;
+            // An occupied ID is a race lost to another holder of the link (the Rules admit one
+            // uid after another, and holders are not told apart): nothing of ours was stored, so
+            // it is not sent, and the next deliberate Save catches up and sends at the new head.
+            outcome = result.outcome === 'writer-in-use' ? 'refused' : result.outcome;
           },
         },
         base,
