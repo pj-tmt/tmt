@@ -4035,6 +4035,9 @@ fn capture_search_notice_packet() {
                             key(&mut app, KeyCode::Char('/'));
                             app.paste("agent-00001");
                             if scene == "no-match" {
+                                if tab == OpsTab::Agents {
+                                    key(&mut app, KeyCode::Down);
+                                }
                                 app.paste("-no-match");
                             }
                             if scene == "applied" {
@@ -4068,12 +4071,19 @@ fn capture_search_notice_packet() {
                         captures.push(json!({"tab":format!("{tab:?}"),"scene":scene,
                             "width":width,"height":51,"theme":base,"depth":format!("{depth:?}"),
                             "cells":cells,"lines":lines,"hits":format!("{:?}",app.hits.borrow()),
+                            "selected":app.workspace.selected.as_ref().map(|target| format!("{target:?}")),
+                            "firstTarget":app.workspace_rows().first().map(|row| format!("{:?}",row.target)),
+                            "selectionState":format!("{:?}",app.workspace_selection_state()),
+                            "focus":format!("{:?}",app.focused_pane()),
+                            "actions":format!("{:?}",app.workspace_action_hits.borrow()),
+                            "conversationHeaderHits":app.conversation.borrow().header_hits.len(),
+                            "hasComposer":app.input.is_some(),
                             "searching":app.searching,"query":app.search}));
                     }
                 }
             }
         }
     });
-    assert_eq!(captures.len(), 72);
+    assert_eq!(captures.len(), 84);
     std::fs::write(output, serde_json::to_vec(&captures).unwrap()).unwrap();
 }
