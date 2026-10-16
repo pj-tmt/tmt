@@ -385,6 +385,67 @@ for (const [width, theme] of [
         });
         expect(box, `band ${index + 1}`).toEqual({ inside: true, clipped: false });
       }
+      // The panel frame is the shared light rule with no fill (the page surface shows through),
+      // the waiting mark is the attention-coloured ◆, and a wrapped action starts at the content edge.
+      const look = await page.evaluate(() => {
+        const probe = document.createElement('i');
+        document.body.append(probe);
+        const resolve = (property: 'borderColor' | 'color', token: string) => {
+          probe.style[property] = `var(${token})`;
+          probe.style.borderStyle = 'solid';
+          return getComputedStyle(probe)[property];
+        };
+        const rule = resolve('borderColor', '--tmt-ui-surface-rule');
+        const waiting = resolve('color', '--tmt-ui-color-waiting');
+        probe.remove();
+        const edge = (card: Element) => {
+          const style = getComputedStyle(card);
+          return (
+            card.getBoundingClientRect().left +
+            parseFloat(style.borderLeftWidth) +
+            parseFloat(style.paddingLeft)
+          );
+        };
+        return [...document.querySelectorAll('.review-card')].map((card) => {
+          const style = getComputedStyle(card);
+          const actions = [...card.querySelectorAll('.review-buttons button, header > button')].map(
+            (button) => button.getBoundingClientRect(),
+          );
+          const first = actions[0];
+          return {
+            rule,
+            waiting,
+            border: style.borderTopColor,
+            fill: style.backgroundColor,
+            mark: card.querySelector('.review-mark')?.textContent,
+            markColor: card.querySelector('.review-mark')
+              ? getComputedStyle(card.querySelector('.review-mark')!).color
+              : undefined,
+            // Offsets of every action that sits on a later line than the first one.
+            wrapped: actions
+              .filter((rect) => first && rect.top > first.top + 1)
+              .map((rect) => Math.abs(rect.left - edge(card))),
+            // The only action of a closed section starts at the edge when it is on its own line.
+            own: card.querySelector('header > button')
+              ? Math.abs(
+                  card.querySelector('header > button')!.getBoundingClientRect().left - edge(card),
+                )
+              : undefined,
+          };
+        });
+      });
+      for (const [index, band] of look.entries()) {
+        expect(band.border, `band ${index + 1} frame`).toBe(band.rule);
+        expect(band.fill, `band ${index + 1} fill`).toBe('rgba(0, 0, 0, 0)');
+        for (const offset of band.wrapped)
+          expect(offset, `band ${index + 1} wrapped action`).toBeLessThanOrEqual(1);
+      }
+      expect(look[0].mark).toBe('◆');
+      expect(look[0].markColor).toBe(look[0].waiting);
+      expect(look[1].mark).toBeUndefined();
+      expect(look[2].mark).toBeUndefined();
+      // At 390 the closed section's Reopen no longer fits beside its status: it sits at the edge.
+      if (width === 390) expect(look[2].own).toBeLessThanOrEqual(1);
       const closed = frame(page).locator('tmt-review').nth(2);
       const style = await closed.evaluate((node) => {
         const text = node.querySelector('p')!;

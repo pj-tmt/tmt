@@ -1,5 +1,5 @@
 import { BrowserAction } from '@tmt/browser-ui/react';
-import { Check, CircleDot, Diamond } from 'lucide-react';
+import { Check, Diamond } from 'lucide-react';
 import { useEffect, useId, useState, type ReactNode } from 'react';
 import type { Review } from '../questions.js';
 import type { ReviewOutcome } from '../review-actions.js';
@@ -82,7 +82,9 @@ export function ReviewCard({
           ) : state.kind === 'changes' ? (
             <Diamond aria-hidden />
           ) : (
-            <CircleDot aria-hidden />
+            <span className="review-mark" data-tone="waiting" aria-hidden="true">
+              ◆
+            </span>
           )}
           <strong>{status}</strong>
           <span className="review-section-title">{review.title}</span>
