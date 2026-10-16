@@ -1,9 +1,14 @@
 import { describe, expect, it } from 'vite-plus/test';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import path from 'node:path';
+import Database from 'better-sqlite3';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import { resolveCliExecutables } from '../support/cli-executable.mjs';
 import { expectJsonResult } from './cli-assertions.js';
 import { withE2EFixture } from './harness.js';
 import { durableState } from './identity-state-oracle.js';
 import { requestAttempts } from './request-state-oracle.js';
+import { waitForFileContent } from './wait-for-file.js';
 
 interface Bound {
   id: string;
@@ -33,7 +38,84 @@ describe(
   'runtime-owned caller attribution through real process ancestry',
   { concurrent: false },
   () => {
-    it('never borrows the shared host identity, preserves anonymous sends and honors explicit identity', async () => {
+    it('launches and resumes the managed provider embedded without changing provider configuration', async () => {
+      await withE2EFixture(async (fixture) => {
+        const pane = fixture.createShellPane('managed-runtime').pane;
+        const callsFile = path.join(fixture.root, 'managed-calls.jsonl');
+        const fake = path.join(fixture.wrapperDir, 'codex');
+        writeExecutable(
+          fake,
+          `#!${process.execPath}\nrequire('node:fs').appendFileSync(${JSON.stringify(callsFile)}, JSON.stringify(process.argv.slice(2)) + String.fromCharCode(10));\n`,
+          0o700
+        );
+        const home = path.join(fixture.root, 'managed-home');
+        mkdirSync(home);
+        const quote = (word: string) => `'${word.replaceAll("'", "'\\''")}'`;
+        const launch = async (label: string, args: string[]) => {
+          const status = path.join(fixture.root, `${label}.status`);
+          const command = [
+            'env',
+            `HOME=${home}`,
+            `CODEX_HOME=${path.join(home, '.codex')}`,
+            fixture.executables.cli.executable,
+            ...fixture.executables.cli.args,
+            ...args,
+          ]
+            .map(quote)
+            .join(' ');
+          fixture.tmux([
+            'send-keys',
+            '-t',
+            pane,
+            '-l',
+            `${command}; printf '%s' "$?" > ${quote(status)}`,
+          ]);
+          fixture.tmux(['send-keys', '-t', pane, 'Enter']);
+          expect(
+            await waitForFileContent(status, { description: `${label} launch completed` })
+          ).toBe('0');
+        };
+        await launch('fresh', [
+          'run',
+          '--no-channel',
+          '-s',
+          'Managed',
+          fake,
+          '--model',
+          'fixture-model',
+        ]);
+        const session = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        const db = new Database(path.join(fixture.globalDir, 'tmt.db'));
+        try {
+          expect(
+            db
+              .prepare(
+                `UPDATE identity_session_preferences SET preferred_harness = 'codex', remembered_harness = 'codex', runtime_mode = 'shared', provider_session_id = ?, stale_at_ms = NULL, resume_pending_at_ms = NULL WHERE identity_id = (SELECT id FROM identities WHERE canonical_name = 'managed')`
+              )
+              .run(session).changes
+          ).toBe(1);
+        } finally {
+          db.close();
+        }
+        await launch('resume', ['resume', '--no-channel', 'Managed']);
+        const calls = readFileSync(callsFile, 'utf8')
+          .trim()
+          .split('\n')
+          .map((line) => JSON.parse(line) as string[]);
+        expect(calls).toHaveLength(2);
+        for (const args of calls) {
+          expect(args.filter((word) => word === '--no-daemon')).toHaveLength(1);
+          expect(args[args.indexOf('--add-dir') + 1]).toBe(fixture.globalDir);
+        }
+        expect(calls[0]).toContain('fixture-model');
+        expect(calls[1][0]).toBe('resume');
+        expect(calls[1]).toContain(session);
+        expect(existsSync(path.join(home, '.codex/config.toml'))).toBe(false);
+        expect(existsSync(path.join(home, '.codex/hooks.json'))).toBe(false);
+      });
+    });
+
+    it('explains the shared runtime refusal without anonymous delivery and honors explicit identity', async () => {
       await withE2EFixture(
         async (fixture) => {
           const client = await fixture.createMockPane('client');
@@ -63,11 +145,15 @@ describe(
             ['role', 'set', 'wrong owner'],
           ]) {
             const rejected = await fixture.runJsonCli<{
-              error: { code: string; suggestion: string };
+              error: { code: string; reason: string; fix: string };
             }>(args);
             expect(rejected.code).toBe(1);
             expect(rejected.json?.error.code).toBe('CALLER_IDENTITY_AMBIGUOUS');
-            expect(rejected.json?.error.suggestion).toContain('--identity');
+            expect(rejected.json?.error.reason).toBe('codex-shared-server');
+            expect(rejected.json?.error.fix).toBe(
+              args[0] === 'name' ? 'tmt run Wrong codex' : 'tmt run <name> codex'
+            );
+            expect(rejected.stdout).not.toContain('--identity');
             expect(durableState(fixture)).toEqual(before);
             expect(fixture.paneMetadata()).toBe(metadata);
           }
@@ -76,24 +162,31 @@ describe(
           // fenced before it can bind or execute the supplied child.
           const launch = await fixture.runCli(['run', 'Wrong', '/bin/sh', '-c', 'exit 77']);
           expect(launch.code).toBe(1);
-          expect(launch.stderr).toContain('The runtime host does not establish');
-          expect(launch.stderr).toContain('--identity');
+          expect(launch.stderr).toContain("Codex's shared background server");
+          expect(launch.stderr).toContain(
+            'fix: Exit this Codex, then start it with:  tmt run Wrong codex'
+          );
+          expect(launch.stderr).not.toContain('--identity');
           expect(durableState(fixture)).toEqual(before);
           expect(fixture.paneMetadata()).toBe(metadata);
 
-          const anonymousResult = await fixture.runJsonCli<Queued>([
-            'talk',
-            'Alice',
-            'Anonymous from shared host',
-            '--inbox',
-            '--detach',
-          ]);
-          expect(anonymousResult.code).toBe(0);
-          expect(anonymousResult.stderr).toBe(
-            'warning: Sender identity not established on a shared runtime host; using an anonymous sender\nhint: pass --identity <name>\n'
+          const anonymousResult = await fixture.runJsonCli<{
+            error: { code: string; reason: string; fix: string };
+          }>(['talk', 'Alice', 'Anonymous from shared host', '--inbox', '--detach']);
+          expect(anonymousResult.code).toBe(1);
+          expect(anonymousResult.json?.error).toMatchObject({
+            code: 'CALLER_IDENTITY_AMBIGUOUS',
+            reason: 'codex-shared-server',
+            fix: 'tmt run <name> codex',
+          });
+          expect(anonymousResult.stderr).toBe('');
+          expect(requestAttempts(fixture)).toEqual([]);
+          const human = await fixture.runCli(['whoami']);
+          expect(human.code).toBe(1);
+          expect(human.stderr).toContain('cannot name itself, send as itself, or reply');
+          expect(human.stderr).toContain(
+            'fix: Exit this Codex, then start it with:  tmt run <name> codex'
           );
-          expect(anonymousResult.json).toBeDefined();
-          const anonymous = anonymousResult.json!;
           const explicit = expectJsonResult(
             await fixture.runJsonCli<Queued>([
               'talk',
@@ -105,16 +198,9 @@ describe(
               alice.id,
             ])
           );
-          expect(anonymous.status).toBe('queued');
           expect(explicit.status).toBe('queued');
           const attempts = requestAttempts(fixture);
-          expect(attempts).toHaveLength(2);
-          expect(attempts.find((row) => row.request_id === anonymous.requestId)).toMatchObject({
-            originator_kind: 'unknown',
-            originator_identity_id: null,
-            recipient_identity_id: alice.id,
-            message_text: 'Anonymous from shared host',
-          });
+          expect(attempts).toHaveLength(1);
           expect(attempts.find((row) => row.request_id === explicit.requestId)).toMatchObject({
             originator_kind: 'explicit',
             originator_identity_id: alice.id,

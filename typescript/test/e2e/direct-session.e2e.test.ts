@@ -592,10 +592,12 @@ describe('direct provider conversation discovery', { concurrent: false }, () => 
             if (provider === 'claude')
               expect(argv.slice(0, 2)).toEqual(['--resume', expectedSession]);
             else {
-              // Embedded resume inserts session-only hooks after the subcommand
-              // and retains the exact positional thread before --no-daemon.
+              // Embedded resume grants the private state root and inserts session-only
+              // hooks, retaining the exact positional thread before --no-daemon.
               expect(argv).toEqual([
                 'resume',
+                '--add-dir',
+                fixture.globalDir,
                 '-c',
                 expect.stringMatching(/^hooks=/),
                 expectedSession,

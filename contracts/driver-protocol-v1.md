@@ -499,6 +499,20 @@ for the built-in drivers' hooks.
 
 ### Runtime operations
 
+Built-in runtime drivers own interactive launch policy and refusal explanations;
+this adds no external driver wire operation. TMT-managed Codex run/resume (including
+Ops launches) uses embedded `--no-daemon` and grants only the selected TMT data
+directory through `--add-dir`. Explicit remote connections, utility commands and
+the private enrolled channel retain their existing connection modes; provider
+configuration is never edited. A positively identified shared Codex caller keeps
+`CALLER_IDENTITY_AMBIGUOUS`; confirmed storage write denial with `CODEX_SANDBOX` set
+keeps `STORAGE_NOT_WRITABLE`. Their JSON `error` adds `reason` (`codex-shared-server`
+or `codex-sandbox`) and the copyable `fix` command `tmt run <name> codex`, using a
+requested caller name when known. Human output renders the driver's why, consequence
+and `fix:` instruction. The agent must stop and tell the user to restart; it must
+not silently send anonymously or suggest an identity or escalation workaround.
+Other runtimes and storage failures retain their own existing errors.
+
 | Operation | Deadline | Answer bound |
 |---|---|---|
 | `locations` | 1 s | 4 KiB |

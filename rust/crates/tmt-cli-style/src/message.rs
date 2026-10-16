@@ -1,6 +1,7 @@
 //! One-line outcomes: `✓ <done>` on success, `error: <what>` on failure,
 //! `warning: <what>` for a non-fatal problem, each optionally followed by
 //! `hint: <next>`. Exit codes stay with the caller.
+//! A diagnosed limitation may instead name its recovery with `fix: <action>`.
 
 use crate::{
     mark::Mark,
@@ -76,6 +77,16 @@ pub fn hint(output: &mut impl Write, terminal: Terminal, next: &str) -> io::Resu
         output,
         "{} {}",
         terminal.paint(Token::Accent, "hint:"),
+        line(next)
+    )
+}
+
+/// `fix: <recovery action>` supplied by the failing operation's owner.
+pub fn fix(output: &mut impl Write, terminal: Terminal, next: &str) -> io::Result<()> {
+    writeln!(
+        output,
+        "{} {}",
+        terminal.paint(Token::Accent, "fix:"),
         line(next)
     )
 }

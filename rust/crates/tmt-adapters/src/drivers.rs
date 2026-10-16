@@ -258,6 +258,24 @@ impl Registry {
                 found.or_unsupported(identify)
             })
     }
+
+    /// The caller's driver owns its explanation; a probe failure is not a
+    /// diagnosis of a particular provider or mode. Names are shell-quoted by
+    /// the command owner, which knows whether it names its own identity.
+    pub fn caller_refusal(
+        &self,
+        caller: &RuntimeCaller,
+        quoted_name: Option<&str>,
+    ) -> Option<crate::runtime::lifecycle::RuntimeRefusal> {
+        let runtime = self.find(caller.harness.as_str())?.runtime.as_ref()?;
+        (runtime.lifecycle)().caller_refusal(quoted_name)
+    }
+
+    pub fn storage_refusal(&self) -> Option<crate::runtime::lifecycle::RuntimeRefusal> {
+        self.iter()
+            .filter_map(|driver| driver.runtime.as_ref())
+            .find_map(|runtime| (runtime.lifecycle)().storage_refusal())
+    }
 }
 
 /// The first of the driver's executables on `PATH`.

@@ -141,9 +141,21 @@ fn main() {
 }
 
 // Legacy scripted scenarios retain their three positional paths. Both provider
-// launch-hook options and Claude's picker are not extra scenario/report paths. The
-// model-free channel peers execute the generated hooks instead.
+// launch-hook options and Codex's managed launch options are not scenario paths.
+// The model-free channel peers execute the generated hooks instead.
 fn scripted_launch_options(args: &mut Vec<std::ffi::OsString>) {
+    if args.first().is_some_and(|arg| arg == "--no-daemon") {
+        assert!(
+            args.get(1).is_some_and(|arg| arg == "--add-dir"),
+            "managed Codex must name its state root"
+        );
+        assert!(
+            args.get(2)
+                .is_some_and(|root| std::path::Path::new(root).is_absolute()),
+            "managed Codex state root must be absolute"
+        );
+        args.drain(..3);
+    }
     if args.len() < 2 {
         return;
     }
@@ -281,6 +293,55 @@ fn forward_mcp(input: &mut impl Read, output: &mut impl Write) -> io::Result<u64
 mod tests {
     use super::*;
     use std::{net::Shutdown, os::unix::net::UnixStream, time::Duration};
+
+    #[test]
+    fn scripted_paths_survive_managed_codex_options_with_or_without_hooks_and_listen() {
+        for listen in [false, true] {
+            for hooks in [false, true] {
+                let mut original: Vec<std::ffi::OsString> =
+                    ["/cli", "/scenario", "/report"].map(Into::into).to_vec();
+                if listen {
+                    original.push("--listen".into());
+                }
+                let mut args: Vec<std::ffi::OsString> =
+                    ["--no-daemon", "--add-dir", "/private-state"]
+                        .map(Into::into)
+                        .to_vec();
+                args.extend(original.clone());
+                if hooks {
+                    args.extend(["-c".into(), "hooks={Stop=[]}".into()]);
+                }
+                scripted_launch_options(&mut args);
+                assert_eq!(args, original, "listen={listen}, hooks={hooks}");
+            }
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "managed Codex state root must be absolute")]
+    fn scripted_managed_codex_refuses_an_invalid_state_root() {
+        let mut args = [
+            "--no-daemon",
+            "--add-dir",
+            "relative",
+            "/cli",
+            "/scenario",
+            "/report",
+        ]
+        .map(Into::into)
+        .to_vec();
+        scripted_launch_options(&mut args);
+    }
+
+    #[test]
+    fn scripted_unknown_arguments_are_not_silently_discarded() {
+        let original = ["--unknown", "/cli", "/scenario", "/report"]
+            .map(Into::into)
+            .to_vec();
+        let mut args = original.clone();
+        scripted_launch_options(&mut args);
+        assert_eq!(args, original);
+    }
 
     #[test]
     fn scripted_paths_and_listen_survive_both_provider_launch_hook_options() {

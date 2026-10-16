@@ -71,6 +71,13 @@ such as adding a note to a row on the Squad board, has no command.
 
 ### Caller identity
 
+If an error has reason `codex-shared-server` or `codex-sandbox`, stop and tell
+the user: "Exit Codex and restart it with `tmt run <name> codex`." Use the
+error's exact `fix` command when it supplies the name. This agent can still
+receive messages, but cannot name itself, send as itself or reply; anyone
+waiting on it will time out. Do not guess an identity, retry anonymously,
+escalate the command or change provider configuration to bypass this refusal.
+
 When running through a shared runtime host, pass your confirmed identity with
 `--identity <name-or-UUID>` on `talk`, `x`, `role` and other commands supporting
 that option. An inherited pane or session environment variable is not proof of
@@ -136,11 +143,11 @@ directory when opening storage, consistently across core commands and `api`;
 other storage failures keep their command-specific codes. `TMUX_PERMISSION_DENIED`
 (exit 1) means tmux socket access was denied. TMT preserves tmux's locale and UTF-8
 handling; localized diagnostic wording does not establish a denial by itself.
-An agent sandbox may need the provider's normal escalation for the same authorized
-command. An identical `reply` retry is safe only when the error says nothing was
+For other sandbox failures, the provider's normal escalation may be needed for the
+same authorized command. An identical `reply` retry is safe only when the error says nothing was
 stored; keep the request ID, receipt and body unchanged. Never delete storage or
-invent tmux caller variables. A user may optionally allow the data directory in
-Codex `writable_roots`; the agent must not change that setting without consent.
+invent tmux caller variables. TMT-managed Codex launches allow the TMT data directory
+through launch arguments; they never edit provider configuration.
 
 `help`, `-V`/`--version`, `learn` and `run` reject
 `--json` with `JSON_UNSUPPORTED`; run them without that flag.
@@ -850,8 +857,9 @@ app-server and supervisor per enrolled foreground, cleaned on exit and Ctrl-C.
 Folder trust is answered by the user in Codex's TUI; accepted queued input may
 wait for attachment. Enrollment never changes global provider config, auth or hooks.
 
-`tmt run [-s] <name> <command...>` binds this tmux pane and starts the exact
+`tmt run [-s] <name> <command...>` binds this tmux pane and starts the requested
 foreground with its terminal streams and normal Ctrl-C/Ctrl-Z/`fg` job control.
+Its driver may add invocation-only integration arguments.
 TMT options, including `-s`/`--save` and `--resume`, go before the name; every
 argument after it belongs to the command, without requiring a `--` separator.
 The executable itself cannot start with `-`; misplaced TMT flags such as

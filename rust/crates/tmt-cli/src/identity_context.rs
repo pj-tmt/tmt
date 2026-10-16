@@ -66,7 +66,7 @@ fn select(
     if let Err(error) = crate::caller_context::require_independent_host() {
         // Anonymous delivery remains valid, but must not acquire the identity
         // of an unrelated conversation through the shared host's pane.
-        return if allow_anonymous {
+        return if allow_anonymous && !error.has_runtime_refusal() {
             // This is an attribution notice, not a delivery-success claim.
             // Emit in JSON mode too without changing the stdout document.
             let mut stderr = tmt_cli_style::stream::stderr();

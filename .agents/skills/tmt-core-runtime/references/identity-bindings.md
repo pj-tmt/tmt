@@ -86,8 +86,9 @@ delivery. They install and launch nothing.
   pane gets the unbound hint.
 - Caller identification asks the runtime driver's `identify_caller` first. A shared Codex
   app-server's inherited pane is not evidence of the invoking conversation: a positively observed
-  app-server rejects required implicit attribution before any effect, optional senders stay
-  anonymous with one stderr notice, and an unavailable probe fails closed only with a thread
+  app-server rejects implicit attribution before any effect, including an optional sender,
+  with the driver's reason and restart fix. Other ambiguous runtimes keep the generic optional
+  anonymous-sender notice. An unavailable probe fails closed only with a thread
   marker present. A thread ID is a hint, never an identity source.
 - Ordinary CLI commands may remember a direct provider conversation after flushing
   their own output. Matching remembered coordinates skip host/provider work only when a
@@ -170,7 +171,7 @@ delivery. They install and launch nothing.
   never renew timestamps, timestamps are accepted observation times, and `ended` needs a
   conclusive process observation.
 - Competing executable claims resolve by descending priority, then harness ID. Explicit launches
-  select argv verbatim; optional driver-owned session settings are composed afterward. Bare
+  select supplied argv verbatim; driver-owned session settings and final foreground policy compose afterward. Bare
   relaunch resolves the registered executable with no arguments. Exact resume instead uses
   the associated `resume.launch` metadata preset: exact executable, driver-extracted model
   and effort, and only `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`/`CLAUDE_MINI_PCT`. It never stores

@@ -488,6 +488,7 @@ mod tests {
                     "-c",
                     "model_reasoning_effort=\"high\"",
                     remembered.provider_session.as_str(),
+                    "--no-daemon",
                 ]
             };
             assert_eq!(

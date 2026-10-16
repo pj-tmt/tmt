@@ -283,6 +283,33 @@ fn identify_caller() -> tmt_core::driver::ActionResult<tmt_core::driver::caller:
 
 struct CodexRuntime;
 
+fn runtime_refusal(
+    reason: &'static str,
+    why: &'static str,
+    quoted_name: Option<&str>,
+) -> crate::runtime::lifecycle::RuntimeRefusal {
+    let fix = format!("tmt run {} {NAME}", quoted_name.unwrap_or("<name>"));
+    crate::runtime::lifecycle::RuntimeRefusal {
+        reason,
+        why,
+        consequence: "This agent can still receive messages, but it cannot name itself, send as itself, or reply; anyone waiting on it will time out.",
+        instruction: format!("Exit this Codex, then start it with:  {fix}"),
+        fix,
+    }
+}
+
+fn sandbox_refusal(
+    sandbox: Option<&std::ffi::OsStr>,
+) -> Option<crate::runtime::lifecycle::RuntimeRefusal> {
+    sandbox.map(|_| {
+        runtime_refusal(
+            "codex-sandbox",
+            "This Codex runs commands in its sandbox, which blocks writes to TMT storage.",
+            None,
+        )
+    })
+}
+
 impl tmt_core::driver::Driver for CodexRuntime {
     type Target = tmt_core::binding::BindingEntry;
     type Error = crate::runtime::RuntimeError;
@@ -329,9 +356,7 @@ impl tmt_core::driver::Driver for CodexRuntime {
             args.extend(["-m".into(), model.into()]);
         }
         args.push(resume.session.as_str().into());
-        if resume.mode.as_str() == MODE_EMBEDDED {
-            args.push("--no-daemon".into());
-        }
+        args.push("--no-daemon".into());
         ActionResult::Completed(crate::runtime::RuntimeCommand {
             executable: NAME.into(),
             args,
@@ -387,6 +412,128 @@ pub fn record_client_exit(
 pub struct CodexLifecycle;
 
 impl crate::runtime::lifecycle::RuntimeLifecycle for CodexLifecycle {
+    fn prepare_launch(
+        &self,
+        command: &mut crate::runtime::RuntimeCommand,
+        state_directory: &std::path::Path,
+        exact_resume: bool,
+    ) {
+        // Only provider options select a connection mode. A flag-looking prompt,
+        // option value or text after `--` never does.
+        let mut words = command.args.iter();
+        let mut embedded =
+            exact_resume && command.args.last().is_some_and(|arg| arg == "--no-daemon");
+        let mut writable = false;
+        while let Some(word) = words.next().and_then(|word| word.to_str()) {
+            if word == "--" {
+                break;
+            }
+            let (flag, inline) = word
+                .split_once('=')
+                .map_or((word, None), |(k, v)| (k, Some(v)));
+            if flag == "--remote" {
+                return;
+            }
+            if flag == "--no-daemon" {
+                embedded = true;
+                continue;
+            }
+            if flag == "--add-dir" {
+                let value = inline
+                    .map(std::ffi::OsStr::new)
+                    .or_else(|| words.next().map(|v| v.as_os_str()));
+                writable |= value == Some(state_directory.as_os_str());
+                continue;
+            }
+            if matches!(
+                flag,
+                "-c" | "--config"
+                    | "--enable"
+                    | "--disable"
+                    | "-m"
+                    | "--model"
+                    | "-s"
+                    | "--sandbox"
+                    | "-a"
+                    | "--ask-for-approval"
+                    | "-C"
+                    | "--cd"
+                    | "-p"
+                    | "--profile"
+                    | "--local-provider"
+                    | "--remote-auth-token-env"
+                    | "-i"
+                    | "--image"
+            ) {
+                if inline.is_none() {
+                    words.next();
+                }
+            } else if !word.starts_with('-') {
+                if matches!(word, "resume" | "fork") {
+                    continue;
+                }
+                if matches!(
+                    word,
+                    "app-server"
+                        | "agents"
+                        | "exec"
+                        | "e"
+                        | "review"
+                        | "login"
+                        | "logout"
+                        | "mcp"
+                        | "plugin"
+                        | "remote-control"
+                        | "app"
+                        | "completion"
+                        | "update"
+                        | "doctor"
+                        | "sandbox"
+                        | "debug"
+                        | "apply"
+                        | "a"
+                        | "queue"
+                        | "archive"
+                        | "delete"
+                        | "migrate-rollouts"
+                        | "unarchive"
+                        | "cloud"
+                        | "exec-server"
+                        | "features"
+                        | "help"
+                ) {
+                    return;
+                }
+                break;
+            }
+        }
+        let mut options = Vec::new();
+        if !embedded {
+            options.push("--no-daemon".into());
+        }
+        if !writable {
+            options.extend(["--add-dir".into(), state_directory.as_os_str().to_owned()]);
+        }
+        // Exact resumes retain their provider-owned subcommand grammar.
+        let index = usize::from(command.args.first().is_some_and(|arg| arg == "resume"));
+        command.args.splice(index..index, options);
+    }
+
+    fn caller_refusal(
+        &self,
+        name: Option<&str>,
+    ) -> Option<crate::runtime::lifecycle::RuntimeRefusal> {
+        Some(runtime_refusal(
+            "codex-shared-server",
+            "This Codex runs commands through Codex's shared background server, so TMT cannot tell which pane they come from.",
+            name,
+        ))
+    }
+
+    fn storage_refusal(&self) -> Option<crate::runtime::lifecycle::RuntimeRefusal> {
+        sandbox_refusal(std::env::var_os("CODEX_SANDBOX").as_deref())
+    }
+
     fn launch_settings(
         &self,
         args: &[std::ffi::OsString],
@@ -768,6 +915,117 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn managed_foreground_launch_and_fallback_are_embedded_with_only_the_state_root_added() {
+        use crate::runtime::{RuntimeCommand, lifecycle::RuntimeLifecycle};
+        for (args, expected) in [
+            (vec![], vec!["--no-daemon", "--add-dir", "/state"]),
+            (
+                vec!["hello"],
+                vec!["--no-daemon", "--add-dir", "/state", "hello"],
+            ),
+            (
+                vec!["--", "--remote"],
+                vec!["--no-daemon", "--add-dir", "/state", "--", "--remote"],
+            ),
+            (
+                vec!["--no-daemon"],
+                vec!["--add-dir", "/state", "--no-daemon"],
+            ),
+            (
+                vec!["--remote", "ws://local"],
+                vec!["--remote", "ws://local"],
+            ),
+            (vec!["app-server"], vec!["app-server"]),
+            (
+                vec!["--model", "--remote", "hello"],
+                vec![
+                    "--no-daemon",
+                    "--add-dir",
+                    "/state",
+                    "--model",
+                    "--remote",
+                    "hello",
+                ],
+            ),
+            (
+                vec!["--add-dir", "/user-root"],
+                vec![
+                    "--no-daemon",
+                    "--add-dir",
+                    "/state",
+                    "--add-dir",
+                    "/user-root",
+                ],
+            ),
+        ] {
+            let mut command = RuntimeCommand {
+                executable: NAME.into(),
+                args: args.into_iter().map(Into::into).collect(),
+            };
+            CodexLifecycle.prepare_launch(&mut command, std::path::Path::new("/state"), false);
+            assert_eq!(
+                command.args,
+                expected
+                    .iter()
+                    .map(std::ffi::OsString::from)
+                    .collect::<Vec<_>>()
+            );
+            CodexLifecycle.prepare_launch(&mut command, std::path::Path::new("/state"), false);
+            assert_eq!(
+                command.args,
+                expected
+                    .iter()
+                    .map(std::ffi::OsString::from)
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn sandbox_diagnosis_requires_the_marker_and_does_not_infer_it_from_a_thread() {
+        assert!(sandbox_refusal(None).is_none());
+        for value in ["", "seatbelt", "other-platform"] {
+            let refusal = sandbox_refusal(Some(std::ffi::OsStr::new(value))).unwrap();
+            assert_eq!(refusal.reason, "codex-sandbox");
+            assert_eq!(refusal.fix, "tmt run <name> codex");
+            assert!(refusal.why.contains("blocks writes to TMT storage"));
+            assert!(!refusal.instruction.contains("escalat"));
+        }
+    }
+
+    #[test]
+    fn exact_resume_adds_the_state_root_without_losing_its_session_or_embedded_mode() {
+        use crate::runtime::{RuntimeCommand, lifecycle::RuntimeLifecycle};
+        let mut command = RuntimeCommand {
+            executable: NAME.into(),
+            args: [
+                "resume",
+                "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+                "--no-daemon",
+            ]
+            .into_iter()
+            .map(Into::into)
+            .collect(),
+        };
+        for _ in 0..2 {
+            CodexLifecycle.prepare_launch(&mut command, std::path::Path::new("/state"), true);
+            assert_eq!(
+                command.args,
+                [
+                    "resume",
+                    "--add-dir",
+                    "/state",
+                    "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+                    "--no-daemon"
+                ]
+                .iter()
+                .map(std::ffi::OsString::from)
+                .collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
     fn replayed_settings_preserve_exact_resume_channel_admission_and_attachment() {
         use crate::runtime::{RuntimeRegistry, launch_preset::LaunchSettings};
         use tmt_core::{
@@ -822,9 +1080,7 @@ mod tests {
                         expected.extend(["-m".into(), observed.into()]);
                     }
                     expected.push(session.as_str().into());
-                    if mode == MODE_EMBEDDED {
-                        expected.push("--no-daemon".into());
-                    }
+                    expected.push("--no-daemon".into());
                     assert_eq!(command.args, expected);
                     let options = attachment::LaunchOptions::for_launch(
                         &command,

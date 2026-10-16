@@ -179,7 +179,7 @@ pub fn resume_with_options(
 }
 
 fn run(request: RunRequest<'_>) -> Result<u8, Failure> {
-    crate::caller_context::require_independent_host()?;
+    crate::caller_context::require_independent_host_for(Some(request.name))?;
     let paths = ConfigPaths::discover().map_err(Failure::from)?;
     let settings = ConfigFiles {
         paths: paths.clone(),
