@@ -114,7 +114,14 @@ impl Band {
             );
         } else if row <= self.timers.rows.len().max(1) {
             if let Some(timer) = self.timers.rows.get(row - 1) {
-                timer_rows::paint(frame.buffer_mut(), slot, timer, look);
+                strip::paint_left(
+                    frame.buffer_mut(),
+                    slot,
+                    crate::board::search_field::highlight_line(
+                        timer_rows::line(timer, usize::from(slot.width), look),
+                        &app.workspace.query,
+                    ),
+                );
             } else {
                 empty_state::paint(
                     frame.buffer_mut(),

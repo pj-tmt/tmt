@@ -18,7 +18,6 @@ impl Model {
 
 pub(super) fn project(app: &App) -> Model {
     let title = if app.workspace.visibility.scope.is_empty()
-        && app.workspace.query.is_empty()
         && (app.workspace.visibility.reveal_hidden
             || app
                 .workspace_snapshot()
@@ -89,6 +88,27 @@ pub(super) fn project(app: &App) -> Model {
             ClockStatus::Unknown => note.push_str(" · clock unknown"),
         }
     }
+    // Search all held jobs before the preview limit; a later match must remain
+    // discoverable. Counts describe this projection, never a fresh service read.
+    let query = app.workspace.query.to_lowercase();
+    jobs.retain(|view| {
+        [
+            view.job.id(),
+            view.job.squad.clone(),
+            crate::cron_service::schedule_text(&view.job.schedule),
+            view.job.message.lines().next().unwrap_or("").to_owned(),
+        ]
+        .iter()
+        .any(|text| {
+            crate::board::notes::sanitize(text)
+                .to_lowercase()
+                .contains(&query)
+        })
+    });
+    let matching = jobs.len();
+    if !query.is_empty() {
+        note = format!("{matching} of {total} timers · {note}");
+    }
     let rows = jobs
         .iter()
         .take(timer_rows::MAX_ROWS)
@@ -122,11 +142,13 @@ pub(super) fn project(app: &App) -> Model {
         .collect();
     Model {
         rows,
-        total,
+        total: matching,
         title,
         note,
         empty: if stale {
             "Timers unavailable."
+        } else if !query.is_empty() {
+            "No matching timers."
         } else {
             "No timers."
         },

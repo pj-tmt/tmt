@@ -49,7 +49,10 @@ Overview and Agents share the always-visible search field after FilterBar chips.
 `/` edits the retained query; typing filters live, with bold-only matches. Up/Down
 move through filtered rows while typing; Enter keeps the filter and returns list
 keys; Escape clears from typing or applied state; empty Backspace ends typing.
-Counts belong to section rules, not FilterBar. Transient footer feedback keeps
+Counts belong to section rules, not FilterBar. Overview applies the query to held
+Timers before the three-row preview limit, matching displayed ID, squad, schedule
+or purpose. Its rule counts all matching jobs against the unsearched observation;
+stale and unavailable observations stay explicit. Transient footer feedback keeps
 key hints and uses a right-hand neutral filled chip; only a failure mark is red.
 App owns its message and failure/expiry metadata; the existing UI loop expires it
 after four seconds, and the next key dismisses it. Notices resolve identity names

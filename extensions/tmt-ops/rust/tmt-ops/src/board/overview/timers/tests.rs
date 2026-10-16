@@ -105,3 +105,56 @@ fn countdown_is_snapshot_relative_and_never_fabricates_a_future_zero() {
         assert_eq!(cronboard::countdown(TEST_NOW + delta, TEST_NOW), text);
     }
 }
+
+#[test]
+fn search_filters_before_preview_limit_and_counts_all_matching_held_jobs() {
+    let _no_commands = crate::runner::forbid_commands();
+    let mut app = board();
+    let mut jobs = test_views(5, "team", "room");
+    jobs[3].job.message = "Ship the release".into();
+    jobs[4].job.message = "Review the RELEASE".into();
+    app.cron.replace(Ok(test_cron(jobs, running())));
+    app.workspace.query = "release".into();
+    let model = project(&app);
+    assert_eq!(model.title, "Timers");
+    assert_eq!(model.total, 2);
+    assert_eq!(
+        model
+            .rows
+            .iter()
+            .map(|row| row.id.as_str())
+            .collect::<Vec<_>>(),
+        ["c4", "c5"]
+    );
+    assert!(model.note.starts_with("2 of 5 timers · "), "{}", model.note);
+    app.workspace.query = "team".into();
+    let model = project(&app);
+    assert_eq!(model.rows.len(), 3);
+    assert_eq!(model.total, 5);
+    assert!(model.note.starts_with("5 of 5 timers · "));
+    app.workspace.query = "c5".into();
+    let model = project(&app);
+    assert_eq!(model.total, 1);
+    assert_eq!(model.rows[0].id, "c5");
+    app.workspace.query = "absent".into();
+    let model = project(&app);
+    assert!(model.rows.is_empty());
+    assert_eq!(model.empty, "No matching timers.");
+    assert!(model.note.starts_with("0 of 5 timers · "));
+}
+
+#[test]
+fn filtered_stale_and_unacquired_timers_never_claim_current_empty_observation() {
+    let mut app = board();
+    app.workspace.query = "absent".into();
+    let unavailable = project(&app);
+    assert_eq!(unavailable.note, "unavailable");
+    assert_eq!(unavailable.empty, "Timers unavailable.");
+    app.cron
+        .replace(Ok(test_cron(test_views(5, "team", "room"), running())));
+    app.cron.replace(Err("unavailable".into()));
+    let stale = project(&app);
+    assert!(stale.rows.is_empty());
+    assert_eq!(stale.note, "0 of 5 timers · stale");
+    assert_eq!(stale.empty, "Timers unavailable.");
+}
