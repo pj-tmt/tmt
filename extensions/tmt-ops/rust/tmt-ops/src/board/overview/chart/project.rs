@@ -99,7 +99,7 @@ pub(in crate::board) fn spark_rows(series: &Series) -> crate::board::spark_row::
                     .map(|bucket| {
                         bucket.tokens.map(|total| {
                             driver.map_or_else(
-                                || total - bucket.providers.values().sum::<u64>(),
+                                || total.saturating_sub(bucket.providers.values().sum::<u64>()),
                                 |driver| bucket.providers.get(driver).copied().unwrap_or(0),
                             )
                         })

@@ -31,6 +31,12 @@ use tmt_tui::{
     geometry, paint, text,
 };
 
+const NUMERIC_TRACK_WIDTH: usize = 11;
+const MIN_SHARE_WIDTH: usize = 8;
+const QUOTA_GAP_WIDTH: usize = 3;
+const BOTH_QUOTAS_WIDTH: u16 = 36;
+const COMPACT_QUOTA_WIDTH: u16 = 16;
+
 const FILE: &str = "ops.board.spark-row.xml";
 const MARKUP: &str = r#"<tmt-view version="1" class="w-full">
 <tmt-repeat each="$.rows" as="row"><tmt-row id-bind="row.id" class="w-full h-1">
@@ -110,13 +116,13 @@ pub struct Scene {
 pub(in crate::board) fn quota_width(width: u16, data: &Data) -> u16 {
     let needed = usize::from(data.name_width)
         + 1
-        + 11
-        + unicode_width::UnicodeWidthStr::width(data.share_caption.as_str()).max(8)
+        + NUMERIC_TRACK_WIDTH
+        + unicode_width::UnicodeWidthStr::width(data.share_caption.as_str()).max(MIN_SHARE_WIDTH)
         + data.buckets;
-    if usize::from(width) >= needed + 39 {
-        36
-    } else if usize::from(width) >= needed + 19 {
-        16
+    if usize::from(width) >= needed + usize::from(BOTH_QUOTAS_WIDTH) + QUOTA_GAP_WIDTH {
+        BOTH_QUOTAS_WIDTH
+    } else if usize::from(width) >= needed + usize::from(COMPACT_QUOTA_WIDTH) + QUOTA_GAP_WIDTH {
+        COMPACT_QUOTA_WIDTH
     } else {
         0
     }
@@ -131,14 +137,15 @@ impl Scene {
             return Err("Spark rows must share one nonempty bucket grid".into());
         }
         let name_width = usize::from(data.name_width);
-        let share_width = unicode_width::UnicodeWidthStr::width(data.share_caption.as_str()).max(8);
+        let share_width =
+            unicode_width::UnicodeWidthStr::width(data.share_caption.as_str()).max(MIN_SHARE_WIDTH);
         let tail = if quota_width > 0 {
-            usize::from(quota_width) + 3
+            usize::from(quota_width) + QUOTA_GAP_WIDTH
         } else {
             0
         };
-        let Some(spark_width) =
-            usize::from(width).checked_sub(name_width + 1 + 11 + share_width + tail)
+        let Some(spark_width) = usize::from(width)
+            .checked_sub(name_width + 1 + NUMERIC_TRACK_WIDTH + share_width + tail)
         else {
             return Err("Spark rows need room for names and numeric tracks".into());
         };
@@ -155,7 +162,7 @@ impl Scene {
             json!({"id":"heading-share","text":format!("  {:>share_width$}",data.share_caption)}),
         ];
         if quota_width > 0 {
-            heading.push(json!({"id":"heading-quota","text":if quota_width>=36 {format!("   {}left{}left"," ".repeat(13)," ".repeat(15))}else{" ".repeat(usize::from(quota_width)+3)}}));
+            heading.push(json!({"id":"heading-quota","text":if quota_width>=BOTH_QUOTAS_WIDTH {format!("   {}left{}left"," ".repeat(13)," ".repeat(15))}else{" ".repeat(usize::from(quota_width)+QUOTA_GAP_WIDTH)}}));
         }
         let mut rows = vec![json!({"id":"headings","pieces":heading})];
         let fallback = Row {
