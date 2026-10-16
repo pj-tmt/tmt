@@ -6674,10 +6674,11 @@ fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
     assert_eq!(fs::read_dir(&pilot.root).unwrap().count(), 1);
 }
 
-/// #2842: the shipped skill teaches only flags and error codes the CLI and the contract define, so
-/// guidance and `--help` cannot drift apart unnoticed. Help is pure clap output and needs no state.
+/// #2842: the shipped skill teaches only flags the CLI ships, so guidance and `--help` cannot drift
+/// apart unnoticed. Help is pure clap output and needs no state. The error codes it names are
+/// checked against the contract by the Colab app tests (`ask.test.ts`), which need no binary.
 #[test]
-fn the_skill_and_its_editing_reference_name_only_flags_and_codes_the_cli_ships() {
+fn the_skill_and_its_editing_reference_name_only_flags_the_cli_ships() {
     let help = |args: &[&str]| -> String {
         let output = Command::new(BINARY)
             .env_clear()
@@ -6697,7 +6698,6 @@ fn the_skill_and_its_editing_reference_name_only_flags_and_codes_the_cli_ships()
         "page create",
     ]
     .map(|name| (name, help(&name.split(' ').collect::<Vec<_>>())));
-    let contract = include_str!("../../../contracts/colab-v1.md");
     let sources = [
         (
             "SKILL.md",
@@ -6709,16 +6709,6 @@ fn the_skill_and_its_editing_reference_name_only_flags_and_codes_the_cli_ships()
         ),
     ];
     for (name, text) in sources {
-        let tokens = || {
-            text.split(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '_'))
-                .filter(|token| token.len() > 2)
-        };
-        for code in tokens().filter(|token| token.starts_with("COLAB_")) {
-            assert!(
-                contract.contains(code),
-                "{name} names {code}, which the contract does not define"
-            );
-        }
         // A command line in a fenced block that names a page subcommand lists only its flags.
         let mut fenced = false;
         for line in text.lines() {
