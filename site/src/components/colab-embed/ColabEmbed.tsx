@@ -212,7 +212,8 @@ export function ColabEmbed() {
     if (!mode) return;
     const select = (event: MouseEvent) => {
       const target = event.target instanceof Element ? event.target : null;
-      if (!target || target.closest("#tmt-colab-embed") || busy) return;
+      if (!target || target.closest("#tmt-colab-embed") || busy || submission.current?.pending)
+        return;
       const selection = window.getSelection();
       const quote = selection?.toString().trim().slice(0, 2000) ?? "";
       if (!quote && !event.altKey && active && !reattaching) {
@@ -257,7 +258,7 @@ export function ColabEmbed() {
       setSetup(false);
     };
     const escape = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !busy) {
+      if (event.key === "Escape" && !busy && !submission.current?.pending) {
         setActive(null);
         setReattaching(null);
         setSetup(false);
@@ -477,6 +478,7 @@ export function ColabEmbed() {
           aria-label="Colab details"
           aria-expanded={setup}
           onClick={() => {
+            if (busy || submission.current?.pending) return;
             setSetup(!setup);
             setActive(null);
           }}
@@ -506,6 +508,7 @@ export function ColabEmbed() {
                 style={{ position: "absolute", ...positions[item.id] }}
                 aria-label={`Open annotation ${index + 1}: ${item.anchor.quote.slice(0, 60) || "Component"}`}
                 onClick={() => {
+                  if (busy || submission.current?.pending) return;
                   setActive(item.id);
                   setSetup(false);
                 }}
@@ -564,6 +567,7 @@ export function ColabEmbed() {
               key={item.id}
               className="ce-thread-link"
               onClick={() => {
+                if (busy || submission.current?.pending) return;
                 setMode(true);
                 setSetup(false);
                 setActive(item.id);
@@ -603,6 +607,7 @@ export function ColabEmbed() {
                 aria-label={thread.resolved ? "Reopen annotation" : "Resolve annotation"}
                 disabled={busy}
                 onClick={() => {
+                  if (busy || submission.current?.pending) return;
                   update(thread.id, { resolved: !thread.resolved });
                   if (!thread.resolved) setActive(null);
                 }}
@@ -621,6 +626,7 @@ export function ColabEmbed() {
                 aria-label="Close annotation"
                 disabled={busy}
                 onClick={() => {
+                  if (busy || submission.current?.pending) return;
                   setActive(null);
                   fab.current?.focus();
                 }}
@@ -639,6 +645,7 @@ export function ColabEmbed() {
                 <p>✗ Anchor changed after a page edit. This discussion and its draft are kept.</p>
                 <button
                   onClick={() => {
+                    if (busy || submission.current?.pending) return;
                     setReattaching(thread.id);
                     setActive(null);
                   }}
