@@ -2368,9 +2368,41 @@ and explicit) or Try again. A plain comment remains available under content-writ
 directory discovery loads or fails.
 Composer copy comes from the page connection owner: ended shows the same ended
 sentence/action as the page, reconnecting shows "Reconnecting…" with Send disabled
-and the draft retained. These take precedence over recipient/discovery and pre-record
-failures; already recorded or uncertain turns retain their own status. Connected
-composers retain genuine recipient/policy and record-failure guidance.
+and the draft retained. Connection guidance takes precedence over recipient/discovery
+hints, but never hides an explicit Send failure. Every pre-publication refusal keeps
+the draft and displays a composer-local `role=alert` with the existing failure copy
+and a closed reason reference. That notice survives connection changes and automatic
+editor normalization; a deliberate text edit or explicit retry clears it. Repeated
+refusals are announced again. Already recorded or uncertain turns retain their own
+status; a post-record failure never offers an automatic resend.
+
+Send references describe only the local branch, never error text or identifiers:
+
+| Reference | Branch                                                 |
+| --------- | ------------------------------------------------------ |
+| S1        | Another Send is busy                                   |
+| S2        | A prior message was recorded with an uncertain outcome |
+| S3        | The page is archived                                   |
+| S4        | Posting is on hold                                     |
+| S5        | The discussion writer is unavailable                   |
+| S6        | Current recipient or write admission refuses Send      |
+| S7        | Mentioned recipients have no Ask binding               |
+| S8        | The draft is empty                                     |
+| S9        | Capturing the message failed                           |
+| S10       | Attachment preparation refused                         |
+| S11       | Attachment preparation threw                           |
+| S12       | Recording the comment failed                           |
+| S13       | An unexpected failure followed recording               |
+| S14       | An attachment became stale                             |
+| S15       | The own-record leader refused a record conflict        |
+| S16       | The own append was refused                             |
+| S17       | The Remote session ended                               |
+| S18       | The Remote session was evicted                         |
+| S19       | The Remote sequence is unavailable                     |
+| S20       | Evaluating Send admission threw                        |
+
+These references are ephemeral presentation state, never persisted, sent, logged
+with message contents, or used as admission authority.
 
 Each Ask freezes and signs the exact composed text with the real thread and message
 IDs. A trusted "Ask again" action can prepare one new operation for one unsent

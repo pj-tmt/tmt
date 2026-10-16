@@ -142,6 +142,7 @@ export const text = {
   messageRecordedUncertain:
     'The turn was recorded, but delivery is unavailable or uncertain. Check the thread before sending again.',
   messageRecordFailed: 'The turn could not be recorded.',
+  messageSendReference: (reference: string) => `(ref ${reference})`,
   messageAnother: 'Write another message',
   messageOpenRecorded: 'Open recorded thread',
   draftsNotSaved: 'Drafts are not saved on this device.',
