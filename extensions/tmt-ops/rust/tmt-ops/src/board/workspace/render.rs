@@ -171,14 +171,16 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     }
     app.conversation.borrow_mut().pane = placement.conversation;
     if let Some(detail) = placement.conversation {
-        if app.shell.tab == OpsTab::Overview && frame.area().width >= 140 {
+        if let Some(target) = app.workspace_retained_search_target() {
+            if matches!(target, OpsTarget::Member { .. }) {
+                crate::board::conversation::render_retained(frame, app, detail, target);
+            } else {
+                squad_detail(frame, app, detail);
+            }
+        } else if app.shell.tab == OpsTab::Overview && frame.area().width >= 140 {
             crate::board::overview::composition::wide::render(frame, app, placement.list, detail);
         } else if app.workspace_selected_member().is_some() {
             crate::board::conversation::render(frame, app, detail);
-        } else if let Some(target @ OpsTarget::Member { .. }) =
-            app.workspace_retained_search_target()
-        {
-            crate::board::conversation::render_retained(frame, app, detail, target);
         } else {
             squad_detail(frame, app, detail);
         }

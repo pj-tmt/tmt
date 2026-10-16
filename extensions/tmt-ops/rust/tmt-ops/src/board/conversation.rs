@@ -896,7 +896,7 @@ fn render_target(
         return;
     }
     if let Some(source) = &mut session.exact_source {
-        source::paint(frame, app, source, &target, body, look, interactive);
+        source::paint_with_interactivity(frame, app, source, &target, body, look, interactive);
         state.header_hits = painted_controls;
         return;
     }

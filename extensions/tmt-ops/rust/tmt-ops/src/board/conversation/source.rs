@@ -248,6 +248,17 @@ pub(super) fn paint(
     target: &RowTarget,
     body: Rect,
     look: Look,
+) {
+    paint_with_interactivity(frame, app, source, target, body, look, true);
+}
+
+pub(super) fn paint_with_interactivity(
+    frame: &mut Frame,
+    app: &App,
+    source: &mut Source,
+    target: &RowTarget,
+    body: Rect,
+    look: Look,
     interactive: bool,
 ) {
     source.invalidate();
