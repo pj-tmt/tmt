@@ -759,9 +759,8 @@ impl Owned {
         }
     }
 
-    /// Whether the group this driver leads still has a member. The system
-    /// never gives a new process a pid equal to a live group's id, so a
-    /// non-empty group with this id is still the driver's.
+    /// Whether any process group with the driver's id has a member. Read
+    /// only: once the driver is gone, the id may name a stranger's group.
     fn group_occupied(&self) -> bool {
         !matches!(
             nix::sys::signal::killpg(self.pid(), None),
@@ -774,14 +773,19 @@ impl Owned {
         self.seen() == Seen::Ended && !(self.group && self.group_occupied())
     }
 
-    /// SIGKILL to what is still the fixture's: this exact process, or the
-    /// driver's group while it has a member.
+    /// SIGKILL, only while this exact incarnation is still seen live or
+    /// stopped: it anchors the pid, and for a driver the group it leads.
+    /// Once the anchor is gone nothing is signalled, never a numeric group;
+    /// the driver's children then end by themselves, and `ended` waits for
+    /// that read-only.
     fn kill(&self) {
         use nix::sys::signal::{Signal::SIGKILL, kill, killpg};
-        if self.group && self.group_occupied() {
-            let _ = killpg(self.pid(), SIGKILL);
-        } else if matches!(self.seen(), Seen::Live | Seen::Stopped) {
-            let _ = kill(self.pid(), SIGKILL);
+        if matches!(self.seen(), Seen::Live | Seen::Stopped) {
+            let _ = if self.group {
+                killpg(self.pid(), SIGKILL)
+            } else {
+                kill(self.pid(), SIGKILL)
+            };
         }
     }
 }
