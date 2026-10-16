@@ -103,34 +103,36 @@ export class HostedPageReader {
           ? await hostedCheckpointSet(await this.discover('checkpoints', {}, call), this.scope)
           : [];
       const checkpointPairs = paired(checkpoints),
-        writers = new Set(checkpointPairs.map((pair) => pair[0].header.context.authorDevice));
+        writers = new Set([
+          ...this.knownWriters,
+          ...checkpointPairs.map((pair) => pair[0].header.context.authorDevice),
+        ]);
       const logChanged = !this.started || resources.has('log');
-      if (logChanged) {
-        for (const document of await this.discover('log', {}, call)) {
-          const original = await hostedLog(document, this.scope);
-          writers.add(original.header.context.authorDevice);
-          if (
-            original.header.context.authorDevice === a.registration.deviceId &&
-            original.publisherUid !== this.port.context.uid
-          )
-            this.ownStreamInUse = true;
-        }
+      // Initial catch-up observes every referenced writer, including one with a missing proof.
+      // Later wakes use the bounded chain inventory rather than re-reading retained history.
+      if (!this.started) {
+        for (const document of await this.discover('log', {}, call))
+          writers.add((await hostedLog(document, this.scope)).header.context.authorDevice);
       }
+      const chains =
+        logChanged ||
+        resources.has('authority') ||
+        [...writers].some((writer) => !this.knownWriters.has(writer))
+          ? (await this.authority('chain', '', call)).map((bytes) => {
+              const chain = certificate.Chain.fromJson(bytes);
+              return { deviceId: chain.certificate().deviceId, chain: encodeBinary(bytes) };
+            })
+          : [];
+      // A dormant device may write later without a membership change. Empty is never cached.
+      // Inventory IDs only route reads; the existing verifier admits proofs for observed authors.
+      const candidates = new Set([...writers, ...chains.map((chain) => chain.deviceId)]);
+      const admitChains = async (observed: ReadonlySet<string>) => {
+        const selected = chains.filter((chain) => observed.has(chain.deviceId));
+        for (let index = 0; index < selected.length; index += 64)
+          await a.chains(selected.slice(index, index + 64));
+      };
       requireValue(writers.size <= 256);
-      // A new writer's log/checkpoint wakes the page even when membership has not changed.
-      // Fetch its owner-issued certificate through the same bounded discovery, without a timer.
-      if ([...writers].some((writer) => !this.knownWriters.has(writer))) {
-        // Discovery also carries nonwriting link-device proofs. Only observed authors enter
-        // the existing strict member-chain verifier; never discard a referenced writer's chain.
-        const chains = (await this.authority('chain', '', call))
-          .map((bytes) => {
-            const chain = certificate.Chain.fromJson(bytes);
-            return { deviceId: chain.certificate().deviceId, chain: encodeBinary(bytes) };
-          })
-          .filter((chain) => writers.has(chain.deviceId));
-        for (let index = 0; index < chains.length; index += 64)
-          await a.chains(chains.slice(index, index + 64));
-      }
+      await admitChains(writers);
       for (const pair of checkpointPairs) {
         const stream = pair[0].header.context.authorDevice,
           held = this.objects.head(stream).seq,
@@ -143,7 +145,7 @@ export class HostedPageReader {
       }
       // Every query begins at this reader's cryptographically admitted shared author-chain head.
       // Transport cursors remain local to hostedQuery until all returned originals are verified.
-      for (const stream of writers) {
+      for (const stream of candidates) {
         const after = Number(this.objects.head(stream).seq);
         requireValue(Number.isSafeInteger(after));
         const limit = this.limits.get('log');
@@ -159,8 +161,20 @@ export class HostedPageReader {
           limit,
           call,
         );
-        for (const document of documents)
-          await this.admit(catchup, await hostedLog(document, this.scope), 'update', call);
+        if (documents.length && !writers.has(stream)) {
+          writers.add(stream);
+          requireValue(writers.size <= 256);
+          await admitChains(new Set([stream]));
+        }
+        for (const document of documents) {
+          const original = await hostedLog(document, this.scope);
+          if (
+            original.header.context.authorDevice === a.registration.deviceId &&
+            original.publisherUid !== this.port.context.uid
+          )
+            this.ownStreamInUse = true;
+          await this.admit(catchup, original, 'update', call);
+        }
       }
       this.live(call);
       await catchup.admitValue({ ...this.frame(), streams: [], more: false });

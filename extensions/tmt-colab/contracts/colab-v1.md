@@ -3502,8 +3502,14 @@ Subscriptions attach before bounded discovery. Notices only wake the consumer, w
 its own verified positions and reconstructs original documents with the reviewed mapping.
 Admission verifies the signed owner log and link pin, addressed `link:<id>` wraps, device chains,
 paired checkpoints, revocation cuts and contiguous merged stream order before Objects/Catchup
-and the existing fold publish any plaintext. A later sequence-1 writer is discovered across all
-streams. A failed or partial finite page publishes nothing.
+and the existing fold publish any plaintext. Initial and recovery catch-up discover the log and checkpoints. Later log wakes discover the
+bounded authority-chain inventory and query its candidate streams, known writers and checkpoint
+writers from their admitted heads, without re-listing retained log history. Chains route reads;
+only observed writers enter existing author verification. An empty candidate is checked again on
+later wakes, so a dormant device's first write needs no membership notice or timer. Cost still
+grows with chain count (each dormant candidate costs one empty 4-read query per refresh), new
+originals and checkpoint chunks, rather than retained history on ordinary wakes. A failed or
+partial finite page publishes nothing.
 
 **One hosted writer per editor link (v1).** A holder writes the link's `hosted` stream with a
 cloud log create, and the Rules continue a stream (`seq > 1`) only for the uid that wrote its

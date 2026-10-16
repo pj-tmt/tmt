@@ -76,7 +76,7 @@ After both app builds and the Remote SDK build, run
 `firebase-tools` 15.29.0 already available. This explicit proof builds private native binaries,
 uses only loopback demo Auth/Firestore, and routes the unchanged composed CSP's three Firebase
 hosts to those emulators. It verifies sign-in, holder enrollment, signed authority and rendered
-content through one real CLI save/wake, attaching per-phase provider traffic and advisory ledger
+content after seeding 100 CLI log originals and one save/wake, attaching per-phase traffic and advisory ledger
 totals. It never uses real Firebase or Docker; provider billing is not inferred from emulator reads.
 
 Focused checks: `cargo +1.97.0 test --offline --locked -p tmt-colab --test build_hosting --test hosting --test deploy_declaration`

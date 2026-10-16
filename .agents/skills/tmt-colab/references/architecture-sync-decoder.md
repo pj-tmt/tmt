@@ -52,8 +52,8 @@ declaration and Remote SDK; `hosted-admission` retains the single enrollment att
 page hints. `hosted-session` and `hosted-interests` fence, close and join one three-interest group
 before switching or bounded recovery. `hosted-budget` owns the cross-tab origin ledger.
 `hosted-discovery`/`hosted-query` bound finite reads; `hosted-documents` reconstructs the native
-mapping's exact originals. `hosted-authority` feeds Admission; `hosted-reader` selects observed writers' chains for its
-member/link verifier, then reuses Objects/Catchup/Fold before ReaderApp.
+mapping's exact originals. `hosted-authority` feeds Admission; `hosted-reader` routes wake reads through the chain
+inventory and admitted heads, verifies observed writers, then reuses Objects/Catchup/Fold before ReaderApp.
 The [hosted contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#hosted-page-consumer-2452-b4-3122)
 owns limits, refusals and the deferred baseline carrier. `link-edit.sendEditRequest` prepares the request;
 `hosted-publish` sends frozen originals once. `own-seal` shares native Writer's `Admission.ownAuthor` path.

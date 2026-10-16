@@ -90,7 +90,7 @@ test('a hosted editor verifies native content, publishes one own edit request an
     const space = new URLSearchParams(fragment.slice(1)).get('space')!;
     const admin = async (collection: string) => {
       const response = await fetch(
-        `http://${firestore}/v1/projects/${project}/databases/(default)/documents/x/colab/${collection}`,
+        `http://${firestore}/v1/projects/${project}/databases/(default)/documents/x/colab/${collection}?pageSize=1000`,
         {
           headers: { Authorization: 'Bearer owner' },
           signal: AbortSignal.timeout(5000),
@@ -98,7 +98,10 @@ test('a hosted editor verifies native content, publishes one own edit request an
       );
       expect(response.ok).toBe(true);
       return (await response.json()) as {
-        documents?: Array<{ name: string; fields: Record<string, { stringValue?: string }> }>;
+        documents?: Array<{
+          name: string;
+          fields: Record<string, { stringValue?: string; integerValue?: string }>;
+        }>;
       };
     };
     await expect
@@ -116,7 +119,53 @@ test('a hosted editor verifies native content, publishes one own edit request an
         intervals: [100, 250, 500, 1000],
       })
       .toBeGreaterThan(0);
-    const initialLogDocuments = (await admin('log')).documents?.length ?? 0;
+    // Publish actual CLI originals before opening the browser; admin reads are readiness
+    // oracles only and are excluded from holder traffic. Include compaction in the real path.
+    let initialHeading = 'Native owner first version';
+    let logDocuments = (await admin('log')).documents ?? [];
+    let publishedSeq = Math.max(...logDocuments.map((row) => Number(row.fields.seq.integerValue)));
+    for (let writes = 0; logDocuments.length < 100 && writes < 125; writes++) {
+      initialHeading = `Native owner first version ${writes + 1}`;
+      const result = JSON.parse(
+        run(
+          world,
+          world.binaries.colab,
+          ['page', 'write', created.pageId, '--file', '-', '--json'],
+          `<main><h1>${initialHeading}</h1></main>`,
+        ),
+      ) as { update: { count: number } };
+      publishedSeq += result.update.count;
+      await expect
+        .poll(
+          async () => {
+            const logs = (await admin('log')).documents ?? [];
+            const chunks = (await admin('checkpoints')).documents ?? [];
+            const objects = new Map<string, typeof chunks>();
+            for (const chunk of chunks) {
+              const object = chunk.fields.object.stringValue!;
+              objects.set(object, [...(objects.get(object) ?? []), chunk]);
+            }
+            const cuts = [...objects.values()]
+              .filter((parts) => parts.length === Number(parts[0].fields.count.integerValue))
+              .map((parts) => {
+                parts.sort(
+                  (a, b) =>
+                    Number(a.fields.index.integerValue) - Number(b.fields.index.integerValue),
+                );
+                const bytes = Buffer.concat(
+                  parts.map((part) => Buffer.from(part.fields.bytes.stringValue!, 'base64url')),
+                );
+                return Number(decodeHeader(Envelope.fromJson(bytes).header()).context.streamSeq);
+              });
+            return Math.max(...logs.map((row) => Number(row.fields.seq.integerValue)), ...cuts);
+          },
+          { timeout: 15000, intervals: [100, 250, 500] },
+        )
+        .toBeGreaterThanOrEqual(publishedSeq);
+      logDocuments = (await admin('log')).documents ?? [];
+    }
+    const initialLogDocuments = logDocuments.length;
+    expect(initialLogDocuments).toBe(100);
     const { view, files, manifest } = composed(world);
     const { origin: local } = await serve(world, view, files);
     const policy = manifest.files.find((file) => file.path === '/index.html')!.csp!;
@@ -143,8 +192,13 @@ test('a hosted editor verifies native content, publishes one own edit request an
       paths: string[] = [],
       writes: string[] = [];
     let phase: 'open' | 'wake' | 'edit' = 'open';
-    const queries: Array<{ phase: string; collection: string; limit?: number; documents: number }> =
-      [];
+    const queries: Array<{
+      phase: string;
+      collection: string;
+      limit?: number;
+      documents: number;
+      streamFiltered: boolean;
+    }> = [];
     const gets: Array<{ phase: string; collection: string; target: string; status: number }> = [];
     const listens: Array<{ phase: string; documentChangeMarkers: number }> = [];
     const boundaries: Record<string, unknown> = {};
@@ -207,11 +261,23 @@ test('a hosted editor verifies native content, publishes one own edit request an
           });
         if (response.ok() && url.pathname.endsWith(':runQuery')) {
           const input = request.postDataJSON() as {
-            structuredQuery: { from: Array<{ collectionId: string }>; limit?: number };
+            structuredQuery: {
+              from: Array<{ collectionId: string }>;
+              limit?: number;
+              where?: {
+                compositeFilter?: {
+                  filters: Array<{ fieldFilter?: { field: { fieldPath: string } } }>;
+                };
+              };
+            };
           };
           const rows = (await response.json()) as Array<{ document?: unknown }>;
           queries.push({
             phase: requestedPhase,
+            streamFiltered:
+              input.structuredQuery.where?.compositeFilter?.filters.some(
+                (filter) => filter.fieldFilter?.field.fieldPath === 'stream',
+              ) ?? false,
             limit: input.structuredQuery.limit,
             collection: input.structuredQuery.from[0].collectionId,
             documents: rows.filter((row) => row.document !== undefined).length,
@@ -289,10 +355,9 @@ test('a hosted editor verifies native content, publishes one own edit request an
     await page.getByRole('button', { name: 'Sign in', exact: true }).click();
     await expect(page.getByText('Live', { exact: true })).toBeVisible({ timeout: 25000 });
     await expect(page.locator('iframe')).toHaveCount(1);
-    await expect(page.frameLocator('iframe').locator('h1')).toHaveText(
-      'Native owner first version',
-      { timeout: 60000 },
-    );
+    await expect(page.frameLocator('iframe').locator('h1')).toHaveText(initialHeading, {
+      timeout: 60000,
+    });
     openConverged = true;
     boundaries.open = await budget();
     phase = 'wake';
@@ -309,6 +374,11 @@ test('a hosted editor verifies native content, publishes one own edit request an
     wakeConverged = true;
     boundaries.wake = await budget();
     expect(pageGets).toBe(1);
+    const wakeLogQueries = queries.filter(
+      (query) => query.phase === 'wake' && query.collection === 'log',
+    );
+    expect(wakeLogQueries.length).toBeGreaterThan(0);
+    expect(wakeLogQueries.filter((query) => !query.streamFiltered)).toEqual([]);
     expect(queries.some((query) => query.collection === 'authority' && query.documents > 0)).toBe(
       true,
     );
