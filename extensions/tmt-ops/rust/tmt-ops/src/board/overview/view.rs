@@ -18,7 +18,6 @@ use tmt_cli_style::Role;
 use tmt_tui::components::strip;
 
 const LIST_HEADER_ROWS: usize = 4;
-const MAX_VISIBLE_AGENTS: u16 = 25;
 
 pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     let Some(snapshot) = app.workspace_snapshot() else {
@@ -50,21 +49,21 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             look.role(Role::Muted),
         )
     } else if agents {
-        Line::from(vec![
-            Span::styled(
-                format!("{} agents · ", observed(rows.len())),
-                look.role(Role::Muted),
-            ),
-            if scene.waiting > 0 {
-                state_cell::mark(Some("waiting"), look)
-            } else {
-                Span::styled("◆", look.role(Role::Muted))
-            },
-            Span::styled(
-                format!(" {} waiting first", observed(scene.waiting)),
-                look.role(Role::Muted),
-            ),
-        ])
+        let mut spans = vec![Span::styled(
+            format!("{} agents", observed(rows.len())),
+            look.role(Role::Muted),
+        )];
+        if scene.waiting > 0 {
+            spans.extend([
+                Span::styled(" · ", look.role(Role::Muted)),
+                state_cell::mark(Some("waiting"), look),
+                Span::styled(
+                    format!(" {} waiting first", observed(scene.waiting)),
+                    look.role(Role::Muted),
+                ),
+            ]);
+        }
+        Line::from(spans)
     } else {
         Line::styled(
             format!(
@@ -76,18 +75,6 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         )
     };
     let total = LIST_HEADER_ROWS + rows.len().max(1);
-    let area = if agents {
-        Rect {
-            height: area.height.min(
-                LIST_HEADER_ROWS as u16
-                    + MAX_VISIBLE_AGENTS
-                    + u16::from(rows.len() > usize::from(MAX_VISIBLE_AGENTS)),
-            ),
-            ..area
-        }
-    } else {
-        area
-    };
     *app.row_starts.borrow_mut() = (0..rows.len()).map(|i| LIST_HEADER_ROWS + i).collect();
     if app.follow
         && let Some(i) = rows

@@ -18,6 +18,76 @@ use serde_json::json;
 const OTHER: &str = "33333333-3333-4333-8333-333333333333";
 const BLOCKED: &str = "44444444-4444-4444-8444-444444444444";
 #[test]
+fn agents_use_available_height_before_reporting_overflow() {
+    let _no_commands = crate::runner::forbid_commands();
+    let mut app = crate::board::app::workspace::tests::populated_board(8, 28);
+    app.shell.tab = OpsTab::Overview;
+    app.overview_view = View::Agents;
+    app.workspace_reconcile();
+    for height in [51, 24] {
+        let buffer = paint(&mut app, 103, height);
+        let lines: Vec<String> = buffer
+            .content
+            .chunks(103)
+            .map(|row| row.iter().map(|cell| cell.symbol()).collect())
+            .collect();
+        let hits = app.hits.borrow();
+        let rows: Vec<_> = hits
+            .iter()
+            .filter(|hit| matches!(hit.target, crate::board::app::HitTarget::Row(_)))
+            .collect();
+        if height == 51 {
+            assert_eq!(rows.len(), 28);
+            assert!(!lines.iter().any(|line| line.contains(" more")));
+        } else {
+            assert!(!rows.is_empty() && rows.len() < 28);
+            let indicator = lines
+                .iter()
+                .position(|line| line.starts_with(" ↓ "))
+                .unwrap();
+            assert_eq!(indicator, usize::from(height - 2));
+            assert!(
+                lines[usize::from(rows[0].y)..indicator]
+                    .iter()
+                    .all(|line| !line.trim().is_empty())
+            );
+            assert_eq!(usize::from(rows.last().unwrap().y) + 1, indicator);
+        }
+    }
+}
+
+#[test]
+fn agents_omit_the_waiting_note_when_none_are_waiting() {
+    let mut app = board();
+    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    for member in snapshot.roster.members.values_mut() {
+        member.waiting = false;
+    }
+    for squad in &mut snapshot.roster.squads {
+        for state in squad.member_states.values_mut() {
+            state.waiting = false;
+        }
+    }
+    app.overview_rows.borrow_mut().clear();
+    let buffer = paint(&mut app, 103, 51);
+    let line: String = buffer
+        .content
+        .chunks(103)
+        .find(|row| {
+            row.iter()
+                .map(|cell| cell.symbol())
+                .collect::<String>()
+                .starts_with("── Agents ")
+        })
+        .unwrap()
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    assert!(line.ends_with("3 agents ──"));
+    assert!(!line.contains("waiting first") && !line.contains('◆'));
+}
+
+#[test]
 fn filtered_counts_keep_the_admitted_denominator_in_both_views() {
     let _no_commands = crate::runner::forbid_commands();
     let mut app = board();
@@ -353,7 +423,8 @@ fn missing_sources_stay_unknown_instead_of_claiming_zero_waiting() {
     snapshot.roster.membership_complete = false;
     app.overview_rows.borrow_mut().clear();
     let shown = text(&paint(&mut app, 103, 51));
-    assert!(shown.contains("— waiting"));
+    assert!(shown.contains("~3 agents"));
+    assert!(!shown.contains("waiting first"));
     assert!(shown.contains("AGENT") && !shown.contains("Needs you"));
     assert!(!shown.contains("◆ 0 waiting"));
 }

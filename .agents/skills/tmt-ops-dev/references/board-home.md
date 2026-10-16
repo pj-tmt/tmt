@@ -72,7 +72,10 @@ observed lead in that room. Missing lead or row evidence refuses a conversation;
 there is no neighboring-target fallback. A deliberate view switch selects its first
 admitted row and starts at the top; source refresh or filtering keeps hidden/missing
 anchors without retargeting. The primary list has one scroll owner and a neutral
-`↓ N more` overflow caption. Short viewports reveal the selected target. Only the
+`↓ N more` overflow caption only when rows exceed the space above the footer.
+The list uses that full space; later lower sections reduce it through placement.
+The waiting-first count note appears only for a positive count. Short viewports
+reveal the selected target. Only the
 footer advertises effective keys; Help and Actions retain other admitted actions.
 
 Overview Usage is a fixed full-width band reserved once before body placement.
