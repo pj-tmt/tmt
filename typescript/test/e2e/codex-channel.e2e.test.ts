@@ -490,6 +490,9 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
       expect(events(worker, 'thread-start')).toEqual([]);
       expect(events(worker, 'attached')).toEqual([]);
       expect(events(worker, 'started')[0].args).toEqual([
+        '--no-daemon',
+        '--add-dir',
+        f.globalDir,
         '-c',
         expect.stringContaining(' __digest-hook codex --discover-launch'),
       ]);
@@ -626,6 +629,8 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
           expect(records(f)).toEqual([]);
           expect(events(resumed, 'started')[0].args).toEqual([
             'resume',
+            '--add-dir',
+            f.globalDir,
             '-c',
             expect.stringContaining(' __digest-hook codex --discover-launch'),
             original,
@@ -682,6 +687,8 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
         await ready(f, plain);
         expect(events(plain, 'started')[0].args).toEqual([
           'resume',
+          '--add-dir',
+          f.globalDir,
           '-c',
           expect.stringContaining(' __digest-hook codex --discover-launch'),
           original,
@@ -1042,7 +1049,7 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
     { args: ['-c', 'hooks.Stop=[]', '-c', 'hooks.Stop=[]'] },
     { args: [], inlineHooks: true },
   ]) {
-    it(`Digest composition refusal preserves Codex launch argv ${inlineHooks ? 'with config.toml hooks' : args.join(' ')}`, async () => {
+    it(`Digest composition refusal preserves Codex user argv ${inlineHooks ? 'with config.toml hooks' : args.join(' ')}`, async () => {
       await withE2EFixture(async (f) => {
         const s = start(
           f,
@@ -1054,7 +1061,12 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
           args
         );
         await ready(f, s);
-        expect(events(s, 'started')[0].args).toEqual(args);
+        expect(events(s, 'started')[0].args).toEqual([
+          '--no-daemon',
+          '--add-dir',
+          f.globalDir,
+          ...args,
+        ]);
         expect(
           f
             .capture(200, s.pane)
