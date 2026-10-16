@@ -184,6 +184,27 @@ days, never raw error values, private traces or profiles. Unexpected outcomes al
 print the bounded summary from the private JSON report for triage.
 It remains outside required aggregates and does not authorize publication.
 
+## Gate-time budgets
+
+`node typescript/scripts/ci-gate-time.mjs` (read-only REST, no CI run, about 85 requests) measures the
+last 40 successful `ci.yml` PR and merge-group runs, ordered by creation then run ID: gate wall (run
+creation to the last selected required context), per-job wall and queue, the controlling job and
+runner-minutes, with the median and nearest-rank p90. Skipped jobs and negative spans (reused job copies in a retried run) have no sample. The controlling job
+is the last non-aggregate job to complete before the gate ends. It reads the budgets and lists
+every value over its limit; it also lists budgeted jobs with no sample (a renamed job would otherwise stop being checked). It never blocks a PR (timing is too noisy for that).
+
+[`typescript/scripts/ci-gate-budgets.json`](../../../../typescript/scripts/ci-gate-budgets.json) is the one owner
+of the budgets: the gate median and p90 for PRs and merge groups, and a p90 per required job. They start at
+#3230's frozen baseline (2026-10-15) and are tightened as #3047 slices land. A gate or job is over budget when
+its measured median (gate only) or p90 exceeds the figure. Raising a budget needs a written note from the Infra
+lead on #3283.
+
+The Monday hygiene pass runs the script and compares it with the budgets. A job over budget for two
+consecutive weeks gets an issue for the squad whose suite dominates it, asking for a shard, a consumer
+or a trim. A PR expected to add more than about 20 s to a required job says so in its body and updates
+the shard weights or assignment (`typescript/test/e2e/shard-weights.json`, or
+`extensions/tmt-colab/typescript/app/acceptance/shard-weights.json`) in the same PR.
+
 ## Verification
 
 ### Release gate parity
