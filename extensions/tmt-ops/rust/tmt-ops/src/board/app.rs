@@ -1958,10 +1958,6 @@ impl App {
         action: &Action,
         member: Option<&super::workspace::OpsTarget>,
     ) -> Effect {
-        // The same verified occurrence owns paint and an explicit row action:
-        // an Overview squad resolves only to its observed current lead.
-        let target = member.cloned().or_else(|| self.workspace_message_target());
-        let member = target.as_ref();
         if self.panels_save_pending {
             return self.say("Wait for the panel save to finish.");
         }
@@ -1983,6 +1979,10 @@ impl App {
             let loading = self.current.clone().unwrap_or_default();
             return self.say(format!("Loading {loading}…"));
         }
+        // UI actions dispatch before resolving a row. A member action uses the
+        // same verified occurrence as paint, including an observed squad lead.
+        let target = member.cloned().or_else(|| self.workspace_message_target());
+        let member = target.as_ref();
         if self.workspace_snapshot().is_some()
             && action.verb.acts_on_member()
             && member.is_none()
