@@ -1,9 +1,12 @@
 ---
 name: tmt-design
-description: Build, check and translate the handbook site in `site/` (Vite, MDX, per-language pages) and its design tokens. Load when editing site/**, design/tokens, handbook chapters or translations. Owner - tmt-design.
+description: Build and check UX-owned site code and design tokens. Load when editing site/**, design/tokens or design/browser-ui/**; read the browser-leaf guidance before browser UI work. Owner - tmt-ux; handbook prose belongs to tmt-mkt.
 ---
 
 # Handbook site
+
+For `design/browser-ui/` work, read [the leaf README](../../../design/browser-ui/README.md)
+and [the component guide](../../../design/gui-components.md) first.
 
 Static site in `site/` with its own lockfile outside the TypeScript workspace.
 The public site renders the v9 Home (`home/HomePage.tsx`), including installation,

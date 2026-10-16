@@ -1,6 +1,6 @@
 ---
 name: tmt-ops-dev
-description: Build and verify the Ops extension (`tmt-ops`, the board, notebook, cron library, embedded lead skill and playbooks). Load when changing extensions/tmt-ops or running its native and E2E checks. Owner - the tmt-squad squad. Not the shipped lead skill `tmt-ops`.
+description: Build and verify the Ops extension (`tmt-ops`, the board, notebook, cron library, embedded lead skill and playbooks). Load when changing extensions/tmt-ops or running its native and E2E checks. Owner - tmt-ux; core-ops may implement. Not the shipped lead skill `tmt-ops`.
 ---
 
 # Ops development
