@@ -9,6 +9,7 @@
 mod group;
 mod image;
 mod question;
+mod review;
 mod tree;
 
 pub(crate) use image::repair_references;
@@ -77,6 +78,16 @@ pub struct QuestionGroup {
     pub questions: Vec<String>,
 }
 
+/// A review section the page shows: its heading is the thread anchor, and `questions` are the
+/// admitted questions inside it, in document order.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Review {
+    pub id: String,
+    pub title: String,
+    pub agent: String,
+    pub questions: Vec<String>,
+}
+
 /// A `colab-attachment:` reference in the right form, at its first use on the page.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Reference {
@@ -92,8 +103,12 @@ pub struct Report {
     pub questions: Vec<Question>,
     /// The groups the page shows, in document order, lone questions as internal groups.
     pub groups: Vec<QuestionGroup>,
+    /// The review sections the page shows, in document order.
+    pub reviews: Vec<Review>,
     /// How many `tmt-question` blocks the source holds, shown or not.
     pub question_blocks: usize,
+    /// How many `tmt-review` blocks the source holds, shown or not.
+    pub review_blocks: usize,
     pub findings: Vec<Finding>,
     /// Each distinct well-formed reference once, in document order.
     pub references: Vec<Reference>,
@@ -195,6 +210,8 @@ pub fn codes() -> Vec<&'static str> {
     codes.extend(question::RULES.iter().map(|(code, _)| *code));
     codes.extend(group::RULES.iter().map(|(code, _)| *code));
     codes.extend(group::LABEL_CODES);
+    codes.push("review-page-limit");
+    codes.extend(review::RULES.iter().map(|(code, _)| *code));
     // Not a rule of the group itself: a group that passed and shows nothing.
     codes.push("group-empty");
     codes.extend([

@@ -3,12 +3,12 @@
 use std::collections::HashMap;
 
 use super::{
-    Finding, Question, QuestionGroup, Report, Severity, group,
+    Finding, Question, QuestionGroup, Report, Severity, group, review,
     tree::{Id, Tree},
 };
 use crate::limits::{
     QUESTION_AGENT_POINTS, QUESTION_CHOICE_POINTS, QUESTION_CHOICES, QUESTION_PAGE,
-    QUESTION_TITLE_POINTS,
+    QUESTION_TITLE_POINTS, REVIEW_PAGE,
 };
 
 const KINDS: [&str; 4] = ["single", "multiple", "short", "long"];
@@ -149,10 +149,16 @@ fn has_duplicate(values: &[String]) -> bool {
     values.iter().any(|value| !seen.insert(value.as_str()))
 }
 
-pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) {
-    let ordinals: HashMap<Id, usize> = elements.iter().copied().collect();
-    let elements: Vec<Id> = elements.iter().map(|(id, _)| *id).collect();
-    let finding = |id: Id, severity, code, questions_skipped| Finding {
+/// One finding for `id`, which must be one of the page's elements in `ordinals`.
+pub(super) fn make_finding(
+    tree: &Tree,
+    ordinals: &HashMap<Id, usize>,
+    id: Id,
+    severity: Severity,
+    code: &'static str,
+    questions_skipped: Option<usize>,
+) -> Finding {
+    Finding {
         element: tree.name(id).to_owned(),
         ordinal: ordinals[&id],
         id: tree.attr(id, "data-id").map(str::to_owned),
@@ -160,6 +166,14 @@ pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) 
         severity,
         code,
         questions_skipped,
+    }
+}
+
+pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) {
+    let ordinals: HashMap<Id, usize> = elements.iter().copied().collect();
+    let elements: Vec<Id> = elements.iter().map(|(id, _)| *id).collect();
+    let finding = |id: Id, severity, code, questions_skipped| {
+        make_finding(tree, &ordinals, id, severity, code, questions_skipped)
     };
 
     let named = |name: &str| -> Vec<Id> {
@@ -171,7 +185,9 @@ pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) 
     };
     let questions = named("tmt-question");
     let groups = named("tmt-questions");
+    let all_reviews = named("tmt-review");
     report.question_blocks = questions.len();
+    report.review_blocks = all_reviews.len();
     if questions.len() > QUESTION_PAGE {
         // The browser drops the whole page's questions; one finding names the first over the cap.
         report.findings.push(finding(
@@ -182,7 +198,19 @@ pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) 
         ));
         return;
     }
-    let survey = group::Survey::new(tree, &groups, &questions);
+    // Past the section cap the page supplies no sections at all, and none of them holds an ID.
+    let reviews = if all_reviews.len() > REVIEW_PAGE {
+        report.findings.push(finding(
+            all_reviews[REVIEW_PAGE],
+            Severity::Ignored,
+            "review-page-limit",
+            None,
+        ));
+        Vec::new()
+    } else {
+        all_reviews
+    };
+    let survey = group::Survey::new(tree, &groups, &questions, &reviews);
     for group in &groups {
         if let Some((code, skipped)) = survey.skipped(*group) {
             report
@@ -193,6 +221,8 @@ pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) 
 
     // The group of each admitted question, in document order.
     let mut admitted: Vec<Option<Id>> = Vec::new();
+    // The admitted questions themselves, for the sections that hold them.
+    let mut admitted_nodes: Vec<(Id, String)> = Vec::new();
     let mut direct: HashMap<Id, usize> = HashMap::new();
     for id in questions {
         if survey.silenced(tree, id) {
@@ -256,6 +286,7 @@ pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) 
             authored.unwrap_or_else(|| format!("Q{number}"))
         });
         admitted.push(group);
+        admitted_nodes.push((id, candidate.id.clone()));
         report.questions.push(Question {
             id: candidate.id,
             kind: candidate.kind,
@@ -303,6 +334,7 @@ pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) 
                 .push(finding(*group, Severity::Ignored, "group-empty", None));
         }
     }
+    review::check(tree, &ordinals, &survey, &reviews, &admitted_nodes, report);
     // A marker outside a question is plain content to the browser: nothing is ignored, nothing
     // shows. Inside a skipped group the whole subtree is silent.
     for id in elements {

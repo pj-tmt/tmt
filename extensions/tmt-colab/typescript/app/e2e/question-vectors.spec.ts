@@ -1,5 +1,11 @@
 import { expect, test } from '@playwright/test';
-import { project, sortFindings, vectors, type VectorCase } from '../test/question-vectors.js';
+import {
+  expectedAdmitted,
+  project,
+  sortFindings,
+  vectors,
+  type VectorCase,
+} from '../test/question-vectors.js';
 import type { QuestionInspection } from '../src/questions.js';
 
 // The browser's own HTML parser is the oracle for every `parser` case; the Rust checker must
@@ -23,7 +29,7 @@ test.beforeAll(async ({ browser }) => {
 });
 
 function expected(candidate: VectorCase) {
-  return { admitted: candidate.admitted, findings: sortFindings(candidate.findings) };
+  return { admitted: expectedAdmitted(candidate), findings: sortFindings(candidate.findings) };
 }
 for (const candidate of cases)
   test(`${candidate.name}: ${candidate.why}`, () => {

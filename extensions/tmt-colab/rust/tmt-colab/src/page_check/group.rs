@@ -78,8 +78,9 @@ pub(super) fn label(raw: Option<&str>) -> (Option<String>, Vec<&'static str>) {
 
 /// Which groups the browser skips, and which question IDs a page's namespace holds.
 ///
-/// IDs are one namespace for lone questions, groups and the direct questions of a group. Every
-/// group holds its own ID wherever it sits, skipped or not. The direct questions of a group that
+/// IDs are one namespace for lone questions, groups, review sections and the direct questions of a
+/// group. Every group and every review section (while the page is within the section cap) holds its
+/// own ID wherever it sits, skipped or not. The direct questions of a group that
 /// passes the structural rules other than a duplicate ID hold theirs, and a lone question holds
 /// its own. That set is fixed before duplicates are judged, so a duplicate failure retracts
 /// nothing: the questions of a group skipped for a duplicate still hold their IDs against other
@@ -98,7 +99,7 @@ pub(super) struct Survey {
 }
 
 impl Survey {
-    pub(super) fn new(tree: &Tree, groups: &[Id], questions: &[Id]) -> Survey {
+    pub(super) fn new(tree: &Tree, groups: &[Id], questions: &[Id], reviews: &[Id]) -> Survey {
         let mut candidates: Vec<(Id, GroupCandidate)> = groups
             .iter()
             .map(|group| {
@@ -134,6 +135,12 @@ impl Survey {
             if failure(candidate, false).is_none() {
                 open.insert(*group);
             }
+        }
+        // A review section holds its ID wherever it sits, as a group does.
+        for review in reviews {
+            *holders
+                .entry(tree.attr(*review, "data-id").unwrap_or("").to_owned())
+                .or_insert(0) += 1;
         }
         let survey = Survey {
             failure: HashMap::new(),

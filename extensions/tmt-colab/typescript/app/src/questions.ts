@@ -6,6 +6,7 @@ import {
 } from './thread-records.js';
 
 export const QUESTION_LIMIT = 50;
+export const REVIEW_LIMIT = 50;
 export const QUESTION_GROUP_LIMIT = 12;
 export const QUESTION_LABEL_POINTS = 24;
 export const QUESTION_TITLE_POINTS = 200;
@@ -28,6 +29,14 @@ export interface Question {
 export interface QuestionGroup {
   id: string;
   title: string | null;
+  questions: string[];
+}
+/** An admitted review section: the authored heading is its quote anchor. `questions` lists the
+ * admitted questions inside it, in document order; answering all of them closes the section. */
+export interface Review {
+  id: string;
+  title: string;
+  agent: string;
   questions: string[];
 }
 const bytes = (value: string) => new TextEncoder().encode(value).length;
@@ -74,7 +83,17 @@ export type QuestionFindingCode =
   | 'group-questions-too-many'
   | 'group-empty'
   | 'group-label-too-long'
-  | 'group-label-control';
+  | 'group-label-control'
+  | 'review-page-limit'
+  | 'review-id-invalid'
+  | 'review-id-duplicate'
+  | 'review-nested'
+  | 'review-heading-missing'
+  | 'review-heading-multiple'
+  | 'review-title-empty'
+  | 'review-title-too-long'
+  | 'review-title-control'
+  | 'review-agent-invalid';
 export interface QuestionFinding {
   /** Lowercase tag name, and the 1-based index among elements with that tag in document order. */
   element: string;
@@ -90,6 +109,7 @@ export interface QuestionFinding {
 export interface QuestionInspection {
   questions: Question[];
   groups: QuestionGroup[];
+  reviews: Review[];
   findings: QuestionFinding[];
 }
 
@@ -158,6 +178,27 @@ const GROUP_RULES: ReadonlyArray<readonly [QuestionFindingCode, (c: GroupCandida
   ['group-title-control', (c) => c.headings === 1 && hasControl(c.title)],
   ['group-questions-too-many', (c) => c.count > QUESTION_GROUP_LIMIT],
 ];
+interface ReviewCandidate {
+  id: string;
+  agent: string;
+  headings: number;
+  title: string;
+  nested: boolean;
+  holders: number;
+}
+/** The review section rules, in report order. A section is admitted exactly when none fails; the
+ * title rules wait for exactly one heading. The Rust checker runs the same table. */
+const REVIEW_RULES: ReadonlyArray<readonly [QuestionFindingCode, (c: ReviewCandidate) => boolean]> = [
+  ['review-id-invalid', (c) => !uuid.test(c.id)],
+  ['review-id-duplicate', (c) => uuid.test(c.id) && c.holders > 1],
+  ['review-nested', (c) => c.nested],
+  ['review-heading-missing', (c) => c.headings === 0],
+  ['review-heading-multiple', (c) => c.headings > 1],
+  ['review-title-empty', (c) => c.headings === 1 && !c.title],
+  ['review-title-too-long', (c) => c.headings === 1 && over(c.title, QUESTION_TITLE_POINTS)],
+  ['review-title-control', (c) => c.headings === 1 && hasControl(c.title)],
+  ['review-agent-invalid', (c) => over(c.agent, QUESTION_AGENT_POINTS) || hasControl(c.agent)],
+];
 const LABEL_RULES: ReadonlyArray<readonly [QuestionFindingCode, (label: string) => boolean]> = [
   ['group-label-too-long', (label) => over(label, QUESTION_LABEL_POINTS)],
   ['group-label-control', hasControl],
@@ -170,6 +211,8 @@ export const QUESTION_FINDING_CODES: readonly QuestionFindingCode[] = [
   ...GROUP_RULES.map(([code]) => code),
   'group-empty',
   ...LABEL_RULES.map(([code]) => code),
+  'review-page-limit',
+  ...REVIEW_RULES.map(([code]) => code),
 ];
 
 /**
@@ -183,12 +226,16 @@ export function inspectQuestions(source: string): QuestionInspection {
   const root = template.content;
   const nodes = [...root.querySelectorAll('tmt-question')];
   const groupNodes = [...root.querySelectorAll('tmt-questions')];
+  const allReviewNodes = [...root.querySelectorAll('tmt-review')];
+  // Past the cap the page supplies no sections at all, and none of them holds an ID.
+  const reviewNodes = allReviewNodes.length > REVIEW_LIMIT ? [] : allReviewNodes;
   const authored = (node: Element | undefined) => node?.getAttribute('data-id') ?? null;
   const idOf = (node: Element) => authored(node) ?? '';
   if (nodes.length > QUESTION_LIMIT)
     return {
       questions: [],
       groups: [],
+      reviews: [],
       findings: [
         {
           element: 'tmt-question',
@@ -223,6 +270,7 @@ export function inspectQuestions(source: string): QuestionInspection {
   // Every group's own ID participates, including structurally invalid groups. Direct children
   // hold IDs only when non-duplicate structural rules passed; wrapped children never hold IDs.
   groupNodes.forEach(hold);
+  reviewNodes.forEach(hold);
   const questionHolders = new Set<Element>();
   for (const node of nodes) {
     const group = node.parentElement?.closest('tmt-questions');
@@ -323,6 +371,44 @@ export function inspectQuestions(source: string): QuestionInspection {
     questions.push(question);
     admittedNodes.set(node, question);
   });
+  const reviews: Review[] = [];
+  if (allReviewNodes.length > REVIEW_LIMIT)
+    findings.push({
+      element: 'tmt-review',
+      ordinal: REVIEW_LIMIT + 1,
+      id: authored(allReviewNodes[REVIEW_LIMIT]),
+      severity: 'ignored',
+      code: 'review-page-limit',
+    });
+  reviewNodes.forEach((node, index) => {
+    const headings = [...node.children].filter((child) => child.hasAttribute('data-title'));
+    const candidate: ReviewCandidate = {
+      id: idOf(node),
+      agent: node.getAttribute('data-agent') ?? '',
+      headings: headings.length,
+      title: questionText(headings[0]?.textContent ?? ''),
+      nested: !!node.parentElement?.closest('tmt-review, tmt-question, tmt-questions'),
+      holders: holders.get(idOf(node)) ?? 0,
+    };
+    const failed = REVIEW_RULES.filter(([, fails]) => fails(candidate));
+    for (const [code] of failed)
+      findings.push({
+        element: 'tmt-review',
+        ordinal: index + 1,
+        id: authored(node),
+        severity: 'ignored',
+        code,
+      });
+    if (failed.length) return;
+    reviews.push({
+      id: candidate.id,
+      title: candidate.title,
+      agent: candidate.agent,
+      questions: [...admittedNodes]
+        .filter(([question]) => node.contains(question))
+        .map(([, question]) => question.id),
+    });
+  });
   const groups: QuestionGroup[] = [];
   // Preserve authored group/lone-question order. Empty is a post-child result, never structural.
   for (const node of root.querySelectorAll('tmt-questions, tmt-question')) {
@@ -360,7 +446,7 @@ export function inspectQuestions(source: string): QuestionInspection {
       code: 'question-marker-misplaced',
     });
   }
-  return { questions, groups, findings };
+  return { questions, groups, reviews, findings };
 }
 
 export const readQuestions = (source: string): Question[] => inspectQuestions(source).questions;

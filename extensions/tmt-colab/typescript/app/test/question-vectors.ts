@@ -1,5 +1,10 @@
 import { readFileSync } from 'node:fs';
-import type { Question, QuestionFinding, QuestionInspection } from '../src/questions.js';
+import type {
+  Question,
+  QuestionFinding,
+  QuestionInspection,
+  Review,
+} from '../src/questions.js';
 
 /** The shared page markup vectors (contracts/vectors/page-markup-v1.json), as the TS side reads them. */
 export interface VectorQuestion extends Question {
@@ -17,6 +22,8 @@ export interface VectorCase {
   admitted: {
     questions: VectorQuestion[];
     groups: { id: string; title: string | null; questions: string[] }[];
+    /** Omitted by a case with no sections. */
+    reviews?: Review[];
   };
   findings: VectorFinding[];
 }
@@ -32,10 +39,19 @@ export const vectors = JSON.parse(
 /** The vector projection of one inspection: a lone question is an internal group of one. */
 export function project(inspection: QuestionInspection) {
   return {
-    admitted: { questions: inspection.questions, groups: inspection.groups },
+    admitted: {
+      questions: inspection.questions,
+      groups: inspection.groups,
+      reviews: inspection.reviews,
+    },
     findings: sortFindings(inspection.findings),
   };
 }
+/** What a case expects: a case with no sections omits `reviews`. */
+export const expectedAdmitted = (candidate: VectorCase) => ({
+  ...candidate.admitted,
+  reviews: candidate.admitted.reviews ?? [],
+});
 /** Findings are compared as a set; `line` is asserted by the Rust checker only. */
 export function sortFindings<T extends QuestionFinding>(findings: readonly T[]) {
   return findings
