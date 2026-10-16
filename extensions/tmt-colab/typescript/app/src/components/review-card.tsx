@@ -39,6 +39,9 @@ export function ReviewCard({
   const [note, setNote] = useState('');
   const [changing, setChanging] = useState(false);
   const [change, setChange] = useState('');
+  const [now, setNow] = useState(0);
+  const closedAt = state.kind === 'closed' ? state.at : undefined;
+  useEffect(() => setNow(Date.now()), [closedAt]);
   // A settled action empties its fields; a failed one keeps them for the next try.
   useEffect(() => {
     if (outcome?.state !== 'settled') return;
@@ -60,8 +63,8 @@ export function ReviewCard({
     state.kind === 'closed'
       ? [
           state.by ? text.reviewClosedBy(state.by) : undefined,
-          state.at && Number.isFinite(Number(state.at))
-            ? compactRelativeTime(Number(state.at), Date.now())
+          now && state.at && Number.isFinite(Number(state.at))
+            ? compactRelativeTime(Number(state.at), now)
             : undefined,
         ].filter(Boolean)
       : [];

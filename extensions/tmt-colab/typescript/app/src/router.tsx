@@ -1328,12 +1328,14 @@ function Page() {
     connectionPresentation,
   });
   associatedQuestionThreads.current = questionLayer.associated;
+  const { onQuestions } = questionLayer;
+  const { onAnchors: onReviewAnchors } = reviewLayer;
   const onQuestionAnchors = useCallback(
     (anchored: QuestionAnchor[], reviewed: ReviewAnchor[], checked = true) => {
-      questionLayer.onQuestions(anchored, checked);
-      reviewLayer.onAnchors(reviewed, checked);
+      onQuestions(anchored, checked);
+      onReviewAnchors(reviewed, checked);
     },
-    [questionLayer.onQuestions, reviewLayer.onAnchors],
+    [onQuestions, onReviewAnchors],
   );
   const proposalLayer = useProposalLayer({
     slotPositions: inlineSlots.positions,
