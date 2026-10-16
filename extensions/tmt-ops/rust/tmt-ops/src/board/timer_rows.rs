@@ -1,12 +1,8 @@
 //! TimerRows: fitted, inert timer observations and a shared maximum row budget.
 use crate::look::Look;
-use ratatui::{
-    buffer::Buffer,
-    layout::Rect,
-    text::{Line, Span},
-};
+use ratatui::text::{Line, Span};
 use tmt_cli_style::{Role, grid::Align};
-use tmt_tui::{components::strip, style::TextFlow};
+use tmt_tui::style::TextFlow;
 
 pub(in crate::board) const MAX_ROWS: usize = 3;
 
@@ -68,17 +64,6 @@ pub(in crate::board) fn line(row: &Row, width: usize, look: Look) -> Line<'stati
     } else {
         Line::from(spans)
     }
-}
-
-pub(in crate::board) fn paint(buffer: &mut Buffer, area: Rect, row: &Row, look: Look) {
-    strip::paint_left(
-        buffer,
-        Rect {
-            height: area.height.min(1),
-            ..area
-        },
-        line(row, usize::from(area.width), look),
-    );
 }
 
 /// Whole hints only; the host associates the visible footer with its action.
