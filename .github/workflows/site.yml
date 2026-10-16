@@ -37,6 +37,11 @@ jobs:
           persist-credentials: false
       - name: Set up Node.js and pnpm
         uses: ./.github/actions/setup-tooling
+      - name: Verify pinned pnpm
+        working-directory: site
+        run: |
+          expected_pnpm_version=$(node -p "require('./package.json').packageManager.replace(/^pnpm@/, '')")
+          test "$(pnpm --version)" = "$expected_pnpm_version"
       - name: Install dependencies
         working-directory: site
         run: pnpm install --frozen-lockfile
@@ -46,6 +51,9 @@ jobs:
       - name: Build static files for GitHub Pages
         working-directory: site
         run: SITE_ORIGIN=https://pj-tmt.github.io pnpm build
+      - name: Verify production artifact before upload
+        working-directory: site
+        run: node src/blog/verify-dist.mjs
       - name: Upload the Pages artifact
         if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.deploy))
         uses: actions/upload-pages-artifact@v3

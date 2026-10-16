@@ -1,5 +1,5 @@
 {
-  "$comment": "Top-level permission only; ARCHITECTURE Repository layout owns responsibilities and pending moves. Component ownership remains in components.json. Temporary entries name their removal issues. languageExceptions maps each directory that may hold non-English handbook prose (AGENTS, Repository content language) to its HTML language tag; a language is added with its first tracked translation, and nothing else may live under site/src/i18n/.",
+  "$comment": "Top-level permission only; ARCHITECTURE Repository layout owns responsibilities and pending moves. Component ownership remains in components.json. site/src/blog owns blog code and site/src/posts/<slug> holds approved English articles; generated site/blog is ignored. Temporary entries name their removal issues. languageExceptions maps each directory that may hold non-English handbook prose (AGENTS, Repository content language) to its HTML language tag; a language is added with its first tracked translation, and nothing else may live under site/src/i18n/.",
   "permanent": [
     ".agents",
     ".claude-plugin",

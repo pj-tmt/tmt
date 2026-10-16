@@ -831,6 +831,8 @@ describe('CI area selection', () => {
     '.github/pull_request_template.md',
     'site/src/chapters/ops.mdx',
     'site/pnpm-lock.yaml',
+    'site/src/blog/build.mjs',
+    'site/src/posts/agent-conversations/article.html',
     '.github/workflows/site.yml',
     'extensions/tmt-remote/typescript/browser-addon/src/popup.ts',
   ])('selects nothing beyond Code quality for %s', (file) => {

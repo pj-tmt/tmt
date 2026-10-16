@@ -35,7 +35,7 @@ Infra reviews the [layout map/allowlist](.github/repository-layout.json).
 | `contracts/`              | Core public contracts and normative fixtures                                         |
 | `scripts/`                | Shared shell/build/development helpers                                               |
 | `skills/`                 | Canonical bundled user-agent guidance                                                |
-| `site/`                   | Public Home/Colab landing, handbook sources and translations                         |
+| `site/`                   | Public Home/Colab landing, blog, handbook sources and translations                   |
 | `design/`                 | Tokens/CLI; [private browser-ui](design/gui-components.md); no Core/CLI dep/embed    |
 
 New homes or exceptions need infra review and coordinated map/allowlist changes; ignored outputs
@@ -48,6 +48,27 @@ owns moves and the tracked-file guard. Handbook language exceptions belong to
 Layers retain Radix focus/dismiss ownership and host close admission; layer integration contracts live in the linked leaf README.
 [Release procedures](.agents/skills/tmt-release/SKILL.md) include the archive’s
 product-neutral `rust/archive/NATIVE-INSTALL.md`; [dev-only embed](site/README.md) stays site-owned.
+
+## Public blog boundary
+
+The site build owns `site/src/blog/` code and approved English content in
+`site/src/posts/<slug>/`. Each post holds canonical `article.html`, `meta.json`,
+`approval.json` and only referenced content-addressed modules/raster images.
+The local Colab importer binds exact metadata, source revision, proposal decision
+and asset hashes before writing; discussions and full exports remain private.
+Any paired owner device can authenticate approval; Ben performs approval as an
+operational policy. CI validates recorded digests, not Colab device signatures.
+PR review remains necessary because the approval record is not an independent
+public-key attestation.
+
+Vite builds the generated complete blog HTML alongside Home into one `site/dist`
+artifact. The blog path is `SITE_BASE` plus `blog/`; its feeds and canonical URLs
+use `SITE_ORIGIN`. No other deployment or product CI consumer is introduced.
+Article modules are bundled as external local scripts under the blog's existing
+CSP, with no inline scripts or additional resource origins. They are trusted code
+on the handbook's origin, with normal DOM/storage access; this is not isolation.
+Modules must be self-contained and may not import build dependencies. The local
+review protocol and commands live in [the site guide](site/README.md#blog).
 
 ## TypeScript workspace boundary
 

@@ -17,7 +17,7 @@ gates every change shares; per-area procedures live in the skills below.
 | Internal TUI markup (`tmt-tui`)                                                                        | [tmt-tui](.agents/skills/tmt-tui/SKILL.md)                                        |
 | Remote door and embedded browser client                                                                | [tmt-remote](.agents/skills/tmt-remote/SKILL.md)                                  |
 | Colab executable, app and browser client                                                               | [tmt-colab](.agents/skills/tmt-colab/SKILL.md)                                    |
-| Handbook site and translations                                                                         | [tmt-design](.agents/skills/tmt-design/SKILL.md)                                  |
+| Handbook site, blog and translations                                                                   | [tmt-design](.agents/skills/tmt-design/SKILL.md)                                  |
 | Adding or moving files                                                                                 | [tmt-layout](.agents/skills/tmt-layout/SKILL.md)                                  |
 
 ## Setup

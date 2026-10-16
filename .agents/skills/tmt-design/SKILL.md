@@ -35,6 +35,21 @@ Run `pnpm docs:format:check` from `typescript/` before pushing doc edits; bare
 prettier skips docs. A blank line inside `<Code>`/`<Cmd>` in MDX lets the formatter
 swap `*` and `_` in samples: grep and run samples after formatting.
 
+## Blog
+
+UX reviews `site/src/blog/` code and shared site behavior. Approved English posts
+live in `site/src/posts/<slug>/` with article HTML, metadata, approval and only
+referenced module/image assets. Other post languages require an explicit
+`languageExceptions` addition before enabling them. See [site README](../../../site/README.md#blog)
+for the Colab approval protocol and commands.
+
+Vite builds complete blog HTML plus external bundled article modules into the
+same `site/dist` artifact as Home; URLs derive from `SITE_BASE` plus `blog/`.
+Preserve the existing blog CSP: no inline scripts or new resource origins.
+`pnpm blog:demo` is an explicit local example build; production verification
+rejects it by default. Only the existing `site.yml` Build site job checks/uploads
+this artifact; do not add a second Pages deployment or a native CI consumer.
+
 ## Translations
 
 English is the source. Languages are `ja`, `zh-hant`, `zh-hans`; a language is

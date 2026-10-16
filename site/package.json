@@ -6,14 +6,17 @@
   "type": "module",
   "scripts": {
     "dev": "vp dev --host 127.0.0.1",
-    "build": "tsc --noEmit && vp build && node scripts/spa-routes.mjs",
+    "build": "tsc --noEmit && vp build && node scripts/spa-routes.mjs && node src/blog/verify-dist.mjs",
     "preview": "vp preview --host 127.0.0.1",
     "type:check": "tsc --noEmit",
     "lint": "vp lint --deny-warnings --react-plugin src scripts vite.config.ts \"$(git rev-parse --show-toplevel)/design/tokens\"",
     "format": "vp fmt . \"$(git rev-parse --show-toplevel)/design/tokens\"",
     "format:check": "vp fmt --check . \"$(git rev-parse --show-toplevel)/design/tokens\"",
     "test:scripts": "node --test scripts/*.test.mjs",
-    "check": "pnpm type:check && pnpm lint && pnpm format:check && node scripts/mdx-imports.mjs && node scripts/i18n-sync.mjs && pnpm test:scripts"
+    "check": "node src/blog/hygiene.mjs && pnpm type:check && pnpm lint && pnpm format:check && node scripts/mdx-imports.mjs && node scripts/i18n-sync.mjs && pnpm test:scripts",
+    "blog:demo": "TMT_BLOG_DEMO=1 pnpm build:demo",
+    "build:demo": "tsc --noEmit && vp build && node scripts/spa-routes.mjs && node src/blog/verify-dist.mjs --demo",
+    "blog:colab": "node src/blog/colab.mjs"
   },
   "dependencies": {
     "@mdx-js/react": "3.1.1",
@@ -31,9 +34,11 @@
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "6.1.1",
+    "parse5": "8.0.1",
     "remark-frontmatter": "5.0.0",
     "remark-gfm": "4.0.1",
     "remark-mdx-frontmatter": "6.0.0",
+    "saxes": "6.0.0",
     "tailwindcss": "4.3.3",
     "typescript": "^5.3.0",
     "vite": "npm:@voidzero-dev/vite-plus-core@1.0.0",

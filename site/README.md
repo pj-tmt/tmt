@@ -48,3 +48,85 @@ owned by the configured sender, so old threads can read replies after a preview
 restart while TMT retains that exchange. No pairing or grants are performed by
 the overlay. The development middleware and FAB are excluded from production
 builds, even when the embed flag is set.
+
+## Blog
+
+The blog is built as complete HTML under `${SITE_BASE}blog/` alongside Home,
+using the same Vite build and `site/dist` Pages artifact. The working title is
+TMT Journal. Its shared layout follows the Colab landing palette; provenance is
+recorded in [the blog style source note](src/blog/PROVENANCE.md).
+
+Code belongs to `src/blog/` (UX review). Approved English articles belong to
+`src/posts/<slug>/`, each with `article.html`, `meta.json`, `approval.json`,
+`scripts/` and raster `images/` as needed. No article language except English is
+enabled; a new language needs a repository `languageExceptions` entry and
+corresponding metadata validation change.
+
+Run from `site/`:
+
+```sh
+pnpm install --frozen-lockfile
+pnpm check
+pnpm build                          # production; excludes all illustrative fixtures
+SITE_BASE=/ pnpm build              # custom-domain/root deployment: /blog/
+pnpm blog:demo                      # explicit noindex example, empty RSS/sitemap
+pnpm preview --port 4176 --strictPort
+```
+
+`SITE_BASE` defaults to `/tmt/`. `SITE_ORIGIN` defaults to
+`https://pj-tmt.github.io`; it must be an HTTPS origin without a trailing slash.
+The blog requires an absolute directory base. The handbook-only relative/hash
+preview (`SITE_BASE=./ VITE_SITE_HISTORY=hash pnpm exec vp build`) still works,
+but excludes the blog. For local article HMR use `TMT_BLOG_DEMO=1 pnpm dev`;
+production artifacts always reject the development policy. Generated `blog/`
+inputs are ignored and rebuilt; approved sources are never cleared by a build.
+
+### Colab review and import
+
+Use the installed native TMT CLI, optionally with `TMT_EXECUTABLE` set to its
+absolute path. Draft source must contain exactly one `article#blog-article`.
+Metadata has exactly `slug`, `title`, `summary`, `date` (YYYY-MM-DD) and
+`language` (`en`). Images use full `colab-attachment:<UUID>` references.
+
+```sh
+pnpm blog:colab draft /private/path/source.html /private/path/meta.json
+pnpm blog:colab prepare PAGE_UUID /private/path/meta.json
+# Ben reviews the proposal and clicks Approve from a trusted owner device.
+pnpm blog:colab publish PROPOSAL_UUID
+pnpm check
+pnpm build
+```
+
+Prepare inventories each article module/hash and the external-request policy in
+the proposal. Import checks the exact page revision/source hash, proposal body,
+trusted decision and artifact hash, then re-reads source before writing. Any
+source change requires a new proposal. Agents must never approve proposals or
+pair browsers. Colab authenticates any paired owner device, not Ben's human
+identity; Ben controls those devices and performs approval operationally.
+
+The importer reads source and authenticated proposal state through the public
+CLI, never discussion exports. `.private/` review records and temporary
+attachments are local; attachments are removed after capture. Do not commit full
+Colab pages, exports, conversations or pending drafts. CI checks canonical
+article/assets and recorded hashes; it cannot authenticate Colab without private
+keys. Review the content and approval evidence in the PR.
+
+Intentional `type=module` snippets become content-addressed source files, then
+Vite bundles them into external assets. They must be self-contained: build-time
+imports are rejected. The existing blog CSP allows same-origin scripts/styles
+and raster/data images, blocks connections, frames and forms, and adds no
+external sources. Article code is trusted reviewed code on the same origin as
+Home; it can access that origin's DOM/storage. Do not include secrets or assume
+an article is sandboxed. Inline event handlers and external resource URLs are
+rejected; inline article CSS cannot load resources.
+
+Import refuses to overwrite an existing post. For a revision, privately back up
+the current post, prepare and approve a new proposal, remove only that post's
+tracked directory in the feature branch and import again. Review the complete
+diff; restore the backup if import fails. Never edit committed article/assets or
+metadata without renewing approval.
+
+Only the existing `Build site` job checks/builds and verifies the output before
+upload. Production verification is the default; demo requires `--demo` and
+is rejected by the upload gate. Main merges follow the existing Pages workflow;
+PRs never deploy. Publication timing remains Ben's decision.

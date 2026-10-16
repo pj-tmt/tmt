@@ -245,7 +245,7 @@
     {
       "id": "site",
       "consumers": [],
-      "why": "The handbook website has its own workflow (.github/workflows/site.yml); no native job reads it.",
+      "why": "The public Home, Colab landing and blog (site/src/blog code, site/src/posts content) share one site workflow and Pages artifact; no native job reads these inputs.",
       "paths": ["site/**", ".github/workflows/site.yml"]
     },
     {
