@@ -198,6 +198,30 @@ for (const outcome of ['refused', 'unconfirmed'] as const) {
   });
 }
 
+for (const width of [1440, 390])
+  test(`the not-sent notice names a retry first and a current link second at ${width}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+    await mount(page, 'editor');
+    await script(page, 'refused');
+    await page.getByTestId('source-toggle').click();
+    await page.locator('#source-edit').fill('<main>a race lost to another holder</main>');
+    await page.getByRole('button', { name: text.save, exact: true }).click();
+    await expect(page.getByText('Not sent', { exact: true })).toBeVisible();
+    await expect(
+      page.getByText(
+        'Edit request not sent. Save again to retry; if it keeps failing, ask the owner for a current link.',
+        { exact: true },
+      ),
+    ).toBeVisible();
+    const noOverflow = await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    );
+    expect(noOverflow).toBe(true);
+    await page.screenshot({ path: capturePath(`hosted-not-sent-${width}.png`) });
+  });
+
 test('a request that was not sent can be sent again with the next deliberate Save, once each', async ({
   page,
 }) => {

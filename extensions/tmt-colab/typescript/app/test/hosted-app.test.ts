@@ -127,7 +127,11 @@ it.each([
 });
 
 it.each([
-  ['refused', 'Edit request not sent. Ask the owner for a current link.', 'blocked'],
+  [
+    'refused',
+    'Edit request not sent. Save again to retry; if it keeps failing, ask the owner for a current link.',
+    'blocked',
+  ],
   [
     'unconfirmed',
     'Couldn&#x27;t confirm the edit request. It may still reach the owner; check the page before sending it again.',

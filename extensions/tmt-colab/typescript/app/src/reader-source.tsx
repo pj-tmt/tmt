@@ -29,7 +29,7 @@ export function EditRequestNotice({
         title={
           unconfirmed
             ? "Couldn't confirm the edit request. It may still reach the owner; check the page before sending it again."
-            : 'Edit request not sent. Ask the owner for a current link.'
+            : 'Edit request not sent. Save again to retry; if it keeps failing, ask the owner for a current link.'
         }
         body={null}
         actions={actions}
