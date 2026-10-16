@@ -1,6 +1,6 @@
-//! M7 WaitingRow: shared name/squad/state/summary tracks, without source effects.
+//! WaitingRow: shared name/squad/state/summary tracks, without source effects.
 use crate::{
-    board::{m6_state_cell, view::fit},
+    board::{state_cell, view::fit},
     look::Look,
 };
 use ratatui::{
@@ -24,7 +24,7 @@ pub(in crate::board) fn line(data: &Data<'_>, width: usize, look: Look) -> Line<
     let squad_width = if width >= 53 { 11 } else { 0 };
     let mut spans = vec![
         Span::raw(" "),
-        m6_state_cell::mark(Some("waiting"), look),
+        state_cell::mark(Some("waiting"), look),
         Span::raw(" "),
         Span::styled(
             fit(&crate::board::notes::sanitize(data.name), name_width),
@@ -40,7 +40,7 @@ pub(in crate::board) fn line(data: &Data<'_>, width: usize, look: Look) -> Line<
         spans.push(Span::raw(" "));
     }
     spans.push(Span::styled(
-        fit(&m6_state_cell::word(Some("waiting"), look).content, 13),
+        fit(&state_cell::word(Some("waiting"), look).content, 13),
         look.role(Role::Muted),
     ));
     spans.push(Span::raw(" "));

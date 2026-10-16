@@ -268,8 +268,8 @@ fn real_frames_publish_only_clipped_waiting_hits_and_neutral_state_words() {
                 assert!(index < rows.len());
                 assert!(hit.x + hit.width <= width && hit.y < height);
                 assert!(ys.insert(hit.y));
-                let state = crate::board::m7_waiting_row::line(
-                    &crate::board::m7_waiting_row::Data {
+                let state = crate::board::waiting_row::line(
+                    &crate::board::waiting_row::Data {
                         name: &rows[index].title,
                         squad: "product",
                         summary: "",

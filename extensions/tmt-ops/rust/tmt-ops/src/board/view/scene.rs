@@ -155,5 +155,5 @@ fn lift(buffer: &Buffer) -> Vec<Line<'static>> {
 
 /// Every section, including quiet and empty ones, reaches the same body edge.
 pub(in crate::board) fn rule(title: &str, width: usize) -> String {
-    crate::board::m3_section_rule::plain(title, width)
+    crate::board::section_rule::plain(title, width)
 }

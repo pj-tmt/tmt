@@ -199,9 +199,9 @@ no spare target row omits the summary to retain the last usable row. At eight
 terminal rows, Overview reveals waiting targets and omits the full Usage band; the
 effective filter, Details and usage-control keys remain reachable.
 
-Shared M3 SectionRule owns section rules, M5 TeamStrip owns lead-first glyphs,
-M6 StateCell owns attention glyph roles, M7 WaitingRow owns the fitted waiting
-tracks, and M12 KeyHints owns fitted effective-key hints. Only ◆ and ✗ carry
+Shared SectionRule owns section rules, TeamStrip owns lead-first glyphs,
+StateCell owns attention glyph roles, WaitingRow owns the fitted waiting
+tracks, and KeyHints owns fitted effective-key hints. Only ◆ and ✗ carry
 attention colors; waiting words and other state marks remain neutral. These
 modules perform no acquisition and are shared with later Agents placements.
 

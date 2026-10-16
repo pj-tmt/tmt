@@ -1,5 +1,5 @@
-//! M5 TeamStrip: observed members once each, with the observed lead first.
-use crate::{board::m6_state_cell, look::Look};
+//! TeamStrip: observed members once each, with the observed lead first.
+use crate::{board::state_cell, look::Look};
 use ratatui::text::{Line, Span};
 use std::collections::BTreeSet;
 use tmt_cli_style::Role;
@@ -33,7 +33,7 @@ pub(in crate::board) fn line(
         if !spans.is_empty() {
             spans.push(Span::raw(" "));
         }
-        spans.push(m6_state_cell::mark(member.state, look));
+        spans.push(state_cell::mark(member.state, look));
     }
     if overflow && width > 0 {
         if !spans.is_empty() {

@@ -1,4 +1,4 @@
-//! M12 KeyHints: one painter for already fitted effective-binding hints.
+//! KeyHints: one painter for already fitted effective-binding hints.
 use crate::look::Look;
 use ratatui::{
     style::{Modifier, Style},

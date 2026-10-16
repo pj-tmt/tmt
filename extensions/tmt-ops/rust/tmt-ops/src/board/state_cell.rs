@@ -1,4 +1,4 @@
-//! M6 StateCell: the state glyph owns attention colour; its words stay neutral.
+//! StateCell: the state glyph owns attention colour; its words stay neutral.
 use crate::look::Look;
 use ratatui::text::Span;
 use tmt_cli_style::Role;

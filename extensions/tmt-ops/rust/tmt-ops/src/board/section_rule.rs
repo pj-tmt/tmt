@@ -1,4 +1,4 @@
-//! M3 SectionRule: one neutral rule, a focused title and an optional right note.
+//! SectionRule: one neutral rule, a focused title and an optional right note.
 use crate::look::Look;
 use ratatui::{
     buffer::Buffer,

@@ -356,7 +356,7 @@ fn paint_header_tracks<K: Copy>(
 }
 
 pub fn state_symbol(state: Option<&str>) -> &'static str {
-    match crate::board::m6_state_cell::glyph(state) {
+    match crate::board::state_cell::glyph(state) {
         "?" => "—",
         known => known,
     }

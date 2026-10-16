@@ -436,7 +436,7 @@ fn workspace_hints(app: &App, width: usize) -> String {
 /// Style the fitted hint list shared by board, HOME, read and jobs footers.
 /// Informational attention summaries remain muted rather than becoming keys.
 pub(in crate::board) fn hint_line(text: &str, look: crate::look::Look) -> Line<'static> {
-    crate::board::m12_key_hints::line(text, look, look.role(Role::Accent), "  ")
+    crate::board::key_hints::line(text, look, look.role(Role::Accent), "  ")
 }
 
 pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::look::Look) {
@@ -539,7 +539,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
             |lines| lines[1].clone(),
         );
         if app.shell.tab == crate::board::shell::OpsTab::Overview {
-            crate::board::m12_key_hints::line(&text, look, look.role(Role::Text), "  ")
+            crate::board::key_hints::line(&text, look, look.role(Role::Text), "  ")
         } else {
             hint_line(&text, look)
         }

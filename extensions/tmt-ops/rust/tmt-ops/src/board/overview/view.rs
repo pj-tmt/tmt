@@ -3,7 +3,7 @@ use super::monitor;
 use crate::{
     board::{
         app::{App, Hit, HitTarget},
-        m3_section_rule, m5_team_strip, m6_state_cell, m7_waiting_row, m18_empty_state,
+        empty_state, section_rule, state_cell, team_strip, waiting_row,
     },
     config::Pane,
 };
@@ -52,7 +52,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 let index = offset + line;
                 let slot = Rect::new(viewport.x, viewport.y + line as u16, viewport.width, 1);
                 match index {
-                    0 => m3_section_rule::paint(
+                    0 => section_rule::paint(
                         frame.buffer_mut(),
                         slot,
                         &if app.workspace.query.is_empty() {
@@ -104,7 +104,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                             let members: Vec<_> = squad
                                 .members
                                 .iter()
-                                .map(|(id, state)| m5_team_strip::Member {
+                                .map(|(id, state)| team_strip::Member {
                                     id,
                                     state: state.as_deref(),
                                 })
@@ -115,7 +115,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                             {
                                 Line::styled("—", look.role(Role::Muted))
                             } else {
-                                m5_team_strip::line(&members, squad.lead.as_deref(), 10, look)
+                                team_strip::line(&members, squad.lead.as_deref(), 10, look)
                             };
                             let padding = 10usize.saturating_sub(team.width());
                             spans.extend(team.spans);
@@ -143,7 +143,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                                 look.role(Role::Muted),
                             ));
                             if squad.pending {
-                                spans.push(m6_state_cell::mark(Some("waiting"), look));
+                                spans.push(state_cell::mark(Some("waiting"), look));
                                 spans.push(Span::raw(" "));
                             }
                             spans.push(Span::styled(
@@ -152,7 +152,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                             ));
                             strip::paint_left(frame.buffer_mut(), slot, Line::from(spans));
                         } else {
-                            m18_empty_state::paint(
+                            empty_state::paint(
                                 frame.buffer_mut(),
                                 slot,
                                 if scene.summary.complete {
@@ -168,7 +168,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                     at if at == needs_rule => {
                         use crate::action::{OpsUiAction, Verb};
                         let mut note = vec![
-                            m6_state_cell::mark(Some("waiting"), look),
+                            state_cell::mark(Some("waiting"), look),
                             Span::styled(
                                 format!(
                                     " {} waiting",
@@ -192,7 +192,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                                 Span::styled(" filter", look.role(Role::Muted)),
                             ]);
                         }
-                        m3_section_rule::paint(
+                        section_rule::paint(
                             frame.buffer_mut(),
                             slot,
                             "Needs you",
@@ -217,10 +217,10 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                                     .map_or("—", |squad| squad.name.as_str()),
                                 _ => "Common pool",
                             };
-                            let state_cells = m7_waiting_row::paint(
+                            let state_cells = waiting_row::paint(
                                 frame.buffer_mut(),
                                 slot,
-                                &m7_waiting_row::Data {
+                                &waiting_row::Data {
                                     name: &row.title,
                                     squad,
                                     summary: &monitor::summary_text(snapshot.rows.get(&row.target)),
@@ -238,7 +238,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                                 target: HitTarget::Row(at - waiting_start),
                             });
                         } else {
-                            m18_empty_state::paint(
+                            empty_state::paint(
                                 frame.buffer_mut(),
                                 slot,
                                 if !app.workspace.query.is_empty() {
@@ -289,7 +289,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                                 slot.width.saturating_sub(3),
                                 1,
                             ),
-                            crate::board::m12_key_hints::line(
+                            crate::board::key_hints::line(
                                 &hint,
                                 look,
                                 look.role(Role::Text),
