@@ -371,15 +371,15 @@ impl Naming {
         })
     }
 
-    /// Asks the thread to stop and waits at most `within` for it to end. The
-    /// outcome comes only from a thread that ended; when the bound runs out
-    /// the thread is left to finish on its own (detached) and its outcome,
-    /// cleanup failure included, is lost. A panic gives `None`.
     /// Asks the thread to stop; it starts no new step after it sees this.
     pub(super) fn request_stop(&self) {
         self.stop.request();
     }
 
+    /// Asks the thread to stop and waits at most `within` for it to end. The
+    /// outcome comes only from a thread that ended; when the bound runs out
+    /// the thread is left to finish on its own (detached) and its outcome,
+    /// cleanup failure included, is lost. A panic gives `None`.
     pub(super) fn finish(mut self, within: Duration) -> Option<Outcome> {
         let deadline = Instant::now() + within;
         self.request_stop();

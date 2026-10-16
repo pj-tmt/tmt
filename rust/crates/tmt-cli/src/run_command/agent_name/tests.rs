@@ -554,3 +554,91 @@ fn the_stop_signal_ends_a_wait() {
     assert!(!waiting.join().unwrap());
     assert!(signal.stopped());
 }
+
+/// While the naming thread is blocked in a call that only the test can
+/// release, the wait loop of `tmt run` still forwards TERM and HUP to its
+/// child: the child ends by the signal while the thread is still blocked.
+/// A fixture process runs the same composition as `run_bound`, so the
+/// signals never reach this test process, and no production deadline is
+/// involved.
+#[test]
+fn a_blocked_naming_thread_never_delays_signal_forwarding() {
+    use tmt_adapters::process::{CommandRequest, CommandRunner, UnixCommandRunner};
+    const SCRIPT: &str = r#"
+set -eu
+ulimit -c 0
+export TMT_NAMING_FIXTURE_DIR="$2"
+"$1" --exact run_command::agent_name::tests::naming_signal_fixture --nocapture --test-threads=1 &
+wrapper=$!
+while [ ! -s "$2/ready" ]; do
+  kill -0 "$wrapper"
+  sleep 0.01
+done
+kill -"$3" "$wrapper"
+wait "$wrapper"
+test "$(cat "$2/result")" = "$4"
+"#;
+    for (signal, expected) in [("TERM", "143 blocked"), ("HUP", "129 blocked")] {
+        let directory =
+            std::env::temp_dir().join(format!("tmt-naming-signal-{}-{signal}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        let args = [
+            "-c".into(),
+            SCRIPT.into(),
+            "naming-signal-fixture".into(),
+            std::env::current_exe().unwrap().into_os_string(),
+            directory.clone().into_os_string(),
+            signal.into(),
+            expected.into(),
+        ];
+        // The bounded runner owns the fixture's whole group, so a failure
+        // leaves neither the fixture nor its child behind.
+        let result = UnixCommandRunner.execute(CommandRequest {
+            program: std::ffi::OsStr::new("/bin/sh"),
+            args: &args,
+            input: &[],
+            deadline: Instant::now() + Duration::from_secs(20),
+            max_output_bytes: 65_536,
+        });
+        let _ = std::fs::remove_dir_all(&directory);
+        result.unwrap_or_else(|error| panic!("{signal} fixture failed: {error:?}"));
+    }
+}
+
+/// The fixture process: an interactive child, a naming thread blocked in
+/// its probe, and the wait that forwards signals. It records the child's
+/// status and whether the thread was still blocked when the wait returned.
+#[test]
+fn naming_signal_fixture() {
+    let Some(directory) = std::env::var_os("TMT_NAMING_FIXTURE_DIR") else {
+        return;
+    };
+    let directory = PathBuf::from(directory);
+    let child = tmt_adapters::process::interactive::InteractiveChild::start_with(
+        std::ffi::OsStr::new("/bin/sleep"),
+        &["60".into()],
+        &[],
+    )
+    .unwrap();
+    let (fake, inside, release) = blocked_probe(Some(Ok(Probe::Active(None))));
+    let calls = fake.calls.clone();
+    let naming = Naming::start_with(launch(), fake, spawn).expect("a thread");
+    inside
+        .recv_timeout(Duration::from_secs(10))
+        .expect("the probe runs");
+    std::fs::write(directory.join("ready.tmp"), "ready\n").unwrap();
+    std::fs::rename(directory.join("ready.tmp"), directory.join("ready")).unwrap();
+    let code = child
+        .wait(|cause| panic!("unexpected degradation: {cause}"))
+        .unwrap();
+    // Nothing released the probe yet: its call is the last one.
+    let blocked = calls.list().last().map(String::as_str) == Some("probe");
+    std::fs::write(
+        directory.join("result"),
+        format!("{code} {}", if blocked { "blocked" } else { "released" }),
+    )
+    .unwrap();
+    release.send(()).unwrap();
+    assert!(naming.finish(FINISH_WITHIN).is_some());
+}

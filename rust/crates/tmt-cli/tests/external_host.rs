@@ -26,7 +26,7 @@ use tmt_adapters::{
     storage::Storage,
 };
 use tmt_core::{
-    binding::{bind_identity, session::RuntimeLiveness},
+    binding::bind_identity,
     endpoint::ServerEvidence,
     host::{HostGrammar, HostKind, HostName, HostServerIds, HostServerIncarnation},
 };
@@ -708,11 +708,23 @@ fn wait_until(what: &str, mut ready: impl FnMut() -> bool) {
 }
 
 /// A fixture process a test must see end, held by its exact incarnation:
-/// a recycled pid is never signalled, and a zombie is not live.
+/// a recycled pid is never signalled, and only confirmed evidence counts as
+/// an end. A driver leads its own process group, so its end also needs the
+/// group to be empty: a held call's own children count too.
 struct Owned {
     incarnation: tmt_core::endpoint::ProcessIncarnation,
-    /// A driver leads its own process group; the agent shares the test's.
     group: bool,
+}
+
+/// What one observation says about an owned process.
+#[derive(Debug, PartialEq)]
+enum Seen {
+    Live,
+    Stopped,
+    /// Gone, a zombie, or its pid now names another process.
+    Ended,
+    /// No evidence either way: never counted as an end.
+    Unknown,
 }
 
 impl Owned {
@@ -729,20 +741,47 @@ impl Owned {
         Self { incarnation, group }
     }
 
-    fn live(&self) -> bool {
-        observe_runtime_process(&UnixCommandRunner, self.incarnation.pid(), deadline())
-            .is_ok_and(|observed| observed.matches(&self.incarnation) == RuntimeLiveness::Alive)
+    fn pid(&self) -> nix::unistd::Pid {
+        nix::unistd::Pid::from_raw(i32::try_from(self.incarnation.pid()).unwrap())
     }
 
-    /// SIGKILL, only while this exact incarnation lives.
+    fn seen(&self) -> Seen {
+        match observe_runtime_process(&UnixCommandRunner, self.incarnation.pid(), deadline()) {
+            Ok(ProcessObservation::Live(found)) if found == self.incarnation => Seen::Live,
+            Ok(ProcessObservation::Stopped(found)) if found == self.incarnation => Seen::Stopped,
+            Ok(
+                ProcessObservation::Live(_)
+                | ProcessObservation::Stopped(_)
+                | ProcessObservation::UnreapedZombie(_)
+                | ProcessObservation::Gone,
+            ) => Seen::Ended,
+            Ok(ProcessObservation::Unknown) | Err(_) => Seen::Unknown,
+        }
+    }
+
+    /// Whether the group this driver leads still has a member. The system
+    /// never gives a new process a pid equal to a live group's id, so a
+    /// non-empty group with this id is still the driver's.
+    fn group_occupied(&self) -> bool {
+        !matches!(
+            nix::sys::signal::killpg(self.pid(), None),
+            Err(nix::errno::Errno::ESRCH)
+        )
+    }
+
+    /// Confirmed ended: the process, and for a driver its whole group.
+    fn ended(&self) -> bool {
+        self.seen() == Seen::Ended && !(self.group && self.group_occupied())
+    }
+
+    /// SIGKILL to what is still the fixture's: this exact process, or the
+    /// driver's group while it has a member.
     fn kill(&self) {
-        if self.live() {
-            let pid = nix::unistd::Pid::from_raw(i32::try_from(self.incarnation.pid()).unwrap());
-            let _ = if self.group {
-                nix::sys::signal::killpg(pid, nix::sys::signal::Signal::SIGKILL)
-            } else {
-                nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGKILL)
-            };
+        use nix::sys::signal::{Signal::SIGKILL, kill, killpg};
+        if self.group && self.group_occupied() {
+            let _ = killpg(self.pid(), SIGKILL);
+        } else if matches!(self.seen(), Seen::Live | Seen::Stopped) {
+            let _ = kill(self.pid(), SIGKILL);
         }
     }
 }
@@ -778,10 +817,6 @@ impl Launched {
         }
     }
 
-    fn pid(&self) -> nix::unistd::Pid {
-        nix::unistd::Pid::from_raw(i32::try_from(self.child.as_ref().unwrap().id()).unwrap())
-    }
-
     /// Takes ownership of the process whose pid `file` names.
     fn adopt(&mut self, file: &str, group: bool) -> &Owned {
         self.owned.push(Owned::adopt(&self.root.join(file), group));
@@ -810,12 +845,13 @@ impl Launched {
     }
 
     /// Releases a held call and the agent, then asserts that every adopted
-    /// process ends within a bound.
+    /// process, and a driver's whole group, is confirmed ended within a
+    /// bound. Unknown evidence keeps waiting and fails at the bound.
     fn assert_owned_gone(&self) {
         let _ = fs::remove_file(self.root.join("driver/hold"));
         let _ = fs::write(self.root.join("release"), "");
         wait_until("every adopted process ends", || {
-            self.owned.iter().all(|owned| !owned.live())
+            self.owned.iter().all(Owned::ended)
         });
     }
 }
@@ -832,12 +868,28 @@ impl Drop for Launched {
             let _ = child.kill();
             let _ = child.wait();
         }
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        while self.owned.iter().any(Owned::live) && std::time::Instant::now() < deadline {
-            std::thread::sleep(std::time::Duration::from_millis(20));
-        }
-        for owned in &self.owned {
-            owned.kill();
+        // Released processes get a moment to end on their own; what is left is
+        // killed, and ownership lasts until the end is confirmed.
+        let ended = |owned: &[Owned], within: u64| {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(within);
+            while !owned.iter().all(Owned::ended) {
+                if std::time::Instant::now() >= deadline {
+                    return false;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            true
+        };
+        if !ended(&self.owned, 5) {
+            for owned in &self.owned {
+                owned.kill();
+            }
+            if !ended(&self.owned, 5) {
+                eprintln!(
+                    "fixture processes under {} did not end",
+                    self.root.display()
+                );
+            }
         }
     }
 }
@@ -969,38 +1021,6 @@ fn run_never_names_through_a_driver_without_name_agent() {
     assert_eq!(marker["name"], "worker");
 }
 
-/// While a naming call is blocked, `tmt run` still forwards TERM and HUP to
-/// its agent: when the agent acknowledges the signal, the held naming
-/// driver is still live, so the call had not ended yet. Then `tmt run` ends
-/// with the agent's status, and the agent and the driver are gone.
-#[test]
-fn a_blocked_naming_call_never_delays_signal_forwarding() {
-    register();
-    for (signal, name) in [
-        (nix::sys::signal::Signal::SIGTERM, "term"),
-        (nix::sys::signal::Signal::SIGHUP, "hup"),
-    ] {
-        let fixture = naming(&format!("run-signal-{name}"), &[]);
-        fixture.approve();
-        fs::write(fixture.root.join("driver/hold"), "").unwrap();
-        let mut run = run_agent(&fixture);
-        assert!(
-            run.adopt("driver/held", true).live(),
-            "{name}: the naming call is held"
-        );
-        nix::sys::signal::kill(run.pid(), signal).unwrap();
-        let acked = fixture.root.join("acked");
-        wait_until("the agent acknowledges the signal", || acked.exists());
-        assert!(
-            run.owned[1].live(),
-            "{name}: the naming call was still held at the acknowledgement"
-        );
-        let (code, stderr) = run.finish();
-        assert_eq!(code, Some(3), "{name}: {stderr}");
-        assert_eq!(named(&fixture).len(), 1, "{name}");
-    }
-}
-
 /// The accepted limit L1: after SIGKILL of `tmt run`, nothing in TMT ends a
 /// naming call that ignores its deadline, as on the explicit naming path.
 /// The held driver stays live without a break until well past its 2 s
@@ -1019,7 +1039,11 @@ fn after_sigkill_of_tmt_run_a_stubborn_naming_call_outlives_it() {
     // by `until`. Observe the driver the whole time, not once at the end.
     let until = std::time::Instant::now() + std::time::Duration::from_secs(4);
     while std::time::Instant::now() < until {
-        assert!(run.owned[1].live(), "the naming call outlived tmt run");
+        assert_eq!(
+            run.owned[1].seen(),
+            Seen::Live,
+            "the naming call outlived tmt run"
+        );
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
     run.assert_owned_gone();
