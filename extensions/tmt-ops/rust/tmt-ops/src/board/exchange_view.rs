@@ -124,7 +124,7 @@ pub(in crate::board) fn link(
     spans.extend(
         super::key_hints::line(
             &[(
-                &super::view::footer::key_label(key),
+                super::view::footer::key_label(key),
                 &super::notes::single_line(action),
             )],
             look,
