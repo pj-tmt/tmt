@@ -377,7 +377,7 @@ pub fn state_style(app: &crate::board::app::App, row: &OpsTreeRow) -> ratatui::s
         .map_or_else(|| look.role(role), |color| look.named(color))
 }
 
-/// The activity words: only a request that waits on the user uses attention colour.
+/// The activity glyph: only a request that waits on the user uses attention colour.
 pub fn activity_style(app: &crate::board::app::App, state: &str) -> ratatui::style::Style {
     app.look().role(if state == "waiting" {
         Role::Waiting
@@ -406,8 +406,9 @@ pub fn task_style(app: &crate::board::app::App, row: &OpsTreeRow) -> ratatui::st
         .map_or_else(|| look.role(role), |color| look.named(color))
 }
 
-/// A member's STATE cell in `width` cells: the glyph and activity words, then
-/// the muted task state when it fits.
+/// A member's STATE cell in `width` cells: the glyph, the activity words and
+/// the task state when it fits. Only the glyph carries request attention colour;
+/// the words stay neutral and the task keeps its own colour.
 pub fn activity_spans(
     app: &crate::board::app::App,
     row: &OpsTreeRow,
@@ -415,23 +416,59 @@ pub fn activity_spans(
     width: usize,
     selected: bool,
 ) -> (
-    ratatui::text::Span<'static>,
+    Vec<ratatui::text::Span<'static>>,
     Option<ratatui::text::Span<'static>>,
 ) {
+    use ratatui::text::Span;
     use unicode_width::UnicodeWidthStr;
     let symbol = state_symbol(Some(label.state));
     let (head, task) = label.fit(width.saturating_sub(symbol.width() + 1));
-    let primary = format!("{symbol} {head}");
-    let primary = crate::board::view::fit(&primary, primary.width().min(width));
+    let words = format!(" {head}");
+    let room = width.saturating_sub(symbol.width());
+    let words = crate::board::view::fit(&words, words.width().min(room));
+    let mut primary = vec![Span::styled(
+        symbol,
+        table_style(app, selected, activity_style(app, label.state)),
+    )];
+    if !words.is_empty() {
+        primary.push(Span::styled(
+            words,
+            table_style(app, selected, app.look().role(Role::Text)),
+        ));
+    }
     (
-        ratatui::text::Span::styled(
-            primary,
-            table_style(app, selected, activity_style(app, label.state)),
-        ),
-        task.map(|task| {
-            ratatui::text::Span::styled(task, table_style(app, selected, task_style(app, row)))
-        }),
+        primary,
+        task.map(|task| Span::styled(task, table_style(app, selected, task_style(app, row)))),
     )
+}
+
+/// Paints a member's STATE words into `cell` and records their areas as state
+/// cells, so selection keeps their colours. Returns the painted width.
+pub fn paint_activity(
+    buffer: &mut ratatui::buffer::Buffer,
+    app: &crate::board::app::App,
+    row: &OpsTreeRow,
+    label: &crate::board::activity::Label,
+    cell: ratatui::layout::Rect,
+    selected: bool,
+) -> u16 {
+    use ratatui::layout::Rect;
+    let (primary, task) = activity_spans(app, row, label, usize::from(cell.width), selected);
+    let width = primary.iter().map(|span| span.width()).sum::<usize>() as u16;
+    let task_width = task.as_ref().map_or(0, |task| {
+        (task.width() as u16).min(cell.width.saturating_sub(width))
+    });
+    let mut states = app.workspace_state_cells.borrow_mut();
+    states.push(Rect::new(cell.x, cell.y, width, 1));
+    if task_width > 0 {
+        states.push(Rect::new(cell.x + width, cell.y, task_width, 1));
+    }
+    tmt_tui::components::strip::paint_left(
+        buffer,
+        cell,
+        ratatui::text::Line::from_iter(primary.into_iter().chain(task)),
+    );
+    width + task_width
 }
 
 pub fn table_style(

@@ -451,10 +451,12 @@ fn real_frames_publish_only_clipped_agent_hits_and_neutral_state_words() {
                 let label = app.activity_label(&rows[index]).expect("a member row");
                 assert!(!label.state.is_empty());
                 if hit.width >= 60 {
+                    // The shared STATE words stay neutral text; only the glyph
+                    // carries attention colour.
                     assert_eq!(
                         buffer[(hit.x + 39, hit.y)].fg,
                         app.look()
-                            .role(tmt_cli_style::Role::Muted)
+                            .role(tmt_cli_style::Role::Text)
                             .fg
                             .unwrap_or_default()
                     );
