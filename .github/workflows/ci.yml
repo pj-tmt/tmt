@@ -314,11 +314,26 @@ jobs:
         if: needs.changes.outputs.native_scope == 'full'
         working-directory: rust
         run: |
+          cat > "$RUNNER_TEMP/workspace-baseline.sh" <<'WORKSPACE'
+          exec 2>&1
+          printf '#3231 phase=remote-list\n'
           remote_tests="$(cargo test --locked -p tmt-remote -- --list)"
           printf '%s\n' "$remote_tests"
           grep -q ': test$' <<< "$remote_tests"
+          printf '#3231 phase=harnesses\n'
           node ../typescript/scripts/private-world.mjs -- cargo test --locked --workspace
+          printf '#3231 phase=dev-build\n'
           cargo build --locked --workspace
+          WORKSPACE
+          node ../typescript/scripts/workspace-profile.mjs "$RUNNER_TEMP/workspace-profile" -- bash --noprofile --norc -eo pipefail "$RUNNER_TEMP/workspace-baseline.sh"
+      - name: Keep workspace measurement even on a test failure
+        if: always() && github.event_name == 'pull_request' && needs.changes.outputs.native_scope == 'full'
+        uses: actions/upload-artifact@v4
+        with:
+          name: workspace-profile-${{ github.run_id }}
+          path: ${{ runner.temp }}/workspace-profile/
+          retention-days: 1
+          if-no-files-found: error
       - name: Select hosted Temurin 21 for native sync acceptance
         if: needs.changes.outputs.native_scope == 'full' && needs.changes.outputs.native_sync_emulator == 'true'
         run: |
@@ -343,6 +358,111 @@ jobs:
         run: |
           node ../typescript/scripts/private-world.mjs -- cargo test --locked -p tmt-ops
           cargo test --locked -p tmt-cli --test architecture
+
+  workspace-nextest-trial:
+    name: Workspace nextest measurement (advisory)
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.native_scope == 'full'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+      - name: Install the same pinned Rust toolchain
+        id: toolchain
+        run: sh scripts/install-ci-rust.sh 1.97.0 --profile minimal
+      - name: Restore the same dependency cache without writing it
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: rust
+          shared-key: native-rust
+          save-if: false
+      - name: Install the digest-pinned nextest trial binary
+        run: |
+          mkdir "$RUNNER_TEMP/nextest-tool" "$RUNNER_TEMP/nextest-evidence"
+          curl --fail --location --max-time 90 https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.148/cargo-nextest-0.9.148-x86_64-unknown-linux-gnu.tar.gz -o "$RUNNER_TEMP/nextest-tool/tool.tar.gz"
+          printf '%s  %s\n' 223ba936714cc861a9cdedad5a8eb664dfdd69d6fbdf6cea6aa8184f523290dc "$RUNNER_TEMP/nextest-tool/tool.tar.gz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/nextest-tool/tool.tar.gz" -C "$RUNNER_TEMP/nextest-tool"
+          echo "$RUNNER_TEMP/nextest-tool" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/nextest-tool/cargo-nextest" nextest --version
+      - name: Capture test-profile compile timings and the exact test inventory
+        working-directory: rust
+        run: |
+          set -o pipefail
+          cargo build --locked --workspace --profile test --tests --timings --message-format=json-render-diagnostics | tee "$RUNNER_TEMP/nextest-evidence/build.jsonl"
+          cp -R target/cargo-timings "$RUNNER_TEMP/nextest-evidence/"
+          cargo metadata --locked --format-version 1 > "$RUNNER_TEMP/nextest-evidence/cargo-metadata.json"
+          cargo nextest list --locked --workspace --message-format json > "$RUNNER_TEMP/nextest-evidence/tests.json"
+      - name: Trial nextest once, preserving process-per-test failures
+        working-directory: rust
+        run: |
+          cat > "$RUNNER_TEMP/nextest-run.sh" <<'NEXTEST'
+          exec 2>&1
+          printf '#3231 phase=nextest\n'
+          node ../typescript/scripts/private-world.mjs -- cargo nextest run --locked --workspace --no-fail-fast
+          NEXTEST
+          node ../typescript/scripts/workspace-profile.mjs "$RUNNER_TEMP/nextest-profile" -- bash --noprofile --norc -eo pipefail "$RUNNER_TEMP/nextest-run.sh"
+      - name: Keep doctests as a separate obligation even if nextest fails
+        if: always() && steps.toolchain.outcome == 'success'
+        working-directory: rust
+        run: |
+          set -o pipefail
+          node ../typescript/scripts/private-world.mjs -- cargo test --locked --workspace --doc 2>&1 | tee "$RUNNER_TEMP/nextest-evidence/doctests.log"
+      - name: Archive the compiled closure without retesting it
+        id: archive
+        if: always() && steps.toolchain.outcome == 'success'
+        working-directory: rust
+        run: |
+          cargo nextest archive --locked --workspace --archive-file "$RUNNER_TEMP/nextest-closure.tar.zst"
+          stat --format='%s' "$RUNNER_TEMP/nextest-closure.tar.zst" | tee "$RUNNER_TEMP/nextest-evidence/archive-bytes.txt"
+          sha256sum "$RUNNER_TEMP/nextest-closure.tar.zst" > "$RUNNER_TEMP/nextest-evidence/archive-sha256.txt"
+          if [ "$(stat --format='%s' "$RUNNER_TEMP/nextest-closure.tar.zst")" -gt 2147483648 ]; then
+            echo 'Measurement capacity: closure exceeds the 2 GiB transfer cap.' >&2
+            exit 1
+          fi
+          if [ "$(df -Pk "$RUNNER_TEMP" | awk 'NR==2 {print $4}')" -lt 6291456 ]; then
+            echo 'Measurement capacity: less than 6 GiB free before transfer/extraction.' >&2
+            exit 1
+          fi
+      - name: Measure closure upload
+        id: closure
+        if: always() && steps.archive.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: workspace-nextest-closure-${{ github.run_id }}
+          path: ${{ runner.temp }}/nextest-closure.tar.zst
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+      - name: Measure closure download
+        if: always() && steps.closure.outcome == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: workspace-nextest-closure-${{ github.run_id }}
+          path: ${{ runner.temp }}/nextest-roundtrip
+      - name: Measure extraction and inspect the restored closure without running tests twice
+        if: always() && steps.closure.outcome == 'success'
+        working-directory: rust
+        run: |
+          cmp "$RUNNER_TEMP/nextest-closure.tar.zst" "$RUNNER_TEMP/nextest-roundtrip/nextest-closure.tar.zst"
+          /usr/bin/time -f '%e seconds; %U user; %S system' -o "$RUNNER_TEMP/nextest-evidence/extract-time.txt" cargo nextest list --archive-file "$RUNNER_TEMP/nextest-roundtrip/nextest-closure.tar.zst" --extract-to "$RUNNER_TEMP/nextest-extracted" --message-format json > "$RUNNER_TEMP/nextest-evidence/restored-tests.json"
+          du -sb "$RUNNER_TEMP/nextest-extracted" > "$RUNNER_TEMP/nextest-evidence/extracted-bytes.txt"
+      - name: Preserve the trial evidence including failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workspace-nextest-measurement-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/nextest-evidence/
+            ${{ runner.temp }}/nextest-profile/
+          retention-days: 1
+          if-no-files-found: error
 
   native-process-tests:
     name: Native process contracts

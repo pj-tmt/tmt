@@ -338,7 +338,13 @@ describe('complete trusted-main verification', () => {
       (match) => match[1]
     );
     expect(ids.sort()).toEqual(
-      [...MAIN_FULL_JOBS, 'release-rehearsal', 'complete-main', 'notify-main-failure'].sort()
+      [
+        ...MAIN_FULL_JOBS,
+        'release-rehearsal',
+        'complete-main',
+        'notify-main-failure',
+        'workspace-nextest-trial',
+      ].sort()
     );
     const complete = job('complete-main');
     const needs = complete.split('    needs:\n')[1].split('    if:')[0];
@@ -1360,6 +1366,7 @@ esac
         env: {
           ...process.env,
           PATH: `${root}:${process.env.PATH}`,
+          RUNNER_TEMP: root,
           CALLS: path.join(root, 'calls'),
           DISCOVERY: fixture.discovery,
           LIST_STATUS: String(fixture.listStatus),
@@ -2697,7 +2704,7 @@ describe('required CI gate', () => {
     );
     const cachePolicies = workflow.match(/^\s+save-if:.*$/gm) ?? [];
     const writers = cachePolicies.filter((line) => line.trim() !== 'save-if: false');
-    expect(cachePolicies).toHaveLength(6);
+    expect(cachePolicies).toHaveLength(7);
     expect(writers).toHaveLength(4);
     for (const writer of writers) {
       expect(writer.trim()).toBe(
@@ -2718,6 +2725,7 @@ describe('required CI gate', () => {
       'native-notices',
       'native-clippy',
       'native-workspace-tests',
+      'workspace-nextest-trial',
       'native-process-tests',
       'native-msrv',
       'native-runtime-build',
