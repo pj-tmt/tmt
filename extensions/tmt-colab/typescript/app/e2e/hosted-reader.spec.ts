@@ -116,7 +116,9 @@ for (const width of [390, 1280]) {
         'sign-in-commenter',
         'sign-in-editor',
         'editor',
-        'request-sent',
+        'request-waiting',
+        'request-changed',
+        'request-large',
         'request-refused',
         'request-unconfirmed',
         'budget',
@@ -134,13 +136,16 @@ for (const width of [390, 1280]) {
           if (state.startsWith('request-')) {
             await area.fill('<main><h1>Requested draft</h1></main>');
             await page.getByRole('button', { name: text.save, exact: true }).click();
+            // A sent request is answered by the page: the same copy as a native link's.
             await expect(
               page.getByText(
-                state === 'request-sent'
-                  ? 'Sent'
-                  : state === 'request-refused'
-                    ? 'Not sent'
-                    : 'Unconfirmed',
+                {
+                  'request-waiting': text.linkEditWaiting,
+                  'request-changed': text.linkEditChanged,
+                  'request-large': text.linkEditTooLarge(200 * 1024, 128 * 1024),
+                  'request-refused': 'Not sent',
+                  'request-unconfirmed': 'Unconfirmed',
+                }[state]!,
                 { exact: true },
               ),
             ).toBeVisible();

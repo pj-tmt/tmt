@@ -127,11 +127,6 @@ it.each([
 });
 
 it.each([
-  [
-    'sent',
-    'Edit request sent. It appears on the page when the owner&#x27;s Colab applies it.',
-    'muted',
-  ],
   ['refused', 'Edit request not sent. Ask the owner for a current link.', 'blocked'],
   [
     'unconfirmed',
@@ -145,7 +140,6 @@ it.each([
   if (outcome === 'unconfirmed') {
     expect(html).toContain('Unconfirmed');
     expect(html).not.toContain('not sent');
-    expect(html).not.toContain('Edit request sent');
   }
 });
 
@@ -155,7 +149,7 @@ it.each(['viewer', 'commenter', 'editor'] as const)(
     const html = markup({
       phase: 'ready',
       role,
-      edit: async () => ({ request: 'sent' }),
+      edit: async (source) => ({ kind: 'applied', source }),
       view: { source: '<main>admitted</main>', title: 'Page' },
       budget: { day: 1, reads: 10, writes: 0, state: 'ok' },
     });

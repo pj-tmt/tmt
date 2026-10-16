@@ -11,8 +11,9 @@ import { deriveReaderKeys } from './reader-keys.js';
 import type { ReaderLink } from './reader-link.js';
 import type { Registration } from './registration.js';
 import type { PageView } from './transport.js';
-import type { ReaderEdit } from './reader-source.js';
-import { sendEditRequest } from './link-edit.js';
+import type { EditRequestOutcome, ReaderEdit } from './reader-source.js';
+import { PageAnswer, sendEditRequest } from './link-edit.js';
+import { EditTooLarge } from './save.js';
 
 type Usage = Awaited<ReturnType<HostedBudget['snapshot']>>;
 export type HostedEntryState =
@@ -29,6 +30,9 @@ interface Page {
   target: ReaderLink;
   keys: Awaited<ReturnType<typeof deriveReaderKeys>>;
   admission: HostedAdmission;
+  /** The page text last shown for this page, across hidden and recovered sessions: how a sent
+   * edit request is answered. Ended when the page is left. */
+  answer: PageAnswer;
 }
 
 /** One origin/auth/declaration owner with one selected page. No native door fallback. */
@@ -52,6 +56,7 @@ export class HostedEntry {
   select(selection?: ReaderLink | Promise<ReaderLink | undefined>): Promise<void> {
     const generation = ++this.generation,
       retiring = this.retire();
+    this.page?.answer.end();
     this.options.state({ phase: 'loading' });
     const prepare = async (target?: ReaderLink): Promise<Page | undefined> =>
       target
@@ -59,6 +64,7 @@ export class HostedEntry {
             target,
             keys: await deriveReaderKeys(target, 'hosted'),
             admission: new HostedAdmission(),
+            answer: new PageAnswer(),
           }
         : undefined;
     // Direct parsed inputs consume their seed synchronously; queued parsing failures are handled now.
@@ -108,6 +114,7 @@ export class HostedEntry {
     ++this.generation;
     this.controller.abort();
     const retiring = this.retire();
+    this.page?.answer.end();
     await this.changes;
     await retiring;
     const boot = await this.boot?.catch(() => undefined);
@@ -175,6 +182,7 @@ export class HostedEntry {
     if (this.session) return;
     const { target, keys } = page;
     let reader: HostedPageReader | undefined;
+    const { answer } = page;
     const registration: Registration = {
       deviceId: keys.device.id,
       chain: certificate.Chain.fromJson(keys.chain),
@@ -258,7 +266,8 @@ export class HostedEntry {
         drain: () => boot.budget.drain(),
         publish: async (view, call) => {
           const budget = await boot.budget.snapshot();
-          if (this.current(generation) && this.shown && !call.signal.aborted)
+          if (this.current(generation) && this.shown && !call.signal.aborted) {
+            answer.show(view.source);
             this.options.state({
               phase: 'ready',
               view,
@@ -266,11 +275,12 @@ export class HostedEntry {
               role: target.role,
               ...(target.role === 'editor' && reader
                 ? {
-                    edit: (source, base) =>
-                      this.edit(reader!, generation, call.signal, source, base),
+                    edit: (source, base, onWaiting) =>
+                      this.edit(reader!, generation, call.signal, answer, source, base, onWaiting),
                   }
                 : {}),
             });
+          }
         },
         recovering: () => {
           if (this.current(generation) && this.shown) this.options.state({ phase: 'recovering' });
@@ -278,6 +288,7 @@ export class HostedEntry {
         failed: (failure) => {
           if (!this.current(generation)) return;
           this.terminal = { failure };
+          answer.end();
           this.options.state({ phase: 'failed', failure });
         },
       },
@@ -290,14 +301,29 @@ export class HostedEntry {
     reader: HostedPageReader,
     generation: number,
     signal: AbortSignal,
+    answer: PageAnswer,
     source: string,
     base: string,
+    onWaiting: () => void,
   ): ReturnType<ReaderEdit> {
+    const before = answer.shown;
+    const sent = await this.send(reader, generation, signal, source, base);
+    // Once the request is confirmed, the page is the only answer, as for a native link.
+    return sent === 'sent' ? answer.answer(source, before, onWaiting) : { request: sent };
+  }
+  /** One request through the reader: how it ended, or `EditTooLarge` when it cannot be one document. */
+  private async send(
+    reader: HostedPageReader,
+    generation: number,
+    signal: AbortSignal,
+    source: string,
+    base: string,
+  ): Promise<'sent' | EditRequestOutcome> {
     if (!this.current(generation) || !this.shown || this.terminal || signal.aborted)
-      return { request: 'refused' };
+      return 'refused';
     let submitted = false;
     try {
-      let outcome: 'sent' | 'refused' | 'unconfirmed' | 'writer-in-use' = 'refused';
+      let outcome: 'sent' | EditRequestOutcome = 'refused';
       await sendEditRequest(
         {
           submitOwnRecords: async (records, fits) => {
@@ -308,28 +334,28 @@ export class HostedEntry {
               { signal, deadlineAtMs: Date.now() + 30_000 },
               fits,
             );
+            // The reader reports a request that does not fit as a refusal; the page names its size.
+            if (result.failure instanceof EditTooLarge) throw result.failure;
             outcome = result.outcome;
           },
         },
         base,
         source,
       );
-      return { request: outcome };
+      return outcome;
     } catch (failure) {
+      if (failure instanceof EditTooLarge) throw failure;
       const code =
         typeof failure === 'object' && failure !== null && 'code' in failure
           ? failure.code
           : undefined;
-      return {
-        request:
-          !submitted ||
-          code === 'REMOTE_SCOPE_DENIED' ||
-          code === 'REMOTE_BUDGET_EXHAUSTED' ||
-          code === 'REMOTE_RATE_LIMITED' ||
-          code === 'REMOTE_INPUT_INVALID'
-            ? 'refused'
-            : 'unconfirmed',
-      };
+      return !submitted ||
+        code === 'REMOTE_SCOPE_DENIED' ||
+        code === 'REMOTE_BUDGET_EXHAUSTED' ||
+        code === 'REMOTE_RATE_LIMITED' ||
+        code === 'REMOTE_INPUT_INVALID'
+        ? 'refused'
+        : 'unconfirmed';
     }
   }
 }

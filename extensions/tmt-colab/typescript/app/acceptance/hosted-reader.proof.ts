@@ -406,8 +406,9 @@ test('a hosted editor verifies native content, publishes one own edit request an
     await expect(source).toBeVisible();
     await source.fill('<main><h1>Hosted editor requested version</h1></main>');
     await page.getByRole('button', { name: text.save, exact: true }).click();
-    await expect(page.getByText('Sent', { exact: true })).toBeVisible({ timeout: 30000 });
-    expect(writes).toHaveLength(2);
+    // The request is confirmed when its one own create and exact-ID readback have both happened;
+    // the page, not a notice, then answers it.
+    await expect.poll(() => writes.length, { timeout: 30000 }).toBe(2);
     const ownMutation = JSON.parse(writes[1]).writes;
     expect(ownMutation).toHaveLength(1);
     expect(ownMutation[0].currentDocument).toEqual({ exists: false });
@@ -427,13 +428,15 @@ test('a hosted editor verifies native content, publishes one own edit request an
     const ownOriginal = Envelope.fromJson(new TextEncoder().encode(ownFields.envelope.stringValue));
     expect(decodeHeader(ownOriginal.header()).context.namespace).toBe('own');
     const originalId = ownMutation[0].update.name.split('/').at(-1);
-    const readbacks = gets.filter(
-      (get) => get.phase === 'edit' && get.collection === 'log' && get.target === originalId,
-    );
-    expect(readbacks).toHaveLength(1);
+    const readbackOf = () =>
+      gets.filter(
+        (get) => get.phase === 'edit' && get.collection === 'log' && get.target === originalId,
+      );
+    await expect.poll(() => readbackOf().length, { timeout: 30000 }).toBe(1);
+    const readbacks = readbackOf();
     expect(readbacks[0].status).toBe(200);
     boundaries.requestSent = await budget();
-    // Sent is not an optimistic content save: only the owner's new sealed content can render it.
+    // A sent request is not an optimistic content save: only the owner's new sealed content can render it.
     await expect(page.frameLocator('iframe').locator('h1')).toHaveText(
       'Hosted editor requested version',
       { timeout: 60000 },
