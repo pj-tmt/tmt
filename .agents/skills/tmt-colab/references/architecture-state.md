@@ -160,7 +160,14 @@ opens completion at `@` or full-width `＠` after non-address-like text, includi
 `email@host` never routes. No Lexical document is persisted or sent as authority.
 
 `AnnotationInput` owns the draft, trusted action, current content/Ask admission and
-immutable one-comment send capture. The page-owned `creator-default.tsx` preference
+immutable one-comment send capture. `message-send-refusal.ts` shares its button and
+explicit-submit presentation gates and classifies closed failure references. The
+composer keeps a visible, announced refusal below the field until a deliberate
+text edit, retry or successful Send; saved S2/S13 states stay neutral, without an
+error mark or a resend action.
+Connection guidance and editor normalization do not clear it. This state is local
+to the draft, never stored or sent. The discussion contract below owns the reference
+codes. The page-owned `creator-default.tsx` preference
 shares admitted defaults across composers; mention-node provenance is editing-only
 and the unchanged encrypted v1 draft format restores mentions as manual. `message-recipient.ts` resolves exact typed names
 and distinct UUID pairs for presentation only; LiveAsk re-admits each frozen Ask.

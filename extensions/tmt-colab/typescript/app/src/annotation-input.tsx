@@ -27,6 +27,14 @@ import type {
 } from './components/message-composer-edit.js';
 import type { CreationRecipient } from './fold-protocol.js';
 import { messageRecipient } from './message-recipient.js';
+import {
+  messageSendRefusal,
+  messageSendCopy,
+  messageSendSaved,
+  messageSendFailureReference,
+  type MessageSendReference,
+  type MessageSendStage,
+} from './message-send-refusal.js';
 import { text } from './strings.js';
 import { CommentSendFailures } from './comment-send-failures.js';
 import type { AskBinding, PageAsk } from './ask-panel.js';
@@ -102,7 +110,20 @@ export function AnnotationInput({
   const [resetKey, setResetKey] = useState(0);
   const [busy, setBusy] = useState(false);
   const sending = useRef(false);
-  const [error, setError] = useState<string>();
+  const [error, setError] = useState<{
+    reference: MessageSendReference;
+    occurrence: number;
+  }>();
+  const failureSequence = useRef(0);
+  const failureNotice = useRef<HTMLParagraphElement>(null);
+  function refuse(reference: MessageSendReference) {
+    // A repeated identical refusal must create a fresh alert for assistive technology.
+    setError({ reference, occurrence: ++failureSequence.current });
+  }
+  useEffect(() => {
+    if (error && failureNotice.current?.getClientRects().length)
+      failureNotice.current.scrollIntoView({ block: 'nearest' });
+  }, [error]);
   const [recorded, setRecorded] = useState<DiscussionRef>();
   const { directory, retry } = useAgentDirectory(binding);
   const agents = directory.state === 'ready' ? directory.agents : undefined;
@@ -223,43 +244,61 @@ export function AnnotationInput({
     setEdit(nextDraft.current());
     setResetKey((key) => key + 1);
   }
+  const sendGate = (current: ComposerEdit, allowed: boolean, needsBinding: boolean) => ({
+    sending: sending.current,
+    recorded: !!recorded,
+    archived,
+    blocked,
+    discussion: !!discussion,
+    allowed,
+    needsBinding,
+    binding: !!binding,
+    value: current.value,
+  });
   async function send(current: ComposerEdit = edit) {
-    if (sending.current || recorded || archived || blocked || !discussion) return;
-    const admitted = decide(current);
-    if (!admitted.allowed || (admitted.agents.length && !binding)) return;
-    if (!current.value.trim()) {
-      setError(text.messageWrite);
-      return;
-    }
-    const captured = {
-      value: current.value,
-      destinations: structuredClone(admitted.agents),
-      anchor: structuredClone(anchor),
-      thread: thread?.ref,
-      threadRevision: thread?.revision,
-      title,
-      conversation: captureConversation(thread, asks),
-      url: location.href,
-    };
-    sending.current = true;
-    setFailures([]);
-    setBusy(true);
+    // Only this explicit retry or a deliberate text edit clears a previous refusal.
     setError(undefined);
+    let stage: MessageSendStage = 'admission';
+    let ownsSend = false;
     let origin: Awaited<ReturnType<ThreadBinding['create']>> | undefined;
     try {
-      // Files upload only here, on the explicit Send, and the message is recorded only
-      // once every one of them is stored; a refusal leaves text and chips as they are.
+      const admitted = decide(current);
+      const refusal = messageSendRefusal(
+        sendGate(current, admitted.allowed, !!admitted.agents.length),
+      );
+      if (refusal) {
+        if (refusal !== 'S8') refuse(refusal);
+        return;
+      }
+      stage = 'capture';
+      const captured = {
+        value: current.value,
+        destinations: structuredClone(admitted.agents),
+        anchor: structuredClone(anchor),
+        thread: thread?.ref,
+        threadRevision: thread?.revision,
+        title,
+        conversation: captureConversation(thread, asks),
+        url: location.href,
+      };
+      sending.current = true;
+      ownsSend = true;
+      setFailures([]);
+      setBusy(true);
+      stage = 'attachments';
       const prepared = await files.prepare();
       if (!prepared.ok) {
-        setError(text.attachBlocked[prepared.why]);
+        refuse('S10');
         return;
       }
       const attach = prepared.attach;
+      stage = 'record';
       origin = captured.thread
-        ? await discussion.reply(captured.thread, captured.value, captured.threadRevision, attach)
+        ? await discussion!.reply(captured.thread, captured.value, captured.threadRevision, attach)
         : chat
-          ? await discussion.createChat(captured.value, attach)
-          : await discussion.create(captured.value, captured.anchor, attach);
+          ? await discussion!.createChat(captured.value, attach)
+          : await discussion!.create(captured.value, captured.anchor, attach);
+      stage = 'dispatch';
       files.committed();
       const failures = await sendCommentAsks(binding, origin, captured.destinations, {
         quote,
@@ -270,21 +309,25 @@ export function AnnotationInput({
       });
       failures.forEach(recordFailure);
       clearDraft();
+      setError(undefined);
       committed(origin.thread);
     } catch (failure) {
-      if (failure instanceof AttachmentStaleError) {
+      if (!origin && failure instanceof AttachmentStaleError) {
         files.stale(failure.attachmentIds);
-        setError(text.attachBlocked.stale);
+        refuse('S14');
         return;
       }
-      setError(origin ? text.messageRecordedUncertain : text.messageRecordFailed);
+      refuse(origin ? 'S13' : messageSendFailureReference(stage, failure));
       if (origin) {
         clearDraft();
         setRecorded(origin.thread);
       }
     } finally {
-      sending.current = false;
-      setBusy(false);
+      // A refused second activation never releases the first send's busy fence.
+      if (ownsSend) {
+        sending.current = false;
+        setBusy(false);
+      }
     }
   }
   const attachable = !archived && !!discussion?.attachments && !busy && !blocked && !recorded;
@@ -334,12 +377,29 @@ export function AnnotationInput({
         )}
     </div>
   );
+  const sendFailureNotice = error && (
+    <p
+      key={error.occurrence}
+      ref={failureNotice}
+      role="alert"
+      className="annotation-send-notice"
+      data-send-refusal={error.reference}
+    >
+      {!messageSendSaved(error.reference) && (
+        <span className="annotation-send-mark" aria-hidden="true">
+          ✗{' '}
+        </span>
+      )}
+      {messageSendCopy(error.reference, decision.agents[0]?.agentName)}{' '}
+      {text.messageSendReference(error.reference)}
+    </p>
+  );
   if (archived)
     return (
-      <section className="annotation-compose" data-testid="annotation-compose">
+      <section className="annotation-compose" data-testid="annotation-compose" ref={section}>
         <ArchivedDraft value={value} />
         <p className="annotation-hint">{text.archivePosting}</p>
-        {error && (!connectionPresentation || recorded) && <p role="alert">{error}</p>}
+        {sendFailureNotice}
       </section>
     );
   const sendActionProps: BrowserActionProps = {
@@ -351,13 +411,10 @@ export function AnnotationInput({
     variant: 'primary',
     busy,
     disabled:
-      blocked ||
-      staged.chips.some((chip) => chip.state.kind === 'uploading') ||
-      !!recorded ||
-      !discussion ||
-      !value.trim() ||
-      !decision.allowed ||
-      (!!decision.agents.length && !binding),
+      !!messageSendRefusal({
+        ...sendGate(edit, decision.allowed, !!decision.agents.length),
+        sending: busy,
+      }) || staged.chips.some((chip) => chip.state.kind === 'uploading'),
     onActivate: (event) => {
       if (event.isTrusted) void send();
     },
@@ -398,7 +455,8 @@ export function AnnotationInput({
           const seedOnly =
             next.mentions?.some((mention) => mention.defaultCreator) && !remainder?.trim();
           setEdit({ ...next, edited: !seedOnly });
-          setError(undefined);
+          // Mention normalization can report a new edit object without any deliberate text edit.
+          if (next.value !== value) setError(undefined);
         }}
         label={text.messageLabel}
         placeholder={text.messagePlaceholder}
@@ -414,16 +472,21 @@ export function AnnotationInput({
             : undefined
         }
         accessory={
-          discussion?.attachments ? (
-            <PendingAttachments
-              draft={files}
-              disabled={!attachable}
-              onRemoved={() => {
-                section.current
-                  ?.querySelector<HTMLElement>('[role="combobox"]')
-                  ?.focus({ preventScroll: true });
-              }}
-            />
+          sendFailureNotice || discussion?.attachments ? (
+            <>
+              {sendFailureNotice}
+              {discussion?.attachments && (
+                <PendingAttachments
+                  draft={files}
+                  disabled={!attachable}
+                  onRemoved={() => {
+                    section.current
+                      ?.querySelector<HTMLElement>('[role="combobox"]')
+                      ?.focus({ preventScroll: true });
+                  }}
+                />
+              )}
+            </>
           ) : undefined
         }
         describedBy={statusId}
@@ -532,7 +595,6 @@ export function AnnotationInput({
           )
         }
       />
-      {error && (!connectionPresentation || recorded) && <p role="alert">{error}</p>}
       {recorded && (chat || !thread) && (
         <BrowserAction
           type="button"

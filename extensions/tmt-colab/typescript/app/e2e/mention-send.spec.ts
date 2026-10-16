@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { messageSendCopy } from '../src/message-send-refusal.js';
 import { destination, id } from '../test/ask-fixtures.js';
 const fixture = '/test/annotation-browser.tsx';
 async function run(page: Page, method: string, argument?: unknown) {
@@ -196,7 +197,7 @@ test('comment write failure retains draft and prepares no Ask; preparation failu
   const input = await mount(page, { mode: 'write-failure' });
   await input.pressSequentially('@alpha note');
   await input.press('Enter');
-  await expect(page.getByRole('alert')).toContainText('could not be recorded');
+  await expect(page.getByRole('alert')).toContainText('Not sent. Your draft is kept; try again.');
   await expect(input).toHaveText('@alpha note', { useInnerText: true });
   expect((await run(page, 'proof')).preparations).toBe(0);
   await run(page, 'mount', 'prepare-failure');
@@ -550,7 +551,9 @@ test('an open ambiguous-name list accepts the highlighted UUID without sending',
 });
 
 for (const phase of ['reconnecting', 'ended'] as const) {
-  test(`connection ${phase} wins over recipient and pre-record failure copy`, async ({ page }) => {
+  test(`connection ${phase} retains its guidance and the pre-record failure reference`, async ({
+    page,
+  }) => {
     const input = await mount(page, { mode: 'write-failure' });
     await input.fill('@beta note');
     await expect(page.locator('.annotation-hint[role="status"]')).toContainText(
@@ -577,10 +580,188 @@ for (const phase of ['reconnecting', 'ended'] as const) {
     await run(page, 'setConnection', phase);
     await run(page, 'releaseWrite');
     await expect(page.locator('.annotation-hint[role="status"]')).toContainText(message);
-    await expect(page.getByRole('alert')).toHaveCount(0);
+    await expect(page.getByRole('alert')).toContainText('Not sent. Your draft is kept; try again.');
+    await expect(page.getByRole('alert')).toContainText('(ref S12)');
     await expect(input).toHaveText('Keep this failed draft.');
     expect(await run(page, 'proof')).toMatchObject({ writes: 1, preparations: 0, sends: [] });
     await run(page, 'setConnection', 'connected');
-    await expect(page.getByRole('alert')).toContainText('could not be recorded');
+    await expect(page.getByRole('alert')).toContainText('Not sent. Your draft is kept; try again.');
   });
 }
+
+for (const surface of ['annotation', 'chat']) {
+  for (const [kind, reference] of [
+    ['conflict', 'S15'],
+    ['sequence', 'S16'],
+    ['ended', 'S17'],
+    ['evicted', 'S18'],
+    ['unavailable', 'S19'],
+  ] as const)
+    test(`${surface}: send refusal reference ${reference} keeps the unrecorded draft`, async ({
+      page,
+    }) => {
+      const input = await mount(page, { surface, mode: 'write-failure' });
+      await input.fill('@alpha Kept draft.');
+      await run(page, 'setWriteFailure', kind);
+      await input.press('Enter');
+      await expect(page.getByRole('alert')).toHaveText(
+        `✗ ${messageSendCopy(reference)} (ref ${reference})`,
+      );
+      await expect(page.getByRole('alert')).toBeInViewport();
+      await expect(input).toHaveText('@alpha Kept draft.', { useInnerText: true });
+      expect(await run(page, 'proof')).toMatchObject({ writes: 1, preparations: 0, sends: [] });
+    });
+  test(`${surface}: send refusal reference survives background normalization and connection changes`, async ({
+    page,
+  }) => {
+    const input = await mount(page, { surface, mode: 'write-failure' });
+    await input.pressSequentially('@alpha Kept draft.');
+    await input.press('Enter');
+    await expect(page.getByRole('alert')).toContainText('(ref S12)');
+    await run(page, 'normalizeMention');
+    await expect(page.getByRole('alert')).toContainText('(ref S12)');
+    await run(page, 'setConnection', 'reconnecting');
+    await expect(page.getByRole('alert')).toContainText('(ref S12)');
+    await run(page, 'setConnection', 'ended');
+    await expect(page.getByRole('alert')).toContainText('(ref S12)');
+    await run(page, 'setConnection', 'connected');
+    await input.press('End');
+    await input.pressSequentially(' Edited.');
+    await expect(page.getByRole('alert')).toHaveCount(0);
+    await input.press('Enter');
+    await expect(page.getByRole('alert')).toContainText('(ref S12)');
+    expect(await run(page, 'proof')).toMatchObject({ writes: 2, preparations: 0, sends: [] });
+  });
+  test(`${surface}: send refusal reference catches a capture failure without leaking its text`, async ({
+    page,
+  }) => {
+    const input = await mount(page, { surface });
+    await input.fill('@alpha Kept draft.');
+    await page.evaluate(() => {
+      const original = window.structuredClone;
+      window.structuredClone = (value, options) => {
+        if (Array.isArray(value) && value.some((row) => row?.agentName === 'alpha')) {
+          window.structuredClone = original;
+          throw new Error('private capture detail');
+        }
+        return original(value, options);
+      };
+    });
+    await input.press('Enter');
+    await expect(page.getByRole('alert')).toHaveText(`✗ ${messageSendCopy('S9')} (ref S9)`);
+    await expect(page.getByRole('alert')).not.toContainText('private capture detail');
+    await expect(input).toHaveText('@alpha Kept draft.', { useInnerText: true });
+    expect(await run(page, 'proof')).toMatchObject({ writes: 0, preparations: 0, sends: [] });
+  });
+}
+for (const [failure, reference] of [
+  ['refused', 'S10'],
+  ['throw', 'S11'],
+  ['stale', 'S14'],
+] as const)
+  test(`send refusal reference ${reference} covers attachment preparation`, async ({ page }) => {
+    const input = await mount(page);
+    await input.fill('Kept draft.');
+    await page.evaluate(async (failure) => {
+      const path = '/src/attachment-draft.ts';
+      const { AttachmentDraft } = await import(path);
+      const original = AttachmentDraft.prototype.prepare;
+      AttachmentDraft.prototype.prepare = async () => {
+        AttachmentDraft.prototype.prepare = original;
+        if (failure === 'refused') return { ok: false, why: 'refused' };
+        if (failure === 'stale') {
+          const service = '/src/attachment-service.ts';
+          const { AttachmentStaleError } = await import(service);
+          throw new AttachmentStaleError([]);
+        }
+        throw new Error('private attachment detail');
+      };
+    }, failure);
+    await input.press('Enter');
+    await expect(page.getByRole('alert')).toContainText(`(ref ${reference})`);
+    await expect(page.getByRole('alert')).not.toContainText('private attachment detail');
+    await expect(input).toHaveText('Kept draft.', { useInnerText: true });
+    expect(await run(page, 'proof')).toMatchObject({ writes: 0, preparations: 0, sends: [] });
+  });
+test('send refusal reference S6 announces recipient admission refusal', async ({ page }) => {
+  const input = await mount(page, { directory: 'park' });
+  await input.fill('@alpha Kept draft.');
+  await input.press('Enter');
+  await expect(page.getByRole('alert')).toHaveText(`✗ ${messageSendCopy('S6')} (ref S6)`);
+  await expect(input).toHaveText('@alpha Kept draft.', { useInnerText: true });
+  expect(await run(page, 'proof')).toMatchObject({ writes: 0, preparations: 0, sends: [] });
+});
+test('empty explicit submit keeps Send disabled without an alert', async ({ page }) => {
+  const input = await mount(page);
+  await input.press('Enter');
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^Send/ })).toBeDisabled();
+  expect(await run(page, 'proof')).toMatchObject({ writes: 0, preparations: 0, sends: [] });
+});
+for (const surface of ['annotation', 'chat'])
+  for (const [width, theme] of [
+    [1440, 'light'],
+    [1440, 'dark'],
+    [390, 'light'],
+    [390, 'dark'],
+  ] as const)
+    test(`${surface}: send refusal stays visible at ${width} ${theme}`, async ({
+      page,
+    }, testInfo) => {
+      await page.setViewportSize({ width, height: 360 });
+      const input = await mount(page, { surface, mode: 'write-failure' });
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.theme = theme;
+        const host = document.getElementById('annotation-fixture')!;
+        host.style.maxHeight = '280px';
+        host.style.overflowY = 'auto';
+      }, theme);
+      await input.fill('Kept draft.\n'.repeat(20));
+      await input.press('ControlOrMeta+End');
+      await input.press('Enter');
+      const alert = page.getByRole('alert');
+      await expect(alert).toHaveText(`✗ ${messageSendCopy('S12')} (ref S12)`);
+      await expect(alert).toBeInViewport();
+      expect(
+        await alert.evaluate((node) => {
+          const box = node.getBoundingClientRect();
+          const host = document.getElementById('annotation-fixture')!.getBoundingClientRect();
+          return box.top >= host.top && box.bottom <= host.bottom;
+        }),
+      ).toBe(true);
+      await expect(input).toContainText('Kept draft.');
+      expect(await run(page, 'proof')).toMatchObject({ writes: 1, preparations: 0, sends: [] });
+      await page.screenshot({ path: testInfo.outputPath('send-refusal.png') });
+    });
+
+for (const surface of ['annotation', 'chat'])
+  for (const stale of [false, true])
+    test(`${surface}: a post-record ${stale ? 'stale attachment' : 'failure'} stays saved and neutral`, async ({
+      page,
+    }) => {
+      const input = await mount(page, { surface });
+      await input.fill('Stored draft.');
+      await page.evaluate(async (stale) => {
+        const path = '/src/attachment-draft.ts';
+        const { AttachmentDraft } = await import(path);
+        const service = '/src/attachment-service.ts';
+        const { AttachmentStaleError } = await import(service);
+        const original = AttachmentDraft.prototype.committed;
+        AttachmentDraft.prototype.committed = () => {
+          AttachmentDraft.prototype.committed = original;
+          if (stale) {
+            throw new AttachmentStaleError([]);
+          }
+          throw new Error('post-record private failure');
+        };
+      }, stale);
+      await input.press('Enter');
+      const notice = page.getByRole('alert');
+      await expect(notice).toHaveText(
+        'Saved, but delivery to the agent is unconfirmed. Check the thread before sending again. (ref S13)',
+      );
+      await expect(notice.locator('.annotation-send-mark')).toHaveCount(0);
+      await expect(input).toHaveText('');
+      await expect(page.getByRole('button', { name: /^Send/ })).toBeDisabled();
+      expect(await run(page, 'proof')).toMatchObject({ writes: 1, preparations: 0, sends: [] });
+    });

@@ -10,7 +10,10 @@ import { CreatorDefaultProvider } from '../src/creator-default.js';
 import type { ComposerEdit } from '../src/components/message-composer-edit.js';
 import { AnnotationInput } from '../src/annotation-input.js';
 import { AskPanel, type AskBinding, type PageAsk } from '../src/ask-panel.js';
-import { ReadRefusedError } from '../src/ask-remote.js';
+import { ReadRefusedError, SessionEndedError, SessionEvictedError } from '../src/ask-remote.js';
+import { OwnRecordConflict, OwnAppendRefused } from '../src/own-publication.js';
+import { getNearestEditorFromDOMNode, $getRoot, $isElementNode } from 'lexical';
+import { MessageMentionNode } from '../src/components/message-composer-document.js';
 import type { ThreadBinding } from '../src/thread-store.js';
 import { projectThreadStatus } from '../src/thread-status-view.js';
 import { destination, id, selection, type RemoteDouble } from './ask-fixtures.js';
@@ -86,6 +89,39 @@ export function releaseDirectory(outcome: 'ok' | 'fail' = 'ok') {
 export function reconnectAsk() {
   reconnect?.();
 }
+let writeFailure: Error | undefined;
+export function setWriteFailure(
+  kind: 'conflict' | 'sequence' | 'ended' | 'evicted' | 'unavailable',
+) {
+  writeFailure =
+    kind === 'conflict'
+      ? new OwnRecordConflict()
+      : kind === 'sequence'
+        ? new OwnAppendRefused('CONFLICT')
+        : kind === 'ended'
+          ? new SessionEndedError('REMOTE_SESSION_ENDED')
+          : kind === 'evicted'
+            ? new SessionEvictedError(2)
+            : new SessionEndedError('REMOTE_SEQUENCE_UNAVAILABLE');
+}
+/** Model background token normalization: metadata changes, visible draft text does not. */
+export function normalizeMention() {
+  const field = document.querySelector<HTMLElement>('#annotation-fixture [role="combobox"]');
+  if (!field) throw new Error('Missing fixture field');
+  const editor = getNearestEditorFromDOMNode(field);
+  if (!editor) throw new Error('Missing fixture editor');
+  editor.update(
+    () => {
+      for (const paragraph of $getRoot().getChildren()) {
+        if (!$isElementNode(paragraph)) continue;
+        for (const node of paragraph.getChildren())
+          if (node instanceof MessageMentionNode)
+            node.getWritable().__defaultCreator = !node.__defaultCreator;
+      }
+    },
+    { discrete: true },
+  );
+}
 export function mount(
   mode:
     | 'accepted'
@@ -108,6 +144,7 @@ export function mount(
   host.id = 'annotation-fixture';
   document.body.append(host);
   writes = preparations = closes = commits = 0;
+  writeFailure = undefined;
   if (mode === 'discovery-failure') directoryMode = 'fail';
   directoryReads = 0;
   parkedReads = [];
@@ -129,7 +166,7 @@ export function mount(
       writes++;
       await waitForWrite;
       captured.push({ body, anchor });
-      if (mode === 'write-failure') throw new Error('Write refused');
+      if (mode === 'write-failure') throw writeFailure ?? new Error('Write refused');
       return {
         thread: ref,
         threadRevision: '1',

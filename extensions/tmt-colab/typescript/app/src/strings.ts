@@ -165,6 +165,21 @@ export const text = {
   messageRecordedUncertain:
     'The turn was recorded, but delivery is unavailable or uncertain. Check the thread before sending again.',
   messageRecordFailed: 'The turn could not be recorded.',
+  messageNotSent: 'Not sent. Your draft is kept; try again.',
+  messageNotSentBusy:
+    'Not sent: another message is still sending. Your draft is kept. Wait, then try again.',
+  messageNotSentArchived: 'Not sent: this page is archived. Your draft is kept.',
+  messageNotSentOnHold: 'Not sent: posting is on hold. Your draft is kept.',
+  messageNotSentAdmission: "Not sent: you can't post to this page from here. Your draft is kept.",
+  messageNotSentRecipient: (name: string) =>
+    `Not sent: @${name} can't receive messages yet. Your draft is kept.`,
+  messageNotSentAttachment:
+    "Not sent: an attachment couldn't be prepared. Your draft is kept. Remove it or attach it again.",
+  messageNotSentConnection:
+    'Not sent: the connection to the machine ended. Your draft is kept. Reconnect, then send again.',
+  messageSavedUnconfirmed:
+    'Saved, but delivery to the agent is unconfirmed. Check the thread before sending again.',
+  messageSendReference: (reference: string) => `(ref ${reference})`,
   messageAnother: 'Write another message',
   messageOpenRecorded: 'Open recorded thread',
   draftsNotSaved: 'Drafts are not saved on this device.',
