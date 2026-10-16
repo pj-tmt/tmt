@@ -2201,6 +2201,9 @@ current answer. The group heading inherits authored ink; its `Q:` prefix uses
 currentColor at 45%. The whole question card, including frame text, tabs and parent
 controls, follows Colab's effective theme even on a fixed-look author page;
 selected controls and primary actions use that theme's existing link color role.
+Sibling in-page Proposal cards also follow the effective Colab theme throughout their
+bodies, Approve/Decline/Follow up/Resolve controls and follow-up composers, even when
+the author fixes a different page palette.
 
 The group owns one footer and visible recipient chips using BrowserChips. Asking
 agent names resolve through the existing directory: one default chip for each

@@ -43,6 +43,38 @@ for (const width of [1440, 390])
       const inline = page.locator('[data-inline-proposal]').first();
       await expect(inline).not.toHaveAttribute('data-detached');
       const card = inline.locator('.proposal-card');
+      const sheet = theme === 'dark' ? 'rgb(16, 16, 16)' : 'rgb(255, 255, 255)';
+      const ink = theme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)';
+      const muted = theme === 'dark' ? 'rgb(144, 144, 144)' : 'rgb(98, 98, 98)';
+      await expect(card).toHaveCSS('background-color', sheet);
+      await expect(card).toHaveCSS('color', ink);
+      await expect(card).toHaveCSS('color-scheme', theme);
+      await expect(card.locator('.proposal-body')).toHaveCSS('color', ink);
+      await expect(card.locator('.proposal-author')).toHaveCSS('color', muted);
+      await expect(card.getByRole('button', { name: 'Approve', exact: true })).toHaveCSS(
+        'background-color',
+        ink,
+      );
+      await expect(card.getByRole('button', { name: 'Approve', exact: true })).toHaveCSS(
+        'color',
+        theme === 'dark' ? 'rgb(8, 8, 8)' : 'rgb(250, 250, 250)',
+      );
+      await expect(card.getByRole('button', { name: 'Decline', exact: true })).toHaveCSS(
+        'background-color',
+        sheet,
+      );
+      await expect(card.getByRole('button', { name: 'Decline', exact: true })).toHaveCSS(
+        'color',
+        ink,
+      );
+      await expect(card.getByRole('button', { name: 'Follow up', exact: true })).toHaveCSS(
+        'color',
+        ink,
+      );
+      await expect(card.getByRole('button', { name: 'Resolve', exact: true })).toHaveCSS(
+        'color',
+        muted,
+      );
       await expect(card).toHaveCSS('box-shadow', 'none');
       await expect(card).toHaveCSS('border-top-width', '1px');
       const after = page.frameLocator('#ask-page-fixture iframe').locator('#after-proposal');
@@ -57,7 +89,18 @@ for (const width of [1440, 390])
       expect((await run(page, 'proof')).sends).toHaveLength(0);
       await card.getByRole('button', { name: 'Approve', exact: true }).press('Enter');
       await expect(card.locator('.proposal-state')).toHaveText('Approved');
+      await expect(
+        card.locator(".conversation-turn[data-turn-role='user'] .conversation-avatar"),
+      ).toHaveCSS('color', ink);
       await expect(card.getByRole('button', { name: 'Follow up', exact: true })).toBeFocused();
+      await expect(card.getByRole('button', { name: 'Follow up', exact: true })).toHaveCSS(
+        'outline-color',
+        theme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(98, 98, 98)',
+      );
+      await expect(card.getByRole('button', { name: 'Follow up', exact: true })).toHaveCSS(
+        'outline-width',
+        '2px',
+      );
       await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
       const threads = await run(page, 'discussionProof');
       expect(threads[0].decision.decision).toBe('approved');
@@ -81,6 +124,11 @@ for (const width of [1440, 390])
       await card.getByRole('button', { name: 'Follow up', exact: true }).click();
       const composer = card.getByRole('combobox');
       await expect(composer).toBeFocused();
+      // The shared borderless composer paints through to its themed card.
+      await expect(composer).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+      await expect(card).toHaveCSS('background-color', sheet);
+      await expect(composer).toHaveCSS('color-scheme', theme);
+      await expect(composer).toHaveCSS('color', ink);
       await expect(composer).toContainText('@Agent 1');
       await capture(page, `follow-up-${width}-${theme}`);
       // Keyboard input must reach Follow up without a second click or locator focus.

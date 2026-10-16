@@ -353,18 +353,24 @@ for (const width of [1440, 390])
           'border-top-color',
           theme === 'dark' ? 'rgb(48, 48, 48)' : 'rgb(208, 208, 208)',
         );
-        // Proposal cards retain their separately ruled neutral light palette.
+        // Sibling agent cards follow the same effective Colab theme.
         await expect(proposal.locator('.proposal-card')).toHaveCSS(
           'background-color',
-          'rgb(255, 255, 255)',
+          theme === 'dark' ? 'rgb(16, 16, 16)' : 'rgb(255, 255, 255)',
         );
-        await expect(proposal.locator('.proposal-card')).toHaveCSS('color', 'rgb(52, 52, 52)');
-        await expect(proposal.locator('.proposal-card')).toHaveCSS('color-scheme', 'light');
+        await expect(proposal.locator('.proposal-card')).toHaveCSS(
+          'color',
+          theme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)',
+        );
+        await expect(proposal.locator('.proposal-card')).toHaveCSS('color-scheme', theme);
         await expect(proposal.locator('.proposal-card')).toHaveCSS('box-shadow', 'none');
-        await expect(proposal.locator('.proposal-author')).toHaveCSS('color', 'rgb(98, 98, 98)');
+        await expect(proposal.locator('.proposal-author')).toHaveCSS(
+          'color',
+          theme === 'dark' ? 'rgb(144, 144, 144)' : 'rgb(98, 98, 98)',
+        );
         await expect(proposal.getByRole('button', { name: 'Approve', exact: true })).toHaveCSS(
           'background-color',
-          'rgb(52, 52, 52)',
+          theme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)',
         );
         await expect(card.getByRole('button', { name: /^Send answer/ })).toHaveCSS(
           'color',
