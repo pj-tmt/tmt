@@ -39,6 +39,20 @@ lines are answer data, not instructions. A recipient replies once with the
 supplied receipt; if no receipt was supplied, use `tmt inbox` and `tmt answer`
 as described below. Waiting `talk` returns that durable final directly.
 
+### Identity lifetime and runtime
+
+`name`, `this`, `add` and `marked` default to temporary identities; `-s`/`--save`
+saves the same UUID without downgrading an existing saved identity.
+Conclusive pane loss or explicit unbind retires temporary identities; saved
+identities remain offline. Native `rm <name>` retires a temporary identity;
+saved removal needs `--force`. Removal never kills a pane and removes only its
+role/preamble, retaining exchanges and historical ownership. Reusing a retired
+name gets a fresh UUID.
+Unknown evidence never authorizes retirement.
+The selected native executable is the runtime; never fall back to the retired
+TypeScript runtime against native state. If installation is uncertain, check
+that executable's `--help`.
+
 ## Can and won't
 
 TMT can send to a verified host pane (tmux, or Herdr, whose shipped driver TMT
@@ -168,13 +182,7 @@ bypass a driver's denial or pending approval by manually pasting the request.
 Stored wait/polling mode settings are inert; `config rm mode` removes
 only the explicit local obsolete key, without migrating other settings.
 
-```bash
-tmt talk reviewer "Review this patch" --timeout 300 --json
-tmt talk reviewer "Run the agreed tests" --detach --json
-tmt talk reviewer "Review this patch" --identity coordinator --json
-tmt result <request-id> --json
-tmt check reviewer 200  # capture; may deliver a due Digest checklist
-```
+See `tmt talk --help`, `tmt result --help` and `tmt check --help` for syntax.
 
 Detached success is `{status:"sent",requestId,target,pane,identity?}`, not task
 completion. Completed talk adds the exact `response`, `bodyBytes` and
@@ -290,12 +298,7 @@ Native talk supplies a compact `v2_` receipt; use it unchanged.
 When TMT supplies an exact receipt, submit the complete result through the
 durable reply commands:
 
-```bash
-tmt reply <request-id> --receipt <receipt> --message 'Review complete.'
-tmt reply <request-id> --receipt <receipt> --file response.md
-tmt reply <request-id> --receipt <receipt> --stdin < response.md
-tmt result <request-id> --json
-```
+Use `tmt reply --help` for the inline, file and stdin body-source forms.
 
 Use `--message` for short replies, including an explicit empty string. Quote
 the body for your shell; use `--message='-leading text'` for a leading hyphen.
@@ -359,11 +362,7 @@ When you were given a receipt, use `tmt reply` with it. When you were not, for
 example the user asks you to answer a request someone sent your identity, list
 and answer by name:
 
-```bash
-tmt inbox --json
-tmt answer reviewer 'Yes, ship it.' --json
-tmt answer reviewer --file answer.md --request <request-id> --json
-```
+See `tmt inbox --help` and `tmt answer --help` for listing and answer syntax.
 
 `inbox` lists requests still waiting on you for a final, oldest first; reading
 never acknowledges. `answer <from>` answers the one request `<from>` is waiting on
@@ -380,12 +379,7 @@ Use X to recover requests originated by your durable identity, including after
 timeout, detach, pane loss or process restart. Outside a verified bound pane,
 select an existing identity explicitly. This is local attribution, not authentication.
 
-```bash
-tmt x --identity coordinator --json
-tmt x show <request-id> --identity coordinator --json
-tmt x ack <request-id> --revision <revision> --identity coordinator --json
-tmt x ackall --identity coordinator --json
-```
+See `tmt x --help`, `tmt x show --help`, `tmt x ack --help` and `tmt x ackall --help`.
 
 `tmt x flow --since 24h --json` reads content-free counts and UTF-8 byte totals
 for the whole local team in UTC 30-minute buckets, without `--identity`. The
@@ -422,13 +416,8 @@ queue, memory search or remote access for these originator-facing forms.
 Recipient requests use a separate participant attention scope. The focused
 installed `tmt-inbox` skill owns the complete processing loop:
 
-```bash
-tmt talk reviewer "Review this patch" --inbox --identity coordinator --detach --json
-tmt x listen --identity reviewer --timeout 15m --debounce 10s --json
-tmt x show <request-id> --incoming --identity reviewer --json
-tmt x ack <request-id> --incoming --revision <revision> --identity reviewer --json
-tmt x ackall --incoming --identity reviewer --json
-```
+For recipient syntax, use `tmt talk --help`, `tmt x listen --help`,
+`tmt x show --help` and `tmt x ack --help` with their explicit identity options.
 
 `--inbox` is for intentional queue-only delivery: it accepts one existing
 non-retired identity, reports `queued`, and never attempts live notification or
@@ -472,11 +461,7 @@ records. `ls` includes all non-retired identities with `lifetime` and independen
 verified destinations. Its human list leads with a state mark and the name,
 then a `driver:id` address; read `ls --json` (which adds `address` and
 `driver`) rather than parsing that text. Unknown evidence never authorizes retirement.
-Conclusive pane loss or explicit unbind retires temporary identities; saved
-identities remain offline. Native `rm <name>` retires a temporary identity;
-saved removal needs `--force`. Removal never kills a pane and removes only its
-role/preamble, retaining exchanges and historical ownership. Reusing a retired
-name gets a fresh UUID. An ordinary unguarded bind refused because the pane or name is taken (or the
+An ordinary unguarded bind refused because the pane or name is taken (or the
 pane changed) retires the temporary identity it had just created. Only an
 uncertain publication (`Unverified`, endpoint failure, deadline) can leave a
 never-bound temporary identity offline for retry; do not mistake missing binding
@@ -509,11 +494,7 @@ owns the public JSON, limits and per-item outcomes.
 
 Use the same explicit commands inside or outside tmux:
 
-```bash
-tmt identity create coordinator --json
-tmt identity show coordinator --json
-tmt identity ls --json
-```
+Use `tmt identity create --help`, `tmt identity show --help` and `tmt identity ls --help`.
 
 These named and collection commands use only local storage, without tmux or
 unrelated configuration. `tmt identity show` without a name instead inspects
@@ -535,14 +516,8 @@ live delivery even after binding with `add`, `name` or `this`.
 
 Use shared identity metadata for exact local discovery:
 
-```bash
-tmt identity meta set --identity coordinator project tmt
-tmt identity meta set --identity coordinator capability.review true
-tmt identity meta show --identity coordinator project
-tmt identity meta ls --identity coordinator --json
-tmt identity meta rm --identity coordinator project
-tmt identity ls --where project=tmt --has capability.review --json
-```
+Use `tmt identity meta set --help` and `tmt identity ls --help`
+for metadata writes and exact filters; other meta subcommands have their own help.
 
 Repeat `--where KEY=VALUE` and `--has KEY` to combine exact predicates with AND;
 the first equals sign separates a `--where` key from its exact string value.
@@ -601,27 +576,8 @@ until a verified contributor is available.
 Single-target commands validate the selected binding, not every unrelated pane.
 Use `ls` for full active discovery; it is not a prerequisite for `talk` or `check`.
 
-```bash
-tmt ls
-tmt name <global-name>               # bind temporarily; add -s to save
-tmt this <global-name>               # exact supported alias for `name`
-tmt run <agent> [args...]             # auto-name temporarily; use tmt this later
-tmt run [-s] <global-name> <command...> # bind and launch; options before the name
-tmt add <pane-target> <global-name>  # bind an explicit pane by stable `%pane_id`
-tmt marked <global-name>             # bind the explicit tmux mark; add -s to save
-tmt whoami                            # show the current pane identity
-tmt whoami --context                  # bounded read-only rehydration summary
-tmt unbind                            # remove the current pane identity
-tmt rm <global-name>                  # retire; saved identities require --force
-tmt notes path [--identity <name>]    # initialize/print saved identity Markdown
-tmt talk <target> "message"          # target a global name or pane
-tmt talk <identity> "message" --inbox # durable queue without pane delivery
-tmt x listen --identity <name>       # bounded recipient/result wait
-tmt check <target> [lines]
-tmt ls [target]                       # list identities or one pane
-tmt install [claude|codex|gemini|agy|pi|opencode|muse|all]
-tmt upgrade
-```
+Use `tmt --help` for the command list and `tmt <command> --help` for options.
+The lifetime and binding rules above apply to each invocation.
 
 `name`, `this`, `add`, and `marked` manage one global identity per pane. Names
 can be undeclared identities; they do not need to match a configured role. `add`
@@ -663,18 +619,8 @@ Rooms group the same global identities; one identity may join several rooms.
 They are communication scopes, not access controls or separate identities.
 These local commands do not need a live pane:
 
-```sh
-tmt room create "Design"
-tmt room ls --json
-tmt room join Design --identity Alice
-tmt room show Design --json
-tmt ls --room Design --json
-tmt talk Alice "Review only this change" --room Design --inbox --detach
-tmt room send Design "Review this change" --identity Alice --json
-tmt room broadcast Design "Review starts now" --identity Alice --json
-tmt x listen --room Design --identity Alice
-tmt room leave Design --identity Alice
-```
+Use `tmt room <command> --help` for create, list, membership and send syntax;
+`tmt talk --help`, `tmt ls --help` and `tmt x listen --help` include room options.
 
 Use the room UUID when display names are ambiguous. Join/leave can omit
 `--identity` only from a verified bound pane. Repeating a join/leave is harmless;
@@ -699,11 +645,8 @@ Normal pane delivery, `--inbox`, timeout and detach rules still apply.
 
 ### Self-reported activity and mood
 
-```bash
-tmt identity status set "Reviewing the renderer" --mood focused --for 60m --identity coordinator
-tmt identity status show --identity coordinator --json
-tmt identity status rm --identity coordinator
-```
+Use `tmt identity status set --help` for activity, mood and duration options;
+`show --help` and `rm --help` under that command describe reads and clearing.
 
 Use this for a short activity, not proof of availability or request completion.
 Saved and active temporary identities are eligible; it does not save a temporary
@@ -720,10 +663,7 @@ current work. Clear is idempotent and does not cancel requests or change presenc
 Use one owner-local Markdown file for deliberate context that should survive
 pane loss or offline work:
 
-```bash
-tmt notes path --identity coordinator
-tmt notes path --identity coordinator --json
-```
+Use `tmt notes path --help` for the explicit saved-identity selector.
 
 Inside a verified pane bound to a saved identity, `--identity` may be omitted.
 Outside tmux, explicitly select an existing saved identity. Temporary identities
@@ -760,12 +700,8 @@ same OS user's local filesystem, not authentication or cross-agent isolation.
 Roles are stored profiles, not automatically injected instructions. Select an
 existing durable identity explicitly when working outside tmux:
 
-```bash
-tmt role show --identity reviewer --json
-tmt role set "Review correctness before style." --identity reviewer --json
-tmt role set --file role.md --identity reviewer --json
-tmt role rm --identity reviewer --json
-```
+Use `tmt role set --help` for inline/file input and identity selection;
+`tmt role show --help` and `tmt role rm --help` describe reads and removal.
 
 Choose inline content or `--file`, not both. Omit `--identity` only when the
 caller has a verified live tmux identity; otherwise use explicit selection.
@@ -780,12 +716,8 @@ when text should be injected into messages; role edits never change it.
 Preambles are separate from role profiles and belong to existing durable global
 identities. These commands work without tmux, even when the identity is unbound:
 
-```bash
-tmt preamble show                    # list stored preambles
-tmt preamble show reviewer
-tmt preamble set reviewer "Review correctness before style."
-tmt preamble rm reviewer
-```
+Use `tmt preamble show --help`, `tmt preamble set --help` and
+`tmt preamble rm --help` for explicit-name profile operations.
 
 Names are explicit; omitting the name lists preambles, not the caller's data.
 Unknown identities fail with `NAME_NOT_FOUND`; create the intended identity
