@@ -130,6 +130,8 @@ export async function mount(
     agentsUnavailable?: boolean;
     /** One barrier shared by all destination reads in this mounted question page. */
     holdQuestionDirectory?: boolean;
+    /** The status coordinator resolves mentions against the directory and records each notice. */
+    statusAgents?: boolean;
     drafts?: 'session' | 'failing';
     /** Hold the existing draft-store read to test shortcut lifetime fences. */
     holdDraftRead?: boolean;
@@ -471,13 +473,21 @@ export async function mount(
   }
   const discussion: ThreadBinding = {
     attachments,
-    async setStatus(ref, _previous, resolved) {
+    async setStatus(ref, _previous, resolved, recipients) {
       if (failNextStatus) {
         failNextStatus = false;
         throw new Error('Fixture status publication was not confirmed');
       }
       actions.push(`status:${resolved ? 'resolve' : 'reopen'}`);
-      return { changed: true, status: setResolved(find(ref), resolved, 'person') };
+      return {
+        changed: true,
+        status: setResolved(
+          find(ref),
+          resolved,
+          'person',
+          structuredClone([...(recipients ?? [])]),
+        ),
+      };
     },
     async decideProposal(ref, decision) {
       const thread = find(ref);
@@ -562,6 +572,7 @@ export async function mount(
     previous: ThreadStatusView | undefined,
     resolved: boolean,
     actor: 'person' | 'agent',
+    recipients: ThreadStatusView['recipients'] = [],
   ): ThreadStatusView {
     const actionId = crypto.randomUUID();
     return {
@@ -581,13 +592,18 @@ export async function mount(
       resolved,
       actor,
       agentName: actor === 'agent' ? 'Atlas' : null,
-      recipients: [],
+      recipients,
       ref: { writer: id(4), id: actionId },
       depth: (previous?.depth ?? 0) + 1,
     };
   }
-  function setResolved(thread: ThreadView, resolved: boolean, actor: 'person' | 'agent') {
-    const status = statusView(thread, thread.status, resolved, actor);
+  function setResolved(
+    thread: ThreadView,
+    resolved: boolean,
+    actor: 'person' | 'agent',
+    recipients: ThreadStatusView['recipients'] = [],
+  ) {
+    const status = statusView(thread, thread.status, resolved, actor, recipients);
     current = {
       ...current,
       threads: current.threads!.map((value) =>
@@ -624,8 +640,11 @@ export async function mount(
     status: new ThreadStatusCoordinator({
       binding: discussion,
       asks: () => current.asks ?? [],
-      destinations: async () => [],
-      notify: async () => ({ adopted: true }),
+      destinations: async () => (options.statusAgents ? await ask.destinations() : []),
+      notify: async (_status, recipient) => {
+        if (options.statusAgents) actions.push(`notify:${recipient.agentName}`);
+        return { adopted: true };
+      },
     }),
     markThreadStatusSeen(ref) {
       seenOpens++;

@@ -5,6 +5,7 @@ import type { Review } from '../questions.js';
 import type { ReviewOutcome } from '../review-actions.js';
 import type { ReviewState } from '../reviews.js';
 import { REVIEW_CHANGE_NOTE_BYTES, REVIEW_CONFIRM_NOTE_POINTS } from '../reviews.js';
+import { compactRelativeTime } from '../display-time.js';
 import { text } from '../strings.js';
 
 /** Authenticated parent presentation of one review section. The callbacks own every effect; the
@@ -60,19 +61,19 @@ export function ReviewCard({
       ? [
           state.by ? text.reviewClosedBy(state.by) : undefined,
           state.at && Number.isFinite(Number(state.at))
-            ? new Date(Number(state.at)).toLocaleString()
+            ? compactRelativeTime(Number(state.at), Date.now())
             : undefined,
         ].filter(Boolean)
       : [];
   return (
     <section
       className="review-card"
-      aria-labelledby={id}
+      aria-label={text.reviewSection(review.title)}
       data-review-id={review.id}
       data-review-state={state.kind}
     >
       <header>
-        <span className="review-state" id={id}>
+        <span className="review-state">
           {closed ? (
             <Check aria-hidden />
           ) : state.kind === 'changes' ? (
@@ -81,7 +82,7 @@ export function ReviewCard({
             <CircleDot aria-hidden />
           )}
           <strong>{status}</strong>
-          <span className="review-section-title">{text.reviewSection(review.title)}</span>
+          <span className="review-section-title">{review.title}</span>
         </span>
         {detail.length > 0 && <span className="review-detail">{detail.join(' · ')}</span>}
         {!readOnly && closed && (

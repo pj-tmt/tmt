@@ -1,4 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
+import { pageAction } from '../test/page-actions.js';
+import { capturePath } from './captures.js';
 
 const fixture = '/test/ask-page-browser.tsx';
 async function run(page: Page, method: string, argument?: unknown) {
@@ -310,4 +312,129 @@ test('only a thread on the whole heading is the section thread; a partial note i
   });
   await expect(card).toHaveAttribute('data-review-state', 'changes');
   await expect(page.getByRole('status', { name: '0 of 1 review sections closed' })).toBeVisible();
+});
+
+/** WCAG contrast of `foreground` blended over `background` at `opacity`, against the background. */
+function fadedContrast(foreground: number[], background: number[], opacity: number) {
+  const blended = foreground.map(
+    (value, index) => opacity * value + (1 - opacity) * background[index],
+  );
+  const luminance = (color: number[]) => {
+    const [r, g, b] = color.map((value) => {
+      const unit = value / 255;
+      return unit <= 0.03928 ? unit / 12.92 : ((unit + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const [light, dark] = [luminance(blended), luminance(background)].sort((a, b) => b - a);
+  return (light + 0.05) / (dark + 0.05);
+}
+const rgb = (value: string) => (value.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number);
+
+for (const [width, theme] of [
+  [1440, 'light'],
+  [1440, 'dark'],
+  [390, 'light'],
+  [390, 'dark'],
+] as const) {
+  for (const darkPage of [false, true]) {
+    test(`section look ${width} ${theme} page-${darkPage ? 'dark' : 'light'}: three states, no overflow, readable fade`, async ({
+      page,
+    }, testInfo) => {
+      await page.setViewportSize({ width, height: 1100 });
+      await page.goto('/');
+      await run(page, 'mount', { statusAgents: true });
+      await run(page, 'review', { sections: 3, darkPage });
+      await (
+        await pageAction(
+          page.locator('#ask-page-fixture'),
+          theme === 'dark' ? 'Theme: Dark' : 'Theme: Light',
+        )
+      ).click();
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+      const bands = page.locator('.review-card');
+      await expect(page.locator('[data-inline-review]').nth(2)).not.toHaveAttribute(
+        'data-detached',
+      );
+      // Section 2 asks for a change, section 3 is confirmed; section 1 keeps waiting.
+      await bands.nth(1).getByRole('button', { name: 'Needs change…', exact: true }).click();
+      await bands
+        .nth(1)
+        .getByLabel('What needs to change', { exact: true })
+        .fill('Say what this section is for, in one sentence.');
+      await bands.nth(1).getByRole('button', { name: 'Send', exact: true }).click();
+      await expect(bands.nth(1)).toHaveAttribute('data-review-state', 'changes');
+      await bands.nth(2).getByRole('button', { name: 'Add a note', exact: true }).click();
+      await bands.nth(2).getByLabel('Note (optional)', { exact: true }).fill('Looks right to me');
+      await bands.nth(2).getByRole('button', { name: 'Confirm and close', exact: true }).click();
+      await expect(bands.nth(2)).toHaveAttribute('data-review-state', 'closed');
+      await expect(
+        page.getByRole('status', { name: '1 of 3 review sections closed' }),
+      ).toBeVisible();
+      // Nothing overflows at this width, and the bands sit below their sections.
+      for (let index = 0; index < 3; index++) {
+        await expect(page.locator('[data-inline-review]').nth(index)).not.toHaveAttribute(
+          'data-detached',
+        );
+        const box = await bands.nth(index).evaluate((node) => {
+          const rect = node.getBoundingClientRect();
+          return {
+            inside: rect.left >= -1 && rect.right <= innerWidth + 1,
+            clipped: node.scrollWidth > node.clientWidth + 1,
+          };
+        });
+        expect(box, `band ${index + 1}`).toEqual({ inside: true, clipped: false });
+      }
+      const closed = frame(page).locator('tmt-review').nth(2);
+      const style = await closed.evaluate((node) => {
+        const text = node.querySelector('p')!;
+        return {
+          opacity: Number(getComputedStyle(node).opacity),
+          color: getComputedStyle(text).color,
+          background: getComputedStyle(document.body).backgroundColor,
+        };
+      });
+      const contrast = fadedContrast(rgb(style.color), rgb(style.background), style.opacity);
+      testInfo.annotations.push({ type: 'faded-contrast', description: contrast.toFixed(2) });
+      // Faded, not hidden: the closed content stays at least large-text readable.
+      expect(contrast).toBeGreaterThanOrEqual(3);
+      await expect(closed.getByText('Content of section 3.')).toBeVisible();
+      await page.screenshot({
+        fullPage: true,
+        path: capturePath(
+          `review-sections-${width}-${theme}-page-${darkPage ? 'dark' : 'light'}.png`,
+        ),
+      });
+    });
+  }
+}
+
+test('Confirm tells the asking agent once; Reopen and a change request send no status notice', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await run(page, 'mount', { statusAgents: true });
+  await run(page, 'review');
+  const card = page.locator('.review-card').first();
+  await expect(card.getByRole('button', { name: 'Confirm and close', exact: true })).toBeEnabled();
+  await card.getByRole('button', { name: 'Confirm and close', exact: true }).click();
+  await expect(card).toHaveAttribute('data-review-state', 'closed');
+  await expect
+    .poll(async () => (await run(page, 'proof')).actions)
+    .toEqual(['status:resolve', 'notify:Agent 1']);
+  // The comment carried the mention but sent no Ask of its own.
+  expect((await run(page, 'proof')).sends).toHaveLength(0);
+  await card.getByRole('button', { name: 'Reopen', exact: true }).click();
+  await expect(card).toHaveAttribute('data-review-state', 'waiting');
+  expect((await run(page, 'proof')).actions).toEqual([
+    'status:resolve',
+    'notify:Agent 1',
+    'status:reopen',
+  ]);
+  await card.getByRole('button', { name: 'Needs change…', exact: true }).click();
+  await card.getByLabel('What needs to change', { exact: true }).fill('One more thing.');
+  await card.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(card).toHaveAttribute('data-review-state', 'changes');
+  await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
+  expect((await run(page, 'proof')).actions).toHaveLength(3);
 });
