@@ -247,7 +247,9 @@ One identity-total series uses the existing Rate rings. Its header reads
 `Usage · last <range> · <total> tok`; two right-aligned selector groups expose the
 shipped Each 5/15/30/60m and Range 15/30/60m choices, separated by a muted dot.
 Each chip has one space of padding on both sides, with a one-cell gap between
-chips and `·` between groups. Selected values reverse; invalid pairs retain the existing refusal. No longer
+chips and `·` between groups. Selected, hover and disabled states use the
+[shared chip styles](../../../../design/cli-style.md#themes); disabled choices
+publish no hit. Invalid pairs retain the existing keyboard refusal. No longer
 window is implied. Each provider has one neutral-grey spark row, then its observed
 total and share. The fixed tracks are name (8), a one-cell gap, spark, two spaces,
 total (7, right-aligned), two spaces and share (8, right-aligned, muted). The unknown
