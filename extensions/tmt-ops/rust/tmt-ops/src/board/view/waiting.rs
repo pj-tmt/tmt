@@ -229,59 +229,72 @@ pub(in crate::board) fn inline_prompt(
                 u16::from(!projection.quotes.is_empty() && content.height > hint_rows + 1);
             if quote_rows > 0 {
                 let quote = projection.quotes.last().unwrap();
-                let removable = content.width >= 4;
-                let label = app.quote_caption(
-                    quote,
-                    usize::from(content.width.saturating_sub(if removable { 2 } else { 0 })),
-                );
+                let remove = if content.width >= 5 {
+                    crate::board::buttons::paint(
+                        app,
+                        frame.buffer_mut(),
+                        Rect::new(content.x + 2, content.y, content.width - 2, 1),
+                        &[crate::board::buttons::Button::secondary("✕")
+                            .enabled(projection.key.is_some())],
+                        tmt_cli_style::grid::Align::Right,
+                        None,
+                    )[0]
+                } else {
+                    None
+                };
+                let label_width = remove.map_or(content.width, |remove| {
+                    remove.x.saturating_sub(content.x).saturating_sub(1)
+                });
+                let label = app.quote_caption(quote, usize::from(label_width));
                 strip::paint_left(
                     frame.buffer_mut(),
-                    Rect::new(
-                        content.x,
-                        content.y,
-                        content.width.saturating_sub(if removable { 2 } else { 0 }),
-                        1,
-                    ),
+                    Rect::new(content.x, content.y, label_width, 1),
                     Line::styled(
-                        super::fit(
-                            &label,
-                            usize::from(content.width.saturating_sub(if removable {
-                                2
-                            } else {
-                                0
-                            })),
-                        ),
+                        super::fit(&label, usize::from(label_width)),
                         look.role(Role::Muted),
                     ),
                 );
-                if removable {
-                    let remove = Rect::new(content.right() - 1, content.y, 1, 1);
-                    strip::paint_left(
-                        frame.buffer_mut(),
-                        remove,
-                        Line::styled("✕", look.role(Role::Accent)),
-                    );
-                    if let Some(key) = projection.key.clone() {
-                        *app.composer.quote_hit.borrow_mut() =
-                            Some(crate::board::composer::QuoteHit {
-                                area: remove,
-                                key,
-                                source: quote.key.clone(),
-                                range: quote.range.clone(),
-                            });
-                    }
+                if let (Some(remove), Some(key)) = (remove, projection.key.clone()) {
+                    *app.composer.quote_hit.borrow_mut() = Some(crate::board::composer::QuoteHit {
+                        area: remove,
+                        key,
+                        source: quote.key.clone(),
+                        range: quote.range.clone(),
+                    });
                 }
             }
             let prefix = u16::from(content.width >= 3) * 2;
-            let button_width = if content.width >= 14 { 9 } else { 0 };
+            // Reserve three editor cells and a gap before fitting the whole Send chip.
+            let reserved = prefix + 4;
+            let button = if content.width > reserved {
+                crate::board::buttons::paint(
+                    app,
+                    frame.buffer_mut(),
+                    Rect::new(
+                        content.x + reserved,
+                        content.y + quote_rows,
+                        content.width - reserved,
+                        1,
+                    ),
+                    &[crate::board::buttons::Button::primary("Send")
+                        .focused(projection.focused)
+                        .enabled(app.in_flight == 0 && projection.key.is_some())],
+                    tmt_cli_style::grid::Align::Right,
+                    None,
+                )[0]
+            } else {
+                None
+            };
+            let editor_width = button.map_or(content.width.saturating_sub(prefix), |button| {
+                button
+                    .x
+                    .saturating_sub(content.x + prefix)
+                    .saturating_sub(1)
+            });
             let editor_area = Rect::new(
                 content.x + prefix,
                 content.y + quote_rows,
-                content
-                    .width
-                    .saturating_sub(prefix + button_width)
-                    .max(1)
-                    .min(content.width),
+                editor_width.max(1).min(content.width),
                 content.height - hint_rows - quote_rows,
             );
             if prefix > 0 {
@@ -322,26 +335,12 @@ pub(in crate::board) fn inline_prompt(
                     Line::styled("Write a message…", look.role(Role::Dim)),
                 );
             }
-            if button_width > 0 {
-                let button = Rect::new(content.right() - 8, editor_area.y, 8, 1);
-                strip::paint_left(
-                    frame.buffer_mut(),
-                    button,
-                    Line::styled(
-                        "[ Send ]",
-                        look.role(if app.in_flight == 0 {
-                            Role::Accent
-                        } else {
-                            Role::Dim
-                        }),
-                    ),
-                );
-                if app.in_flight == 0
-                    && let Some(key) = projection.key
-                {
-                    *app.composer.send_hit.borrow_mut() =
-                        Some(crate::board::composer::SendHit { area: button, key });
-                }
+            if let Some(button) = button
+                && app.in_flight == 0
+                && let Some(key) = projection.key
+            {
+                *app.composer.send_hit.borrow_mut() =
+                    Some(crate::board::composer::SendHit { area: button, key });
             }
             if hint_rows > 0 {
                 let mut hint = if projection.focused {

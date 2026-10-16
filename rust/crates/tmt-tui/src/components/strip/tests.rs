@@ -204,3 +204,103 @@ fn direct_painting_equals_the_layout_pipeline_cell_for_cell() {
         }
     }
 }
+
+#[test]
+fn chips_fit_whole_in_priority_order_then_align_the_retained_group() {
+    let style = Style::new().bg(Color::Blue);
+    for (align, expected_x) in [(Align::Left, 0), (Align::Right, 1), (Align::Center, 0)] {
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 9, 1));
+        let area = buffer.area;
+        let hits = paint_chips(
+            &mut buffer,
+            area,
+            &[("A", style), ("界", style), ("C", style)],
+            align,
+        );
+        assert_eq!(
+            hits,
+            vec![
+                Some(Rect::new(expected_x, 0, 3, 1)),
+                Some(Rect::new(expected_x + 4, 0, 4, 1)),
+                None
+            ]
+        );
+        assert_eq!(
+            buffer[(expected_x + 3, 0)].bg,
+            Color::Reset,
+            "gap stays outside either chip"
+        );
+        for hit in hits.into_iter().flatten() {
+            for x in hit.x..hit.right() {
+                assert_eq!(
+                    buffer[(x, 0)].bg,
+                    Color::Blue,
+                    "padding belongs to the painted rectangle"
+                );
+            }
+        }
+    }
+    let mut buffer = Buffer::empty(Rect::new(0, 0, 5, 1));
+    let area = buffer.area;
+    assert_eq!(
+        paint_chips(
+            &mut buffer,
+            area,
+            &[("too long", style), ("A", style)],
+            Align::Left
+        ),
+        vec![None, None]
+    );
+    assert_eq!(row(&buffer, 0), "     ");
+}
+
+#[test]
+fn chips_never_publish_partial_or_out_of_buffer_rectangles() {
+    let style = Style::new().bg(Color::Green);
+    let mut buffer = Buffer::empty(Rect::new(3, 2, 5, 2));
+    for area in [
+        Rect::new(0, 0, 20, 1),
+        Rect::new(3, 2, 0, 1),
+        Rect::new(3, 2, 1, 1),
+        Rect::new(3, 2, 5, 0),
+    ] {
+        assert_eq!(paint_chip(&mut buffer, area, "A", style, Align::Left), None);
+    }
+    assert_eq!(
+        paint_chip(
+            &mut buffer,
+            Rect::new(0, 2, 8, 1),
+            "界",
+            style,
+            Align::Right
+        ),
+        Some(Rect::new(4, 2, 4, 1))
+    );
+    assert_eq!(buffer[(4, 2)].symbol(), " ");
+    assert_eq!(buffer[(5, 2)].symbol(), "界");
+    assert_eq!(
+        buffer[(6, 2)].bg,
+        Color::Green,
+        "wide continuation keeps its style"
+    );
+    assert_eq!(buffer[(7, 2)].symbol(), " ");
+    assert_eq!(
+        buffer[(3, 3)].bg,
+        Color::Reset,
+        "only the requested first row paints"
+    );
+    assert_eq!(
+        paint_chip(&mut buffer, Rect::new(3, 3, 3, 1), "界", style, Align::Left),
+        None
+    );
+}
+
+#[test]
+fn chip_measurement_and_paint_escape_control_characters_together() {
+    let mut buffer = Buffer::empty(Rect::new(0, 0, 12, 1));
+    let area = buffer.area;
+    let hit = paint_chip(&mut buffer, area, "A\x1bB", Style::new(), Align::Left).unwrap();
+    let escaped = tmt_cli_style::table::escape("A\x1bB");
+    assert_eq!(hit.width as usize, escaped.width() + 2);
+    assert!(!row(&buffer, 0).contains('\x1b'));
+}

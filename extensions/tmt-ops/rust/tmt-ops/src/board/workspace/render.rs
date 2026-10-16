@@ -535,33 +535,37 @@ fn agents_controls(
     use super::AgentsFilter;
     use crate::action::OpsUiAction;
     let look = app.look();
-    let mut x = inside.x + 1;
-    for filter in [
+    let filters = [
         AgentsFilter::All,
         AgentsFilter::NeedsYou,
         AgentsFilter::Pinned,
-    ] {
-        let label = filter.label();
-        let width = unicode_width::UnicodeWidthStr::width(label) as u16;
-        if x + width <= inside.right() {
-            let area = Rect::new(x, inside.y, width, 1);
-            strip::paint_left(
-                frame.buffer_mut(),
-                area,
-                Line::styled(
-                    label,
-                    if filter == app.workspace.filter {
-                        look.selection()
-                    } else {
-                        look.role(Role::Muted)
-                    },
-                ),
-            );
+    ];
+    let buttons: Vec<_> = filters
+        .iter()
+        .map(|filter| {
+            crate::board::buttons::Button::secondary(filter.label())
+                .focused(*filter == app.workspace.filter)
+        })
+        .collect();
+    let painted = crate::board::buttons::paint(
+        app,
+        frame.buffer_mut(),
+        Rect::new(inside.x + 1, inside.y, inside.width.saturating_sub(1), 1),
+        &buttons,
+        tmt_cli_style::grid::Align::Left,
+        None,
+    );
+    let x = painted
+        .iter()
+        .flatten()
+        .last()
+        .map_or(inside.x + 1, |rect| rect.right().saturating_add(2));
+    for (filter, rect) in filters.into_iter().zip(painted) {
+        if let Some(rect) = rect {
             app.workspace_strip_hits
                 .borrow_mut()
-                .push((area, Choice::AgentsFilter(filter)));
+                .push((rect, Choice::AgentsFilter(filter)));
         }
-        x = x.saturating_add(width + 3);
     }
     if x < inside.right() {
         let label = format!(
@@ -622,15 +626,18 @@ fn agents_controls(
             bands.title.y,
         ),
     ] {
-        let label = format!(" {label} ");
-        let width = unicode_width::UnicodeWidthStr::width(label.as_str()) as u16;
+        let width = unicode_width::UnicodeWidthStr::width(label.as_str()) as u16 + 2;
         if x >= inside.x && x.saturating_add(width) <= inside.right() {
-            let area = Rect::new(x, y, width, 1);
-            strip::paint_left(
+            let Some(area) = crate::board::buttons::paint(
+                app,
                 frame.buffer_mut(),
-                area,
-                Line::styled(label, look.role(Role::Muted)),
-            );
+                Rect::new(x, y, width, 1),
+                &[crate::board::buttons::Button::secondary(&label)],
+                tmt_cli_style::grid::Align::Left,
+                None,
+            )[0] else {
+                continue;
+            };
             let choice = if action == OpsUiAction::Timers {
                 Choice::WorkspaceTimers
             } else {
@@ -751,23 +758,26 @@ fn squad_detail(frame: &mut Frame, app: &App, area: Rect) {
         let mut x = inside.x;
         let mut y = inside.y;
         for (label, choice) in actions {
-            let label = format!(" {label} ");
-            let width = label.len() as u16;
+            let width = unicode_width::UnicodeWidthStr::width(label) as u16 + 2;
             if x.saturating_add(width) > inside.right() {
                 x = inside.x;
                 y = y.saturating_add(1);
             }
             if y < inside.bottom() && width <= inside.width {
-                let control = Rect::new(x, y, width, 1);
-                strip::paint_left(
+                let Some(control) = crate::board::buttons::paint(
+                    app,
                     frame.buffer_mut(),
-                    control,
-                    Line::styled(label, look.role(Role::Text)),
-                );
+                    Rect::new(x, y, width, 1),
+                    &[crate::board::buttons::Button::secondary(label)],
+                    tmt_cli_style::grid::Align::Left,
+                    None,
+                )[0] else {
+                    continue;
+                };
                 app.workspace_action_hits
                     .borrow_mut()
                     .push((control, target.clone(), choice));
-                x += width;
+                x += width + 1;
             }
         }
         let used = y
@@ -1120,33 +1130,30 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
         .map(String::as_str)
         .or(Some("cancel"));
     if draft.stage == Stage::Review {
-        let cancel = " Cancel ";
-        let apply = " Apply this exact operation ";
-        let mut controls = [None, None];
-        for (index, (label, field, x)) in [(cancel, "cancel", 0), (apply, "apply", 9)]
-            .into_iter()
-            .enumerate()
-        {
-            let width = label.len() as u16;
-            if areas.footer.height > 0
-                && areas.footer.width >= x + width
-                && areas.content.height > 1
-                && (index == 0
-                    || draft.kind != super::manage::Kind::RenameMember
-                    || (draft.scroll.borrow().offset() == 0
-                        && lines.len() <= usize::from(areas.content.height)))
-            {
-                let area = Rect::new(areas.footer.x + x, areas.footer.y, width, 1);
-                let style = if focused == Some(field) {
-                    look.selection()
-                } else {
-                    look.role(Role::Text)
-                };
-                strip::paint_left(frame.buffer_mut(), area, Line::styled(label, style));
-                controls[index] = Some(area);
-            }
-        }
-        draft.controls.set(controls);
+        let apply_enabled = areas.content.height > 1
+            && (draft.kind != super::manage::Kind::RenameMember
+                || (draft.scroll.borrow().offset() == 0
+                    && lines.len() <= usize::from(areas.content.height)));
+        let buttons = [
+            crate::board::buttons::Button::secondary("Cancel")
+                .focused(focused == Some("cancel"))
+                .enabled(areas.content.height > 1),
+            crate::board::buttons::Button::primary("Apply this exact operation")
+                .focused(focused == Some("apply"))
+                .enabled(apply_enabled),
+        ];
+        let painted = crate::board::buttons::paint(
+            app,
+            frame.buffer_mut(),
+            areas.footer,
+            &buttons,
+            tmt_cli_style::grid::Align::Left,
+            Some(crate::board::app::Overlay::Workspace),
+        );
+        draft.controls.set([
+            painted[0].filter(|_| areas.content.height > 1),
+            painted[1].filter(|_| apply_enabled),
+        ]);
         if areas.footer.width > 37 {
             let hint = Rect::new(
                 areas.footer.x + 37,
@@ -1165,20 +1172,20 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
         }
     } else {
         let label = if draft.stage == Stage::Fields {
-            " Cancel "
+            "Cancel"
         } else {
-            " Close "
+            "Close"
         };
-        let width = label.len() as u16;
-        if areas.footer.height > 0 && areas.footer.width >= width {
-            let area = Rect::new(areas.footer.x, areas.footer.y, width, 1);
-            strip::paint_left(
-                frame.buffer_mut(),
-                area,
-                Line::styled(label, look.role(Role::Text)),
-            );
-            draft.controls.set([Some(area), None]);
-        }
+        let area = crate::board::buttons::paint(
+            app,
+            frame.buffer_mut(),
+            areas.footer,
+            &[crate::board::buttons::Button::secondary(label).focused(focused == Some("cancel"))],
+            tmt_cli_style::grid::Align::Left,
+            Some(crate::board::app::Overlay::Workspace),
+        )[0];
+        let width = area.map_or(0, |area| area.width + 1);
+        draft.controls.set([area, None]);
         let hint = if draft.stage == Stage::Fields {
             "Enter next · Esc cancel"
         } else {

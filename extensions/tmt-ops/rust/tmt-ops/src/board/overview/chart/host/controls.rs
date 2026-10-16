@@ -2,8 +2,8 @@
 use super::super::model::Selection;
 use super::{Focus, Hit, Target};
 use crate::{
+    board::app::{App, Overlay},
     board::chip_group::{self as chips, ChipGroup, Choice},
-    look::Look,
 };
 use ratatui::{buffer::Buffer, layout::Rect};
 fn target(id: &str) -> Option<Target> {
@@ -46,14 +46,8 @@ fn groups(
                 Choice {
                     id: format!("{prefix}-{value}"),
                     actionable: true,
-                    text: if inline {
-                        format!(" {value}m ")
-                    } else if selected {
-                        format!("[{value:>2}m] ")
-                    } else {
-                        format!(" {value:>2}m  ")
-                    },
-                    gap: if inline { " ".into() } else { String::new() },
+                    text: format!(" {value:>2}m "),
+                    gap: " ".into(),
                     selected,
                     disabled: if prefix == "each" {
                         *value > selection.range_minutes
@@ -97,13 +91,14 @@ pub(super) fn paint(
     selection: Selection,
     focus: Option<Focus>,
     draft: usize,
-    look: Look,
+    app: &App,
 ) -> Vec<Hit> {
     chips::paint(
         buffer,
         area,
         &groups(selection, focus, draft, false, area.width),
-        look,
+        app,
+        app.usage_controls.then_some(Overlay::UsageControls),
     )
     .into_iter()
     .filter_map(|hit| {
@@ -121,13 +116,14 @@ pub(super) fn header(
     area: Rect,
     selection: Selection,
     title: &str,
-    look: Look,
+    app: &App,
     cursor: (Option<Focus>, usize),
     interactive: bool,
 ) -> Vec<Hit> {
     use ratatui::text::{Line, Span};
     use tmt_cli_style::Role;
     use tmt_tui::components::strip;
+    let look = app.look();
     // Match the approved roomy chip spacing when the header can afford it.
     if area.width < 80 {
         strip::paint_left(
@@ -147,7 +143,7 @@ pub(super) fn header(
             }]
         };
     }
-    let width = 44;
+    let width = 45;
     let controls = Rect::new(area.right() - width, area.y, width, 1);
     let title_area = Rect::new(area.x, area.y, area.width.saturating_sub(width + 1), 1);
     let title = crate::board::view::fit(title, usize::from(title_area.width));
@@ -168,7 +164,8 @@ pub(super) fn header(
         buffer,
         controls,
         &groups(selection, cursor.0, cursor.1, true, width),
-        look,
+        app,
+        app.usage_controls.then_some(Overlay::UsageControls),
     )
     .into_iter()
     .filter_map(|hit| {

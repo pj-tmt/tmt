@@ -24,6 +24,64 @@ pub fn paint_right(buffer: &mut Buffer, area: Rect, line: Line<'_>) {
     paint_from(buffer, area, area.right() - width, line);
 }
 
+/// Paint one whole padded control; the returned rectangle includes both padding cells.
+pub fn paint_chip(
+    buffer: &mut Buffer,
+    area: Rect,
+    label: &str,
+    style: Style,
+    align: Align,
+) -> Option<Rect> {
+    paint_chips(buffer, area, &[(label, style)], align)[0]
+}
+
+/// Keep a priority-ordered prefix of whole chips, with one unpainted cell between them.
+/// Fitting uses the visible buffer area before aligning the retained group.
+pub fn paint_chips(
+    buffer: &mut Buffer,
+    area: Rect,
+    chips: &[(&str, Style)],
+    align: Align,
+) -> Vec<Option<Rect>> {
+    let mut painted = vec![None; chips.len()];
+    if area.is_empty() {
+        return painted;
+    }
+    let visible = Rect { height: 1, ..area }.intersection(buffer.area);
+    if visible.is_empty() {
+        return painted;
+    }
+    let mut widths = Vec::new();
+    let mut used = 0_u32;
+    for (label, _) in chips {
+        let natural = text::measure(label, TextFlow::Clip, crate::geometry::Space::MaxContent)[0];
+        let Some(width) = natural.checked_add(2) else {
+            break;
+        };
+        let next = used + u32::from(width) + u32::from(!widths.is_empty());
+        if next > u32::from(visible.width) {
+            break;
+        }
+        used = next;
+        widths.push(width);
+    }
+    let spare = visible.width - used as u16;
+    let mut x = visible.x
+        + match align {
+            Align::Left => 0,
+            Align::Right => spare,
+            Align::Center => spare / 2,
+        };
+    for (index, width) in widths.into_iter().enumerate() {
+        let (label, style) = chips[index];
+        let rect = Rect::new(x, visible.y, width, 1);
+        paint_span(buffer, rect, &format!(" {label} "), style);
+        painted[index] = Some(rect);
+        x = x.saturating_add(width).saturating_add(1);
+    }
+    painted
+}
+
 fn paint_from(buffer: &mut Buffer, area: Rect, start: u16, line: Line<'_>) {
     let mut x = start.max(area.x);
     for span in line.spans {

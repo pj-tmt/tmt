@@ -586,14 +586,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
     }
     let controls_row = (full && tree_row.is_some()).then_some(header.len());
     if controls_row.is_some() {
-        let mut controls = String::new();
-        if area.width >= 11 {
-            controls.push_str("[ Details ]");
-        }
-        if area.width >= 21 {
-            controls.push_str(" [ Links ]");
-        }
-        header.push(Line::styled(controls, look.role(Role::Accent)));
+        header.push(Line::default());
     }
     let host_action = bindings
         .get("j")
@@ -745,14 +738,22 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
         if Some(index) == controls_row
             && let RowTarget::Workspace(_) = &target
         {
-            for (x, text) in [(0, "[ Details ]"), (12, "[ Links ]")] {
-                let width = text.width();
-                if x + width <= usize::from(area.width) {
-                    painted_controls.push(HeaderHit {
-                        area: Rect::new(area.x + x as u16, area.y + index as u16, width as u16, 1),
-                        target: target.clone(),
-                    });
-                }
+            let controls = super::buttons::paint(
+                app,
+                frame.buffer_mut(),
+                Rect::new(area.x, area.y + index as u16, area.width, 1),
+                &[
+                    super::buttons::Button::secondary("Details"),
+                    super::buttons::Button::secondary("Links"),
+                ],
+                tmt_cli_style::grid::Align::Left,
+                None,
+            );
+            for area in controls.into_iter().flatten() {
+                painted_controls.push(HeaderHit {
+                    area,
+                    target: target.clone(),
+                });
             }
         }
         if retained_timer

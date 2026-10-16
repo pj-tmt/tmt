@@ -57,6 +57,11 @@ words readable in the text role while eligible single semantic marks retain
 their signal color. Preserve its one final-frame policy and user overrides;
 selection must not turn every word into an attention signal.
 
+Direct action buttons use the shared [chip styles](cli-style.md#themes), with
+whole padded labels and a one-cell gap. Hover changes the whole painted chip
+without moving it; disabled controls retain their existing admission rules.
+Interval choices keep equal widths, with selected choices hot and others muted.
+
 ### Selection, focus and terminal depth
 
 Selection styling follows admitted selected content, not scroll/reveal envelopes.

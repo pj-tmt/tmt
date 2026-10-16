@@ -159,7 +159,12 @@ fn agents_composer_is_visible_idle_and_escape_keeps_the_uuid_draft_at_every_widt
             "{width}: {painted}"
         );
         assert!(painted.contains("│ › Write a message…"));
-        assert!(painted.contains("[ Send ] │"));
+        let send = app.composer.send_hit.borrow().clone().unwrap();
+        let label: String = (send.area.x..send.area.right())
+            .map(|x| buffer[(x, send.area.y)].symbol())
+            .collect();
+        assert_eq!(label, " Send ");
+        assert_eq!(send.area.width, 6);
         assert!(app.input.is_none());
         assert!(app.input_band.get().unwrap().height >= 1);
         app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
@@ -371,7 +376,7 @@ fn boxed_send_is_clickable_only_on_its_current_whole_uuid_fenced_button() {
 #[test]
 fn low_composer_keeps_a_bordered_editable_row_and_clipped_buttons_have_no_hit() {
     use ratatui::{Terminal, backend::TestBackend, layout::Rect};
-    for width in [1, 2, 3, 10, 14, 20] {
+    for width in [1, 2, 3, 10, 14, 15, 16, 20] {
         for height in [1, 2, 3, 4] {
             let app = crate::board::app::workspace::tests::board();
             let band = Rect::new(0, 0, width, height);
@@ -387,7 +392,7 @@ fn low_composer_keeps_a_bordered_editable_row_and_clipped_buttons_have_no_hit() 
                 assert!(app.composer.send_hit.borrow().is_none());
             }
             if let Some(hit) = app.composer.send_hit.borrow().as_ref() {
-                assert_eq!(hit.area.width, 8);
+                assert_eq!(hit.area.width, 6);
                 assert_eq!(hit.area.intersection(band), hit.area);
             }
         }
@@ -688,7 +693,7 @@ fn quote_remove_is_a_current_whole_control_and_retains_text_and_other_quotes() {
         assert!(painted.contains("Quote · worker:") && painted.contains("second excerpt"));
         assert!(!painted.contains("req-second-quote") && !painted.contains("bytes 0.."));
         let hit = app.composer.quote_hit.borrow().clone().unwrap();
-        assert_eq!(hit.area.width, 1);
+        assert_eq!(hit.area.width, 3);
         assert_eq!(
             hit.area.intersection(app.input_band.get().unwrap()),
             hit.area

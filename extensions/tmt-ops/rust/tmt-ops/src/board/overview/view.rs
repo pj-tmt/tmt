@@ -131,7 +131,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 &[("squads", "Squads"), ("agents", "Agents")],
                 usize::from(agents),
                 &app.workspace.query,
-                look,
+                app,
             ) {
                 let view = if hit.id == "agents" {
                     monitor::View::Agents

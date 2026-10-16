@@ -1,12 +1,12 @@
 //! ChipGroup: shared admitted options, selected padding and clipped hit IDs.
-use crate::look::Look;
+use super::app::{App, Overlay};
 use ratatui::{buffer::Buffer, layout::Rect};
 use serde_json::json;
 use std::{collections::BTreeMap, sync::OnceLock};
 use tmt_cli_style::{Role, grid::Align};
 use tmt_tui::{
     binding::{Node, Schema, Schemas, Scopes, Sources, Template},
-    geometry, paint, text,
+    geometry, text,
 };
 const FILE: &str = "ops.board.chip-group.xml";
 const MARKUP: &str = r#"<tmt-view version="1" class="w-full"><tmt-repeat each="$.rows" as="row"><tmt-row class="h-1 w-full"><tmt-text bind="row.label" class="shrink-0"/><tmt-repeat each="row.options" as="option"><tmt-text id-bind="option.id" bind="option.text" class="shrink-0"/><tmt-text bind="option.gap" class="shrink-0"/></tmt-repeat></tmt-row></tmt-repeat></tmt-view>"#;
@@ -63,55 +63,77 @@ fn node(groups: &[ChipGroup]) -> Node {
         .materialize(FILE, &json!({"rows":rows}), &Data)
         .expect("admitted shared chip group")
 }
+/// Shared option geometry delegates every actionable chip to the board button painter.
 pub(in crate::board) fn paint(
     buffer: &mut Buffer,
     area: Rect,
     groups: &[ChipGroup],
-    look: Look,
+    app: &App,
+    owner: Option<Overlay>,
 ) -> Vec<Hit> {
-    let choices: Vec<_> = groups
-        .iter()
-        .flat_map(|group| group.choices.iter())
-        .collect();
+    use ratatui::text::Line;
+    use tmt_tui::components::strip;
+    let look = app.look();
+    let choices: Vec<_> = groups.iter().flat_map(|group| &group.choices).collect();
     let node = node(groups);
-    let mut cells = geometry::layout(&node, [area.width, area.height], text::measure)
-        .expect("usage control geometry");
-    for cell in &mut cells {
-        for rect in [&mut cell.rect, &mut cell.content, &mut cell.clip] {
-            rect.x += i32::from(area.x);
-            rect.y += i32::from(area.y);
+    let cells = geometry::layout(&node, [area.width, area.height], text::measure)
+        .expect("shared chip group geometry");
+    let mut hits = Vec::new();
+    for cell in cells {
+        let Some(value) = cell.node.text.as_deref() else {
+            continue;
+        };
+        let rect = cell.rect;
+        let Ok(x) = u16::try_from(rect.x) else {
+            continue;
+        };
+        let Ok(y) = u16::try_from(rect.y) else {
+            continue;
+        };
+        let Ok(width) = u16::try_from(rect.width) else {
+            continue;
+        };
+        let Ok(height) = u16::try_from(rect.height) else {
+            continue;
+        };
+        let rect = Rect::new(
+            area.x.saturating_add(x),
+            area.y.saturating_add(y),
+            width,
+            height,
+        )
+        .intersection(area)
+        .intersection(buffer.area);
+        let choice = cell
+            .node
+            .id
+            .as_ref()
+            .and_then(|id| id.last())
+            .and_then(|id| choices.iter().find(|choice| choice.id == *id));
+        if let Some(choice) = choice.filter(|choice| choice.actionable) {
+            if cell.cut {
+                continue;
+            }
+            let label = value
+                .strip_prefix(' ')
+                .and_then(|value| value.strip_suffix(' '))
+                .unwrap_or(value);
+            let button = super::buttons::Button::secondary(label)
+                .focused(choice.selected || choice.cursor)
+                .enabled(!choice.disabled)
+                .idle(look.role(Role::Muted));
+            if let Some(rect) =
+                super::buttons::paint(app, buffer, rect, &[button], Align::Left, owner)[0]
+                && !choice.disabled
+            {
+                hits.push(Hit {
+                    area: rect,
+                    id: choice.id.clone(),
+                });
+            }
+        } else {
+            strip::paint_left(buffer, rect, Line::styled(value, look.role(Role::Muted)));
         }
     }
-    let hits = paint::paint_with(&cells, buffer, |index, _, _| {
-        let id = cells[index].node.id.as_ref().and_then(|path| path.last());
-        let choice = id.and_then(|id| choices.iter().find(|choice| choice.id == *id));
-        let (selected, disabled, cursor) = choice.map_or((false, false, false), |choice| {
-            (choice.selected, choice.disabled, choice.cursor)
-        });
-        let mut style = look.role(if disabled { Role::Dim } else { Role::Muted });
-        if selected {
-            style = style.add_modifier(ratatui::style::Modifier::REVERSED);
-        }
-        if cursor {
-            style = style.add_modifier(ratatui::style::Modifier::UNDERLINED);
-        }
-        (style, Align::Left)
-    });
-    hits.into_iter()
-        .filter_map(|hit| {
-            let id = hit.id?.last()?.clone();
-            choices
-                .iter()
-                .any(|choice| choice.id == id && choice.actionable)
-                .then_some(Hit {
-                    area: Rect::new(
-                        hit.rect.x.try_into().ok()?,
-                        hit.rect.y.try_into().ok()?,
-                        hit.rect.width.try_into().ok()?,
-                        hit.rect.height.try_into().ok()?,
-                    ),
-                    id,
-                })
-        })
-        .collect()
+    hits
 }

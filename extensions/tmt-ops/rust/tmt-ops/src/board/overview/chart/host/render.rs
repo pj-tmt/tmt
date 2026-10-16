@@ -135,7 +135,7 @@ pub(in crate::board) fn render_panel(frame: &mut Frame, app: &App, area: Rect, n
             area,
             state.selection,
             &title,
-            look,
+            app,
             (None, 0),
             false,
         );
@@ -191,7 +191,7 @@ pub(in crate::board) fn render_controls(frame: &mut Frame, app: &App, body: Rect
                 state.selection,
                 state.focus,
                 state.draft,
-                look,
+                app,
             );
             if state.focus == Some(Focus::Bars) {
                 state.set_focus(Focus::Each);
@@ -228,7 +228,7 @@ fn paint_chart(
         area,
         state.selection,
         &title,
-        look,
+        app,
         (active, state.draft),
         app.usage_controls
             || data

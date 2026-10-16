@@ -237,45 +237,33 @@ impl Review {
                 Line::styled(line.clone(), look.role(Role::Text)),
             );
         }
-        let mut controls = [None, None];
         let focused = app
             .overlay_focus
             .focused()
             .and_then(|field| field.last())
             .map(String::as_str)
             .unwrap_or("cancel");
-        for (i, (name, label, x)) in [
-            ("cancel", " Cancel ", 0),
-            ("apply", " Apply this exact operation ", 9),
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            if i == 1 && !matches!(self.result, Some(Ok(_))) {
-                continue;
-            }
-            let width = label.len() as u16;
-            if areas.footer.height > 0
-                && areas.footer.width >= x + width
-                && areas.content.height > 0
-            {
-                let rect = Rect::new(areas.footer.x + x, areas.footer.y, width, 1);
-                strip::paint_left(
-                    frame.buffer_mut(),
-                    rect,
-                    Line::styled(
-                        label,
-                        if focused == name {
-                            look.selection()
-                        } else {
-                            look.role(Role::Text)
-                        },
-                    ),
-                );
-                controls[i] = Some(rect);
-            }
-        }
-        self.controls.set(controls);
+        let apply_enabled = matches!(self.result, Some(Ok(_))) && areas.content.height > 0;
+        let buttons = [
+            crate::board::buttons::Button::secondary("Cancel")
+                .focused(focused == "cancel")
+                .enabled(areas.content.height > 0),
+            crate::board::buttons::Button::primary("Apply this exact operation")
+                .focused(focused == "apply")
+                .enabled(apply_enabled),
+        ];
+        let controls = crate::board::buttons::paint(
+            app,
+            frame.buffer_mut(),
+            areas.footer,
+            &buttons,
+            tmt_cli_style::grid::Align::Left,
+            Some(crate::board::app::Overlay::CronReview),
+        );
+        self.controls.set([
+            controls[0].filter(|_| areas.content.height > 0),
+            controls[1].filter(|_| apply_enabled),
+        ]);
     }
 }
 impl App {

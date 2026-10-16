@@ -100,6 +100,7 @@ pub(in crate::board) fn render_frame(
     app.input_band.set(None);
     app.input_viewport.set(None);
     app.conversation.borrow_mut().pane = None;
+    app.buttons.begin_frame();
     app.hits.borrow_mut().clear();
     app.frame_clocks.borrow_mut().clear();
     app.chip_hits.borrow_mut().clear();
