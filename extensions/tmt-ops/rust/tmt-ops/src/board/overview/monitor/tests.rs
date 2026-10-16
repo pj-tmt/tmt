@@ -226,6 +226,7 @@ fn board() -> App {
                 waiting,
                 presence: Some(true),
                 usage: None,
+                activity: Default::default(),
             },
         );
         snapshot.roster.squads[0].members.push(id.into());

@@ -89,6 +89,49 @@ fn workspace_action_rows_join_global_panes_without_replacing_roster_metadata() {
     assert_eq!(member["state"], "blocked");
     assert_eq!(member["pane"]["id"], "%7");
 }
+
+#[test]
+fn provider_activity_comes_only_from_the_global_core_observation() {
+    let fixture = Fixture::new("");
+    let mut roster = row("worker", "worker", "review");
+    // A roster row never supplies activity, even if one carried a copy.
+    roster["session"] = json!({"activity": {"state": "idle", "sinceMs": 1}});
+    let unlisted = row("absent", "absent", "idle");
+    let acquired = fixture.acquired(&[("a", document("a", Value::Null, vec![roster, unlisted]))]);
+    let squad = Squad {
+        name: "a".into(),
+        room_id: "room-a".into(),
+    };
+    let listed = Ok(
+        json!({"identities":[{"id":"worker", "name":"worker", "presence":"active",
+        "session": {"activity": {"state": "working", "sinceMs": 5, "lastActivityMs": 6, "providers": {}}}}]}),
+    );
+    let snapshot = super::super::workspace::observe::OpsWorkspaceSnapshot::from_acquired(
+        &[&squad],
+        &acquired,
+        &listed,
+    );
+    use super::super::activity::{ObservedActivity, Phase};
+    let working = ObservedActivity {
+        phase: Phase::Working,
+        since_ms: Some(5),
+        last_ms: Some(6),
+    };
+    assert_eq!(snapshot.roster.members["worker"].activity, working);
+    assert_eq!(
+        snapshot.roster.members["absent"].activity,
+        ObservedActivity::default()
+    );
+    let squad_row = |id: &str| {
+        &snapshot.rows[&super::super::workspace::OpsTarget::Member {
+            room_id: Some("room-a".into()),
+            identity_id: id.into(),
+        }]
+    };
+    assert_eq!(ObservedActivity::of(squad_row("worker")), working);
+    assert_eq!(squad_row("worker")["state"], "review");
+    assert!(squad_row("absent")["session"].is_null());
+}
 impl Fixture {
     fn new(text: &str) -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(0);

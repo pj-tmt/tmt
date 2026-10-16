@@ -8,6 +8,7 @@ fn member(id: &str, name: &str) -> OpsMember {
         waiting: false,
         presence: None,
         usage: None,
+        activity: Default::default(),
     }
 }
 

@@ -379,6 +379,7 @@ pub(in crate::board) fn scene(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<
                 state: None,
                 presence: None,
                 usage: None,
+                activity: None,
                 count: None,
                 observation: squad.observation,
             })

@@ -126,6 +126,7 @@ mod tests {
                 waiting: false,
                 presence: None,
                 usage: None,
+                activity: Default::default(),
             },
         );
         snapshot.roster.observation = OpsObservation::Complete;
@@ -210,6 +211,7 @@ mod tests {
                     waiting: false,
                     presence: None,
                     usage: None,
+                    activity: Default::default(),
                 },
             );
         }
@@ -288,6 +290,7 @@ mod tests {
                     waiting: false,
                     presence: None,
                     usage: None,
+                    activity: Default::default(),
                 },
             );
         }

@@ -49,6 +49,8 @@ fn member(row: &Value) -> Option<OpsMember> {
             _ => None,
         },
         usage: None, // Source-provided formatted usage stays in the row projection.
+        // Only the global core observation supplies activity (see `from_acquired`).
+        activity: Default::default(),
     })
 }
 
@@ -175,7 +177,8 @@ impl OpsWorkspaceSnapshot {
                 if row["retired"] == true {
                     continue;
                 }
-                if let Some(identity) = member(row) {
+                if let Some(mut identity) = member(row) {
+                    identity.activity = crate::board::activity::ObservedActivity::of(row);
                     result.rows.insert(
                         OpsTarget::Member {
                             room_id: None,
@@ -286,6 +289,11 @@ fn observed_member_row(row: &Value, observed: Option<&Value>) -> Value {
         .unwrap_or_else(|| Value::String("unknown".into()));
     projected["pane"] = observed
         .and_then(|row| row.get("pane"))
+        .cloned()
+        .unwrap_or(Value::Null);
+    // Provider activity is the global row's too; a roster row never supplies it.
+    projected["session"] = observed
+        .and_then(|row| row.get("session"))
         .cloned()
         .unwrap_or(Value::Null);
     projected

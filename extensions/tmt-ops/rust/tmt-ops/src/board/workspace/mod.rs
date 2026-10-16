@@ -29,6 +29,8 @@ pub struct OpsMember {
     pub waiting: bool,
     pub presence: Option<bool>,
     pub usage: Option<u64>,
+    /// Core's provider activity from the global observation, one per identity.
+    pub activity: super::activity::ObservedActivity,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -179,6 +181,8 @@ pub struct OpsTreeRow {
     pub state: Option<String>,
     pub presence: Option<bool>,
     pub usage: Option<u64>,
+    /// A member row's provider activity; group rows have none.
+    pub activity: Option<super::activity::ObservedActivity>,
     /// A total is known only after a complete observation, never from a
     /// failed/partial/stale read. Observed children can still be displayed.
     pub count: Option<usize>,
@@ -488,6 +492,7 @@ impl OpsWorkspace {
                 state: None,
                 presence: None,
                 usage: None,
+                activity: None,
                 count: roster.complete().then_some(pool.len()),
                 observation: if roster.complete() {
                     OpsObservation::Complete
@@ -583,6 +588,7 @@ impl OpsWorkspace {
                 state: attention.map(str::to_owned),
                 presence: None,
                 usage: None,
+                activity: None,
                 count: (squad.observation == OpsObservation::Complete)
                     .then(|| squad.members.iter().collect::<BTreeSet<_>>().len()),
                 observation: squad.observation,
@@ -642,6 +648,7 @@ fn member_row(
         },
         presence: member.presence,
         usage: member.usage,
+        activity: Some(member.activity),
         count: None,
         observation,
     }

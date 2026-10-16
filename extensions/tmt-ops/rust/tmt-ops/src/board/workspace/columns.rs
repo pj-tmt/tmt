@@ -664,6 +664,7 @@ mod tests {
             state: None,
             presence: None,
             usage: None,
+            activity: None,
             count: None,
             observation: crate::board::workspace::OpsObservation::Complete,
         };

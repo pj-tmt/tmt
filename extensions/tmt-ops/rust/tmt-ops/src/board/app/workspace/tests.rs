@@ -38,6 +38,7 @@ pub(in crate::board) fn board() -> App {
                     waiting: false,
                     presence: Some(true),
                     usage: None,
+                    activity: Default::default(),
                 },
             )]
             .into(),
@@ -448,6 +449,7 @@ pub(in crate::board) fn populated_board(squads: usize, agents: usize) -> App {
             waiting: false,
             presence: Some(true),
             usage: None,
+            activity: Default::default(),
         };
         home.workspace.roster.members.insert(id.clone(), member);
         let room = if squads == 0 {
@@ -2447,6 +2449,7 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
                         waiting: false,
                         presence: Some(true),
                         usage: None,
+                        activity: Default::default(),
                     },
                 );
                 home.workspace.roster.squads[0].members.push(id.clone());
