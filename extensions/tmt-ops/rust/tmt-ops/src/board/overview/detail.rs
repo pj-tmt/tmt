@@ -123,7 +123,8 @@ impl App {
             let value = if column == Column::Cron {
                 self.cron_glyphs.label(values.cron)
             } else if column == Column::State
-                && let Some(label) = self.activity_label(row)
+                && let Some(label) =
+                    self.activity_label_at(row, std::time::Instant::now(), crate::status::now_ms())
             {
                 let (head, task) = label.fit(usize::MAX);
                 head + task.as_deref().unwrap_or("")

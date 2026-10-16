@@ -215,11 +215,21 @@ pub(in crate::board) fn spinner_wait(
 /// Clock-dependent surfaces actually admitted to the last frame. Stable target
 /// keys avoid rebuilding/filtering the whole roster on every UI clock tick.
 pub(in crate::board) enum ClockSurface {
-    Labels { target: RowTarget, width: usize },
-    Limits { width: u16, rows: usize },
+    Labels {
+        target: RowTarget,
+        width: usize,
+    },
+    Limits {
+        width: u16,
+        rows: usize,
+    },
     QuotaDetails,
     UsageChart,
-    OverviewUsageQuota { width: u16 },
+    OverviewUsageQuota {
+        width: u16,
+    },
+    /// Member STATE cells: phase ages and the stale rule advance on the clock.
+    Activity,
 }
 
 impl ClockSurface {
@@ -240,6 +250,14 @@ impl ClockSurface {
                 super::super::overview::quota::usage_clock_mark(app, now, *width)
             }
             Self::UsageChart => super::super::overview::chart::host::clock_mark(app, now),
+            Self::Activity => {
+                let instant = std::time::Instant::now();
+                app.workspace_rows()
+                    .iter()
+                    .filter_map(|row| app.activity_label_at(row, instant, now))
+                    .map(|label| format!("{}{:?};", label.state, label.age))
+                    .collect()
+            }
             Self::QuotaDetails => app
                 .quota_details
                 .as_ref()

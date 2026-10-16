@@ -14,6 +14,10 @@ use crate::{
 };
 use std::rc::Rc;
 
+/// The read-age floor and grace of the activity stale rule.
+pub(in crate::board) const ACTIVITY_FLOOR: std::time::Duration = std::time::Duration::from_secs(5);
+pub(in crate::board) const ACTIVITY_GRACE: std::time::Duration = std::time::Duration::from_secs(10);
+
 /// Rows are shared only within an immutable paint, never across an input or
 /// snapshot update. Nested paints and unwinding restore the previous scope.
 pub(in crate::board) struct FrameRows<'a> {
@@ -45,19 +49,60 @@ impl App {
     pub(in crate::board) fn workspace_snapshot(&self) -> Option<&OpsWorkspaceSnapshot> {
         Some(&self.view.as_ref()?.home.as_ref()?.workspace)
     }
-    /// The board's provider activity is stale when its last global read failed.
-    pub(in crate::board) fn activity_stale(&self) -> bool {
-        self.workspace_snapshot().is_none_or(|snapshot| {
-            snapshot.roster.observation != crate::board::workspace::OpsObservation::Complete
-        })
+    /// Provider activity is stale when the last global read failed, or when
+    /// that read is older than `max(refresh interval, 5 s) + 10 s`. Refresh
+    /// off uses the 5 s floor, so rows go stale and stay stale; it never turns
+    /// refresh on, and stale never means idle.
+    pub(in crate::board) fn activity_stale(&self, now: std::time::Instant) -> bool {
+        let Some(snapshot) = self.workspace_snapshot() else {
+            return true;
+        };
+        if snapshot.roster.observation != crate::board::workspace::OpsObservation::Complete {
+            return true;
+        }
+        let interval = self
+            .view
+            .as_ref()
+            .and_then(|view| view.refresh)
+            .unwrap_or_default();
+        let limit = interval.max(ACTIVITY_FLOOR) + ACTIVITY_GRACE;
+        snapshot
+            .read_at
+            .is_some_and(|read| now.saturating_duration_since(read) > limit)
     }
-    /// The one STATE cell label of a member row; group rows have none.
+    /// The one STATE cell label of a painted member row; group rows have none.
+    /// A label that can still change with time (an age, or a fresh read that
+    /// can go stale) admits the activity clock; no other one does.
     pub(in crate::board) fn activity_label(
         &self,
         row: &OpsTreeRow,
     ) -> Option<crate::board::activity::Label> {
+        let now = std::time::Instant::now();
+        let label = self.activity_label_at(row, now, crate::status::now_ms())?;
+        let ages = self
+            .workspace_snapshot()
+            .is_some_and(|snapshot| snapshot.read_at.is_some())
+            && !self.activity_stale(now);
+        if label.age.is_none() && !ages {
+            return Some(label);
+        }
+        let mut clocks = self.frame_clocks.borrow_mut();
+        if !clocks
+            .iter()
+            .any(|clock| matches!(clock, crate::board::view::ClockSurface::Activity))
+        {
+            clocks.push(crate::board::view::ClockSurface::Activity);
+        }
+        Some(label)
+    }
+    pub(in crate::board) fn activity_label_at(
+        &self,
+        row: &OpsTreeRow,
+        now: std::time::Instant,
+        now_ms: u64,
+    ) -> Option<crate::board::activity::Label> {
         let member = row.activity.as_ref()?;
-        Some(member.label(self.activity_stale(), crate::status::now_ms()))
+        Some(member.label(self.activity_stale(now), now_ms))
     }
     pub(in crate::board) fn digest_window(&self) -> crate::config::DigestWindow {
         self.workspace_snapshot()

@@ -20,6 +20,9 @@ type BindingSources = BTreeMap<String, String>;
 #[derive(Debug, Default)]
 pub(crate) struct OpsWorkspaceSnapshot {
     pub roster: OpsRoster,
+    /// When the global core read behind `roster` returned. The board loader
+    /// sets it; only hand-built test snapshots have none (no age limit).
+    pub read_at: Option<std::time::Instant>,
     pub shell_counts: ShellCounts,
     pub hidden_count: usize,
     pub hidden_attention: ShellCounts,

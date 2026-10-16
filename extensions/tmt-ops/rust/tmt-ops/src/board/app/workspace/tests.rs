@@ -4597,3 +4597,78 @@ fn pinned_name_marks_are_muted_and_keep_column_geometry_in_both_hosts() {
         }
     }
 }
+
+#[test]
+fn activity_goes_stale_after_the_read_age_limit_and_never_becomes_idle() {
+    use crate::board::activity::Phase;
+    use std::time::{Duration, Instant};
+    let base = Instant::now();
+    for (refresh, limit) in [
+        (Some(Duration::from_secs(5)), Duration::from_secs(15)),
+        (Some(Duration::from_secs(2)), Duration::from_secs(15)),
+        (Some(Duration::from_secs(60)), Duration::from_secs(70)),
+        // Refresh off: the 5 s floor; the board never turns refresh back on.
+        (None, Duration::from_secs(15)),
+    ] {
+        let mut app = board();
+        app.view.as_mut().unwrap().refresh = refresh;
+        let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+        snapshot.read_at = Some(base);
+        let rows = app.workspace_rows();
+        let row = rows.iter().find(|row| row.activity.is_some()).unwrap();
+        assert_eq!(
+            row.activity.as_ref().unwrap().activity.phase,
+            Phase::Working
+        );
+        let at = |offset: Duration| app.activity_label_at(row, base + offset, 0).unwrap().state;
+        assert_eq!(at(limit), "working", "{refresh:?} at the limit");
+        assert_eq!(at(limit + Duration::from_millis(1)), "stale", "{refresh:?}");
+        assert_eq!(
+            app.view.as_ref().unwrap().refresh,
+            refresh,
+            "refresh is unchanged"
+        );
+    }
+    // A failed reload marks the roster stale at once, whatever the read age.
+    let mut app = board();
+    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    snapshot.read_at = Some(base);
+    snapshot.roster.observation = OpsObservation::Stale;
+    let rows = app.workspace_rows();
+    let row = rows.iter().find(|row| row.activity.is_some()).unwrap();
+    assert_eq!(app.activity_label_at(row, base, 0).unwrap().state, "stale");
+    assert!(app.activity_stale(base));
+}
+
+#[test]
+fn painted_activity_admits_a_clock_that_moves_when_the_read_goes_stale() {
+    use std::time::{Duration, Instant};
+    let mut app = board();
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .read_at = Some(Instant::now());
+    paint(&app, 100, 24);
+    assert!(
+        app.frame_clocks
+            .borrow()
+            .iter()
+            .any(|clock| matches!(clock, crate::board::view::ClockSurface::Activity))
+    );
+    let fresh = crate::board::view::time_marks(&app, 0);
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .read_at = Instant::now().checked_sub(Duration::from_secs(60));
+    assert_ne!(crate::board::view::time_marks(&app, 0), fresh);
+    let _no_commands = crate::runner::forbid_commands();
+    assert!(crate::board::view::time_marks(&app, 0)[0].contains("stale"));
+}
