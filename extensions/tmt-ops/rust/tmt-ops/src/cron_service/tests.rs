@@ -478,13 +478,12 @@ fn membership_service_pauses_before_leave_and_keeps_other_metadata() {
 fn failed_pause_publication_refuses_membership_leave() {
     let f = Fixture::new();
     f.add(&f.actor(USER), WORKER).unwrap();
-    // A real store lock failure must happen before the public leave command.
-    let file = fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(f.directory.join("ops/cron/jobs.lock"))
-        .unwrap();
-    let _held = nix::fcntl::Flock::lock(file, nix::fcntl::FlockArg::LockExclusive).unwrap();
+    // A real store failure must happen before the public leave command.
+    fs::write(
+        f.directory.join("ops/cron/jobs.json"),
+        "not a cron document",
+    )
+    .unwrap();
     let selected = Squad {
         name: "product".into(),
         room_id: ROOM.into(),
@@ -492,7 +491,7 @@ fn failed_pause_publication_refuses_membership_leave() {
     let error = crate::membership::remove(&f.core, &selected, WORKER)
         .err()
         .unwrap();
-    assert_eq!(error.code, "SQUAD_CRON_STORE_BUSY");
+    assert_eq!(error.code, "SQUAD_CRON_STORE_INVALID");
     assert!(f.model()["rosterWithout"].as_array().unwrap().is_empty());
     assert!(
         !f.model()["calls"]
@@ -501,6 +500,19 @@ fn failed_pause_publication_refuses_membership_leave() {
             .iter()
             .any(|call| call["command"][0] == "room" && call["command"][1] == "leave")
     );
+}
+
+#[test]
+fn a_busy_store_names_its_cause_and_the_one_retry() {
+    let what =
+        "Another Ops process still holds the cron store lock after 5 s, so nothing was saved.";
+    let error = SquadError::from(cron::Error {
+        code: cron::STORE_BUSY.into(),
+        message: what.into(),
+    });
+    assert_eq!(error.code, "SQUAD_CRON_STORE_BUSY");
+    assert_eq!(error.human(), (what, Some("Run the same command again.")));
+    assert_eq!(error.message, format!("{what} Run the same command again."));
 }
 
 #[test]
