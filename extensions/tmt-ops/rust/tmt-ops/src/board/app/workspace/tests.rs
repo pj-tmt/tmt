@@ -9,6 +9,20 @@ use serde_json::json;
 pub(in crate::board) const ROOM: &str = "11111111-1111-4111-8111-111111111111";
 pub(in crate::board) const MEMBER: &str = "22222222-2222-4222-8222-222222222222";
 
+/// Literal attention evidence and the agent-list mode for member-action scenarios.
+pub(in crate::board) fn observe_waiting_member(app: &mut App) {
+    app.overview_view = crate::board::overview::monitor::View::Agents;
+    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    snapshot.roster.members.get_mut(MEMBER).unwrap().waiting = true;
+    for squad in &mut snapshot.roster.squads {
+        if let Some(member) = squad.member_states.get_mut(MEMBER) {
+            member.waiting = true;
+        }
+    }
+    snapshot.shell_counts = snapshot.roster.shell_counts();
+    app.overview_rows.borrow_mut().clear();
+}
+
 pub(in crate::board) fn board() -> App {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let mut loaded = crate::board::app::tests::snapshot(crate::board::ALL, json!([]));
@@ -1000,7 +1014,7 @@ fn workspace_names_are_inert_display_text_and_tree_never_discloses_waiting_previ
                     depth,
                 };
                 // Keep the global theme selected; the selected squad has its own observation.
-                app.shell.tab = OpsTab::Overview;
+                app.shell.tab = OpsTab::Agents;
                 for width in [160, 100, 80, 60] {
                     let lines = paint(&app, width, 36);
                     assert!(lines.iter().all(|line| !line.contains('\n')
@@ -1439,17 +1453,38 @@ fn no_squads_is_a_known_empty_workspace_with_an_explicit_creation_action() {
     app.shell.tab = OpsTab::Overview;
     app.workspace_reconcile();
     assert!(app.workspace_rows().is_empty());
+    assert!(paint(&app, 80, 24).join("\n").contains(" No squads yet."));
+    let empty = paint(&app, 80, 24);
+    assert!(empty.iter().any(|line| line.starts_with(" No squads yet.")));
+    assert!(empty.last().unwrap().starts_with(' '));
+    app.workspace.query = "missing".into();
     assert!(
         paint(&app, 80, 24)
-            .join("\n")
-            .contains("No observed agents")
+            .iter()
+            .any(|line| line.starts_with(" No matching squads"))
     );
+    app.workspace.query.clear();
+    app.overview_view = crate::board::overview::monitor::View::Agents;
+    assert!(
+        paint(&app, 80, 24)
+            .iter()
+            .any(|line| line.starts_with(" No agents yet."))
+    );
+    app.workspace.query = "missing".into();
+    assert!(
+        paint(&app, 80, 24)
+            .iter()
+            .any(|line| line.starts_with(" No matching agents"))
+    );
+    app.workspace.query.clear();
+    app.overview_view = crate::board::overview::monitor::View::Squads;
     assert_eq!(key(&mut app, KeyCode::Char('n')), Effect::None);
     assert_eq!(app.workspace_form.as_ref().unwrap().kind, Kind::Create);
 }
 #[test]
 fn selected_member_host_uses_the_frozen_uuid_and_overview_has_membership_actions() {
     let mut app = board();
+    crate::board::app::workspace::tests::observe_waiting_member(&mut app);
     app.shell.tab = OpsTab::Overview;
     assert_eq!(
         key(&mut app, KeyCode::Char('j')),
@@ -1470,7 +1505,7 @@ fn supplied_label_role_and_choice_hit_survive_the_workspace_tree_and_digest_tab(
     }
 }
 
-fn supplied_label_choice_hit_at_look(look: crate::look::Look) {
+fn supplied_label_fixture(look: crate::look::Look) -> App {
     use crate::labels::{Label, Supplied};
     use tmt_cli_style::Role;
     let mut app = board();
@@ -1509,7 +1544,13 @@ fn supplied_label_choice_hit_at_look(look: crate::look::Look) {
         )]
         .into(),
     )]);
-    for tab in [OpsTab::Overview, OpsTab::Agents, OpsTab::Digest] {
+    app
+}
+
+fn supplied_label_choice_hit_at_look(look: crate::look::Look) {
+    use tmt_cli_style::Role;
+    let mut app = supplied_label_fixture(look);
+    for tab in [OpsTab::Agents, OpsTab::Digest] {
         app.shell.tab = tab;
         for width in [100, 160] {
             let screen = paint(&app, width, 36).join("\n");
@@ -1519,34 +1560,7 @@ fn supplied_label_choice_hit_at_look(look: crate::look::Look) {
                 "digest Auto ▾"
             };
             assert!(screen.contains(mode), "{tab:?}: {screen}");
-            if tab == OpsTab::Overview {
-                let snapshot = app.workspace_snapshot().unwrap();
-                let rows = app.workspace_rows();
-                let values = crate::board::overview::monitor::values(&app, snapshot, &rows[0]);
-                assert!(
-                    values
-                        .digest_labels
-                        .iter()
-                        .any(|label| label.text == "1 held")
-                );
-                // Whole trailing labels may be absent in the bounded MODE cell.
-                let slot = app
-                    .overview_layout
-                    .borrow_mut()
-                    .slots(Rect::new(
-                        0,
-                        0,
-                        if width >= 140 { width * 3 / 5 } else { width },
-                        2,
-                    ))
-                    .into_iter()
-                    .find(|(column, _)| *column == crate::config::OverviewColumn::Digest)
-                    .unwrap()
-                    .1;
-                assert!(slot.width >= "Auto ▾".len() as u16);
-            } else {
-                assert!(screen.contains("1 held"));
-            }
+            assert!(screen.contains("1 held"));
             assert!(
                 !screen.contains("99 held"),
                 "supplied labels replace the policy chip: {screen}"
@@ -1570,40 +1584,7 @@ fn supplied_label_choice_hit_at_look(look: crate::look::Look) {
                     }
                 }
             }
-            if tab == OpsTab::Overview {
-                let table_width =
-                    crate::board::conversation::layout::overview(Rect::new(0, 0, width, 36))
-                        .list
-                        .expect("Overview always retains its list")
-                        .width;
-                let mode = app
-                    .overview_layout
-                    .borrow_mut()
-                    .slots(Rect::new(0, 0, table_width, 2))
-                    .into_iter()
-                    .find(|(column, _)| *column == crate::config::OverviewColumn::Digest)
-                    .unwrap()
-                    .1;
-                for (area, _) in &chips {
-                    if area.x == mode.x
-                        && app
-                            .hits
-                            .borrow()
-                            .iter()
-                            .any(|hit| hit.row().is_some() && hit.y == area.y)
-                    {
-                        let suffix: String = (area.right()..mode.right())
-                            .map(|x| buffer[(x, area.y)].symbol())
-                            .collect();
-                        assert!(
-                            suffix.trim().is_empty(),
-                            "only complete trailing labels paint: {suffix:?}"
-                        );
-                    }
-                }
-            } else {
-                assert!(!held.is_empty(), "the supplied label remains visible");
-            }
+            assert!(!held.is_empty(), "the supplied label remains visible");
             // At 160 columns the Agents tree clips this suffix, but its
             // conversation header still shows the supplier's muted-role label.
             // Selected rows use the contrast policy; other surfaces keep the role.
@@ -2064,6 +2045,7 @@ fn a_composer_with_its_own_key_legend_does_not_advertise_list_shortcuts() {
 fn compact_overview_talk_opens_agents_but_wide_overview_keeps_the_shared_conversation() {
     for width in [160, 100, 80, 60] {
         let mut app = board();
+        crate::board::app::workspace::tests::observe_waiting_member(&mut app);
         app.shell.tab = OpsTab::Overview;
         paint(&app, width, 36);
         let selected = app.workspace.selected.clone();
@@ -2598,9 +2580,20 @@ fn overview_never_claims_zero_from_incomplete_rosters_and_reports_the_global_obs
         let mut app = populated_board(squads, 150);
         app.shell.tab = OpsTab::Overview;
         let complete = paint(&app, 160, 36).join("\n");
-        assert!(complete.contains("149 working"), "{complete}");
-        assert!(complete.contains("1 needs you"), "{complete}");
-        assert_eq!(app.workspace_rows()[0].state.as_deref(), Some("blocked"));
+        assert!(complete.contains("● 150 online"), "{complete}");
+        assert!(complete.contains("✗ 1 blocked"), "{complete}");
+        assert!(complete.contains("◆ 0 waiting"), "{complete}");
+        assert!(
+            crate::board::overview::monitor::scene(&app, app.workspace_snapshot().unwrap()).waiting
+                == 0,
+            "blocked is not a pending question"
+        );
+        assert_eq!(
+            crate::board::overview::monitor::scene(&app, app.workspace_snapshot().unwrap())
+                .summary
+                .working,
+            149
+        );
         let home = app.view.as_mut().unwrap().home.as_mut().unwrap();
         home.workspace.roster.membership_complete = false;
         home.workspace.roster.observation = OpsObservation::Partial;
@@ -2903,8 +2896,8 @@ fn agents_filter_uses_the_effective_key_and_painted_controls_without_retargeting
         app.workspace_strip_hits
             .borrow()
             .iter()
-            .all(|(_, choice)| *choice == Choice::SavingsUnit),
-        "Overview has no Agents controls; only a painted estimate is clickable"
+            .all(|(_, choice)| matches!(choice, Choice::SavingsUnit | Choice::OverviewView(_))),
+        "Overview paints only its own view controls and any admitted estimate"
     );
     assert_eq!(key(&mut app, KeyCode::Char('f')), Effect::None);
     assert_eq!(
@@ -3142,7 +3135,11 @@ fn confirmed_hide_moves_only_its_visible_squad_and_keeps_global_attention() {
         0
     );
     app.workspace_action(OpsUiAction::RevealHidden);
-    assert_eq!(app.workspace_rows().len(), 1);
+    assert!(
+        crate::board::overview::monitor::scene(&app, app.workspace_snapshot().unwrap()).waiting
+            == 0,
+        "revealing a squad does not manufacture waiting evidence"
+    );
     assert_eq!(
         crate::board::overview::monitor::scene(&app, app.workspace_snapshot().unwrap())
             .summary
@@ -3355,8 +3352,12 @@ fn visibility_capture_matrix_keeps_shell_global_and_views_scoped() {
                             &app,
                             app.workspace_snapshot().unwrap(),
                         );
-                        assert_eq!(scene.rows.len(), if mode == "revealed" { 4 } else { 2 });
-                        assert_eq!(scene.summary.total, scene.rows.len());
+                        assert!(
+                            scene.waiting == 0,
+                            "these observed agents have no pending question"
+                        );
+                        assert_eq!(scene.summary.total, if mode == "revealed" { 4 } else { 2 });
+                        assert_eq!(scene.squads.len(), if mode == "revealed" { 2 } else { 1 });
                         assert_eq!(scene.summary.needs_you, usize::from(mode != "hidden"));
                     }
                     assert_eq!(app.workspace_snapshot().unwrap().shell_counts, global);
@@ -3580,5 +3581,61 @@ fn named_header_keeps_unknown_attention_before_the_long_layer_caption() {
         } else {
             assert!(!line.contains(" · x"));
         }
+    }
+}
+
+#[test]
+fn overview_retains_supplier_values_without_recreating_the_removed_mode_cell() {
+    let look = crate::look::Look {
+        theme: tmt_cli_style::Theme::default(),
+        depth: tmt_cli_style::Depth::TrueColor,
+    };
+    let mut app = supplied_label_fixture(look);
+    app.overview_view = crate::board::overview::monitor::View::Agents;
+    app.overview_rows.borrow_mut().clear();
+    app.workspace_reconcile();
+    app.shell.tab = OpsTab::Overview;
+    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    snapshot.roster.members.get_mut(MEMBER).unwrap().waiting = true;
+    snapshot.roster.squads[0]
+        .member_states
+        .get_mut(MEMBER)
+        .unwrap()
+        .waiting = true;
+    let target = app.workspace.selected.as_ref().unwrap().clone();
+    snapshot.rows.get_mut(&target).unwrap()["pending"] = json!("Approve this change?");
+    app.overview_rows.borrow_mut().clear();
+    app.workspace_reconcile();
+    for width in [100, 160] {
+        let mut terminal = Terminal::new(TestBackend::new(width, 36)).unwrap();
+        terminal
+            .draw(|frame| {
+                crate::board::view::prepare(&mut app, frame.area());
+                crate::board::view::render(frame, &app);
+            })
+            .unwrap();
+        let list = app
+            .workspace_placement(app.conversation.borrow().area)
+            .unwrap()
+            .list
+            .unwrap();
+        assert!(
+            app.chip_hits
+                .borrow()
+                .iter()
+                .all(|(area, _)| area.intersection(list).is_empty()),
+            "no retired table dropdown retains an authority"
+        );
+        let values = crate::board::overview::monitor::values(
+            &app,
+            app.workspace_snapshot().unwrap(),
+            &app.workspace_rows()[0],
+        );
+        assert!(
+            values
+                .digest_labels
+                .iter()
+                .any(|label| label.text == "1 held")
+        );
     }
 }

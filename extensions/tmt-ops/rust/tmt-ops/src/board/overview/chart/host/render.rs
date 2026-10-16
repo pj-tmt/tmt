@@ -152,14 +152,26 @@ pub(in crate::board) fn render_controls(frame: &mut Frame, app: &App, body: Rect
         title: "Usage · Each / Range".into(),
         placement: Placement::Body,
     };
-    let areas = modal.areas(body, [body.width, body.height], true, false);
+    let mut areas = modal.areas(body, [body.width, body.height], true, false);
+    // This modal has no position indicator. At short heights its reserved row
+    // belongs to the controls before the optional keyboard reminder.
+    let control_rows = controls::height(areas.content.width);
+    if areas.content.height < control_rows {
+        areas.content.height += areas.position.height;
+        areas.position.height = 0;
+    }
+    if areas.content.height < control_rows {
+        areas.content.height += areas.footer.height;
+        areas.footer.height = 0;
+    }
     modal.paint_flat(areas, frame.buffer_mut(), &look.theme, look.depth);
     let mut state = app.usage_chart.borrow_mut();
     state.hits.clear();
     state.visible = false;
     let now = crate::status::now_ms();
     refresh(app, &mut state, now);
-    if areas.content.height >= 2 {
+    let control_rows = controls::height(areas.content.width);
+    if areas.content.height >= control_rows {
         state.visible = true;
         if state.focus.is_none() {
             state.set_focus(Focus::Each);
@@ -173,7 +185,7 @@ pub(in crate::board) fn render_controls(frame: &mut Frame, app: &App, body: Rect
             state.hits = controls::paint(
                 frame.buffer_mut(),
                 Rect {
-                    height: 2,
+                    height: control_rows,
                     ..areas.content
                 },
                 state.selection,

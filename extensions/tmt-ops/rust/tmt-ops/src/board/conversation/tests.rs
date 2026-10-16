@@ -681,6 +681,7 @@ fn switching_shell_with_a_link_keeps_response_and_effective_link_hint() {
     use crate::board::shell::OpsTab;
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     let mut app = workspace_fixture();
+    crate::board::app::workspace::tests::observe_waiting_member(&mut app);
     let selected = app.workspace.selected.clone().unwrap();
     app.view
         .as_mut()

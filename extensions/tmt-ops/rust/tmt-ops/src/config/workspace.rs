@@ -214,7 +214,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("j", "jump"),
             ("o", "open"),
             ("e", "monitor-details"),
-            ("f", "overview-filter"),
+            ("v", "overview-view"),
             ("p", "pin"),
             ("m", "manage"),
             ("x", "remove-membership"),
@@ -788,9 +788,9 @@ mod tests {
         }
     }
     #[test]
-    fn overview_filter_default_yields_to_all_explicit_binding_scopes() {
-        let config = config("[bind]\nf='search'\n[bind.tmux]\nf='talk'\n");
-        assert_eq!(defaults(OpsKeyScope::Overview)["f"].text, "overview-filter");
+    fn overview_view_default_yields_to_all_explicit_binding_scopes() {
+        let config = config("[bind]\nv='search'\n[bind.tmux]\nv='talk'\n");
+        assert_eq!(defaults(OpsKeyScope::Overview)["v"].text, "overview-view");
         for scope in [
             OpsKeyScope::Reader,
             OpsKeyScope::Member,
@@ -807,7 +807,7 @@ mod tests {
             config
                 .workspace_keys(OpsKeyScope::Overview, None, None)
                 .unwrap()
-                .bindings["f"]
+                .bindings["v"]
                 .text,
             "search"
         );
@@ -815,16 +815,16 @@ mod tests {
             config
                 .workspace_keys(OpsKeyScope::Overview, Some("tmux"), None)
                 .unwrap()
-                .bindings["f"]
+                .bindings["v"]
                 .text,
             "talk"
         );
-        let section: Bindings = [("f".into(), Action::parse("run /usr/bin/true").unwrap())].into();
+        let section: Bindings = [("v".into(), Action::parse("run /usr/bin/true").unwrap())].into();
         assert_eq!(
             config
                 .workspace_keys(OpsKeyScope::Overview, Some("tmux"), Some(&section))
                 .unwrap()
-                .bindings["f"]
+                .bindings["v"]
                 .verb,
             Verb::Run
         );

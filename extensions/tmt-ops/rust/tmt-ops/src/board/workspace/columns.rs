@@ -35,56 +35,6 @@ impl Column {
     }
 }
 
-/// Both tables drop whole fields; scope stays visible ahead of optional metadata.
-pub fn visible(width: u16, fields: &[Column]) -> Vec<Column> {
-    let mut shown = fields.to_vec();
-    for removable in [
-        Column::Model,
-        Column::Runtime,
-        Column::Digest,
-        Column::Cron,
-        Column::Squad,
-    ] {
-        let needed = shown.iter().map(|column| column.minimum()).sum::<u16>()
-            + shown.len().saturating_sub(1) as u16;
-        if needed <= width {
-            break;
-        }
-        shown.retain(|column| *column != removable);
-    }
-    shown
-}
-
-/// One admitted template solves tracks; hosts cache and translate its rectangles.
-pub fn solve(width: u16, fields: &[Column]) -> Vec<(Column, Rect)> {
-    if width == 0 || fields.is_empty() {
-        return vec![];
-    }
-    let fixed: u16 = fields
-        .iter()
-        .filter(|column| **column != Column::Agent)
-        .map(|column| column.minimum())
-        .sum();
-    let agent = width.saturating_sub(fixed + fields.len().saturating_sub(1) as u16);
-    let tracks: Vec<_> = fields
-        .iter()
-        .copied()
-        .map(|column| {
-            (
-                column,
-                if column == Column::Agent {
-                    agent
-                } else {
-                    column.minimum()
-                },
-                column.title(),
-                1,
-            )
-        })
-        .collect();
-    solve_tracks(width, &tracks)
-}
-
 /// Both host profiles materialize their tracks through this one TUI solver.
 fn solve_tracks<K: Copy>(width: u16, tracks: &[(K, u16, &str, u16)]) -> Vec<(K, Rect)> {
     if width == 0 || tracks.is_empty() {
@@ -321,31 +271,6 @@ impl AgentsLayout {
     }
 }
 
-/// The shared sortable header surface. Hosts provide their caption and hit owner.
-pub fn paint_header(
-    buffer: &mut ratatui::buffer::Buffer,
-    area: Rect,
-    slots: &[(Column, Rect)],
-    look: crate::look::Look,
-    order: Option<crate::config::OverviewSort>,
-    hover: Option<Column>,
-    caption: impl Fn(Column) -> String,
-) {
-    paint_header_tracks(buffer, area, slots, look, caption, |column| {
-        let mark = order.filter(|order| order.column == column).map_or_else(
-            || if hover == Some(column) { " ↕" } else { "" },
-            |order| {
-                if order.direction == crate::config::OverviewDirection::Ascending {
-                    " ↑"
-                } else {
-                    " ↓"
-                }
-            },
-        );
-        (mark, hover == Some(column))
-    });
-}
-
 pub fn paint_agents_header(
     buffer: &mut ratatui::buffer::Buffer,
     area: Rect,
@@ -431,14 +356,9 @@ fn paint_header_tracks<K: Copy>(
 }
 
 pub fn state_symbol(state: Option<&str>) -> &'static str {
-    match state {
-        Some("working") => "●",
-        Some("waiting") => "◆",
-        Some("blocked") => "✗",
-        Some("review") => "◐",
-        Some("idle") => "◌",
-        Some("offline") => "○",
-        _ => "—",
+    match crate::board::state_cell::glyph(state) {
+        "?" => "—",
+        known => known,
     }
 }
 
@@ -646,73 +566,40 @@ mod tests {
     }
 
     #[test]
-    fn shared_header_surface_hover_arrow_and_no_color_are_independent_of_selection() {
-        use ratatui::{
-            buffer::Buffer,
-            style::{Color, Modifier},
-        };
-        for base in [
-            tmt_cli_style::theme::Base::Tmt,
-            tmt_cli_style::theme::Base::TmtLight,
-        ] {
+    fn shared_header_stays_bounded_and_neutral_at_every_depth() {
+        use ratatui::buffer::Buffer;
+        for base in [tmt_cli_style::Base::Tmt, tmt_cli_style::Base::TmtLight] {
             for depth in [tmt_cli_style::Depth::TrueColor, tmt_cli_style::Depth::None] {
                 let look = crate::look::Look {
                     theme: tmt_cli_style::Theme::new(base),
                     depth,
                 };
+                let mut layout = AgentsLayout::default();
                 let area = Rect::new(0, 0, 100, 3);
-                let slots = solve(100, &Column::ALL);
-                let caption = |column: Column| column.title().to_ascii_uppercase();
+                let slots = layout.slots(area);
                 let mut buffer = Buffer::empty(area);
-                paint_header(
+                paint_agents_header(
                     &mut buffer,
                     Rect { height: 2, ..area },
                     &slots,
                     look,
-                    None,
-                    Some(Column::Agent),
-                    caption,
+                    Default::default(),
                 );
-                assert!(buffer[(0, 0)].modifier.contains(Modifier::BOLD));
-                assert_eq!(
-                    buffer[(0, 0)].fg,
-                    look.role(Role::Accent).fg.unwrap_or(Color::Reset)
-                );
-                assert_eq!(
-                    buffer[(0, 0)].bg,
-                    if depth == tmt_cli_style::Depth::None {
-                        Color::Reset
-                    } else {
-                        look.role(Role::Track).bg.unwrap()
-                    }
-                );
-                assert_eq!(buffer[(0, 1)].symbol(), "─");
                 assert_eq!(
                     buffer[(0, 2)].symbol(),
                     " ",
-                    "header never paints into the data row"
+                    "header cannot paint into its data row"
                 );
-                let agent = slots[0].1;
-                let shown = (agent.x..agent.right())
-                    .map(|x| buffer[(x, 0)].symbol())
-                    .collect::<String>();
-                assert!(shown.contains('↕'));
-                let order = Some(crate::config::OverviewSort::initial(Column::Agent));
-                paint_header(
-                    &mut buffer,
-                    Rect { height: 2, ..area },
-                    &slots,
-                    look,
-                    order,
-                    Some(Column::Agent),
-                    caption,
-                );
-                let shown = (agent.x..agent.right())
-                    .map(|x| buffer[(x, 0)].symbol())
-                    .collect::<String>();
+                assert_eq!(buffer[(0, 1)].symbol(), "─");
                 assert!(
-                    shown.contains('↑') && !shown.contains('↕'),
-                    "active arrow survives hover"
+                    buffer
+                        .content
+                        .iter()
+                        .all(|cell| !cell.symbol().contains('↕'))
+                );
+                assert_eq!(
+                    buffer[(0, 0)].fg,
+                    look.role(Role::Muted).fg.unwrap_or_default()
                 );
             }
         }
@@ -765,38 +652,6 @@ mod tests {
             "an admitted zero stays distinct from missing"
         );
         assert_eq!(projected.text(Column::Runtime, row), "—");
-    }
-
-    #[test]
-    fn side_pane_keeps_squad_and_all_monitor_columns() {
-        for width in [94, 96, 100, 160] {
-            let shown = visible(width, &Column::ALL);
-            assert_eq!(shown, Column::ALL);
-            let cells = solve(width, &shown);
-            assert_eq!(cells.len(), Column::ALL.len());
-            assert!(
-                cells
-                    .iter()
-                    .all(|(_, area)| area.right() <= width && area.height == 1)
-            );
-        }
-        let narrow = visible(60, &Column::ALL);
-        assert!(narrow.contains(&Column::Squad));
-        assert!(narrow.contains(&Column::Agent));
-        assert!(narrow.contains(&Column::State));
-        assert!(narrow.contains(&Column::TokensPerHour));
-        assert!(solve(0, &Column::ALL).is_empty());
-    }
-
-    #[test]
-    fn agents_tree_uses_the_same_column_tracks() {
-        let fields = [Column::Agent, Column::State, Column::Digest, Column::Cron];
-        for width in [60, 100, 160] {
-            assert_eq!(visible(width, &fields), fields);
-            let cells = solve(width, &fields);
-            assert_eq!(cells.len(), fields.len());
-            assert!(cells.windows(2).all(|pair| pair[0].1.right() < pair[1].1.x));
-        }
     }
 
     #[test]

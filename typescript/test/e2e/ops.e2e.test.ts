@@ -92,13 +92,26 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
       await fixture.waitForCapture(
         (screen) =>
           screen.includes('OPS / UI') &&
-          /^ AGENT[ \t]+SQUAD[ \t]+STATE[ \t]+TOK 1h[ \t]+MODE[ \t]+◷ CRON[ \t]+RUNTIME[ \t]+MODEL\b/m.test(
-            screen
-          ) &&
-          screen.includes('Ben') &&
-          screen.includes('worker'),
+          /^ SQUAD[ \t]+TEAM[ \t]+TOK 1h[ \t]+NOW\b/m.test(screen) &&
+          screen.includes('No squads yet.') &&
+          /Squads[ \t]+Agents[ \t]+\/ Search/.test(screen),
         shell.pane
       );
+      // Creation remains in the Agents tab; Overview starts in its Squads view.
+      fixture.tmux(['send-keys', '-t', shell.pane, '2', 'Right']);
+      await fixture.waitForCapture((screen) => {
+        const header = screen.split('\n').find((line) => line.includes('SQUAD / AGENT'));
+        // The 160-cell frame gives the Agents list 75 cells; detail shares its header row.
+        return (
+          header !== undefined &&
+          /^ +SQUAD \/ AGENT[ \t]+MEMBERS \/ STATE[ \t]+DIGEST[ \t]+◷ CRON[ \t]*$/.test(
+            header.slice(0, 75)
+          ) &&
+          header.slice(77).startsWith('── Common pool ') &&
+          /^[ \t]+├ Ben[ \t]+— unreported[ \t]/m.test(screen) &&
+          /^[ \t]+└ worker[ \t]+— unreported[ \t]/m.test(screen)
+        );
+      }, shell.pane);
       fixture.tmux(['send-keys', '-t', shell.pane, 'n']);
       await fixture.waitForCapture((screen) => screen.includes('Squad name'), shell.pane);
       fixture.tmux(['send-keys', '-l', '-t', shell.pane, 'product1']);

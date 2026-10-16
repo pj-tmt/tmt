@@ -23,7 +23,7 @@ pub enum OpsUiAction {
     Quit,
     Sort,
     ReverseSort,
-    OverviewFilter,
+    OverviewView,
     AgentsFilter,
     Timers,
     WorkspaceSnapshots,
@@ -183,10 +183,10 @@ const SPECS: &[OpsUiSpec] = &[
     spec!(Quit, "quit", "quit", "close the board", 26),
     spec!(Sort, "sort", "sort", "cycle Overview sort", 10),
     spec!(
-        OverviewFilter,
-        "overview-filter",
-        "filter",
-        "switch Overview between all agents and needs you",
+        OverviewView,
+        "overview-view",
+        "squads/agents",
+        "switch Overview between squads and agents",
         11
     ),
     spec!(

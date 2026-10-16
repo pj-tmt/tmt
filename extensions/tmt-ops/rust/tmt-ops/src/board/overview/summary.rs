@@ -7,7 +7,6 @@ use crate::{
         digest::{Mode, SavingsSummary},
     },
 };
-use unicode_width::UnicodeWidthStr;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(in crate::board) struct Summary {
@@ -99,99 +98,6 @@ pub(super) fn project(
     summary
 }
 
-const SEPARATOR: &str = " · ";
-
-impl Summary {
-    pub fn agents_line(&self, ascii: bool) -> String {
-        let unknown = if self.unknown_state > 0 {
-            format!(" · {} state unknown", self.unknown_state)
-        } else {
-            String::new()
-        };
-        format!(
-            "{}{} {}{} · {} {} working · {} {} {} you{}",
-            if self.complete { "" } else { "Observed " },
-            self.total,
-            if self.total == 1 { "agent" } else { "agents" },
-            if self.complete {
-                ""
-            } else {
-                " · totals unknown"
-            },
-            if ascii { "+" } else { "●" },
-            self.working,
-            if ascii { "!" } else { "◆" },
-            self.needs_you,
-            if self.needs_you == 1 { "needs" } else { "need" },
-            unknown,
-        )
-    }
-    /// Structural marks carry the existing state roles; counts remain readable as words.
-    pub fn agents_paint(
-        &self,
-        ascii: bool,
-        look: crate::look::Look,
-    ) -> ratatui::text::Line<'static> {
-        use ratatui::text::Span;
-        use tmt_cli_style::Role;
-        let text = self.agents_line(ascii);
-        let marks = if ascii { ['+', '!'] } else { ['●', '◆'] };
-        let mut spans = Vec::new();
-        let mut from = 0;
-        for (at, mark) in text.match_indices(&marks[..]) {
-            spans.push(Span::styled(
-                text[from..at].to_owned(),
-                look.role(Role::Text),
-            ));
-            let role = if mark == marks[0].to_string() {
-                Role::Working
-            } else if self.needs_you > 0 {
-                Role::Waiting
-            } else {
-                Role::Muted
-            };
-            spans.push(Span::styled(mark.to_owned(), look.role(role)));
-            from = at + mark.len();
-        }
-        spans.push(Span::styled(text[from..].to_owned(), look.role(Role::Text)));
-        ratatui::text::Line::from(spans)
-    }
-    /// The measured counts, then the estimate (with its separator) only when it
-    /// fits whole: a truncated figure would read as a smaller one.
-    pub fn digest_parts(&self, width: usize) -> (String, Option<String>) {
-        if !self.digest_available {
-            return ("Digest status unavailable".into(), None);
-        }
-        let held = if self.unknown_held == self.total && self.total > 0 {
-            "held unavailable".into()
-        } else if self.unknown_held > 0 {
-            format!("≥{} observed held", self.held)
-        } else {
-            format!("{} held", self.held)
-        };
-        let counts = format!(
-            "Digest · {held} · {} Auto · {} timed · {} Off{}",
-            self.auto,
-            self.timed,
-            self.off,
-            if self.unknown_mode > 0 {
-                format!(" · {} mode unknown", self.unknown_mode)
-            } else {
-                String::new()
-            }
-        );
-        let room = width.saturating_sub(counts.width() + SEPARATOR.width());
-        let savings = crate::board::digest_dashboard::savings_caption(
-            &self.savings,
-            self.window,
-            self.unit,
-            room,
-        );
-        let estimate = (savings.width() <= room).then(|| format!("{SEPARATOR}{savings}"));
-        (counts, estimate)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -199,13 +105,6 @@ mod tests {
 
     fn project(snapshot: &OpsWorkspaceSnapshot, labels: &Supplied) -> Summary {
         super::project(snapshot, labels, &Default::default())
-    }
-
-    impl Summary {
-        fn digest_line(&self, width: usize) -> String {
-            let (counts, estimate) = self.digest_parts(width);
-            counts + &estimate.unwrap_or_default()
-        }
     }
 
     #[test]
@@ -247,7 +146,8 @@ mod tests {
             "other identities' held items do not contribute"
         );
         assert!(summary.complete);
-        assert!(summary.digest_line(80).contains("0 held"));
+        assert!(summary.digest_available);
+        assert_eq!(summary.unknown_held, 0);
         let stale = project(
             &snapshot,
             &Supplied::from_document("digest", document, true),
@@ -261,16 +161,9 @@ mod tests {
             ),
             (0, 0, 1, 1)
         );
-        assert_eq!(stale.digest_line(80), "Digest status unavailable");
-        assert_eq!(
-            project(&OpsWorkspaceSnapshot::default(), &Supplied::default()).digest_line(80),
-            "Digest status unavailable"
-        );
-        assert!(
-            project(&OpsWorkspaceSnapshot::default(), &Supplied::default())
-                .agents_line(false)
-                .contains("totals unknown")
-        );
+        assert!(!stale.digest_available);
+        let unavailable = project(&OpsWorkspaceSnapshot::default(), &Supplied::default());
+        assert!(!unavailable.digest_available && !unavailable.complete);
     }
 
     const FIRST: &str = "10000000-0000-4000-8000-000000000001";
@@ -333,62 +226,49 @@ mod tests {
             false,
         );
         let mut snapshot = roster(&[FIRST, SECOND, THIRD]);
-        let line = project(&snapshot, &labels).digest_line(160);
-        assert!(
-            line.ends_with(" · Est. ctx avoided 24h: 20.0k (2 of 3)"),
-            "{line}"
+        let summary = project(&snapshot, &labels);
+        assert_eq!(
+            (
+                summary.savings.tokens,
+                summary.savings.included,
+                summary.savings.total
+            ),
+            (Some(20_000), 2, 3)
         );
-        // The window is the Digest preference; evidence for another window is
-        // never relabelled, and never counted as zero.
         snapshot.preferences.digest_window = DigestWindow::Week;
-        let line = project(&snapshot, &labels).digest_line(160);
-        assert!(
-            line.ends_with(" · Est. ctx avoided 7d: — (0 of 3)"),
-            "{line}"
+        let summary = project(&snapshot, &labels);
+        assert_eq!(
+            (
+                summary.savings.tokens,
+                summary.savings.included,
+                summary.savings.total
+            ),
+            (None, 0, 3)
         );
-        // Scope follows the counts above it: hidden members leave both.
         snapshot.preferences.digest_window = DigestWindow::Day;
         let scoped = crate::board::workspace::OpsVisibility {
             scope: vec!["no-such-room".into()],
             reveal_hidden: false,
         };
-        let line = super::project(&snapshot, &labels, &scoped).digest_line(160);
-        assert!(line.ends_with(" · Est. ctx avoided 24h: —"), "{line}");
+        let summary = super::project(&snapshot, &labels, &scoped);
+        assert_eq!((summary.savings.tokens, summary.savings.total), (None, 0));
     }
-
     #[test]
-    fn the_estimate_is_absent_when_digest_is_unavailable_and_never_truncated() {
-        let current = Supplied::from_document(
-            "digest",
-            &savings_document("24h", &[(FIRST, 18_200)]),
-            false,
-        );
-        let stale =
-            Supplied::from_document("digest", &savings_document("24h", &[(FIRST, 18_200)]), true);
+    fn unavailable_estimates_stay_unknown_and_current_values_keep_every_digit() {
+        let document = savings_document("24h", &[(FIRST, 18_200)]);
         let snapshot = roster(&[FIRST]);
-        assert_eq!(
-            project(&snapshot, &stale).digest_line(160),
-            "Digest status unavailable"
+        let stale = project(
+            &snapshot,
+            &Supplied::from_document("digest", &document, true),
         );
-        let summary = project(&snapshot, &current);
-        let counts = summary.digest_line(0);
-        assert!(!counts.contains("Est."), "{counts}");
-        let width = |text: &str| unicode_width::UnicodeWidthStr::width(text);
-        let full = " · Est. ctx avoided 24h: 18.2k";
-        let compact = " · Est. avoided 24h: 18.2k";
-        assert_eq!(
-            summary.digest_line(width(&counts) + width(full)),
-            format!("{counts}{full}")
+        assert!(!stale.digest_available);
+        assert_eq!(stale.savings.tokens, None);
+        let current = project(
+            &snapshot,
+            &Supplied::from_document("digest", &document, false),
         );
-        assert_eq!(
-            summary.digest_line(width(&counts) + width(full) - 1),
-            format!("{counts}{compact}")
-        );
-        // Neither form fits: the whole fact goes, not its last digits.
-        assert_eq!(
-            summary.digest_line(width(&counts) + width(compact) - 1),
-            counts
-        );
+        assert_eq!(current.savings.tokens, Some(18_200));
+        assert_eq!((current.savings.included, current.savings.total), (1, 1));
     }
 
     #[test]

@@ -67,17 +67,6 @@ pub fn needs_attention(state: Option<&str>) -> bool {
     matches!(state, Some("blocked" | "waiting"))
 }
 
-pub fn needs_you(left: &Row<'_>, right: &Row<'_>) -> Ordering {
-    let priority = |state| match state {
-        Some("blocked") => 0,
-        Some("waiting") => 1,
-        _ => 2,
-    };
-    priority(left.state)
-        .cmp(&priority(right.state))
-        .then_with(|| left.id.cmp(right.id))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -178,12 +167,7 @@ mod tests {
     }
 
     #[test]
-    fn cycle_and_default_priority() {
-        let mut a = row("a");
-        let mut b = row("b");
-        a.state = Some("waiting");
-        b.state = Some("blocked");
-        assert_eq!(needs_you(&a, &b), Ordering::Greater);
+    fn authored_order_cycles_without_a_table_header() {
         assert_eq!(
             Sort::initial(Column::Model).next(),
             Sort::initial(Column::Agent)

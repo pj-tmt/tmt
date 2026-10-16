@@ -405,31 +405,16 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                                 .iter()
                                 .find(|s| &s.room_id == room)
                                 .unwrap();
-                            let mut total = 0u128;
-                            let mut known = false;
-                            let mut partial = squad.observation != OpsObservation::Complete;
-                            let mut seen = std::collections::BTreeSet::new();
-                            for id in &squad.members {
-                                if !seen.insert(id) {
-                                    continue;
-                                }
-                                if let Some(reading) = app.overview_member_usage(id) {
-                                    known = true;
-                                    total = total.saturating_add(reading.tokens);
-                                    partial |= reading.partial;
-                                } else {
-                                    partial = true;
-                                }
-                            }
-                            if known {
-                                format!(
-                                    "{}{}",
-                                    if partial { "~" } else { "" },
-                                    crate::source::tokens(total as f64)
-                                )
-                            } else {
-                                "—".into()
-                            }
+                            app.overview_squad_usage(squad).map_or_else(
+                                || "—".into(),
+                                |(total, partial)| {
+                                    format!(
+                                        "{}{}",
+                                        if partial { "~" } else { "" },
+                                        crate::source::tokens(total as f64)
+                                    )
+                                },
+                            )
                         } else if matches!(row.target, OpsTarget::Pool) {
                             "—".into()
                         } else {

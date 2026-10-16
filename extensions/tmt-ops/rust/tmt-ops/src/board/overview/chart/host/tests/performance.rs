@@ -1,9 +1,27 @@
 //! Same local P02 budgets with real interval data, explicit reporter population.
 use super::*;
-use crate::board::{
-    app::workspace::tests::populated_board,
-    timing::probe::{measure, report},
-};
+use crate::board::timing::probe::{measure, report};
+
+/// Exercise real waiting targets; an empty S2 list would turn scroll into a no-op.
+fn waiting_board(agents: usize) -> App {
+    let mut app = crate::board::app::workspace::tests::populated_board(36, agents);
+    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    for member in snapshot.roster.members.values_mut() {
+        member.waiting = true;
+    }
+    for squad in &mut snapshot.roster.squads {
+        for member in squad.member_states.values_mut() {
+            member.waiting = true;
+        }
+    }
+    snapshot.shell_counts = snapshot.roster.shell_counts();
+    app.overview_rows.borrow_mut().clear();
+    fixtures::populate(&mut app);
+    app.overview_view = crate::board::overview::monitor::View::Agents;
+    app.overview_rows.borrow_mut().clear();
+    assert_eq!(app.workspace_rows().len(), agents);
+    app
+}
 #[test]
 #[ignore = "explicit release M08 populated-chart P02 evidence, not a CI/user SLO"]
 fn populated_chart_frame_cost() {
@@ -12,8 +30,7 @@ fn populated_chart_frame_cost() {
     }
     crate::status::with_now_ms(fixtures::NOW, || {
         for agents in [150, 1_000, 10_000] {
-            let mut app = populated_board(36, agents);
-            fixtures::populate(&mut app);
+            let mut app = waiting_board(agents);
             let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
             for _ in 0..10 {
                 measure(&mut app, &mut terminal, |_, _| {});
@@ -98,8 +115,7 @@ fn populated_chart_ansi_phase_timing() {
     let mut reports = Vec::new();
     crate::status::with_now_ms(fixtures::NOW, || {
         for agents in [150, 1_000, 10_000] {
-            let mut app = populated_board(36, agents);
-            fixtures::populate(&mut app);
+            let mut app = waiting_board(agents);
             let target = app.workspace.selected.clone();
             let sink = AnsiSink::default();
             let backend = ratatui::backend::CrosstermBackend::new(sink.clone());

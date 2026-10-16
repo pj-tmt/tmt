@@ -296,6 +296,7 @@ mod tests {
     #[test]
     fn full_detail_retains_hidden_values_and_is_read_only_after_target_changes() {
         let mut app = crate::board::app::workspace::tests::board();
+        crate::board::app::workspace::tests::observe_waiting_member(&mut app);
         app.shell.tab = OpsTab::Overview;
         assert_eq!(app.overview_details(), Effect::None);
         let details = app.monitor_details.as_ref().unwrap();
@@ -314,6 +315,7 @@ mod tests {
     #[test]
     fn details_uses_the_renderers_injected_ascii_count_words() {
         let mut app = crate::board::app::workspace::tests::board();
+        crate::board::app::workspace::tests::observe_waiting_member(&mut app);
         app.shell.tab = OpsTab::Overview;
         app.cron_glyphs = super::super::cron_counts::GlyphSet::from_ascii(true);
         assert_eq!(app.overview_details(), Effect::None);
@@ -324,6 +326,7 @@ mod tests {
     #[test]
     fn a_zero_content_viewport_explains_how_to_read_and_close_details() {
         let mut app = crate::board::app::workspace::tests::board();
+        crate::board::app::workspace::tests::observe_waiting_member(&mut app);
         app.shell.tab = OpsTab::Overview;
         assert_eq!(app.overview_details(), Effect::None);
         let mut terminal =
@@ -350,6 +353,7 @@ mod tests {
     #[test]
     fn details_retains_complete_observed_metadata_and_literal_idn_link() {
         let mut app = crate::board::app::workspace::tests::board();
+        crate::board::app::workspace::tests::observe_waiting_member(&mut app);
         app.shell.tab = OpsTab::Overview;
         let target = app.workspace.selected.clone().unwrap();
         let OpsTarget::Member { identity_id, .. } = &target else {

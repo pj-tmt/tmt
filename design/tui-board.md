@@ -125,11 +125,11 @@ in different squads. A collapsed squad keeps its worst observed child state,
 with attention priority. Display names preserve authored text, including `tmt-`
 prefixes, and fit through the shared text policy.
 
-| Section  | Composition                                                           | Placement                                                |
-| -------- | --------------------------------------------------------------------- | -------------------------------------------------------- |
-| Overview | Summary, Digest, limits, usage, identity monitor and recent exchanges | Global facts appear once; incomplete totals stay unknown |
-| Agents   | Tree plus exact agent conversation or squad detail                    | Auto/Side/Stack uses actual minimum usable areas         |
-| Digest   | Same tree/context and existing policy chooser                         | No new Digest store, permission or parallel editor       |
+| Section  | Composition                                         | Placement                                                                            |
+| -------- | --------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Overview | Full-width Usage, one switchable Squads/Agents list | Missing observations stay unknown; selected rows retain acquired recipient authority |
+| Agents   | Tree plus exact agent conversation or squad detail  | Auto/Side/Stack uses actual minimum usable areas                                     |
+| Digest   | Same tree/context and existing policy chooser       | No new Digest store, permission or parallel editor                                   |
 
 Auto/Side/Stack, pin and sort are per-user Ops preferences. The new default keys
 replace old squad tabs, Left/Right tab switching, tab reorder/pick/hide and factory
@@ -137,8 +137,9 @@ views; no legacy mode applies those arrangements. Located migration notices
 preserve authored configuration and identify replacements. Independent public
 `ls --tab`/layout projections remain separate contracts.
 
-Tree arrows move/expand/collapse; Overview headers sort by click, `p` saves an
-agent pin (squad pins remain in Agents), `n` creates, `m` manages
+Tree arrows move/expand/collapse; authored Overview sort bindings change the current
+view layer. The compatible Overview `p` action saves an identity pin without
+changing waiting order (squad pins remain in Agents), `n` creates, `m` manages
 or assigns, `x` removes only the selected membership, `D` opens Digest, and `c`
 opens Timers. Member rename is deferred and has no `r` hint/default. `w` is reserved
 for snapshots. Text/search/completion/modal/conversation input claims its keys
@@ -150,42 +151,43 @@ compatible user/host/section bindings retain precedence.
 
 ### HOME overview and sections
 
-Overview keeps summary, Digest, subscription limits, usage chart, monitor and
-recent exchanges as separate placed panels. At 140 columns and 12 body rows it
-uses a 60% monitor / one-cell separator / remaining conversation split; narrower
-screens retain the monitor. Agent, Squad, State, TOK/h, MODE, Cron, Runtime and
-Model share one column projection; whole fields drop Model, Runtime, MODE, Cron,
-then Squad, with full values in Details. Each/Range share one row when they fit.
-Unknown usage intervals are dim, compact ghost bars; partial coverage is named
-once in the summary, with no extra dotted baseline or legend row. Overview uses
-two disjoint key-hint lines from effective bindings.
-The All/Needs you filter is session-local and preserves the selected UUID. Row
-range/count reflects painted filtered rows and labels partial observations.
-Recent exchanges use admitted source timestamps, with untimed rows last; failed
-or unacquired sources say unavailable and observed empty sources say so. Preview
-text is inert. The Summary timer control opens all rooms without a selected UUID;
-existing scoped controls keep their admission rules. Effective key hints remain
-readable without color.
+Overview places Usage across the frame, with provider trends, totals, shares and
+inline subscription quota. The existing Each/Range controls stay in their shared
+modal; provider names and quota remain visible before token observations arrive.
+Missing totals use an em dash, measured zero stays zero, and one neutral empty
+state replaces an unavailable trend without bars or a time axis.
 
-Workspace settings → Panels has a separate policy for Overview and Digest:
-show/hide and reorder the vertical panels, toggle Conversation/Details separately,
-preview immediately, then Save or Cancel; Reset restores defaults. Plain keys
-and visible Move up/down controls share the same actions. Keep one interactive
-surface visible; freed space goes to it. Hidden panels have no stale hits or
+The primary body contains one switchable Squads/Agents list. Its shared filter
+bar contains mode chips and the idle search field; the section rule below owns
+counts. Squads show lead-first TEAM, existing HOUR-derived TOK 1h and NOW from
+pending questions before tasks. Agents show AGENT, SQUAD, STATE, TOK 1h and NOW,
+waiting first with oldest proven request first; no waiting duration is rendered.
+The footer's effective `v` switches views, and authored bindings take precedence.
+Source refresh/search retains hidden targets without selecting a neighbor. A
+selected squad addresses only its observed lead; an agent retains its exact
+membership. The existing owner still admits message, host and guarded effects.
+One scroll owner paints clipped rows and `↓ N more` when they overflow. The shared
+filter bar, section rule, team strip, state cell and key hints have one board owner
+for later Agents reuse. Only ◆ and ✗ carry attention color. Search interaction is
+separate from the idle field presentation. Details stays read-only.
+
+Workspace settings → Panels retains separate policies for Overview and Digest.
+Overview exposes Usage, quota inside Usage, Squads / Agents, and Conversation;
+its section positions are fixed. Digest keeps movable panels and its Details
+switch. Preview is disposable, Save uses the existing guarded write, Cancel
+restores acquired preferences, and Reset restores defaults. Retired Overview
+Summary, Recent exchanges and table controls are absent; unrelated Config bytes
+and shared preferences remain preserved. Hidden surfaces publish no stale hits or
 clock marks. Configured-off Overview Conversation appears only for explicit
-message focus and disappears through the existing Escape path, keeping the
-UUID draft. Digest Status occupies its configured position inside the body, not
-the shared shell. Failed/stale/loading Status remains visible even when hidden.
+message focus; Escape keeps its UUID draft. Failed/stale/loading Digest Status
+remains visible even when hidden.
 
-Overview names known attention and working/idle/blocked totals, retaining
-partial/stale/unknown distinctions. A complete empty attention read may say
-`Nothing needs you`; a failed read never becomes a fabricated zero. The global
-longest-window usage line uses actual configured labels, `~` for partial evidence
-and `0` for measured zero. Deduplicate identities using the better-covered
-observation; missing readings remain missing. No rate or money estimate replaces
-completed-request token totals.
+Provider usage/quota and shell attention remain global under launch scope; local
+roster totals intersect the visible scoped identities. Missing, partial and stale
+observations remain distinct from measured zero. No rate or money estimate
+replaces completed-request token totals.
 
-Provider bars use existing approximately 18-cell labels and shared width steps:
+Digest provider bars use existing approximately 18-cell labels and shared width steps:
 at 160 cells two fit side by side; narrower widths give each its own row.
 Keep percentage inside and depletion warning outside. Reverse-fill the existing
 working role above 40% remaining, waiting from 15% through 40%, and blocked below

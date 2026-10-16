@@ -169,12 +169,10 @@ pub(in crate::board) fn focus(app: &mut App) -> Effect {
             "Usage chart controls are available in the Overview and Digest lists after loading.",
         );
     }
-    // Overview may omit its inline chart to keep the last usable table row.
-    // Its freshly painted table still admits the same read-only control modal;
+    // Overview may omit its inline chart to keep the last usable primary row.
+    // Its freshly painted body still admits the same read-only control modal;
     // a pre-frame or invalidated workspace never bypasses the visibility fence.
-    let overview_table = app.shell.tab == OpsTab::Overview
-        && app.scrolls.visible(Pane::Rows)
-        && !app.overview_sort_hits.borrow().is_empty();
+    let overview_table = app.shell.tab == OpsTab::Overview && app.scrolls.visible(Pane::Rows);
     if !app.usage_chart.borrow().visible && !overview_table {
         return app.say("Usage controls require a visible workspace frame.");
     }

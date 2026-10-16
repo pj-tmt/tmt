@@ -13,12 +13,14 @@ mod digest;
 mod digest_dashboard;
 mod discovery;
 mod empty_state;
+mod filter_bar;
 #[cfg(test)]
 mod glyph_guard;
 mod help;
 mod home;
 mod home_leads;
 mod inventory;
+mod key_hints;
 mod lane;
 mod limits;
 mod markdown;
@@ -40,9 +42,12 @@ mod resume;
 mod row_chips;
 mod row_detail;
 mod scroll;
+mod section_rule;
 mod settings;
 mod spark_row;
+mod state_cell;
 mod status_update;
+mod team_strip;
 pub(crate) use crate::tabs;
 mod shell;
 mod terminal;
@@ -1197,6 +1202,7 @@ mod tests {
 
     fn theme_board() -> App {
         let mut app = app::workspace::tests::board();
+        app::workspace::tests::observe_waiting_member(&mut app);
         app.shell.tab = shell::OpsTab::Overview;
         app.view.as_mut().unwrap().refresh = None;
         for bindings in app

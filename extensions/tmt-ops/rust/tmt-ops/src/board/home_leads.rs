@@ -7,10 +7,7 @@ use crate::{
     me::Me,
 };
 use serde_json::{Value, json};
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    time::Instant,
-};
+use std::{collections::BTreeMap, time::Instant};
 
 const LIMIT: usize = 50;
 
@@ -237,28 +234,6 @@ impl Fetch {
 }
 
 impl State {
-    /// Empty rows are evidence only after all current source pages were admitted.
-    pub fn observations_complete(&self) -> bool {
-        let retained: BTreeSet<_> = self
-            .leads
-            .iter()
-            .map(|lead| (lead.squad.as_str(), lead.id()))
-            .collect();
-        self.sender.is_some()
-            && self.results_observed
-            && self.failure.is_none()
-            && self.lead_observed.iter().all(|((squad, id), observed)| {
-                *observed && retained.contains(&(squad.as_str(), id.as_str()))
-            })
-            && self.leads.iter().all(|lead| {
-                lead.failure.is_none()
-                    && self
-                        .lead_observed
-                        .get(&(lead.squad.clone(), lead.id().to_owned()))
-                        == Some(&true)
-            })
-    }
-
     pub fn set_sender(&mut self, sender: Option<&str>) {
         if self.sender.as_deref() != sender {
             self.sender = sender.map(str::to_owned);

@@ -3,10 +3,7 @@
 //! into a scratch buffer whose rows join the caller's line stream. The stream, the
 //! shared cursor, hits, reveal and input reservations stay with the active surface
 //! owner; strips return only styled lines.
-use crate::{
-    board::{picker_surface::Data, view::fit},
-    look::Look,
-};
+use crate::{board::picker_surface::Data, look::Look};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -158,10 +155,5 @@ fn lift(buffer: &Buffer) -> Vec<Line<'static>> {
 
 /// Every section, including quiet and empty ones, reaches the same body edge.
 pub(in crate::board) fn rule(title: &str, width: usize) -> String {
-    if title.is_empty() {
-        return "─".repeat(width);
-    }
-    let title = format!("── {title} ");
-    let tail = width.saturating_sub(unicode_width::UnicodeWidthStr::width(title.as_str()));
-    fit(&format!("{title}{}", "─".repeat(tail)), width)
+    crate::board::section_rule::plain(title, width)
 }

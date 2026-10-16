@@ -16,6 +16,7 @@ const HOUR: u64 = 3_600_000;
 
 fn app(usage_enabled: bool) -> App {
     let mut app = crate::board::app::workspace::tests::board();
+    crate::board::app::workspace::tests::observe_waiting_member(&mut app);
     app.shell.tab = crate::board::shell::OpsTab::Overview;
     let view = app.view.as_mut().unwrap();
     view.home_rate.insert(

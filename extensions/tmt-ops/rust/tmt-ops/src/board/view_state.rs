@@ -71,7 +71,7 @@ impl From<&crate::config::OpsPreferences> for Order {
 pub(super) struct Controls {
     query: String,
     agents_filter: super::workspace::AgentsFilter,
-    overview_filter: super::overview::monitor::Filter,
+    overview_view: super::overview::monitor::View,
     order: Order,
 }
 impl Controls {
@@ -79,7 +79,7 @@ impl Controls {
         Self {
             query: app.search.clone(),
             agents_filter: app.workspace.filter,
-            overview_filter: app.overview_filter,
+            overview_view: app.overview_view,
             order: app.workspace_order(),
         }
     }
@@ -87,7 +87,7 @@ impl Controls {
         app.search = self.query.clone();
         app.workspace.query = self.query.clone();
         app.workspace.filter = self.agents_filter;
-        app.overview_filter = self.overview_filter;
+        app.overview_view = self.overview_view;
         app.workspace.order = Some(self.order);
         app.overview_rows.borrow_mut().clear();
     }
@@ -96,7 +96,7 @@ impl Controls {
         use crate::config::{OpsSort, OverviewDirection};
         json!({ "query": self.query,
             "agentsFilter": match self.agents_filter { AgentsFilter::All => "all", AgentsFilter::NeedsYou => "needs-you", AgentsFilter::Pinned => "pinned" },
-            "overviewFilter": match self.overview_filter { super::overview::monitor::Filter::All => "all", _ => "needs-you" },
+            "overviewView": match self.overview_view { super::overview::monitor::View::Squads => "squads", super::overview::monitor::View::Agents => "agents" },
             "sort": match self.order.agents { OpsSort::Name => "name", OpsSort::Attention => "attention", OpsSort::Members => "members" },
             "reversed": self.order.reversed,
             "overviewSort": self.order.overview.map(|order| json!({"column":order.column.key(), "descending":order.direction == OverviewDirection::Descending})) })
@@ -116,9 +116,9 @@ impl Controls {
                 "pinned" => AgentsFilter::Pinned,
                 _ => return None,
             },
-            overview_filter: match value["overviewFilter"].as_str()? {
-                "all" => super::overview::monitor::Filter::All,
-                "needs-you" => super::overview::monitor::Filter::NeedsYou,
+            overview_view: match value.get("overviewView").map(Value::as_str) {
+                None | Some(Some("squads")) => super::overview::monitor::View::Squads,
+                Some(Some("agents")) => super::overview::monitor::View::Agents,
                 _ => return None,
             },
             order: Order {

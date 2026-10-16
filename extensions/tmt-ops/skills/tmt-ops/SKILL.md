@@ -277,16 +277,19 @@ The effective destination keys work from any non-typing pane or overlay; an
 overlay closes through its own back path before switching. Active text, search
 and completion keep `1`/`2`/`3` as input.
 
-Overview is a one-row-per-identity monitor: Agent, Squad, State, TOK 1h, MODE (Digest),
-◷ CRON, Runtime and Model fit the available width. `e` opens full observed values,
-link/binding scopes, sources and management instructions. Click a column heading
-to toggle its order; keyboard sorting requires authored bindings. Tokens and Cron start
-descending; other columns ascend. Unknown values stay last in either direction,
-UUID breaks ties, and the initial order puts blocked then waiting first. This
-saved monitor order is independent of the Agents tree order. `f` switches the
-layer-local All/Needs you filter without replacing a hidden selected UUID.
-Summary/Digest counts and recent exchanges remain separate body panels;
-unacquired/failed sources stay unknown. Usage sits above the body panes and shows
+Overview has one Squads/Agents list. Its shared filter bar shows the two mode
+chips and idle search field; the section rule below owns counts. `v` switches
+views unless an authored binding replaces it. Squads show a lead-first TEAM strip,
+TOK 1h from existing HOUR readings, and NOW from pending questions before tasks.
+Agents show AGENT, SQUAD, STATE, TOK 1h and NOW. Waiting agents come first, ordered
+by oldest proven request, then unknown age and name/UUID; no waiting duration is
+shown. Blocked state alone does not imply waiting. A squad selection messages its
+observed lead; an agent selection uses that exact member. Missing evidence refuses
+rather than choosing another recipient. Search and refresh retain hidden UUID
+anchors. `e` opens full observed member values. Authored sort changes the current
+layer within waiting/nonwaiting groups. Retired summaries, Recent exchanges and
+the separate Needs you section are absent. Unreported data stays unknown.
+Usage sits above the body panes and shows
 the selected window and total, followed by the shipped interval/window choices.
 Muted TOK, % of all and left headings label the numeric tracks. The share track
 is eight cells wide. Interval/window chips have padded labels with one-cell gaps.
@@ -297,13 +300,14 @@ last exact bucket and time labels follow the drawn width. Narrowing shrinks the 
 longer history. Provider quota occupies the same row, with neutral 7d/5h remaining
 bars and percentages. The Subscription quota toggle controls these inline cells;
 there is no separate Subscriptions block. Usage has a fixed header position. With no observed token bucket, provider names and available quota remain beside one muted empty-state line and em-dash totals; no axis or invented unknown row appears. A measured zero stays zero.
-The Summary Timers control opens
-all rooms. With no selected target, Overview `c` does the same; a hidden/missing
+With no selected target, Overview `c` opens all-room Timers; a hidden/missing
 selected scope still refuses to widen.
 
-Workspace settings → Panels previews each dashboard's panel visibility/order
-and its separate Conversation/Details switch. Use the visible Move up/down
-controls or plain `u`/`d`, then Save, Cancel or Reset to default. Keep at least one
+Workspace settings → Panels previews each dashboard's visibility and its separate
+Conversation/Details switch. Overview sections have fixed positions; its picker
+exposes Usage, quota inside Usage, and Squads / Agents. Digest keeps ordered
+panels with visible Move up/down controls and plain `u`/`d`. Save, Cancel or Reset
+to default through the same picker. Keep at least one
 interactive surface visible. Cancel discards the preview; stale Save retains it
 with an error. Closing a pending save does not cancel its already admitted write.
 A configured-off Overview Conversation opens temporarily on explicit message
@@ -338,12 +342,12 @@ These defaults are the same on every host (tmux, Herdr or unknown); a
 the default of a host without one.
 Tab moves between the tree and conversation. `1`/`2`/`3` switch
 sections only when an editor, search, completion, overlay or conversation has not
-claimed the key. In Overview, click a header to sort and `p` pins/unpins the
-selected agent; pins are saved, with a divider before unpinned agents. Keyboard
-sort is opt-in: bind `sort` or `reverse-sort` in the usual binding table.
+claimed the key. Overview's compatible `p` action retains saved identity pins
+without changing waiting order. Keyboard sort is opt-in: bind `sort` or
+`reverse-sort` in the usual binding table.
 In Agents, `p` pins/unpins a squad. `n`
 creates a squad, `m` manages a squad or assigns a member, `x` removes only the
-selected membership, `D` opens Digest and `c` opens Timers. The two-line Overview legend omits Digest, Manage, Create, Remove and Details;
+selected membership, `D` opens Digest and `c` opens Timers. The one-line Overview footer omits Digest, Manage, Create, Remove and Details;
 these actions remain in Help and the Actions menu with their effective keys.
 `r` reviews Rename for
 the selected visible agent by UUID; compatible explicit bindings keep their meaning.

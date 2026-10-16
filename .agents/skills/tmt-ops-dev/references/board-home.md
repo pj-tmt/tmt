@@ -45,53 +45,50 @@ non-interactive; retained hidden targets grant no action authority.
 
 ## Shell, geometry and input
 
-`board::shell` owns Overview, Agents and Digest selection. `overview::monitor`
-projects one identity row through the admitted workspace roster. Its single cache
-also holds visible-roster-intersected typed Digest counts and admitted recent exchanges;
-its existing key includes saved hidden IDs and session visibility. General UUID
-row admission/deduplication belongs to `workspace::identity_rows`, shared with Digest;
-Digest keeps its own labels, counts and details. Its held summary intersects the
-scoped list identities, including search, while saved hiding is not applied to
-Digest. Its Usage panel labels provider usage as global under scope; provider
-usage/quota and shell attention remain global. Unknown saved hidden room IDs do
-not affect rows or the live hidden count. Search/attention filters do not change
-the visible-roster totals;
-acquisition, labels, meter/job updates and admitted exchange reads invalidate it.
-`workspace::columns` owns shared full values and TUI-solved tracks; Overview
-captions Digest as MODE, while `sort` orders known values with missing observations
-last in both directions. Config owns persisted monitor order; absent order retains
-needs-you priority. Saved agent UUID pins form the first group with a decorative
-divider; the current sort applies within each group. Hidden or vanished pins do
-not retarget selection. Header clicks sort; Overview has no supplied sort keys,
-but authored `sort` / `reverse-sort` bindings remain admitted. The session-local All/Needs you filter preserves a hidden
-selected UUID. Only viewport rows build display text and hits.
-`overview::composition` places summary, Digest, quota, chart, monitor and exchange
-panels independently. At 140 columns and 12 body rows, Overview reserves 60% for
-these panels, one separator and the remainder for the existing conversation;
-Agents has its own 47% list placement (75 cells at 160 columns), with Auto stacking
-below 120 columns. Its shared title, filter and snapshots bands precede both panes;
-optional bands yield on short screens to preserve the conversation's usable budget.
-Effective panel policy comes from acquired
-workspace preferences or the disposable Panels preview; its persisted IDs and
-save semantics belong to [config-and-effects](config-and-effects.md#views-pane-arrangements).
-Hidden panels receive no rectangle or stale hit/clock authority. Overview Usage
-is a fixed header band; its height is reserved once before body pane placement.
-Chart demand is derived before allocation; one painter consumes its rectangle.
-Only explicit message focus reveals a configured-off Overview conversation;
-Tab, pointer and refresh do not. Existing Escape handling ends the reveal and
-keeps the UUID draft. Digest has its own ordered panels and Details switch;
-hidden Status still exposes loading, stale and unavailable observations.
-Recent exchanges are bounded latest lead exchanges
-plus own-result metadata, not an event log: source times sort newest first,
-untimed rows last, and failed or unacquired pages say unavailable. Successful empty
-pages say No observed recent exchanges. Summaries label incomplete totals and
-unknown modes/counts instead of inferring Off or zero.
-The two-line Overview legend omits Digest, Manage, Create, Remove and Details;
-Help and the Actions menu retain these effective bindings.
-`overview::detail` discloses full values and observed membership scope without
-adding command authority. The Summary timer control opens the existing all-rooms
-list without retargeting selection. With no selected target, the Overview Timers
-binding does the same; hidden/missing selected scopes still refuse to widen.
+`board::shell` owns Overview, Agents and Digest selection. Overview uses one
+switchable Squads/Agents list. The shared filter bar paints mode chips and an idle
+search field; section rules own right-aligned counts. `v` switches the view through
+the effective binding table; active searches show matching agents out of the
+admitted unsearched total on that rule. Explicit authored keys win. Search interaction belongs
+to its existing controller. The dedicated in-place search redesign is separate.
+`overview::monitor` caches canonical rows and the scoped numeric summary; acquired
+roster, preferences, label and meter/job updates invalidate it. Waiting membership
+occurrences are admitted before UUID deduplication, so an unobserved or nonwaiting
+room cannot mask observed waiting in another eligible room. Global attention never
+supplies missing room evidence. Digest retains its own projection over the same
+acquisition. Shell attention and provider quota remain global.
+
+Squads use lead-first, UUID-deduplicated team strips, the existing HOUR readings
+and per-room sum for TOK 1h, and NOW from pending questions before tasks. Missing
+readings remain unavailable and incomplete sums stay partial. The Agents view
+contains all admitted identities, with waiting agents first: proven oldest request
+first, unknown request times last, then name/UUID. Authored sort operates within
+waiting/nonwaiting groups. No waiting duration is rendered, and blocked state alone
+does not manufacture waiting. Pins retain their existing owners.
+
+Each painted row grants only its current target and clipped hit. Selected agents
+retain their acquired membership; a selected squad can address only its currently
+observed lead in that room. Missing lead or row evidence refuses a conversation;
+there is no neighboring-target fallback. A deliberate view switch selects its first
+admitted row and starts at the top; source refresh or filtering keeps hidden/missing
+anchors without retargeting. The primary list has one scroll owner and a neutral
+`↓ N more` overflow caption only when rows exceed the space above the footer.
+The list uses that full space; later lower sections reduce it through placement.
+The waiting-first count note appears only for a positive count. Short viewports
+reveal the selected target. Only the
+footer advertises effective keys; Help and Actions retain other admitted actions.
+
+Overview Usage is a fixed full-width band reserved once before body placement.
+Panels exposes Usage, its inline quota, Squads / Agents, and Conversation;
+retired Summary, Recent exchanges and table controls are absent. Overview section
+positions are fixed, while Digest keeps its independent ordered panels and Details
+switch. Persisted Config IDs and compare-and-save semantics remain with
+[config-and-effects](config-and-effects.md#views-pane-arrangements); unrelated
+preferences are retained. Hidden surfaces have no stale hits or clocks. Only
+explicit message focus reveals a configured-off Overview conversation; Escape
+keeps the UUID draft. Hidden Digest Status still exposes failed/loading/stale
+observations.
+
 `workspace::render` retains the Agents tree and squad detail. Conversation, editor,
 drafts, reply reader and Send keep their existing owners. Digest projects the
 supplier-owned status snapshot and UUID-deduplicated member list through
@@ -201,14 +198,21 @@ placement would leave fewer than six target rows, the chart collapses to one
 summary line. Its effective shortcut, summary click or Actions entry opens the
 same controls in an opaque body modal; closing never replays input. A body with
 no spare target row omits the summary to retain the last usable row. At eight
-terminal rows, Overview keeps the table and omits summary/quota context; the
-effective filter, Details and usage-control keys remain reachable.
+terminal rows, Overview reveals selected targets and omits the full Usage band; the
+effective view, Details and usage-control keys remain reachable.
 
-Shared `board::spark_row` owns the admitted trend rows, headings, numeric and
-quota tracks and drawn-width axis. `board::chip_group` owns the reusable
-selector painter; `board::empty_state` owns the empty-state line. These modules
-accept projected values and perform no acquisition. The Overview host adapts its
-model and handles admitted actions, so Agents can reuse the same elements.
+## Shared board components
+
+Shared board modules own visual elements once. `section_rule` owns neutral rules
+and right-side counts; `team_strip` owns lead-first glyphs; `state_cell` owns
+attention glyph roles; `filter_bar` composes `chip_group` selectors and the idle
+search field; `key_hints` owns fitted effective-key hints. `spark_row` owns admitted
+trends, numeric headings, totals, shares, optional quota tracks and drawn-width
+time axes. `chip_group` owns option padding, selection and clipped option hits;
+`empty_state` owns the honest unavailable/empty line. Overview adapts acquired
+observations and owns effects. These painters perform no acquisition or
+view-specific projection, and later Agents placements reuse the same modules.
+Only ◆ and ✗ carry attention color; state words and other marks remain neutral.
 
 One identity-total series uses the existing Rate rings. Its header reads
 `Usage · last <range> · <total> tok`; two right-aligned selector groups expose the

@@ -5047,13 +5047,32 @@ describe('verified former-board switching', () => {
             await vi.waitFor(
               () => {
                 const screen = tmux(['capture-pane', '-p', '-t', board.pane]);
+                expect(screen).toMatch(/^ SQUAD[ \t]+TEAM[ \t]+TOK 1h[ \t]+NOW[ \t]*$/m);
+                expect(screen).toMatch(/^ product[ \t]+\?[ \t]+—[ \t]+—[ \t]*$/m);
+                expect(screen).toMatch(/Squads[ \t]+Agents[ \t]+\/ Search/);
+                expect(screen).not.toContain('Needs you');
+              },
+              { timeout: 5000, interval: 50 }
+            );
+            expect(tmux(['capture-pane', '-p', '-t', board.pane])).toContain('Former --tabs');
+            // Overview shows squads; inspect the migrated member in its Agents owner.
+            tmux(['send-keys', '-t', board.pane, '2']);
+            await vi.waitFor(
+              () => {
+                const screen = tmux(['capture-pane', '-p', '-t', board.pane]);
                 expect(screen).toMatch(
-                  /^ AGENT[ \t]+SQUAD[ \t]+STATE[ \t]+TOK 1h[ \t]+MODE[ \t]+◷ CRON[ \t]+RUNTIME[ \t]+MODEL[ \t]*$/m
-                );
-                expect(screen).toMatch(
-                  /^ Ben[ \t]+product[ \t]+— unrepor…[ \t]+—[ \t]+—[ \t]+◷ 0\/0[ \t]+—[ \t]+—[ \t]*$/m
+                  /^ +SQUAD \/ AGENT[ \t]+MEMBERS \/ STATE[ \t]+DIGEST[ \t]+◷ CRON[ \t]*$/m
                 );
               },
+              { timeout: 5000, interval: 50 }
+            );
+            // Common pool is first; expand product, then reveal its member in the short list.
+            tmux(['send-keys', '-t', board.pane, 'Down', 'Right', 'Down']);
+            await vi.waitFor(
+              () =>
+                expect(tmux(['capture-pane', '-p', '-t', board.pane])).toMatch(
+                  /^[ \t]+└ Ben[ \t]+— unreported · lead[ \t]+—[ \t]+0\/0[ \t]*$/m
+                ),
               { timeout: 5000, interval: 50 }
             );
             expect(tmux(['capture-pane', '-p', '-t', board.pane])).not.toContain(
@@ -5064,7 +5083,6 @@ describe('verified former-board switching', () => {
             expect(launched.cwd).toBe(realpathSync(board.cwd));
             expect(launched.args).toContain('ops ui');
             expect(launched.args).not.toContain('--tabs');
-            expect(tmux(['capture-pane', '-p', '-t', board.pane])).toContain('Former --tabs');
           }
           expect(observe(sandbox)).toEqual(before);
           expect(readFileSync(path.join(sandbox.globalDir, 'ops.toml')).equals(oldConfig)).toBe(
@@ -5642,8 +5660,9 @@ describe('large board responsiveness', () => {
           sort: 'name',
           reversed: false,
           agentsFilter: 'all',
-          overviewFilter: 'all',
+          overviewView: 'squads',
         });
+        expect(retained.controls).not.toHaveProperty('overviewFilter');
         expect(retained).not.toHaveProperty('scope');
         expect(retained).not.toHaveProperty('revealHidden');
         expect(readFileSync(defaultFile, 'utf8')).toBe(defaultBytes);

@@ -928,7 +928,7 @@ fn click_estimate(app: &mut crate::board::app::App) -> crate::board::app::Effect
 fn a_click_or_the_key_moves_every_surface_to_the_next_unit() {
     use crate::{board::workspace::OpsTarget, config::DigestWindow};
     let _no_commands = crate::runner::forbid_commands();
-    for surface in ["member", "squad", "digest", "overview"] {
+    for surface in ["member", "squad", "digest"] {
         let mut app = valued_board();
         match surface {
             "squad" => {
@@ -1023,7 +1023,11 @@ fn the_unit_hint_appears_only_beside_a_painted_estimate() {
     let mut app = valued_board();
     app.shell.tab = crate::board::shell::OpsTab::Overview;
     let shown = paint(&mut app, 160, 44);
-    assert!(shown.contains("$ unit"), "{shown}");
+    assert!(!shown.contains("$ unit"), "{shown}");
+    assert!(
+        !shown.contains("Est. ctx avoided"),
+        "the retired summary paints no estimate: {shown}"
+    );
     // Narrow enough that the Digest line drops the estimate and no pane paints
     // one: the key still works, but nothing advertises it.
     let mut narrow = valued_board();
@@ -1102,51 +1106,43 @@ fn a_clipped_or_absent_estimate_has_no_hit() {
 }
 
 #[test]
-fn overview_digest_line_shows_the_estimate_and_follows_the_window_without_reading() {
+fn overview_keeps_the_scoped_estimate_model_without_the_retired_digest_line() {
     use crate::config::DigestWindow;
     let _no_commands = crate::runner::forbid_commands();
     let mut app = savings_board();
     app.shell.tab = crate::board::shell::OpsTab::Overview;
-    let shown = paint(&mut app, 160, 44);
-    assert!(
-        shown.contains("Off · Est. ctx avoided 24h: 18.2k"),
-        "{shown}"
-    );
-    // Counts stay measured state; the estimate takes the dim role of every other
-    // savings surface.
-    let look = app.look();
-    let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(160, 44)).unwrap();
-    terminal
-        .draw(|frame| crate::board::view::render(frame, &app))
-        .unwrap();
-    let cells = &terminal.backend().buffer().content;
-    let symbols: Vec<&str> = cells.iter().map(|cell| cell.symbol()).collect();
-    let at = symbols
-        .windows(9)
-        .position(|window| window == ["O", "f", "f", " ", "·", " ", "E", "s", "t"])
-        .expect("the Digest line carries the estimate");
-    let has = |cell: &ratatui::buffer::Cell, role| {
-        let style: ratatui::style::Style = look.role(role);
-        cell.fg == style.fg.unwrap_or(ratatui::style::Color::Reset)
-            && cell.modifier.contains(style.add_modifier)
+    let summary = |app: &crate::board::app::App| {
+        crate::board::overview::monitor::scene(app, app.workspace_snapshot().unwrap())
+            .summary
+            .clone()
     };
-    assert!(has(&cells[at], tmt_cli_style::Role::Muted));
-    assert!(has(&cells[at + 6], tmt_cli_style::Role::Dim));
-    // The held Overview scene must not outlive the window it summed.
-    let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
-    workspace.preferences.digest_window = DigestWindow::Week;
-    let shown = paint(&mut app, 160, 44);
-    assert!(
-        shown.contains("Off · Est. ctx avoided 7d: — (0 of 1)"),
-        "{shown}"
-    );
-    // Without Digest evidence the line says so and carries no estimate.
-    // A received label set clears the held scene, as the board's event loop does.
+    let first = summary(&app);
+    assert!(first.digest_available);
+    assert_eq!(first.auto + first.timed + first.off + first.unknown_mode, 1);
+    assert_eq!(first.savings.tokens, Some(18_200));
+    assert!(!paint(&mut app, 160, 44).contains("Est. ctx avoided"));
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .preferences
+        .digest_window = DigestWindow::Week;
+    let week = summary(&app);
+    assert_eq!(week.window, DigestWindow::Week);
+    assert_eq!(week.savings.tokens, None);
+    assert_eq!(week.savings.included, 0);
+    assert_eq!(week.savings.total, 1);
     app.overview_rows.borrow_mut().clear();
     app.labels = crate::labels::Supplied::default();
+    assert!(!summary(&app).digest_available);
     let shown = paint(&mut app, 160, 44);
-    assert!(shown.contains("Digest status unavailable"), "{shown}");
-    assert!(!shown.contains("Digest status unavailable · "), "{shown}");
+    assert!(
+        !shown.contains("Digest status unavailable") && !shown.contains("Est. ctx avoided"),
+        "{shown}"
+    );
 }
 
 #[test]

@@ -18,7 +18,7 @@ fn opening_and_preview_never_mutate_expected_and_cancel_is_disposable() {
             .draft
             .overview()
             .unwrap()
-            .shown(OverviewPanel::Summary)
+            .shown(OverviewPanel::Subscriptions)
     );
     assert_eq!(picker.expected, expected);
     assert!(picker.next().overview_panels.is_some());
@@ -37,17 +37,17 @@ fn opening_and_preview_never_mutate_expected_and_cancel_is_disposable() {
 }
 #[test]
 fn plain_keys_and_visible_move_actions_change_the_same_selected_panel() {
-    let mut keyboard = Picker::open(OpsPreferences::default(), false);
+    let mut keyboard = Picker::open(OpsPreferences::default(), true);
     keyboard.input(&key(KeyCode::Down));
     keyboard.input(&key(KeyCode::Char('u')));
-    let mut control = Picker::open(OpsPreferences::default(), false);
+    let mut control = Picker::open(OpsPreferences::default(), true);
     control.input(&key(KeyCode::Down));
     control.surface.borrow_mut().select("up");
     control.input(&key(KeyCode::Enter));
     assert_eq!(keyboard.draft, control.draft);
     assert_eq!(
-        keyboard.draft.overview().unwrap().order()[0],
-        OverviewPanel::Digest
+        keyboard.draft.digest().unwrap().order()[0],
+        crate::config::DigestPanel::Usage
     );
 }
 #[test]
@@ -64,7 +64,8 @@ fn reset_removes_only_the_active_policy_and_save_of_default_is_explicit() {
     assert!(next.overview_panels.is_none());
     assert_eq!(next.digest_panels, expected.digest_panels);
     assert_eq!(picker.draft.overview().unwrap(), OverviewPanels::default());
-    picker.input(&key(KeyCode::Char('d')));
+    picker.surface.borrow_mut().select("usage");
+    picker.input(&key(KeyCode::Enter));
     assert!(picker.next().overview_panels.is_some());
 }
 #[test]
@@ -87,15 +88,28 @@ fn last_surface_refusal_and_pending_save_keep_the_draft() {
 }
 
 #[test]
-fn overview_usage_and_quota_are_truthful_fixed_controls_while_body_order_moves() {
+fn overview_picker_only_exposes_live_fixed_sections_and_keeps_durable_policy() {
     let mut draft = Draft::Overview(Some(OverviewPanels::default()));
-    for key in ["usage", "subscriptions"] {
+    let keys: Vec<_> = draft.rows().into_iter().map(|row| row.0).collect();
+    assert_eq!(
+        keys,
+        [
+            "subscriptions",
+            "usage",
+            "monitor",
+            "side",
+            "reset",
+            "save",
+            "cancel"
+        ]
+    );
+    for key in ["usage", "subscriptions", "monitor"] {
         let before = draft.clone();
         assert!(
             draft
                 .edit(Edit::Down, key)
                 .unwrap_err()
-                .contains("fixed header")
+                .contains("fixed positions")
         );
         assert_eq!(draft, before);
     }
@@ -106,40 +120,10 @@ fn overview_usage_and_quota_are_truthful_fixed_controls_while_body_order_moves()
             .unwrap()
             .shown(OverviewPanel::Subscriptions)
     );
-    let labels = draft.rows();
-    assert!(
-        labels
-            .iter()
-            .any(|row| row.0 == "usage" && row.2.contains("fixed header"))
-    );
-    assert!(
-        labels
-            .iter()
-            .any(|row| row.0 == "subscriptions" && row.2.contains("Quota in Usage"))
-    );
-    draft.edit(Edit::Down, "digest").unwrap();
-    let body: Vec<_> = draft
-        .overview()
-        .unwrap()
-        .order()
-        .iter()
-        .copied()
-        .filter(|panel| !matches!(panel, OverviewPanel::Usage | OverviewPanel::Subscriptions))
-        .collect();
-    assert_eq!(
-        body,
-        [
-            OverviewPanel::Summary,
-            OverviewPanel::Monitor,
-            OverviewPanel::Digest,
-            OverviewPanel::Exchanges
-        ]
-    );
+    assert!(draft.overview().unwrap().shown(OverviewPanel::Summary));
+    assert!(draft.overview().unwrap().shown(OverviewPanel::Exchanges));
     let mut digest = Draft::Digest(Some(DigestPanels::default()));
     let before = digest.clone();
     digest.edit(Edit::Down, "subscriptions").unwrap();
-    assert_ne!(
-        digest, before,
-        "Digest keeps its independent movable quota panel"
-    );
+    assert_ne!(digest, before);
 }
