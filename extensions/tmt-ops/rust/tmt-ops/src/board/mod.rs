@@ -12,9 +12,9 @@ mod derived;
 mod digest;
 mod digest_dashboard;
 mod discovery;
+mod divider;
 mod empty_state;
 mod filter_bar;
-mod divider;
 #[cfg(test)]
 mod glyph_guard;
 mod help;

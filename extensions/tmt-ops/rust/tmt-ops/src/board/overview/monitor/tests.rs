@@ -25,10 +25,10 @@ fn agents_use_available_height_before_reporting_overflow() {
     app.overview_view = View::Agents;
     app.workspace_reconcile();
     for height in [51, 24] {
-        let buffer = paint(&mut app, 103, height);
+        let buffer = paint(&mut app, 148, height);
         let lines: Vec<String> = buffer
             .content
-            .chunks(103)
+            .chunks(148)
             .map(|row| row.iter().map(|cell| cell.symbol()).collect())
             .collect();
         let hits = app.hits.borrow();

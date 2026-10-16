@@ -19,7 +19,6 @@ impl Model {
 pub(super) fn project(app: &App) -> Model {
     let title = if app.workspace.visibility.scope.is_empty()
         && app.workspace.query.is_empty()
-        && app.overview_filter == super::monitor::Filter::All
         && (app.workspace.visibility.reveal_hidden
             || app
                 .workspace_snapshot()
@@ -35,7 +34,7 @@ pub(super) fn project(app: &App) -> Model {
             total: 0,
             title,
             note: "unavailable".into(),
-            empty: "Timers unavailable",
+            empty: "Timers unavailable.",
         };
     };
     let stale = app.cron.failure.is_some();
@@ -127,9 +126,9 @@ pub(super) fn project(app: &App) -> Model {
         title,
         note,
         empty: if stale {
-            "Timers unavailable"
+            "Timers unavailable."
         } else {
-            "No timers"
+            "No timers."
         },
     }
 }

@@ -63,7 +63,9 @@ and per-room sum for TOK 1h, and NOW from pending questions before tasks. Missin
 readings remain unavailable and incomplete sums stay partial. The Agents view
 contains all admitted identities, with waiting agents first: proven oldest request
 first, unknown request times last, then name/UUID. Authored sort operates within
-waiting/nonwaiting groups. No waiting duration is rendered, and blocked state alone
+waiting/nonwaiting groups in Agents. Squads keeps TOK 1h ordering; its sort hints
+are hidden, and an authored sort key explains how to switch to Agents without
+changing that view's retained order. No waiting duration is rendered, and blocked state alone
 does not manufacture waiting. Pins retain their existing owners.
 
 Each painted row grants only its current target and clipped hit. Selected agents
@@ -101,7 +103,7 @@ A scoped, searched or hidden roster labels these global facts in the Timers titl
 Paused rows are dim. A failed read retains dim stale rows with unknown countdowns;
 a missing clock does not become a promised fire time. Countdown formatting uses
 the acquired read instant, with no new wall clock, scan or service read in paint.
-Observed empty and unavailable timer sources use distinct M18 states.
+Observed empty and unavailable timer sources use distinct empty-state sentences.
 
 Key/value uses the existing scoped numeric Summary and supplier estimate/price-table
 projection. Held and mode counts retain unknown/partial distinctions; values align
@@ -109,8 +111,9 @@ right. Context and list-price quote rows use the existing unit/coverage formatte
 independent of the shared savings-unit preference. An unreported cost is a dash;
 reported quotes retain their distinct coverage and list-price assumption. Stale
 supplier data does not become current zero. Narrow layouts stack these modules
-when their named minimum widths cannot fit; they remain in the primary scroll
-owner. The wide lower band remains absent until its final timer-row/Digest-matrix placement, so no
+when their named minimum widths cannot fit. Placement reserves their space below
+the primary list. Filter bar, section rule and column header remain fixed above the
+scrolling data rows; there is still only one list scroll/selection owner. The wide lower band remains absent until its final timer-row/Digest-matrix placement, so no
 interim wide key/value Digest is introduced.
 
 `workspace::render` retains the Agents tree and squad detail. Conversation, editor,
@@ -233,7 +236,9 @@ attention glyph roles; `filter_bar` composes `chip_group` selectors and the idle
 search field; `key_hints` owns fitted effective-key hints. `spark_row` owns admitted
 trends, numeric headings, totals, shares, optional quota tracks and drawn-width
 time axes. `chip_group` owns option padding, selection and clipped option hits;
-`empty_state` owns the honest unavailable/empty line. Overview adapts acquired
+`empty_state` owns the honest unavailable/empty sentence. `timer_rows` owns bounded
+job tracks and their more hint, `key_value` owns aligned metric values, and
+`divider` owns joined band separators. Overview adapts acquired
 observations and owns effects. These painters perform no acquisition or
 view-specific projection, and later Agents placements reuse the same modules.
 Only ◆ and ✗ carry attention color; state words and other marks remain neutral.

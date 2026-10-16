@@ -234,3 +234,64 @@ fn hiding_compact_digest_preserves_the_timer_source_and_removes_the_divider() {
     );
     assert_eq!(app.workspace.selected, selected);
 }
+
+#[test]
+fn scrolled_rows_keep_filter_rule_and_header_fixed_above_the_lower_band() {
+    use crate::board::{
+        app::workspace::tests::populated_board, overview::monitor::View, scroll::Step,
+    };
+    let mut app = populated_board(8, 28);
+    app.shell.tab = OpsTab::Overview;
+    app.overview_view = View::Agents;
+    app.workspace_reconcile();
+    app.follow = false;
+    let initial = paint(&mut app, 103, 24);
+    app.scrolls.scroll(crate::config::Pane::Rows, Step::Bottom);
+    let scrolled = paint(&mut app, 103, 24);
+    let before: Vec<_> = initial.lines().collect();
+    let after: Vec<_> = scrolled.lines().collect();
+    for text in ["Squads", "── Agents", "AGENT", "── Timers"] {
+        let y = before.iter().position(|row| row.contains(text)).unwrap();
+        assert_eq!(before[y], after[y], "fixed {text}");
+    }
+    assert_ne!(initial, scrolled, "data rows actually scroll");
+    let timer_y = after
+        .iter()
+        .position(|row| row.contains("── Timers"))
+        .unwrap();
+    assert!(
+        app.hits
+            .borrow()
+            .iter()
+            .filter(|hit| matches!(hit.target, HitTarget::Row(_)))
+            .all(|hit| usize::from(hit.y) < timer_y)
+    );
+    assert!(
+        app.workspace_strip_hits
+            .borrow()
+            .iter()
+            .any(|(_, choice)| matches!(choice, crate::board::app::Choice::OverviewView(_)))
+    );
+}
+
+#[test]
+fn squads_sort_is_explained_without_changing_the_agents_order() {
+    use crate::{action::Action, board::overview::monitor::View};
+    let mut app = app();
+    app.overview_view = View::Squads;
+    app.workspace_reconcile();
+    let before = app.workspace_order();
+    assert!(!crate::board::view::footer::row_allows(
+        &app,
+        &Action::parse("sort").unwrap()
+    ));
+    configured(&mut app, "[bind]\ns = \"sort\"\n");
+    app.key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+    assert_eq!(app.workspace_order(), before);
+    assert!(
+        app.notice
+            .as_deref()
+            .unwrap()
+            .contains("Switch to Agents to sort")
+    );
+}

@@ -200,6 +200,10 @@ order. Retired Summary and Recent controls remain absent. Usage has a fixed full
 controls quota cells inside its provider rows. Their order entries are retained
 in the stored complete ID set, but the picker identifies them as fixed and refuses
 move actions. Digest retains independently movable panels.
+Authored `overview-filter` actions receive a located retirement notice. Their
+text stays intact and is not applied; choose `overview-view` explicitly for
+Squads/Agents.
+
 The explicit `all-timers` action opens the all-room read context and is Overview's
 new default `c`. Authored `timers` keeps the selected scope, and compatible global,
 host and section overrides retain their normal precedence. The preview advertises

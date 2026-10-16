@@ -81,6 +81,15 @@ pub(in crate::board) fn row_allows(app: &App, action: &crate::action::Action) ->
                 | Verb::Copy
                 | Verb::Run
         );
+    if app.shell.tab == crate::board::shell::OpsTab::Overview
+        && app.overview_view == crate::board::overview::monitor::View::Squads
+        && matches!(
+            action.verb,
+            Verb::Ui(crate::action::OpsUiAction::Sort | crate::action::OpsUiAction::ReverseSort)
+        )
+    {
+        return false;
+    }
     if !acts_on_row {
         return true;
     }
@@ -105,8 +114,15 @@ pub(super) fn hints(app: &App, width: usize) -> String {
     workspace_hints(app, width)
 }
 
-/// One fitted Overview footer reads the effective binding table.
-pub(in crate::board) fn overview_hints(app: &App, width: usize) -> Option<String> {
+type Hint = (String, String);
+fn hint_text(hints: &[Hint]) -> String {
+    hints
+        .iter()
+        .map(|(key, label)| format!("{key} {label}"))
+        .collect::<Vec<_>>()
+        .join("  ")
+}
+fn overview_pairs(app: &App, width: usize) -> Option<Vec<Hint>> {
     let hints = workspace_legend(app, crate::board::shell::OpsTab::Overview)?;
     Some(fit_hints(
         hints.first.into_iter().chain(hints.second).collect(),
@@ -114,38 +130,42 @@ pub(in crate::board) fn overview_hints(app: &App, width: usize) -> Option<String
         width,
     ))
 }
-pub(in crate::board) fn agents_legend(app: &App, width: usize) -> Option<[String; 2]> {
+/// Text projection for tests and consumers that do not paint key roles.
+pub(in crate::board) fn overview_hints(app: &App, width: usize) -> Option<String> {
+    overview_pairs(app, width).map(|pairs| hint_text(&pairs))
+}
+fn agents_pairs(app: &App, width: usize) -> Option<[Vec<Hint>; 2]> {
     let hints = workspace_legend(app, crate::board::shell::OpsTab::Agents)?;
     Some([
         fit_hints(hints.first, vec![], width),
         fit_hints(hints.second, hints.tail, width),
     ])
 }
-struct Hints {
-    first: Vec<String>,
-    second: Vec<String>,
-    tail: Vec<String>,
-}
-fn fit_hints(mut hints: Vec<String>, tail: Vec<String>, width: usize) -> String {
-    while hints
+fn paint_hints(hints: &[Hint], look: crate::look::Look, role: Role) -> Line<'static> {
+    let pairs: Vec<_> = hints
         .iter()
-        .chain(&tail)
-        .cloned()
-        .collect::<Vec<_>>()
-        .join("  ")
-        .width()
-        > width
-    {
+        .map(|(key, label)| (key.as_str(), label.as_str()))
+        .collect();
+    crate::board::key_hints::line(&pairs, look, look.role(role), "  ")
+}
+struct Hints {
+    first: Vec<Hint>,
+    second: Vec<Hint>,
+    tail: Vec<Hint>,
+}
+fn fit_hints(mut hints: Vec<Hint>, tail: Vec<Hint>, width: usize) -> Vec<Hint> {
+    while hint_text(&hints.iter().chain(&tail).cloned().collect::<Vec<_>>()).width() > width {
         if hints.pop().is_none() {
             return tail
                 .first()
-                .filter(|hint| hint.width() <= width)
+                .filter(|hint| hint_text(std::slice::from_ref(hint)).width() <= width)
                 .cloned()
-                .unwrap_or_default();
+                .into_iter()
+                .collect();
         }
     }
     hints.extend(tail);
-    hints.join("  ")
+    hints
 }
 
 fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints> {
@@ -181,14 +201,14 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
             .get("down")
             .is_some_and(|action| action.verb == Verb::Ui(Ui::Next))
     {
-        first.push("↑↓ select".into());
+        first.push(("↑↓".into(), "select".into()));
     } else {
         for (verb, preferred, word) in [
             (Verb::Ui(Ui::Previous), "up", "previous"),
             (Verb::Ui(Ui::Next), "down", "next"),
         ] {
             if let Some(key) = find(verb, preferred) {
-                first.push(format!("{} {word}", key_label(&key)));
+                first.push((key_label(&key).into(), word.into()));
             }
         }
     }
@@ -200,14 +220,14 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
                 .get("right")
                 .is_some_and(|a| a.verb == Verb::Ui(Ui::Expand))
         {
-            first.push("←→ fold".into());
+            first.push(("←→".into(), "fold".into()));
         } else {
             for (verb, preferred, word) in [
                 (Verb::Ui(Ui::Fold), "left", "fold"),
                 (Verb::Ui(Ui::Expand), "right", "expand"),
             ] {
                 if let Some(key) = find(verb, preferred) {
-                    first.push(format!("{} {word}", key_label(&key)));
+                    first.push((key_label(&key).into(), word.into()));
                 }
             }
         }
@@ -226,7 +246,7 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
         } else {
             hint_word(app, action)
         };
-        first.push(format!("⏎ {word}"));
+        first.push(("⏎".into(), word.into()));
         seen.push(action.verb);
     }
     for (verb, preferred, word) in [
@@ -246,7 +266,7 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
             continue;
         }
         if let Some(key) = find(verb, preferred) {
-            first.push(format!("{} {word}", key_label(&key)));
+            first.push((key_label(&key).into(), word.into()));
             seen.push(verb);
         }
     }
@@ -259,7 +279,7 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
             && let Some(key) = find(Verb::Ui(verb), preferred)
             && let Some(action) = bindings.get(&key)
         {
-            first.push(format!("{} {}", key_label(&key), hint_word(app, action)));
+            first.push((key_label(&key).into(), hint_word(app, action).into()));
         }
     }
     let mut second = Vec::new();
@@ -277,7 +297,7 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
     if tab == crate::board::shell::OpsTab::Agents
         && let Some(key) = find(Verb::NextPane, "tab")
     {
-        second.push(format!("{} panes", key_label(&key)));
+        second.push((key_label(&key).into(), "panes".into()));
     }
     let choices = if tab == crate::board::shell::OpsTab::Overview {
         vec![
@@ -304,7 +324,7 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
             continue;
         }
         if let Some(key) = find(verb, preferred) {
-            let hint = format!("{} {word}", key_label(&key));
+            let hint = (key_label(&key).into(), word.into());
             if matches!(verb, Verb::Ui(Ui::Help | Ui::Quit)) {
                 tail.push(hint);
             } else {
@@ -316,7 +336,7 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
         .values()
         .any(|action| action.verb == Verb::Ui(Ui::Quit))
     {
-        tail.push("Ctrl-C quit".into());
+        tail.push(("Ctrl-C".into(), "quit".into()));
     }
     Some(Hints {
         first,
@@ -447,7 +467,7 @@ fn workspace_hints(app: &App, width: usize) -> String {
 /// Style the fitted hint list shared by board, HOME, read and jobs footers.
 /// Informational attention summaries remain muted rather than becoming keys.
 pub(in crate::board) fn hint_line(text: &str, look: crate::look::Look) -> Line<'static> {
-    crate::board::key_hints::line(text, look, look.role(Role::Accent), "  ")
+    crate::board::key_hints::legacy_line(text, look, look.role(Role::Accent), "  ")
 }
 
 pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::look::Look) {
@@ -456,7 +476,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
         && app.error.is_none()
         && app.migration_notice.is_none()
     {
-        agents_legend(app, usize::from(footer.width))
+        agents_pairs(app, usize::from(footer.width))
     } else {
         None
     };
@@ -554,14 +574,24 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
                     ))),
                 )
             },
-            |lines| lines[1].clone(),
+            |lines| hint_text(&lines[1]),
         );
         if app.shell.tab == crate::board::shell::OpsTab::Overview {
-            let mut line = crate::board::key_hints::line(&text, look, look.role(Role::Text), "  ");
+            let pairs = overview_pairs(app, usize::from(footer.width.saturating_sub(1)))
+                .unwrap_or_default();
+            let refs: Vec<_> = pairs
+                .iter()
+                .map(|(key, label)| (key.as_str(), label.as_str()))
+                .collect();
+            let mut line = crate::board::key_hints::line(&refs, look, look.role(Role::Text), "  ");
             line.spans.insert(0, Span::raw(" "));
             line
         } else {
-            hint_line(&text, look)
+            if let Some(lines) = &legend {
+                paint_hints(&lines[1], look, Role::Accent)
+            } else {
+                hint_line(&text, look)
+            }
         }
     };
     if app.settings.is_some() {
@@ -580,7 +610,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
         strip::paint_left(
             frame.buffer_mut(),
             Rect::new(footer.x, footer.bottom() - 2, footer.width, 1),
-            hint_line(&first, look),
+            paint_hints(&first, look, Role::Accent),
         );
     }
     let footer = Rect::new(

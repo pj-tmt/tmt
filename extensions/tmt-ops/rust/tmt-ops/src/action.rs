@@ -36,6 +36,8 @@ pub enum Verb {
     ViewReply,
     HomeWrite,
     HomePick,
+    /// Retained only to report an authored binding migration.
+    OverviewFilter,
     Reply,
     Annotate,
     /// The digest dropdown of the selected member.
@@ -67,6 +69,7 @@ impl Verb {
             "view-reply" => Self::ViewReply,
             "home-write" => Self::HomeWrite,
             "home-pick" => Self::HomePick,
+            "overview-filter" => Self::OverviewFilter,
             "reply" => Self::Reply,
             "annotate" => Self::Annotate,
             "digest" => Self::Digest,
@@ -117,6 +120,7 @@ impl Verb {
             Self::ViewReply => "view-reply",
             Self::HomeWrite => "home-write",
             Self::HomePick => "home-pick",
+            Self::OverviewFilter => "overview-filter",
             Self::Reply => "reply",
             Self::Annotate => "annotate",
             Self::Digest => "digest",
@@ -199,7 +203,8 @@ impl Action {
             | Verb::HomeMessage
             | Verb::ViewReply
             | Verb::HomeWrite
-            | Verb::HomePick => 10,
+            | Verb::HomePick
+            | Verb::OverviewFilter => 10,
             Verb::Jump => 11,
             Verb::View => 12,
             Verb::Theme => 13,
@@ -218,6 +223,9 @@ impl Action {
         let target = self.args.first().and_then(Template::literal);
         match self.verb {
             Verb::Ui(action) => action.spec().description.into(),
+            Verb::OverviewFilter => {
+                "retired Overview filter; choose overview-view explicitly".into()
+            }
             Verb::Jump if target == Some("lead") => "go to the squad lead's pane".into(),
             Verb::Jump => "go to the member's pane".into(),
             Verb::Back => "go back to the previous pane".into(),

@@ -65,10 +65,10 @@ fn soonest_preview_is_bounded_deduplicated_and_keeps_other_room_ids() {
 #[test]
 fn zero_unavailable_paused_and_missing_clock_remain_distinct() {
     let mut app = board();
-    assert_eq!(project(&app).empty, "Timers unavailable");
+    assert_eq!(project(&app).empty, "Timers unavailable.");
     app.cron.replace(Ok(test_cron(vec![], running())));
     let empty = project(&app);
-    assert_eq!(empty.empty, "No timers");
+    assert_eq!(empty.empty, "No timers.");
     assert_eq!(empty.note, "0 on · 0 paused");
     let mut jobs = test_views(2, "team", "room");
     jobs[1].owner_missing = true;

@@ -125,11 +125,11 @@ in different squads. A collapsed squad keeps its worst observed child state,
 with attention priority. Display names preserve authored text, including `tmt-`
 prefixes, and fit through the shared text policy.
 
-| Section  | Composition                                         | Placement                                                                            |
-| -------- | --------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Section  | Composition                                                              | Placement                                                                            |
+| -------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
 | Overview | Full-width Usage, switchable Squads/Agents list and narrow Timers/Digest | Missing observations stay unknown; selected rows retain acquired recipient authority |
-| Agents   | Tree plus exact agent conversation or squad detail  | Auto/Side/Stack uses actual minimum usable areas                                     |
-| Digest   | Same tree/context and existing policy chooser       | No new Digest store, permission or parallel editor                                   |
+| Agents   | Tree plus exact agent conversation or squad detail                       | Auto/Side/Stack uses actual minimum usable areas                                     |
+| Digest   | Same tree/context and existing policy chooser                            | No new Digest store, permission or parallel editor                                   |
 
 Auto/Side/Stack, pin and sort are per-user Ops preferences. The new default keys
 replace old squad tabs, Left/Right tab switching, tab reorder/pick/hide and factory
@@ -186,7 +186,7 @@ message focus; Escape keeps its UUID draft. Failed/stale/loading Digest Status
 remains visible even when hidden.
 
 Narrow Overview places at most three soonest timer observations beside Digest
-key/value rows below Needs you. The Timers more control and effective shortcut
+key/value rows below the switchable Squads/Agents list. The Timers more control and effective shortcut
 open the same all-room list; filtered rosters label that global scope. Paused rows
 are dim, stale countdowns stay unknown, and known empty is distinct from unread.
 Digest uses the existing scoped numeric and supplier estimate owners, with values

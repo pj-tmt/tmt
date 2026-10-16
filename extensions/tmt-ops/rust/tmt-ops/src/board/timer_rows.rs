@@ -97,12 +97,29 @@ pub(in crate::board) fn footer(
             spans.push(Span::styled(more, look.role(Role::Muted)));
             spans.push(Span::styled(" · ", look.role(Role::Dim)));
             spans.extend(
-                crate::board::m12_key_hints::line(&shortcut, look, look.role(Role::Text), " · ")
-                    .spans,
+                crate::board::key_hints::line(
+                    &[(
+                        crate::board::view::footer::key_label(key.unwrap()),
+                        "timers",
+                    )],
+                    look,
+                    look.role(Role::Text),
+                    " · ",
+                )
+                .spans,
             );
         }
         (_, Some(shortcut)) if shortcut.width() <= available => spans.extend(
-            crate::board::m12_key_hints::line(&shortcut, look, look.role(Role::Text), " · ").spans,
+            crate::board::key_hints::line(
+                &[(
+                    crate::board::view::footer::key_label(key.unwrap()),
+                    "timers",
+                )],
+                look,
+                look.role(Role::Text),
+                " · ",
+            )
+            .spans,
         ),
         (Some(more), _) if more.width() <= available => {
             spans.push(Span::styled(more, look.role(Role::Muted)))

@@ -413,7 +413,7 @@ fn populate_lower_band(app: &mut crate::board::app::App, scene: &str) {
             .collect::<Vec<_>>()
     );
     app.labels =
-        crate::labels::Supplied::from_document("digest", &document, scene == "squads-partial");
+        crate::labels::Supplied::from_document("digest", &document, scene.ends_with("-partial"));
     let core = test_views(4, "tmt-core", "core-room");
     let infra = test_views(2, "tmt-infra", "infra-room");
     let mut ux = test_views(1, "tmt-ux", "ux-room").remove(0);
@@ -428,7 +428,7 @@ fn populate_lower_band(app: &mut crate::board::app::App, scene: &str) {
     for (job, minutes) in jobs.iter_mut().zip([19, 21, 49, 3 * 24 * 60 + 11 * 60, 0]) {
         job.next_ms = vec![now + minutes * 60_000];
     }
-    if scene == "squads-empty" {
+    if scene.ends_with("-empty") {
         jobs.clear();
     }
     let mut cron = test_cron(
@@ -442,7 +442,7 @@ fn populate_lower_band(app: &mut crate::board::app::App, scene: &str) {
     );
     cron.read_ms = now;
     app.cron.replace(Ok(cron));
-    if scene == "squads-partial" {
+    if scene.ends_with("-partial") {
         app.cron
             .replace(Err("Timer observation unavailable".into()));
     }

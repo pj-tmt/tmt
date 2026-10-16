@@ -1,10 +1,10 @@
-//! Narrow Timers/Digest placement within the primary scroll owner's row stream.
+//! Narrow Timers/Digest band below the primary list viewport.
 use crate::{
     board::{
         app::{App, Hit, HitTarget},
-        divider, m3_section_rule, m18_empty_state,
+        divider, empty_state,
         overview::{digest, timers},
-        timer_rows,
+        section_rule, timer_rows,
     },
     look::Look,
 };
@@ -23,7 +23,7 @@ pub(in crate::board) struct Band {
 }
 impl Band {
     pub fn new(app: &App, frame_width: u16, width: u16) -> Option<Self> {
-        // S4 introduces the final wide right column directly as M19.
+        // S4 introduces the final wide right column with the Digest matrix.
         if frame_width >= 140 || width == 0 {
             return None;
         }
@@ -94,7 +94,7 @@ impl Band {
     }
     fn timer(&self, frame: &mut Frame, app: &App, slot: Rect, row: usize, look: Look) {
         if row == 0 {
-            m3_section_rule::paint(
+            section_rule::paint(
                 frame.buffer_mut(),
                 slot,
                 self.timers.title,
@@ -106,7 +106,18 @@ impl Band {
             if let Some(timer) = self.timers.rows.get(row - 1) {
                 timer_rows::paint(frame.buffer_mut(), slot, timer, look);
             } else {
-                m18_empty_state::paint(frame.buffer_mut(), slot, self.timers.empty, None, look);
+                empty_state::paint(
+                    frame.buffer_mut(),
+                    Rect::new(
+                        slot.x.saturating_add(1),
+                        slot.y,
+                        slot.width.saturating_sub(1),
+                        1,
+                    ),
+                    self.timers.empty,
+                    None,
+                    look,
+                );
             }
         } else if row == self.timers.height() - 1 {
             use crate::action::{OpsUiAction, Verb};
@@ -144,7 +155,7 @@ impl Band {
             return;
         };
         if row == 0 {
-            m3_section_rule::paint(
+            section_rule::paint(
                 frame.buffer_mut(),
                 slot,
                 "Digest",
