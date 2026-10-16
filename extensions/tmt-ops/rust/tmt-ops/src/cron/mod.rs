@@ -6,6 +6,7 @@ mod tick;
 
 pub use clock::{Clock, ClockStatus, Holder, Lease};
 pub use schedule::{Schedule, ScheduleInput};
+pub use store::{BUSY_RETRY, STORE_BUSY};
 pub use store::{Job, Jobs, Pause, Store};
 pub use tick::{Dispatch, Tick, TickReport, operation_id};
 

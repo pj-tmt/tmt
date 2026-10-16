@@ -269,10 +269,12 @@ own these layers:
   revisions and pause attribution. The caller supplies the absolute `storage.root` and admits
   core UUID references; the store resolves no identities, decides no permissions, dispatches
   nothing and tracks no runs. Reads of an absent store create nothing. The stable
-  `jobs.lock` allows concurrent shared readers; a reader facing a writer retries every
-  25 ms within a one-second budget before returning `SQUAD_CRON_STORE_BUSY`. Mutations retain
-  their exclusive nonblocking lock; validation and file sync precede atomic rename,
-  then a directory sync. A failed publish keeps the previous document; a directory-sync error
+  `jobs.lock` allows concurrent shared readers. A reader facing a writer retries every
+  25 ms within a one-second budget; a mutation retries the exclusive lock within five seconds,
+  then reads the current document under it, applies its change and publishes, so concurrent
+  adds, removals, pauses and edits all land. A spent budget returns `SQUAD_CRON_STORE_BUSY`
+  saying another Ops process holds the lock, with the one retry (`Run the same command again.`), with nothing
+  saved. Validation and file sync precede atomic rename, then a directory sync. A failed publish keeps the previous document; a directory-sync error
   after rename reports an uncertain commit for rereading. New directories/files use
   0700/0600. Invalid existing state fails explicitly rather than resetting counters or
   overwriting it.

@@ -12,7 +12,27 @@ use std::{
 
 const LIMIT: u64 = 16 * 1024 * 1024;
 const READ_LOCK_WAIT: Duration = Duration::from_secs(1);
-const READ_LOCK_STEP: Duration = Duration::from_millis(25);
+/// A writer queues behind the holder (a writer fsyncs, and a membership change keeps the
+/// lock through its core command), so its budget is longer than a reader's.
+const WRITE_LOCK_WAIT: Duration = Duration::from_secs(5);
+const LOCK_STEP: Duration = Duration::from_millis(25);
+/// Code of the one failure a waiter reports once its budget is spent.
+pub const STORE_BUSY: &str = "SQUAD_CRON_STORE_BUSY";
+/// The single next step for [`STORE_BUSY`]; the caller attaches it to the message.
+pub const BUSY_RETRY: &str = "Run the same command again.";
+
+#[cfg(test)]
+thread_local! {
+    /// Lets a test spend a short budget on this thread; threads it spawns keep the real one.
+    static WRITE_WAIT: std::cell::Cell<Duration> = const { std::cell::Cell::new(WRITE_LOCK_WAIT) };
+}
+
+fn write_wait() -> Duration {
+    #[cfg(test)]
+    return WRITE_WAIT.with(std::cell::Cell::get);
+    #[cfg(not(test))]
+    WRITE_LOCK_WAIT
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Pause {
@@ -319,25 +339,42 @@ impl Store {
         if !file.metadata().map_err(io)?.is_file() {
             return Err(io("Cron lock is not a regular file."));
         }
-        // Readers may overlap. Only a contended read waits; mutations still fail
-        // immediately rather than replaying a write after another owner finishes.
-        let mode = if create {
-            FlockArg::LockExclusiveNonblock
+        // Readers may overlap. A contended reader or writer retries within its budget,
+        // so concurrent mutations queue and each one reads the document it then holds.
+        let (mode, wait, what) = if create {
+            (
+                FlockArg::LockExclusiveNonblock,
+                write_wait(),
+                "so nothing was saved",
+            )
         } else {
-            FlockArg::LockSharedNonblock
+            (
+                FlockArg::LockSharedNonblock,
+                READ_LOCK_WAIT,
+                "so the jobs could not be read",
+            )
         };
-        let deadline = Instant::now() + READ_LOCK_WAIT;
+        let deadline = Instant::now() + wait;
         let mut file = file;
         loop {
             match Flock::lock(file, mode) {
                 Ok(lock) => return Ok(Some(lock)),
                 Err((unlocked, error)) => {
                     let remaining = deadline.saturating_duration_since(Instant::now());
-                    if create || error != nix::errno::Errno::EWOULDBLOCK || remaining.is_zero() {
-                        return Err(Error::new("SQUAD_CRON_STORE_BUSY", error.to_string()));
+                    if error != nix::errno::Errno::EWOULDBLOCK {
+                        return Err(Error::new(STORE_BUSY, error.to_string()));
+                    }
+                    if remaining.is_zero() {
+                        return Err(Error::new(
+                            STORE_BUSY,
+                            format!(
+                                "Another Ops process still holds the cron store lock after {} s, {what}.",
+                                wait.as_secs()
+                            ),
+                        ));
                     }
                     file = unlocked;
-                    std::thread::sleep(READ_LOCK_STEP.min(remaining));
+                    std::thread::sleep(LOCK_STEP.min(remaining));
                 }
             }
         }

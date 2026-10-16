@@ -15,6 +15,9 @@ pub use retirement::drain_retired;
 
 impl From<cron::Error> for SquadError {
     fn from(error: cron::Error) -> Self {
+        if error.code == cron::STORE_BUSY {
+            return Self::hinted(&error.code, &error.message, " ", cron::BUSY_RETRY);
+        }
         Self::new(&error.code, error.message)
     }
 }
