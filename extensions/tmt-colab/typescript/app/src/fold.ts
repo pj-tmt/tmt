@@ -197,7 +197,9 @@ export class Fold {
     )
       return Promise.reject(new Error('Decoder baseline capacity'));
     const writers = new Set(this.#writers);
-    for (const writer of command.type === 'prepare-own' || command.type === 'encode-own'
+    for (const writer of command.type === 'prepare-own' ||
+    command.type === 'encode-own' ||
+    command.type === 'own-conflict'
       ? [command.writer]
       : command.type === 'checkpoint'
         ? command.writer === undefined
@@ -227,6 +229,7 @@ export class Fold {
           command.type !== 'check' &&
           command.type !== 'prepare-own' &&
           command.type !== 'encode-own' &&
+          command.type !== 'own-conflict' &&
           command.type !== 'prepare-content',
       };
       this.#timer = setTimeout(() => this.close(), 2000);

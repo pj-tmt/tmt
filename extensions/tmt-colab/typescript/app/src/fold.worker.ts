@@ -78,6 +78,31 @@ function projectOwn(doc: Y.Doc, complete: boolean) {
     }),
   );
 }
+/** Whether `update` sets an own key that the writer's admitted document already holds with a
+ * different value. Own records are immutable, but two tabs are two Yjs clients, so a write
+ * prepared by a tab whose view lags could merge in and silently replace the admitted value (the
+ * client with the higher ID wins, not the later write). The structs are read without integrating
+ * them, so a key is judged against what the stream already holds. A byte-identical value is
+ * already present. An update that cannot be decoded is judged by the ordinary checks. */
+function ownConflict(doc: Y.Doc | undefined, update: Uint8Array) {
+  if (!doc) return false;
+  let structs: ReturnType<typeof Y.decodeUpdate>['structs'];
+  try {
+    structs = Y.decodeUpdate(update).structs;
+  } catch {
+    return false;
+  }
+  for (const struct of structs) {
+    if (!(struct instanceof Y.Item) || typeof struct.parent !== 'string' || !struct.parentSub)
+      continue;
+    if (!['threads', 'messages', 'intents', 'replies'].includes(struct.parent)) continue;
+    const held = doc.getMap(struct.parent).get(struct.parentSub);
+    if (held === undefined) continue;
+    const content = struct.content.getContent();
+    if (content.length !== 1 || JSON.stringify(content[0]) !== JSON.stringify(held)) return true;
+  }
+  return false;
+}
 /** A device's checkpoint over its own stream is the state encoding of the one document that
  * holds exactly that writer's admitted updates (never the shared content document, which would
  * reattribute others' updates). The answer is empty, meaning "publish nothing", unless the
@@ -236,6 +261,11 @@ self.onmessage = async (event: MessageEvent<{ id: number; command: DecoderComman
       for (const item of command.own ?? []) Y.applyUpdate(writerDoc(item.writer), item.update);
     } else if (command.type === 'encode-own') {
       update = new Uint8Array(encodeOwn(own.get(command.writer)));
+    } else if (command.type === 'own-conflict') {
+      // The writer is named, so its (possibly still empty) document is part of the answer.
+      update = ownConflict(writerDoc(command.writer), command.update)
+        ? new Uint8Array([1])
+        : new Uint8Array();
     } else if (command.type === 'prepare-own') {
       if (command.records.length < 1 || command.records.length > 32)
         throw new Error('Own batch capacity');

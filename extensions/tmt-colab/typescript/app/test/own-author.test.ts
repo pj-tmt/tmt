@@ -10,9 +10,18 @@ import { Writer, memoryRecords } from '../src/writer.js';
 // admitted by `linkAuthor`, a member's by `author`, and neither stands in for the other. The
 // admission here is a fake whose `ownAuthor` is the real one, so a write that skipped it would call
 // the wrong checker, and the checker that is not its own refuses.
+const admission = vi.hoisted(() => ({
+  gate: Promise.resolve() as Promise<void>,
+  events: [] as string[],
+  device: '',
+}));
 vi.mock('../src/fold.js', () => ({
   Fold: class {
-    async run() {
+    async run(command: { type: string }) {
+      if (command.type === 'apply') {
+        await admission.gate;
+        admission.events.push('admitted');
+      }
       return { source: '', title: '' };
     }
     close() {}
@@ -32,11 +41,15 @@ vi.mock('../src/catchup.js', () => ({
 vi.mock('../src/objects.js', async (original) => ({
   ...(await original<typeof import('../src/objects.js')>()),
   Objects: class {
+    ownData = {};
     head() {
       return { seq: 4n, hash: new Uint8Array(32) };
     }
     cursors() {
       return [];
+    }
+    async admit() {
+      return { namespace: 'own', writer: admission.device, update: new Uint8Array([1, 2, 3]) };
     }
   },
 }));
@@ -188,7 +201,11 @@ for (const kind of ['link', 'member'] as Kind[])
       run: (fn: () => Promise<unknown>) => fn(),
       fold: {
         run: vi.fn(async (command: { type: string }) =>
-          command.type === 'prepare-own' ? { update: new Uint8Array([1, 2, 3]) } : {},
+          command.type === 'prepare-own'
+            ? { update: new Uint8Array([1, 2, 3]) }
+            : command.type === 'own-conflict'
+              ? { update: new Uint8Array() }
+              : {},
         ),
       },
       append: vi.fn(async (entry: unknown) => void appended.push(entry)),
@@ -342,7 +359,11 @@ async function writerOver(appends: (Error | undefined)[]) {
     run: (fn: () => Promise<unknown>) => fn(),
     fold: {
       run: vi.fn(async (command: { type: string }) =>
-        command.type === 'prepare-own' ? { update: new Uint8Array([1, 2, 3]) } : {},
+        command.type === 'prepare-own'
+          ? { update: new Uint8Array([1, 2, 3]) }
+          : command.type === 'own-conflict'
+            ? { update: new Uint8Array() }
+            : {},
       ),
     },
     append: vi.fn(async (entry: { seq: string; envelope: string }) => {
@@ -425,4 +446,66 @@ it('drops an older kept append that the serve refuses when it is retried', async
   } finally {
     w.writer.close();
   }
+});
+
+it('resolves a leader append only once its entry is admitted, before any later queued work', async () => {
+  // The leader checks a write against its admitted own document and serializes writes, so a
+  // write that follows an append must find that append admitted. The receipt, its admission and
+  // the append's resolution all run in the connection's queue ahead of the next write's check.
+  const w = await world('member');
+  admission.device = w.device.id;
+  admission.events.length = 0;
+  vi.stubGlobal('WebSocket', Socket);
+  const connection = new Connection(
+    w.admission as unknown as Admission,
+    new URL('https://example.test/colab/'),
+    'private',
+    vi.fn(),
+    vi.fn(),
+  );
+  Socket.current.onmessage?.({
+    data: JSON.stringify({
+      version: 1,
+      space: v.spaceId,
+      page: v.pageId,
+      epoch: v.epoch,
+      type: 'catchup',
+      streams: [],
+      more: false,
+    }),
+  });
+  await connection.ready;
+  await new Promise((resolve) => setTimeout(resolve, 20)); // The catchup's own admission settles.
+  admission.events.length = 0;
+  let release!: () => void;
+  admission.gate = new Promise<void>((resolve) => (release = resolve));
+  const entry = await sealed(w);
+  const appended = connection.append(entry).then(() => admission.events.push('append resolved'));
+  await vi.waitFor(() =>
+    expect(Socket.current.send.mock.calls.some(([raw]) => JSON.parse(raw).type === 'append')).toBe(
+      true,
+    ),
+  );
+  Socket.current.onmessage?.({
+    data: JSON.stringify({
+      version: 1,
+      type: 'receipt',
+      space: v.spaceId,
+      page: v.pageId,
+      epoch: v.epoch,
+      streamId: w.device.id,
+      seq: entry.seq,
+      envelopeHash: entry.envelopeHash,
+    }),
+  });
+  // The next write's check queues behind the receipt while its admission is still held.
+  const later = connection.run(async () => void admission.events.push('later run'));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(admission.events).toEqual([]);
+  release();
+  await Promise.all([appended, later]);
+  expect(admission.events[0]).toBe('admitted');
+  expect(admission.events.slice(1).sort()).toEqual(['append resolved', 'later run']);
+  connection.close();
+  admission.gate = Promise.resolve();
 });

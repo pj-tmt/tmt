@@ -64,6 +64,16 @@ export class OwnAppendRefused extends Error {
   }
 }
 
+/** The stream's leader refused a write because one of its own keys already holds a different value.
+ * Own records are immutable: the first value stays, whichever tab wrote it, and nothing of the
+ * refused write was appended. A byte-identical write is not a conflict (it is already present).
+ * The submitting tab may drop the write and read again; its connection and the stream are intact. */
+export class OwnRecordConflict extends Error {
+  constructor() {
+    super('Own record conflict');
+  }
+}
+
 export class OwnPublicationTimeout extends Error {
   readonly diagnostic: OwnPublicationDiagnostic | undefined;
   constructor(

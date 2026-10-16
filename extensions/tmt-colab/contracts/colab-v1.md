@@ -1901,7 +1901,13 @@ continue bounded backoff. Read refusal copy is ephemeral, never an own-state
 transition. Fresh input capture is required for each later Send. Unknown-effect errors
 remain uncertain. SDK error handling branches only on the exported class and
 reviewed code, never text or an unverified error-shaped object. Records are immutable under
-the parent-owned publication API.
+the parent-owned publication API: the device's stream leader (the tab holding its writer lock)
+refuses, before sealing anything, a write to an own key that the stream already holds with a
+different value, whichever tab wrote the first value, because two tabs are two Yjs clients and
+admitting both would let the higher client ID win rather than the first write. The refusal is a
+typed `OwnRecordConflict` to the submitting tab only: nothing is appended, its connection and the
+stream are untouched, and a byte-identical value is already present, not a conflict. A recovery
+pass that meets it records nothing and reads the operation again at the next observation.
 
 Viewers admit the encrypted own envelope and its writer chain before interpreting
 records. They verify the intent's signature and message digest, space/page,

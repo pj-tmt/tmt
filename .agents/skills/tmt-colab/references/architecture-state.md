@@ -293,7 +293,13 @@ Ready-page transport failures retain bounded same-session catchup. Superseded ca
 readiness, publications and diagnosis cannot alter the current attempt. Recovery
 never re-sends an Ask or generates a new mutation. Pending own-stream envelopes
 may be re-delivered through the Writer's existing staging path; exact accepted
-envelopes deduplicate as `Replay`. If automatic recovery fails, the page's own bounded
+envelopes deduplicate as `Replay`. The Writer's leader tab also owns the immutability of the
+stream's keys: before sealing, the fold's read-only `own-conflict` command answers whether a
+write sets a key the stream holds with a different value, and the leader refuses it with
+`OwnRecordConflict` (a hint to the submitting tab, like the append refusal) without closing
+anything; `AskController.recover` then records nothing and the next observation reads again. The
+check is complete because the leader serializes writes and an append resolves only after the
+connection has admitted its receipt, in the queue that runs the next write's check. If automatic recovery fails, the page's own bounded
 reconnect loop and then explicit Reconnect first reuse the admitted mounted-owner replacement on the same Live binding. The
 stopped write fence remains until the fresh Connection and projection are verified;
 then a new Writer uses the identical stream key and the new Ask facade resumes

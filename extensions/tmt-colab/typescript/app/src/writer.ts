@@ -6,6 +6,7 @@ import { sealOwnUpdate } from './own-seal.js';
 import { record as durableRecord } from './storage.js';
 import {
   OwnAppendRefused,
+  OwnRecordConflict,
   publicationSequence,
   type OwnPublicationReceipt,
 } from './own-publication.js';
@@ -39,10 +40,12 @@ function ownCompaction(value: unknown): OwnCompaction {
 }
 const COMPACT_RELAY_MS = 30_000;
 /** What a sender is told when its edit was not accepted. */
-const notAccepted = (refused: boolean) =>
-  refused
-    ? new OwnAppendRefused('CONFLICT')
-    : new Error('Edit was not accepted; reconnect before retrying');
+const notAccepted = (refused: boolean, conflict = false) =>
+  conflict
+    ? new OwnRecordConflict()
+    : refused
+      ? new OwnAppendRefused('CONFLICT')
+      : new Error('Edit was not accepted; reconnect before retrying');
 
 /** Where a writer keeps its state: the app's durable records, or, for a link session that stores
  * nothing in the owner app's records, memory that lasts as long as the tab. */
@@ -85,6 +88,8 @@ export class Writer {
       seq: string | null;
       /** The leader said the serve refused this append because its sequence was taken. */
       refused: boolean;
+      /** The leader said a key of this write already holds a different value. */
+      conflict: boolean;
       resolve(receipt: OwnPublicationReceipt): void;
       reject(error: Error): void;
       timer: ReturnType<typeof setTimeout>;
@@ -131,6 +136,12 @@ export class Writer {
           requireValue(typeof value.id === 'string');
           const pending = this.#pending.get(value.id);
           if (pending) pending.refused = true;
+        } else if (value?.type === 'record-conflict') {
+          // The same kind of hint: a tab still running the previous app assets reads a plain failure.
+          exactKeys(value, ['type', 'id']);
+          requireValue(typeof value.id === 'string');
+          const pending = this.#pending.get(value.id);
+          if (pending) pending.conflict = true;
         } else if (value?.type === 'result') {
           exactKeys(value, ['type', 'id', 'ok']);
           requireValue(typeof value.id === 'string');
@@ -142,7 +153,7 @@ export class Writer {
           clearTimeout(pending.timer);
           if (value.ok) {
             pending.resolve({ seq: pending.seq });
-          } else pending.reject(notAccepted(pending.refused));
+          } else pending.reject(notAccepted(pending.refused, pending.conflict));
         }
       } catch {
         /* Untrusted relay messages never become signed updates. */
@@ -188,7 +199,14 @@ export class Writer {
     const completed = task
       .then(
         (seq) => this.#result(name, true, seq),
-        (error) => this.#result(name, false, null, error instanceof OwnAppendRefused),
+        (error) =>
+          this.#result(
+            name,
+            false,
+            null,
+            error instanceof OwnAppendRefused,
+            error instanceof OwnRecordConflict,
+          ),
       )
       .finally(() => {
         update.fill(0);
@@ -197,17 +215,18 @@ export class Writer {
     this.#working.set(name, completed);
     return completed;
   }
-  #result(id: string, ok: boolean, seq: string | null = null, refused = false) {
+  #result(id: string, ok: boolean, seq: string | null = null, refused = false, conflict = false) {
     if (this.#closed) return;
     if (ok && seq !== null) this.#channel.postMessage({ type: 'publication-receipt', id, seq });
     if (refused) this.#channel.postMessage({ type: 'append-refused', id });
+    if (conflict) this.#channel.postMessage({ type: 'record-conflict', id });
     this.#channel.postMessage({ type: 'result', id, ok });
     const pending = this.#pending.get(id);
     if (pending) {
       this.#pending.delete(id);
       clearTimeout(pending.timer);
       if (ok) pending.resolve({ seq });
-      else pending.reject(notAccepted(refused));
+      else pending.reject(notAccepted(refused, conflict));
     }
   }
   /** The saved writer state with any interrupted append finished first: exact stored bytes are
@@ -256,6 +275,18 @@ export class Writer {
     const state = await this.#settled(c);
     if (state.completed.includes(id)) return null;
     const entry = await c.run(async () => {
+      // Own records are immutable and this leader orders every append of the stream, so a write
+      // to a key the stream already holds with a different value is refused here, before
+      // anything is sealed, whichever tab wrote the first value. Two tabs are two Yjs clients:
+      // admitting the second value would let the higher client ID win, not the first write. The
+      // admitted document is current here: writes run one at a time and `append` resolves only
+      // after the connection has admitted its receipt, ahead of the next write in `c.run`.
+      const held = await c.fold.run({
+        type: 'own-conflict',
+        writer: c.admission.registration.deviceId,
+        update,
+      });
+      if (held.update.length > 0) throw new OwnRecordConflict();
       await c.fold.run({
         type: 'check',
         updates: [],
@@ -415,6 +446,7 @@ export class Writer {
       this.#pending.set(id, {
         seq: null,
         refused: false,
+        conflict: false,
         resolve: (receipt) => {
           bytes.fill(0);
           resolve(receipt);

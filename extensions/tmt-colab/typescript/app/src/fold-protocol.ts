@@ -26,6 +26,11 @@ export type FoldCommand =
   /** The state encoding of one writer's own document, or an empty update when it must not be
    * published as a checkpoint (see `encodeOwn` in the worker). Reads only; commits nothing. */
   | { type: 'encode-own'; writer: string }
+  /** Whether `update` sets an own key of `writer` that already holds a different value. Reads
+   * only; commits nothing. The result's `update` is empty when there is no conflict and
+   * non-empty when there is, so a conflict is an answer, never a rejected command. A key
+   * holding the byte-identical value is already present, not a conflict. */
+  | { type: 'own-conflict'; writer: string; update: Uint8Array }
   | {
       type: 'prepare-own';
       writer: string;
