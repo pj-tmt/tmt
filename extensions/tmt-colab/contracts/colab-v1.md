@@ -2370,11 +2370,15 @@ Composer copy comes from the page connection owner: ended shows the same ended
 sentence/action as the page, reconnecting shows "Reconnecting…" with Send disabled
 and the draft retained. Connection guidance takes precedence over recipient/discovery
 hints, but never hides an explicit Send failure. Every pre-publication refusal keeps
-the draft and displays a composer-local `role=alert` with the existing failure copy
-and a closed reason reference. That notice survives connection changes and automatic
-editor normalization; a deliberate text edit or explicit retry clears it. Repeated
+the draft and displays a composer-local `role=alert` directly below the field,
+with plain failure guidance and a closed reason reference. Only the failure mark
+is coloured. Empty drafts keep Send disabled without an alert. That notice survives
+connection changes and automatic editor normalization; a deliberate text edit,
+explicit retry or successful Send clears it. Repeated
 refusals are announced again. Already recorded or uncertain turns retain their own
-status; a post-record failure never offers an automatic resend.
+status: S2 and S13 use neutral saved text with no failure mark or error colour,
+still announced as alerts. A post-record failure clears the composer draft, keeps
+the recorded fence and existing thread action, and never offers a resend.
 
 Send references describe only the local branch, never error text or identifiers:
 

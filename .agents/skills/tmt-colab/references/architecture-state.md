@@ -158,8 +158,10 @@ opens completion at `@` or full-width `＠` after non-address-like text, includi
 `AnnotationInput` owns the draft, trusted action, current content/Ask admission and
 immutable one-comment send capture. `message-send-refusal.ts` shares its button and
 explicit-submit presentation gates and classifies closed failure references. The
-composer keeps a visible, announced refusal until a deliberate text edit or retry;
-connection guidance and editor normalization do not clear it. This state is local
+composer keeps a visible, announced refusal below the field until a deliberate
+text edit, retry or successful Send; saved S2/S13 states stay neutral, without an
+error mark or a resend action.
+Connection guidance and editor normalization do not clear it. This state is local
 to the draft, never stored or sent. The discussion contract below owns the reference
 codes. The page-owned `creator-default.tsx` preference
 shares admitted defaults across composers; mention-node provenance is editing-only

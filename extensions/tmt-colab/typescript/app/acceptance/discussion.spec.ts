@@ -261,7 +261,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
     const over = `@${agent.name} ${'é'.repeat(8193)}`;
     await input.fill(over);
     await input.press('Enter');
-    await expect(compose.getByRole('alert')).toContainText('could not be recorded');
+    await expect(compose.getByRole('alert')).toContainText(text.messageNotSent);
     await expect(input).toHaveText(over, { useInnerText: true });
     expect(agent.received()).toHaveLength(0);
     const opening = `@${agent.name} <script>plain discussion</script>\nPlease explain this.`;

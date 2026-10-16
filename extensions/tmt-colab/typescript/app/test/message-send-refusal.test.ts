@@ -1,6 +1,8 @@
 import { expect, it } from 'vite-plus/test';
 import {
   messageSendRefusal,
+  messageSendSaved,
+  messageSendCopy,
   messageSendFailureReference,
   type MessageSendGate,
 } from '../src/message-send-refusal.js';
@@ -62,4 +64,18 @@ it('never copies a claimed code, message, payload or identifier into the referen
       id: 'private id',
     }),
   ).toBe('S12');
+});
+
+for (const reference of ['S2', 'S13'] as const)
+  it(`${reference} announces a saved state without error wording or retry guidance`, () => {
+    expect(messageSendSaved(reference)).toBe(true);
+    expect(messageSendCopy(reference)).toBe(
+      'Saved, but delivery to the agent is unconfirmed. Check the thread before sending again.',
+    );
+    expect(messageSendCopy(reference)).not.toMatch(/✗|Not sent|try again/);
+  });
+it('keeps pre-publication failures distinct and empty submissions silent', () => {
+  expect(messageSendSaved('S12')).toBe(false);
+  expect(messageSendCopy('S12')).toBe('Not sent. Your draft is kept; try again.');
+  expect(messageSendCopy('S8')).toBe('');
 });

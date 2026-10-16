@@ -391,8 +391,29 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
           await s.askerPage.evaluate(() => delete document.documentElement.dataset.theme);
           await input.press('Enter');
           await expect(container.getByRole('alert')).toHaveText(
-            `${text.messageRecordFailed} (ref S6)`,
+            `✗ ${text.messageNotSentAdmission} (ref S6)`,
           );
+          // Capture the refusal in its real pane/thread context, including Send.
+          for (const theme of ['light', 'dark']) {
+            await s.askerPage.evaluate(
+              (theme) => (document.documentElement.dataset.theme = theme),
+              theme,
+            );
+            const notice = container.getByRole('alert');
+            await expect(notice).toBeInViewport();
+            await expect(action).toBeInViewport();
+            const fieldBox = await input.boundingBox();
+            const noticeBox = await notice.boundingBox();
+            expect(fieldBox).not.toBeNull();
+            expect(noticeBox).not.toBeNull();
+            expect(Math.abs(noticeBox!.x - fieldBox!.x)).toBeLessThanOrEqual(1);
+            expect(noticeBox!.y - (fieldBox!.y + fieldBox!.height)).toBeGreaterThanOrEqual(0);
+            expect(noticeBox!.y - (fieldBox!.y + fieldBox!.height)).toBeLessThanOrEqual(12);
+            await s.askerPage.screenshot({
+              path: testInfo.outputPath(`send-refusal-${surface}-${width}-${theme}.png`),
+            });
+          }
+          await s.askerPage.evaluate(() => delete document.documentElement.dataset.theme);
           expect(s.recipient.received()).toHaveLength(1);
           expect(dispatches(world)).toHaveLength(1);
           await expect(input).toHaveText(draft);
@@ -417,7 +438,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
           expect(dispatches(world)).toHaveLength(1);
           // Directory recovery does not erase the refused Send; the deliberate edit does.
           await expect(container.getByRole('alert')).toHaveText(
-            `${text.messageRecordFailed} (ref S6)`,
+            `✗ ${text.messageNotSentAdmission} (ref S6)`,
           );
           await input.press('X');
           await expect(container.getByRole('alert')).toHaveCount(0);

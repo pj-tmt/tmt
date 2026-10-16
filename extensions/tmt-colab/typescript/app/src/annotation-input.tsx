@@ -29,6 +29,8 @@ import type { CreationRecipient } from './fold-protocol.js';
 import { messageRecipient } from './message-recipient.js';
 import {
   messageSendRefusal,
+  messageSendCopy,
+  messageSendSaved,
   messageSendFailureReference,
   type MessageSendReference,
   type MessageSendStage,
@@ -110,14 +112,13 @@ export function AnnotationInput({
   const sending = useRef(false);
   const [error, setError] = useState<{
     reference: MessageSendReference;
-    message: string;
     occurrence: number;
   }>();
   const failureSequence = useRef(0);
   const failureNotice = useRef<HTMLParagraphElement>(null);
-  function refuse(reference: MessageSendReference, message: string) {
+  function refuse(reference: MessageSendReference) {
     // A repeated identical refusal must create a fresh alert for assistive technology.
-    setError({ reference, message, occurrence: ++failureSequence.current });
+    setError({ reference, occurrence: ++failureSequence.current });
   }
   useEffect(() => {
     if (error && failureNotice.current?.getClientRects().length)
@@ -254,15 +255,6 @@ export function AnnotationInput({
     binding: !!binding,
     value: current.value,
   });
-  function refusalMessage(reference: MessageSendReference) {
-    if (reference === 'S1') return text.messageSending;
-    if (reference === 'S2') return text.messageRecordedUncertain;
-    if (reference === 'S3') return text.archivePosting;
-    if (reference === 'S4') return text.sendOnHold;
-    if (reference === 'S7') return text.messageAgentsUnavailable;
-    if (reference === 'S8') return text.messageWrite;
-    return text.messageRecordFailed;
-  }
   async function send(current: ComposerEdit = edit) {
     // Only this explicit retry or a deliberate text edit clears a previous refusal.
     setError(undefined);
@@ -275,7 +267,7 @@ export function AnnotationInput({
         sendGate(current, admitted.allowed, !!admitted.agents.length),
       );
       if (refusal) {
-        refuse(refusal, refusalMessage(refusal));
+        if (refusal !== 'S8') refuse(refusal);
         return;
       }
       stage = 'capture';
@@ -296,7 +288,7 @@ export function AnnotationInput({
       stage = 'attachments';
       const prepared = await files.prepare();
       if (!prepared.ok) {
-        refuse('S10', text.attachBlocked[prepared.why]);
+        refuse('S10');
         return;
       }
       const attach = prepared.attach;
@@ -320,15 +312,12 @@ export function AnnotationInput({
       setError(undefined);
       committed(origin.thread);
     } catch (failure) {
-      if (failure instanceof AttachmentStaleError) {
+      if (!origin && failure instanceof AttachmentStaleError) {
         files.stale(failure.attachmentIds);
-        refuse('S14', text.attachBlocked.stale);
+        refuse('S14');
         return;
       }
-      refuse(
-        messageSendFailureReference(stage, failure),
-        origin ? text.messageRecordedUncertain : text.messageRecordFailed,
-      );
+      refuse(origin ? 'S13' : messageSendFailureReference(stage, failure));
       if (origin) {
         clearDraft();
         setRecorded(origin.thread);
@@ -389,8 +378,20 @@ export function AnnotationInput({
     </div>
   );
   const sendFailureNotice = error && (
-    <p key={error.occurrence} ref={failureNotice} role="alert" data-send-refusal={error.reference}>
-      {error.message} {text.messageSendReference(error.reference)}
+    <p
+      key={error.occurrence}
+      ref={failureNotice}
+      role="alert"
+      className="annotation-send-notice"
+      data-send-refusal={error.reference}
+    >
+      {!messageSendSaved(error.reference) && (
+        <span className="annotation-send-mark" aria-hidden="true">
+          ✗{' '}
+        </span>
+      )}
+      {messageSendCopy(error.reference, decision.agents[0]?.agentName)}{' '}
+      {text.messageSendReference(error.reference)}
     </p>
   );
   if (archived)
@@ -471,16 +472,21 @@ export function AnnotationInput({
             : undefined
         }
         accessory={
-          discussion?.attachments ? (
-            <PendingAttachments
-              draft={files}
-              disabled={!attachable}
-              onRemoved={() => {
-                section.current
-                  ?.querySelector<HTMLElement>('[role="combobox"]')
-                  ?.focus({ preventScroll: true });
-              }}
-            />
+          sendFailureNotice || discussion?.attachments ? (
+            <>
+              {sendFailureNotice}
+              {discussion?.attachments && (
+                <PendingAttachments
+                  draft={files}
+                  disabled={!attachable}
+                  onRemoved={() => {
+                    section.current
+                      ?.querySelector<HTMLElement>('[role="combobox"]')
+                      ?.focus({ preventScroll: true });
+                  }}
+                />
+              )}
+            </>
           ) : undefined
         }
         describedBy={statusId}
@@ -589,7 +595,6 @@ export function AnnotationInput({
           )
         }
       />
-      {sendFailureNotice}
       {recorded && (chat || !thread) && (
         <BrowserAction
           type="button"
