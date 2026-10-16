@@ -28,8 +28,10 @@ const roles = {
   accent: ['surface', 'selection'],
   'accent-foreground': ['color', 'selected-text'],
   destructive: ['color', 'blocked'],
-  border: ['color', 'edge'],
-  input: ['color', 'edge'],
+  'layer-boundary': ['surface', 'rule'],
+  border: ['surface', 'rule'],
+  input: ['surface', 'rule'],
+  indicator: ['color', 'edge'],
   ring: ['color', 'focus'],
   scrim: ['surface', 'scrim'],
 };

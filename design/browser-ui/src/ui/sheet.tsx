@@ -84,7 +84,7 @@ export function SheetContent({
         {...props}
         ref={surface.ref}
         className={cn(
-          'tmt:box-border tmt:font-body tmt:text-(length:--tmt-foundation-command-size) tmt:fixed tmt:z-(--tmt-foundation-z-layer) tmt:flex tmt:flex-col tmt:gap-4 tmt:max-w-(--tmt-layer-available-width) tmt:max-h-(--tmt-layer-available-height) tmt:overflow-y-auto tmt:overscroll-contain tmt:bg-background tmt:text-foreground tmt:border-solid tmt:border-border tmt:border-(length:--tmt-foundation-rule-width) tmt:outline-none',
+          'tmt:box-border tmt:font-body tmt:text-(length:--tmt-foundation-command-size) tmt:fixed tmt:z-(--tmt-foundation-z-layer) tmt:flex tmt:flex-col tmt:gap-4 tmt:max-w-(--tmt-layer-available-width) tmt:max-h-(--tmt-layer-available-height) tmt:overflow-y-auto tmt:overscroll-contain tmt:bg-background tmt:text-foreground tmt:border-solid tmt:border-layer-boundary tmt:border-(length:--tmt-foundation-rule-width) tmt:outline-none',
           (side === 'left' || side === 'right') &&
             'tmt:top-[calc(var(--tmt-layer-top,0px)+var(--tmt-layer-gutter,0px))] tmt:h-(--tmt-layer-available-height) tmt:w-[calc(var(--tmt-foundation-spacing-unit)*110)]',
           side === 'left' &&

@@ -104,3 +104,27 @@ it('keeps original source export targets and direct dependency pins explicit', (
     provenance.files.find((file: { path: string }) => file.path === 'LICENSE.md').sha256,
   );
 });
+
+it('projects light frame roles separately from strong focus and state indicators', () => {
+  const css = readFileSync(new URL('../generated/ui.css', import.meta.url), 'utf8');
+  const tokens = JSON.parse(
+    readFileSync(new URL('../../tokens/tokens.json', import.meta.url), 'utf8'),
+  );
+  const roles = {
+    'layer-boundary': tokens.browser.surface.rule,
+    border: tokens.browser.surface.rule,
+    input: tokens.browser.surface.rule,
+    indicator: tokens.browser.color.edge,
+    ring: tokens.browser.color.focus,
+  };
+  for (const [role, colors] of Object.entries(roles)) {
+    const actual = [...css.matchAll(new RegExp(`--tmt-foundation-${role}: ([^;]+);`, 'g'))].map(
+      (match) => match[1],
+    );
+    expect(actual.sort(), role).toEqual(
+      [colors.light, colors.dark, colors.light, colors.dark]
+        .map((color) => color.toLowerCase())
+        .sort(),
+    );
+  }
+});

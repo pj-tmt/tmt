@@ -452,8 +452,14 @@ nonprefixed literal classes, rounded, shadow and ring utilities. Focus uses
 `outline` and the token-backed focus width/color, rather than a box-shadow ring.
 
 The sole theme source is `design/tokens/tokens.json`: semantic shadcn color names
-alias existing `browser.color`/`browser.surface` roles; edge, focus width, rule
-width and radius alias current metrics. New spacing and layer/tooltip z-order
+alias existing `browser.color`/`browser.surface` roles. `layer-boundary`, generic
+`border` and `input` project the light `browser.surface.rule` frame, including
+outline/secondary Buttons and native fields. Overlay content uses the named layer
+boundary; Tooltip retains stock background/text/arrow with the same thin frame.
+`ring` remains `browser.color.focus`; the separate `indicator` alias preserves
+`browser.color.edge` for the unchecked Checkbox frame and Switch track. Checked
+and invalid state roles retain their own colors; light frames do not weaken
+focus or state indicators. Focus width, rule width and radius alias current metrics. New spacing and layer/tooltip z-order
 live only in `browser.ui`, which the old static generator does not enumerate.
 There is no second palette. UI surfaces remain square and shadow-free. Later
 components must use these roles for actual styles, not merely expose unused

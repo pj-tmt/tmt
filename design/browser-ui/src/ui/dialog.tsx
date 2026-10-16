@@ -93,7 +93,7 @@ export function DialogContent({
         {...props}
         ref={surface.ref}
         className={cn(
-          'tmt:box-border tmt:font-body tmt:text-(length:--tmt-foundation-command-size) tmt:fixed tmt:left-[calc(var(--tmt-layer-left,0px)+var(--tmt-layer-width,100vw)/2)] tmt:top-[calc(var(--tmt-layer-top,0px)+var(--tmt-layer-height,100dvh)/2)] tmt:-translate-x-1/2 tmt:-translate-y-1/2 tmt:z-(--tmt-foundation-z-layer) tmt:grid tmt:gap-4 tmt:w-full tmt:max-w-[min(var(--tmt-layer-available-width,100vw),calc(var(--tmt-foundation-spacing-unit)*128))] tmt:max-h-(--tmt-layer-available-height) tmt:overflow-y-auto tmt:overscroll-contain tmt:border-solid tmt:border-border tmt:border-(length:--tmt-foundation-rule-width) tmt:bg-background tmt:text-foreground tmt:p-6 tmt:outline-none',
+          'tmt:box-border tmt:font-body tmt:text-(length:--tmt-foundation-command-size) tmt:fixed tmt:left-[calc(var(--tmt-layer-left,0px)+var(--tmt-layer-width,100vw)/2)] tmt:top-[calc(var(--tmt-layer-top,0px)+var(--tmt-layer-height,100dvh)/2)] tmt:-translate-x-1/2 tmt:-translate-y-1/2 tmt:z-(--tmt-foundation-z-layer) tmt:grid tmt:gap-4 tmt:w-full tmt:max-w-[min(var(--tmt-layer-available-width,100vw),calc(var(--tmt-foundation-spacing-unit)*128))] tmt:max-h-(--tmt-layer-available-height) tmt:overflow-y-auto tmt:overscroll-contain tmt:border-solid tmt:border-layer-boundary tmt:border-(length:--tmt-foundation-rule-width) tmt:bg-background tmt:text-foreground tmt:p-6 tmt:outline-none',
           className,
         )}
         style={{ ...style, ...surface.viewportStyle }}
