@@ -20,3 +20,11 @@ runs:
     - name: Prove native publication and the hosted browser reader
       shell: bash
       run: node extensions/tmt-colab/scripts/hosted-reader-emulator.mjs
+    - name: Preserve failed hosted reader diagnostics
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: hosted-reader-emulator-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+        path: extensions/tmt-colab/typescript/app/test-results/
+        retention-days: 3
+        if-no-files-found: warn
