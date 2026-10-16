@@ -1,11 +1,12 @@
 import { text } from '../src/strings.js';
-import { chromium, expect, test } from '@playwright/test';
+import { chromium, expect, test, type Page } from '@playwright/test';
 import { Envelope, decodeHeader } from '@tmt/colab-client';
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { run } from './harness/ask.js';
-import { startDoor } from './harness/browser.js';
+import { openReaderLink, startDoor } from './harness/browser.js';
 import { composed, serve } from './harness/hosting.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
@@ -32,7 +33,7 @@ function remoteLink() {
 }
 
 test.afterEach(disposeActiveWorlds);
-test('a hosted editor verifies native content, publishes one own edit request and observes owner application without a local door', async () => {
+test('a hosted editor verifies native content, publishes own edit requests and observes owner application without a local door, beside a door holder of the same link', async () => {
   if (process.env.GCLOUD_PROJECT !== project)
     throw new Error('the demo emulator harness is required');
   const auth = host('FIREBASE_AUTH_EMULATOR_HOST'),
@@ -72,7 +73,7 @@ test('a hosted editor verifies native content, publishes one own edit request an
     ) as { pageId: string };
     run(world, world.binaries.colab, ['share', 'mode', created.pageId, 'link', '--yes', '--json']);
     // Sharing activity after serve startup selects this page, as in Colab's reviewed B3c-2 proof.
-    await startDoor(world);
+    const door = await startDoor(world);
     const added = JSON.parse(
       run(world, world.binaries.colab, [
         'share',
@@ -484,6 +485,54 @@ test('a hosted editor verifies native content, publishes one own edit request an
     );
     expect(escalation.status).toBe(403);
     expect(writes).toHaveLength(2);
+    // The same editor link on the owner's local door: a second holder on the other transport.
+    // Each transport writes a stream of its own (`door`, `hosted`), so the owner applies both
+    // holders' requests with no fork, and each holder's next request is applied too.
+    const doorHolder = await openReaderLink(world, door, added.readerPath, 'door-holder');
+    const holders = { hosted: page, door: doorHolder.page };
+    const heading = (holder: Page) => holder.frameLocator('iframe').locator('h1');
+    const request = async (holder: Page, words: string) => {
+      const area = holder.locator('#source-edit');
+      if (!(await area.isVisible())) await holder.getByTestId('source-toggle').click();
+      await area.fill(`<main><h1>${words}</h1></main>`);
+      await holder.getByRole('button', { name: text.save, exact: true }).click();
+    };
+    await expect(heading(holders.door)).toHaveText('Hosted editor requested version', {
+      timeout: 30000,
+    });
+    for (const [from, words] of [
+      ['door', 'Door holder requested version'],
+      ['hosted', 'Hosted holder second request'],
+      ['door', 'Door holder second request'],
+    ] as const) {
+      await request(holders[from], words);
+      // The owner's page is the only answer: both holders show it once the owner applied it.
+      for (const holder of Object.values(holders))
+        await expect(heading(holder)).toHaveText(words, { timeout: 60000 });
+    }
+    // The owner's store holds two own streams of the link, neither frozen.
+    const store = path.join(world.dataRoot, 'colab', 'space.db');
+    const frozen = execFileSync(
+      'sqlite3',
+      [store, 'SELECT count(*) FROM streams WHERE frozen != 0'],
+      {
+        encoding: 'utf8',
+      },
+    ).trim();
+    expect(frozen).toBe('0');
+    // Each transport's own stream holds that holder's two requests, applied in order.
+    const own = execFileSync(
+      'sqlite3',
+      [
+        store,
+        `SELECT s.frozen, count(r.seq) FROM streams s JOIN receipts r
+           ON r.page=s.page AND r.epoch=s.epoch AND r.stream=s.stream
+           WHERE r.namespace='own' GROUP BY s.stream ORDER BY s.stream`,
+      ],
+      { encoding: 'utf8' },
+    ).trim();
+    expect(own).toBe('0|2\n0|2');
+    expect(writes).toHaveLength(3);
     expect(paths.some((path) => path.includes('/api/serve-release'))).toBe(false);
     expect(unexpected).toEqual([]);
     expect(crashes).toEqual([]);
