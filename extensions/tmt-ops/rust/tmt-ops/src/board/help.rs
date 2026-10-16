@@ -149,6 +149,14 @@ pub(super) fn model(app: &App) -> KeyHelp {
                     "wheel",
                     "scroll the pane under the pointer without moving the selected target",
                 ),
+                (
+                    "divider drag",
+                    "drag a visible separator to resize; hover shows the axis; double-click restores its default",
+                ),
+                (
+                    "resize-pane",
+                    "optional authored action: resize-pane <boundary> <left|right|up|down|reset>; no default binding",
+                ),
                 ("Esc", "step back one level; at the list stay in Ops UI"),
                 (
                     "quit",

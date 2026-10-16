@@ -63,24 +63,80 @@ impl Band {
             height,
         })
     }
-    pub fn paint(&self, frame: &mut Frame, app: &App, slot: Rect, row: usize) {
+    fn timer_height(&self, app: &App, height: u16) -> usize {
+        if self.digest.is_none() {
+            return self.timers.height();
+        }
+        app.pane_resize.size(
+            crate::action::ResizeBoundary::OverviewLowerRows,
+            height.saturating_sub(1),
+            self.timers.height() as u16,
+            self.timers.height() as u16,
+            6,
+        ) as usize
+    }
+    pub fn register(&self, app: &App, area: Rect, clip: Rect) {
+        if self.split {
+            let total = area.width.saturating_sub(1);
+            let before = app.pane_resize.size(
+                crate::action::ResizeBoundary::OverviewLowerColumns,
+                total,
+                TIMER_CELLS,
+                32,
+                DIGEST_MIN,
+            );
+            app.pane_resize.record(
+                crate::board::pane_resize::Boundary {
+                    id: crate::action::ResizeBoundary::OverviewLowerColumns,
+                    hit: Rect::new(area.x + before, area.y, 1, area.height),
+                    total,
+                    before,
+                    min: 32,
+                    max: total.saturating_sub(DIGEST_MIN),
+                },
+                clip,
+            );
+        } else if self.digest.is_some() {
+            let total = area.height.saturating_sub(1);
+            let before = self.timer_height(app, area.height) as u16;
+            app.pane_resize.record(
+                crate::board::pane_resize::Boundary {
+                    id: crate::action::ResizeBoundary::OverviewLowerRows,
+                    hit: Rect::new(area.x, area.y + before + 1, area.width, 1),
+                    total,
+                    before,
+                    min: self.timers.height() as u16,
+                    max: total.saturating_sub(6),
+                },
+                clip,
+            );
+        }
+    }
+    pub fn paint(&self, frame: &mut Frame, app: &App, slot: Rect, row: usize, height: u16) {
         let look = app.look();
         if self.split {
+            let timer_cells = app.pane_resize.size(
+                crate::action::ResizeBoundary::OverviewLowerColumns,
+                slot.width.saturating_sub(1),
+                TIMER_CELLS,
+                32,
+                DIGEST_MIN,
+            );
             let timer = Rect {
-                width: TIMER_CELLS,
+                width: timer_cells,
                 ..slot
             };
             self.timer(frame, app, timer, row, look);
             divider::paint(
                 frame.buffer_mut(),
-                Rect::new(slot.x + TIMER_CELLS, slot.y, 1, 1),
+                Rect::new(slot.x + timer_cells, slot.y, 1, 1),
                 row == 0,
                 look,
             );
             let area = Rect::new(
-                slot.x + TIMER_CELLS + 1,
+                slot.x + timer_cells + 1,
                 slot.y,
-                slot.width.saturating_sub(TIMER_CELLS + 1),
+                slot.width.saturating_sub(timer_cells + 1),
                 1,
             );
             self.digest(
@@ -90,16 +146,19 @@ impl Band {
                 app.focused() == crate::config::Pane::Rows,
                 look,
             );
-        } else if row < self.timers.height() {
-            self.timer(frame, app, slot, row, look);
-        } else if row > self.timers.height() {
-            self.digest(
-                frame,
-                slot,
-                row - self.timers.height() - 1,
-                app.focused() == crate::config::Pane::Rows,
-                look,
-            );
+        } else {
+            let timer_height = self.timer_height(app, height);
+            if row < timer_height {
+                self.timer(frame, app, slot, row, look);
+            } else if row > timer_height {
+                self.digest(
+                    frame,
+                    slot,
+                    row - timer_height - 1,
+                    app.focused() == crate::config::Pane::Rows,
+                    look,
+                );
+            }
         }
     }
     fn timer(&self, frame: &mut Frame, app: &App, slot: Rect, row: usize, look: Look) {

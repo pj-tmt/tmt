@@ -3,7 +3,7 @@
 //! exactly one argument and is never re-split, re-quoted or shell-parsed.
 
 mod workspace;
-pub use workspace::OpsUiAction;
+pub use workspace::{OpsUiAction, ResizeBoundary};
 
 use crate::template::{DEFAULT_COPY, Template};
 use serde_json::Value;
@@ -274,6 +274,18 @@ impl Action {
         let verb =
             Verb::parse(verb_name).ok_or_else(|| format!("'{verb_name}' is not an action"))?;
         let args = match verb {
+            Verb::Ui(OpsUiAction::ResizePane) => {
+                let parts: Vec<_> = rest.split_whitespace().collect();
+                if parts.len() != 2
+                    || !ResizeBoundary::parse(parts[0]).is_some_and(|id| id.accepts(parts[1]))
+                {
+                    return Err("resize-pane needs a boundary and its direction (left/right or up/down) or reset".into());
+                }
+                parts
+                    .into_iter()
+                    .map(Template::parse)
+                    .collect::<Result<Vec<_>, _>>()?
+            }
             Verb::Toggle => {
                 let mut panes = Vec::new();
                 for name in rest.split_whitespace() {

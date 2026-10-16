@@ -495,6 +495,28 @@ pub(in crate::board) fn hint_line(text: &str, look: crate::look::Look) -> Line<'
 }
 
 pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::look::Look) {
+    if !app.modal_open()
+        && app.input.is_none()
+        && !app.searching
+        && app.notice.is_none()
+        && app.error.is_none()
+        && let Some(hint) = app.pane_resize.hint()
+    {
+        strip::paint_left(
+            frame.buffer_mut(),
+            Rect {
+                height: 1,
+                ..footer
+            },
+            crate::board::key_hints::line(
+                &[(hint, "drag to resize"), ("double-click", "reset")],
+                look,
+                look.role(Role::Muted),
+                "  ",
+            ),
+        );
+        return;
+    }
     let last_row = Rect::new(
         footer.x,
         footer.bottom().saturating_sub(1),

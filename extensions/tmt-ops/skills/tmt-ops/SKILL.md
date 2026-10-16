@@ -217,6 +217,25 @@ scope, hidden-room reveal and composer drafts are not retained across ordinary
 restarts. Active search drafts are not saved. Without an interactive terminal,
 `--view` validates its name and leaves the existing listing output unchanged.
 
+## Resizing panes
+
+Drag a visible divider or section rule to resize adjacent panes. Hover brightens
+its line and shows ↔ or ↕ in the footer. Each pane keeps its usable minimum;
+double-click the same divider to restore its default. A hidden panel has no
+resize target. Ratios are saved in the current view layer, reapplied on terminal
+resize, and carried through in-place reload. Temporary minimum-size clamping
+never overwrites the saved ratio.
+
+Keyboard resizing has no default keys. An authored binding can use
+`resize-pane <boundary> <direction>`, with `left`/`right` for columns,
+`up`/`down` for rows, or `reset`. Each step moves about 5% of the shared space.
+Boundaries are `overview-columns`, `overview-usage`, `overview-list`,
+`overview-lower-columns`, `overview-lower-rows`, `overview-exchange`, `overview-timers`, `agents-columns`,
+`agents-rows`, `digest-columns` and `digest-rows`. Only a currently visible,
+resizable boundary accepts the action. For example,
+`[bind]` with `r = "resize-pane agents-columns right"` widens the Agents list.
+Tab and other authored bindings retain their ordinary meanings.
+
 ## Member links
 
 Write `#tmt:<canonical-name>` or `#tmt:<identity-UUID>` in message text to refer to a

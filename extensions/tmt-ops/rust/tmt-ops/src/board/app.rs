@@ -620,6 +620,7 @@ impl std::fmt::Debug for Hit {
 #[derive(Default)]
 pub struct App {
     pub(super) buttons: super::buttons::State,
+    pub(super) pane_resize: super::pane_resize::State,
     /// Injected by the renderer, never inferred from NO_COLOR or stored preferences.
     pub cron_glyphs: super::overview::cron_counts::GlyphSet,
     pub(in crate::board) conversation_return: Option<super::shell::OpsTab>,
@@ -1816,7 +1817,7 @@ impl App {
     ) -> Option<super::conversation::layout::WorkspacePlacement> {
         use super::conversation::layout::{self, Preference};
         let snapshot = self.workspace_snapshot()?;
-        Some(if self.shell.tab == super::shell::OpsTab::Overview {
+        let mut placement = if self.shell.tab == super::shell::OpsTab::Overview {
             self.overview_placement(area).into()
         } else if self.shell.tab == super::shell::OpsTab::Agents {
             layout::agents_tree(
@@ -1829,17 +1830,17 @@ impl App {
                 self.focused() == Pane::Replies,
             )
         } else {
-            layout::agents(
-                area,
-                match snapshot.preferences.layout {
-                    crate::config::OpsLayout::Auto => Preference::Auto,
-                    crate::config::OpsLayout::Side => Preference::Side,
-                    crate::config::OpsLayout::Stack => Preference::Stack,
-                },
-                self.focused() == Pane::Replies,
-            )
-            .into()
-        })
+            self.digest_placement(area).into()
+        };
+        use crate::action::ResizeBoundary as Boundary;
+        if self.shell.tab == super::shell::OpsTab::Agents {
+            placement.panes = self.pane_resize.panes(
+                placement.panes,
+                Boundary::AgentsColumns,
+                Boundary::AgentsRows,
+            );
+        }
+        Some(placement)
     }
 
     pub fn focused_pane(&self) -> Option<Pane> {
@@ -2012,6 +2013,9 @@ impl App {
         if let Err(error) = crate::config::admit_workspace_action(action, "action") {
             self.set_notice(Some(error.message), true);
             return Effect::None;
+        }
+        if action.verb == Verb::Ui(crate::action::OpsUiAction::ResizePane) {
+            return self.resize_action(action);
         }
         if let Verb::Ui(action) = action.verb {
             return self.workspace_action(action);
@@ -3638,6 +3642,7 @@ impl App {
     /// Refuse pointer and viewport authority from a superseded frame. Offsets
     /// and drafts survive; only a new paint can publish interactive geometry.
     pub(super) fn invalidate_frame_geometry(&self) {
+        self.pane_resize.invalidate();
         self.buttons.invalidate();
         if let Some(picker) = &self.panels_picker {
             picker.invalidate();
@@ -3774,7 +3779,11 @@ impl App {
             self.buttons.clear_hover();
             false
         };
-        let changed = buttons_changed || next != self.meter_hover;
+        let resize_changed = self.pane_resize.move_pointer(
+            (event.column, event.row).into(),
+            !self.modal_open() && self.input.is_none() && !self.searching && !self.loading(),
+        );
+        let changed = resize_changed || buttons_changed || next != self.meter_hover;
         self.meter_hover = next;
         changed
     }
@@ -3853,6 +3862,15 @@ impl App {
         }
         if self.menu.is_some() {
             return self.menu_mouse(event);
+        }
+        if self.resize_mouse(event, now) {
+            if event.kind == MouseEventKind::Down(MouseButton::Left)
+                && let Some(pane) = self.pointer_pane(event.column, event.row)
+            {
+                self.focus = usize::from(pane == Pane::Replies);
+            }
+            self.last_click = None;
+            return Effect::None;
         }
         if let Some(effect) = self.member_link_mouse(event) {
             return effect;

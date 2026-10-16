@@ -420,8 +420,8 @@ own module/drawing boundaries and verification.
   UUID squad anchors and virtual Common pool define selection; paint/input do no Core reads. WP1 owns conversation/editor/drafts.
   `board::buttons` owns chip paint and hover, including ChipGroup selectors, through neutral Strip paint and shared screen styles; callers keep activation authority.
   The existing quiet cache lane publishes per-name view hints (default keeps its
-  original path): destination/UUID anchors, expansion, committed filters/sort/search
-  and pane scroll. Shared Config preferences stay separate; exec carries the layer
+  original path): destination/UUID anchors, expansion, committed filters/sort/search,
+  pane ratios and pane scroll. Shared Config preferences stay separate; exec carries the layer
   and session-only visibility. [View-state ownership](.agents/skills/tmt-ops-dev/references/board.md#workspace-and-retained-identity).
   The shell replaces named-tab/factory/switcher navigation and HOME cursors; reload carries UUID anchors.
   `labels::Reader` acquires Config-selected windows; `labels::digest` sums
