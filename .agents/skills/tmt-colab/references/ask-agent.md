@@ -25,7 +25,7 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
   reads. `context()` combines `api/session` (device, name, grant revision) with
   `/sdk/mount` (machine). A failed `send` or `operation` becomes `uncertain`, never a
   retry. `listAgents` keeps id, name, presence and whitelisted `runningDriver` (`claude`/`codex`) only; the port has no delivery field and
-  no `check`. A Session fault (SDK `RefusalError` `REMOTE_SESSION_ENDED`, `ClientError`
+  no `check`. Optional validated activity and owner observation time are cosmetic only. A Session fault (SDK `RefusalError` `REMOTE_SESSION_ENDED`, `ClientError`
   `sequence_unavailable`, an expired Session or a changed grant revision) is normalized to
   `SessionEndedError` or an `uncertain` state with that reason. A verified send that Remote
   refused with `REMOTE_SESSION_ENDED` before admission stays `refused`. The SDK also
@@ -161,7 +161,7 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
   operation ID, is not offered: an `uncertain` ask can only be re-checked or abandoned.
 - Preview and signed bytes differ by exactly the `[remote: <device name>]` line; the
   recipient sees the prefixed text, so acceptance asserts that text verbatim.
-- `agents.list` reports presence only in v1, so the UI shows presence and no delivery state.
+- `agents.list` presence never proves delivery. Optional activity uses only owner-clock observations and the pre-Send anchor; missing telemetry stays `Sent`.
   Absent mode or expiry evidence shows as unavailable.
 - Tests: `test/ask-ledger.test.ts` (own record before effect, concurrent same-ID sends,
   absent recovery and abandon, rename or revision change before publication, per-writer
@@ -183,3 +183,17 @@ existing turns without remounting them. No polling, Ask admission, persistence o
 recovery is added. Remote's served SDK exposes the whitelisted field. Real-door
 Ask acceptance verifies present/absent treatment using Core-admitted provider hooks
 and ordinary recipients; fixture observations alone do not prove that boundary.
+
+## Agent working-state presentation
+
+`agent-activity.ts` validates optional activity, tracks only this controller's pre-Send
+owner-clock anchor and observed working-to-idle transition, and projects freshness.
+`AskController.observe` shares one inventory acquisition across all recipients on
+its existing visible receipt cadence. `LiveAsk` fences that read against current
+page admission and connection before and after; `Live` publishes the ephemeral
+`agentActivity` projection without changing signed records. `AgentActivityProvider`
+owns one page rendering clock, and the shared `AskPanel` renders the same line in
+Chat and annotations. Stopped, missing, invalid or stale observation never animates.
+The contract's [working-state line](../../../../extensions/tmt-colab/contracts/colab-v1.md#agent-working-state-line-3331)
+owns exact copy, owner-clock comparisons, horizon and hosted cost limits. No hosted
+inventory operation is introduced.

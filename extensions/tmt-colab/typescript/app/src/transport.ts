@@ -1,3 +1,4 @@
+import type { ActivityObservation } from './agent-activity.js';
 import type { RemotePresence } from './remote-presence.js';
 import type { CompactReport, PageUsage } from './page-usage.js';
 import type { attachment } from '@tmt/colab-client';
@@ -19,6 +20,7 @@ export interface PageView extends Projection {
   readonly threads?: readonly ThreadView[];
   readonly threadPresentations?: readonly ThreadPresentation[];
   readonly askUnavailable?: boolean;
+  readonly agentActivity?: ActivityObservation;
 }
 import type { PageActivity, PageId } from './bootstrap.js';
 import type { DraftStore } from './draft-store.js';
@@ -48,6 +50,7 @@ export interface PageSnapshot extends PageSummary {
   readonly threads?: readonly ThreadView[];
   readonly threadPresentations?: readonly ThreadPresentation[];
   readonly askUnavailable?: boolean;
+  readonly agentActivity?: ActivityObservation;
 }
 /** What a Save did: `merged` when the page had changed meanwhile and the edit was merged into it. */
 export interface SaveOutcome {

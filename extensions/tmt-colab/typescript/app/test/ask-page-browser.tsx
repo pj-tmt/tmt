@@ -1093,7 +1093,34 @@ export function conversation(options: {
         : {}),
     },
   ];
-  current = { ...current, threads: [thread], asks: records };
+  current = { ...current, threads: [thread], asks: records, agentActivity: undefined };
+  emit();
+}
+
+/** Page-owned cosmetic observation, published through the real router projection. */
+export function conversationActivity(options: {
+  kind: 'sent' | 'working' | 'queued' | 'finished' | 'unknown';
+  active?: boolean;
+  ageMs?: number;
+}) {
+  const record = current.asks![0];
+  current = {
+    ...current,
+    agentActivity: {
+      active: options.active ?? true,
+      receivedAt: performance.now() - (options.ageMs ?? 0),
+      intervalMs: 3000,
+      entries: [
+        {
+          operationId: record.operationId,
+          machine: record.machine,
+          agent: record.agent,
+          kind: options.kind,
+          elapsedMs: 185000,
+        },
+      ],
+    },
+  };
   emit();
 }
 

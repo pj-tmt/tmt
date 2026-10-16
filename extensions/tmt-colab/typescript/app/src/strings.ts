@@ -382,6 +382,14 @@ export const text = {
   chatRetry: 'Retry',
   askWaiting: 'Waiting for {agent}',
   askNoReply: 'No reply yet from {agent}',
+  agentSent: 'Sent',
+  agentSending: 'sending…',
+  agentActivityWorking: (name: string, elapsed: string) => `${name} is working · ${elapsed}`,
+  agentQueued: (name: string, elapsed: string) =>
+    `${name} is finishing an earlier turn · ${elapsed}`,
+  agentFinished: (name: string, elapsed: string) =>
+    `${name} finished without replying · ${elapsed} ago`,
+  agentActivityUnknown: (name: string) => `sent · ${name}'s activity is not reported`,
   askApproval: 'Waiting for approval',
   askNotDelivered: 'Not delivered',
   askUnconfirmed: 'Delivery unconfirmed',
