@@ -48,15 +48,60 @@ Status meanings, epic approval/start rules and cadence; this skill owns procedur
    and proposed action; request no status reply. Nudge only for a real problem,
    then follow up on the next scheduled pass. Leads staff within recorded limits
    and ask the maintainer beyond them; approval limits never mean staying silent.
-4. **Record usage.** Read hourly provider limits sampled on the maintainer's machine
-   (Claude statusline weekly allowance and Codex session rate-limit counters),
-   held in a local database outside the repository. Record account/per-seat
-   counters, never message content or usage data in repository artifacts.
-   The weekly pace is 100 points per 168 hours (about 0.6 points/hour).
-   Alert the maintainer in chat if projected exhaustion precedes reset, when the
-   pace buffer becomes negative, and again at minus seven points with options.
-   Alert once near 5% OpenAI allowance so the maintainer can decide on the Codex reset.
-   Never change seats or models.
+4. **Read usage from tmt.** Run `tmt digest usage report --since 24h --json` once per
+   pass (`--since 7d|30d` on request, `--csv usage|exchange` for a spreadsheet). It is
+   the only source: no pane capture, no provider files, no sampling database or
+   other store of PM's own, and no usage data in repository artifacts. Read it by the
+   [usage report contract](../../../extensions/tmt-digest/contracts/usage-v1.md):
+   - _Missing evidence is unavailable, never zero._ Print `usage.unavailable[]`
+     identities and `limitsUnavailable[]` lines (Claude is `no_source`: Core has no
+     Claude allowance source) with their `reason`; a seat whose `coverage.complete`
+     is false is a lower bound; `window.toMs` is stated and excludes the newest five
+     minutes.
+   - _Allowance._ For each `windowMinutes` (300 and 10080) take the `limits[]` entry
+     that is not `stale`: left is 100 minus `usedPercent`, `paceDeltaPoints` is the
+     points over (+) or under (−) an even pace. The weekly pace is 100 points per
+     168 hours (about 0.6 points/hour). Average burn is `usedPercent` divided by the
+     hours elapsed (`elapsedPercent` of the window length), and projected empty is
+     (100 − `usedPercent`) divided by that burn. A trend over the last hours lives
+     only in PM's own pass notes. A `stale` window is printed as reset, not observed since.
+   - _Seats and models._ Rank `usage.seats[]` by weighted k tokens, the same for both
+     providers because Core's `input` already contains `cached`:
+     (input − cached + 0.1·cached + 5·output)/1000. Claude's `input − cached` also
+     holds cache creation, which Core does not split out, so a Claude ranking is
+     approximate. Split by provider through `lines`; a seat on `other` or
+     `unattributed` is listed under that name. A `series[].serviceTier` is the tier in
+     force at the bucket's newest token-moving read (absent is unknown, never
+     `default`); rank without a tier multiplier. Model share sums `byModel` and prints
+     model ids only: say `effort/fast split: unavailable (Core has model ids only)`.
+     A seat whose `byModel` is null sits on the `unattributed` line: its tokens are
+     counted but Core could not attribute every bucket to a model (Codex seats
+     often), so print it as `model not attributed`, never as unknown usage, and leave
+     per-model cost for it empty. Core has no compaction data: print the compaction
+     table as `unavailable (no Core source)`.
+   - _Sessions outside the seats._ A seat's totals are the tokens Core sampled from the
+     seat's own admitted session. Codex subagent sessions and `codex-auto-review` run
+     as separate provider sessions with no identity, and Core has no source for them
+     (the 10-18 parallel run found provider-side OpenAI input 21% above the seats'
+     sum). Some subagent usage does appear inside a seat's totals, so do not read a
+     seat as including or excluding its subagents. Print
+     `other sessions: unavailable (no Core source)` beside the seat ranking and do not
+     reconcile with provider files or a second store.
+   - _Credits._ `credits.points[]` is the Codex credit balance at the series resolution
+     (hourly for 24h): `balance` is the provider's decimal text in its credit unit,
+     the newest point is the current balance, and seats on one account give one series
+     (never sum). A bucket with no point was not observed, which is not zero; `credits`
+     null means no seat reported a balance (Claude has none). Draw per hour is the
+     difference of consecutive points that are one bucket apart; `serviceTiers` names
+     the tiers seen in the bucket (empty is unknown).
+   - _Exchange._ `exchange.bySender[]` and `byRecipient[]` give who messaged whom
+     (content-free counts and bytes); `pairs[]` has each sender, recipient and kind.
+
+   Alert the maintainer in chat if projected exhaustion precedes the window's reset,
+   when `paceDeltaPoints` becomes positive (the pace buffer is negative), and again
+   at +7 points with options. Alert once near 5% OpenAI allowance left so the
+   maintainer can decide on the Codex reset. Never change seats or models.
+
 5. **Update Project and report.** On the owning guide's status-update schedule,
    summarize progress, merged/released work, seats, usage, epic progress and
    decisions under `Owner action pending`. Post the daily usage report on #1518
