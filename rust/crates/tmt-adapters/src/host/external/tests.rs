@@ -670,17 +670,22 @@ mod through_the_driver {
     }
 
     /// Whether a host offers agent names comes from the approval alone: no
-    /// driver runs to answer it.
+    /// driver runs to answer it, and tmux never offers them.
     #[test]
     fn offering_agent_names_reads_the_approval_and_runs_no_driver() {
         use tmt_driver_protocol::Op;
-        let (pid, _) = live();
+        let (pid, start) = live();
         for (installed, offers) in [(installed(pid), false), (naming(pid), true)] {
             let drivers = drivers(&installed);
             let before = installed.calls().len();
             assert_eq!(drivers.offers(fake(), Op::NameAgent), offers);
             assert_eq!(installed.calls().len(), before);
         }
+        let mut bound = binding(server(pid, &start), pid);
+        bound.server.host = HostKind::Tmux;
+        let host =
+            crate::host::Host::for_server_with(&bound.server, crate::process::UnixCommandRunner);
+        assert!(!host.offers_agent_names(&bound));
     }
 
     #[test]

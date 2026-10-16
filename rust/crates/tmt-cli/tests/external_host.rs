@@ -21,12 +21,12 @@ use tmt_adapters::{
     host::Host,
     process::{
         CommandError, CommandOutput, CommandRequest, CommandRunner, UnixCommandRunner,
-        runtime::observe_start,
+        runtime::{ProcessObservation, observe_runtime_process, observe_start},
     },
     storage::Storage,
 };
 use tmt_core::{
-    binding::bind_identity,
+    binding::{bind_identity, session::RuntimeLiveness},
     endpoint::ServerEvidence,
     host::{HostGrammar, HostKind, HostName, HostServerIds, HostServerIncarnation},
 };
@@ -707,14 +707,44 @@ fn wait_until(what: &str, mut ready: impl FnMut() -> bool) {
     }
 }
 
-/// Whether the process `pid` still exists.
-fn running(pid: i32) -> bool {
-    nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), None).is_ok()
+/// A fixture process a test must see end, held by its exact incarnation:
+/// a recycled pid is never signalled, and a zombie is not live.
+struct Owned {
+    incarnation: tmt_core::endpoint::ProcessIncarnation,
+    /// A driver leads its own process group; the agent shares the test's.
+    group: bool,
 }
 
-/// The pid a fixture file names.
-fn pid_in(path: &std::path::Path) -> i32 {
-    fs::read_to_string(path).unwrap().trim().parse().unwrap()
+impl Owned {
+    /// The live process whose pid `file` names, once the file is written.
+    fn adopt(file: &std::path::Path, group: bool) -> Self {
+        wait_until("the process writes its pid", || {
+            fs::read_to_string(file).is_ok_and(|pid| pid.ends_with('\n'))
+        });
+        let pid: u64 = fs::read_to_string(file).unwrap().trim().parse().unwrap();
+        let observed = observe_runtime_process(&UnixCommandRunner, pid, deadline()).unwrap();
+        let ProcessObservation::Live(incarnation) = observed else {
+            panic!("process {pid} is not live: {observed:?}");
+        };
+        Self { incarnation, group }
+    }
+
+    fn live(&self) -> bool {
+        observe_runtime_process(&UnixCommandRunner, self.incarnation.pid(), deadline())
+            .is_ok_and(|observed| observed.matches(&self.incarnation) == RuntimeLiveness::Alive)
+    }
+
+    /// SIGKILL, only while this exact incarnation lives.
+    fn kill(&self) {
+        if self.live() {
+            let pid = nix::unistd::Pid::from_raw(i32::try_from(self.incarnation.pid()).unwrap());
+            let _ = if self.group {
+                nix::sys::signal::killpg(pid, nix::sys::signal::Signal::SIGKILL)
+            } else {
+                nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGKILL)
+            };
+        }
+    }
 }
 
 /// An agent for `tmt run` that writes its pid and runs until the test
@@ -722,24 +752,29 @@ fn pid_in(path: &std::path::Path) -> i32 {
 const AGENT: &str = "echo $$ > agent.pid; trap 'touch acked; exit 3' TERM HUP; \
     while [ ! -f release ]; do sleep 0.05; done; exit 7";
 
-/// A `tmt run` or `tmt resume` the test owns. Dropping it, also after a
-/// failed assertion, releases a held naming call and the agent, then reaps
-/// the command, so no process outlives the test.
+/// A `tmt run` or `tmt resume` the test owns, with the agent and naming
+/// driver it adopted. Its output goes to files, so collecting it never
+/// waits on a pipe a descendant still holds. Dropping it, also after a
+/// failed assertion, releases the held call and the agent, reaps the
+/// command within a bound and kills what is still live.
 struct Launched {
     child: Option<std::process::Child>,
     root: PathBuf,
+    owned: Vec<Owned>,
 }
 
 impl Launched {
     fn start(fixture: &Fixture, mut command: std::process::Command) -> Self {
+        let output = |name: &str| fs::File::create(fixture.root.join(name)).unwrap();
         let child = command
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+            .stdout(output("launched.out"))
+            .stderr(output("launched.err"))
             .spawn()
             .unwrap();
         Self {
             child: Some(child),
             root: fixture.root.clone(),
+            owned: Vec::new(),
         }
     }
 
@@ -747,17 +782,41 @@ impl Launched {
         nix::unistd::Pid::from_raw(i32::try_from(self.child.as_ref().unwrap().id()).unwrap())
     }
 
-    /// Lets the agent exit and returns the command's output.
-    fn finish(mut self) -> Output {
-        fs::write(self.root.join("release"), "").unwrap();
-        self.child.take().unwrap().wait_with_output().unwrap()
+    /// Takes ownership of the process whose pid `file` names.
+    fn adopt(&mut self, file: &str, group: bool) -> &Owned {
+        self.owned.push(Owned::adopt(&self.root.join(file), group));
+        self.owned.last().unwrap()
     }
 
-    /// Kills `tmt run` itself with SIGKILL and reaps it; its agent stays.
+    /// Lets the agent exit, reaps the command within a bound, and asserts
+    /// that every adopted process has ended. Returns the exit code and
+    /// stderr.
+    fn finish(mut self) -> (Option<i32>, String) {
+        fs::write(self.root.join("release"), "").unwrap();
+        let status = support::wait(&mut self.child, std::time::Duration::from_secs(20))
+            .wait()
+            .unwrap();
+        self.assert_owned_gone();
+        let stderr = fs::read_to_string(self.root.join("launched.err")).unwrap();
+        (status.code(), stderr)
+    }
+
+    /// Kills `tmt run` itself with SIGKILL and reaps it; its agent and a
+    /// held naming driver stay.
     fn kill(&mut self) {
         let mut child = self.child.take().unwrap();
         child.kill().unwrap();
         child.wait().unwrap();
+    }
+
+    /// Releases a held call and the agent, then asserts that every adopted
+    /// process ends within a bound.
+    fn assert_owned_gone(&self) {
+        let _ = fs::remove_file(self.root.join("driver/hold"));
+        let _ = fs::write(self.root.join("release"), "");
+        wait_until("every adopted process ends", || {
+            self.owned.iter().all(|owned| !owned.live())
+        });
     }
 }
 
@@ -773,15 +832,25 @@ impl Drop for Launched {
             let _ = child.kill();
             let _ = child.wait();
         }
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while self.owned.iter().any(Owned::live) && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        for owned in &self.owned {
+            owned.kill();
+        }
     }
 }
 
-/// `tmt run` starts `AGENT` in the fake pane `f1` as `worker`.
+/// `tmt run` starts `AGENT` in the fake pane `f1` as `worker`, and the test
+/// owns the agent.
 fn run_agent(fixture: &Fixture) -> Launched {
-    Launched::start(
+    let mut launched = Launched::start(
         fixture,
         fixture.command_in(Some("f1"), &["run", "worker", "/bin/sh", "-c", AGENT]),
-    )
+    );
+    launched.adopt("agent.pid", false);
+    launched
 }
 
 /// After `tmt run` starts an agent, the host names it with the identity's
@@ -797,50 +866,12 @@ fn run_names_the_agent_it_started_after_the_host_sees_it() {
     let agent_name = fixture.root.join("driver/agentname");
     wait_until("the agent is named", || agent_name.exists());
     assert_eq!(fs::read_to_string(&agent_name).unwrap(), "worker");
-    let output = run.finish();
-    assert_eq!(output.status.code(), Some(7), "{output:?}");
+    let (code, stderr) = run.finish();
+    assert_eq!(code, Some(7), "{stderr}");
     let named = named(&fixture);
     assert_eq!(named.len(), 2, "{named:?}");
     assert!(named.iter().all(|request| request["name"] == "worker"));
-    let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(!stderr.contains("nam"), "{stderr}");
-}
-
-/// A command that exits at once gets no naming call, whether or not its
-/// exit was seen before admission: either no attempt starts, or `tmt run`
-/// stops it before the first one is due.
-#[test]
-fn a_command_that_exits_at_once_is_not_named() {
-    register();
-    let fixture = naming("run-quick", &[]);
-    fixture.approve();
-    let output = fixture.tmt_in(Some("f1"), &["run", "worker", "/bin/sh", "-c", "exit 7"]);
-    assert_eq!(output.status.code(), Some(7), "{output:?}");
-    assert!(named(&fixture).is_empty(), "{:?}", named(&fixture));
-}
-
-/// A driver without `name-agent` is never asked, and the run keeps its
-/// lifecycle: the exit status comes back and the binding's marker names the
-/// identity. The command runs past the first attempt's due time.
-#[test]
-fn run_never_names_through_a_driver_without_name_agent() {
-    register();
-    let fixture = Fixture::new("run-unnamed");
-    fixture.approve();
-    let output = fixture.tmt_in(
-        Some("f1"),
-        &["run", "worker", "/bin/sh", "-c", "sleep 2; exit 7"],
-    );
-    assert_eq!(output.status.code(), Some(7), "{output:?}");
-    assert!(
-        !fixture.calls().iter().any(|call| call == "name-agent"),
-        "{:?}",
-        fixture.calls()
-    );
-    let marker: Value =
-        serde_json::from_str(&fs::read_to_string(fixture.root.join("driver/marker")).unwrap())
-            .unwrap();
-    assert_eq!(marker["name"], "worker");
 }
 
 /// `tmt resume` names the agent it starts the same way: it launches
@@ -891,19 +922,57 @@ fn resume_names_the_agent_it_started() {
         "PATH",
         format!("{}:/usr/bin:/bin:/usr/sbin:/sbin", bin.display()),
     );
-    let resume = Launched::start(&fixture, command);
+    let mut resume = Launched::start(&fixture, command);
+    resume.adopt("agent.pid", false);
     let agent_name = fixture.root.join("driver/agentname");
     wait_until("the resumed agent is named", || agent_name.exists());
     assert_eq!(fs::read_to_string(&agent_name).unwrap(), "worker");
-    let output = resume.finish();
-    assert_eq!(output.status.code(), Some(7), "{output:?}");
+    let (code, stderr) = resume.finish();
+    assert_eq!(code, Some(7), "{stderr}");
     assert_eq!(named(&fixture).len(), 1, "{:?}", named(&fixture));
 }
 
+/// A command that exits at once gets no naming call, whether or not its
+/// exit was seen before admission: either no attempt starts, or `tmt run`
+/// stops it before the first one is due.
+#[test]
+fn a_command_that_exits_at_once_is_not_named() {
+    register();
+    let fixture = naming("run-quick", &[]);
+    fixture.approve();
+    let output = fixture.tmt_in(Some("f1"), &["run", "worker", "/bin/sh", "-c", "exit 7"]);
+    assert_eq!(output.status.code(), Some(7), "{output:?}");
+    assert!(named(&fixture).is_empty(), "{:?}", named(&fixture));
+}
+
+/// A driver without `name-agent` is never asked, and the run keeps its
+/// lifecycle: the exit status comes back and the binding's marker names the
+/// identity. The command runs past the first attempt's due time.
+#[test]
+fn run_never_names_through_a_driver_without_name_agent() {
+    register();
+    let fixture = Fixture::new("run-unnamed");
+    fixture.approve();
+    let output = fixture.tmt_in(
+        Some("f1"),
+        &["run", "worker", "/bin/sh", "-c", "sleep 2; exit 7"],
+    );
+    assert_eq!(output.status.code(), Some(7), "{output:?}");
+    assert!(
+        !fixture.calls().iter().any(|call| call == "name-agent"),
+        "{:?}",
+        fixture.calls()
+    );
+    let marker: Value =
+        serde_json::from_str(&fs::read_to_string(fixture.root.join("driver/marker")).unwrap())
+            .unwrap();
+    assert_eq!(marker["name"], "worker");
+}
+
 /// While a naming call is blocked, `tmt run` still forwards TERM and HUP to
-/// its agent: the agent acknowledges the signal before the test releases
-/// the call. Then `tmt run` ends with the agent's status and leaves no
-/// driver process.
+/// its agent: when the agent acknowledges the signal, the held naming
+/// driver is still live, so the call had not ended yet. Then `tmt run` ends
+/// with the agent's status, and the agent and the driver are gone.
 #[test]
 fn a_blocked_naming_call_never_delays_signal_forwarding() {
     register();
@@ -913,48 +982,47 @@ fn a_blocked_naming_call_never_delays_signal_forwarding() {
     ] {
         let fixture = naming(&format!("run-signal-{name}"), &[]);
         fixture.approve();
-        let hold = fixture.root.join("driver/hold");
-        fs::write(&hold, "").unwrap();
-        let run = run_agent(&fixture);
-        let held = fixture.root.join("driver/held");
-        wait_until("the naming call blocks", || held.exists());
+        fs::write(fixture.root.join("driver/hold"), "").unwrap();
+        let mut run = run_agent(&fixture);
+        assert!(
+            run.adopt("driver/held", true).live(),
+            "{name}: the naming call is held"
+        );
         nix::sys::signal::kill(run.pid(), signal).unwrap();
         let acked = fixture.root.join("acked");
         wait_until("the agent acknowledges the signal", || acked.exists());
-        fs::remove_file(&hold).unwrap();
-        let output = run.finish();
-        assert_eq!(output.status.code(), Some(3), "{name}: {output:?}");
-        let driver = pid_in(&held);
-        wait_until("the naming driver is gone", || !running(driver));
+        assert!(
+            run.owned[1].live(),
+            "{name}: the naming call was still held at the acknowledgement"
+        );
+        let (code, stderr) = run.finish();
+        assert_eq!(code, Some(3), "{name}: {stderr}");
         assert_eq!(named(&fixture).len(), 1, "{name}");
     }
 }
 
 /// The accepted limit L1: after SIGKILL of `tmt run`, nothing in TMT ends a
 /// naming call that ignores its deadline, as on the explicit naming path.
-/// The blocked driver is still running well after its deadline; the test
-/// ends it and the agent itself.
+/// The held driver stays live without a break until well past its 2 s
+/// deadline; then the test releases it and the orphaned agent and sees both
+/// end.
 #[test]
 fn after_sigkill_of_tmt_run_a_stubborn_naming_call_outlives_it() {
     register();
     let fixture = naming("run-sigkill", &[]);
     fixture.approve();
-    let hold = fixture.root.join("driver/hold");
-    fs::write(&hold, "").unwrap();
+    fs::write(fixture.root.join("driver/hold"), "").unwrap();
     let mut run = run_agent(&fixture);
-    let held = fixture.root.join("driver/held");
-    wait_until("the naming call blocks", || held.exists());
-    let driver = pid_in(&held);
+    run.adopt("driver/held", true);
     run.kill();
-    // The call's 2 s deadline plus margin: only a live `tmt run` enforces it.
-    std::thread::sleep(std::time::Duration::from_secs(4));
-    let outlived = running(driver);
-    // Test-owned cleanup: release the stubborn call and the orphaned agent.
-    drop(run);
-    let agent = pid_in(&fixture.root.join("agent.pid"));
-    wait_until("the stubborn driver ends", || !running(driver));
-    wait_until("the orphaned agent ends", || !running(agent));
-    assert!(outlived, "the naming call outlived tmt run");
+    // The call started before `held` was read, so its deadline has passed
+    // by `until`. Observe the driver the whole time, not once at the end.
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(4);
+    while std::time::Instant::now() < until {
+        assert!(run.owned[1].live(), "the naming call outlived tmt run");
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    run.assert_owned_gone();
 }
 
 /// Reads and a provider hook never name the agent: after the bind's one
