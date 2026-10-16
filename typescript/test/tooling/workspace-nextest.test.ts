@@ -62,6 +62,26 @@ describe('workspace nextest equivalence evidence', () => {
     }
   );
 
+  it('admits the default nextest ignored reason only for independently ignored cases', () => {
+    const input = nextest();
+    input['rust-suites'].suite.testcases.ignored['filter-match'] = {
+      status: 'mismatch',
+      reason: 'ignored',
+    } as { status: string };
+    expect(compareInventories(cargo(), input)).toHaveLength(2);
+    input['rust-suites'].suite.testcases.active['filter-match'] = {
+      status: 'mismatch',
+      reason: 'ignored',
+    } as { status: string };
+    expect(() => compareInventories(cargo(), input)).toThrow('filtered test');
+    input['rust-suites'].suite.testcases.active['filter-match'] = { status: 'matches' };
+    input['rust-suites'].suite.testcases.ignored['filter-match'] = {
+      status: 'mismatch',
+      reason: 'expression',
+    } as { status: string };
+    expect(() => compareInventories(cargo(), input)).toThrow('filtered test');
+  });
+
   it('pins real PASS identities, not a green summary or a matching count', () => {
     const cases = compareInventories(cargo(), nextest());
     const pass = '        PASS [  0.123s] (1/1) owner::suite active\n';

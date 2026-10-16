@@ -12,7 +12,10 @@ export function compareInventories(
       {
         'binary-path': string;
         'binary-id': string;
-        testcases: Record<string, { ignored: boolean; 'filter-match': { status: string } }>;
+        testcases: Record<
+          string,
+          { ignored: boolean; 'filter-match': { status: string; reason?: string } }
+        >;
       }
     >;
   }

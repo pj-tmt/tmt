@@ -35,7 +35,14 @@ export function compareInventories(cargo, nextest) {
     const ignored = names.filter((name) => suite.testcases[name].ignored);
     assert.deepEqual(ignored, original.ignored, `${suite['binary-id']}: ignored set differs`);
     for (const name of names) {
-      assert.equal(suite.testcases[name]['filter-match'].status, 'matches', 'filtered test');
+      const match = suite.testcases[name]['filter-match'];
+      assert.ok(
+        match.status === 'matches' ||
+          (suite.testcases[name].ignored &&
+            match.status === 'mismatch' &&
+            match.reason === 'ignored'),
+        `${suite['binary-id']}: ${name}: filtered test`
+      );
       cases.push({ binary: suite['binary-id'], name, ignored: ignored.includes(name) });
     }
   }
