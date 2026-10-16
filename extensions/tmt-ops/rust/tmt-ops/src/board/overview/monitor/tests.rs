@@ -49,7 +49,12 @@ fn section_counts_use_singular_for_one_and_preserve_filtered_and_partial_counts(
                 filtered.contains(&format!(
                     "{} of {count} {}",
                     usize::from(count > 0),
-                    if count == 1 { "agent" } else { "agents" }
+                    match (view, count) {
+                        (View::Squads, 1) => "squad",
+                        (View::Squads, _) => "squads",
+                        (View::Agents, 1) => "agent",
+                        (View::Agents, _) => "agents",
+                    }
                 )),
                 "{filtered}"
             );
@@ -65,7 +70,14 @@ fn section_counts_use_singular_for_one_and_preserve_filtered_and_partial_counts(
                     .observation = OpsObservation::Partial;
                 app.overview_rows.borrow_mut().clear();
                 let partial = text(&paint(&mut app, 103, 51));
-                assert!(partial.contains("~1 of ~1 agent"), "{partial}");
+                assert!(
+                    partial.contains(if view == View::Squads {
+                        "~1 of ~1 squad"
+                    } else {
+                        "~1 of ~1 agent"
+                    }),
+                    "{partial}"
+                );
                 app.view
                     .as_mut()
                     .unwrap()
@@ -158,7 +170,7 @@ fn filtered_counts_keep_the_admitted_denominator_in_both_views() {
     for view in [View::Squads, View::Agents] {
         app.overview_view = view;
         let expected = if view == View::Squads {
-            ["1 of 1 squads", "0 of 1 squads"]
+            ["1 of 1 squad", "0 of 1 squad"]
         } else {
             ["1 of 3 agents", "0 of 3 agents"]
         };

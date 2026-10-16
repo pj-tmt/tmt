@@ -427,6 +427,16 @@ fn overview_notices_and_errors_keep_the_neutral_palette() {
         app.notice = (!error).then(|| "Nothing sent.".into());
         app.error = error.then(|| "Reply failed; draft kept.".into());
         let buffer = paint(&mut app, 148, 51);
-        assert_eq!(buffer[(0, 50)].fg, app.look().role(Role::Muted).fg.unwrap());
+        if error {
+            assert_eq!(buffer[(0, 50)].fg, app.look().role(Role::Muted).fg.unwrap());
+        } else {
+            let row = &buffer.content[50 * 148..51 * 148];
+            let shown: String = row.iter().map(|cell| cell.symbol()).collect();
+            let start = shown.find("Nothing sent.").expect("right-hand notice chip");
+            let cell = &row[start];
+            assert_eq!(cell.fg, app.look().role(Role::Text).fg.unwrap());
+            assert_eq!(cell.bg, app.look().role(Role::Track).bg.unwrap());
+            assert!(!shown.trim_start().starts_with("Nothing sent."));
+        }
     }
 }
