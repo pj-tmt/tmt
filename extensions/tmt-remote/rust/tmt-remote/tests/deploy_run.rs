@@ -1531,3 +1531,287 @@ fn a_declared_composite_must_be_ready_before_joint_complete_and_lost_ack_is_reco
         );
     }
 }
+
+fn four_composites() -> DeployPlan {
+    let artifact = read("declarations", "rules/colab-admission.rules");
+    let mut declaration: serde_json::Value =
+        serde_json::from_slice(&read("declarations", "colab-firestore.json")).unwrap();
+    let original = declaration["resources"][0].clone();
+    declaration["resources"] = serde_json::Value::Array((0..4).map(|n| {
+        let mut resource = original.clone();
+        resource["name"] = serde_json::json!(format!("page-log-{n}"));
+        resource["path"] = serde_json::json!(format!("log{n}"));
+        resource["sync"] = serde_json::json!({
+            "fields":["room","writer","position"],"spaceField":"room","uidField":null,
+            "query":{"scopeFields":["room","writer"],"streamField":"writer","seqField":"position","order":"asc"}});
+        resource
+    }).collect());
+    let bytes = serde_json::to_vec(&declaration).unwrap();
+    let extensions = compose(
+        Target {
+            backend: CloudBackend::Firestore,
+            physical_ttl: false,
+        },
+        &[Enabled {
+            name: "colab",
+            supplied: Some(Supplied {
+                declaration: &bytes,
+                artifact: &artifact,
+            }),
+        }],
+    )
+    .unwrap();
+    Inputs::new().prepare(&extensions).unwrap()
+}
+
+#[test]
+fn all_composites_are_created_before_waiting_without_publishing_rules() {
+    let plan = four_composites();
+    let ids: Vec<_> = plan
+        .steps()
+        .iter()
+        .filter(|step| {
+            matches!(
+                step.kind,
+                tmt_remote::deploy_run::StepKind::CompositeIndex(_)
+            )
+        })
+        .map(|step| step.id.clone())
+        .collect();
+    assert_eq!(ids.len(), 4);
+    let mut fake = Fake::new(ACCOUNT);
+    fake.building.extend(ids.clone());
+    let mut sink = Mem::default();
+    let record = go(&plan, &mut fake, &mut sink, DeployRecord::new(DEPLOYMENT)).unwrap();
+    for id in &ids {
+        assert_eq!(
+            fake.effects_of(id),
+            1,
+            "every pending composite is created: {id}"
+        );
+        assert!(states(&record).contains(&(id.clone(), StepState::Building)));
+    }
+    assert_eq!(fake.effects_of("rules"), 0);
+    assert!(fake.rules.is_none());
+    assert_eq!(record.run.as_ref().unwrap().state, RunState::Partial);
+    assert!(record.binding.is_none());
+    fake.building.clear();
+    let resumed = go(&plan, &mut fake, &mut sink, record).unwrap();
+    assert_eq!(resumed.run.unwrap().state, RunState::Complete);
+    for id in ids {
+        assert_eq!(fake.effects_of(&id), 1, "resume never re-creates");
+    }
+}
+
+fn composite_ids(plan: &DeployPlan) -> Vec<String> {
+    plan.steps()
+        .iter()
+        .filter(|step| {
+            matches!(
+                step.kind,
+                tmt_remote::deploy_run::StepKind::CompositeIndex(_)
+            )
+        })
+        .map(|step| step.id.clone())
+        .collect()
+}
+
+#[test]
+fn composite_checks_finish_in_one_run_and_never_retry_a_mutation() {
+    let plan = four_composites();
+    let ids: Vec<_> = composite_ids(&plan);
+    let mut fake = Fake::new(ACCOUNT);
+    fake.building.extend(ids.clone());
+    fake.composite_rounds
+        .extend([Ok(vec![ids[0].clone()]), Ok(ids[1..].to_vec())]);
+    let result = go(
+        &plan,
+        &mut fake,
+        &mut Mem::default(),
+        DeployRecord::new(DEPLOYMENT),
+    )
+    .unwrap();
+    assert_eq!(result.run.unwrap().state, RunState::Complete);
+    assert_eq!(fake.check_calls, [0, 1]);
+    let first_check = fake
+        .calls
+        .iter()
+        .position(|c| c.starts_with("check:"))
+        .unwrap();
+    for id in &ids {
+        assert_eq!(fake.effects_of(id), 1);
+        assert!(fake.calls[..first_check].contains(&format!("apply:{id}")));
+    }
+    assert_eq!(
+        fake.calls
+            .iter()
+            .filter(|c| **c == format!("check:{}", ids[0]))
+            .count(),
+        1,
+        "ready indexes are not polled again"
+    );
+}
+
+#[test]
+fn composite_batch_stops_on_unknown_or_refusal_before_any_later_mutation() {
+    let plan = four_composites();
+    let ids: Vec<_> = composite_ids(&plan);
+    for fault in [When::BeforeEffect, When::AfterEffectUnknown] {
+        let mut fake = Fake::new(ACCOUNT);
+        fake.building.extend(ids.clone());
+        fake.faults.insert(ids[1].clone(), fault);
+        let record = go(
+            &plan,
+            &mut fake,
+            &mut Mem::default(),
+            DeployRecord::new(DEPLOYMENT),
+        )
+        .unwrap();
+        assert_eq!(fake.effects_of(&ids[0]), 1);
+        assert_eq!(
+            fake.effects_of(&ids[1]),
+            u32::from(fault == When::AfterEffectUnknown)
+        );
+        assert_eq!(fake.effects_of(&ids[2]), 0);
+        assert_eq!(fake.effects_of("rules"), 0);
+        assert!(fake.check_calls.is_empty());
+        assert!(states(&record).contains(&(
+            ids[1].clone(),
+            if fault == When::AfterEffectUnknown {
+                StepState::Unknown
+            } else {
+                StepState::Failed(DeployFault::ProviderRejected)
+            }
+        )));
+    }
+}
+
+#[test]
+fn composite_wait_exhaustion_preserves_building_and_resume_creates_nothing_twice() {
+    let plan = four_composites();
+    let ids: Vec<_> = composite_ids(&plan);
+    let mut fake = Fake::new(ACCOUNT);
+    fake.building.extend(ids.clone());
+    fake.composite_rounds.extend([Ok(vec![]), Ok(vec![])]);
+    let mut sink = Mem::default();
+    let record = go(&plan, &mut fake, &mut sink, DeployRecord::new(DEPLOYMENT)).unwrap();
+    assert_eq!(fake.check_calls, [0, 1, 2]);
+    for id in &ids {
+        assert!(states(&record).contains(&(id.clone(), StepState::Building)));
+    }
+    assert_eq!(fake.effects_of("rules"), 0);
+    fake.composite_rounds.push_back(Ok(ids.clone()));
+    let record = go(&plan, &mut fake, &mut sink, record).unwrap();
+    assert_eq!(record.run.unwrap().state, RunState::Complete);
+    assert_eq!(fake.check_calls, [0, 1, 2, 0]);
+    for id in ids {
+        assert_eq!(fake.effects_of(&id), 1);
+    }
+}
+
+#[test]
+fn composite_check_cancellation_or_refusal_is_saved_without_publishing() {
+    let plan = four_composites();
+    let ids: Vec<_> = composite_ids(&plan);
+    for error in [
+        DeployProviderError::Unknown,
+        DeployProviderError::Rejected(DeployFault::PermissionDenied),
+    ] {
+        let mut fake = Fake::new(ACCOUNT);
+        fake.building.extend(ids.clone());
+        fake.composite_rounds.push_back(Err(error));
+        let record = go(
+            &plan,
+            &mut fake,
+            &mut Mem::default(),
+            DeployRecord::new(DEPLOYMENT),
+        )
+        .unwrap();
+        let expected = match error {
+            DeployProviderError::Unknown => StepState::Unknown,
+            DeployProviderError::Rejected(fault) => StepState::Failed(fault),
+        };
+        assert!(states(&record).contains(&(ids[0].clone(), expected)));
+        assert_eq!(fake.effects_of("rules"), 0);
+        for id in &ids {
+            assert_eq!(fake.effects_of(id), 1);
+        }
+    }
+}
+
+#[test]
+fn missing_composite_readback_never_turns_into_another_create() {
+    let plan = four_composites();
+    let ids: Vec<_> = composite_ids(&plan);
+    let mut fake = Fake::new(ACCOUNT);
+    fake.building.extend(ids.clone());
+    fake.composite_rounds.push_back(Ok(vec![]));
+    fake.check_observations.insert(
+        ids[0].clone(),
+        tmt_remote::deploy_run::DeployObserved::Absent,
+    );
+    let record = go(
+        &plan,
+        &mut fake,
+        &mut Mem::default(),
+        DeployRecord::new(DEPLOYMENT),
+    )
+    .unwrap();
+    assert!(states(&record).contains(&(ids[0].clone(), StepState::Unknown)));
+    assert_eq!(fake.effects_of(&ids[0]), 1);
+    assert_eq!(fake.effects_of("rules"), 0);
+}
+
+#[test]
+fn failed_save_during_composite_checks_fences_all_later_calls() {
+    let plan = four_composites();
+    let ids = composite_ids(&plan);
+    let provider = || {
+        let mut fake = Fake::new(ACCOUNT);
+        fake.building.extend(ids.clone());
+        fake.composite_rounds.push_back(Ok(ids.clone()));
+        fake
+    };
+    let mut sink = Mem::default();
+    go(
+        &plan,
+        &mut provider(),
+        &mut sink,
+        DeployRecord::new(DEPLOYMENT),
+    )
+    .unwrap();
+    let all_building = sink
+        .saved
+        .iter()
+        .position(|record| {
+            ids.iter()
+                .all(|id| states(record).contains(&(id.clone(), StepState::Building)))
+        })
+        .unwrap();
+    let mut failing_sink = Mem {
+        fail_from: Some(all_building + 1),
+        ..Mem::default()
+    };
+    let mut fake = provider();
+    assert_eq!(
+        go(
+            &plan,
+            &mut fake,
+            &mut failing_sink,
+            DeployRecord::new(DEPLOYMENT)
+        ),
+        Err(DeployError::Interrupted)
+    );
+    assert_eq!(
+        fake.calls
+            .iter()
+            .filter(|call| call.starts_with("check:"))
+            .count(),
+        1
+    );
+    assert_eq!(fake.effects_of("rules"), 0);
+    let last = failing_sink.saved.last().unwrap();
+    for id in ids {
+        assert!(states(last).contains(&(id.clone(), StepState::Building)));
+    }
+}

@@ -183,11 +183,22 @@ pub fn execute<P: FirestoreCommandPort>(
     provider.login().map_err(DeployCliError::Setup)?;
     let path = store.record_path();
     let mut output = execute_prepared(args, &discovered, &mut provider, &mut store, now()?, &path)?;
-    if output.json["record"]["run"]["state"] == "partial" {
+    if output.json["record"]["run"]["steps"]
+        .as_array()
+        .is_some_and(|steps| steps.iter().any(|step| step["state"] == "unknown"))
+    {
         output.human.push_str(&uncertain_message(&path));
         output.human.push('\n');
     }
     Ok(output)
+}
+/// One visible line per read-only round, including elapsed time.
+pub fn composite_progress(elapsed: std::time::Duration, ceiling: std::time::Duration) -> String {
+    format!(
+        "Checking composite indexes ({} s elapsed; up to {} s).",
+        elapsed.as_secs(),
+        ceiling.as_secs()
+    )
 }
 /// The raw saved record, unlike status --layers, contains each original step outcome.
 pub fn uncertain_message(path: &std::path::Path) -> String {

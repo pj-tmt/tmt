@@ -306,6 +306,23 @@ fn describe_record(text: &mut String, record: &DeployRecord, record_path: &std::
             writeln!(text, "{}: {}", action.code(), action.instruction()).expect("String write");
         }
     }
+    let composites: Vec<_> = run
+        .steps
+        .iter()
+        .filter(|step| step.id.starts_with("composite-index:"))
+        .collect();
+    if let Some(index) = composites
+        .iter()
+        .position(|step| step.state == deploy_run::StepState::Building)
+    {
+        writeln!(
+            text,
+            "Index {} of {} is still building. Rerun the same command in a minute.",
+            index + 1,
+            composites.len()
+        )
+        .expect("String write");
+    }
     if !uploads.is_empty() {
         let summary = uploads
             .into_iter()
@@ -320,6 +337,50 @@ fn describe_record(text: &mut String, record: &DeployRecord, record_path: &std::
 mod tests {
     use super::*;
     use deploy_run::{Run, RunState, StepRecord, StepState};
+    #[test]
+    fn composite_round_copy_displays_elapsed_and_shared_ceiling() {
+        assert_eq!(
+            crate::deploy_cli::composite_progress(
+                std::time::Duration::from_secs(20),
+                std::time::Duration::from_secs(180)
+            ),
+            "Checking composite indexes (20 s elapsed; up to 180 s)."
+        );
+    }
+
+    #[test]
+    fn known_building_composite_names_its_ordinal_and_rerun() {
+        let mut record = DeployRecord::new("fixture");
+        record.run = Some(Run {
+            plan_digest: "a".repeat(64),
+            account: "fixture".into(),
+            authorized_at_ms: 0,
+            state: RunState::Partial,
+            rules_attempted: false,
+            hosting: None,
+            steps: (1..=4)
+                .map(|n| StepRecord {
+                    id: format!("composite-index:{n}"),
+                    state: if n == 2 {
+                        StepState::Building
+                    } else {
+                        StepState::Done
+                    },
+                })
+                .collect(),
+        });
+        let mut text = String::new();
+        describe_record(
+            &mut text,
+            &record,
+            std::path::Path::new("/fixture/deploy.json"),
+        );
+        assert!(
+            text.contains("Index 2 of 4 is still building. Rerun the same command in a minute.")
+        );
+        assert!(!text.contains("could not be confirmed"));
+    }
+
     #[test]
     fn human_progress_collapses_uploads_and_names_the_original_create_exit() {
         let mut record = DeployRecord::new("fixture");

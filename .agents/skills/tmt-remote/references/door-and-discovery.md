@@ -307,7 +307,8 @@ An old single-path setup is refused with one command to move it aside; no migrat
 ships.
 Login, pairing and installation never authorize
 deployment. No prompt or `--yes` bypass exists. An unknown outcome requires read-back and exact-plan resume, not a
-blind repeat of an effect. A preflight HTTP failure names the operation and status (also
+blind repeat of an effect. Composite indexes are created as a batch, then checked with elapsed progress for up to three minutes; a still-building index names its position and asks for the same command again in a minute.
+A preflight HTTP failure names the operation and status (also
 `error.provider` in JSON), so a failed field/index inventory is distinguishable from Rules
 reads. These diagnostics contain no provider body or project identifier and do not imply
 that waiting makes an arbitrary 400/404 retryable; see the contract's deployment error paragraph.

@@ -1,7 +1,7 @@
 //! A fake provider for the deploy run (#2164): it holds the project's objects, logs every
 //! call and can fail a step before or after its effect. It has no delete operation
 //! because the port has none; unrelated objects are checked for equality instead.
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use tmt_remote::deploy_run::{
     DeployApplied, DeployObserved, DeployOwnerAction, DeployPlan, DeployPort, DeployProviderError,
     DeployRecord, DeploySink, DeploySinkError, DeployStep, StepKind, classify_live_rules,
@@ -39,6 +39,10 @@ pub struct Fake {
     pub effects: BTreeMap<String, u32>,
     /// Every observe/apply call as `observe:<id>` / `apply:<id>`.
     pub calls: Vec<String>,
+    /// Bounded read-only rounds: each successful round makes these indexes ready.
+    pub composite_rounds: VecDeque<Result<Vec<String>, DeployProviderError>>,
+    pub check_calls: Vec<usize>,
+    pub check_observations: BTreeMap<String, DeployObserved>,
 }
 impl Fake {
     pub fn new(account: &str) -> Self {
@@ -104,6 +108,27 @@ impl DeployPort for Fake {
             _ => DeployObserved::Absent,
         })
     }
+    fn composite_check(&mut self, round: usize) -> Result<bool, DeployProviderError> {
+        self.check_calls.push(round);
+        let Some(ready) = self.composite_rounds.pop_front() else {
+            return Ok(false);
+        };
+        for id in ready? {
+            self.building.remove(&id);
+        }
+        Ok(true)
+    }
+    fn observe_composite(
+        &mut self,
+        plan: &DeployPlan,
+        step: &DeployStep,
+    ) -> Result<DeployObserved, DeployProviderError> {
+        self.calls.push(format!("check:{}", step.id));
+        if let Some(observed) = self.check_observations.get(&step.id) {
+            return Ok(observed.clone());
+        }
+        self.observe(plan, step)
+    }
     fn apply(
         &mut self,
         plan: &DeployPlan,
@@ -128,7 +153,11 @@ impl DeployPort for Fake {
         {
             self.rules = Some(release.clone());
         }
-        Ok(DeployApplied::Done)
+        Ok(if self.building.contains(&step.id) {
+            DeployApplied::Building
+        } else {
+            DeployApplied::Done
+        })
     }
 }
 

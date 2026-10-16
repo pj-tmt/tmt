@@ -10,12 +10,70 @@ use crate::{
     limits, wire,
 };
 use serde_json::{Value, json};
-use std::{ffi::OsString, fmt, path::PathBuf, sync::atomic::AtomicBool, time::Instant};
+use std::{
+    ffi::OsString,
+    fmt,
+    path::PathBuf,
+    sync::atomic::{AtomicBool, Ordering},
+    time::{Duration, Instant},
+};
 use tmt_invoke::{EnvironmentPolicy, LaunchOptions, Request};
 
 const HELPER: &str = include_str!("deploy_firestore/helper.cjs");
 /// Versions whose private auth/layout interface this release has qualified.
 pub const FIREBASE_TOOLS_VERSIONS: &[&str] = &["15.29.0"];
+
+// One fixed adapter policy: at most eighteen read-only rounds within three minutes.
+const COMPOSITE_INDEX_WAIT: CompositeWaitPolicy = CompositeWaitPolicy {
+    interval: Duration::from_secs(10),
+    rounds: 18,
+    cancel_tick: Duration::from_millis(100),
+};
+struct CompositeWaitPolicy {
+    interval: Duration,
+    rounds: u32,
+    cancel_tick: Duration,
+}
+impl CompositeWaitPolicy {
+    fn ceiling(&self) -> Duration {
+        self.interval * self.rounds
+    }
+    fn wait_round(
+        &self,
+        start: Instant,
+        round: usize,
+        stop: &AtomicBool,
+        mut now: impl FnMut() -> Instant,
+        mut sleep: impl FnMut(Duration),
+    ) -> Result<Option<Duration>, DeployProviderError> {
+        if round >= self.rounds as usize {
+            return Ok(None);
+        }
+        let target = if round == 0 {
+            start
+        } else {
+            now() + self.interval
+        };
+        loop {
+            if stop.load(Ordering::Acquire) {
+                return Err(unknown());
+            }
+            let current = now();
+            if current >= start + self.ceiling() {
+                return Ok(None);
+            }
+            if current >= target {
+                return Ok(Some(current.duration_since(start)));
+            }
+            sleep(
+                target
+                    .min(start + self.ceiling())
+                    .duration_since(current)
+                    .min(self.cancel_tick),
+            );
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DeploySetupError {
@@ -132,6 +190,8 @@ pub struct DeployFirestore<'a> {
     hosting: Option<deploy_run::HostingCheckpoint>,
     compressed: std::collections::BTreeMap<String, Vec<u8>>,
     steps: Vec<deploy_run::StepRecord>,
+    composite_started: Option<Instant>,
+    composite_progress: Option<Box<dyn FnMut(Duration, Duration) + Send + 'a>>,
 }
 impl<'a> DeployFirestore<'a> {
     /// Check compatibility without loading auth, reading credentials or contacting Google.
@@ -151,6 +211,8 @@ impl<'a> DeployFirestore<'a> {
             hosting: None,
             compressed: std::collections::BTreeMap::new(),
             steps: Vec::new(),
+            composite_started: None,
+            composite_progress: None,
         };
         let capabilities = adapter
             .exchange(
@@ -166,6 +228,14 @@ impl<'a> DeployFirestore<'a> {
             return Err(DeploySetupError::UnsupportedTool);
         }
         Ok(adapter)
+    }
+    /// CLI composition supplies presentation; the provider never writes output.
+    pub fn with_composite_progress(
+        mut self,
+        progress: impl FnMut(Duration, Duration) + Send + 'a,
+    ) -> Self {
+        self.composite_progress = Some(Box::new(progress));
+        self
     }
     pub fn environment_names() -> [OsString; 3] {
         ["HOME", "PATH", "XDG_CONFIG_HOME"].map(OsString::from)
@@ -393,6 +463,37 @@ impl DeployPort for DeployFirestore<'_> {
         }
         self.observe_until(plan, step, Instant::now() + limits::DEPLOY_PROVIDER_CALL)
     }
+    fn composite_check(&mut self, round: usize) -> Result<bool, DeployProviderError> {
+        if round == 0 {
+            self.composite_started = Some(Instant::now());
+        }
+        let start = self.composite_started.ok_or_else(unknown)?;
+        let elapsed = COMPOSITE_INDEX_WAIT.wait_round(
+            start,
+            round,
+            self.stop,
+            Instant::now,
+            std::thread::sleep,
+        )?;
+        if let Some(elapsed) = elapsed {
+            if let Some(progress) = &mut self.composite_progress {
+                progress(elapsed, COMPOSITE_INDEX_WAIT.ceiling());
+            }
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+    fn observe_composite(
+        &mut self,
+        plan: &DeployPlan,
+        step: &DeployStep,
+    ) -> Result<DeployObserved, DeployProviderError> {
+        let ceiling = self.composite_started.ok_or_else(unknown)? + COMPOSITE_INDEX_WAIT.ceiling();
+        composite_observation(Instant::now(), ceiling, self.stop, |deadline| {
+            self.observe_until(plan, step, deadline)
+        })
+    }
     fn apply(
         &mut self,
         plan: &DeployPlan,
@@ -419,6 +520,31 @@ impl DeployPort for DeployFirestore<'_> {
         }
     }
 }
+// Inject the one read so the shared ceiling and cancellation can be tested without
+// sleeping or launching a child. This owner never applies an index while checking it.
+fn composite_observation(
+    now: Instant,
+    ceiling: Instant,
+    stop: &AtomicBool,
+    read: impl FnOnce(Instant) -> Result<DeployObserved, DeployProviderError>,
+) -> Result<DeployObserved, DeployProviderError> {
+    if stop.load(Ordering::Acquire) {
+        return Err(unknown());
+    }
+    if now >= ceiling {
+        return Ok(DeployObserved::Building);
+    }
+    let deadline = (now + limits::DEPLOY_PROVIDER_CALL).min(ceiling);
+    let observed = read(deadline);
+    if observed.is_err() && deadline == ceiling && !stop.load(Ordering::Acquire) {
+        // A failed final read does not make the accepted creation unconfirmed.
+        // Keep the last accepted Building state; an exact-plan rerun observes it again.
+        Ok(DeployObserved::Building)
+    } else {
+        observed
+    }
+}
+
 fn account_ok(s: &str) -> bool {
     !s.is_empty() && s.len() <= 1024 && !s.chars().any(char::is_control)
 }
@@ -584,6 +710,146 @@ impl DeployFirestore<'_> {
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    #[test]
+    fn clipped_composite_read_failure_keeps_last_building_state() {
+        let start = Instant::now();
+        let ceiling = start + Duration::from_secs(180);
+        let stop = AtomicBool::new(false);
+        for error in [
+            DeployProviderError::Unknown,
+            DeployProviderError::Rejected(DeployFault::PermissionDenied),
+        ] {
+            let result = composite_observation(
+                start + Duration::from_secs(179),
+                ceiling,
+                &stop,
+                |deadline| {
+                    assert_eq!(deadline, ceiling);
+                    Err(error)
+                },
+            );
+            assert_eq!(
+                result,
+                Ok(DeployObserved::Building),
+                "the wait ceiling is not an unconfirmed mutation"
+            );
+            assert_eq!(
+                composite_observation(start, ceiling, &stop, |deadline| {
+                    assert_eq!(deadline, start + limits::DEPLOY_PROVIDER_CALL);
+                    Err(error)
+                }),
+                Err(error),
+                "a failure before the clipped final round stays a failure"
+            );
+        }
+        assert_eq!(
+            composite_observation(start + Duration::from_secs(179), ceiling, &stop, |_| {
+                stop.store(true, Ordering::Release);
+                Err(DeployProviderError::Unknown)
+            }),
+            Err(DeployProviderError::Unknown),
+            "cancellation during the clipped read stays unknown"
+        );
+        assert_eq!(
+            composite_observation(start, ceiling, &stop, |_| panic!(
+                "stopped reads never start"
+            )),
+            Err(DeployProviderError::Unknown)
+        );
+        stop.store(false, Ordering::Release);
+        assert_eq!(
+            composite_observation(ceiling, ceiling, &stop, |_| panic!(
+                "exhausted ceiling never starts a read"
+            )),
+            Ok(DeployObserved::Building)
+        );
+        for observed in [
+            DeployObserved::Satisfied,
+            DeployObserved::Adopted,
+            DeployObserved::Building,
+            DeployObserved::Absent,
+        ] {
+            assert_eq!(
+                composite_observation(start + Duration::from_secs(179), ceiling, &stop, |_| Ok(
+                    observed.clone()
+                )),
+                Ok(observed)
+            );
+        }
+    }
+
+    #[test]
+    fn composite_wait_is_visible_bounded_and_cancellation_wakeable() {
+        use std::cell::Cell;
+        let start = Instant::now();
+        let clock = Cell::new(start);
+        let stop = AtomicBool::new(false);
+        let mut elapsed = Vec::new();
+        for round in 0..18 {
+            elapsed.push(
+                COMPOSITE_INDEX_WAIT
+                    .wait_round(
+                        start,
+                        round,
+                        &stop,
+                        || clock.get(),
+                        |delay| clock.set(clock.get() + delay),
+                    )
+                    .unwrap()
+                    .unwrap(),
+            );
+        }
+        assert_eq!(COMPOSITE_INDEX_WAIT.ceiling(), Duration::from_secs(180));
+        assert_eq!(
+            elapsed,
+            (0..18)
+                .map(|round| Duration::from_secs(round * 10))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            COMPOSITE_INDEX_WAIT
+                .wait_round(
+                    start,
+                    18,
+                    &stop,
+                    || clock.get(),
+                    |_| panic!("ceiling never sleeps")
+                )
+                .unwrap(),
+            None
+        );
+        // Slow reads consume the same ceiling, rather than adding another call budget.
+        clock.set(start + Duration::from_secs(175));
+        assert_eq!(
+            COMPOSITE_INDEX_WAIT
+                .wait_round(
+                    start,
+                    1,
+                    &stop,
+                    || clock.get(),
+                    |delay| clock.set(clock.get() + delay)
+                )
+                .unwrap(),
+            None
+        );
+        assert_eq!(clock.get(), start + Duration::from_secs(180));
+        clock.set(start);
+        assert_eq!(
+            COMPOSITE_INDEX_WAIT.wait_round(
+                start,
+                1,
+                &stop,
+                || clock.get(),
+                |delay| {
+                    clock.set(clock.get() + delay);
+                    stop.store(true, Ordering::Release);
+                }
+            ),
+            Err(DeployProviderError::Unknown)
+        );
+        assert_eq!(clock.get() - start, Duration::from_millis(100));
+    }
 
     #[test]
     fn strict_diagnostic_reply_keeps_fixed_codes_and_rejects_untrusted_evidence() {

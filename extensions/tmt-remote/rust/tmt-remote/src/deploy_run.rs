@@ -513,6 +513,20 @@ pub trait DeployPort {
         plan: &DeployPlan,
         step: &DeployStep,
     ) -> Result<DeployObserved, DeployProviderError>;
+    /// Start a read-only composite check round. The adapter owns its bounded wait,
+    /// cancellation and ceiling; false leaves accepted indexes truthfully building.
+    /// Round zero starts a fresh wait for this run, including an exact-plan resume.
+    fn composite_check(&mut self, _round: usize) -> Result<bool, DeployProviderError> {
+        Ok(false)
+    }
+    /// Read within the adapter's shared check ceiling; this must never create an index.
+    fn observe_composite(
+        &mut self,
+        plan: &DeployPlan,
+        step: &DeployStep,
+    ) -> Result<DeployObserved, DeployProviderError> {
+        self.observe(plan, step)
+    }
     fn apply(
         &mut self,
         plan: &DeployPlan,
@@ -656,8 +670,65 @@ pub fn run(
         if !advance(plan, step, index, &mut record, port, sink)? {
             return finish(record, sink, now_ms, plan);
         }
+        let batch_end = matches!(step.kind, StepKind::CompositeIndex(_))
+            && !plan
+                .steps
+                .get(index + 1)
+                .is_some_and(|next| matches!(next.kind, StepKind::CompositeIndex(_)));
+        if batch_end && !check_composites(plan, &mut record, port, sink)? {
+            return finish(record, sink, now_ms, plan);
+        }
     }
     finish(record, sink, now_ms, plan)
+}
+
+/// All composite creations have finished before this read-only barrier. Neither a
+/// missing read nor an exhausted wait ever authorizes another mutation in this run.
+fn check_composites(
+    plan: &DeployPlan,
+    record: &mut DeployRecord,
+    port: &mut dyn DeployPort,
+    sink: &mut dyn DeploySink,
+) -> Result<bool, DeployError> {
+    let mut round = 0;
+    loop {
+        let building: Vec<_> = plan
+            .steps
+            .iter()
+            .enumerate()
+            .filter(|(i, step)| {
+                matches!(step.kind, StepKind::CompositeIndex(_))
+                    && record.run.as_ref().expect("begun").steps[*i].state == StepState::Building
+            })
+            .collect();
+        let Some((first, _)) = building.first() else {
+            return Ok(true);
+        };
+        match port.composite_check(round) {
+            Ok(true) => {}
+            Ok(false) => return Ok(false),
+            Err(error) => {
+                set(record, sink, *first, from_error(error))?;
+                return Ok(false);
+            }
+        }
+        for (index, step) in building {
+            let state = match port.observe_composite(plan, step) {
+                Ok(DeployObserved::Satisfied) => StepState::Done,
+                Ok(DeployObserved::Adopted) => StepState::Adopted,
+                Ok(DeployObserved::Building) => StepState::Building,
+                // Lost or invalid read evidence cannot be used as an absent/create signal.
+                Ok(_) => StepState::Unknown,
+                Err(error) => from_error(error),
+            };
+            let can_continue = state.finished() || state == StepState::Building;
+            set(record, sink, index, state)?;
+            if !can_continue {
+                return Ok(false);
+            }
+        }
+        round += 1;
+    }
 }
 
 fn run_of(record: &mut DeployRecord) -> &mut Run {
@@ -823,7 +894,7 @@ fn advance(
         }
         Ok(DeployApplied::Building) => {
             set(record, sink, index, StepState::Building)?;
-            Ok(false)
+            Ok(matches!(step.kind, StepKind::CompositeIndex(_)))
         }
         Ok(DeployApplied::OwnerAction(action)) => {
             set(record, sink, index, StepState::OwnerAction(action))?;

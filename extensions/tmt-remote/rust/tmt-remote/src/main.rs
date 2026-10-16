@@ -605,7 +605,12 @@ fn deploy_firestore_command(matches: &clap::ArgMatches) -> Result<(), RemoteErro
         || {
             let search = std::env::var_os("PATH").unwrap_or_default();
             let tools = deploy_tools::discover(&search).map_err(deploy_cli::DeployCliError::Tool)?;
-            deploy_firestore::DeployFirestore::at(tools.node, tools.package, &stop).map_err(deploy_cli::DeployCliError::Setup)
+            deploy_firestore::DeployFirestore::at(tools.node, tools.package, &stop)
+                .map(|provider| provider.with_composite_progress(|elapsed, ceiling| {
+                    let mut output = tmt_cli_style::stream::stderr();
+                    let _ = writeln!(output, "{}", deploy_cli::composite_progress(elapsed, ceiling));
+                }))
+                .map_err(deploy_cli::DeployCliError::Setup)
         },
         || {
             let root = CoreClient::discover().and_then(|core| core.storage_root(&stop)).map_err(deploy_cli::DeployCliError::Local)?;
