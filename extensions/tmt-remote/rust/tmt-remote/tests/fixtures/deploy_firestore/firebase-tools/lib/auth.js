@@ -35,13 +35,21 @@ global.fetch = async (url, options) => {
   const parsed = new URL(url);
   if (
     options.method === 'GET' &&
-    ((parsed.origin === 'https://firestore.googleapis.com' &&
-      /^\/v1\/projects\/[^/]+\/databases\/[^/]+\/collectionGroups\/[^/]+\/fields$/.test(parsed.pathname) &&
-      (parsed.searchParams.get('filter') !== 'indexConfig.usesAncestorConfig:false OR ttlConfig:*' ||
-        [...parsed.searchParams.keys()].some((key) => !['filter', 'pageSize', 'pageToken'].includes(key)))) ||
-      (parsed.origin === 'https://firebaserules.googleapis.com' &&
-        /^\/v1\/projects\/[^/]+\/rulesets$/.test(parsed.pathname) &&
-        Number(parsed.searchParams.get('pageSize')) > 100))
+    parsed.origin === 'https://firestore.googleapis.com' &&
+    /^\/v1\/projects\/[^/]+\/databases\/[^/]+\/collectionGroups\/[^/]+\/(fields|indexes)$/.test(parsed.pathname)
+  ) {
+    const token = parsed.searchParams.get('pageToken');
+    const filter = parsed.pathname.endsWith('/fields')
+      ? '?filter=indexConfig.usesAncestorConfig=false%20OR%20ttlConfig:*' : '';
+    const expected = filter + (token ? `${filter ? '&' : '?'}pageToken=${encodeURIComponent(token)}` : '');
+    if (parsed.search !== expected)
+      return new Response(JSON.stringify({ error: { code: 400, status: 'INVALID_ARGUMENT' } }), { status: 400 });
+  }
+  if (
+    options.method === 'GET' &&
+    parsed.origin === 'https://firebaserules.googleapis.com' &&
+    /^\/v1\/projects\/[^/]+\/rulesets$/.test(parsed.pathname) &&
+    Number(parsed.searchParams.get('pageSize')) > 100
   )
     return new Response(JSON.stringify({ error: { code: 400, status: 'INVALID_ARGUMENT' } }), { status: 400 });
   if (value.readFailure && url.includes(value.readFailure.path)) {

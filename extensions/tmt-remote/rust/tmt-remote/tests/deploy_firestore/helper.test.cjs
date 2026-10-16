@@ -49,11 +49,15 @@ function fixture(route, account = ACCOUNT) {
       if (
         options.method === 'GET' &&
         parsed.origin === 'https://firestore.googleapis.com' &&
-        /^\/v1\/projects\/[^/]+\/databases\/[^/]+\/collectionGroups\/[^/]+\/fields$/.test(parsed.pathname) &&
-        (parsed.searchParams.get('filter') !== 'indexConfig.usesAncestorConfig:false OR ttlConfig:*' ||
-          [...parsed.searchParams.keys()].some((key) => !['filter', 'pageSize', 'pageToken'].includes(key)))
-      )
-        return { status: 400, body: { error: { code: 400, status: 'INVALID_ARGUMENT' } } };
+        /^\/v1\/projects\/[^/]+\/databases\/[^/]+\/collectionGroups\/[^/]+\/(fields|indexes)$/.test(parsed.pathname)
+      ) {
+        const token = parsed.searchParams.get('pageToken');
+        const filter = parsed.pathname.endsWith('/fields')
+          ? '?filter=indexConfig.usesAncestorConfig=false%20OR%20ttlConfig:*' : '';
+        const expected = filter + (token ? `${filter ? '&' : '?'}pageToken=${encodeURIComponent(token)}` : '');
+        if (parsed.search !== expected)
+          return { status: 400, body: { error: { code: 400, status: 'INVALID_ARGUMENT' } } };
+      }
       if (
         options.method === 'GET' &&
         parsed.origin === 'https://firebaserules.googleapis.com' &&
@@ -165,30 +169,30 @@ test('anonymous enable only patches the selected provider, not another setting',
   assert.match(mutations(f)[0].url, /updateMask=signIn.anonymous.enabled$/);
 });
 const indexInput = { project: PROJECT, collection: 'log', field: 'sequence', direction: 'asc' };
-test('fields fake rejects the old filter and unknown query parameters with HTTP 400', async () => {
+test('fields fake pins the proven request and refuses pageSize or whole-filter encoding', async () => {
   let accepted = 0;
   const f = fixture(() => {
     accepted++;
     return { status: 200, body: { fields: [] } };
   });
-  const url = new URL(`https://firestore.googleapis.com/v1/${database}/collectionGroups/-/fields`);
-  for (const filter of [null, 'indexConfig.usesAncestorConfig=false OR ttlConfig:*']) {
-    url.search = '';
-    if (filter !== null) url.searchParams.set('filter', filter);
-    assert.equal((await f.http(url.href, { method: 'GET' })).status, 400);
-  }
-  url.searchParams.set('filter', 'indexConfig.usesAncestorConfig:false OR ttlConfig:*');
-  url.searchParams.set('unknown', 'true');
-  assert.equal((await f.http(url.href, { method: 'GET' })).status, 400);
+  const base = `https://firestore.googleapis.com/v1/${database}/collectionGroups/-/fields`;
+  const proven = '?filter=indexConfig.usesAncestorConfig=false%20OR%20ttlConfig:*';
+  for (const query of [
+    '',
+    `${proven}&pageSize=200`,
+    `?filter=${encodeURIComponent('indexConfig.usesAncestorConfig=false OR ttlConfig:*')}`,
+    `?filter=${encodeURIComponent('indexConfig.usesAncestorConfig=false OR ttlConfig:*')}&pageSize=200`,
+    `?filter=${encodeURIComponent('indexConfig.usesAncestorConfig:false OR ttlConfig:*')}&pageSize=200`,
+    `${proven}&unknown=true`,
+  ])
+    assert.equal((await f.http(base + query, { method: 'GET' })).status, 400);
   assert.equal(accepted, 0);
-  url.searchParams.delete('unknown');
-  url.searchParams.set('pageSize', '200');
-  url.searchParams.set('pageToken', 'next page&token');
-  assert.equal((await f.http(url.href, { method: 'GET' })).status, 200);
-  assert.equal(accepted, 1);
+  for (const suffix of ['', '&pageToken=next%20page%26token'])
+    assert.equal((await f.http(base + proven + suffix, { method: 'GET' })).status, 200);
+  assert.equal(accepted, 2);
 });
 for (const operation of ['index-budget', 'apply-index']) {
-  test(`${operation} sends the documented fields filter on every bounded page`, async () => {
+  test(`${operation} sends the pinned fields URL on every bounded page`, async () => {
     let pages = 0;
     const f = fixture((url, options) => ({
       status: 200,
@@ -213,11 +217,12 @@ for (const operation of ['index-budget', 'apply-index']) {
     for (const [index, call] of listed.entries()) {
       const params = new URL(call.url).searchParams;
       assert.equal(call.method, 'GET');
-      assert.equal(params.get('filter'), 'indexConfig.usesAncestorConfig:false OR ttlConfig:*');
-      assert.equal(params.get('pageSize'), '200');
+      assert.equal(params.get('filter'), 'indexConfig.usesAncestorConfig=false OR ttlConfig:*');
+      assert.equal(params.get('pageSize'), null);
       assert.equal(params.get('pageToken'), index === 0 ? null : 'next page&token');
       assert.deepEqual([...params.keys()].sort(), index === 0
-        ? ['filter', 'pageSize'] : ['filter', 'pageSize', 'pageToken']);
+        ? ['filter'] : ['filter', 'pageToken']);
+      assert.equal(call.url, `https://firestore.googleapis.com/v1/${database}/collectionGroups/-/fields?filter=indexConfig.usesAncestorConfig=false%20OR%20ttlConfig:*${index === 0 ? '' : '&pageToken=next%20page%26token'}`);
     }
     assert.equal(mutations(f).length, operation === 'index-budget' ? 0 : 1);
   });
@@ -870,7 +875,8 @@ const compositeInput = { project: PROJECT, index: composite };
 function compositeFixture(indexes = [], lose = false) {
   const made = [...indexes];
   const f = fixture((url, options) => {
-    if (url.includes('/indexes?')) return { status: 200, body: { indexes: made } };
+    if (new URL(url).pathname.endsWith('/collectionGroups/-/indexes'))
+      return { status: 200, body: { indexes: made } };
     if (options.method === 'POST') {
       made.push({
         name: `${database}/collectionGroups/log/indexes/new`,
@@ -884,6 +890,22 @@ function compositeFixture(indexes = [], lose = false) {
   });
   return { f, made };
 }
+test('composite inventory keeps the pinned first URL and bounded token-only continuation', async () => {
+  let listed = 0;
+  const base = `https://firestore.googleapis.com/v1/${database}/collectionGroups/-/indexes`;
+  const f = fixture(() => ({ status: 200, body: {
+    indexes: [], ...(listed++ === 0 ? { nextPageToken: 'next index&page' } : {}),
+  } }));
+  assert.equal((await f.http(`${base}?pageSize=200`, { method: 'GET' })).status, 400);
+  assert.equal(listed, 0);
+  f.calls.length = 0;
+  assert.equal(await execute(request('observe-composite', compositeInput), f), 'absent');
+  assert.deepEqual(f.calls.filter((call) => call.url.includes('/-/indexes')).map((call) => call.url), [
+    base,
+    `${base}?pageToken=next%20index%26page`,
+  ]);
+  assert.equal(mutations(f).length, 0);
+});
 test('composite create stays building; retry reconciles exact state without another create', async () => {
   const { f, made } = compositeFixture();
   assert.equal(await execute(request('apply-composite', compositeInput), f), 'building');

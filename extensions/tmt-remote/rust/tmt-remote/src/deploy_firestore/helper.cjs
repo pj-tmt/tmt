@@ -6,7 +6,7 @@ const crypto = require('node:crypto');
 const SUPPORTED = ['15.29.0'];
 const BYTES = 4 * 1024 * 1024;
 const PAGES = 10;
-const OVERRIDDEN_FIELDS_FILTER = 'indexConfig.usesAncestorConfig:false OR ttlConfig:*';
+const OVERRIDDEN_FIELDS_FILTER = 'indexConfig.usesAncestorConfig=false OR ttlConfig:*';
 const APP_OBSERVE_MS = 15000;
 const APP_POLL_MS = 250;
 const UPLOAD_BYTES = Math.ceil((4 * 1024 * 1024 + 65536) / 3) * 4 + 256 * 1024;
@@ -378,7 +378,7 @@ async function execute(request, deps) {
       effect = true;
     }
     const reply = await deps.http(
-      `${bases[service]}/${route}`,
+      new URL(`${bases[service]}/${route}`).href,
       {
         method,
         headers: {
@@ -403,9 +403,13 @@ async function execute(request, deps) {
     let token = '';
     const seen = new Set();
     for (let page = 0; page < PAGES; page++) {
+      const query = [
+        ...(service === 'firestore' ? [] : [`pageSize=${pageSize}`]),
+        ...(token ? [`pageToken=${encodeURIComponent(token)}`] : []),
+      ].join('&');
       const result = await api(
         service,
-        `${route}${route.includes('?') ? '&' : '?'}pageSize=${pageSize}${token ? `&pageToken=${encodeURIComponent(token)}` : ''}`,
+        route + (query ? `${route.includes('?') ? '&' : '?'}${query}` : ''),
       );
       if (!result || (result[key] !== undefined && !Array.isArray(result[key]))) fail('unknown');
       if ((result[key] ?? []).length > 200) fail('unknown');
@@ -927,7 +931,7 @@ async function execute(request, deps) {
           ? []
           : await pages(
               'firestore',
-              `${database}/collectionGroups/-/fields?filter=${encodeURIComponent(OVERRIDDEN_FIELDS_FILTER)}`,
+              `${database}/collectionGroups/-/fields?filter=${OVERRIDDEN_FIELDS_FILTER}`,
               'fields',
             );
       const unique = new Set(configured.map((x) => x.name));
@@ -1047,7 +1051,7 @@ async function execute(request, deps) {
       if (r.operation.startsWith('observe')) return 'absent';
       const configured = await pages(
         'firestore',
-        `${database}/collectionGroups/-/fields?filter=${encodeURIComponent(OVERRIDDEN_FIELDS_FILTER)}`,
+        `${database}/collectionGroups/-/fields?filter=${OVERRIDDEN_FIELDS_FILTER}`,
         'fields',
       );
       const unique = new Set(configured.map((x) => x.name));
