@@ -1,7 +1,7 @@
 //! Bound foreground launch and completion retain one owned child and storage lifetime.
 
 use super::{
-    RunRequest,
+    RunRequest, agent_name,
     channel::{
         HeldLease, admitted_key, claim_is_current, enrollment_failure, paste_notice, preflight,
         verify_claim, verify_plain_fallback,
@@ -626,6 +626,26 @@ pub(super) fn run_bound(
             .as_ref()
             .is_some_and(|(_, state)| *state == tmt_core::binding::session::RuntimeState::Ended),
     );
+    // Only after this exact child was admitted, and outside the wait tick.
+    let naming = match (&admitted, &owner, &child_incarnation) {
+        (
+            Some((key, tmt_core::binding::session::RuntimeState::Running)),
+            Some(owner),
+            Some(child),
+        ) if storage_closed && !already_exited && key.incarnation == *child => {
+            agent_name::Naming::start(
+                agent_name::Launch {
+                    database: paths.database.clone(),
+                    identity_id: binding.identity_id.clone(),
+                    binding_id: binding.id.clone(),
+                    owner: owner.clone(),
+                    child: child.clone(),
+                },
+                binding,
+            )
+        }
+        _ => None,
+    };
     let on_degraded = |_: &std::io::Error| {
         diagnostic(
             "signal observation degraded; waiting for the original command without restarting it.",
@@ -645,6 +665,17 @@ pub(super) fn run_bound(
     } else {
         child.wait(on_degraded)
     };
+    // The child has ended and given the terminal back, so a cleanup failure
+    // can be said; any other naming outcome is silent.
+    if let Some(naming) = naming
+        && naming
+            .finish(agent_name::FINISH_WITHIN)
+            .is_some_and(|outcome| outcome.cleanup_failed)
+    {
+        diagnostic(
+            "could not clean up the process that named this agent; it may still be running.",
+        );
+    }
     // The enrollment ends with the foreground, and only when its end is confirmed:
     // a wait that failed proves nothing, so that path leaves the enrollment as it is.
     let status = lease.settle_wait(waited).map_err(|error| {

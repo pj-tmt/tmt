@@ -357,9 +357,10 @@ A host without agent names does not list it.
   changed.
 - **When core calls it:** with the identity's name after a committed explicit
   bind (`tmt name`, `this`, `add`, `marked`) and after a changed `tmt mv`;
-  with `null` and the identity's name as `expected` just before `clear`.
-  `tmt run`, `tmt resume`, read commands and provider hooks never set a
-  name. A binding cleanup (unbind, `tmt rm`, or a failed `tmt run` launch)
+  with `null` and the identity's name as `expected` just before `clear`;
+  and with the identity's name after `tmt run` or `tmt resume` started an
+  agent (automatic naming, below). Read commands and provider hooks never
+  set a name. A binding cleanup (unbind, `tmt rm`, or a failed `tmt run` launch)
   may take away an agent name equal to the identity's name. Every answer
   leaves the binding as it is. Before `clear` the call gets at most half of
   the time left in the command's budget, and core goes on with the clear
@@ -371,6 +372,24 @@ A host without agent names does not list it.
   and a later clear with the new name leaves it. A host without
   compare-and-set does not show the driver a rename, rebind or new agent
   between its reads and its rename. `tmt this <name>` repairs a name.
+- **Automatic naming (best effort):** after `tmt run` or `tmt resume`
+  admitted the agent it started, core tries at most five times, 1 to 31 s
+  after the start, and again only after `no_agent` or `not_ready`. Each try
+  reads the pane's `agentName` first; an agent that already has a name keeps
+  it. Before that read and again right before the set, core checks that the
+  same launch still holds the binding: the same binding, and `tmt run` and
+  its child both alive. It prints nothing, except one warning after the agent
+  exits when a driver process it started could not be cleaned up. It does
+  not check that the command is a known agent, so a command the host never
+  recognizes costs up to five `no_agent` calls. An explicit bind or `tmt mv`
+  sets the name over any name. Accepted limits: a rename (`tmt mv`, `tmt this` or in the host)
+  between that read and the set, or while the set runs, can be overwritten
+  with the older name, and an unbind while it runs can leave the name;
+  `tmt ls` shows the difference. When the agent exits, `tmt run` waits at
+  most 3 s for a running try, then leaves it to end on its own and drops its
+  result. The driver honors `deadlineMs` itself: after `tmt run` is killed
+  with SIGKILL, nothing in core ends a call that ignores it, as for any
+  driver call.
 
 | Answer | Meaning |
 |---|---|
