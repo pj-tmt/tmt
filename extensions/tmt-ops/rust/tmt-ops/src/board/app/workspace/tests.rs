@@ -3694,6 +3694,205 @@ fn in_place_search_edits_retained_query_and_moves_rows_before_enter() {
 }
 
 #[test]
+fn search_follows_first_match_and_clearing_restores_the_original_selection() {
+    for tab in [OpsTab::Overview, OpsTab::Agents] {
+        let mut app = populated_board(8, 28);
+        app.shell.tab = tab;
+        let original = OpsTarget::Squad(
+            app.workspace_snapshot().unwrap().roster.squads[0]
+                .room_id
+                .clone(),
+        );
+        app.workspace.selected = Some(original.clone());
+        app.workspace_reconcile();
+        key(&mut app, KeyCode::Char('/'));
+        app.paste("squad-07");
+        let first = app.workspace_rows()[0].target.clone();
+        assert_ne!(first, original);
+        assert_eq!(
+            app.workspace.selected,
+            Some(first.clone()),
+            "filter chooses the first visible match"
+        );
+        key(&mut app, KeyCode::Down);
+        let matched = app.workspace.selected.clone();
+        key(&mut app, KeyCode::Enter);
+        assert!(!app.searching);
+        key(&mut app, KeyCode::Char('/'));
+        app.paste("-no-match");
+        assert!(app.workspace_rows().is_empty());
+        assert_eq!(
+            app.workspace.selected, matched,
+            "no match retains the previous pane target"
+        );
+        assert!(
+            app.selected_row().is_none(),
+            "no match grants no hidden-row action authority"
+        );
+        let lines = paint(&app, 148, 51);
+        assert!(lines.iter().any(|line| line.contains("No matching")));
+        assert!(
+            !lines
+                .iter()
+                .any(|line| line.contains("Selected target is hidden"))
+        );
+        if let Some(OpsTarget::Member { .. }) = matched {
+            let name = app.workspace_snapshot().unwrap().rows
+                [app.workspace.selected.as_ref().unwrap()]["name"]
+                .as_str()
+                .unwrap();
+            assert!(
+                lines
+                    .iter()
+                    .any(|line| line.contains(&format!("Conversation · {name}"))),
+                "the previous conversation remains painted"
+            );
+        } else {
+            assert!(
+                lines.iter().any(|line| line.contains("Roster preview")),
+                "the previous squad remains painted"
+            );
+        }
+        assert!(
+            app.workspace_action_hits.borrow().is_empty(),
+            "retained pane is read-only"
+        );
+        assert!(app.conversation.borrow().header_hits.is_empty());
+        assert!(
+            app.hits.borrow().is_empty(),
+            "an empty list has no invented row hit"
+        );
+        key(&mut app, KeyCode::Esc);
+        assert!(app.search.is_empty());
+        assert_eq!(app.workspace.selected, Some(original));
+    }
+}
+
+#[test]
+fn empty_search_preview_still_respects_room_visibility_scope_and_pinned_mode() {
+    for restriction in ["hidden", "scope", "pinned"] {
+        let mut app = board();
+        key(&mut app, KeyCode::Char('/'));
+        app.paste("no-match");
+        assert!(app.workspace_retained_search_target().is_some());
+        match restriction {
+            "hidden" => {
+                app.view
+                    .as_mut()
+                    .unwrap()
+                    .home
+                    .as_mut()
+                    .unwrap()
+                    .workspace
+                    .preferences
+                    .hidden
+                    .insert(ROOM.into());
+            }
+            "scope" => app.workspace.visibility.scope = vec!["another-room".into()],
+            _ => app.workspace.filter = AgentsFilter::Pinned,
+        }
+        app.workspace_reconcile();
+        assert!(
+            app.workspace_retained_search_target().is_none(),
+            "{restriction}"
+        );
+        assert_eq!(app.workspace_selection_state(), SelectionState::Hidden);
+        assert!(app.selected_row().is_none());
+    }
+}
+
+#[test]
+fn changing_a_query_restarts_at_the_first_match_but_arrows_keep_their_selection() {
+    let mut app = populated_board(8, 28);
+    app.shell.tab = OpsTab::Agents;
+    key(&mut app, KeyCode::Char('/'));
+    app.paste("squad-0");
+    let first = app.workspace_rows()[0].target.clone();
+    assert_eq!(app.workspace.selected, Some(first.clone()));
+    key(&mut app, KeyCode::Down);
+    let moved = app.workspace.selected.clone();
+    assert_ne!(moved, Some(first.clone()));
+    app.workspace_reconcile();
+    assert_eq!(
+        app.workspace.selected, moved,
+        "ordinary reconciliation does not undo arrow movement"
+    );
+    key(&mut app, KeyCode::Char('0'));
+    assert!(
+        app.workspace_rows()
+            .iter()
+            .any(|row| Some(&row.target) == moved.as_ref())
+    );
+    assert_eq!(
+        app.workspace.selected,
+        Some(first),
+        "an edited query starts at its first match even if the prior row still matches"
+    );
+}
+
+#[test]
+fn clearing_search_does_not_restore_an_anchor_removed_from_the_roster() {
+    let mut app = populated_board(8, 28);
+    app.shell.tab = OpsTab::Agents;
+    let original = OpsTarget::Squad(
+        app.workspace_snapshot().unwrap().roster.squads[0]
+            .room_id
+            .clone(),
+    );
+    app.workspace.selected = Some(original.clone());
+    app.workspace_reconcile();
+    key(&mut app, KeyCode::Char('/'));
+    app.paste("squad-07");
+    let matched = app.workspace.selected.clone();
+    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    snapshot
+        .roster
+        .squads
+        .retain(|squad| OpsTarget::Squad(squad.room_id.clone()) != original);
+    snapshot.rows.remove(&original);
+    key(&mut app, KeyCode::Esc);
+    assert_eq!(app.workspace.selected, matched);
+    assert_ne!(app.workspace.selected, Some(original));
+}
+
+#[test]
+fn empty_search_preview_does_not_assume_a_retained_member_payload_is_available() {
+    for missing in [true, false] {
+        let mut app = board();
+        key(&mut app, KeyCode::Char('/'));
+        app.paste("no-match");
+        let target = app.workspace.selected.clone().unwrap();
+        let rows = &mut app
+            .view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .rows;
+        if missing {
+            rows.remove(&target);
+        } else {
+            rows.get_mut(&target)
+                .unwrap()
+                .as_object_mut()
+                .unwrap()
+                .remove("id");
+        }
+        let lines = paint(&app, 148, 51);
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("Select an agent to read its response."))
+        );
+        assert_eq!(app.workspace.selected, Some(target));
+        assert!(app.workspace_action_hits.borrow().is_empty());
+        assert!(app.conversation.borrow().header_hits.is_empty());
+    }
+}
+
+#[test]
 fn transient_notice_expires_and_next_key_dismisses_without_changing_its_message_owner() {
     let mut app = board();
     app.finished(Err(format!("Could not show {MEMBER}")));
@@ -3803,7 +4002,7 @@ fn capture_search_notice_packet() {
     crate::status::with_now_ms(1_791_600_000_000, || {
         let _no_commands = crate::runner::forbid_commands();
         for tab in [OpsTab::Overview, OpsTab::Agents, OpsTab::Digest] {
-            for scene in ["idle", "typing", "applied", "notice", "failure"] {
+            for scene in ["idle", "typing", "applied", "no-match", "notice", "failure"] {
                 if tab == OpsTab::Digest && !matches!(scene, "notice" | "failure") {
                     continue;
                 }
@@ -3832,9 +4031,12 @@ fn capture_search_notice_packet() {
                             ),
                             depth,
                         };
-                        if matches!(scene, "typing" | "applied") {
+                        if matches!(scene, "typing" | "applied" | "no-match") {
                             key(&mut app, KeyCode::Char('/'));
                             app.paste("agent-00001");
+                            if scene == "no-match" {
+                                app.paste("-no-match");
+                            }
                             if scene == "applied" {
                                 key(&mut app, KeyCode::Enter);
                             }

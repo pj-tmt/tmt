@@ -106,11 +106,14 @@ pub(super) fn paint(buffer: &mut Buffer, area: Rect, query: &str, editing: bool,
             usize::from(area.width.saturating_sub(1)),
         )
     };
+    let text = format!(" {text}");
+    let padding = usize::from(area.width)
+        .saturating_sub(unicode_width::UnicodeWidthStr::width(text.as_str()));
     strip::paint_left(
         buffer,
         area,
         Line::styled(
-            format!(" {text}"),
+            format!("{text}{}", " ".repeat(padding)),
             look.role(Role::Text).patch(look.role(Role::Track)),
         ),
     );

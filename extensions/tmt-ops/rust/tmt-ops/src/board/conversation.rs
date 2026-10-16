@@ -397,11 +397,40 @@ fn link_preview(
 /// Agents and compact explicit conversations retain this metadata header.
 /// Session, response and editor owners are shared with the shared exchange adapter.
 pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
+    render_target(frame, app, area, app.conversation_target(), true);
+}
+
+pub(super) fn render_retained(
+    frame: &mut Frame,
+    app: &App,
+    area: Rect,
+    target: &super::workspace::OpsTarget,
+) {
+    render_target(
+        frame,
+        app,
+        area,
+        Some(RowTarget::Workspace(target.clone())),
+        false,
+    );
+}
+
+fn render_target(
+    frame: &mut Frame,
+    app: &App,
+    area: Rect,
+    target: Option<RowTarget>,
+    interactive: bool,
+) {
     let look = app.look();
     app.conversation.borrow_mut().header_hits.clear();
     app.conversation.borrow_mut().reply_hits.clear();
     app.conversation.borrow_mut().response_area = None;
-    let Some(target) = app.conversation_target() else {
+    let row = target
+        .as_ref()
+        .and_then(|target| app.target_row(target))
+        .filter(|row| row["id"].as_str().is_some());
+    let (Some(target), Some(row)) = (target, row) else {
         app.conversation.borrow_mut().active = None;
         strip::paint_left(
             frame.buffer_mut(),
@@ -413,9 +442,6 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
         );
         return;
     };
-    let row = app
-        .target_row(&target)
-        .expect("resolved conversation target");
     let identity = (
         app.view.as_ref().and_then(|view| view.me_id.clone()),
         row["id"].as_str().unwrap().to_owned(),
@@ -423,9 +449,12 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
     let reply = app
         .detail(&Target::Row(target.clone()))
         .and_then(|detail| detail.reply);
-    let input_height = app.conversation_input_area().map_or(0, |pane| {
-        super::view::waiting::input_lines(app, pane).min(usize::from(area.height)) as u16
-    });
+    let input_height = interactive
+        .then(|| app.conversation_input_area())
+        .flatten()
+        .map_or(0, |pane| {
+            super::view::waiting::input_lines(app, pane).min(usize::from(area.height)) as u16
+        });
     let area = if input_height > 0 {
         app.input_band.set(Some(Rect::new(
             area.x,
@@ -458,7 +487,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
     let area = inside;
     // Effective bindings depend on logical conversation placement. Acquire them
     // before mutably borrowing the response sessions that own that placement.
-    let bindings = app.bindings();
+    let bindings = if interactive { app.bindings() } else { Default::default() };
     let link = link_preview(app, row, &bindings).map(|preview| {
         let hint = format!(" (press {} - {})", preview.key, preview.wording);
         let hint = super::view::fit(&hint, hint.width().min(usize::from(area.width)));
@@ -642,7 +671,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
         }
         header.push(Line::from(spans));
     }
-    let controls_row = (full && tree_row.is_some()).then_some(header.len());
+    let controls_row = (interactive && full && tree_row.is_some()).then_some(header.len());
     if controls_row.is_some() {
         header.push(Line::default());
     }
@@ -718,7 +747,11 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
     };
     header.push(rule(
         if session.exact_source.is_some() {
-            format!("Exact response source · {name} · Esc back")
+            if interactive {
+                format!("Exact response source · {name} · Esc back")
+            } else {
+                format!("Exact response source · {name}")
+            }
         } else {
             format!("Response · {flow}")
         },
@@ -758,7 +791,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
         .take(usize::from(header_height))
         .enumerate()
     {
-        if index < retained_prefix {
+        if interactive && index < retained_prefix {
             for &(_, x, width) in savings_rows.iter().filter(|(row, ..)| *row == index) {
                 if x < usize::from(area.width) {
                     app.savings_hit(
@@ -782,7 +815,8 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
             let mut x = 0;
             for span in &line.spans {
                 let width = span.width();
-                if super::row_chips::offers_choice(&span.content)
+                if interactive
+                    && super::row_chips::offers_choice(&span.content)
                     && x + width <= usize::from(area.width)
                 {
                     app.chip_hits.borrow_mut().push((
@@ -814,7 +848,8 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 });
             }
         }
-        if retained_timer
+        if interactive
+            && retained_timer
             && Some(index) == timer_row
             && (if full {
                 prefix.width()
@@ -857,7 +892,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
         return;
     }
     if let Some(source) = &mut session.exact_source {
-        source::paint(frame, app, source, &target, body, look);
+        source::paint(frame, app, source, &target, body, look, interactive);
         state.header_hits = painted_controls;
         return;
     }
@@ -881,6 +916,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
     let (offset, shown) = app
         .scrolls
         .show(frame, Pane::Replies, body, &mapped.lines, look);
+    if interactive {
     super::member_links::paint_hits(
         frame,
         app,
@@ -893,6 +929,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
             role: Role::Link,
         },
     );
+    }
     if let Some(position) = position {
         let visible = shown.min(mapped.lines.len().saturating_sub(offset));
         strip::paint_left(
@@ -911,7 +948,8 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
     }
     let mut reply_hits = Vec::new();
     for index in offset..offset.saturating_add(shown).min(mapped.lines.len()) {
-        if mapped.lines[index].width() > 0
+        if interactive
+            && mapped.lines[index].width() > 0
             && let Some((key, sequence)) = session.response_key_at(mapped.sources[index])
         {
             reply_hits.push(source::ReplyHit {

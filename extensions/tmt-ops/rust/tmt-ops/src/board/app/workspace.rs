@@ -4,7 +4,8 @@ use super::*;
 use crate::board::{
     shell::OpsTab,
     workspace::{
-        OpsTarget, OpsTreeRow, SelectionState, manage::Kind, observe::OpsWorkspaceSnapshot,
+        AgentsFilter, OpsTarget, OpsTreeRow, SelectionState, manage::Kind,
+        observe::OpsWorkspaceSnapshot,
     },
 };
 use crate::{
@@ -181,8 +182,49 @@ impl App {
         let Some(snapshot) = self.workspace_snapshot() else {
             return SelectionState::Unknown;
         };
-        self.workspace
-            .selection_state(&snapshot.roster, &self.workspace_rows())
+        let rows = self.workspace_rows();
+        self.workspace.selection_state(&snapshot.roster, &rows)
+    }
+    /// Search may retain a read-only pane, never hidden-row action authority.
+    pub(in crate::board) fn workspace_retained_search_target(&self) -> Option<&OpsTarget> {
+        let snapshot = self.workspace_snapshot()?;
+        let rows = self.workspace_rows();
+        if self.workspace.selection_state(&snapshot.roster, &rows) == SelectionState::Hidden
+            && rows.is_empty()
+            && !self.workspace.query.is_empty()
+            && self
+                .search_anchor
+                .as_ref()
+                .is_some_and(|(tab, _)| *tab == self.shell.tab)
+            && matches!(self.shell.tab, OpsTab::Overview | OpsTab::Agents)
+            && let Some(target) = self.workspace.selected.as_ref()
+        {
+            // An empty search keeps the last explicit pane target. Query text
+            // cannot reveal a hidden/scoped-out room or bypass the Pinned mode.
+            let room = match target {
+                OpsTarget::Squad(room)
+                | OpsTarget::Member {
+                    room_id: Some(room),
+                    ..
+                } => Some(room),
+                _ => None,
+            };
+            let pinned = self.shell.tab != OpsTab::Agents
+                || self.workspace.filter == AgentsFilter::All
+                || room.is_some_and(|room| snapshot.preferences.pinned.contains(room));
+            let visible = room.map_or_else(
+                || self.workspace.visibility.scope.is_empty(),
+                |room| {
+                    self.workspace
+                        .visibility
+                        .shows_squad(room, &snapshot.preferences)
+                },
+            );
+            if pinned && visible {
+                return Some(target);
+            }
+        }
+        None
     }
     pub(in crate::board) fn workspace_selection_visible(&self) -> bool {
         let target_shown = match self.shell.tab {
@@ -460,6 +502,38 @@ impl App {
             .unwrap_or_default()
     }
     pub(in crate::board) fn workspace_reconcile(&mut self) {
+        if self
+            .search_anchor
+            .as_ref()
+            .is_some_and(|(tab, _)| *tab != self.shell.tab)
+        {
+            self.search_anchor = None;
+        }
+        let query_changed = self.workspace.query != self.search;
+        let selects_matches = matches!(self.shell.tab, OpsTab::Overview | OpsTab::Agents);
+        if query_changed && selects_matches {
+            if self.search.is_empty() {
+                if let Some((tab, target)) = self.search_anchor.take()
+                    && tab == self.shell.tab
+                    && self
+                        .workspace_snapshot()
+                        .is_some_and(|snapshot| snapshot.roster.contains(&target))
+                {
+                    self.workspace.selected = Some(target);
+                }
+            } else if self.search_anchor.is_none()
+                && self.workspace.selected.as_ref().is_some_and(|target| {
+                    self.workspace_snapshot()
+                        .is_some_and(|snapshot| snapshot.roster.contains(target))
+                })
+            {
+                self.search_anchor = self
+                    .workspace
+                    .selected
+                    .clone()
+                    .map(|target| (self.shell.tab, target));
+            }
+        }
         self.workspace.query = self.search.clone();
         if let Some(id) = self.workspace_startup.take() {
             if let Some(squad) = self.workspace_snapshot().and_then(|snapshot| {
@@ -505,14 +579,21 @@ impl App {
         if self.workspace.selected.is_none() {
             self.workspace.selected = rows.first().map(|row| row.target.clone());
         }
+        if query_changed
+            && selects_matches
+            && !self.search.is_empty()
+            && let Some(first) = rows.first()
+        {
+            self.workspace.selected = Some(first.target.clone());
+        }
         if let Some(index) = rows
             .iter()
             .position(|row| Some(&row.target) == self.workspace.selected.as_ref())
         {
             self.selected = index;
         }
-        // Hidden/missing anchors deliberately remain selected. No neighboring
-        // row acquires recipient authority merely because its index now fits.
+        // Refresh, collapse and saved visibility changes retain their anchors;
+        // only an edited query above chooses its first matching target.
         self.last_click = None;
     }
     pub(super) fn workspace_select(&mut self, index: usize) {

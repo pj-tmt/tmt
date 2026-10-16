@@ -69,6 +69,58 @@ pub(in crate::board) fn paint(
 mod tests {
     use super::*;
     #[test]
+    fn search_uses_one_fixed_filled_slot_in_every_editing_state() {
+        use ratatui::style::Color;
+        use tmt_cli_style::{Base, Depth, Role, Theme};
+        for options in [
+            [("squads", "Squads"), ("agents", "Agents")],
+            [("all", "All"), ("pinned", "Pinned")],
+        ] {
+            for width in [103, 148] {
+                for (base, depth) in [
+                    (Base::parse("tmt").unwrap(), Depth::TrueColor),
+                    (Base::parse("tmt-light").unwrap(), Depth::TrueColor),
+                    (Base::parse("tmt").unwrap(), Depth::None),
+                ] {
+                    let mut geometry = None;
+                    for (query, editing) in
+                        [("", false), ("agent-00001", true), ("agent-00001", false)]
+                    {
+                        let mut app = App::default();
+                        app.initial_look = Some(crate::look::Look {
+                            theme: Theme::new(base),
+                            depth,
+                        });
+                        app.searching = editing;
+                        let area = Rect::new(0, 0, width, 1);
+                        let mut buffer = Buffer::empty(area);
+                        buffer.set_style(area, ratatui::style::Style::default().bg(Color::Magenta));
+                        let hits = paint(&mut buffer, area, &options, 0, query, &app);
+                        let slot = hits.iter().find(|hit| hit.id == "search").unwrap().area;
+                        assert_eq!(slot.width, 34);
+                        assert_eq!(*geometry.get_or_insert(slot), slot);
+                        let style = app
+                            .look()
+                            .role(Role::Text)
+                            .patch(app.look().role(Role::Track));
+                        for x in slot.x..slot.right() {
+                            let cell = &buffer[(x, 0)];
+                            assert_eq!(
+                                cell.bg,
+                                style.bg.unwrap_or(Color::Reset),
+                                "{query:?}, editing={editing}, x={x}"
+                            );
+                            assert_eq!(cell.fg, style.fg.unwrap_or(Color::Reset));
+                            assert_eq!(cell.modifier, style.add_modifier);
+                        }
+                        assert_eq!(buffer[(slot.right(), 0)].bg, Color::Magenta);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn both_hosts_share_fitted_chips_and_idle_search_without_hidden_hits() {
         for options in [
             [("squads", "Squads"), ("agents", "Agents")],

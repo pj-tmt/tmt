@@ -32,7 +32,7 @@ rooms in the existing state roles, cached when preferences configure the snapsho
 it omits absent attention and drops these counts after session reveal. The
 acquired roster and global shell attention remain unchanged.
 A collapsed squad keeps its worst observed child state, prioritizing attention.
-Refresh, sorting, pinning and search preserve the anchor; a hidden or removed
+Refresh, sorting and pinning preserve the anchor; a hidden or removed
 anchor disables actions rather than selecting its neighbour. A confirmed explicit
 Hide of the currently visible squad intentionally selects the next visible row;
 a failed save or unrelated preference change cannot transfer that authority. The session-local
@@ -49,6 +49,12 @@ Overview and Agents share the always-visible search field after FilterBar chips.
 `/` edits the retained query; typing filters live, with bold-only matches. Up/Down
 move through filtered rows while typing; Enter keeps the filter and returns list
 keys; Escape clears from typing or applied state; empty Backspace ends typing.
+The filled field keeps one 34-cell slot across idle, typing and applied states,
+clipped only by available width. Each query edit selects the first visible match;
+Up/Down then move among its matches. Clearing restores the pre-filter selection
+when it still exists. No matches leave the previous pane visible as a read-only
+preview, without hidden-row actions, revealing hidden rooms or bypassing scope
+or the Pinned filter.
 Counts belong to section rules, not FilterBar. Overview applies the query to held
 Timers before the three-row preview limit, matching displayed ID, squad, schedule
 or purpose. Its rule counts all matching jobs against the unsearched observation;

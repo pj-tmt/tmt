@@ -683,6 +683,8 @@ pub struct App {
     pub error: Option<String>,
     pub search: String,
     pub searching: bool,
+    /// Exact pre-filter selection, restored when this tab's query clears.
+    pub(super) search_anchor: Option<(super::shell::OpsTab, super::workspace::OpsTarget)>,
     /// Index among visible rows (headers excluded).
     pub selected: usize,
     pub notice: Option<String>,
@@ -1248,6 +1250,7 @@ impl App {
 
     /// Another squad is now on screen: its selection and scrolling start over.
     fn shown_changed(&mut self) {
+        self.search_anchor = None;
         self.selected = 0;
         self.scrolls = Scrolls::default();
         self.follow = true;
@@ -5878,7 +5881,11 @@ mod token_window_tests {
             assert_eq!(app.token_window, TokenWindow::FIVE_MINUTES);
         }
         app.input = None;
-        app.search.clear();
+        assert_eq!(
+            app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+            Effect::None,
+            "clear the retained filter and restore its selection before testing member bindings"
+        );
         configure_window_keys(&mut app, "[bind]\nu = \"refresh\"\nU = \"token-window\"\n");
         assert_eq!(app.key(key), Effect::Refresh);
         assert_eq!(app.token_window, TokenWindow::FIVE_MINUTES);

@@ -175,6 +175,10 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             crate::board::overview::composition::wide::render(frame, app, placement.list, detail);
         } else if app.workspace_selected_member().is_some() {
             crate::board::conversation::render(frame, app, detail);
+        } else if let Some(target @ OpsTarget::Member { .. }) =
+            app.workspace_retained_search_target()
+        {
+            crate::board::conversation::render_retained(frame, app, detail, target);
         } else {
             squad_detail(frame, app, detail);
         }
@@ -518,7 +522,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
             let (message, action) = if app.workspace.query.is_empty() {
                 ("No agents in this view", None)
             } else {
-                ("No matching agents", Some(("Esc", "clear filter")))
+                ("No matching agents.", Some(("Esc", "clear filter")))
             };
             crate::board::empty_state::paint(frame.buffer_mut(), viewport, message, action, look);
         }
@@ -540,7 +544,6 @@ fn agents_controls(
     );
     use super::AgentsFilter;
     use crate::action::OpsUiAction;
-    let look = app.look();
     for hit in crate::board::filter_bar::paint(
         frame.buffer_mut(),
         inside,
@@ -675,6 +678,10 @@ fn squad_detail(frame: &mut Frame, app: &App, area: Rect) {
     };
     let title = app
         .selected_row()
+        .or_else(|| {
+            app.workspace_retained_search_target()
+                .and_then(|target| snapshot.rows.get(target))
+        })
         .and_then(|row| row["name"].as_str())
         .unwrap_or("Selection");
     let mut inside = crate::board::pane_chrome::paint(frame, app, area, Pane::Replies, title);
@@ -755,10 +762,16 @@ fn squad_detail(frame: &mut Frame, app: &App, area: Rect) {
         inside.y += used;
         inside.height -= used;
     }
-    if app.workspace_selection_visible()
+    if (app.workspace_selection_visible() || app.workspace_retained_search_target().is_some())
         && let Some(target) = app.workspace.selected.as_ref()
     {
-        roster_preview(frame, app, inside, target);
+        roster_preview(
+            frame,
+            app,
+            inside,
+            target,
+            app.workspace_selection_visible(),
+        );
         return;
     }
     let text = match app.workspace_selection_state() {
@@ -778,7 +791,13 @@ fn squad_detail(frame: &mut Frame, app: &App, area: Rect) {
     app.scrolls.show(frame, Pane::Replies, inside, lines, look);
 }
 
-fn roster_preview(frame: &mut Frame, app: &App, mut area: Rect, target: &OpsTarget) {
+fn roster_preview(
+    frame: &mut Frame,
+    app: &App,
+    mut area: Rect,
+    target: &OpsTarget,
+    interactive: bool,
+) {
     use super::columns::{self, RosterField};
     let snapshot = app.workspace_snapshot().unwrap();
     let look = app.look();
@@ -929,11 +948,13 @@ fn roster_preview(frame: &mut Frame, app: &App, mut area: Rect, target: &OpsTarg
                         ),
                     );
                 }
-                app.workspace_action_hits.borrow_mut().push((
-                    Rect::new(viewport.x, y, viewport.width, 1),
-                    target.clone(),
-                    Choice::WorkspaceTarget(row.target),
-                ));
+                if interactive {
+                    app.workspace_action_hits.borrow_mut().push((
+                        Rect::new(viewport.x, y, viewport.width, 1),
+                        target.clone(),
+                        Choice::WorkspaceTarget(row.target),
+                    ));
+                }
             }
             if members.is_empty() && offset == 0 {
                 strip::paint_left(
@@ -955,7 +976,7 @@ fn roster_preview(frame: &mut Frame, app: &App, mut area: Rect, target: &OpsTarg
             for (index, fact) in facts.iter().enumerate() {
                 let line = member_rows + index;
                 if line >= offset && line < offset + usize::from(viewport.height) {
-                    if savings_lines.contains(&index) {
+                    if interactive && savings_lines.contains(&index) {
                         app.savings_hit(
                             viewport.x,
                             viewport.y + (line - offset) as u16,
