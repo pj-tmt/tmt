@@ -6,12 +6,15 @@ description: Build, check and translate the handbook site in `site/` (Vite, MDX,
 # Handbook site
 
 Static site in `site/` with its own lockfile outside the TypeScript workspace.
-The public site renders only the v9 Home (`home/HomePage.tsx`), including installation,
-workflow and Squad/Colab illustrations. Layout owns theme, language and anchor scrolling;
-the router normalizes old chapter/unknown paths to the localized Home. Retained MDX,
+The public site renders the v9 Home (`home/HomePage.tsx`), including installation,
+workflow and Squad/Colab illustrations, plus the English `/colab/` landing exploration
+(`colab/ColabLanding.tsx`). Its feature close-ups are illustrations; only the developer embed sends requests.
+Layout owns theme, language and anchor scrolling;
+the router preserves `/colab/` and normalizes old chapter/unknown paths to the localized Home. Retained MDX,
 chapter components and translations are source-only for future refinement: the public
 entry point does not import or render them. Do not restore chapter exposure implicitly.
-`scripts/spa-routes.mjs` publishes four Home entries with Home-only alternates/canonicals,
+`scripts/spa-routes.mjs` publishes four Home entries with Home-only alternates/canonicals, the English Colab
+entry with its own canonical,
 noindex redirect stubs for historical chapter/zh paths, and a noindex Home-app 404 fallback.
 
 Merging `site/**` or `design/tokens/**` to `main` deploys to GitHub Pages
@@ -23,7 +26,7 @@ cd site
 pnpm install --frozen-lockfile
 pnpm dev                        # http://127.0.0.1:5173/tmt/
 pnpm check                      # types, Vite+ lint/format, MDX imports, translation sync
-pnpm build                      # four public Homes and historical redirect stubs
+pnpm build                      # four Homes, Colab landing and historical redirect stubs
 SITE_BASE=/ pnpm build          # root path or custom domain
 SITE_BASE=./ VITE_SITE_HISTORY=hash pnpm exec vp build   # preview at an unknown path
 ```

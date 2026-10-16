@@ -21,7 +21,7 @@ function fixture(t) {
   return { site, read: (path) => readFileSync(join(site, "dist", path), "utf8") };
 }
 
-test("only locale Home files contain the app; every old chapter is a noindex redirect", (t) => {
+test("locale Homes and the Colab landing contain the app; old chapters remain noindex redirects", (t) => {
   const { site, read } = fixture(t);
   assert.deepEqual(writeRoutes(site), { homes: 4, redirects: 11 });
   for (const prefix of ["", "ja/", "zh-hant/", "zh-hans/"]) {
@@ -37,6 +37,10 @@ test("only locale Home files contain the app; every old chapter is a noindex red
     }
   }
   assert.match(read("zh/working/index.html"), /0;url=\/tmt\/zh-hant\//);
+  const colab = read("colab/index.html");
+  assert.match(colab, /<script/);
+  assert.match(colab, /rel="canonical" href="\/tmt\/colab\/"/);
+  assert.doesNotMatch(colab, /hreflang|noindex|http-equiv="refresh"/);
   assert.match(read("404.html"), /noindex/);
 });
 
@@ -48,4 +52,6 @@ test("custom origin and relative previews redirect within their deployment", (t)
   writeRoutes(b.site, { base: "./", hashed: true });
   assert.match(b.read("ja/extensions/squad/index.html"), /0;url=\.\.\/\.\.\/\.\.\/#\/ja/);
   assert.doesNotMatch(b.read("index.html"), /hreflang/);
+  assert.match(a.read("colab/index.html"), /href="https:\/\/example.org\/colab\/"/);
+  assert.doesNotMatch(b.read("colab/index.html"), /canonical|hreflang/);
 });

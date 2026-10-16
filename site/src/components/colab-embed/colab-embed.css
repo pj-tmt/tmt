@@ -56,6 +56,10 @@
   z-index: 10008;
   font-size: 12px;
 }
+#tmt-colab-embed .ce-instructions button {
+  margin-left: 6px;
+  text-decoration: underline;
+}
 #tmt-colab-embed .ce-marker {
   z-index: 10001;
   min-width: 32px;
@@ -172,6 +176,13 @@
 #tmt-colab-embed .ce-warning {
   color: var(--c-waiting);
 }
+#tmt-colab-embed .ce-warning p {
+  margin: 8px 0 2px;
+}
+#tmt-colab-embed .ce-warning button {
+  padding: 2px 0 8px;
+  text-decoration: underline;
+}
 #tmt-colab-embed .ce-error {
   position: fixed;
   left: 16px;
@@ -270,4 +281,25 @@
   display: block;
   height: 88px;
   resize: none;
+}
+#tmt-colab-embed .ce-send-recovery {
+  max-height: 165px;
+  margin: 8px 0;
+  padding: 8px;
+  overflow-y: auto;
+  border: 1px solid var(--c-waiting);
+  background: var(--c-accent-soft);
+  font-size: 12px;
+}
+#tmt-colab-embed .ce-send-recovery p {
+  margin: 4px 0;
+}
+#tmt-colab-embed .ce-send-recovery blockquote {
+  max-height: 48px;
+  margin: 4px 0;
+}
+#tmt-colab-embed .ce-send-recovery button {
+  padding: 4px 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }

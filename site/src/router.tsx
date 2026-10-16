@@ -5,6 +5,8 @@ import {
   createRouter,
   redirect,
 } from "@tanstack/react-router";
+import { ColabLanding } from "./colab/ColabLanding";
+import { HomePage } from "./home/HomePage";
 import { Layout } from "./components/Layout";
 import { languages, splitLang, withLang } from "./lang/languages";
 
@@ -26,7 +28,8 @@ const root = createRootRoute({
     const pathname = location.pathname.replace(/^\/zh(?=\/|$)/, "/zh-hant");
     const { lang, path } = splitLang(pathname);
     const home = withLang(lang, "/");
-    if (path !== "/" || pathname !== location.pathname) {
+    const isColab = pathname.replace(/\/+$/, "") === "/colab";
+    if ((path !== "/" && !isColab) || pathname !== location.pathname) {
       throw redirect({
         to: home,
         hash:
@@ -44,11 +47,16 @@ const root = createRootRoute({
   },
 });
 
-export const routeTree = root.addChildren(
-  languages.map((language) =>
-    createRoute({ getParentRoute: () => root, path: withLang(language.code, "/") }),
+export const routeTree = root.addChildren([
+  ...languages.map((language) =>
+    createRoute({
+      getParentRoute: () => root,
+      path: withLang(language.code, "/"),
+      component: HomePage,
+    }),
   ),
-);
+  createRoute({ getParentRoute: () => root, path: "/colab", component: ColabLanding }),
+]);
 
 // A preview hosted at an unknown path (SITE_BASE=./) routes in the hash
 // instead, since only that host knows its own path.

@@ -33,3 +33,8 @@ export function retainSendOperation(
   // Persist before dispatch; a reloaded browser retries the same frozen operation.
   storage.setItem(operationStorageKey, JSON.stringify(operation));
 }
+
+// These bridge responses are returned before a TMT talk operation is created.
+export function definitelyNotSent(status: unknown): boolean {
+  return typeof status === "number" && [400, 403, 413, 415, 429, 503].includes(status);
+}

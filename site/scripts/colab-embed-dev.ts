@@ -48,7 +48,6 @@ function cli(args: string[]): Promise<unknown> {
 }
 /** Local developer access, not Remote device authority. Never included in a built site. */
 export function colabEmbedDev(run: (args: string[]) => Promise<unknown> = cli): Plugin {
-  const requests = new Set<string>();
   const submissions = new Map<
     string,
     { agent: string; message: string; sender: string; result: Promise<unknown> }
@@ -82,9 +81,25 @@ export function colabEmbedDev(run: (args: string[]) => Promise<unknown> = cli): 
           }
           if (req.method === "GET" && pathname.startsWith(`${embedPrefix}result/`)) {
             const id = pathname.slice(`${embedPrefix}result/`.length);
-            if (!requests.has(id))
-              return respond(404, { error: "Request is not owned by this preview session" });
-            return respond(200, await run(["result", id]));
+            if (!/^req_[0-9a-f-]{36}$/.test(id))
+              return respond(400, { error: "Invalid request ID" });
+            const sender = process.env.TMT_EMBED_IDENTITY;
+            if (!sender)
+              return respond(503, { error: "Set TMT_EMBED_IDENTITY in the preview terminal" });
+            // TMT verifies that this durable exchange belongs to the preview identity.
+            // The Vite server can restart without making older discussions unreadable.
+            const shown = (await run(["x", "show", id, "--identity", sender])) as {
+              exchange?: { requestId?: string; final?: { status?: string; response?: string } };
+            };
+            if (shown.exchange?.requestId !== id)
+              return respond(502, { error: "TMT returned a different request" });
+            const final = shown.exchange.final;
+            return respond(
+              200,
+              final?.status === "retained" && typeof final.response === "string"
+                ? { status: "completed", response: final.response }
+                : { status: final?.status ?? "unavailable" },
+            );
           }
           if (req.method !== "POST" || pathname !== `${embedPrefix}send`)
             return respond(405, { error: "Unsupported operation" });
@@ -140,13 +155,6 @@ export function colabEmbedDev(run: (args: string[]) => Promise<unknown> = cli): 
                 "--identity",
                 sender,
               ]);
-              if (
-                result &&
-                typeof result === "object" &&
-                "requestId" in result &&
-                typeof result.requestId === "string"
-              )
-                requests.add(result.requestId);
               return result;
             }),
           };

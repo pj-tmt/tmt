@@ -3,6 +3,7 @@ import { createServer, request } from "node:http";
 import { test } from "node:test";
 import { allowedRequest, colabEmbedDev, loopbackPeer } from "./colab-embed-dev.ts";
 import {
+  definitelyNotSent,
   operationStorageKey,
   restoreSendOperation,
   retainSendOperation,
@@ -23,6 +24,12 @@ test("send recovery rejects invalid storage and refuses a write failure", () => 
       ),
     /Storage full/,
   );
+});
+
+test("only pre-dispatch bridge failures release a saved send", () => {
+  for (const status of [400, 403, 413, 415, 429, 503])
+    assert.equal(definitelyNotSent(status), true);
+  for (const status of [undefined, 409, 502, 504]) assert.equal(definitelyNotSent(status), false);
 });
 
 test("loopback peers include IPv4-mapped sockets but exclude network addresses", () => {
@@ -86,8 +93,18 @@ test("development bridge fences explicit sends and owned reply receipts", async 
     if (args[0] === "ls")
       return { identities: [{ id: "00000000-0000-4000-8000-000000000001", name: "test-agent" }] };
     if (args[0] === "talk" && args[2] === "uncertain") throw new Error("Uncertain dispatch");
+    if (args[0] === "x" && args[1] === "show") {
+      if (args[2] !== "req_10000000-0000-4000-8000-000000000001")
+        throw new Error("Exchange is not owned by this identity");
+      return {
+        exchange: {
+          requestId: args[2],
+          final: { status: "retained", response: "Verified reply" },
+        },
+      };
+    }
     return args[0] === "talk"
-      ? { requestId: "req_test", status: "sent" }
+      ? { requestId: "req_10000000-0000-4000-8000-000000000001", status: "sent" }
       : { status: "completed", response: "Verified reply" };
   });
   let middleware;
@@ -141,8 +158,19 @@ test("development bridge fences explicit sends and owned reply receipts", async 
     );
     assert.equal((await call("status", undefined, { Origin: "http://evil.example" })).code, 403);
     assert.equal((await call("status", undefined, { "X-Tmt-Embed": "" })).code, 403);
-    assert.equal((await call("result/req_foreign")).code, 404);
+    assert.equal((await call("result/req_foreign")).code, 400);
     assert.equal(calls.length, 0);
+    // A fresh bridge has no send history, but TMT still owns the old exchange.
+    const oldReply = await call("result/req_10000000-0000-4000-8000-000000000001");
+    assert.equal(oldReply.data.response, "Verified reply");
+    assert.deepEqual(calls[0], [
+      "x",
+      "show",
+      "req_10000000-0000-4000-8000-000000000001",
+      "--identity",
+      "test-sender",
+    ]);
+    calls.length = 0;
     const storage = new Map();
     const browserStorage = {
       getItem: (key) => storage.get(key) ?? null,
@@ -161,7 +189,7 @@ test("development bridge fences explicit sends and owned reply receipts", async 
       message: operation.message,
       operationId: operation.operationId,
     });
-    assert.equal(sent.data.requestId, "req_test");
+    assert.equal(sent.data.requestId, "req_10000000-0000-4000-8000-000000000001");
     assert.deepEqual(calls[1], [
       "talk",
       "test-agent",
@@ -201,7 +229,9 @@ test("development bridge fences explicit sends and owned reply receipts", async 
       call("send", concurrent),
     ]);
     assert.equal(
-      results.every((result) => result.data.requestId === "req_test"),
+      results.every(
+        (result) => result.data.requestId === "req_10000000-0000-4000-8000-000000000001",
+      ),
       true,
     );
     assert.equal(calls.filter((args) => args[0] === "talk" && args[2] === "concurrent").length, 1);
@@ -215,7 +245,16 @@ test("development bridge fences explicit sends and owned reply receipts", async 
     const recoveredUncertain = restoreSendOperation(browserStorage);
     assert.equal((await call("send", { ...uncertain, ...recoveredUncertain })).code, 502);
     assert.equal(calls.filter((args) => args[0] === "talk" && args[2] === "uncertain").length, 1);
-    assert.equal((await call("result/req_test")).data.response, "Verified reply");
+    const completed = await call("result/req_10000000-0000-4000-8000-000000000001");
+    assert.equal(completed.data.response, "Verified reply");
+    assert.deepEqual(calls.at(-1), [
+      "x",
+      "show",
+      "req_10000000-0000-4000-8000-000000000001",
+      "--identity",
+      "test-sender",
+    ]);
+    assert.equal((await call("result/req_20000000-0000-4000-8000-000000000002")).code, 502);
   } finally {
     if (previous === undefined) delete process.env.TMT_EMBED_IDENTITY;
     else process.env.TMT_EMBED_IDENTITY = previous;
