@@ -42,6 +42,7 @@ export function PopoverContent({
   className,
   align = 'center',
   sideOffset = 4,
+  outsidePress = 'through',
   initialFocus,
   returnFocus,
   focusFallback,
@@ -52,41 +53,70 @@ export function PopoverContent({
   ref,
   style,
   ...props
-}: ComponentProps<typeof Primitive.Content> & LayerFocusOptions) {
+}: ComponentProps<typeof Primitive.Content> &
+  LayerFocusOptions & {
+    outsidePress?: 'through' | 'dismiss-only';
+  }) {
   const container = useUiPortalContainer();
   const controller = useLayerAdmission();
   const focus = useLayerFocus({ initialFocus, returnFocus, focusFallback });
   const surface = useLayerSurface(ref);
+  if (outsidePress === 'dismiss-only' && !controller)
+    throw new Error('Dismiss-only Popover requires its host layer controller');
   return container ? (
     <Primitive.Portal container={container}>
-      <Primitive.Content
-        data-slot="popover-content"
-        {...props}
-        ref={surface.ref}
-        align={align}
-        sideOffset={sideOffset}
-        className={cn(
-          'tmt:box-border tmt:font-body tmt:text-(length:--tmt-foundation-command-size) tmt:z-(--tmt-foundation-z-layer) tmt:w-72 tmt:max-w-(--tmt-layer-available-width) tmt:max-h-[min(var(--radix-popover-content-available-height),var(--tmt-layer-available-height))] tmt:overflow-y-auto tmt:overscroll-contain tmt:border-solid tmt:border-border tmt:border-(length:--tmt-foundation-rule-width) tmt:bg-popover tmt:text-popover-foreground tmt:p-4 tmt:outline-none',
-          className,
+      <div className="tmt:contents">
+        {outsidePress === 'dismiss-only' && (
+          <div
+            data-slot="popover-outside-shield"
+            aria-hidden="true"
+            className="tmt:fixed tmt:inset-0 tmt:z-(--tmt-foundation-z-layer) tmt:bg-transparent"
+            onPointerDown={(event) => {
+              // Swallow the first press even when the host vetoes closing. The
+              // shield, not a deferred outside observer, owns this real target.
+              event.preventDefault();
+              event.stopPropagation();
+              controller?.requestClose('outside', event.nativeEvent);
+            }}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+          />
         )}
-        style={{ ...style, ...surface.viewportStyle }}
-        onOpenAutoFocus={(event) => {
-          onOpenAutoFocus?.(event);
-          focus.onOpenAutoFocus(event);
-        }}
-        onCloseAutoFocus={(event) => {
-          onCloseAutoFocus?.(event);
-          focus.onCloseAutoFocus(event);
-        }}
-        onEscapeKeyDown={(event) => {
-          onEscapeKeyDown?.(event);
-          admitLayerDismiss(event, controller, 'escape');
-        }}
-        onInteractOutside={(event) => {
-          onInteractOutside?.(event);
-          admitLayerDismiss(event, controller, 'outside');
-        }}
-      />
+        <Primitive.Content
+          data-slot="popover-content"
+          {...props}
+          ref={surface.ref}
+          align={align}
+          sideOffset={sideOffset}
+          className={cn(
+            'tmt:box-border tmt:font-body tmt:text-(length:--tmt-foundation-command-size) tmt:z-(--tmt-foundation-z-layer) tmt:w-72 tmt:max-w-(--tmt-layer-available-width) tmt:max-h-[min(var(--radix-popover-content-available-height),var(--tmt-layer-available-height))] tmt:overflow-y-auto tmt:overscroll-contain tmt:border-solid tmt:border-border tmt:border-(length:--tmt-foundation-rule-width) tmt:bg-popover tmt:text-popover-foreground tmt:p-4 tmt:outline-none',
+            className,
+          )}
+          style={{ ...style, ...surface.viewportStyle }}
+          onOpenAutoFocus={(event) => {
+            onOpenAutoFocus?.(event);
+            focus.onOpenAutoFocus(event);
+          }}
+          onCloseAutoFocus={(event) => {
+            onCloseAutoFocus?.(event);
+            focus.onCloseAutoFocus(event);
+          }}
+          onEscapeKeyDown={(event) => {
+            onEscapeKeyDown?.(event);
+            admitLayerDismiss(event, controller, 'escape');
+          }}
+          onInteractOutside={(event) => {
+            onInteractOutside?.(event);
+            admitLayerDismiss(event, controller, 'outside');
+          }}
+        />
+      </div>
     </Primitive.Portal>
   ) : null;
 }

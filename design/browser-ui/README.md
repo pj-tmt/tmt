@@ -571,3 +571,66 @@ The allocated primitive gallery and existing-runner
 tokens, width containment and state captures. The separate foundation coexistence spec and legacy
 source/static hash guards remain required. CSS adds aliases of existing
 command-size/caption-size/eyebrow-weight metrics, never a second token palette.
+
+### Controlled selection (Slice4)
+
+`selection.ts` exports the pinned Command family, Combobox, Chip and Chips with
+selection prop/event types. Combobox owns its `SelectionOption` primitive props;
+Chips owns `SelectionItem` from its displayed/removable fields. Existing Browser
+chip values remain structurally assignable, with no UI-to-static source import.
+CommandItem retains cmdk's stock value-only
+`onSelect(value)` callback; it does not promise an originating keyboard event.
+The composed Combobox/Chips callbacks instead receive the actual React event
+from the input key handler or item's click capture. Do not add a second host
+mutation callback to the underlying cmdk item, cache a last event or synthesize
+activation to recover an origin. Cmdk owns active-option navigation and
+active-descendant identity; no mirrored active index is maintained.
+
+The host controls open state through the delivered layer controller, options,
+selected IDs, query, filtering and all domain caps/dispatch. Supply stable option
+IDs and host-filtered options; the composed pattern disables duplicate cmdk
+filtering. Busy/read-only/disabled states require a visible `stateLabel`; unknown
+operation state is held by the host's busy/admission state with its own words.
+The input remains mounted when its originating-island option portal closes.
+
+Enter commits once with its original event after close admission. Combobox Tab
+commits once on admitted close by default (`commitOnTab=true`), independently
+of `outsidePress`. Chips owns `commitOnTab=false` and omits that prop from
+`ChipsProps`, so its Tab closes without committing. Native Tab
+traversal remains native; an admitted Tab close suppresses competing close
+return-focus only for that transition. A newer admitted focus move also wins
+over deferred popup close autofocus, including chip removal. A veto holds open state and makes no
+selection callback. Composition/code229, modified/prevented/untrusted keys and
+removed/disabled options never commit. Space in the editable query remains text.
+No selection/removal key dispatches an enclosing product Send operation.
+
+Combobox outside pointer dismissal allows the underlying action through. Chips
+uses the UX-approved optional `PopoverContent outsidePress='dismiss-only'`
+shield, while ordinary Combobox and Popover retain default `'through'`. The
+transparent, nonfocusable, aria-hidden shield is owned by the layer, shares its
+originating portal and lifetime, and always consumes the first pointer press,
+even when host close admission vetoes it. The persistent external input remains
+usable above the shield with token-backed stacking only while that popup is open;
+closed anchors retain no overlay stacking. It is neither hidden nor
+focus-trapped by a modal substitute. No document click interceptor or second
+popup owner is involved. Escape follows the
+accepted layer contract. The host supplies persistent return/fallback targets
+when controls may disappear. Chip removal targets a surviving next/previous
+enabled remove control, then its input or explicit fallback. Empty-query
+Backspace removes only the last eligible supplied chip; nonempty editing is
+native. Caps are supplied through eligible options and state words, never
+inferred as a recipient/parser rule in this leaf.
+
+While Chips is open, its persistent input owns one `visualViewport.resize`
+listener. On the next animation frame, only an actually focused input outside
+the real visual viewport is revealed with nearest-block/inline `scrollIntoView`.
+Close/unmount removes the listener and cancels pending work. This event-driven
+reveal neither changes popup placement nor mutates focus, query or close state;
+ordinary Combobox does not add it.
+
+The allocated selection gallery/unit/spec own selection proofs, including
+original-event identity, exactly-once callbacks, blocked/veto cases, focus and
+viewport/theme coverage. Only `browser-ui-selection.spec.ts` is allocated in
+Colab; existing foundation HTML/runner remain its infrastructure. Added shard
+wall time and exact-head Colab acceptance accompany delivery. No consumer
+migration or Select revival is included.
