@@ -1932,11 +1932,26 @@ checkpoint; v1/v2 readers remain and reads never convert them. Recovery observes
 before any further effect; uncertain absence cannot justify a duplicate web-app or Version create.
 Other Hosting steps reapply only after observation proves their idempotent work absent. App
 creation observes its Operation within the apply budget; if still pending, the owner reruns the same
-command. An unconfirmed create reports: 'Firebase did not confirm the original creation; tmt will
-not repeat it. Rerun the same command to check its result. If it is still unconfirmed, check the
-Firebase project, delete <deploy.json path>, then run without --authorize to read a fresh plan.
-Existing Firebase resources stay; authorizing a new plan may create a second one.' An unfinalized Version retained for at least
-12 hours requires a newly displayed and explicitly authorized plan.
+command. Hosting preparation/observation, a mutation reply and one read-only reconciliation each
+have a separate 30-second budget; the apply child is bounded to their combined 90 seconds,
+including process I/O and exit. After an ambiguous mutation the adapter reconciles once in the
+same run, accepts only exact original evidence, and never sends a second mutation. Partial or
+mismatching file inventory remains unknown, never permission to re-populate.
+
+Each unknown Hosting step adds optional `cause:{code,phase,httpStatusClass?}` to its existing
+step record, human output and JSON. `phase` is `credentials`, `list`, `mutation`, `body` or
+`child-exit`; the closed cause codes are `deadline`, `transport`, `invalid-response`, `body-invalid`,
+`body-too-large`, `inventory-incomplete`, `files-mismatch`, `http-rejected`, `child-failed`,
+`output-invalid`, `call-incomplete` and `unconfirmed-create`. HTTP classes, when known, are
+`1xx` through `5xx`. No provider body or identifier crosses this boundary. The field defaults
+absent, is omitted when absent and clears on a definitive outcome; old records read unchanged
+and resume without a version bump. Diagnostics are outside the authorized plan grammar.
+An unconfirmed create reports that it will not be repeated: rerun the same command to observe
+its result and inspect the recorded cause/provider state if still unknown; retain the saved
+record. A Remote-only helper update preserves its plan digest when captured declarations,
+Hosting content and plan grammar are unchanged; use `tmt extension upgrade remote --yes --json`,
+not a whole-product upgrade that may replace Colab content. An unfinalized Version retained
+for at least 12 hours requires a newly displayed and explicitly authorized plan.
 
 Only final joint read-back produces a typed verified publication, saved atomically with Complete:
 exact Rules, live Hosting Version/files/config, Site.appId equal to the selected same-project app,

@@ -257,6 +257,22 @@ fn readable_bytes(bytes: u64) -> String {
         format!("{:.2} {unit}", bytes as f64 / divisor as f64)
     }
 }
+fn describe_cause(text: &mut String, cause: Option<deploy_run::StepCause>, label: &str) {
+    if let Some(cause) = cause {
+        let value = serde_json::to_value(cause).expect("fixed step cause serializes");
+        write!(
+            text,
+            "{label}: {} (phase {}",
+            value["code"].as_str().expect("cause code"),
+            value["phase"].as_str().expect("cause phase")
+        )
+        .expect("String write");
+        if let Some(class) = value["httpStatusClass"].as_str() {
+            write!(text, "; HTTP {class}").expect("String write");
+        }
+        text.push_str(").\n");
+    }
+}
 fn describe_record(text: &mut String, record: &DeployRecord, record_path: &std::path::Path) {
     let run = record.run.as_ref().expect("authorized run");
     writeln!(
@@ -289,9 +305,11 @@ fn describe_record(text: &mut String, record: &DeployRecord, record_path: &std::
                     state
                 })
                 .or_insert(0usize) += 1;
+            describe_cause(text, step.cause, "Hosting upload cause");
             continue;
         }
         writeln!(text, "{}: {}", step.id, state).expect("String write");
+        describe_cause(text, step.cause, "Cause");
         if step.id == "web-app:create" && step.state == deploy_run::StepState::Building {
             text.push_str(
                 "Firebase is still creating the web app. Rerun the same command to check it.\n",
@@ -300,7 +318,7 @@ fn describe_record(text: &mut String, record: &DeployRecord, record_path: &std::
         if matches!(step.id.as_str(), "web-app:create" | "hosting:stage:create")
             && step.state == deploy_run::StepState::Unknown
         {
-            writeln!(text, "Firebase did not confirm the original creation; tmt will not repeat it. Rerun the same command to check its result. If it is still unconfirmed, check the Firebase project, delete {}, then run without --authorize to read a fresh plan. Existing Firebase resources stay; authorizing a new plan may create a second one.", record_path.display()).expect("String write");
+            writeln!(text, "Firebase did not confirm the original creation; tmt will not repeat it. Rerun the same command to observe its result. If it is still unconfirmed, inspect its cause and the Firebase state. Keep {} so the original creation can be identified; do not delete it to bypass this check.", record_path.display()).expect("String write");
         }
         if let deploy_run::StepState::OwnerAction(action) = step.state {
             writeln!(text, "{}: {}", action.code(), action.instruction()).expect("String write");
@@ -360,6 +378,7 @@ mod tests {
             hosting: None,
             steps: (1..=4)
                 .map(|n| StepRecord {
+                    cause: None,
                     id: format!("composite-index:{n}"),
                     state: if n == 2 {
                         StepState::Building
@@ -393,18 +412,26 @@ mod tests {
             hosting: None,
             steps: vec![
                 StepRecord {
+                    cause: None,
                     id: "web-app:create".into(),
                     state: StepState::Unknown,
                 },
                 StepRecord {
+                    cause: Some(deploy_run::StepCause {
+                        code: deploy_run::CauseCode::Deadline,
+                        phase: deploy_run::CausePhase::Body,
+                        http_status_class: Some(deploy_run::HttpStatusClass::Success),
+                    }),
                     id: "hosting:stage:create".into(),
                     state: StepState::Unknown,
                 },
                 StepRecord {
+                    cause: None,
                     id: format!("hosting:stage:upload:{}", "a".repeat(64)),
                     state: StepState::Done,
                 },
                 StepRecord {
+                    cause: None,
                     id: format!("hosting:stage:upload:{}", "b".repeat(64)),
                     state: StepState::Unknown,
                 },
@@ -423,7 +450,8 @@ mod tests {
                 .count(),
             2
         );
-        assert!(text.contains("delete /fixture/remote/deploy.json, then run without --authorize"));
+        assert!(text.contains("Keep /fixture/remote/deploy.json"));
+        assert!(text.contains("Cause: deadline (phase body; HTTP 2xx)."));
         record.run.as_mut().unwrap().steps[0].state = StepState::Building;
         let mut pending = String::new();
         describe_record(

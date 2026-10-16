@@ -317,11 +317,13 @@ For an extension declaring Hosting, deployment stages and finalizes its frozen b
 switching Rules and releasing Hosting, with an explicit appId-only association step for an
 unassociated site. App creation observes provisioning within its apply budget; if still pending,
 rerun the same command. Recovery reads the saved original and never duplicates an uncertain
-web-app or Version create. An unconfirmed create reports: 'Firebase did not confirm the original
-creation; tmt will not repeat it. Rerun the same command to check its result. If it is still
-unconfirmed, check the Firebase project, delete <deploy.json path>, then run without --authorize
-to read a fresh plan. Existing Firebase resources stay; authorizing a new plan may create a second
-one.' Partial/unknown may include
+web-app or Version create. An ambiguous Hosting mutation gets one fresh-budget, read-only
+confirmation in the same run; it never triggers another mutation. If still unknown, inspect the
+fixed cause/phase (and HTTP class when known) shown in human output and each JSON step's
+`cause`, then rerun the same authorized command to observe the original. Retain the saved record;
+do not delete it to bypass the no-repeat fence. Existing records remain readable. For a helper-only
+fix use `tmt extension upgrade remote --yes --json` so Colab's captured content and the plan digest
+stay unchanged. Partial/unknown may include
 applied changes and never claims rollback or a usable joint publication. Complete records the
 verified public app config and same-project web.app entry. The public remote link is derived
 from that record; it does not prove browser/provider acceptance. The contract owns the lifecycle and app-selection rules.

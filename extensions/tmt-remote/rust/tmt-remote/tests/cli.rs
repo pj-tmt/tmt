@@ -3540,6 +3540,7 @@ fn running_layer_status_reads_atomic_deploy_snapshots_without_the_writer_lock() 
         steps: ["database", "sign-in:anonymous", "rules", "verify"]
             .into_iter()
             .map(|id| StepRecord {
+                cause: None,
                 id: id.into(),
                 state: StepState::Done,
             })

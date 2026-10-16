@@ -4,8 +4,8 @@
 use crate::error::DeployProviderDiagnostic;
 use crate::{
     deploy_run::{
-        self, DeployApplied, DeployFault, DeployObserved, DeployOwnerAction, DeployPlan,
-        DeployPort, DeployProviderError, DeployStep, StepKind,
+        self, CauseCode, CausePhase, DeployApplied, DeployFault, DeployObserved, DeployOwnerAction,
+        DeployPlan, DeployPort, DeployProviderError, DeployStep, StepCause, StepKind,
     },
     limits, wire,
 };
@@ -110,7 +110,9 @@ impl DeployPreflightError {
     pub fn remote_error(self) -> crate::error::RemoteError {
         let code = match self.reason {
             DeployProviderError::Rejected(fault) => fault.code(),
-            DeployProviderError::Unknown => "REMOTE_DEPLOY_UNAVAILABLE",
+            DeployProviderError::Unknown | DeployProviderError::Unconfirmed(_) => {
+                "REMOTE_DEPLOY_UNAVAILABLE"
+            }
         };
         let message = match self.provider {
             Some(provider) => format!("Firebase could not read {} (HTTP {}). Nothing changed in your Firebase project.", provider.operation.label(), provider.status),
@@ -125,12 +127,14 @@ impl DeployPreflightError {
 struct HelperFailure {
     code: String,
     provider: Option<DeployProviderDiagnostic>,
+    cause: Option<StepCause>,
 }
 impl From<&str> for HelperFailure {
     fn from(code: &str) -> Self {
         Self {
             code: code.into(),
             provider: None,
+            cause: None,
         }
     }
 }
@@ -157,8 +161,15 @@ fn parse_reply(bytes: &[u8]) -> Result<Value, HelperFailure> {
         .get("error")
         .and_then(Value::as_str)
         .ok_or("unknown")?;
+    let cause = object
+        .get("cause")
+        .map(|v| {
+            serde_json::from_value::<StepCause>(v.clone())
+                .map_err(|_| HelperFailure::from("unknown"))
+        })
+        .transpose()?;
     let provider = match object.get("provider") {
-        Some(value) if object.len() == 3 => {
+        Some(value) => {
             let diagnostic: DeployProviderDiagnostic =
                 serde_json::from_value(value.clone()).map_err(|_| "unknown")?;
             if !diagnostic.valid() {
@@ -166,9 +177,11 @@ fn parse_reply(bytes: &[u8]) -> Result<Value, HelperFailure> {
             }
             Some(diagnostic)
         }
-        None if object.len() == 2 => None,
-        _ => return Err("unknown".into()),
+        None => None,
     };
+    if object.len() != 2 + usize::from(provider.is_some()) + usize::from(cause.is_some()) {
+        return Err("unknown".into());
+    }
     // Only fixed codes cross this process boundary. All other strings are discarded.
     match code {
         "unsupported-tool" | "login-required" | "account-changed" | "permission-denied"
@@ -176,6 +189,7 @@ fn parse_reply(bytes: &[u8]) -> Result<Value, HelperFailure> {
         | "verify-failed" | "provider-rejected" | "unknown" => Err(HelperFailure {
             code: code.into(),
             provider,
+            cause,
         }),
         _ => Err("unknown".into()),
     }
@@ -223,7 +237,8 @@ impl<'a> DeployFirestore<'a> {
             )
             .map_err(setup_error)?;
         if capabilities
-            != json!({"versions":FIREBASE_TOOLS_VERSIONS,"maxBytes":limits::DEPLOY_PROVIDER_BYTES,"maxPages":limits::DEPLOY_PROVIDER_PAGES})
+            != json!({"versions":FIREBASE_TOOLS_VERSIONS,"maxBytes":limits::DEPLOY_PROVIDER_BYTES,"maxPages":limits::DEPLOY_PROVIDER_PAGES,
+                "hostingPhaseMs":limits::DEPLOY_PROVIDER_CALL.as_millis(),"hostingApplyMs":limits::HOSTING_APPLY_CALL.as_millis()})
         {
             return Err(DeploySetupError::UnsupportedTool);
         }
@@ -308,11 +323,16 @@ impl<'a> DeployFirestore<'a> {
         account: Option<&str>,
         deadline: Instant,
     ) -> Result<Value, HelperFailure> {
+        let failure = |code, phase| HelperFailure {
+            code: "unknown".into(),
+            provider: None,
+            cause: Some(StepCause::new(code, phase)),
+        };
         let remaining = deadline
             .checked_duration_since(Instant::now())
-            .ok_or("unknown")?;
+            .ok_or_else(|| failure(CauseCode::Deadline, CausePhase::ChildExit))?;
         let request = json!({"version":1,"operation":operation,"input":input,"account":account,
-            "budgetMs":remaining.as_millis().min(30_000)});
+            "budgetMs":remaining.as_millis().min(if operation == "apply-hosting" { limits::HOSTING_APPLY_CALL.as_millis() } else { limits::DEPLOY_PROVIDER_CALL.as_millis() })});
         let input = serde_json::to_vec(&request).map_err(|_| "unknown")?;
         let input_bound = if operation == "apply-hosting" {
             limits::HOSTING_UPLOAD_REQUEST_BYTES
@@ -343,15 +363,32 @@ impl<'a> DeployFirestore<'a> {
             },
             Some(self.stop),
         )
-        .map_err(|_| "unknown")?;
+        .map_err(|error| {
+            failure(
+                match error.kind {
+                    tmt_invoke::FailureKind::Deadline => CauseCode::Deadline,
+                    tmt_invoke::FailureKind::OutputLimit(_) => CauseCode::OutputInvalid,
+                    _ => CauseCode::ChildFailed,
+                },
+                CausePhase::ChildExit,
+            )
+        })?;
         // Never expose exception text, stderr, a failed child's JSON, or its exit cause.
         if !output.status.success() {
-            return Err("unknown".into());
+            return Err(failure(CauseCode::ChildFailed, CausePhase::ChildExit));
         }
         if output.stdout.len() > limits::DEPLOY_PROVIDER_BYTES {
-            return Err("unknown".into());
+            return Err(failure(CauseCode::OutputInvalid, CausePhase::ChildExit));
         }
-        parse_reply(&output.stdout)
+        parse_reply(&output.stdout).map_err(|mut error| {
+            if error.code == "unknown" && error.cause.is_none() {
+                error.cause = Some(StepCause::new(
+                    CauseCode::OutputInvalid,
+                    CausePhase::ChildExit,
+                ));
+            }
+            error
+        })
     }
 
     fn step(
@@ -504,7 +541,12 @@ impl DeployPort for DeployFirestore<'_> {
                 "apply",
                 plan,
                 step,
-                Instant::now() + limits::DEPLOY_PROVIDER_CALL,
+                Instant::now()
+                    + if matches!(step.kind, StepKind::Hosting(_)) {
+                        limits::HOSTING_APPLY_CALL
+                    } else {
+                        limits::DEPLOY_PROVIDER_CALL
+                    },
             )?
             .as_str()
         {
@@ -592,7 +634,12 @@ fn provider_error(error: HelperFailure) -> DeployProviderError {
         "provider-rejected" | "unsupported-tool" | "login-required" | "account-changed" => {
             DeployFault::ProviderRejected
         }
-        _ => return unknown(),
+        _ => {
+            return error
+                .cause
+                .map(DeployProviderError::Unconfirmed)
+                .unwrap_or_else(unknown);
+        }
     };
     DeployProviderError::Rejected(fault)
 }
@@ -658,10 +705,16 @@ impl DeployFirestore<'_> {
         let checkpoint = self.hosting.as_ref().ok_or_else(unknown)?.clone();
         let value = self.exchange(operation, json!({"project": plan.view().project, "deployment": plan.deployment_id(), "planDigest": plan.digest(), "hosting": plan.view().hosting, "checkpoint": checkpoint, "steps": self.steps, "action": action, "hash": hash, "bytesBase64": bytes.map(|b| base64::engine::general_purpose::STANDARD.encode(b)), "source": std::str::from_utf8(plan.deployed_rules()).map_err(|_| unknown())?}), Some(plan.account()), deadline).map_err(provider_error)?;
         if let Some(state) = value.get("checkpoint") {
+            let output_error = || {
+                DeployProviderError::Unconfirmed(StepCause::new(
+                    CauseCode::OutputInvalid,
+                    CausePhase::ChildExit,
+                ))
+            };
             let parsed: deploy_run::HostingCheckpoint =
-                serde_json::from_value(state.clone()).map_err(|_| unknown())?;
+                serde_json::from_value(state.clone()).map_err(|_| output_error())?;
             if parsed.envelope != checkpoint.envelope {
-                return Err(unknown());
+                return Err(output_error());
             }
             self.hosting = Some(parsed);
         }
@@ -932,5 +985,66 @@ mod tests {
                 start + Duration::from_secs(20) + limits::DEPLOY_PROVIDER_CALL
             ]
         );
+    }
+}
+
+#[cfg(test)]
+mod cause_tests {
+    use super::*;
+    #[test]
+    fn child_exit_and_invalid_output_have_bounded_causes() {
+        let stop = AtomicBool::new(false);
+        for (program, expected) in [
+            ("/bin/false", CauseCode::ChildFailed),
+            ("/bin/echo", CauseCode::OutputInvalid),
+        ] {
+            let mut adapter = DeployFirestore {
+                node: program.into(),
+                package: "/unused".into(),
+                stop: &stop,
+                composite_progress: None,
+                composite_started: None,
+                hosting: None,
+                compressed: Default::default(),
+                steps: Vec::new(),
+            };
+            let error = adapter
+                .exchange(
+                    "apply-hosting",
+                    json!({}),
+                    None,
+                    Instant::now() + limits::DEPLOY_PROVIDER_CALL,
+                )
+                .unwrap_err();
+            assert_eq!(
+                error.cause,
+                Some(StepCause::new(expected, CausePhase::ChildExit))
+            );
+            assert!(matches!(
+                provider_error(error),
+                DeployProviderError::Unconfirmed(_)
+            ));
+        }
+    }
+
+    #[test]
+    fn helper_causes_are_closed_and_preserved_without_provider_text() {
+        let failure = parse_reply(br#"{"version":1,"error":"unknown","cause":{"code":"deadline","phase":"body","httpStatusClass":"2xx"}}"#).unwrap_err();
+        assert!(matches!(
+            provider_error(failure),
+            DeployProviderError::Unconfirmed(StepCause {
+                code: CauseCode::Deadline,
+                phase: CausePhase::Body,
+                ..
+            })
+        ));
+        for bytes in [
+            br#"{"version":1,"error":"unknown","cause":{"code":"SECRET","phase":"body"}}"#.as_slice(),
+            br#"{"version":1,"error":"unknown","cause":{"code":"deadline","phase":"body","message":"SECRET"}}"#.as_slice(),
+        ] {
+            let failure = parse_reply(bytes).unwrap_err();
+            assert!(failure.cause.is_none());
+            assert!(!format!("{failure:?}").contains("SECRET"));
+        }
     }
 }

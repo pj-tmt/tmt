@@ -485,6 +485,7 @@ fn recorded_prerequisites_never_guess_unfinished_steps_or_tier_and_quota() {
         ]
         .into_iter()
         .map(|id| StepRecord {
+            cause: None,
             id: id.into(),
             state: StepState::Done,
         })
@@ -587,6 +588,7 @@ fn recorded_prerequisites_never_guess_unfinished_steps_or_tier_and_quota() {
         .unwrap()
         .steps
         .push(tmt_remote::deploy_run::StepRecord {
+            cause: None,
             id: "hosting:release".into(),
             state: StepState::Unknown,
         });
@@ -625,6 +627,7 @@ fn index_record(
     let mut steps: Vec<_> = ["database", "sign-in:anonymous", "rules", "verify"]
         .into_iter()
         .map(|id| StepRecord {
+            cause: None,
             id: id.into(),
             state: StepState::Done,
         })
@@ -633,6 +636,7 @@ fn index_record(
         steps.insert(
             2 + i,
             StepRecord {
+                cause: None,
                 id: format!("composite-index:collection{i}:{}", "b".repeat(64)),
                 state: state.clone(),
             },

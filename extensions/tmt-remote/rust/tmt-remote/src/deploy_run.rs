@@ -493,6 +493,64 @@ pub enum DeployProviderError {
     Rejected(DeployFault),
     /// The outcome is unknown: the call may have taken effect.
     Unknown,
+    /// A bounded adapter diagnosis; never provider text or resource identifiers.
+    Unconfirmed(StepCause),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CauseCode {
+    Deadline,
+    Transport,
+    InvalidResponse,
+    BodyInvalid,
+    BodyTooLarge,
+    InventoryIncomplete,
+    FilesMismatch,
+    HttpRejected,
+    ChildFailed,
+    OutputInvalid,
+    CallIncomplete,
+    UnconfirmedCreate,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CausePhase {
+    Credentials,
+    List,
+    Mutation,
+    Body,
+    ChildExit,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HttpStatusClass {
+    #[serde(rename = "1xx")]
+    Informational,
+    #[serde(rename = "2xx")]
+    Success,
+    #[serde(rename = "3xx")]
+    Redirect,
+    #[serde(rename = "4xx")]
+    ClientError,
+    #[serde(rename = "5xx")]
+    ServerError,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StepCause {
+    pub code: CauseCode,
+    pub phase: CausePhase,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub http_status_class: Option<HttpStatusClass>,
+}
+impl StepCause {
+    pub fn new(code: CauseCode, phase: CausePhase) -> Self {
+        Self {
+            code,
+            phase,
+            http_status_class: None,
+        }
+    }
 }
 
 /// The provider seam. Adapters implement it; fixtures fake it.
@@ -562,6 +620,8 @@ pub struct StepRecord {
     pub id: String,
     #[serde(flatten)]
     pub state: StepState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cause: Option<StepCause>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -740,6 +800,9 @@ fn set(
     index: usize,
     state: StepState,
 ) -> Result<(), DeployError> {
+    if state != StepState::Unknown {
+        run_of(record).steps[index].cause = None;
+    }
     run_of(record).steps[index].state = state;
     save(sink, record)
 }
@@ -787,6 +850,7 @@ fn begin(record: &mut DeployRecord, plan: &DeployPlan, now_ms: u64) {
             .steps
             .iter()
             .map(|step| StepRecord {
+                cause: None,
                 id: step.id.clone(),
                 state: StepState::Pending,
             })
@@ -811,7 +875,7 @@ fn advance(
     let observed = match observation {
         Ok(observed) => observed,
         Err(error) => {
-            set(record, sink, index, from_error(error))?;
+            set_failure(record, sink, index, error, step, CausePhase::List)?;
             return Ok(false);
         }
     };
@@ -875,12 +939,21 @@ fn advance(
     ) && record.run.as_ref().expect("begun").steps[index].state == StepState::Unknown
     {
         // Absence after an ambiguous mutation is not proof it did not happen.
+        if run_of(record).steps[index].cause.is_none() {
+            run_of(record).steps[index].cause = Some(StepCause::new(
+                CauseCode::UnconfirmedCreate,
+                CausePhase::List,
+            ));
+            save(sink, record)?;
+        }
         return Ok(false);
     }
     // Recorded before the call, so a crash or a lost answer leaves `unknown`, never a gap.
     if step.kind == StepKind::Rules {
         run_of(record).rules_attempted = true;
     }
+    run_of(record).steps[index].cause = matches!(step.kind, StepKind::Hosting(_))
+        .then(|| StepCause::new(CauseCode::CallIncomplete, CausePhase::Mutation));
     set(record, sink, index, StepState::Unknown)?;
     if let Some(checkpoint) = &record.run.as_ref().expect("begun").hosting {
         port.restore_hosting(checkpoint, &record.run.as_ref().expect("begun").steps);
@@ -901,16 +974,36 @@ fn advance(
             Ok(false)
         }
         Err(error) => {
-            set(record, sink, index, from_error(error))?;
+            set_failure(record, sink, index, error, step, CausePhase::Mutation)?;
             Ok(false)
         }
     }
 }
 
+fn set_failure(
+    record: &mut DeployRecord,
+    sink: &mut dyn DeploySink,
+    index: usize,
+    error: DeployProviderError,
+    step: &DeployStep,
+    phase: CausePhase,
+) -> Result<(), DeployError> {
+    run_of(record).steps[index].cause = if matches!(step.kind, StepKind::Hosting(_)) {
+        match error {
+            DeployProviderError::Unconfirmed(cause) => Some(cause),
+            DeployProviderError::Unknown => Some(StepCause::new(CauseCode::InvalidResponse, phase)),
+            DeployProviderError::Rejected(_) => None,
+        }
+    } else {
+        None
+    };
+    set(record, sink, index, from_error(error))
+}
+
 fn from_error(error: DeployProviderError) -> StepState {
     match error {
         DeployProviderError::Rejected(fault) => StepState::Failed(fault),
-        DeployProviderError::Unknown => StepState::Unknown,
+        DeployProviderError::Unknown | DeployProviderError::Unconfirmed(_) => StepState::Unknown,
     }
 }
 

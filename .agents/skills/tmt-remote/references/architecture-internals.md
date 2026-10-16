@@ -144,8 +144,11 @@ every helper child starts at `/`, before auth loads, so project-local Firebase c
 cannot apply; tokens stay in that child. Each effect re-resolves the login and verifies its live account.
 Only bounded, fixed-schema JSON crosses stdout; stderr and exception text are discarded.
 The absolute invocation deadline includes process I/O and exit; owned-group cleanup/reaping
-has its existing separate bound. Mutations are never automatically retried. An ambiguous
-reply is unknown: inspect the retained run and read back before authorizing another attempt.
+has its existing separate bound. Hosting has separate 30-second preparation, mutation-reply and
+read-only reconciliation budgets under a 90-second apply bound. An ambiguous effect gets one
+exact read-back, never another mutation. The pure runner persists the adapter's closed cause/phase
+and optional HTTP class on unknown steps; absence keeps old record bytes and version unchanged.
+Human/JSON project that metadata; neither diagnostics nor helper bytes enter the plan digest.
 
 Database, selected sign-in providers and indexes precede the Rules release. Index allocation
 counts unrelated live field configurations against the Spark ceiling and preserves existing
