@@ -1,3 +1,4 @@
+import { text } from '../src/strings.js';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import { expect, test, type BrowserContext, type Page, type Response } from '@playwright/test';
@@ -389,7 +390,9 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
           }
           await s.askerPage.evaluate(() => delete document.documentElement.dataset.theme);
           await input.press('Enter');
-          await expect(container.getByRole('alert')).toHaveCount(0);
+          await expect(container.getByRole('alert')).toHaveText(
+            `${text.messageRecordFailed} (ref S6)`,
+          );
           expect(s.recipient.received()).toHaveLength(1);
           expect(dispatches(world)).toHaveLength(1);
           await expect(input).toHaveText(draft);
@@ -412,7 +415,12 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
           expect(navigations).toEqual([]);
           expect(s.recipient.received()).toHaveLength(1);
           expect(dispatches(world)).toHaveLength(1);
+          // Directory recovery does not erase the refused Send; the deliberate edit does.
+          await expect(container.getByRole('alert')).toHaveText(
+            `${text.messageRecordFailed} (ref S6)`,
+          );
           await input.press('X');
+          await expect(container.getByRole('alert')).toHaveCount(0);
           const edited = draft.slice(0, 5) + 'X' + draft.slice(5);
           await expect(input).toHaveText(edited);
           await s.askerPage.screenshot({
