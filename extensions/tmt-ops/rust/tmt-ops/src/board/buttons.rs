@@ -49,7 +49,6 @@ impl State {
 #[derive(Clone, Copy)]
 pub(super) struct Button<'a> {
     label: &'a str,
-    kind: ChipKind,
     focused: bool,
     enabled: bool,
     idle: Option<Style>,
@@ -59,7 +58,6 @@ impl<'a> Button<'a> {
     pub(super) fn secondary(label: &'a str) -> Self {
         Self {
             label,
-            kind: ChipKind::Secondary,
             focused: false,
             enabled: true,
             idle: None,
@@ -67,10 +65,7 @@ impl<'a> Button<'a> {
     }
 
     pub(super) fn primary(label: &'a str) -> Self {
-        Self {
-            kind: ChipKind::Primary,
-            ..Self::secondary(label)
-        }
+        Self::secondary(label).focused(true)
     }
 
     pub(super) fn focused(mut self, focused: bool) -> Self {
@@ -113,7 +108,7 @@ pub(super) fn paint(
         {
             return style;
         }
-        screen::chip(&look.theme, button.kind, state, look.depth)
+        screen::chip(&look.theme, ChipKind::Secondary, state, look.depth)
     };
     let labels: Vec<_> = buttons
         .iter()

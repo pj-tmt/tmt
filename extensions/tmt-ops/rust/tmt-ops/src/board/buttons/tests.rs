@@ -226,7 +226,7 @@ fn chip_cells_use_the_shared_style_at_each_depth_without_relayout_on_hover() {
             before
         );
         for (rect, kind, state) in [
-            (send, ChipKind::Primary, ChipState::Hot),
+            (send, ChipKind::Secondary, ChipState::Hot),
             (disabled, ChipKind::Secondary, ChipState::Disabled),
         ] {
             let expected = screen::chip(&look.theme, kind, state, depth);
