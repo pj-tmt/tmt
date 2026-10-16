@@ -190,29 +190,16 @@ It remains outside required aggregates and does not authorize publication.
 last 40 successful `ci.yml` PR and merge-group runs, ordered by creation then run ID: gate wall (run
 creation to the last selected required context), per-job wall and queue, the controlling job and
 runner-minutes, with the median and nearest-rank p90. Skipped jobs and negative spans (reused job copies in a retried run) have no sample. The controlling job
-is the last non-aggregate job to complete before the gate ends. It reads the budgets below and lists
+is the last non-aggregate job to complete before the gate ends. It reads the budgets and lists
 every value over its limit; it never blocks a PR (timing is too noisy for that).
 
-The baseline is #3230's frozen cohort (2026-10-15) and is tightened as #3047 slices land. A gate or
-job is over budget when its measured median (gate only) or p90 exceeds the figure. Raising a budget
-needs a written note from the Infra lead on #3283.
+[`typescript/scripts/ci-gate-budgets.json`](../../../../typescript/scripts/ci-gate-budgets.json) is the one owner
+of the budgets: the gate median and p90 for PRs and merge groups, and a p90 per required job. They start at
+#3230's frozen baseline (2026-10-15) and are tightened as #3047 slices land. A gate or job is over budget when
+its measured median (gate only) or p90 exceeds the figure. Raising a budget needs a written note from the Infra
+lead on #3283.
 
-| Event       | Gate median (s) | Gate p90 (s) |
-| ----------- | --------------: | -----------: |
-| PR          |           800.5 |         1095 |
-| Merge group |             790 |          911 |
-
-| Required job                | PR p90 (s) | Merge group p90 (s) |
-| --------------------------- | ---------: | ------------------: |
-| Native Rust workspace tests |        866 |                 861 |
-| Docker E2E shard 1/2        |        672 |                 692 |
-| Docker E2E shard 2/2        |        655 |                 639 |
-| Native process contracts    |        592 |                 585 |
-| Code quality                |        180 |                 176 |
-| Unit tests                  |        175 |                 170 |
-| Native package matrix       |         14 |                  15 |
-
-The Monday hygiene pass runs the script and compares it with these budgets. A job over budget for two
+The Monday hygiene pass runs the script and compares it with the budgets. A job over budget for two
 consecutive weeks gets an issue for the squad whose suite dominates it, asking for a shard, a consumer
 or a trim. A PR expected to add more than about 20 s to a required job says so in its body and updates
 the shard weights or assignment (`typescript/test/e2e/shard-weights.json`, or

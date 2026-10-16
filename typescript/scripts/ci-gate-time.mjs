@@ -6,10 +6,10 @@
  * or queue sample; they are never zeros. Runner-minutes are observed occupancy, not
  * billing. The controlling job is the last non-aggregate job to complete before the
  * gate ends, a completion-ordered approximation of #3230's `needs` trace. Budgets
- * live in the CI reference; this tool compares and reports, and never blocks a PR.
+ * live in ci-gate-budgets.json (see the CI reference); this tool compares and
+ * reports, and never blocks a PR.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { runPackedCommand } from './packed-command.mjs';
@@ -30,7 +30,6 @@ export const REQUIRED_CONTEXTS = [
 /** Jobs that only wait on workers; the controlling job is never one of these. */
 export const AGGREGATE_JOBS = ['Docker E2E', 'Native package matrix', 'Native Rust contracts'];
 const OTHER_JOB_ROWS = 5;
-const BUDGET_HEADING = '## Gate-time budgets';
 
 const seconds = (start, end) => {
   const value = (Date.parse(end) - Date.parse(start)) / 1000;
@@ -233,45 +232,29 @@ export function summarizeGate(runs, required = REQUIRED_CONTEXTS) {
   );
 }
 
-const cells = (line) =>
-  line
-    .trim()
-    .replace(/^\||\|$/g, '')
-    .split('|')
-    .map((cell) => cell.trim());
-/** Read the budget tables under the CI reference's "Gate-time budgets" heading. */
-export function parseBudgets(markdown) {
-  const start = markdown.indexOf(`${BUDGET_HEADING}\n`);
-  if (start < 0) throw new Error(`Missing "${BUDGET_HEADING}" section.`);
-  const rest = markdown.slice(start + BUDGET_HEADING.length);
-  const section = rest.slice(0, rest.search(/\n## /) < 0 ? undefined : rest.search(/\n## /));
-  const budgets = { gate: {}, jobs: {} };
-  const number = (text, what) => {
-    const value = Number(text);
+/** Validate the budget file, the single owner of every limit. */
+export function parseBudgets(text) {
+  const data = JSON.parse(text);
+  const limit = (value, what) => {
     if (!Number.isFinite(value) || value <= 0)
-      throw new Error(`Invalid budget for ${what}: ${text}`);
+      throw new Error(`Invalid budget for ${what}: ${value}`);
     return value;
   };
-  let table = null;
-  for (const line of section.split('\n').filter((row) => row.trim().startsWith('|'))) {
-    const row = cells(line);
-    if (/^-+:?$/.test(row[0]?.replace(/^:/, '') ?? '')) continue;
-    if (row[0] === 'Event') table = 'gate';
-    else if (row[0] === 'Required job') table = 'jobs';
-    else if (table === 'gate') {
-      const event = EVENTS.find((name) => EVENT_LABELS[name] === row[0]);
-      if (!event) throw new Error(`Unknown budget event: ${row[0]}`);
-      budgets.gate[event] = { median: number(row[1], row[0]), p90: number(row[2], row[0]) };
-    } else if (table === 'jobs') {
-      budgets.jobs[row[0]] = {
-        pull_request: number(row[1], `${row[0]} PR`),
-        merge_group: number(row[2], `${row[0]} merge group`),
-      };
-    }
+  const budgets = { gate: {}, jobs: {} };
+  for (const event of EVENTS) {
+    const gate = data.gate?.[event];
+    if (!gate) throw new Error(`Missing gate budget for ${EVENT_LABELS[event]}.`);
+    budgets.gate[event] = {
+      median: limit(gate.median, `${EVENT_LABELS[event]} gate median`),
+      p90: limit(gate.p90, `${EVENT_LABELS[event]} gate p90`),
+    };
   }
-  for (const event of EVENTS)
-    if (!budgets.gate[event]) throw new Error(`Missing gate budget for ${EVENT_LABELS[event]}.`);
-  if (!Object.keys(budgets.jobs).length) throw new Error('Missing per-job budgets.');
+  const jobs = Object.entries(data.jobs ?? {});
+  if (!jobs.length) throw new Error('Missing per-job budgets.');
+  for (const [name, row] of jobs)
+    budgets.jobs[name] = Object.fromEntries(
+      EVENTS.map((event) => [event, limit(row?.[event], `${name} ${EVENT_LABELS[event]}`)])
+    );
   return budgets;
 }
 
@@ -348,10 +331,7 @@ export function renderReport(summary, budgets, { workflow = 'ci.yml' } = {}) {
   return `${lines.join('\n')}\n`;
 }
 
-const DEFAULT_REFERENCE = resolve(
-  dirname(fileURLToPath(import.meta.url)),
-  '../../.agents/skills/tmt-release/references/ci-selection.md'
-);
+const DEFAULT_BUDGETS = fileURLToPath(new URL('./ci-gate-budgets.json', import.meta.url));
 function main(argv) {
   const { values } = parseArgs({
     args: argv,
@@ -360,7 +340,7 @@ function main(argv) {
       workflow: { type: 'string', default: 'ci.yml' },
       count: { type: 'string', default: '40' },
       'max-requests': { type: 'string', default: '400' },
-      budgets: { type: 'string', default: DEFAULT_REFERENCE },
+      budgets: { type: 'string', default: DEFAULT_BUDGETS },
       output: { type: 'string' },
       json: { type: 'string' },
     },

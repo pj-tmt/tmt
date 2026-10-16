@@ -19,11 +19,11 @@ import {
 const fixture = JSON.parse(
   readFileSync(new URL('../fixtures/ci-gate-time.json', import.meta.url), 'utf8')
 ) as { responses: Record<string, unknown> };
-const reference = readFileSync(
-  new URL('../../../.agents/skills/tmt-release/references/ci-selection.md', import.meta.url),
+const budgetText = readFileSync(
+  new URL('../../scripts/ci-gate-budgets.json', import.meta.url),
   'utf8'
 );
-const budgets = parseBudgets(reference);
+const budgets = parseBudgets(budgetText);
 
 /** Serve the recorded GitHub responses; any unrecorded path is a test failure. */
 function recorded(log: string[] = []) {
@@ -230,7 +230,7 @@ describe('collection failures', () => {
   });
 });
 
-describe('budgets in the CI reference', () => {
+describe('budget file', () => {
   it('records the #3230 baseline for both events and every selected required job', () => {
     expect(budgets.gate.pull_request).toEqual({ median: 800.5, p90: 1095 });
     expect(budgets.gate.merge_group).toEqual({ median: 790, p90: 911 });
@@ -249,16 +249,22 @@ describe('budgets in the CI reference', () => {
     });
   });
 
-  it('rejects a missing section, event, or non-numeric figure', () => {
-    expect(() => parseBudgets('# nothing')).toThrow('Missing "## Gate-time budgets"');
-    expect(() => parseBudgets(reference.replace('| Merge group |', '| Main |'))).toThrow(
-      'Unknown budget event'
+  it('rejects a missing event, a missing job list, or a non-positive figure', () => {
+    const edit = (change: (data: Record<string, any>) => void) => {
+      const data = JSON.parse(budgetText) as Record<string, any>;
+      change(data);
+      return JSON.stringify(data);
+    };
+    expect(() => parseBudgets(edit((data) => delete data.gate.merge_group))).toThrow(
+      'Missing gate budget for Merge group'
     );
-    expect(() => parseBudgets(reference.replace(/ 1095 \|/, ' soon |'))).toThrow('Invalid budget');
-  });
-
-  it('is the only owner: the budget tables appear once', () => {
-    expect(reference.match(/^## Gate-time budgets$/gm)).toHaveLength(1);
+    expect(() => parseBudgets(edit((data) => (data.jobs = {})))).toThrow('Missing per-job');
+    expect(() => parseBudgets(edit((data) => (data.gate.pull_request.p90 = 0)))).toThrow(
+      'Invalid budget for PR gate p90'
+    );
+    expect(() =>
+      parseBudgets(edit((data) => delete data.jobs['Code quality'].merge_group))
+    ).toThrow('Invalid budget for Code quality Merge group');
   });
 });
 

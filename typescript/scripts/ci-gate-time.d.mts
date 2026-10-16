@@ -72,7 +72,7 @@ export function collectGateRuns(
   options?: { workflow?: string; count?: number; events?: readonly GateEvent[] },
 ): GateRun[];
 export function summarizeGate(runs: readonly GateRun[], required?: readonly string[]): GateSummary;
-export function parseBudgets(markdown: string): Budgets;
+export function parseBudgets(text: string): Budgets;
 export function overBudget(summary: GateSummary, budgets: Budgets): OverBudget[];
 export function renderReport(
   summary: GateSummary,
