@@ -277,6 +277,15 @@ export function overBudget(summary, budgets) {
   return over;
 }
 
+/** Budgeted jobs with no wall sample in the window (renamed, removed or always skipped). */
+export function unmeasuredBudgets(summary, budgets) {
+  return EVENTS.flatMap((event) =>
+    Object.keys(budgets.jobs)
+      .filter((name) => !summary[event].jobs.some((row) => row.name === name && row.wall.n > 0))
+      .map((job) => ({ event, job }))
+  );
+}
+
 const fixed = (value, digits = 1) =>
   value === null ? 'n/a' : Number(value.toFixed(digits)).toString();
 /** Markdown report for the weekly hygiene pass. */
@@ -328,6 +337,17 @@ export function renderReport(summary, budgets, { workflow = 'ci.yml' } = {}) {
         `- ${EVENT_LABELS[item.event]} ${item.what}: ${fixed(item.value)} s > ${item.budget} s`
       );
   else lines.push('None.');
+  const unmeasured = unmeasuredBudgets(summary, budgets);
+  lines.push(
+    '',
+    '## Budgeted jobs without samples',
+    '',
+    'A budget that matches no sample is not being checked; rename or remove it in ci-gate-budgets.json.',
+    ''
+  );
+  if (unmeasured.length)
+    for (const item of unmeasured) lines.push(`- ${EVENT_LABELS[item.event]} ${item.job}`);
+  else lines.push('None.');
   return `${lines.join('\n')}\n`;
 }
 
@@ -353,7 +373,16 @@ function main(argv) {
   if (values.json)
     writeFileSync(
       values.json,
-      `${JSON.stringify({ summary, over: overBudget(summary, budgets), requests: read.requests() }, null, 2)}\n`
+      `${JSON.stringify(
+        {
+          summary,
+          over: overBudget(summary, budgets),
+          unmeasured: unmeasuredBudgets(summary, budgets),
+          requests: read.requests(),
+        },
+        null,
+        2
+      )}\n`
     );
   if (values.output) writeFileSync(values.output, report);
   else process.stdout.write(report);

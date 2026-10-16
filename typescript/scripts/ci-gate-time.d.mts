@@ -74,6 +74,10 @@ export function collectGateRuns(
 export function summarizeGate(runs: readonly GateRun[], required?: readonly string[]): GateSummary;
 export function parseBudgets(text: string): Budgets;
 export function overBudget(summary: GateSummary, budgets: Budgets): OverBudget[];
+export function unmeasuredBudgets(
+  summary: GateSummary,
+  budgets: Budgets
+): { event: GateEvent; job: string }[];
 export function renderReport(
   summary: GateSummary,
   budgets: Budgets,

@@ -11,6 +11,7 @@ import {
   percentile,
   renderReport,
   summarizeGate,
+  unmeasuredBudgets,
   type GateEvent,
   type GateJob,
   type GateRun,
@@ -112,20 +113,54 @@ describe('recorded gate cohort', () => {
     ]);
   });
 
+  // Inline budgets: the real file is tightened over time and must not pin these tests.
+  const limits = {
+    gate: {
+      pull_request: { median: 1000, p90: 5000 },
+      merge_group: { median: 1000, p90: 1000 },
+    },
+    jobs: {
+      'Native Rust workspace tests': { pull_request: 800, merge_group: 900 },
+      'Renamed away job': { pull_request: 100, merge_group: 100 },
+    },
+  };
+
   it('flags only values above their budgets and renders them', () => {
-    expect(overBudget(summary, budgets).map((item) => item.what)).toEqual(
-      expect.arrayContaining(['gate median', 'gate p90'])
-    );
-    const tight = { ...budgets, gate: { ...budgets.gate } };
-    tight.gate.pull_request = { median: 2000, p90: 5000 };
-    tight.gate.merge_group = { median: 2000, p90: 5000 };
-    const lenient = { gate: tight.gate, jobs: {} };
-    expect(overBudget(summary, lenient)).toEqual([]);
-    const report = renderReport(summary, budgets);
+    expect(overBudget(summary, limits)).toEqual([
+      { event: 'pull_request', what: 'gate median', value: 1093, budget: 1000 },
+      { event: 'pull_request', what: 'Native Rust workspace tests p90', value: 835, budget: 800 },
+    ]);
+    expect(overBudget(summary, { gate: limits.gate, jobs: {} })).toHaveLength(1);
+    const report = renderReport(summary, limits);
     expect(report).toContain('| PR | 6 (1) |');
     expect(report).toContain('| Native Rust workspace tests | 6 |');
     expect(report).not.toContain(' / Conclude');
-    expect(report).toMatch(/## Over budget\n\n- PR gate median: 1093 s > 800.5 s/);
+    expect(report).toMatch(/## Over budget\n\n- PR gate median: 1093 s > 1000 s\n- PR Native/);
+  });
+
+  it('reports budgeted jobs that have no sample instead of skipping them', () => {
+    const missing = [
+      { event: 'pull_request', job: 'Renamed away job' },
+      { event: 'merge_group', job: 'Renamed away job' },
+    ];
+    expect(unmeasuredBudgets(summary, limits)).toEqual(missing);
+    expect(unmeasuredBudgets(summary, budgets)).toEqual([]);
+    expect(renderReport(summary, limits)).toMatch(
+      /## Budgeted jobs without samples\n\n.*\n\n- PR Renamed away job\n- Merge group Renamed away job\n/
+    );
+    expect(renderReport(summary, budgets)).toMatch(/without samples\n\n.*\n\nNone\.\n/);
+    // A job whose every run was skipped has no sample either.
+    const skipped = {
+      ...summary.pull_request.jobs[0]!,
+      wall: { n: 0, median: null, p90: null, max: null },
+    };
+    const sparse = { ...summary, pull_request: { ...summary.pull_request, jobs: [skipped] } };
+    expect(
+      unmeasuredBudgets(sparse, {
+        gate: limits.gate,
+        jobs: { [skipped.name]: limits.jobs['Renamed away job'] },
+      }).filter((item) => item.event === 'pull_request')
+    ).toEqual([{ event: 'pull_request', job: skipped.name }]);
   });
 });
 
@@ -231,22 +266,15 @@ describe('collection failures', () => {
 });
 
 describe('budget file', () => {
-  it('records the #3230 baseline for both events and every selected required job', () => {
-    expect(budgets.gate.pull_request).toEqual({ median: 800.5, p90: 1095 });
-    expect(budgets.gate.merge_group).toEqual({ median: 790, p90: 911 });
-    expect(Object.keys(budgets.jobs)).toEqual([
-      'Native Rust workspace tests',
-      'Docker E2E shard 1/2',
-      'Docker E2E shard 2/2',
-      'Native process contracts',
-      'Code quality',
-      'Unit tests',
-      'Native package matrix',
-    ]);
-    expect(budgets.jobs['Native Rust workspace tests']).toEqual({
-      pull_request: 866,
-      merge_group: 861,
-    });
+  it('parses, with both events and every job budgeted by a positive figure', () => {
+    // Structural only: the figures are tightened over time and are not pinned here.
+    for (const event of ['pull_request', 'merge_group'] as const) {
+      expect(budgets.gate[event].median).toBeGreaterThan(0);
+      expect(budgets.gate[event].p90).toBeGreaterThanOrEqual(budgets.gate[event].median);
+      for (const [name, row] of Object.entries(budgets.jobs))
+        expect(row[event], `${name} ${event}`).toBeGreaterThan(0);
+    }
+    expect(Object.keys(budgets.jobs).length).toBeGreaterThan(0);
   });
 
   it('rejects a missing event, a missing job list, or a non-positive figure', () => {
