@@ -70,7 +70,7 @@ const SPECS: &[OpsUiSpec] = &[
         AgentsFilter,
         "agents-filter",
         "filter",
-        "cycle Agents through all, needs you and pinned squads",
+        "cycle Agents through all and pinned squads",
         11
     ),
     spec!(

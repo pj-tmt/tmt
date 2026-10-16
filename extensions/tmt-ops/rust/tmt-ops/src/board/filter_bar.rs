@@ -1,13 +1,7 @@
 //! Shared list mode chips, idle search field.
 //! Hosts supply options and own selection, filtering and command admission.
 use crate::board::{app::App, chip_group};
-use ratatui::{
-    buffer::Buffer,
-    layout::Rect,
-    text::{Line, Span},
-};
-use tmt_cli_style::Role;
-use tmt_tui::components::strip;
+use ratatui::{buffer::Buffer, layout::Rect};
 
 pub(in crate::board) fn paint(
     buffer: &mut Buffer,
@@ -18,6 +12,13 @@ pub(in crate::board) fn paint(
     app: &App,
 ) -> Vec<chip_group::Hit> {
     let look = app.look();
+    let area = Rect {
+        height: area.height.min(1),
+        ..area
+    };
+    if area.is_empty() {
+        return Vec::new();
+    }
     let groups = [chip_group::ChipGroup {
         label: " ".into(),
         choices: options
@@ -38,7 +39,7 @@ pub(in crate::board) fn paint(
         .iter()
         .map(|(_, label)| unicode_width::UnicodeWidthStr::width(*label) + 3)
         .sum::<usize>();
-    let hits = chip_group::paint(
+    let mut hits = chip_group::paint(
         buffer,
         Rect {
             width: area.width.min(chips as u16),
@@ -53,35 +54,13 @@ pub(in crate::board) fn paint(
     let search_width = available.min(34);
     if search_width > 0 {
         let search = Rect::new(x, area.y, search_width, area.height.min(1));
-        strip::paint_left(
-            buffer,
-            search,
-            Line::from(vec![
-                Span::raw(" "),
-                Span::styled(
-                    "/ ",
-                    look.role(Role::Text)
-                        .add_modifier(ratatui::style::Modifier::BOLD),
-                ),
-                Span::styled(
-                    crate::board::view::fit(
-                        &if query.is_empty() {
-                            "Search".into()
-                        } else {
-                            crate::board::notes::sanitize(query)
-                        },
-                        usize::from(search_width.saturating_sub(3)),
-                    ),
-                    look.role(Role::Muted),
-                ),
-            ])
-            .style(tmt_cli_style::theme::screen::chip(
-                &look.theme,
-                tmt_cli_style::theme::screen::ChipKind::Secondary,
-                tmt_cli_style::theme::screen::ChipState::Idle,
-                look.depth,
-            )),
-        );
+        super::search_field::paint(buffer, search, query, app.searching, look);
+        if search.width >= 3 {
+            hits.push(chip_group::Hit {
+                area: search,
+                id: "search".into(),
+            });
+        }
     }
     hits
 }
@@ -89,6 +68,58 @@ pub(in crate::board) fn paint(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn search_uses_one_fixed_filled_slot_in_every_editing_state() {
+        use ratatui::style::Color;
+        use tmt_cli_style::{Base, Depth, Role, Theme};
+        for options in [
+            [("squads", "Squads"), ("agents", "Agents")],
+            [("all", "All"), ("pinned", "Pinned")],
+        ] {
+            for width in [103, 148] {
+                for (base, depth) in [
+                    (Base::parse("tmt").unwrap(), Depth::TrueColor),
+                    (Base::parse("tmt-light").unwrap(), Depth::TrueColor),
+                    (Base::parse("tmt").unwrap(), Depth::None),
+                ] {
+                    let mut geometry = None;
+                    for (query, editing) in
+                        [("", false), ("agent-00001", true), ("agent-00001", false)]
+                    {
+                        let mut app = App::default();
+                        app.initial_look = Some(crate::look::Look {
+                            theme: Theme::new(base),
+                            depth,
+                        });
+                        app.searching = editing;
+                        let area = Rect::new(0, 0, width, 1);
+                        let mut buffer = Buffer::empty(area);
+                        buffer.set_style(area, ratatui::style::Style::default().bg(Color::Magenta));
+                        let hits = paint(&mut buffer, area, &options, 0, query, &app);
+                        let slot = hits.iter().find(|hit| hit.id == "search").unwrap().area;
+                        assert_eq!(slot.width, 34);
+                        assert_eq!(*geometry.get_or_insert(slot), slot);
+                        let style = app
+                            .look()
+                            .role(Role::Text)
+                            .patch(app.look().role(Role::Track));
+                        for x in slot.x..slot.right() {
+                            let cell = &buffer[(x, 0)];
+                            assert_eq!(
+                                cell.bg,
+                                style.bg.unwrap_or(Color::Reset),
+                                "{query:?}, editing={editing}, x={x}"
+                            );
+                            assert_eq!(cell.fg, style.fg.unwrap_or(Color::Reset));
+                            assert_eq!(cell.modifier, style.add_modifier);
+                        }
+                        assert_eq!(buffer[(slot.right(), 0)].bg, Color::Magenta);
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn both_hosts_share_fitted_chips_and_idle_search_without_hidden_hits() {
         for options in [
@@ -103,7 +134,7 @@ mod tests {
                 let hits = paint(&mut buffer, area, &options, 1, "", &app);
                 for hit in hits {
                     assert_eq!(hit.area.intersection(area), hit.area);
-                    assert!(options.iter().any(|(id, _)| *id == hit.id));
+                    assert!(hit.id == "search" || options.iter().any(|(id, _)| *id == hit.id));
                 }
                 if width >= 60 {
                     let text: String = (area.x..area.right())

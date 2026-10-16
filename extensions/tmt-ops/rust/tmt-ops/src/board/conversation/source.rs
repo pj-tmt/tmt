@@ -249,6 +249,18 @@ pub(super) fn paint(
     body: Rect,
     look: Look,
 ) {
+    paint_with_interactivity(frame, app, source, target, body, look, true);
+}
+
+pub(super) fn paint_with_interactivity(
+    frame: &mut Frame,
+    app: &App,
+    source: &mut Source,
+    target: &RowTarget,
+    body: Rect,
+    look: Look,
+    interactive: bool,
+) {
     source.invalidate();
     let footer = (body.height > 1).then(|| Rect::new(body.x, body.bottom() - 1, body.width, 1));
     let area = Rect {
@@ -282,7 +294,9 @@ pub(super) fn paint(
                 look.role(Role::Text)
                     .add_modifier(ratatui::style::Modifier::REVERSED),
             );
-            source.painted = Some((viewport, offset));
+            if interactive {
+                source.painted = Some((viewport, offset));
+            }
         },
     );
     if let Some(footer) = footer {
@@ -290,7 +304,7 @@ pub(super) fn paint(
             source.target == Target::Row(target.clone())
                 && app.response_quote_current(&source.target, quote)
         });
-        let control = if quote.is_some() {
+        let control = if interactive && quote.is_some() {
             super::super::buttons::paint(
                 app,
                 frame.buffer_mut(),
@@ -309,7 +323,11 @@ pub(super) fn paint(
                 frame.buffer_mut(),
                 footer,
                 Line::styled(
-                    "Drag exact source · View reply for keyboard selection",
+                    if interactive {
+                        "Drag exact source · View reply for keyboard selection"
+                    } else {
+                        "Clear the filter to annotate this source."
+                    },
                     look.role(Role::Dim),
                 ),
             );

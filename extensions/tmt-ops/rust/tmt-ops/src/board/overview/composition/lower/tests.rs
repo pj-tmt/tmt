@@ -281,3 +281,47 @@ fn squads_sort_is_explained_without_changing_the_agents_order() {
             .contains("Switch to Agents to sort")
     );
 }
+
+#[test]
+fn shared_search_updates_timer_rule_and_bolds_only_the_matching_text() {
+    let _no_commands = crate::runner::forbid_commands();
+    let mut app = app();
+    let mut jobs = test_views(5, "team", "room");
+    jobs[3].job.message = "release".into();
+    jobs[4].job.message = "release check".into();
+    app.cron
+        .replace(Ok(test_cron(jobs, tmt_ops::cron::ClockStatus::NoClock)));
+    app.key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+    app.paste("release");
+    let look = app.look();
+    let mut terminal = Terminal::new(TestBackend::new(103, 51)).unwrap();
+    terminal
+        .draw(|frame| {
+            crate::board::view::prepare(&mut app, frame.area());
+            crate::board::view::render(frame, &app);
+        })
+        .unwrap();
+    let buffer = terminal.backend().buffer();
+    let lines: Vec<String> = buffer
+        .content
+        .chunks(103)
+        .map(|row| row.iter().map(|cell| cell.symbol()).collect())
+        .collect();
+    let rule = lines
+        .iter()
+        .find(|line| line.contains("── Timers"))
+        .unwrap();
+    assert!(rule.contains("2 of 5 timers"), "{rule}");
+    let y = lines
+        .iter()
+        .position(|line| line.contains("c4") && line.contains("release"))
+        .unwrap();
+    let x = lines[y][..lines[y].find("release").unwrap()]
+        .chars()
+        .count() as u16;
+    let cell = &buffer[(x, y as u16)];
+    assert!(cell.modifier.contains(ratatui::style::Modifier::BOLD));
+    assert_eq!(cell.fg, look.role(Role::Muted).fg.unwrap_or_default());
+    assert_eq!(app.workspace.query, "release");
+    assert!(app.input.is_none(), "filtering never creates a composer");
+}

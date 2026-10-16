@@ -654,3 +654,18 @@ fn replaced_overview_filter_does_not_erase_other_layer_controls() {
         super::super::overview::monitor::View::Agents
     );
 }
+
+#[test]
+fn retired_agents_attention_filter_loads_as_all_without_discarding_other_controls() {
+    let mut app = board();
+    app.search = "worker".into();
+    let mut value = Controls::capture(&app).json();
+    value["agentsFilter"] = json!("needs-you");
+    let controls = Controls::decode(&value).unwrap();
+    assert_eq!(
+        controls.agents_filter,
+        super::super::workspace::AgentsFilter::All
+    );
+    assert_eq!(controls.query, "worker");
+    assert_eq!(controls.json()["agentsFilter"], "all");
+}

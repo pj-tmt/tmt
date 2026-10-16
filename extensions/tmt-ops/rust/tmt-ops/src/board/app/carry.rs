@@ -438,7 +438,7 @@ mod tests {
             reversed: true,
             overview: None,
         });
-        first.workspace.filter = AgentsFilter::NeedsYou;
+        first.workspace.filter = AgentsFilter::Pinned;
         let arrived = arrive(&first.resume().unwrap());
         let mut next = board();
         next.carry(arrived);

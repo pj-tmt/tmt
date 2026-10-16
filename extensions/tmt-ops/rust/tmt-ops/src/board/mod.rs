@@ -35,6 +35,7 @@ mod mentions;
 mod menu_surface;
 mod meter;
 pub(crate) mod notes;
+mod notice;
 mod overview;
 mod pane_chrome;
 mod panels_picker;
@@ -48,6 +49,7 @@ mod resume;
 mod row_chips;
 mod row_detail;
 mod scroll;
+mod search_field;
 mod section_rule;
 mod settings;
 mod spark_row;
@@ -428,13 +430,16 @@ fn session(
             lane::Job::Act(_) | lane::Job::Send { .. } | lane::Job::Recovery(_)
         ) && app.in_flight > 0
         {
-            app.notice = Some("Still working on the previous request.".to_owned());
+            app.set_notice(
+                Some("Still working on the previous request.".to_owned()),
+                false,
+            );
             return;
         }
         // Recovery's pending task owns its progress and retained result inside
         // the modal. Do not leave a second stale progress notice on the board.
         if !matches!(job, lane::Job::Recovery(_)) {
-            app.notice = Some(job.progress().to_owned());
+            app.set_notice(Some(job.progress().to_owned()), false);
         }
         app.in_flight += 1;
         io(job);
@@ -454,6 +459,7 @@ fn session(
             }
         }
         // The footer names a waiting reload, so a new one repaints.
+        dirty |= app.expire_notice(now);
         dirty |= app.reload.poll(now);
         if app.reload.pending()
             && !app.reload_blocked()
@@ -725,7 +731,7 @@ fn session(
             Ok(BoardEvent::Opened { opening, config }) => {
                 app.in_flight = app.in_flight.saturating_sub(1);
                 dirty = true;
-                app.notice = None;
+                app.set_notice(None, false);
                 let opened = match (opening, config) {
                     (_, Err(error)) => Err(error),
                     (lane::Opening::Settings, Ok(config)) => app
@@ -761,7 +767,8 @@ fn session(
                 dirty = true;
                 match result {
                     Ok(config) => {
-                        app.notice = Some(app.apply_token_window(&config));
+                        let notice = app.apply_token_window(&config);
+                        app.set_notice(Some(notice), false);
                         revision += 1;
                         requested = None;
                         request(app.current.clone(), true, app.settings.is_some());
@@ -856,7 +863,8 @@ fn session(
                         // The settings overlay already holds the config; its save is a bounded file write.
                         if overlay.save_window(window) {
                             let config = overlay.config().unwrap().clone();
-                            app.notice = Some(app.apply_token_window(&config));
+                            let notice = app.apply_token_window(&config);
+                            app.set_notice(Some(notice), false);
                             revision += 1;
                             requested = None;
                             request(app.current.clone(), true, true);
@@ -1097,24 +1105,30 @@ pub fn run(
     app.workspace.visibility.scope = scope.into_iter().map(|squad| squad.room_id).collect();
     app.timing = trace.map(timing::Ui::new);
     app.migration_notice = core.paths.board_notice();
-    app.notice = crate::migration::paths(&core, None)?
-        .notice
-        .filter(|_| app.migration_notice.is_none())
-        .or_else(|| config.obsolete_board_notice().map(str::to_owned));
+    app.set_notice(
+        crate::migration::paths(&core, None)?
+            .notice
+            .filter(|_| app.migration_notice.is_none())
+            .or_else(|| config.obsolete_board_notice().map(str::to_owned)),
+        false,
+    );
     app.initial_look = Some(crate::look::Look::new(initial_theme));
     app.popup = popup;
     app.view_layer = layer;
     app.reload = reload::Watch::start(now_ms);
     if let Some(resume) = resume {
         app.carry(resume);
-        app.notice.get_or_insert_with(reload::reloaded);
+        if app.notice.is_none() {
+            app.set_notice(Some(reload::reloaded()), false);
+        }
     }
     let mut switch_ready = crate::board_switch::ready(&core)?;
     if switch_ready.is_some() {
-        app.notice = crate::board_switch::retired_tabs_notice(
+        let notice = crate::board_switch::retired_tabs_notice(
             std::env::var("TMT_OPS_SWITCH_RETIRED_TABS").ok().as_deref(),
         )
-        .or(app.notice);
+        .or_else(|| app.notice.take());
+        app.set_notice(notice, false);
     }
     let mut clock = crate::cron_clock::ClockWorker::spawn(core.clone(), config, false);
     let lane = lane::Lane::spawn(

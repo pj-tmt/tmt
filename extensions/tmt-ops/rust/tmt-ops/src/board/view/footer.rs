@@ -37,6 +37,7 @@ pub(in crate::board) fn hint_word(app: &App, action: &crate::action::Action) -> 
         }
         Verb::Ui(crate::action::OpsUiAction::Pin) => "pin squad",
         Verb::Ui(crate::action::OpsUiAction::RevealHidden) => "show hidden",
+        Verb::Ui(crate::action::OpsUiAction::Search) if !app.search.is_empty() => "edit filter",
         Verb::Ui(action) => action.spec().label,
         verb => verb.name(),
     }
@@ -311,17 +312,22 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
     {
         second.push((key_label(&key).into(), "panes".into()));
     }
+    let search_word = if app.search.is_empty() {
+        "search"
+    } else {
+        "edit filter"
+    };
     let choices = if tab == crate::board::shell::OpsTab::Overview {
         vec![
             (Verb::Ui(filter_verb), "v", "squads/agents"),
-            (Verb::Ui(Ui::Search), "/", "search"),
+            (Verb::Ui(Ui::Search), "/", search_word),
             (Verb::Settings, ",", "settings"),
             (Verb::Ui(Ui::Help), "?", "help"),
             (Verb::Ui(Ui::Quit), "q", "quit"),
         ]
     } else {
         vec![
-            (Verb::Ui(Ui::Search), "/", "search"),
+            (Verb::Ui(Ui::Search), "/", search_word),
             (Verb::Ui(Ui::Timers), "c", "timers"),
             (Verb::Ui(filter_verb), "f", filter.as_str()),
             (Verb::Ui(Ui::SavingsUnit), "$", "unit"),
@@ -349,6 +355,9 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
         .any(|action| action.verb == Verb::Ui(Ui::Quit))
     {
         tail.push(("Ctrl-C".into(), "quit".into()));
+    }
+    if !app.search.is_empty() {
+        tail.push(("Esc".into(), "clear filter".into()));
     }
     Some(Hints {
         first,
@@ -414,6 +423,9 @@ fn workspace_hints(app: &App, width: usize) -> String {
     let mut tail = Vec::new();
     if app.focused_pane() == Some(crate::config::Pane::Replies) {
         tail.push("Esc back".into());
+    }
+    if !app.search.is_empty() {
+        tail.push("Esc clear filter".into());
     }
     let mut help_hint = None;
     for (key, action) in entries {
@@ -483,12 +495,29 @@ pub(in crate::board) fn hint_line(text: &str, look: crate::look::Look) -> Line<'
 }
 
 pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::look::Look) {
-    let legend = if footer.height >= 2
-        && app.notice.is_none()
-        && app.error.is_none()
-        && app.migration_notice.is_none()
-    {
-        agents_pairs(app, usize::from(footer.width))
+    let last_row = Rect::new(
+        footer.x,
+        footer.bottom().saturating_sub(1),
+        footer.width,
+        u16::from(footer.height > 0),
+    );
+    // Persistent migration/acquisition failures retain their existing priority.
+    // Fit whole key hints into the remaining width before any text is painted.
+    let hint_area = app
+        .notice
+        .as_deref()
+        .filter(|_| app.migration_notice.is_none() && app.error.is_none())
+        .map_or(last_row, |text| {
+            crate::board::notice::paint(
+                frame.buffer_mut(),
+                last_row,
+                text,
+                app.notice_clock.failed,
+                look,
+            )
+        });
+    let legend = if footer.height >= 2 && app.error.is_none() && app.migration_notice.is_none() {
+        agents_pairs(app, usize::from(hint_area.width))
     } else {
         None
     };
@@ -500,12 +529,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
                 | crate::board::app::Compose::Workspace
         ) && app.input_band.get().is_none()
     }) {
-        let footer = Rect::new(
-            footer.x,
-            footer.bottom().saturating_sub(1),
-            footer.width,
-            u16::from(footer.height > 0),
-        );
+        let footer = hint_area;
         let hint = input
             .hint
             .as_ref()
@@ -515,8 +539,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
                     hint.text.as_str(),
                     if hint.error { Role::Waiting } else { Role::Dim },
                 )
-            })
-            .or_else(|| app.notice.as_deref().map(|notice| (notice, Role::Waiting)));
+            });
         let hint_width = hint.map_or(0, |(text, _)| {
             (text.width() + 2).min(usize::from(footer.width / 3)) as u16
         });
@@ -566,8 +589,8 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
         }
         Line::from(spans)
     } else if app.searching {
-        Line::from(format!("/{}▏", app.search))
-    } else if let Some(notice) = app.migration_notice.as_ref().or(app.notice.as_ref()) {
+        Line::styled("↑↓ move · ⏎ done · Esc clear", look.role(Role::Text))
+    } else if let Some(notice) = app.migration_notice.as_ref() {
         Line::from(Span::styled(
             notice.as_str(),
             look.role(if app.shell.tab == crate::board::shell::OpsTab::Overview {
@@ -599,7 +622,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
             || {
                 hints(
                     app,
-                    usize::from(footer.width.saturating_sub(u16::from(
+                    usize::from(hint_area.width.saturating_sub(u16::from(
                         app.shell.tab == crate::board::shell::OpsTab::Overview,
                     ))),
                 )
@@ -607,7 +630,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
             |lines| hint_text(&lines[1]),
         );
         if app.shell.tab == crate::board::shell::OpsTab::Overview {
-            let pairs = overview_pairs(app, usize::from(footer.width.saturating_sub(1)))
+            let pairs = overview_pairs(app, usize::from(hint_area.width.saturating_sub(1)))
                 .unwrap_or_default();
             let refs: Vec<_> = pairs
                 .iter()
@@ -643,11 +666,5 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
             paint_hints(&first, look, Role::Accent),
         );
     }
-    let footer = Rect::new(
-        footer.x,
-        footer.bottom().saturating_sub(1),
-        footer.width,
-        u16::from(footer.height > 0),
-    );
-    strip::paint_left(frame.buffer_mut(), footer, footer_line);
+    strip::paint_left(frame.buffer_mut(), hint_area, footer_line);
 }

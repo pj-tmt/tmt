@@ -331,6 +331,10 @@ impl Action {
                 }
                 args
             }
+            // Parsed only so Config can report a located retirement notice.
+            Verb::Ui(OpsUiAction::AgentsFilter) if rest == "needs-you" => {
+                vec![Template::parse(rest)?]
+            }
             _ if !rest.is_empty() => return Err(format!("{} takes no arguments", verb.name())),
             _ => Vec::new(),
         };

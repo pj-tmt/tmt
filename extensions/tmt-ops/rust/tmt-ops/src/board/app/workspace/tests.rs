@@ -2875,7 +2875,7 @@ fn agents_filter_uses_the_effective_key_and_painted_controls_without_retargeting
     let preferences = app.workspace_snapshot().unwrap().preferences.clone();
     paint(&app, 160, 44);
     assert_eq!(key(&mut app, KeyCode::Char('f')), Effect::None);
-    assert_eq!(app.workspace.filter, AgentsFilter::NeedsYou);
+    assert_eq!(app.workspace.filter, AgentsFilter::Pinned);
     assert_eq!(app.workspace_selection_state(), SelectionState::Hidden);
     assert_eq!(app.workspace.selected, selected);
     assert_eq!(app.workspace.expanded, expansion);
@@ -2913,8 +2913,8 @@ fn agents_filter_uses_the_effective_key_and_painted_controls_without_retargeting
         app.workspace_strip_hits
             .borrow()
             .iter()
-            .all(|(_, choice)| matches!(choice, Choice::SavingsUnit | Choice::OverviewView(_))),
-        "Overview paints only its own view controls and any admitted estimate"
+            .all(|(_, choice)| matches!(choice, Choice::SavingsUnit | Choice::OverviewView(_)) || matches!(choice, Choice::Action(action) if action.verb == Verb::Ui(crate::action::OpsUiAction::Search))),
+        "Overview paints its own view controls, in-place search and any admitted estimate"
     );
     assert_eq!(key(&mut app, KeyCode::Char('f')), Effect::None);
     assert_eq!(
@@ -3655,4 +3655,435 @@ fn overview_retains_supplier_values_without_recreating_the_removed_mode_cell() {
                 .any(|label| label.text == "1 held")
         );
     }
+}
+
+#[test]
+fn in_place_search_edits_retained_query_and_moves_rows_before_enter() {
+    let mut app = board();
+    key(&mut app, KeyCode::Char('/'));
+    assert!(app.searching);
+    let before = app.selected;
+    assert!(before > 0, "fixture starts on a member after its ancestors");
+    key(&mut app, KeyCode::Up);
+    assert_eq!(app.selected, before - 1);
+    key(&mut app, KeyCode::Down);
+    assert_eq!(app.selected, before);
+    for character in "worker".chars() {
+        key(&mut app, KeyCode::Char(character));
+    }
+    assert_eq!(app.workspace.query, "worker");
+    assert!(app.workspace_rows().iter().any(|row| row.title == "worker"));
+    key(&mut app, KeyCode::Enter);
+    assert!(!app.searching);
+    assert_eq!(app.search, "worker");
+    key(&mut app, KeyCode::Char('/'));
+    assert!(app.searching);
+    assert_eq!(
+        app.search, "worker",
+        "editing must retain the applied query"
+    );
+    key(&mut app, KeyCode::Esc);
+    assert!(!app.searching && app.search.is_empty() && app.workspace.query.is_empty());
+    key(&mut app, KeyCode::Char('/'));
+    key(&mut app, KeyCode::Backspace);
+    assert!(!app.searching);
+    app.search = "worker".into();
+    app.workspace_reconcile();
+    key(&mut app, KeyCode::Esc);
+    assert!(app.search.is_empty() && app.workspace.query.is_empty());
+}
+
+#[test]
+fn search_follows_first_match_and_clearing_restores_the_original_selection() {
+    for tab in [OpsTab::Overview, OpsTab::Agents] {
+        let mut app = populated_board(8, 28);
+        app.shell.tab = tab;
+        let original = OpsTarget::Squad(
+            app.workspace_snapshot().unwrap().roster.squads[0]
+                .room_id
+                .clone(),
+        );
+        app.workspace.selected = Some(original.clone());
+        app.workspace_reconcile();
+        key(&mut app, KeyCode::Char('/'));
+        app.paste("squad-07");
+        let first = app.workspace_rows()[0].target.clone();
+        assert_ne!(first, original);
+        assert_eq!(
+            app.workspace.selected,
+            Some(first.clone()),
+            "filter chooses the first visible match"
+        );
+        key(&mut app, KeyCode::Down);
+        let matched = app.workspace.selected.clone();
+        key(&mut app, KeyCode::Enter);
+        assert!(!app.searching);
+        key(&mut app, KeyCode::Char('/'));
+        app.paste("-no-match");
+        assert!(app.workspace_rows().is_empty());
+        assert_eq!(
+            app.workspace.selected, matched,
+            "no match retains the previous pane target"
+        );
+        assert!(
+            app.selected_row().is_none(),
+            "no match grants no hidden-row action authority"
+        );
+        let lines = paint(&app, 148, 51);
+        assert!(lines.iter().any(|line| line.contains("No matching")));
+        assert!(
+            !lines
+                .iter()
+                .any(|line| line.contains("Selected target is hidden"))
+        );
+        if let Some(OpsTarget::Member { .. }) = matched {
+            let name = app.workspace_snapshot().unwrap().rows
+                [app.workspace.selected.as_ref().unwrap()]["name"]
+                .as_str()
+                .unwrap();
+            assert!(
+                lines
+                    .iter()
+                    .any(|line| line.contains(&format!("Conversation · {name}"))),
+                "the previous conversation remains painted"
+            );
+        } else {
+            assert!(
+                lines.iter().any(|line| line.contains("Roster preview")),
+                "the previous squad remains painted"
+            );
+        }
+        assert!(
+            app.workspace_action_hits.borrow().is_empty(),
+            "retained pane is read-only"
+        );
+        assert!(app.conversation.borrow().header_hits.is_empty());
+        assert!(
+            app.hits.borrow().is_empty(),
+            "an empty list has no invented row hit"
+        );
+        key(&mut app, KeyCode::Esc);
+        assert!(app.search.is_empty());
+        assert_eq!(app.workspace.selected, Some(original));
+    }
+}
+
+#[test]
+fn empty_search_preview_still_respects_room_visibility_scope_and_pinned_mode() {
+    for restriction in ["hidden", "scope", "pinned"] {
+        let mut app = board();
+        key(&mut app, KeyCode::Char('/'));
+        app.paste("no-match");
+        assert!(app.workspace_retained_search_target().is_some());
+        match restriction {
+            "hidden" => {
+                app.view
+                    .as_mut()
+                    .unwrap()
+                    .home
+                    .as_mut()
+                    .unwrap()
+                    .workspace
+                    .preferences
+                    .hidden
+                    .insert(ROOM.into());
+            }
+            "scope" => app.workspace.visibility.scope = vec!["another-room".into()],
+            _ => app.workspace.filter = AgentsFilter::Pinned,
+        }
+        app.workspace_reconcile();
+        assert!(
+            app.workspace_retained_search_target().is_none(),
+            "{restriction}"
+        );
+        assert_eq!(app.workspace_selection_state(), SelectionState::Hidden);
+        assert!(app.selected_row().is_none());
+    }
+}
+
+#[test]
+fn changing_a_query_restarts_at_the_first_match_but_arrows_keep_their_selection() {
+    let mut app = populated_board(8, 28);
+    app.shell.tab = OpsTab::Agents;
+    key(&mut app, KeyCode::Char('/'));
+    app.paste("squad-0");
+    let first = app.workspace_rows()[0].target.clone();
+    assert_eq!(app.workspace.selected, Some(first.clone()));
+    key(&mut app, KeyCode::Down);
+    let moved = app.workspace.selected.clone();
+    assert_ne!(moved, Some(first.clone()));
+    app.workspace_reconcile();
+    assert_eq!(
+        app.workspace.selected, moved,
+        "ordinary reconciliation does not undo arrow movement"
+    );
+    key(&mut app, KeyCode::Char('0'));
+    assert!(
+        app.workspace_rows()
+            .iter()
+            .any(|row| Some(&row.target) == moved.as_ref())
+    );
+    assert_eq!(
+        app.workspace.selected,
+        Some(first),
+        "an edited query starts at its first match even if the prior row still matches"
+    );
+}
+
+#[test]
+fn clearing_search_does_not_restore_an_anchor_removed_from_the_roster() {
+    let mut app = populated_board(8, 28);
+    app.shell.tab = OpsTab::Agents;
+    let original = OpsTarget::Squad(
+        app.workspace_snapshot().unwrap().roster.squads[0]
+            .room_id
+            .clone(),
+    );
+    app.workspace.selected = Some(original.clone());
+    app.workspace_reconcile();
+    key(&mut app, KeyCode::Char('/'));
+    app.paste("squad-07");
+    let matched = app.workspace.selected.clone();
+    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    snapshot
+        .roster
+        .squads
+        .retain(|squad| OpsTarget::Squad(squad.room_id.clone()) != original);
+    snapshot.rows.remove(&original);
+    key(&mut app, KeyCode::Esc);
+    assert_eq!(app.workspace.selected, matched);
+    assert_ne!(app.workspace.selected, Some(original));
+}
+
+#[test]
+fn empty_search_preview_does_not_assume_a_retained_member_payload_is_available() {
+    for missing in [true, false] {
+        let mut app = board();
+        key(&mut app, KeyCode::Char('/'));
+        app.paste("no-match");
+        let target = app.workspace.selected.clone().unwrap();
+        let rows = &mut app
+            .view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .rows;
+        if missing {
+            rows.remove(&target);
+        } else {
+            rows.get_mut(&target)
+                .unwrap()
+                .as_object_mut()
+                .unwrap()
+                .remove("id");
+        }
+        let lines = paint(&app, 148, 51);
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("Select an agent to read its response."))
+        );
+        assert_eq!(app.workspace.selected, Some(target));
+        assert!(app.workspace_action_hits.borrow().is_empty());
+        assert!(app.conversation.borrow().header_hits.is_empty());
+    }
+}
+
+#[test]
+fn transient_notice_expires_and_next_key_dismisses_without_changing_its_message_owner() {
+    let mut app = board();
+    app.finished(Err(format!("Could not show {MEMBER}")));
+    assert_eq!(app.notice.as_deref(), Some("Could not show worker"));
+    assert!(app.notice_clock.failed);
+    key(&mut app, KeyCode::Char('?'));
+    assert!(app.notice.is_none() && !app.notice_clock.failed);
+    app.help = false;
+    app.finished(Ok("Showing worker".into()));
+    assert!(!app.notice_clock.failed);
+    assert!(app.expire_notice(std::time::Instant::now() + std::time::Duration::from_secs(5)));
+    assert!(app.notice.is_none());
+}
+
+#[test]
+fn shared_search_field_pointer_activation_edits_without_retargeting_or_clearing() {
+    for tab in [OpsTab::Overview, OpsTab::Agents] {
+        let mut app = board();
+        app.shell.tab = tab;
+        app.search = "worker".into();
+        app.workspace_reconcile();
+        let selected = app.workspace.selected.clone();
+        paint(&app, 160, 44);
+        let area = app.workspace_strip_hits.borrow().iter().find_map(|(area, choice)| matches!(choice, Choice::Action(action) if action.verb == Verb::Ui(crate::action::OpsUiAction::Search)).then_some(*area)).expect("painted search field hit");
+        assert_eq!(area.height, 1);
+        app.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: area.x + 1,
+                row: area.y,
+                modifiers: KeyModifiers::NONE,
+            },
+            Instant::now(),
+        );
+        assert!(app.searching);
+        assert_eq!(app.search, "worker");
+        assert_eq!(app.workspace.selected, selected);
+    }
+}
+
+#[test]
+fn agents_search_count_lives_on_squads_rule_and_highlights_matching_name() {
+    let mut app = board();
+    app.shell.tab = OpsTab::Agents;
+    app.search = "worker".into();
+    app.workspace_reconcile();
+    let mut terminal = Terminal::new(TestBackend::new(148, 51)).unwrap();
+    terminal
+        .draw(|frame| crate::board::view::render(frame, &app))
+        .unwrap();
+    let buffer = terminal.backend().buffer();
+    let lines: Vec<String> = buffer
+        .content
+        .chunks(148)
+        .map(|row| row.iter().map(|cell| cell.symbol()).collect())
+        .collect();
+    let rule = lines
+        .iter()
+        .find(|line| line.contains("── Squads"))
+        .expect("Squads section rule");
+    assert!(rule.contains("1 of 1 agents"), "{rule}");
+    let filter = lines
+        .iter()
+        .find(|line| line.contains("/ worker"))
+        .expect("shared search field");
+    assert!(!filter.contains("of 1"));
+    let name_row = app
+        .hits
+        .borrow()
+        .iter()
+        .find_map(|hit| match hit.target {
+            HitTarget::Row(index) if app.workspace_rows()[index].title == "worker" => Some(hit.y),
+            _ => None,
+        })
+        .expect("matching member remains actionable");
+    let row = &lines[usize::from(name_row)];
+    let name_x = row.find("worker").expect("painted matching name");
+    // All preceding cells in this fixture are single-column ASCII/box glyphs.
+    let x = row[..name_x].chars().count() as u16;
+    assert!(
+        buffer[(x, name_row)]
+            .modifier
+            .contains(ratatui::style::Modifier::BOLD)
+    );
+}
+
+#[test]
+fn pasted_search_filters_immediately_without_starting_a_composer() {
+    let mut app = board();
+    key(&mut app, KeyCode::Char('/'));
+    assert_eq!(app.paste("worker"), Effect::None);
+    assert!(app.searching && app.input.is_none());
+    assert_eq!(app.search, "worker");
+    assert_eq!(app.workspace.query, "worker");
+    assert_eq!(app.workspace_rows().len(), 2);
+    let before = app.search.clone();
+    app.paste(&"x".repeat(crate::board::search_field::MAX_BYTES));
+    assert_eq!(app.search, before);
+    assert_eq!(app.workspace.query, before);
+}
+
+#[test]
+#[ignore = "explicit in-place search and footer notice evidence export"]
+fn capture_search_notice_packet() {
+    let output = std::env::var("TMT_SEARCH_NOTICE_CAPTURE").expect("task-owned evidence path");
+    let mut captures = Vec::new();
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        let _no_commands = crate::runner::forbid_commands();
+        for tab in [OpsTab::Overview, OpsTab::Agents, OpsTab::Digest] {
+            for scene in ["idle", "typing", "applied", "no-match", "notice", "failure"] {
+                if tab == OpsTab::Digest && !matches!(scene, "notice" | "failure") {
+                    continue;
+                }
+                for width in [103, 148] {
+                    for (base, depth) in [
+                        ("tmt", tmt_cli_style::Depth::TrueColor),
+                        ("tmt-light", tmt_cli_style::Depth::TrueColor),
+                        ("tmt", tmt_cli_style::Depth::None),
+                    ] {
+                        let mut app = populated_board(8, 28);
+                        let room = app.workspace_snapshot().unwrap().roster.squads[0]
+                            .room_id
+                            .clone();
+                        let mut jobs = crate::board::cronboard::test_views(5, "squad-00", &room);
+                        jobs[3].job.message = "Review agent-00001".into();
+                        jobs[4].job.message = "Ship agent-00001".into();
+                        app.cron.replace(Ok(crate::board::cronboard::test_cron(
+                            jobs,
+                            tmt_ops::cron::ClockStatus::NoClock,
+                        )));
+                        app.shell.tab = tab;
+                        app.focus = 0;
+                        app.view.as_mut().unwrap().look = crate::look::Look {
+                            theme: tmt_cli_style::Theme::new(
+                                tmt_cli_style::Base::parse(base).unwrap(),
+                            ),
+                            depth,
+                        };
+                        if matches!(scene, "typing" | "applied" | "no-match") {
+                            key(&mut app, KeyCode::Char('/'));
+                            app.paste("agent-00001");
+                            if scene == "no-match" {
+                                if tab == OpsTab::Agents {
+                                    key(&mut app, KeyCode::Down);
+                                }
+                                app.paste("-no-match");
+                            }
+                            if scene == "applied" {
+                                key(&mut app, KeyCode::Enter);
+                            }
+                        }
+                        if matches!(scene, "notice" | "failure") {
+                            app.finished(if scene == "failure" {
+                                Err("Could not show agent-00001".into())
+                            } else {
+                                Ok("Showing agent-00001 · tmux 0:7.2".into())
+                            });
+                        }
+                        let mut terminal = Terminal::new(TestBackend::new(width, 51)).unwrap();
+                        terminal
+                            .draw(|frame| {
+                                crate::board::view::prepare(&mut app, frame.area());
+                                crate::board::view::render(frame, &app);
+                            })
+                            .unwrap();
+                        let buffer = terminal.backend().buffer();
+                        let cells = buffer.content.iter().map(|cell| json!({
+                            "symbol":cell.symbol(),"fg":format!("{:?}",cell.fg),
+                            "bg":format!("{:?}",cell.bg),"modifier":format!("{:?}",cell.modifier)
+                        })).collect::<Vec<_>>();
+                        let lines = buffer
+                            .content
+                            .chunks(usize::from(width))
+                            .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+                            .collect::<Vec<_>>();
+                        captures.push(json!({"tab":format!("{tab:?}"),"scene":scene,
+                            "width":width,"height":51,"theme":base,"depth":format!("{depth:?}"),
+                            "cells":cells,"lines":lines,"hits":format!("{:?}",app.hits.borrow()),
+                            "selected":app.workspace.selected.as_ref().map(|target| format!("{target:?}")),
+                            "firstTarget":app.workspace_rows().first().map(|row| format!("{:?}",row.target)),
+                            "selectionState":format!("{:?}",app.workspace_selection_state()),
+                            "focus":format!("{:?}",app.focused_pane()),
+                            "actions":format!("{:?}",app.workspace_action_hits.borrow()),
+                            "conversationHeaderHits":app.conversation.borrow().header_hits.len(),
+                            "hasComposer":app.input.is_some(),
+                            "searching":app.searching,"query":app.search}));
+                    }
+                }
+            }
+        }
+    });
+    assert_eq!(captures.len(), 84);
+    std::fs::write(output, serde_json::to_vec(&captures).unwrap()).unwrap();
 }

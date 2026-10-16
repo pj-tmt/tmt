@@ -108,7 +108,7 @@ impl crate::board::app::App {
         draft.stage = Stage::Result(message.clone());
         draft.invalidate();
         *draft.scroll.borrow_mut() = Default::default();
-        self.notice = Some(message);
+        self.set_notice(Some(message), false);
     }
 }
 

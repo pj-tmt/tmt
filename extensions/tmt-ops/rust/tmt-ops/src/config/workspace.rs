@@ -1,7 +1,7 @@
 //! The effective workspace action table. Dispatch, footer and help consume the same
 //! result after default/global/host/section precedence, never independent hints.
 use super::*;
-use crate::action::{Action, Verb};
+use crate::action::{Action, OpsUiAction, Verb};
 use std::collections::BTreeSet;
 
 mod panels;
@@ -272,6 +272,11 @@ pub(crate) fn admit_action(action: &Action, path: &str) -> Result<(), SquadError
     if action.verb == Verb::OverviewFilter {
         return Err(invalid(format!(
             "`{path}`: 'overview-filter' is retired; choose 'overview-view' for Squads/Agents explicitly. The authored binding is preserved for migration."
+        )));
+    }
+    if action.verb == Verb::Ui(OpsUiAction::AgentsFilter) && !action.args.is_empty() {
+        return Err(invalid(format!(
+            "`{path}`: 'agents-filter needs-you' is retired; 'agents-filter' now cycles between All and Pinned. The authored binding is preserved for migration."
         )));
     }
     if matches!(
@@ -650,6 +655,10 @@ impl Config {
         for (key, action) in configured {
             if let Err(error) = admit_action(&action, &format!("bind.{key}")) {
                 notices.push(error.message);
+                if action.verb == Verb::Ui(OpsUiAction::AgentsFilter) {
+                    effective.remove(&key);
+                    sources.remove(&key);
+                }
                 continue;
             }
             let source = if section.is_some_and(|section| section.contains_key(&key)) {
@@ -1860,5 +1869,26 @@ mod tests {
                 .unwrap()
                 .contains("# workspace")
         );
+    }
+    #[test]
+    fn retired_named_agents_mode_reports_a_located_notice_without_default_retargeting() {
+        for text in [
+            "[bind]\nf = 'agents-filter needs-you'",
+            "[bind.tmux]\nf = 'agents-filter needs-you'",
+        ] {
+            let config = config(text);
+            let before = config.document.to_string();
+            let keys = config
+                .workspace_keys(OpsKeyScope::Squad, Some("tmux"), None)
+                .unwrap();
+            assert!(keys.notices.iter().any(|notice| notice.contains("bind.f")
+                && notice.contains("retired")
+                && notice.contains("All and Pinned")));
+            assert!(
+                !keys.bindings.contains_key("f"),
+                "a retired explicit choice must not fall through to the new cycle"
+            );
+            assert_eq!(config.document.to_string(), before);
+        }
     }
 }

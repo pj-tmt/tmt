@@ -472,7 +472,7 @@ impl App {
     }
     pub(in crate::board) fn finished_send(&mut self, completed: Completed) {
         let Some(ticket) = completed.ticket.as_ref() else {
-            self.notice = Some(completed.notice());
+            self.set_notice(Some(completed.notice()), false);
             return;
         };
         let current = self
@@ -490,7 +490,7 @@ impl App {
             return;
         }
         self.finish_draft(completed.accepted());
-        self.notice = Some(completed.notice());
+        self.set_notice(Some(completed.notice()), false);
         let ticket = completed.ticket.unwrap();
         let mut state = self.conversation.borrow_mut();
         let identity = (Some(ticket.key.0.clone()), ticket.key.1.clone());

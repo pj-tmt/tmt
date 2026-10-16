@@ -155,7 +155,7 @@ impl App {
         match outcome {
             Ok(message) => {
                 self.panels_picker = None;
-                self.notice = Some(message);
+                self.set_notice(Some(message), false);
             }
             Err(error) => picker.save_failed(error),
         }

@@ -361,7 +361,7 @@ impl App {
         if action == Some(1) {
             if matches!(review.result, Some(Ok(_))) {
                 if review.controls.get()[1].is_none() {
-                    self.notice = Some("Enlarge the terminal and repaint the review before applying; nothing written.".into());
+                    self.set_notice(Some("Enlarge the terminal and repaint the review before applying; nothing written.".into()), false);
                     return Some(Effect::None);
                 }
                 let request = review.task.request.clone();
