@@ -76,6 +76,76 @@ subtree, with 0700 directories and 0600 secret/state files; it MUST NOT open or
 modify core's database/configuration or provider settings. Discovery does not
 create the root or read its files. `capabilities` remains a constant document.
 
+## Recent agent responses
+
+Proposed contract; the operation is not implemented yet.
+
+`responses.recent` reads one exact identity's locally retained provider-final
+text. Input is `{identityId, limit}`: a canonical identity UUID and an integer
+from 1 through 10. Both fields are required; names, unknown fields and envelope
+originator attribution are not accepted. Invalid input is `API_INPUT_INVALID`.
+The resource is `{identityId, items:[...]}`, with no pagination. A valid UUID
+with no retained entries, including an unknown or retired UUID, returns an empty
+`items` array; a same-name successor never inherits the previous UUID's entries.
+
+Each item is `{text, endedMs, provider, truncated, sessionId?}`:
+
+- `text` is the provider's final assistant text, preserving its text and line
+  endings. It contains at most 8,192 UTF-8 bytes, cut on a Unicode scalar boundary.
+  `truncated` is always a boolean and is true exactly when the byte cap omitted
+  text. Core appends no in-band marker and applies no display normalization.
+- `endedMs` is Core's observed turn-end time in Unix milliseconds, not a provider
+  timestamp or a delivery/completion proof. Newest means capture order; an
+  internal committed sequence breaks equal timestamps and wall-clock rollback.
+- `provider` is `claude` or `codex`. `sessionId`, when available, is the admitted
+  provider session identifier; otherwise the field is omitted, not null.
+
+Capture uses only the turn-end hook TMT already installs: Claude `Stop` and
+Codex `Stop`/notify. It requires the existing verified current binding/session
+admission and enabled usage collection (`tmt setup --usage`, rather than
+`--no-usage`). There is no new setting. Disabled capture stores no new entries;
+previously captured entries retain their original expiry. A stale session,
+subagent event, malformed payload or missing admissible final text creates no
+entry, not an empty replacement. Hooks keep their existing finite budgets and
+best-effort, non-veto behavior.
+
+Claude extracts the final main-conversation assistant text blocks, in their
+original order joined by a newline, from the Stop handler's existing bounded
+transcript read. It performs no additional transcript read for this feature.
+User text, tools and thinking are excluded. Codex takes `last_assistant_message`
+from its admitted turn-end payload. Neither driver scrapes pane text or follows
+an unverified transcript path. This is bounded turn-end observation, not a
+complete transcript backup or a guarantee that an identity has prior text.
+
+Core's SQLite store retains at most the newest 10 captures per identity. In one
+admitted write transaction it appends the capture and removes overflow. Each
+capture freezes the current global `exchange.retentionDays` policy (default 90,
+allowed 1–3650) and expires at `endedMs + retentionDays * 86,400,000`.
+At equality it is expired: reads omit it even before opportunistic cleanup.
+Reads and config changes never renew an existing entry's deadline.
+Identity removal/retirement deletes these entries; retained exchanges are
+unaffected. Insertions and removals advance `changes.cursor` in the same
+transaction. No daemon or physical-deletion deadline is introduced.
+
+This same-user process API is local-only, like `requests.list`; extensions use
+`tmt api` and never open Core's database. Reads acquire one bounded observation
+snapshot and never refresh provider state, acknowledge work, prune rows or
+renew retention. Confirmed storage-access refusals retain `STORAGE_NOT_WRITABLE`;
+other unavailable storage reads use `API_UNAVAILABLE`. Existing API input/output
+bounds apply after JSON encoding.
+
+These entries are pane output, never correlated to a request, never a final
+submission or durable result, and never satisfy `talk` or release its waiter.
+Captured text is stored only in this table; it is not copied into driver-state
+JSON, logs, notices, Digest, exchange bodies or a network path. Consumer display
+must distinguish pane output from a reply and treat the text as untrusted data.
+
+Callers read `capabilities` first. If `responses.recent` is absent, they report
+that recent responses cannot be read; they do not show an empty-success result.
+An older Core's unknown-operation `API_INPUT_INVALID` is also unavailable,
+without a scrape or private-storage fallback. Additive response fields remain
+compatible. Shared vectors will pin bounds, ordering, expiry and error shapes.
+
 ## Conditional identity rename
 
 `identity.rename` renames one exact active UUID only while its display name equals
