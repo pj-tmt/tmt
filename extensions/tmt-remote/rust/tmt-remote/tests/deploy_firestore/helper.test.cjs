@@ -45,6 +45,26 @@ function fixture(route, account = ACCOUNT) {
         return { status: 200, body: { email: account, email_verified: true } };
       if (url === `https://firebase.googleapis.com/v1beta1/projects/${PROJECT}`)
         return { status: 200, body: { projectId: PROJECT, state: 'ACTIVE' } };
+      const parsed = new URL(url);
+      if (
+        options.method === 'GET' &&
+        parsed.origin === 'https://firestore.googleapis.com' &&
+        /^\/v1\/projects\/[^/]+\/databases\/[^/]+\/collectionGroups\/[^/]+\/(fields|indexes)$/.test(parsed.pathname)
+      ) {
+        const token = parsed.searchParams.get('pageToken');
+        const filter = parsed.pathname.endsWith('/fields')
+          ? '?filter=indexConfig.usesAncestorConfig=false%20OR%20ttlConfig:*' : '';
+        const expected = filter + (token ? `${filter ? '&' : '?'}pageToken=${encodeURIComponent(token)}` : '');
+        if (parsed.search !== expected)
+          return { status: 400, body: { error: { code: 400, status: 'INVALID_ARGUMENT' } } };
+      }
+      if (
+        options.method === 'GET' &&
+        parsed.origin === 'https://firebaserules.googleapis.com' &&
+        /^\/v1\/projects\/[^/]+\/rulesets$/.test(parsed.pathname) &&
+        Number(parsed.searchParams.get('pageSize')) > 100
+      )
+        return { status: 400, body: { error: { code: 400, status: 'INVALID_ARGUMENT' } } };
       return route(url, options);
     },
   };
@@ -149,6 +169,64 @@ test('anonymous enable only patches the selected provider, not another setting',
   assert.match(mutations(f)[0].url, /updateMask=signIn.anonymous.enabled$/);
 });
 const indexInput = { project: PROJECT, collection: 'log', field: 'sequence', direction: 'asc' };
+test('fields fake pins the proven request and refuses pageSize or whole-filter encoding', async () => {
+  let accepted = 0;
+  const f = fixture(() => {
+    accepted++;
+    return { status: 200, body: { fields: [] } };
+  });
+  const base = `https://firestore.googleapis.com/v1/${database}/collectionGroups/-/fields`;
+  const proven = '?filter=indexConfig.usesAncestorConfig=false%20OR%20ttlConfig:*';
+  for (const query of [
+    '',
+    `${proven}&pageSize=200`,
+    `?filter=${encodeURIComponent('indexConfig.usesAncestorConfig=false OR ttlConfig:*')}`,
+    `?filter=${encodeURIComponent('indexConfig.usesAncestorConfig=false OR ttlConfig:*')}&pageSize=200`,
+    `?filter=${encodeURIComponent('indexConfig.usesAncestorConfig:false OR ttlConfig:*')}&pageSize=200`,
+    `${proven}&unknown=true`,
+  ])
+    assert.equal((await f.http(base + query, { method: 'GET' })).status, 400);
+  assert.equal(accepted, 0);
+  for (const suffix of ['', '&pageToken=next%20page%26token'])
+    assert.equal((await f.http(base + proven + suffix, { method: 'GET' })).status, 200);
+  assert.equal(accepted, 2);
+});
+for (const operation of ['index-budget', 'apply-index']) {
+  test(`${operation} sends the pinned fields URL on every bounded page`, async () => {
+    let pages = 0;
+    const f = fixture((url, options) => ({
+      status: 200,
+      body: options.method !== 'GET'
+        ? {}
+        : url.includes('/-/fields')
+          ? { fields: [], ...(pages++ === 0 ? { nextPageToken: 'next page&token' } : {}) }
+          : url.includes('/-/indexes')
+            ? { indexes: [] }
+            : url.endsWith('/fields/sequence')
+              ? { name: field, indexConfig: { indexes: [] } }
+              : {},
+    }));
+    assert.equal(
+      await execute(request(operation, operation === 'index-budget'
+        ? { project: PROJECT, fields: [], composites: [] }
+        : indexInput), f),
+      operation === 'index-budget' ? 'within-budget' : 'done',
+    );
+    const listed = f.calls.filter((call) => call.url.includes('/-/fields'));
+    assert.equal(listed.length, 2);
+    for (const [index, call] of listed.entries()) {
+      const params = new URL(call.url).searchParams;
+      assert.equal(call.method, 'GET');
+      assert.equal(params.get('filter'), 'indexConfig.usesAncestorConfig=false OR ttlConfig:*');
+      assert.equal(params.get('pageSize'), null);
+      assert.equal(params.get('pageToken'), index === 0 ? null : 'next page&token');
+      assert.deepEqual([...params.keys()].sort(), index === 0
+        ? ['filter'] : ['filter', 'pageToken']);
+      assert.equal(call.url, `https://firestore.googleapis.com/v1/${database}/collectionGroups/-/fields?filter=indexConfig.usesAncestorConfig=false%20OR%20ttlConfig:*${index === 0 ? '' : '&pageToken=next%20page%26token'}`);
+    }
+    assert.equal(mutations(f).length, operation === 'index-budget' ? 0 : 1);
+  });
+}
 test('200 unrelated live field configs stop a new allocation at the shared ceiling', async () => {
   const f = fixture((url) => ({
     status: 200,
@@ -365,6 +443,38 @@ test('a version/layout stub gate runs before credential access and redacts throw
   }
 });
 
+test('Rules inventory stays within the documented 100-row page maximum', async () => {
+  const name = `projects/${PROJECT}/rulesets/existing`;
+  let listed = 0;
+  const f = fixture((url, options) => {
+    if (url.includes('/rulesets?'))
+      return { status: 200, body: listed++ === 0
+        ? { rulesets: [], nextPageToken: 'next rules&page' }
+        : { rulesets: [{ name }] } };
+    if (url.endsWith('/rulesets/existing'))
+      return { status: 200, body: { source: { files: [{ name: 'firestore.rules', content: source }] } } };
+    if (url.endsWith('/releases') && options.method === 'POST')
+      return { status: 200, body: JSON.parse(options.body) };
+    if (url.includes('/releases/'))
+      return mutations(f).length === 0
+        ? { status: 404, body: {} }
+        : { status: 200, body: { rulesetName: name } };
+    assert.fail(url);
+  });
+  const oversized = `https://firebaserules.googleapis.com/v1/projects/${PROJECT}/rulesets?pageSize=200`;
+  assert.equal((await f.http(oversized, { method: 'GET' })).status, 400);
+  assert.equal(listed, 0);
+  f.calls.length = 0;
+  assert.equal(await execute(request('apply-rules', rulesInput()), f), 'done');
+  const pages = f.calls.filter((call) => call.url.includes('/rulesets?'));
+  assert.equal(pages.length, 2);
+  assert.deepEqual(pages.map((call) => Object.fromEntries(new URL(call.url).searchParams)), [
+    { pageSize: '100' },
+    { pageSize: '100', pageToken: 'next rules&page' },
+  ]);
+  assert.equal(mutations(f).length, 1);
+  assert.equal(mutations(f)[0].url.endsWith('/releases'), true);
+});
 test('bounded inventory refuses incomplete pagination before Ruleset creation', async () => {
   const f = fixture((url) => {
     if (url.includes('/releases/')) return { status: 404, body: {} };
@@ -765,7 +875,8 @@ const compositeInput = { project: PROJECT, index: composite };
 function compositeFixture(indexes = [], lose = false) {
   const made = [...indexes];
   const f = fixture((url, options) => {
-    if (url.includes('/indexes?')) return { status: 200, body: { indexes: made } };
+    if (new URL(url).pathname.endsWith('/collectionGroups/-/indexes'))
+      return { status: 200, body: { indexes: made } };
     if (options.method === 'POST') {
       made.push({
         name: `${database}/collectionGroups/log/indexes/new`,
@@ -779,6 +890,22 @@ function compositeFixture(indexes = [], lose = false) {
   });
   return { f, made };
 }
+test('composite inventory keeps the pinned first URL and bounded token-only continuation', async () => {
+  let listed = 0;
+  const base = `https://firestore.googleapis.com/v1/${database}/collectionGroups/-/indexes`;
+  const f = fixture(() => ({ status: 200, body: {
+    indexes: [], ...(listed++ === 0 ? { nextPageToken: 'next index&page' } : {}),
+  } }));
+  assert.equal((await f.http(`${base}?pageSize=200`, { method: 'GET' })).status, 400);
+  assert.equal(listed, 0);
+  f.calls.length = 0;
+  assert.equal(await execute(request('observe-composite', compositeInput), f), 'absent');
+  assert.deepEqual(f.calls.filter((call) => call.url.includes('/-/indexes')).map((call) => call.url), [
+    base,
+    `${base}?pageToken=next%20index%26page`,
+  ]);
+  assert.equal(mutations(f).length, 0);
+});
 test('composite create stays building; retry reconciles exact state without another create', async () => {
   const { f, made } = compositeFixture();
   assert.equal(await execute(request('apply-composite', compositeInput), f), 'building');
