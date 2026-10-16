@@ -1180,6 +1180,7 @@ module.exports = {
   compatibility,
   execute,
   run,
+  providerOperation,
   fetchJson,
 };
 if (require.main === module || require.main === undefined)
