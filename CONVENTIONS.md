@@ -54,6 +54,15 @@ Use the [development skill](.agents/skills/tmt-dev/SKILL.md) to apply them.
 - Bound external process/file work and clean up resources on every exit path.
   Direct file writes are not atomic or concurrency-safe. Follow the state owner's
   transaction/recovery contract, not an "atomic-like" write.
+- A requested change to shared local state is saved, or it fails with a named
+  cause and the exact retry. It is never dropped, and never refused only because
+  another writer holds the store. Writers of any store (SQLite, a locked file or
+  document) wait for the write lock within a bounded budget (core storage uses
+  5 seconds). Under the lock they read the current state and apply their change
+  to it, so concurrent changes all land and nothing is replayed. Fail-fast locks
+  are only for exclusivity guards, where the second caller asks to be the one
+  runner or owner rather than to change data (a tick, a server, a board switch).
+  Those name the holder in the error. Optional reads may skip instead of waiting.
 - Message framing and adaptation belong to shared delivery implementation.
   Talk completion comes only from the shared durable request service. Generated
   request-instruction framing is not a terminal-output completion boundary.
