@@ -9,13 +9,13 @@
       "  1 Overview   2 Agents   3 Digest",
       "",
       "  Agents · 1 squad + Common pool                                                                                               ◷ 1 timers         Scan…",
-      "   All   Needs you   Pinned   / Search…",
+      "   All   Pinned    / Search",
       "   Workspace snapshots",
-      "  SQUAD / AGENT          MEMBERS / STATE                  DIGEST  ◷ CRON     ── Conversation · alpha ───────────────────────────────────────────────────────────",
-      "  ▸ Common pool          ◌ 0 members                      —       —           working · product · member                                                · ◷ 1/1",
-      "  ▾ product              ● 1 member                       —       1/1         Host: tmux · j host",
-      "    └ alpha              ● working · member               —       1/1         Response · following ────────────────────────────────────────────────────────────",
-      "                                                                              (no response in loaded history)",
+      " ── Squads ───────────────────────────────────────────────────────────────   ── Conversation · alpha ───────────────────────────────────────────────────────────",
+      "  SQUAD / AGENT          MEMBERS / STATE                  DIGEST  ◷ CRON      working · product · member                                                · ◷ 1/1",
+      "  ▸ Common pool          ◌ 0 members                      —       —           Host: tmux · j host",
+      "  ▾ product              ● 1 member                       —       1/1         Response · following ────────────────────────────────────────────────────────────",
+      "    └ alpha              ● working · member               —       1/1         (no response in loaded history)",
       "",
       "",
       "",
@@ -27,9 +27,9 @@
       "  1–3 / 3 rows  ·  0 more ↓                                                  └─────────────────────────────────────────────────────────────────────────────────┘",
       "",
       "↑↓ select  ←→ fold  ⏎ chat  j host",
-      "Tab panes  / search  c timers  f Needs you  , settings  ? help  q quit"
+      "Tab panes  / search  c timers  f Pinned  , settings  ? help  q quit"
     ],
-    "hits": "[Hit { y: 8, x: 1, width: 73, row: 0 }, Hit { y: 9, x: 1, width: 73, row: 1 }, Hit { y: 10, x: 1, width: 73, row: 2 }]"
+    "hits": "[Hit { y: 9, x: 1, width: 73, row: 0 }, Hit { y: 10, x: 1, width: 73, row: 1 }, Hit { y: 11, x: 1, width: 73, row: 2 }]"
   },
   {
     "scenario": "workspace tree",
@@ -41,12 +41,12 @@
       "  1 Overview   2 Agents   3 Digest",
       "",
       "  Agents · 1 squad + Common pool                                   ◷ 1 timers         Scan…",
-      "   All   Needs you   Pinned   / Search…",
+      "   All   Pinned    / Search",
       "   Workspace snapshots",
+      " ── Squads ────────────────────────────────────────────────────────────────────────────────────────",
       "  SQUAD / AGENT          MEMBERS / STATE                                           DIGEST  ◷ CRON",
-      "  ▾ product              ● 1 member                                                —       1/1",
       "    └ alpha              ● working · member                                        —       1/1",
-      "  2–3 / 3 rows  ·  0 more ↓",
+      "  3–3 / 3 rows  ·  0 more ↓",
       "── Conversation · alpha ────────────────────────────────────────────────────────────────────────────",
       " working · product · member                                                                 · ◷ 1/1",
       " Response · following ─────────────────────────────────────────────────────────────────────────────",
@@ -59,9 +59,9 @@
       "└──────────────────────────────────────────────────────────────────────────────────────────────────┘",
       "",
       "↑↓ select  ←→ fold  ⏎ chat  j host",
-      "Tab panes  / search  c timers  f Needs you  , settings  ? help  q quit"
+      "Tab panes  / search  c timers  f Pinned  , settings  ? help  q quit"
     ],
-    "hits": "[Hit { y: 8, x: 1, width: 98, row: 1 }, Hit { y: 9, x: 1, width: 98, row: 2 }]"
+    "hits": "[Hit { y: 9, x: 1, width: 98, row: 2 }]"
   },
   {
     "scenario": "workspace tree",
@@ -73,12 +73,12 @@
       "  1 Overview   2 Agents   3 Digest",
       "",
       "  Agents · 1 squad + Common pool               ◷ 1 timers         Scan…",
-      "   All   Needs you   Pinned   / Search…",
+      "   All   Pinned    / Search",
       "   Workspace snapshots",
+      " ── Squads ────────────────────────────────────────────────────────────────────",
       "  SQUAD / AGENT          MEMBERS / STATE                       DIGEST  ◷ CRON",
-      "  ▾ product              ● 1 member                            —       1/1",
       "    └ alpha              ● working · member                    —       1/1",
-      "  2–3 / 3 rows  ·  0 more ↓",
+      "  3–3 / 3 rows  ·  0 more ↓",
       "── Conversation · alpha ────────────────────────────────────────────────────────",
       " working · product · member                                             · ◷ 1/1",
       " Response · following ─────────────────────────────────────────────────────────",
@@ -91,9 +91,9 @@
       "└──────────────────────────────────────────────────────────────────────────────┘",
       "",
       "↑↓ select  ←→ fold  ⏎ chat  j host",
-      "Tab panes  / search  c timers  f Needs you  , settings  ? help  q quit"
+      "Tab panes  / search  c timers  f Pinned  , settings  ? help  q quit"
     ],
-    "hits": "[Hit { y: 8, x: 1, width: 78, row: 1 }, Hit { y: 9, x: 1, width: 78, row: 2 }]"
+    "hits": "[Hit { y: 9, x: 1, width: 78, row: 2 }]"
   },
   {
     "scenario": "scoped Timers",
@@ -105,13 +105,13 @@
       "  1 Overview   2 Agents   3 Digest",
       "",
       "  Agents · 1 squad + Common pool                                                                                               ◷ 1 timers         Scan…",
-      "   All   Needs you   Pinned   / Search…",
+      "   All   Pinned    / Search",
       "   Workspace snapshots",
-      "  SQUAD / AGENT          MEMBERS / STATE                  DIGEST  ◷ CRON     ── Conversation · alpha ───────────────────────────────────────────────────────────",
-      "  ▸ Common pool          ◌ 0 members                      —       —           working · product · member                                                · ◷ 1/1",
-      "  ▾ product              ● 1 member                       —       1/1         Host: tmux · j host",
-      "    └ alpha              ● working · member               —       1/1         Response · following ────────────────────────────────────────────────────────────",
-      "                                                                              (no response in loaded history)",
+      " ── Squads ───────────────────────────────────────────────────────────────   ── Conversation · alpha ───────────────────────────────────────────────────────────",
+      "  SQUAD / AGENT          MEMBERS / STATE                  DIGEST  ◷ CRON      working · product · member                                                · ◷ 1/1",
+      "  ▸ Common pool          ◌ 0 members                      —       —           Host: tmux · j host",
+      "  ▾ product              ● 1 member                       —       1/1         Response · following ────────────────────────────────────────────────────────────",
+      "    └ alpha              ● working · member               —       1/1         (no response in loaded history)",
       "",
       "",
       "",
@@ -125,7 +125,7 @@
       "",
       ""
     ],
-    "hits": "[Hit { y: 8, x: 1, width: 73, row: 0 }, Hit { y: 9, x: 1, width: 73, row: 1 }, Hit { y: 10, x: 1, width: 73, row: 2 }]"
+    "hits": "[Hit { y: 9, x: 1, width: 73, row: 0 }, Hit { y: 10, x: 1, width: 73, row: 1 }, Hit { y: 11, x: 1, width: 73, row: 2 }]"
   },
   {
     "scenario": "scoped Timers",
@@ -137,12 +137,12 @@
       "  1 Overview   2 Agents   3 Digest",
       "",
       "  Agents · 1 squad + Common pool                                   ◷ 1 timers         Scan…",
-      "   All   Needs you   Pinned   / Search…",
+      "   All   Pinned    / Search",
       "   Workspace snapshots",
+      " ── Squads ────────────────────────────────────────────────────────────────────────────────────────",
       "  SQUAD / AGENT          MEMBERS / STATE                                           DIGEST  ◷ CRON",
-      "  ▾ product              ● 1 member                                                —       1/1",
       "    └ alpha              ● working · member                                        —       1/1",
-      "  2–3 / 3 rows  ·  0 more ↓",
+      "  3–3 / 3 rows  ·  0 more ↓",
       "── Conversation · alpha ────────────────────────────────────────────────────────────────────────────",
       " working · product · member                                                                 · ◷ 1/1",
       " Response · following ─────────────────────────────────────────────────────────────────────────────",
@@ -157,7 +157,7 @@
       "",
       ""
     ],
-    "hits": "[Hit { y: 8, x: 1, width: 98, row: 1 }, Hit { y: 9, x: 1, width: 98, row: 2 }]"
+    "hits": "[Hit { y: 9, x: 1, width: 98, row: 2 }]"
   },
   {
     "scenario": "scoped Timers",
@@ -169,12 +169,12 @@
       "  1 Overview   2 Agents   3 Digest",
       "",
       "  Agents · 1 squad + Common pool               ◷ 1 timers         Scan…",
-      "   All   Needs you   Pinned   / Search…",
+      "   All   Pinned    / Search",
       "   Workspace snapshots",
+      " ── Squads ────────────────────────────────────────────────────────────────────",
       "  SQUAD / AGENT          MEMBERS / STATE                       DIGEST  ◷ CRON",
-      "  ▾ product              ● 1 member                            —       1/1",
       "    └ alpha              ● working · member                    —       1/1",
-      "  2–3 / 3 rows  ·  0 more ↓",
+      "  3–3 / 3 rows  ·  0 more ↓",
       "── Conversation · alpha ────────────────────────────────────────────────────────",
       " working · product · member                                             · ◷ 1/1",
       " Response · following ─────────────────────────────────────────────────────────",
@@ -189,6 +189,6 @@
       "",
       ""
     ],
-    "hits": "[Hit { y: 8, x: 1, width: 78, row: 1 }, Hit { y: 9, x: 1, width: 78, row: 2 }]"
+    "hits": "[Hit { y: 9, x: 1, width: 78, row: 2 }]"
   }
 ]

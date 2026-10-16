@@ -10,13 +10,13 @@
       "  1 Overview   2 Agents   3 Digest",
       "",
       "  Agents · 1 squad + Common pool                                                                                               Timers unknown     Scan…",
-      "   All   Needs you   Pinned   / Search…",
+      "   All   Pinned    / Search",
       "   Workspace snapshots",
-      "  SQUAD / AGENT          MEMBERS / STATE                  DIGEST  ◷ CRON     ── product ────────────────────────────────────────────────────────────────────────",
-      "  ▸ Common pool          ◌ 0 members                      —       —            Add member   Set/clear lead   Rename   Pin   Timers   Hide squad",
-      "  ▾ product              ● 1 member                       —       —           Roster preview · Lead — · 1 member",
-      "    └ worker             ● working · member               —       —           MEMBER                 STATE           TASK / NEXT ACTION",
-      "                                                                              worker                 ● working       —",
+      " ── Squads ───────────────────────────────────────────────────────────────   ── product ────────────────────────────────────────────────────────────────────────",
+      "  SQUAD / AGENT          MEMBERS / STATE                  DIGEST  ◷ CRON       Add member   Set/clear lead   Rename   Pin   Timers   Hide squad",
+      "  ▸ Common pool          ◌ 0 members                      —       —           Roster preview · Lead — · 1 member",
+      "  ▾ product              ● 1 member                       —       —           MEMBER                 STATE           TASK / NEXT ACTION",
+      "    └ worker             ● working · member               —       —           worker                 ● working       —",
       "                                                                              Usage: not reported",
       "                                                                              Est. ctx avoided 24h: — (0 of 1)",
       "",
@@ -28,7 +28,7 @@
       "  1–3 / 3 rows  ·  0 more ↓                                                    1–3 / 3 rows  ·  0 more ↓",
       "",
       "↑↓ select  ←→ fold  ⏎ inspect  p pin  H Hide squad",
-      "Tab panes  / search  c timers  f Needs you  , settings  ? help  q quit"
+      "Tab panes  / search  c timers  f Pinned  , settings  ? help  q quit"
     ]
   },
   {
@@ -42,12 +42,12 @@
       "  1 Overview   2 Agents   3 Digest",
       "",
       "  Agents · 1 squad + Common pool                                   Timers unknown     Scan…",
-      "   All   Needs you   Pinned   / Search…",
+      "   All   Pinned    / Search",
       "   Workspace snapshots",
+      " ── Squads ────────────────────────────────────────────────────────────────────────────────────────",
       "  SQUAD / AGENT          MEMBERS / STATE                                           DIGEST  ◷ CRON",
-      "  ▸ Common pool          ◌ 0 members                                               —       —",
       "  ▾ product              ● 1 member                                                —       —",
-      "  1–2 / 3 rows  ·  1 more ↓",
+      "  2–2 / 3 rows  ·  1 more ↓",
       "── product ─────────────────────────────────────────────────────────────────────────────────────────",
       "  Add member   Set/clear lead   Rename   Pin   Timers   Hide squad",
       " Roster preview · Lead — · 1 member",
@@ -60,7 +60,7 @@
       "  1–3 / 3 rows  ·  0 more ↓",
       "",
       "↑↓ select  ←→ fold  ⏎ inspect  p pin  H Hide squad",
-      "Tab panes  / search  c timers  f Needs you  , settings  ? help  q quit"
+      "Tab panes  / search  c timers  f Pinned  , settings  ? help  q quit"
     ]
   },
   {
@@ -74,12 +74,12 @@
       "  1 Overview   2 Agents   3 Digest",
       "",
       "  Agents · 1 squad + Common pool               Timers unknown     Scan…",
-      "   All   Needs you   Pinned   / Search…",
+      "   All   Pinned    / Search",
       "   Workspace snapshots",
+      " ── Squads ────────────────────────────────────────────────────────────────────",
       "  SQUAD / AGENT          MEMBERS / STATE                       DIGEST  ◷ CRON",
-      "  ▸ Common pool          ◌ 0 members                           —       —",
       "  ▾ product              ● 1 member                            —       —",
-      "  1–2 / 3 rows  ·  1 more ↓",
+      "  2–2 / 3 rows  ·  1 more ↓",
       "── product ─────────────────────────────────────────────────────────────────────",
       "  Add member   Set/clear lead   Rename   Pin   Timers   Hide squad",
       " Roster preview · Lead — · 1 member",
@@ -92,7 +92,7 @@
       "  1–3 / 3 rows  ·  0 more ↓",
       "",
       "↑↓ select  ←→ fold  ⏎ inspect  p pin  H Hide squad",
-      "Tab panes  / search  c timers  f Needs you  , settings  ? help  q quit"
+      "Tab panes  / search  c timers  f Pinned  , settings  ? help  q quit"
     ]
   },
   {
@@ -106,13 +106,13 @@
       "  1 Overview   2 Agents   3 Digest",
       "",
       "  Agents · 1 squad + Common pool                                                                                               Timers unknown     Scan…",
-      "   All   Needs you   Pinned   / Search…",
+      "   All   Pinned    / Search",
       "   Workspace snapshots",
-      "  SQUAD / AGENT          MEMBERS / STATE                  DIGEST  ◷ CRON     ── Conversation · worker ──────────────────────────────────────────────────────────",
-      "  ▸ Common pool          ◌ 0 members                      —       —           working · product · member                                            · ◷ unknown",
-      "  ▾ product              ● 1 member                       —       —           Host: tmux · j host",
-      "    └ worker             ● working · member               —       —           Response · following ────────────────────────────────────────────────────────────",
-      "                                                                              First response line Second response line Third response line",
+      " ── Squads ───────────────────────────────────────────────────────────────   ── Conversation · worker ──────────────────────────────────────────────────────────",
+      "  SQUAD / AGENT          MEMBERS / STATE                  DIGEST  ◷ CRON      working · product · member                                            · ◷ unknown",
+      "  ▸ Common pool          ◌ 0 members                      —       —           Host: tmux · j host",
+      "  ▾ product              ● 1 member                       —       —           Response · following ────────────────────────────────────────────────────────────",
+      "    └ worker             ● working · member               —       —           First response line Second response line Third response line",
       "",
       "",
       "",
@@ -124,7 +124,7 @@
       "  1–3 / 3 rows  ·  0 more ↓                                                  └─────────────────────────────────────────────────────────────────────────────────┘",
       "",
       "↑↓ select  ←→ fold  ⏎ chat  v reader  j host",
-      "Tab panes  / search  c timers  f Needs you  , settings  ? help  q quit"
+      "Tab panes  / search  c timers  f Pinned  , settings  ? help  q quit"
     ]
   },
   {
@@ -138,12 +138,12 @@
       "  1 Overview   2 Agents   3 Digest",
       "",
       "  Agents · 1 squad + Common pool                                   Timers unknown     Scan…",
-      "   All   Needs you   Pinned   / Search…",
+      "   All   Pinned    / Search",
       "   Workspace snapshots",
+      " ── Squads ────────────────────────────────────────────────────────────────────────────────────────",
       "  SQUAD / AGENT          MEMBERS / STATE                                           DIGEST  ◷ CRON",
-      "  ▾ product              ● 1 member                                                —       —",
       "    └ worker             ● working · member                                        —       —",
-      "  2–3 / 3 rows  ·  0 more ↓",
+      "  3–3 / 3 rows  ·  0 more ↓",
       "── Conversation · worker ───────────────────────────────────────────────────────────────────────────",
       " working · product · member                                                             · ◷ unknown",
       " Response · following ─────────────────────────────────────────────────────────────────────────────",
@@ -156,7 +156,7 @@
       "└──────────────────────────────────────────────────────────────────────────────────────────────────┘",
       "",
       "↑↓ select  ←→ fold  ⏎ chat  v reader  j host",
-      "Tab panes  / search  c timers  f Needs you  , settings  ? help  q quit"
+      "Tab panes  / search  c timers  f Pinned  , settings  ? help  q quit"
     ]
   },
   {
@@ -170,12 +170,12 @@
       "  1 Overview   2 Agents   3 Digest",
       "",
       "  Agents · 1 squad + Common pool               Timers unknown     Scan…",
-      "   All   Needs you   Pinned   / Search…",
+      "   All   Pinned    / Search",
       "   Workspace snapshots",
+      " ── Squads ────────────────────────────────────────────────────────────────────",
       "  SQUAD / AGENT          MEMBERS / STATE                       DIGEST  ◷ CRON",
-      "  ▾ product              ● 1 member                            —       —",
       "    └ worker             ● working · member                    —       —",
-      "  2–3 / 3 rows  ·  0 more ↓",
+      "  3–3 / 3 rows  ·  0 more ↓",
       "── Conversation · worker ───────────────────────────────────────────────────────",
       " working · product · member                                         · ◷ unknown",
       " Response · following ─────────────────────────────────────────────────────────",
@@ -188,7 +188,7 @@
       "└──────────────────────────────────────────────────────────────────────────────┘",
       "",
       "↑↓ select  ←→ fold  ⏎ chat  v reader  j host",
-      "Tab panes  / search  c timers  f Needs you  , settings  ? help  q quit"
+      "Tab panes  / search  c timers  f Pinned  , settings  ? help  q quit"
     ]
   },
   {
@@ -202,13 +202,13 @@
       "  1 Overview   2 Agents   3 Digest",
       "",
       "  Agents · 1 squad + Common pool                                                                                               Timers unknown     Scan…",
-      "   All   Needs you   Pinned   / Search…",
+      "   All   Pinned    / Search",
       "   Workspace snapshots",
-      "  SQUAD / AGENT          MEMBERS / STATE                  DIGEST  ◷ CRON     ── product ────────────────────────────────────────────────────────────────────────",
-      "  ▸ Common pool          ◌ 0 members                      —       —            Add member   Set/clear lead   Rename   Pin   Timers   Hide squad",
-      "  ▾ product              ● 1 member                       —       —           Roster preview · Lead — · 1 member",
-      "    └ worker             ● working · member               —       —           MEMBER                 STATE           TASK / NEXT ACTION",
-      "                                                                              worker                 ● working       —",
+      " ── Squads ───────────────────────────────────────────────────────────────   ── product ────────────────────────────────────────────────────────────────────────",
+      "  SQUAD / AGENT          MEMBERS / STATE                  DIGEST  ◷ CRON       Add member   Set/clear lead   Rename   Pin   Timers   Hide squad",
+      "  ▸ Common pool          ◌ 0 members                      —       —           Roster preview · Lead — · 1 member",
+      "  ▾ product              ● 1 member                       —       —           MEMBER                 STATE           TASK / NEXT ACTION",
+      "    └ worker             ● working · member               —       —           worker                 ● working       —",
       "                                                                              Usage: not reported",
       "                                                                              Est. ctx avoided 24h: — (0 of 1)",
       "",
@@ -220,7 +220,7 @@
       "  1–3 / 3 rows  ·  0 more ↓                                                    1–3 / 3 rows  ·  0 more ↓",
       "",
       "↑↓ select  ←→ fold  ⏎ inspect  p pin  H Hide squad",
-      "Tab panes  / search  c timers  f Needs you  , settings  ? help  q quit"
+      "Tab panes  / search  c timers  f Pinned  , settings  ? help  q quit"
     ]
   },
   {
@@ -234,13 +234,13 @@
       "  1 Overview   2 Agents   3 Digest",
       "",
       "  Agents · 1 squad + Common pool                                   Timers unknown     Scan…",
-      "   All   Needs you   Pinned   / Search…",
+      "   All   Pinned    / Search",
       "   Workspace snapshots",
-      "  SQUAD / AGENT          MEMBERS / STATE         ── product ────────────────────────────────────────",
-      "  ▸ Common pool          ◌ 0 members               Add member   Set/clear lead   Rename   Pin",
-      "  ▾ product              ● 1 member                Timers   Hide squad",
-      "    └ worker             ● working · member       Roster preview · Lead — · 1 member",
-      "                                                  MEMBER       STATE           TASK / NEXT ACTION",
+      " ── Squads ───────────────────────────────────   ── product ────────────────────────────────────────",
+      "  SQUAD / AGENT          MEMBERS / STATE           Add member   Set/clear lead   Rename   Pin",
+      "  ▸ Common pool          ◌ 0 members               Timers   Hide squad",
+      "  ▾ product              ● 1 member               Roster preview · Lead — · 1 member",
+      "    └ worker             ● working · member       MEMBER       STATE           TASK / NEXT ACTION",
       "                                                  worker       ● working       —",
       "                                                  Usage: not reported",
       "                                                  Est. ctx avoided 24h: — (0 of 1)",
@@ -252,7 +252,7 @@
       "  1–3 / 3 rows  ·  0 more ↓                        1–3 / 3 rows  ·  0 more ↓",
       "",
       "↑↓ select  ←→ fold  ⏎ inspect  p pin  H Hide squad",
-      "Tab panes  / search  c timers  f Needs you  , settings  ? help  q quit"
+      "Tab panes  / search  c timers  f Pinned  , settings  ? help  q quit"
     ]
   },
   {
@@ -266,12 +266,12 @@
       "  1 Overview   2 Agents   3 Digest",
       "",
       "  Agents · 1 squad + Common pool               Timers unknown     Scan…",
-      "   All   Needs you   Pinned   / Search…",
+      "   All   Pinned    / Search",
       "   Workspace snapshots",
+      " ── Squads ────────────────────────────────────────────────────────────────────",
       "  SQUAD / AGENT          MEMBERS / STATE                       DIGEST  ◷ CRON",
-      "  ▸ Common pool          ◌ 0 members                           —       —",
       "  ▾ product              ● 1 member                            —       —",
-      "  1–2 / 3 rows  ·  1 more ↓",
+      "  2–2 / 3 rows  ·  1 more ↓",
       "── product ─────────────────────────────────────────────────────────────────────",
       "  Add member   Set/clear lead   Rename   Pin   Timers   Hide squad",
       " Roster preview · Lead — · 1 member",
@@ -284,7 +284,7 @@
       "  1–3 / 3 rows  ·  0 more ↓",
       "",
       "↑↓ select  ←→ fold  ⏎ inspect  p pin  H Hide squad",
-      "Tab panes  / search  c timers  f Needs you  , settings  ? help  q quit"
+      "Tab panes  / search  c timers  f Pinned  , settings  ? help  q quit"
     ]
   },
   {
@@ -298,13 +298,13 @@
       "  1 Overview   2 Agents   3 Digest",
       "",
       "  Agents · 1 squad + Common pool                                                                                               Timers unknown     Scan…",
-      "   All   Needs you   Pinned   / Search…",
+      "   All   Pinned    / Search",
       "   Workspace snapshots",
-      "  SQUAD / AGENT          MEMBERS / STATE                  DIGEST  ◷ CRON     ── Conversation · worker ──────────────────────────────────────────────────────────",
-      "  ▸ Common pool          ◌ 0 members                      —       —           working · product · member                                            · ◷ unknown",
-      "  ▾ product              ● 1 member                       —       —           Host: tmux · j host",
-      "    └ worker             ● working · member               —       —           Response · following ────────────────────────────────────────────────────────────",
-      "                                                                              First response line Second response line Third response line",
+      " ── Squads ───────────────────────────────────────────────────────────────   ── Conversation · worker ──────────────────────────────────────────────────────────",
+      "  SQUAD / AGENT          MEMBERS / STATE                  DIGEST  ◷ CRON      working · product · member                                            · ◷ unknown",
+      "  ▸ Common pool          ◌ 0 members                      —       —           Host: tmux · j host",
+      "  ▾ product              ● 1 member                       —       —           Response · following ────────────────────────────────────────────────────────────",
+      "    └ worker             ● working · member               —       —           First response line Second response line Third response line",
       "",
       "",
       "",
@@ -316,7 +316,7 @@
       "  1–3 / 3 rows  ·  0 more ↓                                                  └─────────────────────────────────────────────────────────────────────────────────┘",
       "",
       "↑↓ select  ←→ fold  ⏎ chat  v reader  j host",
-      "Tab panes  / search  c timers  f Needs you  , settings  ? help  q quit"
+      "Tab panes  / search  c timers  f Pinned  , settings  ? help  q quit"
     ]
   },
   {
@@ -330,13 +330,13 @@
       "  1 Overview   2 Agents   3 Digest",
       "",
       "  Agents · 1 squad + Common pool                                   Timers unknown     Scan…",
-      "   All   Needs you   Pinned   / Search…",
+      "   All   Pinned    / Search",
       "   Workspace snapshots",
-      "  SQUAD / AGENT          MEMBERS / STATE         ── Conversation · worker ──────────────────────────",
-      "  ▸ Common pool          ◌ 0 members              working · product · member            · ◷ unknown",
-      "  ▾ product              ● 1 member               Host: tmux · j host",
-      "    └ worker             ● working · member       Response · following ────────────────────────────",
-      "                                                  First response line Second response line Third",
+      " ── Squads ───────────────────────────────────   ── Conversation · worker ──────────────────────────",
+      "  SQUAD / AGENT          MEMBERS / STATE          working · product · member            · ◷ unknown",
+      "  ▸ Common pool          ◌ 0 members              Host: tmux · j host",
+      "  ▾ product              ● 1 member               Response · following ────────────────────────────",
+      "    └ worker             ● working · member       First response line Second response line Third",
       "                                                  response line",
       "",
       "",
@@ -348,7 +348,7 @@
       "  1–3 / 3 rows  ·  0 more ↓                      └─────────────────────────────────────────────────┘",
       "",
       "↑↓ select  ←→ fold  ⏎ chat  v reader  j host",
-      "Tab panes  / search  c timers  f Needs you  , settings  ? help  q quit"
+      "Tab panes  / search  c timers  f Pinned  , settings  ? help  q quit"
     ]
   },
   {
@@ -362,12 +362,12 @@
       "  1 Overview   2 Agents   3 Digest",
       "",
       "  Agents · 1 squad + Common pool               Timers unknown     Scan…",
-      "   All   Needs you   Pinned   / Search…",
+      "   All   Pinned    / Search",
       "   Workspace snapshots",
+      " ── Squads ────────────────────────────────────────────────────────────────────",
       "  SQUAD / AGENT          MEMBERS / STATE                       DIGEST  ◷ CRON",
-      "  ▾ product              ● 1 member                            —       —",
       "    └ worker             ● working · member                    —       —",
-      "  2–3 / 3 rows  ·  0 more ↓",
+      "  3–3 / 3 rows  ·  0 more ↓",
       "── Conversation · worker ───────────────────────────────────────────────────────",
       " working · product · member                                         · ◷ unknown",
       " Response · following ─────────────────────────────────────────────────────────",
@@ -380,7 +380,7 @@
       "└──────────────────────────────────────────────────────────────────────────────┘",
       "",
       "↑↓ select  ←→ fold  ⏎ chat  v reader  j host",
-      "Tab panes  / search  c timers  f Needs you  , settings  ? help  q quit"
+      "Tab panes  / search  c timers  f Pinned  , settings  ? help  q quit"
     ]
   },
   {
@@ -394,12 +394,12 @@
       "  1 Overview   2 Agents   3 Digest",
       "",
       "  Agents · 1 squad + Common pool                                                                                               Timers unknown     Scan…",
-      "   All   Needs you   Pinned   / Search…",
+      "   All   Pinned    / Search",
       "   Workspace snapshots",
+      " ── Squads ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
       "  SQUAD / AGENT          LEAD                  MEMBERS / STATE                                                                       TOK 1h    DIGEST  ◷ CRON",
-      "  ▸ Common pool          —                     ◌ 0 members                                                                           —         —       —",
       "  ▾ product              —                     ● 1 member                                                                            —         —       —",
-      "  1–2 / 3 rows  ·  1 more ↓",
+      "  2–2 / 3 rows  ·  1 more ↓",
       "── product ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
       "  Add member   Set/clear lead   Rename   Pin   Timers   Hide squad",
       " Roster preview · Lead — · 1 member",
@@ -412,7 +412,7 @@
       "  1–3 / 3 rows  ·  0 more ↓",
       "",
       "↑↓ select  ←→ fold  ⏎ inspect  p pin  H Hide squad",
-      "Tab panes  / search  c timers  f Needs you  , settings  ? help  q quit"
+      "Tab panes  / search  c timers  f Pinned  , settings  ? help  q quit"
     ]
   },
   {
@@ -426,12 +426,12 @@
       "  1 Overview   2 Agents   3 Digest",
       "",
       "  Agents · 1 squad + Common pool                                   Timers unknown     Scan…",
-      "   All   Needs you   Pinned   / Search…",
+      "   All   Pinned    / Search",
       "   Workspace snapshots",
+      " ── Squads ────────────────────────────────────────────────────────────────────────────────────────",
       "  SQUAD / AGENT          MEMBERS / STATE                                           DIGEST  ◷ CRON",
-      "  ▸ Common pool          ◌ 0 members                                               —       —",
       "  ▾ product              ● 1 member                                                —       —",
-      "  1–2 / 3 rows  ·  1 more ↓",
+      "  2–2 / 3 rows  ·  1 more ↓",
       "── product ─────────────────────────────────────────────────────────────────────────────────────────",
       "  Add member   Set/clear lead   Rename   Pin   Timers   Hide squad",
       " Roster preview · Lead — · 1 member",
@@ -444,7 +444,7 @@
       "  1–3 / 3 rows  ·  0 more ↓",
       "",
       "↑↓ select  ←→ fold  ⏎ inspect  p pin  H Hide squad",
-      "Tab panes  / search  c timers  f Needs you  , settings  ? help  q quit"
+      "Tab panes  / search  c timers  f Pinned  , settings  ? help  q quit"
     ]
   },
   {
@@ -458,12 +458,12 @@
       "  1 Overview   2 Agents   3 Digest",
       "",
       "  Agents · 1 squad + Common pool               Timers unknown     Scan…",
-      "   All   Needs you   Pinned   / Search…",
+      "   All   Pinned    / Search",
       "   Workspace snapshots",
+      " ── Squads ────────────────────────────────────────────────────────────────────",
       "  SQUAD / AGENT          MEMBERS / STATE                       DIGEST  ◷ CRON",
-      "  ▸ Common pool          ◌ 0 members                           —       —",
       "  ▾ product              ● 1 member                            —       —",
-      "  1–2 / 3 rows  ·  1 more ↓",
+      "  2–2 / 3 rows  ·  1 more ↓",
       "── product ─────────────────────────────────────────────────────────────────────",
       "  Add member   Set/clear lead   Rename   Pin   Timers   Hide squad",
       " Roster preview · Lead — · 1 member",
@@ -476,7 +476,7 @@
       "  1–3 / 3 rows  ·  0 more ↓",
       "",
       "↑↓ select  ←→ fold  ⏎ inspect  p pin  H Hide squad",
-      "Tab panes  / search  c timers  f Needs you  , settings  ? help  q quit"
+      "Tab panes  / search  c timers  f Pinned  , settings  ? help  q quit"
     ]
   },
   {
@@ -490,12 +490,12 @@
       "  1 Overview   2 Agents   3 Digest",
       "",
       "  Agents · 1 squad + Common pool                                                                                               Timers unknown     Scan…",
-      "   All   Needs you   Pinned   / Search…",
+      "   All   Pinned    / Search",
       "   Workspace snapshots",
+      " ── Squads ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
       "  SQUAD / AGENT          LEAD                  MEMBERS / STATE                                                                       TOK 1h    DIGEST  ◷ CRON",
-      "  ▾ product              —                     ● 1 member                                                                            —         —       —",
       "    └ worker                                   ● working · member                                                                              —       —",
-      "  2–3 / 3 rows  ·  0 more ↓",
+      "  3–3 / 3 rows  ·  0 more ↓",
       "── Conversation · worker ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
       " working · product · member                                                                                                                         · ◷ unknown",
       " Response · following ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
@@ -508,7 +508,7 @@
       "└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘",
       "",
       "↑↓ select  ←→ fold  ⏎ chat  v reader  j host",
-      "Tab panes  / search  c timers  f Needs you  , settings  ? help  q quit"
+      "Tab panes  / search  c timers  f Pinned  , settings  ? help  q quit"
     ]
   },
   {
@@ -522,12 +522,12 @@
       "  1 Overview   2 Agents   3 Digest",
       "",
       "  Agents · 1 squad + Common pool                                   Timers unknown     Scan…",
-      "   All   Needs you   Pinned   / Search…",
+      "   All   Pinned    / Search",
       "   Workspace snapshots",
+      " ── Squads ────────────────────────────────────────────────────────────────────────────────────────",
       "  SQUAD / AGENT          MEMBERS / STATE                                           DIGEST  ◷ CRON",
-      "  ▾ product              ● 1 member                                                —       —",
       "    └ worker             ● working · member                                        —       —",
-      "  2–3 / 3 rows  ·  0 more ↓",
+      "  3–3 / 3 rows  ·  0 more ↓",
       "── Conversation · worker ───────────────────────────────────────────────────────────────────────────",
       " working · product · member                                                             · ◷ unknown",
       " Response · following ─────────────────────────────────────────────────────────────────────────────",
@@ -540,7 +540,7 @@
       "└──────────────────────────────────────────────────────────────────────────────────────────────────┘",
       "",
       "↑↓ select  ←→ fold  ⏎ chat  v reader  j host",
-      "Tab panes  / search  c timers  f Needs you  , settings  ? help  q quit"
+      "Tab panes  / search  c timers  f Pinned  , settings  ? help  q quit"
     ]
   },
   {
@@ -554,12 +554,12 @@
       "  1 Overview   2 Agents   3 Digest",
       "",
       "  Agents · 1 squad + Common pool               Timers unknown     Scan…",
-      "   All   Needs you   Pinned   / Search…",
+      "   All   Pinned    / Search",
       "   Workspace snapshots",
+      " ── Squads ────────────────────────────────────────────────────────────────────",
       "  SQUAD / AGENT          MEMBERS / STATE                       DIGEST  ◷ CRON",
-      "  ▾ product              ● 1 member                            —       —",
       "    └ worker             ● working · member                    —       —",
-      "  2–3 / 3 rows  ·  0 more ↓",
+      "  3–3 / 3 rows  ·  0 more ↓",
       "── Conversation · worker ───────────────────────────────────────────────────────",
       " working · product · member                                         · ◷ unknown",
       " Response · following ─────────────────────────────────────────────────────────",
@@ -572,7 +572,7 @@
       "└──────────────────────────────────────────────────────────────────────────────┘",
       "",
       "↑↓ select  ←→ fold  ⏎ chat  v reader  j host",
-      "Tab panes  / search  c timers  f Needs you  , settings  ? help  q quit"
+      "Tab panes  / search  c timers  f Pinned  , settings  ? help  q quit"
     ]
   }
 ]
