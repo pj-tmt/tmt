@@ -188,6 +188,21 @@ if (process.argv[2] === '--scenario') {
       ],
       { cwd: world, env: emulatorEnv },
     );
+  } catch (error) {
+    // These demo-emulator logs live in the private world, which must still be removed.
+    for (const name of ['firebase-debug.log', 'firestore-debug.log']) {
+      try {
+        const source = path.join(world, name);
+        if (existsSync(source)) {
+          const destination = path.join(app, 'test-results/emulators');
+          mkdirSync(destination, { recursive: true });
+          copyFileSync(source, path.join(destination, name));
+        }
+      } catch (copyError) {
+        console.error(`Could not preserve ${name}: ${String(copyError).slice(0, 200)}`);
+      }
+    }
+    throw error;
   } finally {
     rmSync(world, { recursive: true, force: true });
   }

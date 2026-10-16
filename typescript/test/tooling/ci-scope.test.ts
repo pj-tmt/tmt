@@ -3487,6 +3487,17 @@ describe('hosted producer/reader emulator workflow wiring', () => {
     expect(action).toContain('npm install --global firebase-tools@15.29.0');
     expect(action).toContain('firebase setup:emulators:firestore');
     expect(action).toContain('node extensions/tmt-colab/scripts/hosted-reader-emulator.mjs');
+    const diagnostics = action.split('    - name: Preserve failed hosted reader diagnostics\n')[1];
+    expect(diagnostics).toContain('if: failure()');
+    expect(diagnostics).toContain('uses: actions/upload-artifact@v4');
+    expect(diagnostics).toContain('path: extensions/tmt-colab/typescript/app/test-results/');
+    expect(diagnostics).toContain('retention-days: 3');
+    expect(diagnostics).toContain(
+      '${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}'
+    );
+    expect(action.indexOf('Preserve failed hosted reader diagnostics')).toBeGreaterThan(
+      action.indexOf('node extensions/tmt-colab/scripts/hosted-reader-emulator.mjs')
+    );
     expect(action.indexOf('firebase setup:emulators:firestore')).toBeLessThan(
       action.indexOf('node extensions/tmt-colab/scripts/hosted-reader-emulator.mjs')
     );

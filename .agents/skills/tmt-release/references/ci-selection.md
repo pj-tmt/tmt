@@ -159,6 +159,7 @@ because it rebuilds Remote with `test-emulator`. Full label/weekly/manual accept
 same action once, on shard 1 after ordinary acceptance, whatever its result, unless the run is
 cancelled; build-hash recording stays before it. It stays advisory,
 never runs on main pushes or merge groups, and adds no permission or required aggregate.
+On failure the action retains proof test-results and the two demo-emulator logs for three days; the wrapper copies only those logs before removing its private world.
 
 The same workflow runs advisory real-binary Colab acceptance weekly, manually,
 or on a PR carrying `colab-acceptance`. Only adding that exact label can start
