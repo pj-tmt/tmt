@@ -98,6 +98,11 @@ command leaves its presentation unavailable and never blocks a frame or tab.
 Unknown additive JSON fields may be ignored; unsupported versions or malformed
 required fields are unavailable, not guessed defaults.
 
+## Usage report
+
+`tmt digest usage report` joins Core's consumption, account limits and exchange
+flow for all members; [usage-v1.md](usage-v1.md) owns it. It keeps no Digest state.
+
 ## Labels
 
 Each label is `{text, colorClass, action}`. Text is plain display text (no markup,

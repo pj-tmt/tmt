@@ -47,8 +47,9 @@ pub(in crate::grammar) fn exchanges() -> Command {
         )
         .subcommand(storage(spec!(
             "flow", "Read content-free exchange counts for the whole local team",
-            ["Read the last day as UTC buckets" => "tmt x flow --json", "Read the last week" => "tmt x flow --since 7d --json"]
-        )).arg(clap::Arg::new("since").long("since").help("Window: integer seconds or ms/s/m/h/d; default 24h, maximum 30d")))
+            ["Read the last day as UTC buckets" => "tmt x flow --json", "Read the last week" => "tmt x flow --since 7d --json", "Sum a week into one row per pair and kind" => "tmt x flow --since 7d --bucket 7d --json"]
+        )).arg(clap::Arg::new("since").long("since").help("Window: integer seconds or ms/s/m/h/d; default 24h, maximum 30d"))
+        .arg(clap::Arg::new("bucket").long("bucket").help("Sum rows into buckets of this length, a multiple of 30m (default 30m); a bucket as long as the window gives one row per pair and kind")))
         .subcommand(with_options(
             storage(spec!(
                 "ls",

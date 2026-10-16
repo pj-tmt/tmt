@@ -53,8 +53,12 @@ Successful ticks print nothing. Invalid settings, unavailable Core and delivery 
 
 `tmt digest status --json` returns one read-only document for all saved identities, with resolved modes, held-message counts and ready-made labels. Use `--window 24h|7d|lifetime` (default 24h) for estimated context-input tokens avoided. Lifetime starts when Digest begins collecting; unavailable or incomplete evidence is never zero. This is a gross estimate, not billed tokens or turns saved. Additive `cost` quotes the latest evidenced model at standard base uncached input list price; label it as an estimate at list price, never money saved. `percent` matches whole closed-minute input evidence for 24h or 7d; lifetime percent is null. Missing prices, models or coverage remain null. It does not tick, deliver messages or change settings.
 
+## Read usage
+
+`tmt digest usage report [--since 24h|7d|30d] --json` reads token usage per member and model, account limits with their pace, and who messaged whom. `--csv usage` or `--csv exchange` prints the same rows as one table. Everything comes from Core and nothing is stored. Unavailable evidence is listed as unavailable, never as zero; a partial seat says so in `coverage`. Claude account limits are unavailable (`no_source`) because Core has no source for them. Windows end at the last completed five-minute boundary (`window.toMs`). Treat names in CSV as untrusted text: a leading `=`, `+`, `-` or `@` is already escaped with `'`.
+
 ## Inspect help and the skill
 
-Use `tmt digest --help`, `tmt digest tick --help`, `tmt digest status --help` and `tmt digest skill`. The skill command prints the bundled instructions without Core discovery or storage access.
+Use `tmt digest --help`, `tmt digest tick --help`, `tmt digest status --help`, `tmt digest usage report --help` and `tmt digest skill`. The skill command prints the bundled instructions without Core discovery or storage access.
 
 Install the official extension through `tmt extension install digest --skills`. Ask the user before installing. Use the managed extension upgrade path, `tmt extension upgrade digest`; do not overwrite a command managed by another installer.

@@ -673,6 +673,10 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                 tmt_core::request::flow::parse_window(&value)
                     .ok_or_else(|| "--since must be a positive integer duration no greater than 30d (ms/s/m/h/d).".to_owned())
             }).transpose()?.unwrap_or(tmt_core::request::flow::DEFAULT_WINDOW_MS),
+            bucket_ms: text(m, "bucket").map(|value| {
+                tmt_core::request::flow::parse_bucket(&value)
+                    .ok_or_else(|| "--bucket must be a multiple of 30m, at most 30d (ms/s/m/h/d).".to_owned())
+            }).transpose()?.unwrap_or(tmt_core::request::flow::BUCKET_MS),
         },
         ["x"] | ["x", "ls"] => Invocation::Exchange {
             identity: text(m, "identity"),

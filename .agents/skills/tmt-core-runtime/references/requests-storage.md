@@ -87,7 +87,8 @@ owns aggregate SQL and bounded pruning inside request housekeeping. Observers an
 notices use ordinary response reads, never the explicit retrieval operation.
 `tmt x flow` reads all local pairs in an observation transaction, without caller
 selection, body loading or housekeeping. The [request contract](../../../../contracts/request-response-v1.md#content-free-exchange-flow)
-owns event cardinality, direction, window rounding and independent 30-day retention.
+owns event cardinality, direction, window rounding, `--bucket` summing
+(`flow::rebucket`, applied after the read) and independent 30-day retention.
 
 ## Room and dispatch composition
 

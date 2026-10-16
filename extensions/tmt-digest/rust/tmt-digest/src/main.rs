@@ -7,6 +7,7 @@ mod pricing;
 mod settings;
 mod status;
 mod tick;
+mod usage;
 
 use clap::error::ErrorKind;
 use std::{ffi::OsString, io::Write, process::ExitCode};
@@ -56,6 +57,43 @@ fn main() -> ExitCode {
                 {
                     Ok(()) if successful => ExitCode::SUCCESS,
                     _ => ExitCode::FAILURE,
+                };
+            }
+            if matches.subcommand_name() == Some("usage") {
+                let selected = matches
+                    .subcommand_matches("usage")
+                    .and_then(|usage| usage.subcommand_matches("report"))
+                    .expect("report matches");
+                let since = usage::Since::parse(
+                    selected.get_one::<String>("since").expect("default since"),
+                )
+                .expect("admitted since");
+                let format = selected
+                    .get_one::<String>("csv")
+                    .map_or(usage::Format::Json, |table| {
+                        usage::Format::Csv(usage::Table::parse(table).expect("admitted table"))
+                    });
+                return match usage::render(since, format) {
+                    Ok(text) => {
+                        let mut output = tmt_cli_style::stream::stdout(true);
+                        match output
+                            .write_all(text.as_bytes())
+                            .and_then(|()| output.flush())
+                        {
+                            Ok(()) => ExitCode::SUCCESS,
+                            Err(_) => ExitCode::FAILURE,
+                        }
+                    }
+                    Err(error) if format == usage::Format::Json => {
+                        let document = serde_json::json!({"version":1,"error":{"code":error.code,"message":error.message}});
+                        let mut output = tmt_cli_style::stream::stdout(true);
+                        let _ = serde_json::to_writer(&mut output, &document)
+                            .map_err(std::io::Error::other)
+                            .and_then(|()| output.write_all(b"\n"))
+                            .and_then(|()| output.flush());
+                        ExitCode::FAILURE
+                    }
+                    Err(error) => report_error(error),
                 };
             }
             if matches.subcommand_name() == Some("skill") {

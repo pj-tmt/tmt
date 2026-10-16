@@ -163,6 +163,7 @@ pub enum Invocation {
     },
     ExchangeFlow {
         window_ms: u64,
+        bucket_ms: u64,
     },
     Exchange {
         identity: Option<String>,
