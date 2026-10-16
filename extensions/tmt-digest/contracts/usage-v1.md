@@ -34,7 +34,8 @@ with Core's usual 15 seconds and 1 MiB per call:
 - `usage.seats[]` (identities with rollup evidence): `id`, `name` (null when Core
   could not resolve it), `retired`, `totals` `{input,output,cached}`, `byModel`
   (Core's attribution as `{modelId,input,output,cached}`, or null when Core could
-  not attribute the whole total), `series[]` (`{fromMs,toMs,input,output,cached,complete}`)
+  not attribute the whole total), `lines` (the lines its tokens belong to, as `usage.lines[]`
+  counts them: its models' families, or `unattributed`; empty for a seat with no tokens), `series[]` (`{fromMs,toMs,input,output,cached,complete}`)
   and `coverage` `{coveredMs,windowMs,complete,gap}`. Cached input is part of input;
   total is input plus output. An incomplete bucket is a lower bound, not an error.
 - `usage.unavailable[]`: `{id,name,retired,reason}` for an identity with no

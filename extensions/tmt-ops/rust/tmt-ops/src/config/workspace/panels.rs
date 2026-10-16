@@ -10,6 +10,9 @@ pub trait Panel: sealed::Sealed + Copy + Debug + Ord + 'static {
     const ALL: &'static [Self];
     const TARGET: Self;
     const SIDE_KEY: &'static str;
+    /// Panels added after a complete `order` may already have been saved: a saved
+    /// order that omits one gets it appended at the end, shown unless hidden.
+    const APPENDED: &'static [Self] = &[];
     fn key(self) -> &'static str;
 
     fn parse(key: &str) -> Option<Self> {
@@ -58,6 +61,7 @@ pub enum DigestPanel {
     Subscriptions,
     Chart,
     List,
+    Report,
 }
 impl sealed::Sealed for DigestPanel {}
 impl Panel for DigestPanel {
@@ -67,9 +71,11 @@ impl Panel for DigestPanel {
         Self::Subscriptions,
         Self::Chart,
         Self::List,
+        Self::Report,
     ];
     const TARGET: Self = Self::List;
     const SIDE_KEY: &'static str = "details";
+    const APPENDED: &'static [Self] = &[Self::Report];
 
     fn key(self) -> &'static str {
         match self {
@@ -78,6 +84,7 @@ impl Panel for DigestPanel {
             Self::Subscriptions => "subscriptions",
             Self::Chart => "chart",
             Self::List => "list",
+            Self::Report => "report",
         }
     }
 }
@@ -116,6 +123,11 @@ impl<P: Panel> Panels<P> {
         let mut policy = Self::default();
         if let Some(item) = table.get("order") {
             policy.order = ids::<P>(item, "order")?;
+            for panel in P::APPENDED {
+                if !policy.order.contains(panel) {
+                    policy.order.push(*panel);
+                }
+            }
         }
         if let Some(item) = table.get("hidden") {
             policy.hidden = ids::<P>(item, "hidden")?.into_iter().collect();

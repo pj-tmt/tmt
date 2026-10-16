@@ -263,6 +263,8 @@ pub enum Choice {
     },
     WorkspaceLayout(crate::config::OpsLayout),
     DigestWindow(crate::config::DigestWindow),
+    /// The window the Digest tab's Usage report shows.
+    UsageReportSince(super::usage_report::Since),
     /// A click on a painted Digest estimate: the next unit.
     SavingsUnit,
     OverviewView(super::overview::monitor::View),
@@ -647,6 +649,8 @@ pub struct App {
     pub(super) home_leads: super::home_leads::State,
     /// What the configured label sources last supplied for member rows.
     pub(super) labels: crate::labels::Supplied,
+    /// The Digest tab's Usage report: its window and the newest read.
+    pub(in crate::board) usage_report: super::usage_report::State,
     /// The cron form being filled in on the input line, if any.
     pub(super) status_draft: Option<super::status_update::Draft>,
     pub(in crate::board) cron_review: Option<super::cronboard::preview::Review>,
@@ -2588,6 +2592,10 @@ impl App {
             } => self.workspace_choose_room(kind, &identity_id, &room_id),
             Choice::WorkspaceLayout(layout) => self.workspace_layout(layout),
             Choice::DigestWindow(window) => self.select_digest_window(window),
+            Choice::UsageReportSince(since) => {
+                self.usage_report.since = since;
+                Effect::None
+            }
             Choice::SavingsUnit => self.cycle_savings_unit(),
             Choice::OverviewView(view) => self.select_overview_view(view),
             Choice::Panels => self.open_panels(),

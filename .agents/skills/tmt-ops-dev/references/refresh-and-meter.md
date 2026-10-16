@@ -75,6 +75,15 @@
   [board.md](board.md#frame-and-terminal). A `Refresh` handle (`Reader::refresher`) makes the thread read at once and restart its wait;
   the lane uses it after a successful digest change. Dropping the reader cancels the read in
   flight and joins the thread.
+- Usage report: `usage_report::Reader`, a thread of its own next to the labels reader, runs
+  `tmt digest usage report --since W --json` (one read in flight, 45 s limit) only while the
+  session loop tells it the Digest tab shows the panel (`App::usage_report_want`, sent on
+  change through `Wants`); it reads at once on a window change, then every 60 s (failures back
+  off to 5 min), and drops a result whose window changed during the read. `BoardEvent::UsageReport`
+  carries it; `usage_report::State` keeps the newest good report per window (a failed read keeps
+  it and the rule's own time says how old it is), and a window with no answer yet paints
+  "Loading". The panel (`usage_report::panel`) is a pure projection of that report; paint and input
+  read nothing. Dropping the reader cancels the read in flight and joins the thread.
 - Squad enrichment: a squad tab publishes without its digest-policy read and reply-body
   reads. It applies the digest rows and bodies this worker already read (`Known`), so a
   reload never blinks them off. The first deferred job (`EnrichJob`) then makes one

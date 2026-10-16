@@ -312,7 +312,16 @@ interactive surface visible. Cancel discards the preview; stale Save retains it
 with an error. Closing a pending save does not cancel its already admitted write.
 A configured-off Overview Conversation opens temporarily on explicit message
 focus; Escape returns to rows and retains the draft. Tab and pointer do not open
-it. Hidden panels do not change acquisition or action admission.
+it. Hidden panels do not change acquisition or action admission, except the
+Digest Usage report below.
+
+The Digest tab's Usage report panel shows `tmt digest usage report`: tokens per
+line and seat with their coverage, account limits with their pace, and the top
+senders and recipients. Its 24h, 7d and 30d chips (or Workspace settings on that
+tab) choose the window. Ops reads it in the background about once a minute, and at
+once when the window changes, only while the panel is shown on the Digest tab;
+hiding the panel stops the reads. A source that is slow or failing leaves the panel
+saying so, and unavailable evidence is never shown as zero.
 
 The Agents tree is a fixed-column table: SQUAD / AGENT, LEAD, MEMBERS / STATE,
 TOK 1h, DIGEST and ◷ CRON. LEAD and room token totals appear at 100 inner list cells;

@@ -3,6 +3,7 @@ use crate::{
     board::{
         app::{App, Hit, HitTarget},
         conversation::layout::{self, Preference},
+        usage_report,
         view::fit,
         workspace::OpsTarget,
     },
@@ -16,6 +17,9 @@ use ratatui::{
 use tmt_cli_style::Role;
 use tmt_tui::components::strip;
 use unicode_width::UnicodeWidthStr;
+
+/// Rows the member list keeps before the Usage report takes the rest.
+const LIST_FLOOR: u16 = 6;
 
 fn usage(app: &App, width: u16) -> (Vec<Line<'static>>, std::ops::Range<usize>) {
     let look = app.look();
@@ -119,9 +123,20 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     } else {
         0
     };
-    let chart_and_target = area
+    let remaining = area
         .height
         .saturating_sub(status_rows + usage_rows + quota_rows);
+    // The report takes what it needs, except the rows the member list keeps.
+    let report = if policy.shown(Id::Report) {
+        let state = &app.usage_report;
+        usage_report::rows(&state.view(), state.since, area.width, usage_report::zone())
+    } else {
+        Vec::new()
+    };
+    let report_rows = report
+        .len()
+        .min(usize::from(remaining.saturating_sub(LIST_FLOOR))) as u16;
+    let chart_and_target = remaining - report_rows;
     let chart_now = crate::status::now_ms();
     let chart_rows = if policy.shown(Id::Chart) {
         crate::board::overview::chart::host::demand(app, area.width, chart_and_target, chart_now)
@@ -149,6 +164,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             Id::Subscriptions => quota_rows,
             Id::Chart => chart_rows,
             Id::List => target_rows,
+            Id::Report => report_rows,
         };
         if height == 0 {
             continue;
@@ -200,6 +216,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 painted_chart = true;
             }
             Id::List => target = rect,
+            Id::Report => usage_report::paint(frame.buffer_mut(), app, rect, &report),
         }
     }
     if !painted_chart {

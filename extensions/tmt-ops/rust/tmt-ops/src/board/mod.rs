@@ -53,6 +53,7 @@ mod shell;
 mod terminal;
 mod theme_picker;
 mod timing;
+mod usage_report;
 mod view;
 mod view_state;
 pub(crate) use view_state::Layer as ViewLayer;
@@ -136,6 +137,8 @@ pub(super) enum BoardEvent {
     },
     /// The labels the configured sources now supply; no generation, it is not a load.
     Labels(crate::labels::Supplied),
+    /// A finished Usage report read; no generation, it is not a load.
+    UsageReport(usage_report::Delivery),
     HomeUsage {
         cancellation: crate::runner::Cancellation,
         input: Result<std::collections::BTreeMap<String, serde_json::Value>, ()>,
@@ -392,6 +395,7 @@ fn session(
     checklist: impl Fn(checklist::load::Task),
     io: impl Fn(lane::Job),
     labels_window: impl Fn(crate::config::DigestWindow),
+    usage_wants: impl Fn(Option<usage_report::Since>),
     mut state: Option<&mut view_state::Session>,
     mut draw: impl FnMut(&mut App) -> io::Result<()>,
 ) -> io::Result<Option<i32>> {
@@ -405,6 +409,7 @@ fn session(
     let mut marks = view::time_marks(app, crate::status::now_ms());
     let mut spinner = view::spinner_frame(app, Instant::now());
     let mut last_input = Instant::now();
+    let mut wanted: Option<usage_report::Since> = None;
     // Hands a job to the lane and says so at once; the event that comes back says how it ended.
     let submit = |app: &mut App, job: lane::Job| {
         // An overlay opens once: a second request for one waits for the first.
@@ -455,6 +460,12 @@ fn session(
         dirty |= next_spinner != spinner || next_marks != marks;
         spinner = next_spinner;
         marks = next_marks;
+        // The reader runs only while the panel is on screen, for its window.
+        let want = app.usage_report_want();
+        if want != wanted {
+            usage_wants(want);
+            wanted = want;
+        }
         if dirty {
             draw(app)?;
             // Painting may admit/drop clock surfaces. Set the comparison base
@@ -628,6 +639,11 @@ fn session(
                 app.overview_rows.borrow_mut().clear();
                 dirty |= app.labels != supplied;
                 app.labels = supplied;
+                Effect::None
+            }
+            Ok(BoardEvent::UsageReport(delivery)) => {
+                app.usage_report.apply(delivery);
+                dirty = true;
                 Effect::None
             }
             Ok(BoardEvent::Attention {
@@ -1037,6 +1053,12 @@ pub fn run(
             move |supplied| events.send(BoardEvent::Labels(supplied)).is_ok()
         },
     );
+    // The Usage report reads in the background and only while its panel shows.
+    let usage_reader = usage_report::Reader::spawn(&core, usage_report::Timing::default(), {
+        let events = events.clone();
+        move |delivery| events.send(BoardEvent::UsageReport(delivery)).is_ok()
+    });
+    let usage_wants = usage_reader.wants();
     let initial_theme = config.theme(squad.as_deref().unwrap_or(""))?.0;
     let requested = initial_theme.base;
     let value = std::env::var("COLORFGBG").ok();
@@ -1098,6 +1120,7 @@ pub fn run(
                 labels.refresher().window(window);
             }
         },
+        |want| usage_wants.set(want),
         view_state.as_mut(),
         |app| {
             screen
@@ -1126,6 +1149,7 @@ pub fn run(
         state.flush(&mut app, Instant::now());
     }
     drop(labels);
+    drop(usage_reader);
     let stopped = clock.stop();
     let signal = result.map_err(failed)?;
     restored.map_err(failed)?;
@@ -1187,6 +1211,7 @@ mod tests {
                 selected_read,
                 checklist,
                 io,
+                |_| {},
                 |_| {},
                 None,
                 draw,
@@ -1820,6 +1845,7 @@ mod tests {
             |_| {},
             no_io,
             |window| windows.borrow_mut().push(window),
+            |_| {},
             None,
             |_| Ok(()),
         )
@@ -2017,6 +2043,7 @@ mod tests {
                 |_| {},
                 no_io,
                 |_| {},
+                |_| {},
                 None,
                 |app| {
                     painted
@@ -2075,6 +2102,7 @@ mod tests {
                 |_, _| {},
                 |_| {},
                 no_io,
+                |_| {},
                 |_| {},
                 None,
                 |app| {
@@ -2137,6 +2165,7 @@ mod tests {
                     |_| {},
                     no_io,
                     |_| {},
+                    |_| {},
                     None,
                     |_| {
                         painted.send(()).unwrap();
@@ -2180,6 +2209,7 @@ mod tests {
                 |_, _| {},
                 |_| {},
                 no_io,
+                |_| {},
                 |_| {},
                 None,
                 |_| {
