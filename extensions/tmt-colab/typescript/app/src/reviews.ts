@@ -11,6 +11,8 @@ import {
   type CommentView,
   type ThreadView,
 } from './thread-records.js';
+import { asksAbout } from './thread-store.js';
+import type { PageAsk } from './ask-panel.js';
 
 /** A Confirm note is one short line; a Needs-change note may be a paragraph. */
 export const REVIEW_CONFIRM_NOTE_POINTS = 200;
@@ -208,4 +210,17 @@ export function sectionAnswered(
       );
     })
   );
+}
+
+/** The comments an agent has answered, from the page's admitted Ask records. A Needs-change note
+ * leaves `changes requested` once its Ask has a reply. */
+export function repliedComments(thread: ThreadView | undefined, asks: readonly PageAsk[]) {
+  const replied = new Set<string>();
+  for (const comment of thread?.comments ?? [])
+    if (
+      !comment.deleted &&
+      asks.some((ask) => ask.reply !== undefined && asksAbout(ask, thread!, comment))
+    )
+      replied.add(comment.messageId);
+  return replied;
 }

@@ -103,3 +103,19 @@ export function messageRecipient({
     allowed,
   };
 }
+
+/** Chips keep explicit directory keys. The existing recipient policy revalidates those keys. */
+export function recipientEdit(recipients: readonly AgentDestination[]): ComposerEdit {
+  let value = '';
+  const mentions: NonNullable<ComposerEdit['mentions']> = [];
+  for (const recipient of recipients) {
+    const start = value.length;
+    value += `@${recipient.agentName}`;
+    mentions.push({
+      key: { machine: recipient.machine, agent: recipient.agent },
+      range: { start, end: value.length },
+    });
+    value += ' ';
+  }
+  return { value, mentions };
+}

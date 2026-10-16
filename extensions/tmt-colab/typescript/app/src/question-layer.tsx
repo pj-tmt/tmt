@@ -4,7 +4,14 @@ import { useCallback, useLayoutEffect, useMemo, useState, type RefObject } from 
 import { QuestionGroupCard } from './components/question-group-card.js';
 import { type Question, type QuestionGroup } from './questions.js';
 import type { PageSnapshot, PageView } from './transport.js';
-import type { AnchorPosition, QuestionAnchor, RenderState, mountRenderer } from './renderer.js';
+import type {
+  AnchorPosition,
+  QuestionAnchor,
+  RenderState,
+  ReviewRenderBlock,
+  mountRenderer,
+} from './renderer.js';
+import type { CommentContext } from './thread-store.js';
 
 /** The parent owns admitted groups, verified answers and active tabs. The frame supplies quotes/geometry. */
 export function useQuestionLayer({
@@ -17,9 +24,15 @@ export function useQuestionLayer({
   connectionPresentation,
   questions,
   groups,
+  reviews,
+  onRecorded,
 }: {
   questions: readonly Question[];
   groups: readonly QuestionGroup[];
+  /** Review sections ride the same handshake: their quotes come back with the questions'. */
+  reviews: readonly ReviewRenderBlock[];
+  /** A trusted Send recorded these answers (question IDs and their comments). */
+  onRecorded?(questionIds: readonly string[], contexts: readonly CommentContext[]): void;
   snapshot: PageSnapshot;
   view: PageView;
   renderer: RefObject<Awaited<ReturnType<typeof mountRenderer>> | null>;
@@ -52,6 +65,7 @@ export function useQuestionLayer({
       group.questions.includes(active[group.id]) ? active[group.id] : group.questions[0],
     [active],
   );
+  const renderedReviews = JSON.stringify(reviews);
   const renderedGroups = JSON.stringify(
     groups.map((group) => ({ ...group, active: selected(group) })),
   );
@@ -67,8 +81,9 @@ export function useQuestionLayer({
       questions.map(({ id, title }) => ({ id, title })),
       JSON.parse(identity),
       JSON.parse(renderedGroups),
+      JSON.parse(renderedReviews),
     );
-  }, [state, questions, renderedGroups, identity, renderer]);
+  }, [state, questions, renderedGroups, renderedReviews, identity, renderer]);
   const notificationThreads = useMemo(
     () =>
       !questions.length
@@ -88,6 +103,7 @@ export function useQuestionLayer({
   );
   return {
     onQuestions,
+    associated,
     notificationThreads,
     activateNotification: (event: ReplyNotification) => {
       const group = groups.find((group) => group.questions.includes(event.questionId!));
@@ -173,6 +189,7 @@ export function useQuestionLayer({
                 blocked={blocked}
                 readOnly={view.archived}
                 connectionPresentation={connectionPresentation}
+                onRecorded={onRecorded}
               />
             </div>
           );

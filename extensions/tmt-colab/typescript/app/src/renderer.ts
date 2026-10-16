@@ -63,6 +63,14 @@ export interface QuestionAnchor {
   selector: QuoteSelector;
   threads: string[];
 }
+/** What the parent admits of one review section; `closed` only fades it in the frame. */
+export interface ReviewRenderBlock {
+  id: string;
+  title: string;
+  closed: boolean;
+}
+/** A section's heading quote and the requested threads anchored on exactly that heading. */
+export type ReviewAnchor = QuestionAnchor;
 export type RenderState = 'ready' | 'navigation' | 'failed';
 export interface RenderSnapshot {
   readonly renderId: string;
@@ -109,7 +117,7 @@ export async function mountRenderer(
     /** Trusted chrome's fixed header inset; absent for standalone renderer probes. */
     viewportInset?(): number;
     onSlots?(slots: AnchorPosition[]): void;
-    onQuestions?(questions: QuestionAnchor[], checked?: boolean): void;
+    onQuestions?(questions: QuestionAnchor[], reviews: ReviewAnchor[], checked?: boolean): void;
     images?: DocumentImageInput;
   },
 ): Promise<{
@@ -124,6 +132,7 @@ export async function mountRenderer(
     blocks: { id: string; title: string }[],
     threads: { id: string; selector: QuoteSelector }[],
     groups: QuestionRenderGroup[],
+    reviews?: ReviewRenderBlock[],
   ): void;
   scrollAnchor(id: string): void;
   selectionMode(enabled: boolean): void;
@@ -179,6 +188,7 @@ export async function mountRenderer(
   const positions = new Map<string, { top: number; rect: SelectionRect }>();
   let questionRequestId = '';
   let questionBlocks: { id: string; title: string }[] = [];
+  let reviewBlocks: ReviewRenderBlock[] = [];
   let questionThreads: { id: string; selector: QuoteSelector }[] = [];
   let questionGroups: QuestionRenderGroup[] = [];
   let slotRequestId = '';
@@ -460,19 +470,28 @@ export async function mountRenderer(
     }
     if (value?.type === 'colab.render.questions') {
       if (
-        Object.keys(value).length !== 4 ||
+        Object.keys(value).length !== 5 ||
         value.renderId !== snapshot.renderId ||
         value.requestId !== questionRequestId ||
         !Array.isArray(value.questions) ||
-        value.questions.length > questionBlocks.length
+        value.questions.length > questionBlocks.length ||
+        !Array.isArray(value.reviews) ||
+        value.reviews.length > reviewBlocks.length
       )
         return;
       const seen = new Set<string>();
       const admittedThreads = new Set(questionThreads.map((thread) => thread.id));
       const result: QuestionAnchor[] = [];
-      try {
-        for (const item of value.questions) {
-          const block = questionBlocks.find((block) => block.id === item?.id);
+      const reviewResult: ReviewAnchor[] = [];
+      // Questions and sections answer in one closed shape: a requested ID, its quote, and only
+      // requested thread IDs. A section's quote must equal the title the parent admitted.
+      const anchors = (
+        items: unknown[],
+        blocks: readonly { id: string; title: string }[],
+        into: QuestionAnchor[],
+      ) => {
+        for (const item of items as QuestionAnchor[]) {
+          const block = blocks.find((block) => block.id === item?.id);
           if (
             !block ||
             Object.keys(item).length !== 3 ||
@@ -484,20 +503,28 @@ export async function mountRenderer(
             ) ||
             new Set(item.threads).size !== item.threads.length
           )
-            return;
+            return false;
           validateSelector(item.selector);
-          if (item.selector.exact !== block.title) return;
+          if (item.selector.exact !== block.title) return false;
           seen.add(item.id);
-          result.push({
+          into.push({
             id: item.id,
             selector: structuredClone(item.selector),
             threads: [...item.threads],
           });
         }
+        return true;
+      };
+      try {
+        if (
+          !anchors(value.questions, questionBlocks, result) ||
+          !anchors(value.reviews, reviewBlocks, reviewResult)
+        )
+          return;
       } catch {
         return;
       }
-      options.onQuestions?.(result, true);
+      options.onQuestions?.(result, reviewResult, true);
       return;
     }
     if (
@@ -710,11 +737,24 @@ export async function mountRenderer(
     blocks: { id: string; title: string }[],
     threads: { id: string; selector: QuoteSelector }[],
     groups: QuestionRenderGroup[],
+    reviews: ReviewRenderBlock[] = [],
   ) => {
     if (
       stopped ||
       blocks.length > 50 ||
       groups.length > 50 ||
+      reviews.length > 50 ||
+      new Set(reviews.map((review) => review.id)).size !== reviews.length ||
+      reviews.some(
+        (review) =>
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(review.id) ||
+          typeof review.title !== 'string' ||
+          !review.title ||
+          [...review.title].length > 200 ||
+          typeof review.closed !== 'boolean' ||
+          blocks.some((block) => block.id === review.id) ||
+          groups.some((group) => group.id === review.id),
+      ) ||
       new Set(groups.map((group) => group.id)).size !== groups.length ||
       groups.some(
         (group) =>
@@ -742,8 +782,11 @@ export async function mountRenderer(
     )
       return;
     for (const thread of threads) validateSelector(thread.selector);
+    // Closing a section only changes its fade, so the anchors stay valid; a new title does not.
     const changed =
       JSON.stringify(questionBlocks) !== JSON.stringify(blocks) ||
+      JSON.stringify(reviewBlocks.map(({ id, title }) => ({ id, title }))) !==
+        JSON.stringify(reviews.map(({ id, title }) => ({ id, title }))) ||
       JSON.stringify(questionGroups.map(({ active: _active, ...group }) => group)) !==
         JSON.stringify(groups.map(({ active: _active, ...group }) => group));
     const moved = new Set(
@@ -765,6 +808,7 @@ export async function mountRenderer(
       active,
     }));
     questionBlocks = blocks.map(({ id, title }) => ({ id, title }));
+    reviewBlocks = reviews.map(({ id, title, closed }) => ({ id, title, closed }));
     questionThreads = threads.map(({ id, selector }) => ({
       id,
       selector: structuredClone(selector),
@@ -777,8 +821,9 @@ export async function mountRenderer(
       blocks: questionBlocks,
       groups: questionGroups,
       threads: questionThreads,
+      reviews: reviewBlocks,
     };
-    if (changed) options.onQuestions?.([], false);
+    if (changed) options.onQuestions?.([], [], false);
     if (new TextEncoder().encode(JSON.stringify(message)).length > 256 * 1024) return;
     channel.port1.postMessage(message);
     if (moved.size && slotHeights.length) {

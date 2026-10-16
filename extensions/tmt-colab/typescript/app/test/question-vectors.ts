@@ -1,10 +1,5 @@
 import { readFileSync } from 'node:fs';
-import type {
-  Question,
-  QuestionFinding,
-  QuestionInspection,
-  Review,
-} from '../src/questions.js';
+import type { Question, QuestionFinding, QuestionInspection, Review } from '../src/questions.js';
 
 /** The shared page markup vectors (contracts/vectors/page-markup-v1.json), as the TS side reads them. */
 export interface VectorQuestion extends Question {

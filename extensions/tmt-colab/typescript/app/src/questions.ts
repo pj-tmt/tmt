@@ -188,17 +188,18 @@ interface ReviewCandidate {
 }
 /** The review section rules, in report order. A section is admitted exactly when none fails; the
  * title rules wait for exactly one heading. The Rust checker runs the same table. */
-const REVIEW_RULES: ReadonlyArray<readonly [QuestionFindingCode, (c: ReviewCandidate) => boolean]> = [
-  ['review-id-invalid', (c) => !uuid.test(c.id)],
-  ['review-id-duplicate', (c) => uuid.test(c.id) && c.holders > 1],
-  ['review-nested', (c) => c.nested],
-  ['review-heading-missing', (c) => c.headings === 0],
-  ['review-heading-multiple', (c) => c.headings > 1],
-  ['review-title-empty', (c) => c.headings === 1 && !c.title],
-  ['review-title-too-long', (c) => c.headings === 1 && over(c.title, QUESTION_TITLE_POINTS)],
-  ['review-title-control', (c) => c.headings === 1 && hasControl(c.title)],
-  ['review-agent-invalid', (c) => over(c.agent, QUESTION_AGENT_POINTS) || hasControl(c.agent)],
-];
+const REVIEW_RULES: ReadonlyArray<readonly [QuestionFindingCode, (c: ReviewCandidate) => boolean]> =
+  [
+    ['review-id-invalid', (c) => !uuid.test(c.id)],
+    ['review-id-duplicate', (c) => uuid.test(c.id) && c.holders > 1],
+    ['review-nested', (c) => c.nested],
+    ['review-heading-missing', (c) => c.headings === 0],
+    ['review-heading-multiple', (c) => c.headings > 1],
+    ['review-title-empty', (c) => c.headings === 1 && !c.title],
+    ['review-title-too-long', (c) => c.headings === 1 && over(c.title, QUESTION_TITLE_POINTS)],
+    ['review-title-control', (c) => c.headings === 1 && hasControl(c.title)],
+    ['review-agent-invalid', (c) => over(c.agent, QUESTION_AGENT_POINTS) || hasControl(c.agent)],
+  ];
 const LABEL_RULES: ReadonlyArray<readonly [QuestionFindingCode, (label: string) => boolean]> = [
   ['group-label-too-long', (label) => over(label, QUESTION_LABEL_POINTS)],
   ['group-label-control', hasControl],

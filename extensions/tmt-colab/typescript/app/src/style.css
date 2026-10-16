@@ -1155,6 +1155,78 @@ footer {
   visibility: hidden;
   pointer-events: none;
 }
+/* A review section's parent-drawn band sits below the section, like a proposal card. */
+.review-inline .review-card {
+  border: 1px solid var(--tmt-ui-color-edge);
+  border-radius: 0;
+  box-shadow: none;
+  background: var(--c-sheet);
+  color: var(--c-text);
+  padding: 12px 16px;
+  display: grid;
+  gap: 8px;
+}
+.review-card header {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.review-state {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.review-state svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+.review-section-title,
+.review-detail,
+.review-recipient {
+  color: var(--c-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.review-note {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.review-actions {
+  display: grid;
+  gap: 8px;
+}
+.review-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.review-recipient {
+  margin: 0;
+}
+.review-field {
+  display: grid;
+  gap: 4px;
+}
+.review-field input,
+.review-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  color: inherit;
+  background: var(--c-sheet);
+  border: 1px solid var(--c-rule);
+  padding: 8px;
+}
+.review-card[data-review-state='closed'] header {
+  color: var(--c-muted);
+}
+.page-reviews {
+  white-space: nowrap;
+}
 .proposal-card {
   border: 1px solid var(--c-rule);
   background: var(--c-sheet);

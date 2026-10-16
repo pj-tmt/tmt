@@ -1354,6 +1354,44 @@ export function questionGroup(
   emit();
 }
 
+/** A page of review sections: the parent parser, the real quote owner and the real status coordinator. */
+export function review(
+  options: {
+    agent?: string;
+    sections?: number;
+    /** Put a question inside the first section; it closes the section when answered. */
+    question?: boolean;
+    placement?: 'inline' | 'duplicate' | 'nested';
+    darkPage?: boolean;
+    /** The page itself claims the section is closed and draws its own controls. */
+    forged?: boolean;
+  } = {},
+) {
+  const agent = options.agent ?? 'Agent 1';
+  const section = (index: number) => {
+    const inner =
+      index === 0 && options.question
+        ? `<tmt-question data-id="${id(210)}" data-kind="short" data-agent="${agent}"><p data-question>Which heading should we use?</p></tmt-question>`
+        : '';
+    const forged = options.forged ? ' data-colab-review data-colab-review-closed="true"' : '';
+    const claim = options.forged
+      ? '<p>✓ Closed by the author</p><button type="button">Confirm and close</button>'
+      : '';
+    return `<tmt-review data-id="${id(200 + index)}" data-agent="${agent}"${forged}><h2 data-title>Section ${index + 1}</h2><p>Content of section ${index + 1}.</p>${claim}${inner}</tmt-review>`;
+  };
+  const sections = Array.from({ length: options.sections ?? 1 }, (_, index) => section(index));
+  if (options.placement === 'duplicate') sections.push(section(0));
+  if (options.placement === 'nested')
+    sections[0] = sections[0].replace('</tmt-review>', `${section(7)}</tmt-review>`);
+  current = {
+    ...current,
+    threads: [],
+    asks: [],
+    source: `<style>body{margin:24px;font:16px/1.5 sans-serif;background:${options.darkPage ? '#181818' : '#fff'};color:${options.darkPage ? '#eee' : '#222'}}</style><h1>Project notes</h1><p>Before the sections.</p>${sections.join('')}<p id="after-sections">The page continues here.</p>`,
+  };
+  emit();
+}
+
 /** A reload restores only a verified projection, never local tab state or control text. */
 export function saveQuestionPage() {
   const { source, title, threads, asks, archived } = current;
