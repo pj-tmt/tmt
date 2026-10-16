@@ -3814,6 +3814,16 @@ fn capture_search_notice_packet() {
                         ("tmt", tmt_cli_style::Depth::None),
                     ] {
                         let mut app = populated_board(8, 28);
+                        let room = app.workspace_snapshot().unwrap().roster.squads[0]
+                            .room_id
+                            .clone();
+                        let mut jobs = crate::board::cronboard::test_views(5, "squad-00", &room);
+                        jobs[3].job.message = "Review agent-00001".into();
+                        jobs[4].job.message = "Ship agent-00001".into();
+                        app.cron.replace(Ok(crate::board::cronboard::test_cron(
+                            jobs,
+                            tmt_ops::cron::ClockStatus::NoClock,
+                        )));
                         app.shell.tab = tab;
                         app.focus = 0;
                         app.view.as_mut().unwrap().look = crate::look::Look {
