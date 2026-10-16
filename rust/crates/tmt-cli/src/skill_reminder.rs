@@ -87,27 +87,49 @@ pub fn eligible_for_drift(parsed: &Parsed) -> bool {
 /// pane, failures included, but not machine output, completion, driver
 /// management itself, or installation plumbing.
 pub fn eligible_for_driver_hint(parsed: &Parsed) -> bool {
-    !parsed.mode.json
-        && !matches!(
-            parsed.invocation,
-            Invocation::Extension { .. }
-                | Invocation::Api
-                | Invocation::Mcp { .. }
-                | Invocation::Help(_)
-                | Invocation::Version
-                | Invocation::Completion { .. }
-                | Invocation::CompletionScript(_)
-                | Invocation::Complete(_)
-                | Invocation::Driver(_)
-                | Invocation::ProviderHook { .. }
-                | Invocation::DigestHook { .. }
-                | Invocation::NativeInstall { .. }
-                | Invocation::NativeInstallHandoff { .. }
-                | Invocation::NativeSchema { .. }
-                | Invocation::NativeRefreshSkills { .. }
-                | Invocation::NativeRenameDatabase
-                | Invocation::NativeUpgradeExtensions { .. }
-        )
+    !parsed.mode.json && works_with_hosts(&parsed.invocation)
+}
+
+/// Commands a person or agent runs in a pane, which is where a host driver
+/// is needed: the hint and the automatic approval of the shipped driver
+/// (#3220) follow them. Machine channels, completion, driver management
+/// itself, background workers and installation plumbing never do.
+pub fn works_with_hosts(invocation: &Invocation) -> bool {
+    !matches!(
+        invocation,
+        Invocation::Extension { .. }
+            | Invocation::Api
+            | Invocation::Mcp { .. }
+            | Invocation::Help(_)
+            | Invocation::Version
+            | Invocation::Completion { .. }
+            | Invocation::CompletionScript(_)
+            | Invocation::Complete(_)
+            | Invocation::Driver(_)
+            | Invocation::ProviderHook { .. }
+            | Invocation::DigestHook { .. }
+            | Invocation::ReplyNoticeWorker { .. }
+            | Invocation::RequestObserver { .. }
+            | Invocation::NativeInstall { .. }
+            | Invocation::NativeInstallHandoff { .. }
+            | Invocation::NativeSchema { .. }
+            | Invocation::NativeRefreshSkills { .. }
+            | Invocation::NativeRenameDatabase
+            | Invocation::NativeUpgradeExtensions { .. }
+    )
+}
+
+/// The Herdr pane and server socket the environment names, when it names
+/// both.
+///
+/// Transitional: this is the one place core still names Herdr's environment,
+/// only to guide users of the former built-in host to its driver and to
+/// approve the shipped one; the driver's `callerEnv` owns these variables
+/// otherwise.
+pub fn herdr_pane_environment() -> Option<(String, String)> {
+    let pane = std::env::var("HERDR_PANE_ID").ok()?;
+    let socket = std::env::var("HERDR_SOCKET_PATH").ok()?;
+    Some((pane, socket))
 }
 
 /// The hint for a Herdr pane, where no approved driver serves Herdr. Herdr
@@ -130,25 +152,17 @@ fn driver_hint(
 
 /// Shows the Herdr driver hint after a command's own result, once a day for
 /// each pane, unless hints are off. Returns whether it was shown.
-///
-/// Transitional: reading `HERDR_PANE_ID` and `HERDR_SOCKET_PATH` here is
-/// the one place core still names Herdr's environment, only to guide users
-/// of the former built-in host to its driver; the driver's `callerEnv`
-/// owns these variables otherwise.
 pub fn present_driver_hint() -> bool {
     if !hints_enabled() {
         return false;
     }
-    let pane = std::env::var("HERDR_PANE_ID").ok();
-    let socket = std::env::var("HERDR_SOCKET_PATH").ok();
-    if pane.is_none() || socket.is_none() {
+    let Some((pane, socket)) = herdr_pane_environment() else {
         return false;
-    }
+    };
     let herdr_approved = tmt_adapters::host::external::approved()
         .iter()
         .any(|record| record.name == "herdr");
-    let Some((hint, place)) = driver_hint(pane.as_deref(), socket.as_deref(), herdr_approved)
-    else {
+    let Some((hint, place)) = driver_hint(Some(&pane), Some(&socket), herdr_approved) else {
         return false;
     };
     let Ok(paths) = ConfigPaths::discover() else {

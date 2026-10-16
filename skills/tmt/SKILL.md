@@ -1,6 +1,6 @@
 ---
 name: tmt
-description: 'Coordinate local agents with TMT: send `tmt talk` through a host pane (tmux, or Herdr after `tmt driver install herdr`) or local inbox, wait or detach, read `tmt result`, and answer with receipt-bound `tmt reply`.'
+description: 'Coordinate local agents with TMT: send `tmt talk` through a host pane (tmux or Herdr) or local inbox, wait or detach, read `tmt result`, and answer with receipt-bound `tmt reply`.'
 ---
 
 # TMT
@@ -41,7 +41,9 @@ as described below. Waiting `talk` returns that durable final directly.
 
 ## Can and won't
 
-TMT can send to a verified host pane (tmux, or Herdr after the user approves
+TMT can send to a verified host pane (tmux, or Herdr, whose shipped driver TMT
+approves on first use in a Herdr pane and prints one line saying so; the user
+undoes it with `tmt driver rm herdr`, and a removed driver stays removed until
 `tmt driver install herdr`) or queue an existing identity's local inbox. It
 correlates durable requests and final replies by request ID. `check` captures a
 diagnostic pane snapshot and may deliver a due Digest checklist at verified idle.

@@ -17,7 +17,8 @@ and guides link here instead of repeating it.
   delivers, reads and focuses through `prompt`, `input`, `capture` and
   `focus`. Users approve, list and remove drivers with
   `tmt driver install|ls|rm`. Herdr is served only by its first-party driver,
-  `tmt-driver-herdr`, which ships in the CLI release (#1082).
+  `tmt-driver-herdr`, which ships in the CLI release (#1082). TMT approves that
+  shipped driver itself on first use in a Herdr pane, unless the user removed it.
 - **Runtime drivers:** the format, the crate's encoding and the conformance
   harness, approval registry and bounded client exist. `tmt driver install|ls|rm`
   accepts either kind. Runtime approval calls `locations`, validates its write
@@ -531,7 +532,10 @@ provider files; setup retains its separate consent.
 
 An upgrade that declares more (an executable, an environment variable, a hook
 event, or an operation) reads as `changed` and isn't run
-until it is approved again.
+until it is approved again. For the first-party driver that release ships,
+TMT approves it again itself when a command that works with hosts next runs,
+and prints one line saying so; a first-party driver the user removed with
+`tmt driver rm` is approved again only by `tmt driver install`.
 
 ## Trust boundary
 

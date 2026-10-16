@@ -61,7 +61,8 @@ channels and the driver protocol. The owner map is in
   by its key; existing-name validation still reads the key.
 - Herdr's stored token, pane IDs, markers and `host_servers` rows predate its move to a driver
   (#1082): they parse as `External(herdr)`, so earlier bindings read as unknown, never lost,
-  until the driver is approved. Without it, a Herdr pane command keeps its result and prints
+  until the driver is approved. Without an approved driver (a build that ships none, or one
+  removed with `tmt driver rm herdr`), a Herdr pane command keeps its result and prints
   `tmt driver install herdr` on stderr once a day per pane (`hint_cadence`).
 - Cosmetics: tmux badge and marker refresh (names sanitized before markup); `pane_badge` is
   bounded post-commit presentation, never routing evidence. A badge refresh prefixes the
@@ -82,10 +83,25 @@ channels and the driver protocol. The owner map is in
   writes. `state` is `ok`, `changed` or `missing`. A first-party approval follows the shipped
   companion: an upgraded driver is adopted without asking only if it declares nothing beyond
   the approved protocol, syntax, operations and `callerEnv`; otherwise it is unavailable until
-  approved again. Every read-modify-write holds `drivers.lock` and renames a staged file.
+  approved again (explicitly, or automatically as below). Every read-modify-write holds
+  `drivers.lock` and renames a staged file.
 - A record is written only with explicit consent (`tmt driver install`), never by product
   install or upgrade; without a terminal or with `--json` it refuses with
   `DRIVER_CONSENT_REQUIRED`. Removing a driver leaves bindings stored and unavailable.
+- The one exception is the first-party driver the running release ships, which carries no
+  trust beyond the `tmt` already running. `registry::approve_shipped` writes the record
+  `tmt driver install herdr --yes` writes, once, in `main` before `register_approved`, for
+  commands that work with hosts (`skill_reminder::works_with_hosts`: not machine channels,
+  workers, driver management or installation plumbing). It acts when there is no approval and
+  the environment shows a Herdr pane (`skill_reminder::herdr_pane_environment`, the one place
+  core names those variables), or when the release replaced an approved driver with one that
+  declares more than was approved. Both checks repeat under `drivers.lock`, so concurrent
+  processes approve once. One stderr line says so and names `tmt driver rm herdr`, in human
+  and `--json` mode alike; `--json` stdout stays the command's own document. Removing a
+  first-party driver adds its name to `declined` in `drivers.json` (written only when not
+  empty), which blocks both cases until an explicit `tmt driver install` clears it. A path
+  approval, a third-party driver, a release without a verified driver and any failure approve
+  nothing and leave the install hint.
 - `DriverProcess` runs one operation through the bounded owner under its deadline and output
   bound with `TMT_DRIVER_CALL=1`; `executable_trust` (shared with extension hooks) checks
   ownership and fingerprint before every call and the digest once per process; a `tmt`

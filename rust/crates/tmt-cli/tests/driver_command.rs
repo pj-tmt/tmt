@@ -354,6 +354,57 @@ fn an_approved_herdr_driver_silences_the_hint() {
     assert!(!printed(&output).contains(HERDR_HINT), "{output:?}");
 }
 
+/// A dev build ships no Herdr driver, so a Herdr pane approves nothing on its
+/// own (#3220): the registry stays byte for byte, the result is unchanged and
+/// the install hint still shows. The shipped-driver rules are tested with the
+/// managed-install fixtures in `tmt-adapters`.
+#[test]
+fn a_herdr_pane_never_approves_a_path_driver_or_changes_the_registry() {
+    let fixture = Fixture::new("auto-path");
+    let pane = [
+        ("HERDR_PANE_ID", "w1:p1"),
+        ("HERDR_SOCKET_PATH", "/tmp/h.sock"),
+    ];
+    let before = fixture.tmt(&["whoami", "--json"]);
+    let in_pane = fixture.tmt_with(&["whoami", "--json"], &pane);
+    assert_eq!(in_pane.stdout, before.stdout, "{in_pane:?}");
+    assert_eq!(in_pane.stderr, before.stderr, "{in_pane:?}");
+    assert!(!fixture.registry().exists());
+    let human = fixture.tmt_with(&["whoami"], &pane);
+    assert!(!printed(&human).contains("Approved"), "{human:?}");
+    assert!(text(&human.stderr).contains(HERDR_HINT), "{human:?}");
+    // A driver the user approved by path is theirs: removing it is remembered
+    // only so a later shipped Herdr driver is not approved behind their back.
+    let driver = fixture.driver("herdr", &capabilities("herdr", "term_", "w{n}:p{n}"));
+    assert!(
+        fixture
+            .tmt(&["driver", "install", path(&driver), "--yes"])
+            .status
+            .success()
+    );
+    let approved = fs::read_to_string(fixture.registry()).unwrap();
+    assert!(!approved.contains("declined"), "{approved}");
+    let again = fixture.tmt_with(&["whoami"], &pane);
+    assert!(!printed(&again).contains("Approved"), "{again:?}");
+    assert_eq!(fs::read_to_string(fixture.registry()).unwrap(), approved);
+    let removed = fixture.tmt(&["driver", "rm", "herdr"]);
+    assert!(removed.status.success(), "{removed:?}");
+    let registry = fs::read_to_string(fixture.registry()).unwrap();
+    assert!(registry.contains(r#""declined""#), "{registry}");
+    // An explicit install lifts the removal.
+    assert!(
+        fixture
+            .tmt(&["driver", "install", path(&driver), "--yes"])
+            .status
+            .success()
+    );
+    assert!(
+        !fs::read_to_string(fixture.registry())
+            .unwrap()
+            .contains("declined")
+    );
+}
+
 /// A runtime fixture answers capabilities and locations independently.
 fn runtime_driver(fixture: &Fixture, name: &str, executable: &str, skills: &str) -> PathBuf {
     let directory = fixture.root.join(name);
