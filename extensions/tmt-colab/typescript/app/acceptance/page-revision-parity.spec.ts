@@ -23,6 +23,41 @@ const download = async (page: Page, row: Locator) => {
   return fs.readFileSync((await (await saved).path())!);
 };
 
+// Connection acknowledges each received wire message only after its queued admission finishes.
+// Receiving a checkpoint at the transport is insufficient: an earlier fold can still be pending.
+function watchCheckpointAdmission(page: Page) {
+  let writer = '';
+  const sockets: { received: number; acknowledged: number; ownCuts: Map<string, number> }[] = [];
+  page.on('websocket', (socket) => {
+    if (!new URL(socket.url()).pathname.endsWith('/sync')) return;
+    const progress = { received: 0, acknowledged: 0, ownCuts: new Map<string, number>() };
+    sockets.push(progress);
+    socket.on('framereceived', ({ payload }) => {
+      progress.received++;
+      const frame = JSON.parse(String(payload)) as {
+        type: string;
+        namespace?: string;
+        streamId?: string;
+      };
+      if (frame.type === 'checkpoint' && frame.namespace === 'own' && frame.streamId)
+        progress.ownCuts.set(frame.streamId, progress.received);
+    });
+    socket.on('framesent', ({ payload }) => {
+      const frame = JSON.parse(String(payload)) as { type: string; device?: string };
+      if (frame.type === 'hello' && frame.device) writer = frame.device;
+      if (frame.type === 'ack') progress.acknowledged++;
+    });
+  });
+  return {
+    writer: () => writer,
+    admitted: (stream: string) =>
+      sockets.some((progress) => {
+        const ordinal = progress.ownCuts.get(stream);
+        return ordinal !== undefined && progress.acknowledged >= ordinal;
+      }),
+  };
+}
+
 // A combine changes the page revision. A browser that stayed open must keep reading the page's
 // document files: their reads are fenced by the revision the page has now.
 test('a document file still downloads and previews after the serve combined its stream under an open browser', async () => {
@@ -76,7 +111,9 @@ test('a document file still downloads and previews after another browser combine
     const second = await pairBrowser(world, 'revision-parity-second', { talk: true });
     const colab = world.binaries.colab;
     const created = createPage(world, 'Revision parity', '<h1>Revision parity</h1>', agent.pane);
-    const open = await openPage(door, first, created);
+    const open = await first.context.newPage();
+    const reader = watchCheckpointAdmission(open);
+    await open.goto(`${door.address}/${created.path}`);
     await expect(
       open.frameLocator('iframe').getByRole('heading', { name: 'Revision parity', exact: true }),
     ).toBeVisible();
@@ -89,7 +126,9 @@ test('a document file still downloads and previews after another browser combine
     expect(sha(await download(open, row))).toBe(sha(PNG));
 
     // The other browser makes changes on its own stream and combines them.
-    const other = await openPage(door, second, created);
+    const other = await second.context.newPage();
+    const writer = watchCheckpointAdmission(other);
+    await other.goto(`${door.address}/${created.path}`);
     for (const question of ['first', 'second', 'third'])
       await sendChat(other, await composeChat(other, agent, `Question ${question}`));
     await expect(other.getByTestId('chat-panel').getByTestId('ask-entry')).toHaveCount(3);
@@ -99,8 +138,10 @@ test('a document file still downloads and previews after another browser combine
     await section.getByRole('button', { name: 'Compact page' }).click();
     await expect(section.getByRole('status')).toContainText(/^Combined \d+ changes? into one\./);
 
-    // This browser was not reloaded. The serve's notice told it of the checkpoint, and the
-    // download reopens its connection once to take it in.
+    // The other browser's status proves its store, not this browser's admission. Wait for
+    // this exact writer's own-checkpoint notice and its queued ACK before starting Download's
+    // unchanged event bound. The download then reopens once to take in the known cut.
+    await expect.poll(() => reader.admitted(writer.writer())).toBe(true);
     expect(sha(await download(open, row))).toBe(sha(PNG));
     await row.getByRole('button', { name: text.attachmentPreview }).click();
     await expect(open.getByTestId('file-preview').locator('img')).toHaveAttribute(
