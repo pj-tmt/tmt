@@ -2391,9 +2391,10 @@ comparison and gets no second read. Only matching canonical bytes and digest are
 Missing/unreadable observation stays unconfirmed; an occupied immutable ID with different
 bytes is a definitive loss. A partial batch never reports full success. Neither uncertainty,
 Rules/budget/rate refusal nor definitive loss triggers resealing, a new ID or another create.
-The distinct `writer-in-use` result covers definitive stream/ID occupancy; another hosted uid
-cannot continue a stream whose predecessor uid differs. Colab owns the device derivation and
-one-hosted-writer-per-editor-link rule. Publication confirmation is not owner application:
+The distinct `writer-in-use` result covers definitive stream/ID occupancy; a hosted uid may
+continue a stream whose predecessor another uid wrote only when both uids were enrolled by the same
+editor link (Colab Rules compare the two members link fields); every other uid is refused. Colab owns
+the device derivation and that Rules clause. Publication confirmation is not owner application:
 the owner applies edit requests while Colab is running. Page change/close cancels and joins
 sender, reader and guard work before releasing keys or opening a successor.
 

@@ -542,6 +542,90 @@ test('a hosted editor verifies native content, publishes own edit requests and o
       for (const holder of Object.values(holders))
         await expect(heading(holder)).toHaveText(words, { timeout: 60000 });
     }
+    // A second hosted holder of the same link: its own browser profile, so its own Firebase uid.
+    // The Rules continue the shared hosted stream across the two uids of one link, in both
+    // directions, and the owner applies every request.
+    const second = await browser.newContext();
+    const secondWrites: string[] = [];
+    await second.route('**/*', async (route) => {
+      const incoming = route.request(),
+        url = new URL(incoming.url());
+      paths.push(url.origin + url.pathname);
+      if (url.origin === origin) {
+        if (url.pathname === '/__/firebase/init.json') await route.fulfill({ json: config });
+        else
+          await route.fulfill({
+            response: await route.fetch({ url: `${local}${url.pathname}${url.search}` }),
+          });
+      } else if (
+        url.origin === 'https://identitytoolkit.googleapis.com' ||
+        url.origin === 'https://securetoken.googleapis.com'
+      ) {
+        await route.fulfill({
+          response: await route.fetch({
+            url: `http://${auth}/${url.hostname}${url.pathname}${url.search}`,
+          }),
+        });
+      } else if (url.origin === 'https://firestore.googleapis.com') {
+        if (url.pathname.endsWith(':commit')) secondWrites.push(incoming.postData() ?? '');
+        const target = new URL(`http://${firestore}${url.pathname}${url.search}`);
+        if (url.pathname.includes('Listen/channel')) {
+          const poll = await route.fetch({ url: target.href }).catch(async (error: unknown) => {
+            if (!(error instanceof Error) || !error.message.includes('socket hang up')) throw error;
+            await route.abort();
+            return undefined;
+          });
+          if (poll) await route.fulfill({ response: poll });
+        } else {
+          try {
+            await route.fulfill(
+              await finiteFirestore({
+                url: target,
+                method: incoming.method(),
+                headers: await incoming.allHeaders(),
+                body: incoming.postDataBuffer(),
+                signal: proxyLifetime.signal,
+              }),
+            );
+          } catch (error) {
+            await route.abort();
+            throw error;
+          }
+        }
+      } else {
+        unexpected.push(url.origin);
+        await route.abort();
+      }
+    });
+    world.onDispose(async () => {
+      await second.unrouteAll({ behavior: 'ignoreErrors' });
+    });
+    const secondPage = await second.newPage();
+    secondPage.on('pageerror', (error) => crashes.push(error.message));
+    await secondPage.goto(`${origin}/read/${created.pageId}${fragment}`);
+    await secondPage.getByRole('button', { name: 'Sign in', exact: true }).click();
+    await expect(secondPage.getByText('Live', { exact: true })).toBeVisible({ timeout: 25000 });
+    await expect(heading(secondPage)).toHaveText('Door holder second request', { timeout: 60000 });
+    const everyone = { ...holders, second: secondPage };
+    for (const [from, words] of [
+      ['second', 'Second hosted holder request'],
+      ['hosted', 'First hosted holder again'],
+      ['second', 'Second hosted holder again'],
+    ] as const) {
+      await request(everyone[from], words);
+      for (const holder of Object.values(everyone))
+        await expect(heading(holder)).toHaveText(words, { timeout: 60000 });
+    }
+    // One enrollment and two own creates by the second uid, on the stream the first one writes.
+    const field = (body: string, name: string) =>
+      JSON.parse(body).writes[0].update.fields[name].stringValue as string;
+    expect(secondWrites).toHaveLength(3);
+    expect(JSON.parse(secondWrites[0]).writes[0].update.name).toContain('/members/');
+    for (const body of secondWrites.slice(1)) {
+      expect(JSON.parse(body).writes[0].update.name).toContain('/log/');
+      expect(field(body, 'stream')).toBe(field(writes[1], 'stream'));
+      expect(field(body, 'uid')).not.toBe(field(writes[1], 'uid'));
+    }
     // The owner's store holds two own streams of the link, neither frozen.
     const store = path.join(world.dataRoot, 'colab', 'space.db');
     const frozen = execFileSync(
@@ -552,7 +636,7 @@ test('a hosted editor verifies native content, publishes own edit requests and o
       },
     ).trim();
     expect(frozen).toBe('0');
-    // Each transport's own stream holds that holder's two requests, applied in order.
+    // Each transport's own stream holds its holders' requests, applied in order.
     const own = execFileSync(
       'sqlite3',
       [
@@ -563,8 +647,10 @@ test('a hosted editor verifies native content, publishes own edit requests and o
       ],
       { encoding: 'utf8' },
     ).trim();
-    expect(own).toBe('0|2\n0|2');
-    expect(writes).toHaveLength(3);
+    // The door stream holds its holder's two requests; the hosted stream holds the first hosted
+    // holder's three (two before, one after the second uid's first) and the second uid's two.
+    expect(own.split('\n').sort()).toEqual(['0|2', '0|5']);
+    expect(writes).toHaveLength(4);
     expect(paths.some((path) => path.includes('/api/serve-release'))).toBe(false);
     expect(unexpected).toEqual([]);
     expect(crashes).toEqual([]);

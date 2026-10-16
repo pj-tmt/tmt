@@ -56,7 +56,7 @@ mapping's exact originals. `hosted-authority` feeds Admission; `hosted-reader` r
 inventory and admitted heads, verifies observed writers, then reuses Objects/Catchup/Fold before ReaderApp. For an
 editor link, `hosted-entry` answers a confirmed edit request with the same `PageAnswer` and `EditTooLarge` as
 the door, kept per selected page across hidden and recovered sessions and ended when the page is
-left; only not sent, unconfirmed and link in use (`EditRequestOutcome`) are hosted-only.
+left; only not sent and unconfirmed (`EditRequestOutcome`) are hosted-only; a race lost to another holder of the link reads as not sent.
 The [hosted contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#hosted-page-consumer-2452-b4-3122)
 owns limits, refusals and the deferred baseline carrier. `link-edit.sendEditRequest` prepares the request;
 `hosted-publish` sends frozen originals once. `own-seal` shares native Writer's `Admission.ownAuthor` path.
