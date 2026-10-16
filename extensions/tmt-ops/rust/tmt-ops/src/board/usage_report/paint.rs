@@ -59,7 +59,7 @@ pub fn paint(buffer: &mut Buffer, app: &App, area: Rect, rows: &[Row]) {
                 Line::styled(text.clone(), look.role(Role::Muted)),
             ),
             Row::Chips(since) => {
-                for hit in chip_group::paint(buffer, rect, &chips(*since), look) {
+                for hit in chip_group::paint(buffer, rect, &chips(*since), app, None) {
                     if let Some(option) = Since::ALL.into_iter().find(|s| s.text() == hit.id) {
                         app.workspace_strip_hits
                             .borrow_mut()
