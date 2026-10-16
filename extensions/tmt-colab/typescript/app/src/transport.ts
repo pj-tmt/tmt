@@ -23,7 +23,8 @@ import type { DraftStore } from './draft-store.js';
 import type { ExpiryInfo } from './expiry.js';
 export interface PageSummary extends Partial<ExpiryInfo> {
   readonly id: string;
-  readonly title: string;
+  /** Absent until the browser-local title resolves; snapshots always have a title. */
+  readonly title?: string;
   /** No usable browser-local title has been cached yet. */
   readonly titleMissing?: boolean;
   readonly sharing: 'private' | 'link' | 'public';
@@ -34,6 +35,7 @@ export interface PageSummary extends Partial<ExpiryInfo> {
   readonly summary?: PageActivity;
 }
 export interface PageSnapshot extends PageSummary {
+  readonly title: string;
   readonly originalAuthor?: Projection['originalAuthor'];
   readonly publisherAgent?: Projection['publisherAgent'];
   readonly source: string;

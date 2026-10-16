@@ -110,7 +110,7 @@ vi.mock('../src/management.js', () => ({
     send = setup.managementSend;
     verify = setup.managementVerify;
     async snapshot() {
-      return { boot: { pages: [], pageIds: [] }, log: [] };
+      return { boot: { pages: setup.pages, pageIds: [] }, log: [] };
     }
   },
 }));
@@ -669,6 +669,23 @@ it('an unconfirmed read close blocks successors across Home generations', async 
     ).rejects.toThrow();
     expect(setup.titleConnections).toHaveLength(1);
     expect(setup.cachedTitles.has('page')).toBe(false);
+  } finally {
+    mounted.close();
+  }
+});
+
+it('keeps a missing Home title unresolved until the optional cache has a verified hint', async () => {
+  setup.register.mockReset().mockResolvedValue(setup.first);
+  setup.remote.mockReset().mockResolvedValue({});
+  setup.pages = [{ pageId: 'page', sharing: 'private' }];
+  const mounted = await mountedTransport();
+  try {
+    const pending = await mounted.transport.spaceHome();
+    expect(pending.pages[0]).toMatchObject({ titleMissing: true });
+    expect(pending.pages[0].title).toBeUndefined();
+    setup.cachedTitles.set('page', 'Cached title');
+    const loaded = await mounted.transport.spaceHome();
+    expect(loaded.pages[0]).toMatchObject({ title: 'Cached title', titleMissing: false });
   } finally {
     mounted.close();
   }

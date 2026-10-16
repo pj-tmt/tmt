@@ -279,3 +279,52 @@ test('Home fills only uncached visible title rows, including under StrictMode', 
   expect(new Set(completed.map((read) => read.id)).size).toBe(completed.length);
   expect(completed.length).toBeLessThanOrEqual(24);
 });
+
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const) {
+    test(`an unresolved list title and null update keep neutral placeholders until resolution ${width} ${theme}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await page.goto('/');
+      await page.evaluate(async () => {
+        const path = '/test/page-index-browser.tsx';
+        await (await import(path)).mountPageIndex('pending');
+      });
+      const row = page.locator('#index-fixture .pages > li');
+      await expect(row).toHaveCount(1);
+      await expect(row.getByRole('link')).toHaveText('Untitled page');
+      await expect(row.locator('.page-metadata')).toHaveText('Update time unknown');
+      await expect(row.locator('time')).toHaveCount(0);
+      await expect(row).not.toContainText(/undefined|null/);
+      const firstRows = await page.evaluate(async () => {
+        const path = '/test/page-index-browser.tsx';
+        return (await import(path)).firstRowTexts();
+      });
+      expect(firstRows).toHaveLength(1);
+      expect(firstRows![0]).toContain('Untitled page');
+      expect(firstRows![0]).toContain('Update time unknown');
+      expect(firstRows![0]).not.toMatch(/undefined|null/);
+      await expect(
+        row.getByRole('button', { name: 'Actions for Untitled page', exact: true }),
+      ).toBeVisible();
+      await expect
+        .poll(() =>
+          page.evaluate(async () => {
+            const path = '/test/page-index-browser.tsx';
+            return (await import(path)).hasPendingTitleRead();
+          }),
+        )
+        .toBe(true);
+      if (process.env.COLAB_CAPTURE_DIR)
+        await page.screenshot({ path: capturePath(`3218-pending-${width}-${theme}.png`) });
+      await page.evaluate(async () => {
+        const path = '/test/page-index-browser.tsx';
+        (await import(path)).resolvePendingTitle();
+      });
+      await expect(row.getByRole('link')).toHaveText('Resolved title');
+      await expect(row.locator('.page-metadata')).toHaveText('Update time unknown');
+      await expect(row).not.toContainText(/undefined|null/);
+    });
+  }

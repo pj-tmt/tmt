@@ -645,6 +645,9 @@ result that arrives after a close, a reopen or a change of transport or space.
 - `Live#publishViews` passes accepted folded titles and their exact admission
   registration to `mounted.ts`. Mounted tab ownership/current registration fences
   the best-effort cache write. Rejected folds and replaced sessions cannot supply hints.
+- Home summaries keep unresolved titles absent; `page-index.ts::pageTitle` owns the existing
+  “Untitled page” fallback for list links, sorting and actions. A null update time keeps
+  “Update time unknown”, with no fabricated time. Full page snapshots retain a title.
 - Home reads hints only after verified discovery/policy. `home-titles.tsx` admits visible
   uncached rows through a one-page queue (24 attempts and 16 MiB of incoming sync frames
   per Home generation). `mounted.ts::readTitle` uses the existing Admission/Connection/Fold

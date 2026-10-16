@@ -8,6 +8,8 @@ import { localTransport, type PageSnapshot } from '../src/transport.js';
 export const indexNow = Date.UTC(2026, 9, 9, 0, 0);
 let root: Root | undefined;
 let initialUpdateLabels: string[] | undefined;
+let initialRowTexts: string[] | undefined;
+export const firstRowTexts = () => initialRowTexts;
 export const firstUpdateLabels = () => initialUpdateLabels;
 function page(index: number, changes: Partial<PageSnapshot> = {}): PageSnapshot {
   return {
@@ -25,7 +27,7 @@ function page(index: number, changes: Partial<PageSnapshot> = {}): PageSnapshot 
 }
 
 export async function mountPageIndex(
-  size: 'few' | 'many' | 'missing',
+  size: 'few' | 'many' | 'missing' | 'pending',
   unknownUpdateAtMs: number | null = null,
 ) {
   document.getElementById('root')!.style.display = 'none';
@@ -38,32 +40,55 @@ export async function mountPageIndex(
   root?.unmount();
   root = createRoot(host);
   initialUpdateLabels = undefined;
+  initialRowTexts = undefined;
   const container = host;
   missingTitleReads.length = 0;
+  finishPendingTitle = undefined;
   const pages =
-    size === 'missing'
-      ? Array.from({ length: 30 }, (_, i) =>
-          page(i + 1, {
-            title: i === 0 ? 'Cached title' : 'Untitled page',
-            titleMissing: i !== 0,
-          }),
-        )
-      : size === 'many'
-        ? Array.from({ length: 200 }, (_, index) => page(200 - index))
-        : [
-            page(1, { title: 'Older notes', lastUpdateAtMs: indexNow - 86400000 * 3 }),
-            page(3, {
-              title: 'Beta update',
-              sharing: 'public',
-              lastUpdateAtMs: indexNow - 3600000,
+    size === 'pending'
+      ? [{ ...page(1), title: undefined, titleMissing: true, lastUpdateAtMs: null }]
+      : size === 'missing'
+        ? Array.from({ length: 30 }, (_, i) =>
+            page(i + 1, {
+              title: i === 0 ? 'Cached title' : 'Untitled page',
+              titleMissing: i !== 0,
             }),
-            page(2, { title: 'Alpha update', sharing: 'link', lastUpdateAtMs: indexNow - 3600000 }),
-            page(4, { title: 'Archived notes', archived: true }),
-            page(5, { title: '', archived: true, lastUpdateAtMs: unknownUpdateAtMs }),
-          ];
-  const transport = localTransport('Studio pages', pages);
+          )
+        : size === 'many'
+          ? Array.from({ length: 200 }, (_, index) => page(200 - index))
+          : [
+              page(1, { title: 'Older notes', lastUpdateAtMs: indexNow - 86400000 * 3 }),
+              page(3, {
+                title: 'Beta update',
+                sharing: 'public',
+                lastUpdateAtMs: indexNow - 3600000,
+              }),
+              page(2, {
+                title: 'Alpha update',
+                sharing: 'link',
+                lastUpdateAtMs: indexNow - 3600000,
+              }),
+              page(4, { title: 'Archived notes', archived: true }),
+              page(5, { title: '', archived: true, lastUpdateAtMs: unknownUpdateAtMs }),
+            ];
+  const transport = localTransport(
+    'Studio pages',
+    pages.map((row) => ({ ...row, title: row.title ?? '' })),
+  );
   const router = createAppRouter({
     ...transport,
+    ...(size === 'pending'
+      ? {
+          readTitle: async (_id: string, _budget: unknown, signal: AbortSignal) => {
+            await new Promise<void>((resolve, reject) => {
+              finishPendingTitle = resolve;
+              signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+            });
+            signal.throwIfAborted();
+            return 'Resolved title';
+          },
+        }
+      : {}),
     ...(size === 'missing'
       ? {
           readTitle: async (
@@ -104,6 +129,9 @@ export async function mountPageIndex(
     <Profiler
       id="page-index"
       onRender={() => {
+        const rows = container.querySelectorAll('.pages > li');
+        if (rows.length && initialRowTexts === undefined)
+          initialRowTexts = Array.from(rows, (row) => row.textContent ?? '');
         const times = container.querySelectorAll('.pages > li time');
         if (times.length && initialUpdateLabels === undefined) {
           // Capture the first committed DOM before passive effects can correct it.
@@ -119,3 +147,10 @@ export async function mountPageIndex(
 
 const missingTitleReads: { id: string; visible: boolean }[] = [];
 export const titleReadCalls = () => structuredClone(missingTitleReads);
+
+let finishPendingTitle: (() => void) | undefined;
+export function resolvePendingTitle() {
+  if (!finishPendingTitle) throw new Error('No pending title read');
+  finishPendingTitle();
+}
+export const hasPendingTitleRead = () => !!finishPendingTitle;

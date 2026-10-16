@@ -40,3 +40,9 @@ it('uses one render time for relative labels and exact ISO dates without inventi
     expect(pageUpdate(value, now)).toEqual({ label: 'Update time unknown' });
   }
 });
+
+it('uses the existing neutral title for an unresolved browser-local hint', () => {
+  expect(pageTitle({ id: 'pending', sharing: 'private', titleMissing: true })).toBe(
+    'Untitled page',
+  );
+});

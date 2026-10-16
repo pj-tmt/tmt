@@ -91,7 +91,7 @@ function PageListActions({ page }: { page: PageSummary }) {
       {port && (
         <ManagePage
           pageId={page.id}
-          title={page.title}
+          title={pageTitle(page)}
           open={manageOpen}
           close={() => setManageOpen(false)}
         />

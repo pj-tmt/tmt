@@ -202,7 +202,7 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
                 const cachedTitle = await titles.read(page.pageId);
                 return {
                   id: page.pageId,
-                  title: cachedTitle || text.unknownPageTitle,
+                  title: cachedTitle,
                   titleMissing: cachedTitle === undefined,
                   sharing: policy.sharing,
                   archived: policy.archived,

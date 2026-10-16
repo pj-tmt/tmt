@@ -81,7 +81,11 @@ export async function mount(
       if (pageId === failedPage) throw new Error('Fixture page load refused');
       const row = pages.find((row) => row.id === pageId);
       if (!row) throw new Error('Fixture page missing');
-      return { ...row, source: '<p>Page content</p><input aria-label="Author link editor">' };
+      return {
+        ...row,
+        title: row.title ?? '',
+        source: '<p>Page content</p><input aria-label="Author link editor">',
+      };
     },
   };
   location.hash =

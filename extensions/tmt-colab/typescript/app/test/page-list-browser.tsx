@@ -67,7 +67,11 @@ export async function mountPageList(size: 'few' | 'bulk' | 'none' | 'unmanaged' 
               page(5, 'Archived spec', ['design'], { archived: true }),
             ],
   };
-  const snapshots: PageSnapshot[] = state.pages.map((p) => ({ ...p, source: '<h1>Fixture</h1>' }));
+  const snapshots: PageSnapshot[] = state.pages.map((p) => ({
+    ...p,
+    title: p.title ?? '',
+    source: '<h1>Fixture</h1>',
+  }));
   const transport = localTransport('Studio pages', snapshots);
   const management: ManagementPort = {
     read: async () => {

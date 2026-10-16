@@ -3,7 +3,7 @@ import { relativeTime } from './display-time.js';
 import { text } from './strings.js';
 
 export function pageTitle(page: PageSummary): string {
-  return page.title.trim() || text.unknownPageTitle;
+  return page.title?.trim() || text.unknownPageTitle;
 }
 
 /** Display ordering only; the metadata does not grant page access. */
