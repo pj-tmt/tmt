@@ -101,13 +101,16 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
       fixture.tmux(['send-keys', '-t', shell.pane, '2', 'Right']);
       await fixture.waitForCapture((screen) => {
         const header = screen.split('\n').find((line) => line.includes('SQUAD / AGENT'));
-        // The 160-cell frame gives the Agents list 75 cells; detail shares its header row.
+        const rule = screen.split('\n').find((line) => line.startsWith(' ── Squads '));
+        // The 160-cell frame gives the list 75 cells. Its section rule shares
+        // the pane-title row; the column header remains one row below it.
         return (
           header !== undefined &&
+          rule !== undefined &&
           /^ +SQUAD \/ AGENT[ \t]+MEMBERS \/ STATE[ \t]+DIGEST[ \t]+◷ CRON[ \t]*$/.test(
             header.slice(0, 75)
           ) &&
-          header.slice(77).startsWith('── Common pool ') &&
+          rule.slice(77).startsWith('── Common pool ') &&
           /^[ \t]+├ Ben[ \t]+— unreported[ \t]/m.test(screen) &&
           /^[ \t]+└ worker[ \t]+— unreported[ \t]/m.test(screen)
         );
@@ -944,13 +947,35 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
         'the filter survives every reload'
       );
       expect(screen(shell.pane)).toContain('Scope: product');
-      // Clearing argv scope is ephemeral session state. The same reload seam
-      // must carry an empty scope instead of reapplying the launch option.
+      // Escape first clears the retained search, then the argv scope. The
+      // scope is ephemeral session state, independent of the reapplied filter.
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
+      await fixture.waitFor(
+        () => {
+          const now = screen(shell.pane);
+          const rows = agentRows(now);
+          return (
+            now.includes('Scope: product') && rows.includes('docs-fix') && rows.includes('auth-fix')
+          );
+        },
+        5_000,
+        'search clears before scope'
+      );
       fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
       await fixture.waitFor(
         () => !screen(shell.pane).includes('Scope:') && screen(shell.pane).includes('Common pool'),
         5_000,
         'explicit scope clear'
+      );
+      fixture.tmux(['send-keys', '-t', shell.pane, '/', 'docs', 'Enter']);
+      await fixture.waitFor(
+        () => {
+          const now = screen(shell.pane);
+          const rows = agentRows(now);
+          return !now.includes('Scope:') && rows.includes('docs-fix') && !rows.includes('auth-fix');
+        },
+        5_000,
+        'independent filter reapplied after scope clear'
       );
       fixture.tmux([
         'send-keys',
@@ -972,7 +997,6 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
           return (
             now.includes('Board reloaded · tmt-ops') &&
             !now.includes('Scope:') &&
-            now.includes('Common pool') &&
             rows.includes('docs-fix') &&
             !rows.includes('auth-fix')
           );
