@@ -190,7 +190,10 @@ for (const width of [320, 390, 1440])
       }
       const separator = scope.getByRole('separator');
       await expect(separator).toHaveCSS('height', tokens.browser.metric['rule-width']);
-      await expect(separator).toHaveCSS('background-color', rgb(tokens.browser.surface.rule[theme]));
+      await expect(separator).toHaveCSS(
+        'background-color',
+        rgb(tokens.browser.surface.rule[theme]),
+      );
       const alert = scope.getByRole('alert').filter({ hasText: 'Ready information' });
       await expect(alert).toHaveCSS('background-color', rgb(tokens.browser.surface.sheet[theme]));
       await expect(alert).toHaveCSS('border-radius', '0px');
