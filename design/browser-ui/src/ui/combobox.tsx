@@ -3,7 +3,7 @@ import { useCommandState } from 'cmdk';
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from './command.js';
 import { Popover, PopoverAnchor, PopoverContent } from './popover.js';
 import type { LayerController, LayerFocusOptions } from './layer.js';
-import { cn } from './utils.js';
+import { assignRefs, cn } from './utils.js';
 
 export interface SelectionOption {
   id: string;
@@ -30,6 +30,7 @@ export interface ComboboxProps extends Omit<LayerFocusOptions, 'initialFocus'> {
   onKeyDown?: ComponentProps<'input'>['onKeyDown'];
   onEmptyBackspace?(event: KeyboardEvent<HTMLInputElement>): void;
   outsidePress?: ComponentProps<typeof PopoverContent>['outsidePress'];
+  commitOnTab?: boolean;
   className?: string;
 }
 
@@ -58,6 +59,7 @@ function SelectionInput({
   onKeyDown,
   onEmptyBackspace,
   outsidePress = 'through',
+  commitOnTab = true,
   returnFocus,
   focusFallback,
 }: ComboboxProps) {
@@ -96,7 +98,7 @@ function SelectionInput({
         return;
       }
       preserveFocus.current = true;
-      if (outsidePress === 'through' && option) onSelect(option, event);
+      if (commitOnTab && option) onSelect(option, event);
       return;
     }
     if (event.key === 'Enter') {
@@ -132,17 +134,7 @@ function SelectionInput({
               disabled={disabled}
               readOnly={readOnly || busy}
               placeholder={placeholder}
-              ref={(node) => {
-                input.current = node;
-                const cleanup = typeof inputRef === 'function' ? inputRef(node) : undefined;
-                if (inputRef && typeof inputRef !== 'function') inputRef.current = node;
-                return () => {
-                  input.current = null;
-                  if (typeof cleanup === 'function') cleanup();
-                  else if (typeof inputRef === 'function') inputRef(null);
-                  else if (inputRef) inputRef.current = null;
-                };
-              }}
+              ref={(node) => assignRefs(node, input, inputRef)}
               onKeyDown={keyDown}
               onFocus={() => {
                 if (!blocked && !restoringFocus.current) {

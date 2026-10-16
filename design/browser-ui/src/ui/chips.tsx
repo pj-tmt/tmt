@@ -8,6 +8,7 @@ import {
 } from 'react';
 import { XIcon } from 'lucide-react';
 import { Badge } from './badge.js';
+import { assignRefs } from './utils.js';
 import { Button } from './button.js';
 import {
   Combobox,
@@ -82,7 +83,7 @@ export function Chip({ item, onRemove, readOnly, busy, stateLabel, removeRef }: 
 }
 export interface ChipsProps extends Omit<
   ComboboxProps,
-  'value' | 'onSelect' | 'outsidePress' | 'onEmptyBackspace'
+  'value' | 'onSelect' | 'outsidePress' | 'commitOnTab' | 'onEmptyBackspace'
 > {
   items: readonly SelectionItem[];
   onAdd(option: SelectionOption, event: SelectionEvent): void;
@@ -196,18 +197,9 @@ export function Chips({
         readOnly={readOnly}
         busy={busy}
         stateLabel={stateLabel}
-        inputRef={(node) => {
-          input.current = node;
-          const cleanup = typeof inputRef === 'function' ? inputRef(node) : undefined;
-          if (inputRef && typeof inputRef !== 'function') inputRef.current = node;
-          return () => {
-            input.current = null;
-            if (typeof cleanup === 'function') cleanup();
-            else if (typeof inputRef === 'function') inputRef(null);
-            else if (inputRef) inputRef.current = null;
-          };
-        }}
+        inputRef={(node) => assignRefs(node, input, inputRef)}
         outsidePress="dismiss-only"
+        commitOnTab={false}
         onSelect={onAdd}
         onEmptyBackspace={(event) => {
           const last = [...items].reverse().find((item) => !item.disabled);

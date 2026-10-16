@@ -594,7 +594,9 @@ operation state is held by the host's busy/admission state with its own words.
 The input remains mounted when its originating-island option portal closes.
 
 Enter commits once with its original event after close admission. Combobox Tab
-commits once on admitted close; Chips Tab closes without committing. Native Tab
+commits once on admitted close by default (`commitOnTab=true`), independently
+of `outsidePress`. Chips owns `commitOnTab=false` and omits that prop from
+`ChipsProps`, so its Tab closes without committing. Native Tab
 traversal remains native; an admitted Tab close suppresses competing close
 return-focus only for that transition. A newer admitted focus move also wins
 over deferred popup close autofocus, including chip removal. A veto holds open state and makes no

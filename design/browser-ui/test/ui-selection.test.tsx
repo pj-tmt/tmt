@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, expect, it, vi } from 'vite-plus/test';
 import type { BrowserChipItem, BrowserChipOption } from '../src/static.js';
+import { assignRefs } from '../src/ui/utils.js';
 import type { SelectionItem, SelectionOption } from '../src/ui/selection.js';
 import { UiTheme } from '../src/ui/theme.js';
 import {
@@ -232,4 +233,39 @@ it('accepts existing public values structurally while requiring local primitive 
   expect(itemRoundTrip).toBe(legacyItem);
   expect(missingOptionId.label).toBe('Missing option ID');
   expect(missingItemId.label).toBe('Missing item ID');
+});
+
+it('bridges object and callback input refs and retains each cleanup contract', () => {
+  const node = { value: 'Retained draft' };
+  const local = { current: null as typeof node | null };
+  const hostObject = { current: null as typeof node | null };
+  const hostCleanup = vi.fn();
+  const hostCallback = vi.fn(() => hostCleanup);
+  const legacyCallback = vi.fn();
+  const cleanup = assignRefs(node, local, hostObject, hostCallback, legacyCallback, undefined);
+  expect(local.current).toBe(node);
+  expect(hostObject.current).toBe(node);
+  expect(hostCallback).toHaveBeenCalledExactlyOnceWith(node);
+  expect(legacyCallback).toHaveBeenCalledExactlyOnceWith(node);
+  cleanup();
+  expect(local.current).toBeNull();
+  expect(hostObject.current).toBeNull();
+  expect(hostCleanup).toHaveBeenCalledTimes(1);
+  expect(hostCallback).toHaveBeenCalledTimes(1);
+  expect(legacyCallback.mock.calls).toEqual([[node], [null]]);
+});
+it('preserves a composed Chips-to-Combobox ref cleanup through both owners', () => {
+  const node = { value: 'Retained draft' };
+  const inner = { current: null as typeof node | null };
+  const outer = { current: null as typeof node | null };
+  const hostCleanup = vi.fn();
+  const host = vi.fn(() => hostCleanup);
+  const cleanup = assignRefs(node, inner, (value) => assignRefs(value, outer, host));
+  expect(inner.current).toBe(node);
+  expect(outer.current).toBe(node);
+  cleanup();
+  expect(inner.current).toBeNull();
+  expect(outer.current).toBeNull();
+  expect(hostCleanup).toHaveBeenCalledTimes(1);
+  expect(host).toHaveBeenCalledExactlyOnceWith(node);
 });

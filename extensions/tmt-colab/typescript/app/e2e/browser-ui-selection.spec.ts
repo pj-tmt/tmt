@@ -61,6 +61,39 @@ test('Tab and reverse Tab admit once, preserve input identity and continue nativ
   await expect(page.getByLabel('Selection callback count')).toHaveText('2');
   await expect(input).toHaveAttribute('data-retained-node', 'yes');
 });
+for (const outsidePress of ['through', 'dismiss-only'] as const) {
+  for (const commitOnTab of [true, false]) {
+    test(`Tab commit is independent of outside press ${outsidePress} commit ${commitOnTab}`, async ({
+      page,
+    }) => {
+      await gallery(page);
+      if (outsidePress === 'dismiss-only')
+        await page
+          .getByRole('button', { name: 'Selection outside press through', exact: true })
+          .click();
+      if (!commitOnTab)
+        await page.getByRole('button', { name: 'Selection Tab commit on', exact: true }).click();
+      const input = page.getByRole('combobox', { name: 'Selection search' });
+      await input.focus();
+      await expect(page.getByRole('option', { name: 'Alpha', exact: true })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      );
+      await input.press('Tab');
+      await expect(
+        page.getByRole('button', { name: 'After selection', exact: true }),
+      ).toBeFocused();
+      await expect(input).toHaveAttribute('aria-expanded', 'false');
+      await expect(page.getByLabel('Selection callback count')).toHaveText(commitOnTab ? '1' : '0');
+      await expect(page.getByLabel('Selection value', { exact: true })).toHaveText(
+        commitOnTab ? 'alpha' : 'None',
+      );
+      if (commitOnTab)
+        await expect(page.getByLabel('Selection original event')).toHaveText('keydown:true:true');
+      await expect(page.getByLabel('Selection send count')).toHaveText('0');
+    });
+  }
+}
 test('Tab close veto preserves actual open state and makes no selection callback', async ({
   page,
 }) => {

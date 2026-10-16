@@ -48,6 +48,8 @@ export function SelectionFixtures() {
   const [eventProof, setEventProof] = useState('None');
   const [removed, setRemoved] = useState(false);
   const [prevent, setPrevent] = useState(false);
+  const [dismissOnly, setDismissOnly] = useState(false);
+  const [commitOnTab, setCommitOnTab] = useState<boolean | undefined>(undefined);
   const [keyDetail, setKeyDetail] = useState('None');
   const original = useRef<Event | null>(null);
   const controller = useLayerController({ open, onOpenChange: setOpen, canClose: () => !veto });
@@ -66,6 +68,12 @@ export function SelectionFixtures() {
       <div className="tmt:flex tmt:flex-wrap tmt:gap-2">
         <Button onClick={() => setPrevent(!prevent)}>
           Prevent selection keys {prevent ? 'on' : 'off'}
+        </Button>
+        <Button onClick={() => setDismissOnly(!dismissOnly)}>
+          Selection outside press {dismissOnly ? 'dismiss-only' : 'through'}
+        </Button>
+        <Button onClick={() => setCommitOnTab(commitOnTab === false)}>
+          Selection Tab commit {commitOnTab === false ? 'off' : 'on'}
         </Button>
         <Button onClick={() => setVeto(!veto)}>Close veto {veto ? 'on' : 'off'}</Button>
         <Button onClick={() => setBusy(!busy)}>Selection busy {busy ? 'on' : 'off'}</Button>
@@ -95,6 +103,8 @@ export function SelectionFixtures() {
         <Button>Before selection</Button>
         <Combobox
           controller={controller}
+          outsidePress={dismissOnly ? 'dismiss-only' : 'through'}
+          commitOnTab={commitOnTab}
           label="Selection search"
           query={query}
           onQueryChange={setQuery}
