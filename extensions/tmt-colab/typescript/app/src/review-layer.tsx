@@ -46,7 +46,10 @@ export function useReviewLayer({
     setAnchors(checked ? next : null);
   }, []);
   const [outcomes, setOutcomes] = useState(new Map<string, ReviewOutcome>());
-  const { directory } = useAgentDirectory(snapshot.binding?.ask);
+  // A page with no section reads no directory. Without an Ask facade nobody can be asked, so
+  // the comment stays on the page instead of waiting for a list that will never come.
+  const { directory } = useAgentDirectory(reviews.length ? snapshot.binding?.ask : undefined);
+  const resolving = !!snapshot.binding?.ask && directory.state === 'loading';
   const threads = useMemo(
     () =>
       (view.threads ?? []).filter((thread) => !thread.deleted && !thread.proposal && thread.anchor),
@@ -81,7 +84,7 @@ export function useReviewLayer({
     discussionBlocked,
     statusCoordinator,
     rows,
-    directory,
+    resolving,
     questions,
   });
   context.current = {
@@ -91,7 +94,7 @@ export function useReviewLayer({
     discussionBlocked,
     statusCoordinator,
     rows,
-    directory,
+    resolving,
     questions,
   };
   const admitted = useRef(new AdmittedView());
@@ -102,9 +105,7 @@ export function useReviewLayer({
       thread: (id) => row(id)?.thread,
       selector: (id) => row(id)?.anchor?.selector,
       recipients: (review) =>
-        context.current.directory.state === 'loading'
-          ? undefined
-          : (row(review.id)?.recipients ?? []),
+        context.current.resolving ? undefined : (row(review.id)?.recipients ?? []),
       answered: (review) =>
         sectionAnswered(
           review,
@@ -172,7 +173,7 @@ export function useReviewLayer({
                 state={state}
                 outcome={outcome}
                 recipient={recipients[0]?.agentName}
-                disabled={discussionBlocked || !writable || directory.state === 'loading'}
+                disabled={discussionBlocked || !writable || resolving || !statusCoordinator}
                 readOnly={!!view.archived}
                 confirm={(note) => void actions.confirm(review, note)}
                 requestChange={(note) => void actions.requestChange(review, note)}

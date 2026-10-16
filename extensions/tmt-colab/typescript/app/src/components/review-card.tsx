@@ -193,12 +193,16 @@ export function ReviewCard({
         </div>
       )}
       {outcome?.state === 'working' && <p role="status">{text.reviewSaving}</p>}
-      {outcome?.state === 'failed' && (
+      {/* A failure that predates the section closing says nothing about a closed section. */}
+      {outcome?.state === 'failed' && outcome.step === 'reopening' && (
+        <p role="alert">{text.reviewReopenFailed}</p>
+      )}
+      {outcome?.state === 'failed' && outcome.step !== 'reopening' && !closed && (
         <p role="alert">
           {outcome.step === 'closing' ? text.reviewCommentKept : text.reviewFailed}
         </p>
       )}
-      {outcome?.state === 'uncertain' && <p role="status">{text.reviewUncertain}</p>}
+      {outcome?.state === 'uncertain' && !closed && <p role="status">{text.reviewUncertain}</p>}
       {outcome?.state === 'settled' && outcome.warnings && outcome.warnings.length > 0 && (
         <p role="status">
           {text.threadNotNotified(outcome.warnings.map((name) => `@${name}`).join(', '))}

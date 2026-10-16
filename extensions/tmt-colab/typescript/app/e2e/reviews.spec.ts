@@ -438,3 +438,35 @@ test('Confirm tells the asking agent once; Reopen and a change request send no s
   await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
   expect((await run(page, 'proof')).actions).toHaveLength(3);
 });
+
+test('a Reopen that did not land says so, keeps the section closed and can be retried', async ({
+  page,
+}) => {
+  const card = await mount(page);
+  await card.getByRole('button', { name: 'Confirm and close', exact: true }).click();
+  await expect(card).toHaveAttribute('data-review-state', 'closed');
+  await run(page, 'failStatusOnce');
+  await card.getByRole('button', { name: 'Reopen', exact: true }).click();
+  await expect(card.getByRole('alert')).toHaveText('Could not reopen this section. Try again.');
+  await expect(card).toHaveAttribute('data-review-state', 'closed');
+  // The stale "comment saved" wording never appears on a closed section.
+  await expect(card.getByText('Your comment is saved')).toHaveCount(0);
+  await card.getByRole('button', { name: 'Reopen', exact: true }).click();
+  await expect(card).toHaveAttribute('data-review-state', 'waiting');
+  await expect(card.getByRole('alert')).toHaveCount(0);
+});
+
+test('a page with no Ask facade lets a reader confirm with the comment staying on the page', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await run(page, 'mount', { commentOnly: true });
+  await run(page, 'review');
+  const card = page.locator('.review-card').first();
+  await expect(card.getByText('Stays on the page, no one is asked')).toBeVisible();
+  await card.getByRole('button', { name: 'Confirm and close', exact: true }).click();
+  await expect(card).toHaveAttribute('data-review-state', 'closed');
+  expect((await sectionThread(page))[0].comments[0].body).toBe(
+    'Confirmed “Section 1”\nPage: Live shared page',
+  );
+});

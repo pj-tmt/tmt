@@ -50,7 +50,7 @@ export class AdmittedView {
 export interface ReviewOutcome {
   state: 'working' | 'failed' | 'uncertain' | 'settled';
   /** Where it stopped. `closing` means the comment is recorded and only the status is missing. */
-  step?: 'recording' | 'closing';
+  step?: 'recording' | 'closing' | 'reopening';
   /** Asks the Needs-change note could not deliver, for the existing retry action. */
   failures?: MessageSendFailure[];
   /** Mentions that could not become recipients of the status notification. */
@@ -235,12 +235,12 @@ export class ReviewActions {
     const thread = this.options.thread(review.id);
     if (this.#inFlight.has(review.id) || !status || !thread || !resolvedByPerson(thread)) return;
     this.#inFlight.add(review.id);
-    this.options.changed(review.id, { state: 'working', step: 'closing' });
+    this.options.changed(review.id, { state: 'working', step: 'reopening' });
     try {
       await status.change(thread, false);
       this.options.changed(review.id, { state: 'settled' });
     } catch {
-      this.options.changed(review.id, { state: 'failed', step: 'closing' });
+      this.options.changed(review.id, { state: 'failed', step: 'reopening' });
     } finally {
       this.#inFlight.delete(review.id);
     }

@@ -160,8 +160,9 @@ files including Remote's three SDK routes). The oracle builds both from a fixed 
 digest is typed by hand; the Rust unit test equals the vector and Remote's mirror reads it.
 
 `page-markup-v1.json` holds the shared cases of the page markup check (colab-v1, "Page markup
-check"). A case is a `source` (lines joined with a newline), the `admitted` questions and
-groups the page shows, and the `findings` with reason codes. `scope:"parser"` cases run in the
+check"). A case is a `source` (lines joined with a newline), the `admitted` questions,
+groups and review sections the page shows (`reviews` is omitted when a case has none), and the
+`findings` with reason codes. `scope:"parser"` cases run in the
 browser client (`inspectQuestions`, headless Chromium, the oracle) and in the Rust checker;
 `scope:"checker"` cases (attachment references, nesting depth) run in the checker only. Keep
 cases small: a payload of tens of KiB belongs in a unit test that builds it, since every tool

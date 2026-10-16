@@ -99,6 +99,7 @@ export const text = {
   reviewReopen: 'Reopen',
   reviewSaving: 'Saving…',
   reviewFailed: 'Could not finish this. Nothing was lost; try again.',
+  reviewReopenFailed: 'Could not reopen this section. Try again.',
   reviewCommentKept: 'Your comment is saved but the section is not closed yet. Confirm again.',
   reviewUncertain: 'Could not confirm this. Check Comments before trying again.',
   reviewTo: (agent: string) => `Goes to @${agent}`,
