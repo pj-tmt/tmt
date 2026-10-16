@@ -35,6 +35,9 @@ excluding fences, inline code and HTML comments; it does not fetch URLs or valid
   inputs, entry/build/config files, public assets, vectors, native skill text and
   unknown inputs retain full verification. The renderer-style generator is checked
   by the unconditional app quality/build commands; browser selectors are independent.
+- The exact Colab `contracts/colab-v1.md` prose path selects Code quality, whose
+  app unit tests check shipped-skill error codes against it; native jobs do not
+  read it. Contract vectors and unknown contract paths retain full native scope.
 - Workspace Rust checks cover every retained member; no retired product exclusions
   or producers remain. Reject empty Remote test discovery before execution.
 

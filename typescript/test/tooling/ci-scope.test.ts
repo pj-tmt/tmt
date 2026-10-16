@@ -1306,7 +1306,6 @@ describe('Colab browser-only native scope', () => {
     'extensions/tmt-colab/rust/tmt-colab/app-entries.txt',
     'extensions/tmt-colab/skills/tmt-colab/SKILL.md',
     'extensions/tmt-colab/skills/tmt-colab/references/editing.md',
-    'extensions/tmt-colab/contracts/colab-v1.md',
     'extensions/tmt-colab/contracts/vectors/authority-v1.json',
     'extensions/tmt-colab/scripts/cloud-sync-emulator.mjs',
     'extensions/tmt-colab/scripts/hosted-reader-emulator.mjs',
@@ -1334,6 +1333,62 @@ describe('Colab browser-only native scope', () => {
     const files = inventory.split('\0').filter((file) => file && selectColabHosted([file]));
     expect(files).toContain(app + 'acceptance/hosted-bundle.spec.ts');
     for (const file of files) expect(selectNativeScope([file]), file).toBe('full');
+  });
+});
+
+it('keeps every tracked Rust embedded Colab app input in full native scope', () => {
+  const root = fileURLToPath(new URL('../../../', import.meta.url));
+  const inventory: string = runPackedCommand('git', ['ls-files', '-z'], {
+    cwd: root,
+    env: process.env,
+  });
+  const tracked = new Set(inventory.split('\0').filter(Boolean));
+  const embedded = new Set<string>();
+  for (const source of tracked) {
+    if (!source.endsWith('.rs')) continue;
+    const text = readFileSync(path.join(root, source), 'utf8');
+    // Match the literal and manifest-relative concat! forms used by the Docker copy audit.
+    const inputs = [...text.matchAll(/include_(?:str|bytes)!\s*\(\s*"([^"\n]+)"/g)].map(
+      ([, value]) => path.posix.normalize(path.posix.join(path.posix.dirname(source), value))
+    );
+    let crate = path.posix.dirname(source);
+    while (crate !== '.' && !tracked.has(`${crate}/Cargo.toml`)) crate = path.posix.dirname(crate);
+    for (const [, value] of text.matchAll(
+      /include_(?:str|bytes)!\s*\(\s*concat!\(\s*env!\("CARGO_MANIFEST_DIR"\),\s*"([^"\n]+)"/g
+    ))
+      inputs.push(path.posix.normalize(`${crate}${value}`));
+    for (const input of inputs) {
+      if (!input.startsWith('extensions/tmt-colab/typescript/app/')) continue;
+      embedded.add(input);
+      expect(selectNativeScope([input]), `${source} embeds ${input}`).toBe('full');
+    }
+  }
+  expect([...embedded]).toContain('extensions/tmt-colab/typescript/app/src/colab-header.css');
+});
+
+describe('Colab contract prose native scope', () => {
+  const contract = 'extensions/tmt-colab/contracts/colab-v1.md';
+
+  it('scopes only the exact prose path out of native verification', () => {
+    expect(selectNativeScope([contract])).toBe('none');
+    expect(selectNativeScope(['README.md', contract])).toBe('none');
+    expect(explainCiSelection([contract])[0].rule).toBe('colab-contract-prose');
+  });
+
+  it.each([
+    'extensions/tmt-colab/contracts/vectors/authority-v1.json',
+    'extensions/tmt-colab/contracts/vectors/README.md',
+    'extensions/tmt-colab/contracts/colab-v1.md.backup',
+    'extensions/tmt-colab/contracts/colab-v2.md',
+    'extensions/tmt-colab/contracts-other/colab-v1.md',
+    'extensions/tmt-colab-other/contracts/colab-v1.md',
+    'extensions/tmt-colab/rust/tmt-colab/app-entries.txt',
+    'extensions/tmt-colab/skills/tmt-colab/SKILL.md',
+    'rust/crates/tmt-core/src/lib.rs',
+    'unknown/new-input',
+  ])('keeps %s full, alone or mixed with contract prose', (file) => {
+    expect(selectNativeScope([file])).toBe('full');
+    expect(selectNativeScope([contract, file])).toBe('full');
   });
 });
 
@@ -2270,6 +2325,16 @@ esac
       expect(select([native, browserOnlyTip]).outputs.native_scope).toBe('none');
       expect(select(['merge-group', browserOnlyTip]).outputs.native_scope).toBe('full');
       expect(select(['merge-group', browserOnlyTip]).evidence).toContain('rust/native.rs');
+      git(['checkout', '--quiet', '--detach', base]);
+      const contract = commit('extensions/tmt-colab/contracts/colab-v1.md', 'contract prose');
+      expect(select(['merge-group', contract]).outputs.native_scope).toBe('none');
+      const vector = commit('extensions/tmt-colab/contracts/vectors/fixture.json', '{}');
+      const contractTip = commit('extensions/tmt-colab/contracts/colab-v1.md', 'new prose');
+      expect(select([vector, contractTip]).outputs.native_scope).toBe('none');
+      expect(select(['merge-group', contractTip]).outputs.native_scope).toBe('full');
+      expect(select(['merge-group', contractTip]).evidence).toContain(
+        'extensions/tmt-colab/contracts/vectors/fixture.json'
+      );
       // The earlier queued workspace change selects native, even when HEADGREEN's last tip is site-only.
       git(['checkout', '--quiet', '--detach', base]);
       mkdirSync(path.join(root, 'rust'), { recursive: true });
