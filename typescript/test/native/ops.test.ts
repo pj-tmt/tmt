@@ -5660,8 +5660,9 @@ describe('large board responsiveness', () => {
           sort: 'name',
           reversed: false,
           agentsFilter: 'all',
-          overviewFilter: 'all',
+          overviewView: 'squads',
         });
+        expect(retained.controls).not.toHaveProperty('overviewFilter');
         expect(retained).not.toHaveProperty('scope');
         expect(retained).not.toHaveProperty('revealHidden');
         expect(readFileSync(defaultFile, 'utf8')).toBe(defaultBytes);
