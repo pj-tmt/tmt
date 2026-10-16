@@ -490,18 +490,9 @@ impl DeployPort for DeployFirestore<'_> {
         step: &DeployStep,
     ) -> Result<DeployObserved, DeployProviderError> {
         let ceiling = self.composite_started.ok_or_else(unknown)? + COMPOSITE_INDEX_WAIT.ceiling();
-        let now = Instant::now();
-        if self.stop.load(Ordering::Acquire) {
-            return Err(unknown());
-        }
-        if now >= ceiling {
-            return Ok(DeployObserved::Building);
-        }
-        self.observe_until(
-            plan,
-            step,
-            (now + limits::DEPLOY_PROVIDER_CALL).min(ceiling),
-        )
+        composite_observation(Instant::now(), ceiling, self.stop, |deadline| {
+            self.observe_until(plan, step, deadline)
+        })
     }
     fn apply(
         &mut self,
@@ -529,6 +520,31 @@ impl DeployPort for DeployFirestore<'_> {
         }
     }
 }
+// Inject the one read so the shared ceiling and cancellation can be tested without
+// sleeping or launching a child. This owner never applies an index while checking it.
+fn composite_observation(
+    now: Instant,
+    ceiling: Instant,
+    stop: &AtomicBool,
+    read: impl FnOnce(Instant) -> Result<DeployObserved, DeployProviderError>,
+) -> Result<DeployObserved, DeployProviderError> {
+    if stop.load(Ordering::Acquire) {
+        return Err(unknown());
+    }
+    if now >= ceiling {
+        return Ok(DeployObserved::Building);
+    }
+    let deadline = (now + limits::DEPLOY_PROVIDER_CALL).min(ceiling);
+    let observed = read(deadline);
+    if observed.is_err() && deadline == ceiling && !stop.load(Ordering::Acquire) {
+        // A failed final read does not make the accepted creation unconfirmed.
+        // Keep the last accepted Building state; an exact-plan rerun observes it again.
+        Ok(DeployObserved::Building)
+    } else {
+        observed
+    }
+}
+
 fn account_ok(s: &str) -> bool {
     !s.is_empty() && s.len() <= 1024 && !s.chars().any(char::is_control)
 }
@@ -694,6 +710,74 @@ impl DeployFirestore<'_> {
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    #[test]
+    fn clipped_composite_read_failure_keeps_last_building_state() {
+        let start = Instant::now();
+        let ceiling = start + Duration::from_secs(180);
+        let stop = AtomicBool::new(false);
+        for error in [
+            DeployProviderError::Unknown,
+            DeployProviderError::Rejected(DeployFault::PermissionDenied),
+        ] {
+            let result = composite_observation(
+                start + Duration::from_secs(179),
+                ceiling,
+                &stop,
+                |deadline| {
+                    assert_eq!(deadline, ceiling);
+                    Err(error)
+                },
+            );
+            assert_eq!(
+                result,
+                Ok(DeployObserved::Building),
+                "the wait ceiling is not an unconfirmed mutation"
+            );
+            assert_eq!(
+                composite_observation(start, ceiling, &stop, |deadline| {
+                    assert_eq!(deadline, start + limits::DEPLOY_PROVIDER_CALL);
+                    Err(error)
+                }),
+                Err(error),
+                "a failure before the clipped final round stays a failure"
+            );
+        }
+        assert_eq!(
+            composite_observation(start + Duration::from_secs(179), ceiling, &stop, |_| {
+                stop.store(true, Ordering::Release);
+                Err(DeployProviderError::Unknown)
+            }),
+            Err(DeployProviderError::Unknown),
+            "cancellation during the clipped read stays unknown"
+        );
+        assert_eq!(
+            composite_observation(start, ceiling, &stop, |_| panic!(
+                "stopped reads never start"
+            )),
+            Err(DeployProviderError::Unknown)
+        );
+        stop.store(false, Ordering::Release);
+        assert_eq!(
+            composite_observation(ceiling, ceiling, &stop, |_| panic!(
+                "exhausted ceiling never starts a read"
+            )),
+            Ok(DeployObserved::Building)
+        );
+        for observed in [
+            DeployObserved::Satisfied,
+            DeployObserved::Adopted,
+            DeployObserved::Building,
+            DeployObserved::Absent,
+        ] {
+            assert_eq!(
+                composite_observation(start + Duration::from_secs(179), ceiling, &stop, |_| Ok(
+                    observed.clone()
+                )),
+                Ok(observed)
+            );
+        }
+    }
 
     #[test]
     fn composite_wait_is_visible_bounded_and_cancellation_wakeable() {
