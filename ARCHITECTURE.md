@@ -51,12 +51,8 @@ product-neutral `rust/archive/NATIVE-INSTALL.md`; [dev-only embed](site/README.m
 
 ## Public blog boundary
 
-`site/src/blog/` builds approved English `site/src/posts/<slug>/` into static HTML
-and external modules in `site/dist`, under `SITE_BASE` plus `blog/`.
-The existing Site job checks and deploys the single artifact.
-[The site guide](site/README.md#blog) owns Colab approval binding, private data
-and module admission. CI validates recorded hashes, not Colab authority.
-Article scripts share Home's origin under the existing blog CSP.
+`site/src/blog/` builds `site/src/posts/` into the shared site artifact.
+[The site guide](site/README.md#blog) owns content, approval, CSP and base paths.
 
 ## TypeScript workspace boundary
 
