@@ -132,6 +132,44 @@ fn provider_activity_comes_only_from_the_global_core_observation() {
     assert_eq!(squad_row("worker")["state"], "review");
     assert!(squad_row("absent")["session"].is_null());
 }
+#[test]
+fn home_counts_one_agent_in_two_squads_once_from_core_activity() {
+    let fixture = Fixture::new("");
+    // The same UUID is a member of two squads, with the task "working" in both.
+    let acquired = fixture.acquired(&[
+        (
+            "a",
+            document("a", Value::Null, vec![row("W", "worker", "working")]),
+        ),
+        (
+            "b",
+            document("b", Value::Null, vec![row("W", "worker", "working")]),
+        ),
+    ]);
+    let squads = [
+        Squad {
+            name: "a".into(),
+            room_id: "room-a".into(),
+        },
+        Squad {
+            name: "b".into(),
+            room_id: "room-b".into(),
+        },
+    ];
+    let listed = Ok(
+        json!({"identities":[{"id":"W", "name":"worker", "presence":"active",
+        "session": {"activity": {"state": "working", "sinceMs": 1, "lastActivityMs": 1, "providers": {}}}}]}),
+    );
+    let mut home = model(&["a".into(), "b".into()], &acquired);
+    home.observe(
+        super::super::workspace::observe::OpsWorkspaceSnapshot::from_acquired(
+            &squads.iter().collect::<Vec<_>>(),
+            &acquired,
+            &listed,
+        ),
+    );
+    assert_eq!((home.summary.working, home.summary.idle), (1, 0));
+}
 impl Fixture {
     fn new(text: &str) -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(0);

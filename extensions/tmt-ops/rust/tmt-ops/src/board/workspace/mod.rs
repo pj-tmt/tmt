@@ -181,8 +181,8 @@ pub struct OpsTreeRow {
     pub state: Option<String>,
     pub presence: Option<bool>,
     pub usage: Option<u64>,
-    /// A member row's provider activity; group rows have none.
-    pub activity: Option<super::activity::ObservedActivity>,
+    /// A member row's STATE cell inputs; group rows have none.
+    pub activity: Option<super::activity::Member>,
     /// A total is known only after a complete observation, never from a
     /// failed/partial/stale read. Observed children can still be displayed.
     pub count: Option<usize>,
@@ -648,7 +648,14 @@ fn member_row(
         },
         presence: member.presence,
         usage: member.usage,
-        activity: Some(member.activity),
+        activity: Some(super::activity::Member {
+            activity: member.activity,
+            waiting: scope.map_or(member.waiting, |membership| membership.waiting),
+            task: scope.map_or_else(
+                || member.state.clone(),
+                |membership| membership.state.clone(),
+            ),
+        }),
         count: None,
         observation,
     }

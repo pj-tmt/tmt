@@ -377,6 +377,63 @@ pub fn state_style(app: &crate::board::app::App, row: &OpsTreeRow) -> ratatui::s
         .map_or_else(|| look.role(role), |color| look.named(color))
 }
 
+/// The activity words: only a request that waits on the user uses attention colour.
+pub fn activity_style(app: &crate::board::app::App, state: &str) -> ratatui::style::Style {
+    app.look().role(if state == "waiting" {
+        Role::Waiting
+    } else {
+        Role::Text
+    })
+}
+
+/// The secondary task state: an authored state colour, else blocked/waiting
+/// attention, else muted. Waiting keeps its attention colour, as before.
+pub fn task_style(app: &crate::board::app::App, row: &OpsTreeRow) -> ratatui::style::Style {
+    let look = app.look();
+    let task = row
+        .activity
+        .as_ref()
+        .and_then(|member| member.task.as_deref());
+    let role = match task {
+        Some("waiting") => Role::Waiting,
+        Some("blocked") => Role::Blocked,
+        _ => Role::Muted,
+    };
+    app.workspace_snapshot()
+        .and_then(|snapshot| snapshot.rows.get(&row.target))
+        .and_then(|raw| raw["colors"]["state"].as_str())
+        .filter(|_| task != Some("waiting"))
+        .map_or_else(|| look.role(role), |color| look.named(color))
+}
+
+/// A member's STATE cell in `width` cells: the glyph and activity words, then
+/// the muted task state when it fits.
+pub fn activity_spans(
+    app: &crate::board::app::App,
+    row: &OpsTreeRow,
+    label: &crate::board::activity::Label,
+    width: usize,
+    selected: bool,
+) -> (
+    ratatui::text::Span<'static>,
+    Option<ratatui::text::Span<'static>>,
+) {
+    use unicode_width::UnicodeWidthStr;
+    let symbol = state_symbol(Some(label.state));
+    let (head, task) = label.fit(width.saturating_sub(symbol.width() + 1));
+    let primary = format!("{symbol} {head}");
+    let primary = crate::board::view::fit(&primary, primary.width().min(width));
+    (
+        ratatui::text::Span::styled(
+            primary,
+            table_style(app, selected, activity_style(app, label.state)),
+        ),
+        task.map(|task| {
+            ratatui::text::Span::styled(task, table_style(app, selected, task_style(app, row)))
+        }),
+    )
+}
+
 pub fn table_style(
     app: &crate::board::app::App,
     selected: bool,

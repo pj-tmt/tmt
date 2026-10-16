@@ -617,11 +617,17 @@ fn render_target(
         Line::styled(text, look.role(role))
     };
     let runtime_known = runtime != "–" || model != "–";
-    let state_text = format!(
-        "{} · {} · {role}",
-        sanitize(row["state"].as_str().unwrap_or("unknown")),
-        sanitize(&squad)
-    );
+    // The same activity-first words as the STATE cell; other targets keep the task state.
+    let state_words = tree_row
+        .and_then(|row| app.activity_label(row))
+        .map_or_else(
+            || sanitize(row["state"].as_str().unwrap_or("unknown")),
+            |label| {
+                let (head, task) = label.fit(usize::MAX);
+                head + task.as_deref().unwrap_or("")
+            },
+        );
+    let state_text = format!("{state_words} · {} · {role}", sanitize(&squad));
     let state_text = if !full && !runtime_known {
         super::view::fit(
             &state_text,

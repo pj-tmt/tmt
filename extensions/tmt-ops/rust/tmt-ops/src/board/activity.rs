@@ -45,7 +45,88 @@ impl ObservedActivity {
     }
 }
 
-/// Agent counts by phase, each identity once. Ended is neither working nor idle.
+/// A member row's STATE cell inputs: core activity first, then the request
+/// attention and the squad task state, which stay human facts.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Member {
+    pub activity: ObservedActivity,
+    /// A request waits on the user: the only waiting evidence today.
+    pub waiting: bool,
+    pub task: Option<String>,
+}
+
+/// The words of one STATE cell. Every surface paints these; none composes its own.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Label {
+    pub state: &'static str,
+    /// How long the phase has run (`12m`), or when core last saw an event (`4m ago`).
+    pub age: Option<String>,
+    pub task: Option<String>,
+}
+
+impl Member {
+    /// `stale` means the board's read is too old or failed; it never becomes idle.
+    pub fn label(&self, stale: bool, now_ms: u64) -> Label {
+        let activity = self.activity;
+        let (state, since) = if self.waiting {
+            ("waiting", None)
+        } else if stale {
+            ("stale", activity.last_ms)
+        } else {
+            match activity.phase {
+                Phase::Working => ("working", activity.since_ms),
+                Phase::Idle => ("idle", activity.since_ms),
+                Phase::Ended => ("ended", activity.last_ms),
+                Phase::Unknown => ("unknown", activity.last_ms),
+            }
+        };
+        let running = matches!(state, "working" | "idle");
+        // A future time (clock rollback) shows no age rather than a made-up one.
+        let age = since.filter(|at| *at <= now_ms).map(|at| {
+            let age = crate::requests::age(now_ms, at);
+            if running { age } else { format!("{age} ago") }
+        });
+        let task = self
+            .task
+            .as_deref()
+            .map(crate::board::notes::sanitize)
+            .filter(|task| !task.is_empty() && task != state);
+        Label { state, age, task }
+    }
+}
+
+impl Label {
+    /// Fits `width` cells as the state words and the muted task text. The task
+    /// is cut first, then the age; the state word stays.
+    pub fn fit(&self, width: usize) -> (String, Option<String>) {
+        use unicode_width::UnicodeWidthStr;
+        let head = match &self.age {
+            Some(age) => format!("{} {age}", self.state),
+            None => self.state.to_owned(),
+        };
+        if let Some(task) = &self.task {
+            let tail = format!(" · {task}");
+            let room = width.saturating_sub(head.width());
+            if tail.width() <= room {
+                return (head, Some(tail));
+            }
+            // Keep a clipped task while at least one character and its ellipsis fit.
+            if room >= " · x…".width() {
+                return (head, Some(crate::board::view::fit(&tail, room)));
+            }
+        }
+        if head.width() <= width {
+            return (head, None);
+        }
+        if self.state.width() <= width {
+            return (self.state.to_owned(), None);
+        }
+        (crate::board::view::fit(self.state, width), None)
+    }
+}
+
+/// Agent counts by phase over an identity set the caller has already
+/// deduplicated; the tally itself takes no ID. Ended is neither working nor idle.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Tally {
     pub working: usize,
@@ -124,6 +205,128 @@ mod tests {
         assert_eq!(
             of(json!({"state": "idle", "sinceMs": MAX_SAFE_MS, "lastActivityMs": 0})).since_ms,
             Some(MAX_SAFE_MS)
+        );
+    }
+
+    const NOW: u64 = 60 * 60 * 1000;
+
+    fn member(phase: Phase, since: Option<u64>, last: Option<u64>, task: Option<&str>) -> Member {
+        Member {
+            activity: ObservedActivity {
+                phase,
+                since_ms: since,
+                last_ms: last,
+            },
+            waiting: false,
+            task: task.map(str::to_owned),
+        }
+    }
+
+    fn words(label: &Label, width: usize) -> String {
+        let (head, task) = label.fit(width);
+        head + task.as_deref().unwrap_or("")
+    }
+
+    #[test]
+    fn labels_put_core_activity_first_and_the_task_second() {
+        let working = member(
+            Phase::Working,
+            Some(NOW - 12 * 60_000),
+            Some(1),
+            Some("review"),
+        );
+        assert_eq!(
+            words(&working.label(false, NOW), 80),
+            "working 12m · review"
+        );
+        let idle = member(Phase::Idle, Some(NOW - 5_000), None, Some("idle"));
+        assert_eq!(
+            words(&idle.label(false, NOW), 80),
+            "idle 5s",
+            "an equal task is omitted"
+        );
+        let ended = member(Phase::Ended, None, Some(NOW - 4 * 60_000), None);
+        assert_eq!(words(&ended.label(false, NOW), 80), "ended 4m ago");
+        let unknown = member(Phase::Unknown, None, None, Some("testing"));
+        assert_eq!(words(&unknown.label(false, NOW), 80), "unknown · testing");
+        // A request that waits on the user wins; a stale read never becomes idle.
+        let waiting = Member {
+            waiting: true,
+            ..working.clone()
+        };
+        assert_eq!(words(&waiting.label(true, NOW), 80), "waiting · review");
+        assert_eq!(
+            words(&working.label(true, NOW), 80),
+            "stale 59m ago · review",
+            "stale shows when core last saw an event, not the phase age"
+        );
+        assert_eq!(words(&idle.label(true, NOW), 80), "stale · idle");
+    }
+
+    #[test]
+    fn ages_are_never_invented() {
+        // A future time (clock rollback) shows no age; nothing subtracts past zero.
+        let future = member(Phase::Working, Some(NOW + 1), Some(NOW + 1), None);
+        assert_eq!(future.label(false, NOW).age, None);
+        assert_eq!(future.label(true, NOW).age, None);
+        // A start after the last event is checked on its own against now.
+        let since_after_last = member(Phase::Idle, Some(NOW - 60_000), Some(NOW - 120_000), None);
+        assert_eq!(
+            since_after_last.label(false, NOW).age.as_deref(),
+            Some("1m")
+        );
+        assert_eq!(
+            since_after_last.label(true, NOW).age.as_deref(),
+            Some("2m ago")
+        );
+        let missing = member(Phase::Working, None, None, None);
+        assert_eq!(missing.label(false, NOW).age, None);
+        assert_eq!(missing.label(true, NOW).age, None);
+    }
+
+    #[test]
+    fn fitting_clips_the_task_first_then_drops_the_age() {
+        let label = member(
+            Phase::Working,
+            Some(NOW - 12 * 60_000),
+            None,
+            Some("review"),
+        )
+        .label(false, NOW);
+        assert_eq!(
+            label.fit(20),
+            ("working 12m".into(), Some(" · review".into()))
+        );
+        assert_eq!(label.fit(19).1.as_deref(), Some(" · revi…"));
+        assert_eq!(label.fit(16).1.as_deref(), Some(" · r…"));
+        assert_eq!(label.fit(15), ("working 12m".into(), None));
+        assert_eq!(label.fit(11), ("working 12m".into(), None));
+        assert_eq!(label.fit(10), ("working".into(), None));
+        assert_eq!(label.fit(7), ("working".into(), None));
+        assert_eq!(label.fit(4).0.chars().count(), 4);
+        let hostile = Member {
+            task: Some("\u{1b}[31mred".into()),
+            ..member(Phase::Idle, None, None, None)
+        };
+        assert!(!words(&hostile.label(false, NOW), 80).contains('\u{1b}'));
+    }
+
+    #[test]
+    fn tallies_skip_ended_agents() {
+        let mut tally = Tally::default();
+        for phase in [Phase::Working, Phase::Idle, Phase::Ended, Phase::Unknown] {
+            tally.add(ObservedActivity {
+                phase,
+                ..Default::default()
+            });
+        }
+        assert_eq!(
+            tally,
+            Tally {
+                working: 1,
+                idle: 1,
+                unknown: 1
+            }
         );
     }
 }

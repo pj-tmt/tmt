@@ -38,7 +38,10 @@ pub(in crate::board) fn board() -> App {
                     waiting: false,
                     presence: Some(true),
                     usage: None,
-                    activity: Default::default(),
+                    activity: crate::board::activity::ObservedActivity {
+                        phase: crate::board::activity::Phase::Working,
+                        ..Default::default()
+                    },
                 },
             )]
             .into(),
@@ -543,6 +546,11 @@ fn workspace_presence_is_observed_separately_from_member_state_and_missing_data(
             let member = snapshot.roster.members.get_mut(MEMBER).unwrap();
             member.state = state.map(str::to_owned);
             member.presence = presence;
+            member.activity.phase = match state {
+                Some("idle") => crate::board::activity::Phase::Idle,
+                Some("working") => crate::board::activity::Phase::Working,
+                _ => crate::board::activity::Phase::Unknown,
+            };
             snapshot.roster.squads[0]
                 .member_states
                 .get_mut(MEMBER)
@@ -552,7 +560,7 @@ fn workspace_presence_is_observed_separately_from_member_state_and_missing_data(
             snapshot.shell_counts = snapshot.roster.shell_counts();
             let row = painted_member_row(&app, 100, 24);
             assert!(
-                row.contains("worker") && row.contains(state.unwrap_or("unreported")),
+                row.contains("worker") && row.contains(state.unwrap_or("unknown")),
                 "{row}"
             );
             let counts = &app.workspace_snapshot().unwrap().shell_counts;
@@ -2925,18 +2933,38 @@ fn agents_table_cells_and_hits_keep_state_color_scoped_across_sizes_and_focus() 
                                 })
                                 .cloned()
                                 .unwrap();
+                            // Core's activity words stay neutral; the blocked task
+                            // text right after them carries the attention colour.
+                            let row_text = (hit.x..hit.x + hit.width)
+                                .map(|x| buffer[(x, hit.y)].symbol())
+                                .collect::<String>();
+                            // The task may be whole or clipped with an ellipsis.
+                            let after = row_text
+                                .split_once("● working")
+                                .map_or("", |(_, after)| after);
+                            let task = if after.starts_with(" · blocked") {
+                                " · blocked".chars().count()
+                            } else if after.starts_with(" · b") {
+                                after.chars().take_while(|c| *c != '…').count() + 1
+                            } else {
+                                0
+                            } as u16;
                             for x in hit.x..hit.x + hit.width {
                                 let cell = &buffer[(x, hit.y)];
-                                let state = app
+                                // The first state area on the row holds the activity words.
+                                let in_task = app
                                     .workspace_state_cells
                                     .borrow()
                                     .iter()
-                                    .any(|area| area.contains((x, hit.y).into()));
+                                    .find(|area| area.y == hit.y)
+                                    .is_some_and(|area| {
+                                        (area.right()..area.right() + task).contains(&x)
+                                    });
                                 if depth != tmt_cli_style::Depth::None {
                                     assert_eq!(cell.bg, look.selection().bg.unwrap());
                                     assert_eq!(
                                         cell.fg,
-                                        look.role(if state {
+                                        look.role(if in_task {
                                             tmt_cli_style::Role::Blocked
                                         } else {
                                             tmt_cli_style::Role::Text
@@ -3121,19 +3149,22 @@ fn roster_preview_click_selects_the_exact_membership_and_invalidates_old_hits() 
 }
 
 #[test]
-fn default_attention_colors_stay_in_the_painted_state_word_while_other_states_are_neutral() {
+fn task_attention_colors_stay_in_the_task_text_while_activity_words_are_neutral() {
     use tmt_cli_style::{Base, Depth, Role, Theme};
+    let mut shown_tasks = 0;
     for base in [Base::Tmt, Base::TmtLight] {
         let look = crate::look::Look {
             theme: Theme::new(base),
             depth: Depth::TrueColor,
         };
+        // The task state follows core's activity words; only its own text carries
+        // attention colour. A task named like the activity is omitted.
         for (state, role) in [
-            ("working", Role::Text),
-            ("idle", Role::Text),
-            ("offline", Role::Text),
-            ("waiting", Role::Waiting),
-            ("blocked", Role::Blocked),
+            ("working", None),
+            ("idle", Some(Role::Muted)),
+            ("offline", Some(Role::Muted)),
+            ("waiting", Some(Role::Waiting)),
+            ("blocked", Some(Role::Blocked)),
         ] {
             for selected in [false, true] {
                 let mut app = board();
@@ -3183,14 +3214,20 @@ fn default_attention_colors_stay_in_the_painted_state_word_while_other_states_ar
                 let painted_state = (state_area.x..state_area.right())
                     .map(|x| terminal.backend().buffer()[(x, hit.y)].symbol())
                     .collect::<String>();
-                assert!(
-                    painted_state.contains(state),
-                    "the whole state word is visible: {painted_state}"
-                );
+                assert_eq!(painted_state, "● working", "core activity leads the cell");
                 let painted_row = (hit.x..hit.x + hit.width)
                     .map(|x| terminal.backend().buffer()[(x, hit.y)].symbol())
                     .collect::<String>();
                 assert!(painted_row.contains("worker"));
+                // A narrow cell cuts the task first; it is never painted for "working".
+                let shown = painted_row.contains(&format!("● working · {state}"));
+                assert!(role.is_some() || !shown, "{painted_row}");
+                shown_tasks += usize::from(shown);
+                let task = if shown {
+                    format!(" · {state}").chars().count() as u16
+                } else {
+                    0
+                };
                 for x in hit.x..hit.x + hit.width {
                     if terminal.backend().buffer()[(x, hit.y)]
                         .symbol()
@@ -3199,12 +3236,12 @@ fn default_attention_colors_stay_in_the_painted_state_word_while_other_states_ar
                     {
                         continue;
                     }
+                    let in_task = (state_area.right()..state_area.right() + task).contains(&x);
                     assert_eq!(
                         terminal.backend().buffer()[(x, hit.y)].fg,
-                        look.role(if state_area.contains((x, hit.y).into()) {
-                            role
-                        } else {
-                            Role::Text
+                        look.role(match role {
+                            Some(role) if in_task => role,
+                            _ => Role::Text,
                         })
                         .fg
                         .unwrap(),
@@ -3214,6 +3251,7 @@ fn default_attention_colors_stay_in_the_painted_state_word_while_other_states_ar
             }
         }
     }
+    assert!(shown_tasks > 0, "some frame shows the task text");
 }
 
 #[test]

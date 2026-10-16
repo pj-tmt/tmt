@@ -448,9 +448,8 @@ fn real_frames_publish_only_clipped_agent_hits_and_neutral_state_words() {
                 assert!(index < rows.len());
                 assert!(hit.x + hit.width <= width && hit.y < height);
                 assert!(ys.insert(hit.y));
-                let state =
-                    crate::board::state_cell::word(rows[index].state.as_deref(), app.look());
-                assert!(!state.content.is_empty());
+                let label = app.activity_label(&rows[index]).expect("a member row");
+                assert!(!label.state.is_empty());
                 if hit.width >= 60 {
                     assert_eq!(
                         buffer[(hit.x + 39, hit.y)].fg,

@@ -433,6 +433,10 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                     },
                     Field::State => {
                         let group = !matches!(row.target, OpsTarget::Member { .. });
+                        if let Some(label) = app.activity_label(row) {
+                            paint_member_state(frame, app, row, &label, cell, y, selected, style);
+                            continue;
+                        }
                         let state = if group {
                             format!(
                                 "{} {}",
@@ -628,6 +632,54 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
     };
     app.scrolls
         .show_table(frame, Pane::Rows, body, rows.len(), look, paint_rows);
+}
+
+/// A member's STATE cell: the activity words, then the task state, then the role.
+#[allow(clippy::too_many_arguments)]
+fn paint_member_state(
+    frame: &mut Frame,
+    app: &App,
+    row: &super::OpsTreeRow,
+    label: &crate::board::activity::Label,
+    cell: Rect,
+    y: u16,
+    selected: bool,
+    style: ratatui::style::Style,
+) {
+    let (primary, task) =
+        super::columns::activity_spans(app, row, label, usize::from(cell.width), selected);
+    let width = primary.width() as u16;
+    let state_cell = Rect::new(cell.x, y, width, 1);
+    app.workspace_state_cells.borrow_mut().push(state_cell);
+    strip::paint_left(frame.buffer_mut(), state_cell, Line::from(primary));
+    let role = if row.lead {
+        "lead"
+    } else if matches!(row.target, OpsTarget::Member { room_id: None, .. }) {
+        "agent"
+    } else {
+        "member"
+    };
+    // The task keeps its own colour on a selected row too.
+    if let Some(task) = &task {
+        app.workspace_state_cells.borrow_mut().push(Rect::new(
+            cell.x + width,
+            y,
+            (task.width() as u16).min(cell.width.saturating_sub(width)),
+            1,
+        ));
+    }
+    // The role is the least important part: it shows only when it fits whole.
+    let used = width as usize + task.as_ref().map_or(0, |task| task.width());
+    let role = format!(" · {role}");
+    let mut spans: Vec<_> = task.into_iter().collect();
+    if used + unicode_width::UnicodeWidthStr::width(role.as_str()) <= usize::from(cell.width) {
+        spans.push(ratatui::text::Span::styled(role, style));
+    }
+    strip::paint_left(
+        frame.buffer_mut(),
+        Rect::new(cell.x + width, y, cell.width.saturating_sub(width), 1),
+        Line::from(spans),
+    );
 }
 
 fn agents_controls(
@@ -1014,6 +1066,24 @@ fn roster_preview(
                 let raw = snapshot.rows.get(&row.target);
                 for (field, slot) in &slots {
                     let cell = Rect::new(slot.x, y, slot.width, 1).intersection(viewport);
+                    if *field == RosterField::State
+                        && let Some(label) = app.activity_label(&row)
+                    {
+                        app.workspace_state_cells.borrow_mut().push(cell);
+                        let (primary, task) = columns::activity_spans(
+                            app,
+                            &row,
+                            &label,
+                            usize::from(cell.width),
+                            false,
+                        );
+                        strip::paint_left(
+                            frame.buffer_mut(),
+                            cell,
+                            Line::from_iter(std::iter::once(primary).chain(task)),
+                        );
+                        continue;
+                    }
                     let text = match field {
                         RosterField::Member => safe(&member.name),
                         RosterField::State => format!(

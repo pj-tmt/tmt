@@ -445,11 +445,17 @@ fn agent_line(
 ) -> Line<'static> {
     let value = monitor::values(app, snapshot, row);
     let unread = app.unread_target(&row.target);
-    let state = if monitor::waits(snapshot, row) {
-        Some("waiting")
-    } else {
-        row.state.as_deref()
-    };
+    let label = app.activity_label(row);
+    let state = label.as_ref().map(|label| label.state);
+    let words = unread.label().unwrap_or_else(|| {
+        label.map_or_else(
+            || "unreported".to_owned(),
+            |label| {
+                let (head, task) = label.fit(10);
+                head + task.as_deref().unwrap_or("")
+            },
+        )
+    });
     let tokens = value
         .tokens
         .map_or_else(|| "—".into(), crate::source::tokens);
@@ -473,15 +479,7 @@ fn agent_line(
         Span::raw(" "),
         state_cell::unread_mark(unread, look).unwrap_or_else(|| state_cell::mark(state, look)),
         Span::raw(" "),
-        Span::styled(
-            crate::board::view::fit(
-                &unread
-                    .label()
-                    .unwrap_or_else(|| state_cell::word(state, look).content.into_owned()),
-                10,
-            ),
-            look.role(Role::Muted),
-        ),
+        Span::styled(crate::board::view::fit(&words, 10), look.role(Role::Muted)),
         Span::raw(" "),
         Span::styled(
             format!(

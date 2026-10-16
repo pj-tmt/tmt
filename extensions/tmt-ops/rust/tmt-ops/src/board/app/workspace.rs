@@ -45,6 +45,20 @@ impl App {
     pub(in crate::board) fn workspace_snapshot(&self) -> Option<&OpsWorkspaceSnapshot> {
         Some(&self.view.as_ref()?.home.as_ref()?.workspace)
     }
+    /// The board's provider activity is stale when its last global read failed.
+    pub(in crate::board) fn activity_stale(&self) -> bool {
+        self.workspace_snapshot().is_none_or(|snapshot| {
+            snapshot.roster.observation != crate::board::workspace::OpsObservation::Complete
+        })
+    }
+    /// The one STATE cell label of a member row; group rows have none.
+    pub(in crate::board) fn activity_label(
+        &self,
+        row: &OpsTreeRow,
+    ) -> Option<crate::board::activity::Label> {
+        let member = row.activity.as_ref()?;
+        Some(member.label(self.activity_stale(), crate::status::now_ms()))
+    }
     pub(in crate::board) fn digest_window(&self) -> crate::config::DigestWindow {
         self.workspace_snapshot()
             .map_or(crate::config::DigestWindow::default(), |snapshot| {
