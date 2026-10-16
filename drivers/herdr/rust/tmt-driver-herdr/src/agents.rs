@@ -27,10 +27,10 @@ pub fn valid_name(name: &str) -> bool {
 }
 
 /// The agent name of the terminal for display, where a wrong guess must not
-/// happen: `Some(None)` for the one listed agent without a name, and `None`
-/// (unknown) for no row, more than one row or a name that cannot be read.
-pub fn name_of(rows: &[Value], terminal: &str) -> Option<Option<String>> {
-    agent_of(rows, terminal).ok()?
+/// happen but a missing name is fine: no row, more than one row or a name
+/// that cannot be read all give `None`.
+pub fn name_of(rows: &[Value], terminal: &str) -> Option<String> {
+    agent_of(rows, terminal).ok()??
 }
 
 /// The agent in the terminal as evidence for a change: `None` when Herdr

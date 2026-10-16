@@ -212,8 +212,7 @@ fn check_pane(pane: &Pane, grammar: &Grammar) -> Result<(), String> {
     )?;
     require(
         pane.agent_name
-            .as_ref()
-            .and_then(Option::as_deref)
+            .as_deref()
             .is_none_or(|name| !name.is_empty() && grammar::plain(name, NAME_MAX)),
         "an agent name must be 1-256 bytes of text",
     )?;
@@ -664,16 +663,7 @@ mod tests {
         named["agentName"] = json!("reviewer");
         let named = bytes(json!({"ok": {"panes": [named]}}));
         let snapshot: SnapshotResponse = decode(&grammar(), &named).unwrap().unwrap();
-        assert_eq!(
-            snapshot.panes[0].agent_name,
-            Some(Some("reviewer".to_owned()))
-        );
-        // `null`: the host lists an agent there without a name.
-        let mut unnamed = pane("term_1");
-        unnamed["agentName"] = json!(null);
-        let unnamed = bytes(json!({"ok": {"panes": [unnamed]}}));
-        let snapshot: SnapshotResponse = decode(&grammar(), &unnamed).unwrap().unwrap();
-        assert_eq!(snapshot.panes[0].agent_name, Some(None));
+        assert_eq!(snapshot.panes[0].agent_name.as_deref(), Some("reviewer"));
 
         let bad = |edit: fn(&mut serde_json::Value)| {
             let mut value = pane("term_1");

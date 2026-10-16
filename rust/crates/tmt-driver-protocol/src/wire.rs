@@ -128,17 +128,11 @@ pub struct Pane {
     /// The pane's shell process.
     pub pane_pid: u64,
     pub suggested_name: Option<String>,
-    /// The name the host gives the agent it recognizes in the pane:
-    /// `Some(Some(name))`, or `Some(None)` (JSON `null`) for the one agent the
-    /// host lists there when it has no name. `None` (absent) when the host
-    /// has no agent names, recognizes no agent there, or the driver could
-    /// not read it.
-    #[serde(
-        default,
-        deserialize_with = "present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub agent_name: Option<Option<String>>,
+    /// The name the host gives the agent it recognizes in the pane. `None`,
+    /// left out of the JSON, when the host has no agent names, recognizes no
+    /// agent there, the agent has no name, or the driver could not read it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_name: Option<String>,
     /// The marker `publish` stored, returned as stored.
     pub marker: Option<Marker>,
 }
@@ -239,14 +233,6 @@ pub struct PromptRequest {
 pub struct FocusRequest {
     pub socket: String,
     pub pane_id: String,
-}
-
-/// Reads a member that is present, `null` included, as `Some`: with
-/// `#[serde(default)]` an absent member stays `None`.
-fn present<'de, D: serde::Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Option<Option<String>>, D::Error> {
-    Option::<String>::deserialize(deserializer).map(Some)
 }
 
 /// Gives the agent the host recognizes in the pane the agent name `name`,
@@ -486,7 +472,7 @@ impl DriverError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::{Value, json};
+    use serde_json::json;
 
     #[test]
     fn the_envelope_and_probe_states_have_their_documented_shape() {
@@ -530,30 +516,19 @@ mod tests {
     }
 
     /// A driver built before `agentName` leaves it out; a core built before
-    /// it ignores it. `null` is an agent without a name, not an absent member.
+    /// it ignores it. A legacy `null` also reads as none, and a pane
+    /// without one is written without the member.
     #[test]
     fn a_pane_without_an_agent_name_reads_as_none() {
         let mut value = json!({"id": "term_1", "target": null, "cwd": null, "command": "sh",
             "panePid": 7, "suggestedName": null, "marker": null});
-        let pane: Pane = serde_json::from_value(value.clone()).unwrap();
-        assert_eq!(pane.agent_name, None);
-        assert!(
-            serde_json::to_value(&pane)
-                .unwrap()
-                .get("agentName")
-                .is_none()
-        );
-        for (agent_name, read) in [
-            (Value::Null, Some(None)),
-            (json!("ann"), Some(Some("ann".to_owned()))),
-        ] {
-            value["agentName"] = agent_name.clone();
-            let pane: Pane = serde_json::from_value(value.clone()).unwrap();
-            assert_eq!(pane.agent_name, read);
-            assert_eq!(
-                serde_json::to_value(&pane).unwrap()["agentName"],
-                agent_name
-            );
+        let absent: Pane = serde_json::from_value(value.clone()).unwrap();
+        value["agentName"] = json!(null);
+        let null: Pane = serde_json::from_value(value).unwrap();
+        for pane in [absent, null] {
+            assert_eq!(pane.agent_name, None);
+            let written = serde_json::to_value(&pane).unwrap();
+            assert!(written.get("agentName").is_none(), "{written}");
         }
         let request = |name: Option<&str>, expected: Option<&str>| Request {
             deadline_ms: 250,

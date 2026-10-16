@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    endpoint::{AgentName, BindingMarker, EndpointSnapshot, PaneObservation, ServerEvidence},
+    endpoint::{BindingMarker, EndpointSnapshot, PaneObservation, ServerEvidence},
     identity::Lifetime,
     names::validate_existing_name,
 };
@@ -110,9 +110,9 @@ fn the_agent_name_alone_never_changes_binding_evidence() {
     let mut unmarked = snapshot.clone();
     unmarked.panes[0].marker = None;
     for base in [snapshot, unmarked] {
-        let evaluate = |agent_name: Option<AgentName>| {
+        let evaluate = |agent_name: Option<&str>| {
             let mut probe = base.clone();
-            probe.panes[0].agent_name = agent_name;
+            probe.panes[0].agent_name = agent_name.map(str::to_owned);
             match evaluate_binding(&entry(&identity, &binding), &live(probe)) {
                 BindingEvidence::Active(mut pane) => {
                     pane.agent_name = None;
@@ -123,10 +123,8 @@ fn the_agent_name_alone_never_changes_binding_evidence() {
         };
         let without = evaluate(None);
         for agent_name in ["Alice", "alice", "bob"] {
-            let named = Some(AgentName::Named(agent_name.into()));
-            assert_eq!(evaluate(named), without, "{agent_name}");
+            assert_eq!(evaluate(Some(agent_name)), without, "{agent_name}");
         }
-        assert_eq!(evaluate(Some(AgentName::Unnamed)), without);
     }
 }
 

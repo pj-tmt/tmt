@@ -195,11 +195,10 @@ A `Pane`:
 - **`command`:** the foreground command's name, at most 256 bytes.
 - **`panePid`:** the pane's shell. Like every pid, it is in 1 through 2^53 − 1.
 - **`agentName`:** optional. The name the host gives the agent it recognizes
-  in the pane, 1–256 bytes. It is `null` when the host lists exactly one agent
-  in the pane and that agent has no name. It is absent when the host has no
-  agent names (tmux), recognizes no agent in the pane, or the driver could not
-  read it: absent means unknown, never "no name". A driver that cannot read
-  agent names still answers the snapshot. It is the name of the agent, never a label of the
+  in the pane, 1–256 bytes. It is absent when the host has no agent names
+  (tmux), recognizes no agent in the pane, the agent has no name, or the
+  driver could not read it. A driver that cannot read agent names still
+  answers the snapshot. It is the name of the agent, never a label of the
   pane, and it is not evidence: it proves no binding and names no identity.
   Core only shows it; it never copies a host's name into an identity.
 - **Text:** all text is free of control characters.

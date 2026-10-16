@@ -116,17 +116,9 @@ pub struct PaneObservation {
     pub location: Option<PaneLocation>,
     /// The host's agent name for the agent in this pane, as the host reports
     /// it: an address on the host, never a pane label and never identity
-    /// evidence. `None` when it is unknown: the host has no agent names
-    /// (tmux), recognizes no agent there, or the name could not be read.
-    pub agent_name: Option<AgentName>,
-}
-
-/// What the host reports about the agent name of the one agent in a pane.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AgentName {
-    Named(String),
-    /// The host lists the agent, and it has no agent name.
-    Unnamed,
+    /// evidence. `None` when the host has no agent names (tmux), recognizes
+    /// no agent there, or the agent has no name.
+    pub agent_name: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
