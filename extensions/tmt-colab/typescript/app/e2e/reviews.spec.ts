@@ -200,3 +200,114 @@ test('an archived page shows section state and count but no controls', async ({ 
   await expect(card.locator('.review-state strong')).toHaveText('Closed');
   await expect(page.getByRole('status', { name: '1 of 1 review sections closed' })).toBeVisible();
 });
+
+test('a Resolve that did not land leaves the section waiting; the retry publishes only the Resolve', async ({
+  page,
+}) => {
+  const card = await mount(page);
+  await run(page, 'failStatusOnce');
+  await card.getByRole('button', { name: 'Confirm and close', exact: true }).click();
+  await expect(card.getByRole('alert')).toContainText('Your comment is saved');
+  await expect(card).toHaveAttribute('data-review-state', 'waiting');
+  expect((await run(page, 'proof')).actions).toEqual([]);
+  await expect(page.getByRole('status', { name: '0 of 1 review sections closed' })).toBeVisible();
+  await card.getByRole('button', { name: 'Confirm and close', exact: true }).click();
+  await expect(card).toHaveAttribute('data-review-state', 'closed');
+  // The confirmation is recorded once, not twice.
+  const threads = await sectionThread(page);
+  expect(threads).toHaveLength(1);
+  expect(threads[0].comments).toHaveLength(1);
+  expect((await run(page, 'proof')).actions).toEqual(['status:resolve']);
+});
+
+test('concurrent first actions make sibling threads and every tab agrees on one canonical thread', async ({
+  page,
+}) => {
+  const card = await mount(page);
+  await card.getByRole('button', { name: 'Needs change…', exact: true }).click();
+  await card.getByLabel('What needs to change', { exact: true }).fill('Fix the heading.');
+  await card.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(card).toHaveAttribute('data-review-state', 'changes');
+  // Another reader confirmed at the same time: its thread orders first, so it is canonical.
+  await run(page, 'reviewSibling', {
+    body: 'Confirmed “Section 1”\nPage: Live shared page',
+    resolved: 'person',
+    writer: 2,
+  });
+  await expect(card).toHaveAttribute('data-review-state', 'closed');
+  await expect(page.getByRole('status', { name: '1 of 1 review sections closed' })).toBeVisible();
+  // An agent-labelled sibling never closes anything.
+  await run(page, 'reviewSibling', {
+    body: 'Confirmed “Section 1”\nPage: Live shared page',
+    resolved: 'agent',
+    writer: 1,
+  });
+  await expect(card).not.toHaveAttribute('data-review-state', 'closed');
+  await expect(page.getByRole('status', { name: '0 of 1 review sections closed' })).toBeVisible();
+});
+
+test('a group inside a section closes it only when every question is answered', async ({
+  page,
+}) => {
+  const card = await mount(page, { group: true });
+  const group = page.locator('.question-group-card');
+  const active = page.locator('.question-card:visible').first();
+  await group.getByRole('tab', { name: /Q1/ }).click();
+  await active.getByLabel('Your answer', { exact: true }).fill('First answer.');
+  await group.getByRole('button', { name: /^Send/ }).press('Enter');
+  await expect(group.locator('.question-state').first()).toContainText('answered');
+  // One of two answered: the section stays open and nothing was resolved.
+  await expect(card).toHaveAttribute('data-review-state', 'waiting');
+  expect((await run(page, 'proof')).actions).toEqual([]);
+  await group.getByRole('tab', { name: /Q2/ }).click();
+  await active.getByLabel('Your answer', { exact: true }).fill('Second answer.');
+  await group.getByRole('button', { name: /^Send/ }).press('Enter');
+  await expect(card).toHaveAttribute('data-review-state', 'closed');
+  expect((await run(page, 'proof')).actions).toEqual(['status:resolve']);
+});
+
+test('the controls wait for the asking agent to resolve, then name it', async ({ page }) => {
+  await page.goto('/');
+  await run(page, 'mount', { holdQuestionDirectory: true });
+  await run(page, 'review');
+  const card = page.locator('.review-card').first();
+  await expect(card.getByRole('button', { name: 'Confirm and close', exact: true })).toBeDisabled();
+  await run(page, 'finishQuestionDirectory');
+  await expect(card.getByRole('button', { name: 'Confirm and close', exact: true })).toBeEnabled();
+  await expect(card.getByText('Goes to @Agent 1')).toBeVisible();
+});
+
+test('an unknown asking agent keeps the comment on the page and says so', async ({ page }) => {
+  const card = await mount(page, { agent: 'Missing agent' });
+  await expect(card.getByText('Stays on the page, no one is asked')).toBeVisible();
+  await card.getByRole('button', { name: 'Confirm and close', exact: true }).click();
+  await expect(card).toHaveAttribute('data-review-state', 'closed');
+  expect((await sectionThread(page))[0].comments[0].body).toBe(
+    'Confirmed “Section 1”\nPage: Live shared page',
+  );
+});
+
+test('only a thread on the whole heading is the section thread; a partial note is an ordinary annotation', async ({
+  page,
+}) => {
+  const card = await mount(page);
+  await card.getByRole('button', { name: 'Needs change…', exact: true }).click();
+  await card.getByLabel('What needs to change', { exact: true }).fill('Fix the heading.');
+  await card.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(card).toHaveAttribute('data-review-state', 'changes');
+  // A resolved confirmation-looking thread on part of the heading, and one inside the content.
+  await run(page, 'reviewSibling', {
+    body: 'Confirmed “Section 1”\nPage: Live shared page',
+    resolved: 'person',
+    writer: 2,
+    anchor: { exact: 'Section', prefix: '', suffix: '' },
+  });
+  await run(page, 'reviewSibling', {
+    body: 'Confirmed “Section 1”\nPage: Live shared page',
+    resolved: 'person',
+    writer: 1,
+    anchor: { exact: 'Content of section 1.', prefix: '', suffix: '' },
+  });
+  await expect(card).toHaveAttribute('data-review-state', 'changes');
+  await expect(page.getByRole('status', { name: '0 of 1 review sections closed' })).toBeVisible();
+});

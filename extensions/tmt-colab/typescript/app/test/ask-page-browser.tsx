@@ -66,6 +66,11 @@ let readRefusal: ConstructorParameters<typeof ReadRefusedError>[0] | undefined;
 let prepareRelease: (() => void) | undefined;
 let preparing: Promise<void> | undefined;
 let finishDirectory: (() => void) | undefined;
+let failNextStatus = false;
+/** The next status action fails before it is published, like a lost connection. */
+export function failStatusOnce() {
+  failNextStatus = true;
+}
 let releaseQuestionDirectory: (() => void) | undefined;
 export function finishQuestionDirectory() {
   releaseQuestionDirectory?.();
@@ -467,6 +472,10 @@ export async function mount(
   const discussion: ThreadBinding = {
     attachments,
     async setStatus(ref, _previous, resolved) {
+      if (failNextStatus) {
+        failNextStatus = false;
+        throw new Error('Fixture status publication was not confirmed');
+      }
       actions.push(`status:${resolved ? 'resolve' : 'reopen'}`);
       return { changed: true, status: setResolved(find(ref), resolved, 'person') };
     },
@@ -1361,6 +1370,8 @@ export function review(
     sections?: number;
     /** Put a question inside the first section; it closes the section when answered. */
     question?: boolean;
+    /** Put a group of two questions inside the first section instead. */
+    group?: boolean;
     placement?: 'inline' | 'duplicate' | 'nested';
     darkPage?: boolean;
     /** The page itself claims the section is closed and draws its own controls. */
@@ -1372,7 +1383,9 @@ export function review(
     const inner =
       index === 0 && options.question
         ? `<tmt-question data-id="${id(210)}" data-kind="short" data-agent="${agent}"><p data-question>Which heading should we use?</p></tmt-question>`
-        : '';
+        : index === 0 && options.group
+          ? `<tmt-questions data-id="${id(209)}"><p data-title>Two questions</p><tmt-question data-id="${id(211)}" data-kind="short" data-agent="${agent}"><p data-question>First heading?</p></tmt-question><tmt-question data-id="${id(212)}" data-kind="short" data-agent="${agent}"><p data-question>Second heading?</p></tmt-question></tmt-questions>`
+          : '';
     const forged = options.forged ? ' data-colab-review data-colab-review-closed="true"' : '';
     const claim = options.forged
       ? '<p>✓ Closed by the author</p><button type="button">Confirm and close</button>'
@@ -1389,6 +1402,69 @@ export function review(
     asks: [],
     source: `<style>body{margin:24px;font:16px/1.5 sans-serif;background:${options.darkPage ? '#181818' : '#fff'};color:${options.darkPage ? '#eee' : '#222'}}</style><h1>Project notes</h1><p>Before the sections.</p>${sections.join('')}<p id="after-sections">The page continues here.</p>`,
   };
+  emit();
+}
+
+/** Another reader's thread on the same heading, as a sibling made by a concurrent first action. */
+export function reviewSibling(options: {
+  body: string;
+  /** A person's Resolve from that reader, or an agent-labelled one. */
+  resolved?: 'person' | 'agent';
+  /** Orders before (low) or after (high) this device's writer ID. */
+  writer?: number;
+  /** Anchor the thread elsewhere than on the whole heading. */
+  anchor?: QuoteSelector;
+}) {
+  const first = current.threads!.find((thread) => thread.anchor?.exact.startsWith('Section'))!;
+  const writer = id(options.writer ?? 2),
+    threadId = id(300 + (options.writer ?? 2)),
+    messageId = id(400 + (options.writer ?? 2));
+  const actionId = id(500 + (options.writer ?? 2));
+  const sibling: ThreadView = {
+    ...first,
+    threadId,
+    ref: { writer, id: threadId },
+    ...(options.anchor ? { anchor: options.anchor } : {}),
+    resolved: !!options.resolved,
+    comments: [
+      {
+        ...first.comments[0],
+        thread: { writer, id: threadId },
+        messageId,
+        ref: { writer, id: messageId },
+        body: options.body,
+        sequence: '1',
+        deviceAuthor: true,
+        deviceName: 'Other reader',
+      },
+    ],
+    ...(options.resolved
+      ? {
+          status: {
+            version: 1,
+            kind: 'thread-status',
+            spaceId: first.spaceId,
+            pageId: first.pageId,
+            epoch: first.epoch,
+            senderDevice: writer,
+            deviceName: 'Other reader',
+            revision: '1',
+            deleted: false,
+            at: String(Date.now()),
+            actionId,
+            thread: { writer, id: threadId },
+            previous: null,
+            resolved: true,
+            actor: options.resolved,
+            agentName: options.resolved === 'agent' ? 'Atlas' : null,
+            recipients: [],
+            ref: { writer, id: actionId },
+            depth: 1,
+          },
+        }
+      : {}),
+  };
+  current = { ...current, threads: [...current.threads!, sibling] };
   emit();
 }
 

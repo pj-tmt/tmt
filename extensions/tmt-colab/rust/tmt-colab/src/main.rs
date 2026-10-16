@@ -38,6 +38,10 @@ const SKILL_REFERENCES: &[(&str, &str)] = &[
         "questions",
         include_str!("../../../skills/tmt-colab/references/questions.md"),
     ),
+    (
+        "reviews",
+        include_str!("../../../skills/tmt-colab/references/reviews.md"),
+    ),
 ];
 use clap::{Arg, ArgAction, Command};
 use serde_json::json;

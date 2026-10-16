@@ -213,3 +213,4 @@ write replaces the page's whole set (last writer wins); `changed:false` means no
 differed. `ls` and `show --json` list each page's `labels`.
 
 Read [references/questions.md](references/questions.md) or `tmt colab skill questions` for answer-block markup and thread answers.
+Read [references/reviews.md](references/reviews.md) or `tmt colab skill reviews` for review-section markup.

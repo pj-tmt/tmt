@@ -6614,6 +6614,10 @@ fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
             include_bytes!("../../../skills/tmt-colab/references/questions.md").as_slice(),
         ),
         (
+            "reviews",
+            include_bytes!("../../../skills/tmt-colab/references/reviews.md").as_slice(),
+        ),
+        (
             "links",
             include_bytes!("../../../skills/tmt-colab/references/links.md").as_slice(),
         ),
@@ -6645,7 +6649,14 @@ fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
         assert!(!refused.status.success(), "{name}");
         assert!(refused.stdout.is_empty());
         let message = String::from_utf8(refused.stderr).unwrap();
-        for valid in ["links", "page-style", "questions", "attachments", "editing"] {
+        for valid in [
+            "links",
+            "page-style",
+            "questions",
+            "reviews",
+            "attachments",
+            "editing",
+        ] {
             assert!(message.contains(valid), "{message}");
         }
     }
@@ -7183,6 +7194,68 @@ fn page_check_names_a_skipped_group_with_the_questions_it_took_and_warns_on_a_ba
         .unwrap();
     let shown = String::from_utf8(human.stdout).unwrap();
     assert!(shown.contains("2 questions skipped with it"), "{shown}");
+}
+#[test]
+fn page_check_reports_review_sections_by_reason_and_keeps_their_questions() {
+    let pilot = Pilot::new(None);
+    let file = pilot.root.join("reviews.html");
+    // Section 1 is shown and holds a question. Section 2 has no heading: it is ignored alone, so
+    // the question inside it is still a question. Section 3 repeats section 1's ID.
+    let page = [
+        r#"<tmt-review data-id="10000000-0000-4000-8000-000000000301" data-agent="Agent 1"><h2 data-title>Plan</h2>"#,
+        r#"<tmt-question data-id="10000000-0000-4000-8000-000000000001" data-kind="short"><p data-question>A</p></tmt-question>"#,
+        "</tmt-review>",
+        r#"<tmt-review data-id="10000000-0000-4000-8000-000000000302"><p>No heading</p>"#,
+        r#"<tmt-question data-id="10000000-0000-4000-8000-000000000002" data-kind="short"><p data-question>B</p></tmt-question>"#,
+        "</tmt-review>",
+        r#"<tmt-review data-id="10000000-0000-4000-8000-000000000301"><h2 data-title>Again</h2></tmt-review>"#,
+    ]
+    .join("\n");
+    fs::write(&file, &page).unwrap();
+    let path = file.to_str().unwrap();
+    let output = pilot
+        .command()
+        .args(["page", "check", path, "--json"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["questions"], json!({"admitted": 2, "ignored": 0}));
+    assert_eq!(report["reviews"], json!({"admitted": 0, "ignored": 3}));
+    assert_eq!(
+        finding_codes(&report["findings"]),
+        [
+            ("review-id-duplicate".to_owned(), 1),
+            ("review-heading-missing".to_owned(), 4),
+            ("review-id-duplicate".to_owned(), 7)
+        ]
+    );
+    assert_eq!(report["findings"][1]["element"], "tmt-review");
+    assert_eq!(report["findings"][1]["severity"], "ignored");
+
+    // Human output names the sections only when the page has any.
+    let human = pilot
+        .command()
+        .args(["page", "check", path])
+        .output()
+        .unwrap();
+    let shown = String::from_utf8(human.stdout).unwrap();
+    assert!(shown.contains("0 shown, 3 ignored"), "{shown}");
+    let clean = pilot.root.join("clean.html");
+    fs::write(
+        &clean,
+        r#"<tmt-review data-id="10000000-0000-4000-8000-000000000301"><h2 data-title>Plan</h2></tmt-review>"#,
+    )
+    .unwrap();
+    let ok = pilot
+        .command()
+        .args(["page", "check", clean.to_str().unwrap(), "--json"])
+        .output()
+        .unwrap();
+    assert_eq!(ok.status.code(), Some(0), "{ok:?}");
+    let report: Value = serde_json::from_slice(&ok.stdout).unwrap();
+    assert_eq!(report["reviews"], json!({"admitted": 1, "ignored": 0}));
+    assert_eq!(report["ok"], true);
 }
 #[test]
 fn page_check_refuses_input_it_cannot_read_and_pages_it_cannot_find() {
