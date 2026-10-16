@@ -320,7 +320,7 @@ ports. Capture packets include cells, styles, exact targets and hits across widt
 height and colour depth; they are evidence, not regenerated fixtures.
 
 Frozen HOME and TUI parity baselines retain their provenance until a decoded
-cells/styles/hits/oracle diff is approved by UX and Core. Regeneration follows the
+cells/styles/hits/oracle diff is approved by the UX primary reviewer. Regeneration follows the
 [TUI parity gate](../../tmt-tui/references/development.md#board-parity-baseline).
 [development.md](development.md#checks) owns commands and isolated captures.
 

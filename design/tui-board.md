@@ -200,7 +200,7 @@ list-price quote rows retain their source coverage independently of the saved
 unit preference. The modules stack when their minimum widths cannot fit. Wide
 screens place the selected waiting exchange and a filled three-row input above
 Timers and the direct Digest matrix. The joined divider separates that column
-from Squads and Needs you. The matrix uses fixed ten-cell all/member columns,
+from the Squads / Agents list. The matrix uses fixed ten-cell all/member columns,
 ranked by observed HOUR tokens, and honest fixed-24h supplier estimates. Shared
 shell paint colours only nonzero waiting/blocked glyphs; tabs and other values
 remain neutral. The Talk matrix stays absent until its data is shipped.
