@@ -669,6 +669,20 @@ mod through_the_driver {
         json!({"error": {"code": code, "message": "refused"}}).to_string()
     }
 
+    /// Whether a host offers agent names comes from the approval alone: no
+    /// driver runs to answer it.
+    #[test]
+    fn offering_agent_names_reads_the_approval_and_runs_no_driver() {
+        use tmt_driver_protocol::Op;
+        let (pid, _) = live();
+        for (installed, offers) in [(installed(pid), false), (naming(pid), true)] {
+            let drivers = drivers(&installed);
+            let before = installed.calls().len();
+            assert_eq!(drivers.offers(fake(), Op::NameAgent), offers);
+            assert_eq!(installed.calls().len(), before);
+        }
+    }
+
     #[test]
     fn an_agent_name_goes_through_name_agent_only_when_the_driver_declares_it() {
         use crate::host::{AgentNameRefusal, AgentNaming};

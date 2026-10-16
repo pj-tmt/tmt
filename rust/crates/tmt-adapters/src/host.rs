@@ -804,6 +804,18 @@ impl<R: CommandRunner> Host<R> {
         }
     }
 
+    /// Whether the binding's host gives agents names TMT can set: never on
+    /// tmux, and on an external host only when its approved driver declares
+    /// `name-agent`. It runs no driver.
+    pub fn offers_agent_names(&self, binding: &Binding) -> bool {
+        match binding.server.host {
+            HostKind::Tmux => false,
+            HostKind::External(host) => self
+                .external
+                .offers(host, tmt_driver_protocol::Op::NameAgent),
+        }
+    }
+
     /// After a committed bind or rename: gives the agent in the binding's
     /// pane the identity's name as its agent name, on a host that has agent
     /// names. Never a pane label, and never during a read command. A

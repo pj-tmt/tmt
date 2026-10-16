@@ -96,6 +96,12 @@ impl<R: CommandRunner> Drivers<R> {
         DriverProcess::open(record.clone(), &self.runner).ok()
     }
 
+    /// Whether the approved driver for `host` declares `op`. It reads the
+    /// approval and checks the executable as a call would, and runs no driver.
+    pub(crate) fn offers(&self, host: HostName, op: Op) -> bool {
+        self.open(host).is_some_and(|process| process.supports(op))
+    }
+
     /// TMT's UUID for this handle's external server, before any binding
     /// transaction. Its identity is core's own observation of the process the
     /// driver names; a server core can't observe stays unresolved.
