@@ -6,7 +6,13 @@ const os = require('node:os');
 const path = require('node:path');
 const http = require('node:http');
 const crypto = require('node:crypto');
-const { execute, validate, run, fetchJson, providerOperation } = require('../../src/deploy_firestore/helper.cjs');
+const {
+  execute,
+  validate,
+  run,
+  fetchJson,
+  providerOperation,
+} = require('../../src/deploy_firestore/helper.cjs');
 const ACCOUNT = 'owner@example.test',
   PROJECT = 'demo-remote-1',
   ID = '3f2b8c1e-5d4a-4e7b-9c1d-2a6f8e0b4c11';
@@ -49,12 +55,16 @@ function fixture(route, account = ACCOUNT) {
       if (
         options.method === 'GET' &&
         parsed.origin === 'https://firestore.googleapis.com' &&
-        /^\/v1\/projects\/[^/]+\/databases\/[^/]+\/collectionGroups\/[^/]+\/(fields|indexes)$/.test(parsed.pathname)
+        /^\/v1\/projects\/[^/]+\/databases\/[^/]+\/collectionGroups\/[^/]+\/(fields|indexes)$/.test(
+          parsed.pathname
+        )
       ) {
         const token = parsed.searchParams.get('pageToken');
         const filter = parsed.pathname.endsWith('/fields')
-          ? '?filter=indexConfig.usesAncestorConfig=false%20OR%20ttlConfig:*' : '';
-        const expected = filter + (token ? `${filter ? '&' : '?'}pageToken=${encodeURIComponent(token)}` : '');
+          ? '?filter=indexConfig.usesAncestorConfig=false%20OR%20ttlConfig:*'
+          : '';
+        const expected =
+          filter + (token ? `${filter ? '&' : '?'}pageToken=${encodeURIComponent(token)}` : '');
         if (parsed.search !== expected)
           return { status: 400, body: { error: { code: 400, status: 'INVALID_ARGUMENT' } } };
       }
@@ -89,7 +99,7 @@ test('live identity is verified, and changed account refuses before a project ef
   const f = fixture(() => assert.fail('no project request'), 'changed@example.test');
   await failure(
     () => execute(request('apply-database', { project: PROJECT, location: 'us-central1' }), f),
-    'account-changed',
+    'account-changed'
   );
   assert.equal(mutations(f).length, 0);
 });
@@ -115,11 +125,11 @@ test('database mismatch has no effect and cannot change region or edition', asyn
   }));
   assert.equal(
     await execute(request('observe-database', { project: PROJECT, location: 'us-central1' }), f),
-    'mismatch',
+    'mismatch'
   );
   await failure(
     () => execute(request('apply-database', { project: PROJECT, location: 'us-central1' }), f),
-    'database-mismatch',
+    'database-mismatch'
   );
   assert.equal(mutations(f).length, 0);
 });
@@ -130,7 +140,7 @@ test('database creation is one request and lost reply remains unknown without re
   });
   await failure(
     () => execute(request('apply-database', { project: PROJECT, location: 'us-central1' }), f),
-    'unknown',
+    'unknown'
   );
   assert.equal(mutations(f).length, 1);
   assert.deepEqual(mutations(f)[0].body, {
@@ -147,11 +157,11 @@ test('Auth initialization and Google OAuth setup stay owner actions', async () =
     const f = fixture((url) =>
       url.endsWith('/config')
         ? { status: config === null ? 404 : 200, body: config }
-        : { status: 404, body: {} },
+        : { status: 404, body: {} }
     );
     assert.equal(
       await execute(request('apply-sign-in', { project: PROJECT, provider }), f),
-      expected,
+      expected
     );
     assert.equal(mutations(f).length, 0);
   }
@@ -163,7 +173,7 @@ test('anonymous enable only patches the selected provider, not another setting',
   }));
   assert.equal(
     await execute(request('apply-sign-in', { project: PROJECT, provider: 'anonymous' }), f),
-    'done',
+    'done'
   );
   assert.deepEqual(mutations(f)[0].body, { signIn: { anonymous: { enabled: true } } });
   assert.match(mutations(f)[0].url, /updateMask=signIn.anonymous.enabled$/);
@@ -196,21 +206,28 @@ for (const operation of ['index-budget', 'apply-index']) {
     let pages = 0;
     const f = fixture((url, options) => ({
       status: 200,
-      body: options.method !== 'GET'
-        ? {}
-        : url.includes('/-/fields')
-          ? { fields: [], ...(pages++ === 0 ? { nextPageToken: 'next page&token' } : {}) }
-          : url.includes('/-/indexes')
-            ? { indexes: [] }
-            : url.endsWith('/fields/sequence')
-              ? { name: field, indexConfig: { indexes: [] } }
-              : {},
+      body:
+        options.method !== 'GET'
+          ? {}
+          : url.includes('/-/fields')
+            ? { fields: [], ...(pages++ === 0 ? { nextPageToken: 'next page&token' } : {}) }
+            : url.includes('/-/indexes')
+              ? { indexes: [] }
+              : url.endsWith('/fields/sequence')
+                ? { name: field, indexConfig: { indexes: [] } }
+                : {},
     }));
     assert.equal(
-      await execute(request(operation, operation === 'index-budget'
-        ? { project: PROJECT, fields: [], composites: [] }
-        : indexInput), f),
-      operation === 'index-budget' ? 'within-budget' : 'done',
+      await execute(
+        request(
+          operation,
+          operation === 'index-budget'
+            ? { project: PROJECT, fields: [], composites: [] }
+            : indexInput
+        ),
+        f
+      ),
+      operation === 'index-budget' ? 'within-budget' : 'done'
     );
     const listed = f.calls.filter((call) => call.url.includes('/-/fields'));
     assert.equal(listed.length, 2);
@@ -220,9 +237,14 @@ for (const operation of ['index-budget', 'apply-index']) {
       assert.equal(params.get('filter'), 'indexConfig.usesAncestorConfig=false OR ttlConfig:*');
       assert.equal(params.get('pageSize'), null);
       assert.equal(params.get('pageToken'), index === 0 ? null : 'next page&token');
-      assert.deepEqual([...params.keys()].sort(), index === 0
-        ? ['filter'] : ['filter', 'pageToken']);
-      assert.equal(call.url, `https://firestore.googleapis.com/v1/${database}/collectionGroups/-/fields?filter=indexConfig.usesAncestorConfig=false%20OR%20ttlConfig:*${index === 0 ? '' : '&pageToken=next%20page%26token'}`);
+      assert.deepEqual(
+        [...params.keys()].sort(),
+        index === 0 ? ['filter'] : ['filter', 'pageToken']
+      );
+      assert.equal(
+        call.url,
+        `https://firestore.googleapis.com/v1/${database}/collectionGroups/-/fields?filter=indexConfig.usesAncestorConfig=false%20OR%20ttlConfig:*${index === 0 ? '' : '&pageToken=next%20page%26token'}`
+      );
     }
     assert.equal(mutations(f).length, operation === 'index-budget' ? 0 : 1);
   });
@@ -341,7 +363,7 @@ test('Rules switch is last and exact live source is read back', async () => {
   assert.equal(await execute(request('apply-rules', rulesInput()), f), 'done');
   assert.deepEqual(
     mutations(f).map((x) => new URL(x.url).pathname),
-    [`/v1/projects/${PROJECT}/rulesets`, `/v1/projects/${PROJECT}/releases`],
+    [`/v1/projects/${PROJECT}/rulesets`, `/v1/projects/${PROJECT}/releases`]
   );
   assert.equal(f.calls.at(-1).method, 'GET');
   assert.match(f.calls.at(-1).url, /rulesets\/new1$/);
@@ -371,9 +393,9 @@ test('foreign release needs the exact replaced digest and is otherwise untouched
   assert.equal(
     await execute(
       request('apply-rules', rulesInput({ replacedDigest: hash('foreign') })),
-      accepted.f,
+      accepted.f
     ),
-    'done',
+    'done'
   );
 });
 test('fixed provider faults do not expose token/body/header text', async () => {
@@ -385,7 +407,7 @@ test('fixed provider faults do not expose token/body/header text', async () => {
     const f = fixture(() => ({ status, body: { error: { message: CANARY } } }));
     await failure(
       () => execute(request('observe-database', { project: PROJECT, location: 'us-central1' }), f),
-      code,
+      code
     );
   }
 });
@@ -401,7 +423,7 @@ test('real HTTP fetch never retries a rejected mutation', async () => {
     const result = await fetchJson(
       `http://127.0.0.1:${server.address().port}`,
       { method: 'POST', body: '{}' },
-      Date.now() + 3000,
+      Date.now() + 3000
     );
     assert.equal(result.status, 503);
     assert.equal(posts, 1);
@@ -417,7 +439,7 @@ test('a version/layout stub gate runs before credential access and redacts throw
       fs.writeFileSync(path.join(root, 'lib', `${file}.js`), 'module.exports={}');
     fs.writeFileSync(
       path.join(root, 'package.json'),
-      JSON.stringify({ name: 'firebase-tools', version: '0.0.0' }),
+      JSON.stringify({ name: 'firebase-tools', version: '0.0.0' })
     );
     const r = await run(JSON.stringify(request('account')), root, {
       credential: () => {
@@ -428,7 +450,7 @@ test('a version/layout stub gate runs before credential access and redacts throw
     assert.equal(JSON.stringify(r).includes(CANARY), false);
     fs.writeFileSync(
       path.join(root, 'package.json'),
-      JSON.stringify({ name: 'firebase-tools', version: '15.29.0' }),
+      JSON.stringify({ name: 'firebase-tools', version: '15.29.0' })
     );
     const thrown = await run(JSON.stringify(request('account')), root, {
       deadline: Date.now() + 3000,
@@ -448,11 +470,18 @@ test('Rules inventory stays within the documented 100-row page maximum', async (
   let listed = 0;
   const f = fixture((url, options) => {
     if (url.includes('/rulesets?'))
-      return { status: 200, body: listed++ === 0
-        ? { rulesets: [], nextPageToken: 'next rules&page' }
-        : { rulesets: [{ name }] } };
+      return {
+        status: 200,
+        body:
+          listed++ === 0
+            ? { rulesets: [], nextPageToken: 'next rules&page' }
+            : { rulesets: [{ name }] },
+      };
     if (url.endsWith('/rulesets/existing'))
-      return { status: 200, body: { source: { files: [{ name: 'firestore.rules', content: source }] } } };
+      return {
+        status: 200,
+        body: { source: { files: [{ name: 'firestore.rules', content: source }] } },
+      };
     if (url.endsWith('/releases') && options.method === 'POST')
       return { status: 200, body: JSON.parse(options.body) };
     if (url.includes('/releases/'))
@@ -468,10 +497,10 @@ test('Rules inventory stays within the documented 100-row page maximum', async (
   assert.equal(await execute(request('apply-rules', rulesInput()), f), 'done');
   const pages = f.calls.filter((call) => call.url.includes('/rulesets?'));
   assert.equal(pages.length, 2);
-  assert.deepEqual(pages.map((call) => Object.fromEntries(new URL(call.url).searchParams)), [
-    { pageSize: '100' },
-    { pageSize: '100', pageToken: 'next rules&page' },
-  ]);
+  assert.deepEqual(
+    pages.map((call) => Object.fromEntries(new URL(call.url).searchParams)),
+    [{ pageSize: '100' }, { pageSize: '100', pageToken: 'next rules&page' }]
+  );
   assert.equal(mutations(f).length, 1);
   assert.equal(mutations(f)[0].url.endsWith('/releases'), true);
 });
@@ -503,11 +532,11 @@ test('a direct quota rejection of the first mutation stays a fixed QuotaExceeded
   const f = fixture((_, o) =>
     o.method === 'GET'
       ? { status: 404, body: {} }
-      : { status: 429, body: { error: { message: CANARY } } },
+      : { status: 429, body: { error: { message: CANARY } } }
   );
   await failure(
     () => execute(request('apply-database', { project: PROJECT, location: 'us-central1' }), f),
-    'quota-exceeded',
+    'quota-exceeded'
   );
   assert.equal(mutations(f).length, 1);
 });
@@ -525,9 +554,9 @@ test('HTTP body bounds and malformed JSON refuse without exposing response text'
           fetchJson(
             `http://127.0.0.1:${server.address().port}/${route}`,
             { method: 'GET' },
-            Date.now() + 3000,
+            Date.now() + 3000
           ),
-        (error) => !String(error).includes(CANARY),
+        (error) => !String(error).includes(CANARY)
       );
     }
   } finally {
@@ -537,7 +566,7 @@ test('HTTP body bounds and malformed JSON refuse without exposing response text'
 test('an already spent HTTP deadline makes zero requests', async () => {
   await failure(
     () => fetchJson('http://127.0.0.1:1', { method: 'POST' }, Date.now() - 1),
-    'unknown',
+    'unknown'
   );
 });
 
@@ -556,7 +585,7 @@ test('login is re-resolved immediately before each effect, not cached from obser
       : http(url, options);
   await failure(
     () => execute(request('apply-database', { project: PROJECT, location: 'us-central1' }), f),
-    'account-changed',
+    'account-changed'
   );
   assert.equal(checks, 2);
   assert.equal(mutations(f).length, 0);
@@ -719,7 +748,7 @@ function hostedFixture() {
   async function call(operation, action, extra = {}) {
     const r = await execute(
       { ...request(operation), account: ACCOUNT, input: { ...input, action, ...extra } },
-      f,
+      f
     );
     if (r.checkpoint) input.checkpoint = r.checkpoint;
     return r;
@@ -791,7 +820,7 @@ test('upload faults, cross-host URL, and joint read-back mismatch stay unknown w
         hash: hash('gzip-fixture'),
         bytesBase64: Buffer.from('gzip-fixture').toString('base64'),
       }),
-    'unknown',
+    'unknown'
   );
   assert.equal(x.state.live, null);
   x.state.fail = null;
@@ -814,10 +843,11 @@ test('provider-directed upload URL cannot send a credential to another host', as
   await x.call('apply-hosting', 'configure');
   await x.call('apply-hosting', 'create');
   x.state.uploadUrl = 'https://evil.invalid/upload';
-  await failure(() => x.call('apply-hosting', 'populate'), 'unknown');
+  // The reply is refused, but exact read-only inventory can confirm the effect.
+  assert.equal((await x.call('apply-hosting', 'populate')).state, 'done');
   assert.equal(
     x.calls.some((c) => c.url.startsWith('https://evil.invalid')),
-    false,
+    false
   );
   assert.equal(x.state.live, null);
 });
@@ -893,17 +923,21 @@ function compositeFixture(indexes = [], lose = false) {
 test('composite inventory keeps the pinned first URL and bounded token-only continuation', async () => {
   let listed = 0;
   const base = `https://firestore.googleapis.com/v1/${database}/collectionGroups/-/indexes`;
-  const f = fixture(() => ({ status: 200, body: {
-    indexes: [], ...(listed++ === 0 ? { nextPageToken: 'next index&page' } : {}),
-  } }));
+  const f = fixture(() => ({
+    status: 200,
+    body: {
+      indexes: [],
+      ...(listed++ === 0 ? { nextPageToken: 'next index&page' } : {}),
+    },
+  }));
   assert.equal((await f.http(`${base}?pageSize=200`, { method: 'GET' })).status, 400);
   assert.equal(listed, 0);
   f.calls.length = 0;
   assert.equal(await execute(request('observe-composite', compositeInput), f), 'absent');
-  assert.deepEqual(f.calls.filter((call) => call.url.includes('/-/indexes')).map((call) => call.url), [
-    base,
-    `${base}?pageToken=next%20index%26page`,
-  ]);
+  assert.deepEqual(
+    f.calls.filter((call) => call.url.includes('/-/indexes')).map((call) => call.url),
+    [base, `${base}?pageToken=next%20index%26page`]
+  );
   assert.equal(mutations(f).length, 0);
 });
 test('composite create stays building; retry reconciles exact state without another create', async () => {
@@ -932,7 +966,7 @@ test('repair or malformed composite evidence never becomes ready or gets deleted
     ]);
     await failure(
       () => execute(request('apply-composite', compositeInput), f),
-      state === 'NEEDS_REPAIR' ? 'provider-rejected' : 'unknown',
+      state === 'NEEDS_REPAIR' ? 'provider-rejected' : 'unknown'
     );
     assert.equal(mutations(f).length, 0);
   }
@@ -949,7 +983,7 @@ test('composite ceiling is separate and includes unrelated live indexes', async 
           { fieldPath: '__name__', order: 'ASCENDING' },
         ],
         state: 'READY',
-      })),
+      }))
     );
     if (count === 199)
       assert.equal(await execute(request('apply-composite', compositeInput), f), 'building');
@@ -983,9 +1017,9 @@ test('plan-only composite budget counts only missing specs and never mutates', a
   assert.equal(
     await execute(
       request('index-budget', { project: PROJECT, fields: [], composites: [composite] }),
-      f,
+      f
     ),
-    'within-budget',
+    'within-budget'
   );
   await failure(
     () =>
@@ -995,9 +1029,9 @@ test('plan-only composite budget counts only missing specs and never mutates', a
           fields: [],
           composites: [{ ...composite, collectionGroup: 'missing' }],
         }),
-        f,
+        f
       ),
-    'quota-exceeded',
+    'quota-exceeded'
   );
   assert.equal(mutations(f).length, 0);
 });
@@ -1033,7 +1067,7 @@ test('incomplete composite inventory never allocates and invalid input never ask
           throw Error('never');
         },
       }),
-    'provider-rejected',
+    'provider-rejected'
   );
   assert.equal(credentials, 0);
 });
@@ -1139,4 +1173,179 @@ test('provider operation route table keeps resource names out of fixed diagnosti
   for (const [service, route, expected] of cases) {
     assert.equal(providerOperation(service, route), expected, `${service}: ${route}`);
   }
+});
+
+test('ambiguous Hosting replies reconcile exact evidence once without repeating a mutation', async () => {
+  for (const mode of ['missing-time', 'lost-create', 'populate-reply']) {
+    const x = hostedFixture();
+    const http = x.f.http;
+    let lost = false;
+    x.f.http = async (url, options, deadline) => {
+      const response = await http(url, options, deadline);
+      if (!lost && options.method === 'POST' && url.endsWith('/versions')) {
+        if (mode === 'missing-time') {
+          lost = true;
+          const body = { ...response.body };
+          delete body.createTime;
+          return { ...response, body };
+        }
+        if (mode === 'lost-create') {
+          lost = true;
+          throw Error(CANARY);
+        }
+      }
+      return response;
+    };
+    assert.equal((await x.call('apply-hosting', 'create')).state, 'done');
+    assert.equal(
+      x.calls.filter((c) => c.method === 'POST' && c.url.endsWith('/versions')).length,
+      1
+    );
+    assert.ok(x.input.checkpoint.version);
+    if (mode === 'populate-reply') {
+      x.state.uploadUrl = 'https://invalid.example/not-an-upload';
+      assert.equal((await x.call('apply-hosting', 'populate')).state, 'done');
+      assert.equal(
+        x.calls.filter((c) => c.method === 'POST' && c.url.endsWith(':populateFiles')).length,
+        1
+      );
+      assert.ok(x.calls.every((c) => !c.url.includes('invalid.example')));
+    }
+  }
+});
+
+test('partial Hosting inventory records a closed list cause before any populate mutation', async () => {
+  const x = hostedFixture();
+  await x.call('apply-hosting', 'create');
+  x.state.files = [{ path: '/different.html', hash: 'c'.repeat(64), status: 'EXPECTED' }];
+  await assert.rejects(
+    () => x.call('apply-hosting', 'populate'),
+    (error) => {
+      assert.deepEqual(error.cause, {
+        code: 'files-mismatch',
+        phase: 'list',
+        httpStatusClass: '2xx',
+      });
+      assert.ok(!JSON.stringify(error.cause).includes(PROJECT));
+      return error.code === 'unknown';
+    }
+  );
+  assert.equal(x.calls.filter((c) => c.url.endsWith(':populateFiles')).length, 0);
+});
+
+test('Hosting preparation time does not consume the mutation reply or reconciliation budgets', async () => {
+  const x = hostedFixture();
+  const http = x.f.http;
+  let clock = Date.now();
+  x.f.now = () => clock;
+  x.f.deadline = clock + 90000;
+  const start = clock;
+  let postDeadline;
+  x.f.http = async (url, options, deadline) => {
+    if (url.includes('/versions') && options.method === 'GET') clock = start + 29000;
+    if (url.endsWith('/versions') && options.method === 'POST') {
+      postDeadline = deadline;
+      clock = start + 30000;
+      assert.ok(deadline > clock, 'a successful mutation reply has its own budget');
+    }
+    return http(url, options, deadline);
+  };
+  assert.equal((await x.call('apply-hosting', 'create')).state, 'done');
+  assert.equal(postDeadline, start + 59000);
+});
+
+test('malformed HTTP rejection keeps only its fixed body cause and HTTP status class', async () => {
+  const fetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response('PRIVATE_BODY', { status: 400 });
+  try {
+    await assert.rejects(
+      () => fetchJson('https://offline.invalid/not-requested', {}, Date.now() + 1000),
+      (error) => {
+        assert.deepEqual(error.cause, {
+          code: 'body-invalid',
+          phase: 'body',
+          httpStatusClass: '4xx',
+        });
+        assert.ok(!JSON.stringify(error).includes('PRIVATE_BODY'));
+        return error.code === 'unknown';
+      }
+    );
+  } finally {
+    globalThis.fetch = fetch;
+  }
+});
+
+test('Hosting HTTP refusals and unmatched ambiguity retain the cause without a second POST', async () => {
+  for (const [status, code] of [
+    [400, 'provider-rejected'],
+    [403, 'permission-denied'],
+    [429, 'quota-exceeded'],
+    [408, 'unknown'],
+    [409, 'unknown'],
+    [500, 'unknown'],
+  ]) {
+    const x = hostedFixture();
+    const http = x.f.http;
+    let attempts = 0;
+    x.f.http = async (url, options, deadline) => {
+      if (options.method === 'POST' && url.endsWith('/versions')) {
+        attempts++;
+        return { status, body: {} };
+      }
+      return http(url, options, deadline);
+    };
+    await assert.rejects(
+      () => x.call('apply-hosting', 'create'),
+      (error) => {
+        assert.equal(error.code, code);
+        assert.deepEqual(error.cause, {
+          code: 'http-rejected',
+          phase: 'mutation',
+          httpStatusClass: status < 500 ? '4xx' : '5xx',
+        });
+        return true;
+      }
+    );
+    assert.equal(attempts, 1);
+    assert.equal(x.input.checkpoint.version, null);
+    assert.equal(
+      x.calls.filter((c) => c.method === 'GET' && c.url.includes('/versions')).length,
+      code === 'unknown' ? 2 : 1
+    );
+  }
+});
+
+test('a late successful mutation body gets one fresh-budget exact confirmation', async () => {
+  const x = hostedFixture();
+  const { DeployFailure } = require('../../src/deploy_firestore/helper.cjs');
+  const http = x.f.http;
+  const start = Date.now();
+  let clock = start;
+  let attempted = false;
+  let confirmations = 0;
+  x.f.now = () => clock;
+  x.f.deadline = start + 90000;
+  x.f.http = async (url, options, deadline) => {
+    if (url.includes('/versions') && options.method === 'GET') {
+      if (attempted) {
+        confirmations++;
+        assert.equal(deadline, start + 90000);
+      } else clock = start + 29000;
+    }
+    const response = await http(url, options, deadline);
+    if (url.endsWith('/versions') && options.method === 'POST') {
+      assert.equal(deadline, start + 59000);
+      attempted = true;
+      clock = start + 60000;
+      throw new DeployFailure('unknown', undefined, {
+        code: 'deadline',
+        phase: 'body',
+        httpStatusClass: '2xx',
+      });
+    }
+    return response;
+  };
+  assert.equal((await x.call('apply-hosting', 'create')).state, 'done');
+  assert.equal(confirmations, 2); // One bounded run: list by identity, then exact version GET.
+  assert.equal(x.calls.filter((c) => c.method === 'POST' && c.url.endsWith('/versions')).length, 1);
 });

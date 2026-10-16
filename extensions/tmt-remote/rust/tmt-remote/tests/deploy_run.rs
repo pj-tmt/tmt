@@ -1119,6 +1119,8 @@ struct HostedFake {
     inner: Fake,
     checkpoint: Option<tmt_remote::deploy_run::HostingCheckpoint>,
     publish: bool,
+    cause: Option<tmt_remote::deploy_run::StepCause>,
+    cause_calls: usize,
 }
 impl HostedFake {
     fn new() -> Self {
@@ -1126,6 +1128,8 @@ impl HostedFake {
             inner: Fake::new(ACCOUNT),
             checkpoint: None,
             publish: true,
+            cause: None,
+            cause_calls: 0,
         }
     }
 }
@@ -1167,6 +1171,12 @@ impl tmt_remote::deploy_run::DeployPort for HostedFake {
         p: &DeployPlan,
         s: &tmt_remote::deploy_run::DeployStep,
     ) -> Result<tmt_remote::deploy_run::DeployApplied, DeployProviderError> {
+        if s.id == "hosting:stage:create"
+            && let Some(cause) = self.cause
+        {
+            self.cause_calls += 1;
+            return Err(DeployProviderError::Unconfirmed(cause));
+        }
         tmt_remote::deploy_run::DeployPort::apply(&mut self.inner, p, s)
     }
 }
@@ -1728,7 +1738,9 @@ fn composite_check_cancellation_or_refusal_is_saved_without_publishing() {
         )
         .unwrap();
         let expected = match error {
-            DeployProviderError::Unknown => StepState::Unknown,
+            DeployProviderError::Unknown | DeployProviderError::Unconfirmed(_) => {
+                StepState::Unknown
+            }
             DeployProviderError::Rejected(fault) => StepState::Failed(fault),
         };
         assert!(states(&record).contains(&(ids[0].clone(), expected)));
@@ -1814,4 +1826,149 @@ fn failed_save_during_composite_checks_fences_all_later_calls() {
     for id in ids {
         assert!(states(last).contains(&(id.clone(), StepState::Building)));
     }
+}
+
+#[test]
+fn pre_cause_hosting_record_reads_unchanged_and_resumes_the_original_digest() {
+    use tmt_remote::deploy_run::{CauseCode, CausePhase, StepCause};
+    let plan = hosted_plan();
+    let mut fake = HostedFake::new();
+    fake.inner
+        .faults
+        .insert("hosting:stage:create".into(), When::AfterEffectUnknown);
+    let mut sink = Mem::default();
+    let mut original = run(
+        &plan,
+        &authorized(&plan),
+        DeployRecord::new(DEPLOYMENT),
+        &mut fake,
+        &mut sink,
+        1,
+    )
+    .unwrap();
+    for step in &mut original.run.as_mut().unwrap().steps {
+        step.cause = None;
+    }
+    let old_bytes = serde_json::to_vec(&original).unwrap();
+    assert!(!String::from_utf8_lossy(&old_bytes).contains("cause"));
+    // A pre-change record has only id/state step members, including the ambiguous create.
+    let root = deploy_fixture_root::Root::new();
+    let layout = root.layout();
+    let mut writer = tmt_remote::deploy_record::DeployRecordStore::open(&layout, PROJECT).unwrap();
+    writer.bind_target(PROJECT, LOCATION).unwrap();
+    writer.persist(&original).unwrap();
+    let path = root
+        .remote()
+        .join(format!("deployments/{PROJECT}/deploy.json"));
+    let old_file = fs::read(&path).unwrap();
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&old_file).unwrap()["version"],
+        3
+    );
+    assert!(!String::from_utf8_lossy(&old_file).contains("cause"));
+    let read = writer.load_or_draft().unwrap();
+    assert_eq!(fs::read(&path).unwrap(), old_file);
+    assert_eq!(serde_json::to_vec(&read).unwrap(), old_bytes);
+    let retained = tmt_remote::deploy_run::retain_hosting_plan(plan.clone(), &read).unwrap();
+    assert_eq!(retained.bytes(), plan.bytes());
+    let complete = run(
+        &retained,
+        &authorized(&retained),
+        read,
+        &mut fake,
+        &mut writer,
+        2,
+    )
+    .unwrap();
+    assert_eq!(complete.run.as_ref().unwrap().state, RunState::Complete);
+    assert_eq!(fake.inner.effects_of("hosting:stage:create"), 1);
+    assert!(
+        complete
+            .run
+            .as_ref()
+            .unwrap()
+            .steps
+            .iter()
+            .all(|step| step.cause.is_none())
+    );
+    let cause = StepCause::new(CauseCode::Deadline, CausePhase::Mutation);
+    let mut diagnosed = original;
+    diagnosed
+        .run
+        .as_mut()
+        .unwrap()
+        .steps
+        .iter_mut()
+        .find(|s| s.id == "hosting:stage:create")
+        .unwrap()
+        .cause = Some(cause);
+    let json = serde_json::to_value(&diagnosed).unwrap();
+    let step = json["run"]["steps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["id"] == "hosting:stage:create")
+        .unwrap();
+    assert_eq!(
+        step["cause"],
+        serde_json::json!({"code":"deadline","phase":"mutation"})
+    );
+    assert_eq!(diagnosed.run.as_ref().unwrap().plan_digest, plan.digest());
+}
+
+#[test]
+fn unknown_hosting_persists_the_adapter_cause_and_keeps_the_create_fence() {
+    use tmt_remote::deploy_run::{CauseCode, CausePhase, HttpStatusClass, StepCause};
+    let plan = hosted_plan();
+    let cause = StepCause {
+        code: CauseCode::Deadline,
+        phase: CausePhase::Body,
+        http_status_class: Some(HttpStatusClass::Success),
+    };
+    let mut fake = HostedFake::new();
+    fake.cause = Some(cause);
+    let mut sink = Mem::default();
+    let record = run(
+        &plan,
+        &authorized(&plan),
+        DeployRecord::new(DEPLOYMENT),
+        &mut fake,
+        &mut sink,
+        1,
+    )
+    .unwrap();
+    let json = serde_json::to_value(&record).unwrap();
+    let step = json["run"]["steps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["id"] == "hosting:stage:create")
+        .unwrap();
+    assert_eq!(step["state"], "unknown");
+    assert_eq!(
+        step["cause"],
+        serde_json::json!({"code":"deadline","phase":"body","httpStatusClass":"2xx"})
+    );
+    assert_eq!(fake.cause_calls, 1);
+    fake.inner.calls.clear();
+    let record = run(&plan, &authorized(&plan), record, &mut fake, &mut sink, 2).unwrap();
+    assert_eq!(fake.cause_calls, 1);
+    assert!(
+        fake.inner
+            .calls
+            .iter()
+            .all(|call| !call.starts_with("apply:"))
+    );
+    assert_eq!(
+        record
+            .run
+            .as_ref()
+            .unwrap()
+            .steps
+            .iter()
+            .find(|s| s.id == "hosting:stage:create")
+            .unwrap()
+            .cause,
+        Some(cause)
+    );
 }

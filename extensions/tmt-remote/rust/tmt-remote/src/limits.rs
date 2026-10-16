@@ -159,6 +159,8 @@ pub const DEPLOY_RECORD_BYTES: usize = 1024 * 1024;
 
 /// One provider helper operation, including compatibility, login refresh and read-back.
 pub const DEPLOY_PROVIDER_CALL: Duration = Duration::from_secs(30);
+/// Hosting preparation, one mutation answer and one read-only reconciliation, each bounded.
+pub const HOSTING_APPLY_CALL: Duration = Duration::from_secs(90);
 /// Each captured helper stream and each provider response body.
 pub const DEPLOY_PROVIDER_BYTES: usize = 4 * 1024 * 1024;
 /// Finite inventory of provider field configs or Rulesets.

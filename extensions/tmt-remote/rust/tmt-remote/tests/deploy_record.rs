@@ -73,6 +73,7 @@ fn index_readiness_reads_the_snapshot_under_the_writer_lock_without_changing_byt
         ]
         .into_iter()
         .map(|id| StepRecord {
+            cause: None,
             state: if id.starts_with("composite-index:") {
                 StepState::Building
             } else {

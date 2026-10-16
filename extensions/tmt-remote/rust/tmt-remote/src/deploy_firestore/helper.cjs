@@ -7,6 +7,8 @@ const SUPPORTED = ['15.29.0'];
 const BYTES = 4 * 1024 * 1024;
 const PAGES = 10;
 const OVERRIDDEN_FIELDS_FILTER = 'indexConfig.usesAncestorConfig=false OR ttlConfig:*';
+const HOSTING_PHASE_MS = 30000;
+const HOSTING_APPLY_MS = 3 * HOSTING_PHASE_MS;
 const APP_OBSERVE_MS = 15000;
 const APP_POLL_MS = 250;
 const UPLOAD_BYTES = Math.ceil((4 * 1024 * 1024 + 65536) / 3) * 4 + 256 * 1024;
@@ -23,15 +25,29 @@ const FAULTS = new Set([
   'unknown',
 ]);
 class DeployFailure extends Error {
-  constructor(code, provider) {
+  constructor(code, provider, cause) {
     super('Firebase request could not be confirmed');
     this.code = code;
     this.provider = provider;
+    this.cause = cause;
   }
 }
-const fail = (code, provider) => {
-  throw new DeployFailure(code, provider);
+const fail = (code, provider, cause) => {
+  throw new DeployFailure(code, provider, cause);
 };
+function withCause(error, phase, httpStatusClass) {
+  const failure = error instanceof DeployFailure ? error : new DeployFailure('unknown');
+  failure.cause = {
+    code: failure.provider ? 'http-rejected' : 'invalid-response',
+    phase,
+    ...(httpStatusClass ? { httpStatusClass } : {}),
+    ...failure.cause,
+    ...(failure.provider
+      ? { httpStatusClass: `${Math.floor(failure.provider.status / 100)}xx` }
+      : {}),
+  };
+  return failure;
+}
 const sha = (source) => crypto.createHash('sha256').update(source).digest('hex');
 function keys(value, expected) {
   if (
@@ -89,7 +105,7 @@ function validate(request) {
     request.version !== 1 ||
     !Number.isInteger(request.budgetMs) ||
     request.budgetMs < 1 ||
-    request.budgetMs > 30000
+    request.budgetMs > (request.operation === 'apply-hosting' ? HOSTING_APPLY_MS : HOSTING_PHASE_MS)
   )
     fail('provider-rejected');
   if (
@@ -119,7 +135,7 @@ function validate(request) {
           'bytesBase64',
           'source',
         ],
-      ]),
+      ])
     ),
     'live-rules': ['project'],
     'index-budget': ['project', 'fields', 'composites'],
@@ -154,7 +170,7 @@ function validate(request) {
       i.fields.length > 200 ||
       i.fields.some(
         (field) =>
-          typeof field !== 'string' || !/^[a-z0-9_-]{1,64}\/[A-Za-z][A-Za-z0-9]{0,63}$/.test(field),
+          typeof field !== 'string' || !/^[a-z0-9_-]{1,64}\/[A-Za-z][A-Za-z0-9]{0,63}$/.test(field)
       ) ||
       new Set(i.fields).size !== i.fields.length)
   )
@@ -241,6 +257,15 @@ function compatibility(root) {
     }
   }
 }
+function capabilities() {
+  return {
+    versions: SUPPORTED,
+    maxBytes: BYTES,
+    maxPages: PAGES,
+    hostingPhaseMs: HOSTING_PHASE_MS,
+    hostingApplyMs: HOSTING_APPLY_MS,
+  };
+}
 function credentials(root) {
   // No CLI initialization, debug-file logger, ADC or environment token fallback.
   const logger = require(path.join(root, 'lib/logger.js')).logger;
@@ -296,21 +321,35 @@ function providerOperation(service, route) {
 }
 async function fetchJson(url, options, deadline) {
   const left = deadline - Date.now();
-  if (left <= 0) fail('unknown');
-  const response = await fetch(url, {
-    ...options,
-    redirect: 'error',
-    signal: AbortSignal.timeout(Math.min(left, 20000)),
-  });
+  if (left <= 0) fail('unknown', undefined, { code: 'deadline' });
+  let response;
+  try {
+    response = await fetch(url, {
+      ...options,
+      redirect: 'error',
+      signal: AbortSignal.timeout(Math.min(left, 20000)),
+    });
+  } catch (error) {
+    fail('unknown', undefined, {
+      code:
+        error?.name === 'TimeoutError' || error?.name === 'AbortError' ? 'deadline' : 'transport',
+    });
+  }
+  const cause = { phase: 'body', httpStatusClass: `${Math.floor(response.status / 100)}xx` };
   let size = 0;
   const chunks = [];
-  for await (const part of response.body ?? []) {
-    size += part.length;
-    if (size > BYTES) {
-      await response.body?.cancel().catch(() => {});
-      fail('unknown');
+  try {
+    for await (const part of response.body ?? []) {
+      size += part.length;
+      if (size > BYTES) {
+        await response.body?.cancel().catch(() => {});
+        fail('unknown', undefined, { ...cause, code: 'body-too-large' });
+      }
+      chunks.push(part);
     }
-    chunks.push(part);
+  } catch (error) {
+    if (error instanceof DeployFailure) throw error;
+    fail('unknown', undefined, { ...cause, code: 'transport' });
   }
   let value;
   try {
@@ -320,28 +359,36 @@ async function fetchJson(url, options, deadline) {
         ? null
         : JSON.parse(bytes.toString('utf8'));
   } catch {
-    fail('unknown');
+    fail('unknown', undefined, { ...cause, code: 'body-invalid' });
   }
-  if (Date.now() >= deadline) fail('unknown');
+  if (Date.now() >= deadline) fail('unknown', undefined, { ...cause, code: 'deadline' });
   return { status: response.status, body: value };
 }
 async function execute(request, deps) {
   const r = validate(request),
     i = r.input;
-  if (r.operation === 'compatibility')
-    return { versions: SUPPORTED, maxBytes: BYTES, maxPages: PAGES };
+  if (r.operation === 'compatibility') return capabilities();
   const deadline = deps.deadline;
   const now = deps.now ?? Date.now;
   const wait = deps.wait ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+  const isHosting = r.operation.endsWith('-hosting');
+  let callBound = isHosting ? Math.min(deadline, now() + HOSTING_PHASE_MS) : deadline;
+  let phase = 'credentials';
+  let httpStatusClass;
+  let reconciling = false;
   let effect = false;
   async function identity() {
+    phase = 'credentials';
+    httpStatusClass = undefined;
     const credential = await deps.credential();
+    if (now() >= callBound) fail('unknown', undefined, { code: 'deadline', phase });
     // Independently verify the token's live identity, not just configstore's label.
     const actual = await deps.http(
       'https://www.googleapis.com/oauth2/v3/userinfo',
       { method: 'GET', headers: { Authorization: `Bearer ${credential.token}` } },
-      deadline,
+      callBound
     );
+    httpStatusClass = `${Math.floor(actual.status / 100)}xx`;
     if (
       actual.status !== 200 ||
       actual.body?.email !== credential.account ||
@@ -349,12 +396,25 @@ async function execute(request, deps) {
     )
       fail(
         'login-required',
-        actual.status !== 200 ? { operation: 'identity', status: actual.status } : undefined,
+        actual.status !== 200 ? { operation: 'identity', status: actual.status } : undefined
       );
     if (r.account !== null && credential.account !== r.account) fail('account-changed');
     return credential;
   }
-  let credential = await identity();
+  let credential;
+  try {
+    credential = await identity();
+  } catch (error) {
+    throw isHosting ? withCause(error, 'credentials') : error;
+  }
+  async function beginMutation() {
+    phase = 'credentials';
+    credential = await identity();
+    if (isHosting) callBound = Math.min(deadline, now() + HOSTING_PHASE_MS);
+    phase = 'mutation';
+    httpStatusClass = undefined;
+    effect = true;
+  }
   if (r.operation === 'account') return credential.account;
   const project = i.project;
   const bases = {
@@ -370,25 +430,41 @@ async function execute(request, deps) {
     method = 'GET',
     body,
     absent = false,
-    callDeadline = deadline,
+    callDeadline = callBound
   ) {
     const earlierEffect = effect;
     if (method !== 'GET') {
-      credential = await identity();
-      effect = true;
+      await beginMutation();
+      callDeadline = callBound;
+    } else {
+      phase = 'list';
     }
-    const reply = await deps.http(
-      new URL(`${bases[service]}/${route}`).href,
-      {
-        method,
-        headers: {
-          Authorization: `Bearer ${credential.token}`,
-          'Content-Type': 'application/json',
+    httpStatusClass = undefined;
+    let reply;
+    try {
+      reply = await deps.http(
+        new URL(`${bases[service]}/${route}`).href,
+        {
+          method,
+          headers: {
+            Authorization: `Bearer ${credential.token}`,
+            'Content-Type': 'application/json',
+          },
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      },
-      callDeadline,
-    );
+        callDeadline
+      );
+    } catch (error) {
+      throw isHosting
+        ? withCause(
+            error instanceof DeployFailure
+              ? error
+              : new DeployFailure('unknown', undefined, { code: 'transport' }),
+            phase
+          )
+        : error;
+    }
+    httpStatusClass = `${Math.floor(reply.status / 100)}xx`;
     if (absent && reply.status === 404) return null;
     if (reply.status < 200 || reply.status >= 300) {
       const code = fault(reply, reply.body);
@@ -398,7 +474,8 @@ async function execute(request, deps) {
     return reply.body;
   }
   async function pages(service, route, key) {
-    const pageSize = service === 'rules' || (service === 'hosting' && key === 'versions') ? 100 : 200;
+    const pageSize =
+      service === 'rules' || (service === 'hosting' && key === 'versions') ? 100 : 200;
     const all = [];
     let token = '';
     const seen = new Set();
@@ -409,19 +486,23 @@ async function execute(request, deps) {
       ].join('&');
       const result = await api(
         service,
-        route + (query ? `${route.includes('?') ? '&' : '?'}${query}` : ''),
+        route + (query ? `${route.includes('?') ? '&' : '?'}${query}` : '')
       );
-      if (!result || (result[key] !== undefined && !Array.isArray(result[key]))) fail('unknown');
-      if ((result[key] ?? []).length > 200) fail('unknown');
+      if (!result || (result[key] !== undefined && !Array.isArray(result[key])))
+        fail('unknown', undefined, { code: 'inventory-incomplete' });
+      if ((result[key] ?? []).length > 200)
+        fail('unknown', undefined, { code: 'inventory-incomplete' });
       all.push(...(result[key] ?? []));
-      if (Buffer.byteLength(JSON.stringify(all)) > BYTES) fail('unknown');
+      if (Buffer.byteLength(JSON.stringify(all)) > BYTES)
+        fail('unknown', undefined, { code: 'inventory-incomplete' });
       token = result.nextPageToken ?? '';
-      if (typeof token !== 'string' || token.length > 4096) fail('unknown');
+      if (typeof token !== 'string' || token.length > 4096)
+        fail('unknown', undefined, { code: 'inventory-incomplete' });
       if (!token) return all;
-      if (seen.has(token)) fail('unknown');
+      if (seen.has(token)) fail('unknown', undefined, { code: 'inventory-incomplete' });
       seen.add(token);
     }
-    fail('unknown');
+    fail('unknown', undefined, { code: 'inventory-incomplete' });
   }
   // Hosting uses the same credential/effect fence and bounded requests as Firestore.
   const stable = (value) => JSON.stringify(normalize(value));
@@ -431,7 +512,7 @@ async function execute(request, deps) {
       return Object.fromEntries(
         Object.keys(value)
           .sort()
-          .map((k) => [k, normalize(value[k])]),
+          .map((k) => [k, normalize(value[k])])
       );
     return value;
   }
@@ -464,7 +545,7 @@ async function execute(request, deps) {
   async function publicConfig(appId) {
     const config = await api(
       'firebase',
-      `projects/${project}/webApps/${encodeURIComponent(appId)}/config`,
+      `projects/${project}/webApps/${encodeURIComponent(appId)}/config`
     );
     if (
       config.projectId !== project ||
@@ -484,7 +565,7 @@ async function execute(request, deps) {
       `projects/${project}/sites/${project}`,
       'GET',
       undefined,
-      true,
+      true
     );
     if (site === null)
       return {
@@ -510,7 +591,7 @@ async function execute(request, deps) {
         files.length > 256 ||
         files.some(
           (f) =>
-            f.status !== 'ACTIVE' || !/^[0-9a-f]{64}$/.test(f.hash) || typeof f.path !== 'string',
+            f.status !== 'ACTIVE' || !/^[0-9a-f]{64}$/.test(f.hash) || typeof f.path !== 'string'
         )
       )
         fail('unknown');
@@ -556,14 +637,14 @@ async function execute(request, deps) {
       'tmt-content': contentDigest.slice(0, 32),
     };
     const reply = (state) => ({ state, checkpoint: cp });
-    const applying = r.operation === 'apply-hosting';
+    const applying = r.operation === 'apply-hosting' && !reconciling;
     async function checkedApp(app) {
       const site = await api(
         'hosting',
         `projects/${project}/sites/${project}`,
         'GET',
         undefined,
-        true,
+        true
       );
       if (site?.appId && site.appId !== app.id) fail('unknown');
       await publicConfig(app.id);
@@ -606,7 +687,7 @@ async function execute(request, deps) {
       }
       const versions = await pages('hosting', `sites/${project}/versions`, 'versions');
       const matches = versions.filter(
-        (v) => stable(v.labels) === stable(labels) && stable(v.config) === stable(h.content.config),
+        (v) => stable(v.labels) === stable(labels) && stable(v.config) === stable(h.content.config)
       );
       if (matches.length > 1) fail('unknown');
       if (!matches.length) return null;
@@ -619,7 +700,7 @@ async function execute(request, deps) {
       const listed = await pages(
         'hosting',
         `${resource(cp.version, `sites/${project}/versions/`)}/files`,
-        'files',
+        'files'
       );
       if (listed.length > 256 || new Set(listed.map((f) => f.path)).size !== listed.length)
         fail('unknown');
@@ -678,7 +759,7 @@ async function execute(request, deps) {
         `projects/${project}/sites/${project}`,
         'GET',
         undefined,
-        true,
+        true
       );
       if (site !== null) {
         if (site.name !== `projects/${project}/sites/${project}` || site.defaultUrl !== h.publicUrl)
@@ -724,7 +805,7 @@ async function execute(request, deps) {
       const expected = files.map(({ path, hash }) => ({ path, hash }));
       if (stable(listed.map(({ path, hash }) => ({ path, hash }))) === stable(expected))
         return reply(applying ? 'done' : 'satisfied');
-      if (listed.length) fail('unknown');
+      if (listed.length) fail('unknown', undefined, { code: 'files-mismatch', phase: 'list' });
       if (!applying) return reply('absent');
       const result = await api('hosting', `${cp.version}:populateFiles`, 'POST', {
         files: Object.fromEntries(expected.map((f) => [f.path, f.hash])),
@@ -756,8 +837,7 @@ async function execute(request, deps) {
         bytes.toString('base64') !== i.bytesBase64
       )
         fail('provider-rejected');
-      credential = await identity();
-      effect = true;
+      await beginMutation();
       const result = await deps.http(
         `https://upload-firebasehosting.googleapis.com/upload/${cp.version}/files/${i.hash}`,
         {
@@ -768,8 +848,9 @@ async function execute(request, deps) {
           },
           body: bytes,
         },
-        deadline,
+        callBound
       );
+      httpStatusClass = `${Math.floor(result.status / 100)}xx`;
       if (result.status !== 200)
         fail(fault(result, result.body), { operation: 'hosting-upload', status: result.status });
       return reply('done');
@@ -799,7 +880,7 @@ async function execute(request, deps) {
         'hosting',
         `sites/${project}/releases?versionName=${encodeURIComponent(cp.version)}`,
         'POST',
-        {},
+        {}
       );
       if (!(await exactLive())) fail('unknown');
       return reply('done');
@@ -884,10 +965,12 @@ async function execute(request, deps) {
         typeof index.name !== 'string' ||
         !index.name.startsWith(`${database}/collectionGroups/`) ||
         !/^projects\/[^/]+\/databases\/[^/]+\/collectionGroups\/[^/]+\/indexes\/[^/]+$/.test(
-          index.name,
+          index.name
         ) ||
         names.has(index.name) ||
-        !Array.isArray(index.fields) || index.fields.length === 0 || index.fields.length > 100 ||
+        !Array.isArray(index.fields) ||
+        index.fields.length === 0 ||
+        index.fields.length > 100 ||
         index.fields.some((field) => !field || typeof field.fieldPath !== 'string') ||
         !['COLLECTION', 'COLLECTION_GROUP', 'COLLECTION_RECURSIVE'].includes(index.queryScope)
       )
@@ -907,7 +990,7 @@ async function execute(request, deps) {
         row.queryScope === index.queryScope &&
         Array.isArray(row.fields) &&
         !row.fields.some((field) => field.arrayConfig || field.vectorConfig) &&
-        indexSpec(row) === key,
+        indexSpec(row) === key
     );
   }
   function compositeState(matches, apply) {
@@ -932,12 +1015,12 @@ async function execute(request, deps) {
           : await pages(
               'firestore',
               `${database}/collectionGroups/-/fields?filter=${OVERRIDDEN_FIELDS_FILTER}`,
-              'fields',
+              'fields'
             );
       const unique = new Set(configured.map((x) => x.name));
       if (
         configured.some(
-          (x) => typeof x.name !== 'string' || !x.name.startsWith(`${database}/collectionGroups/`),
+          (x) => typeof x.name !== 'string' || !x.name.startsWith(`${database}/collectionGroups/`)
         ) ||
         unique.size !== configured.length
       )
@@ -951,7 +1034,7 @@ async function execute(request, deps) {
       const missing = new Set(
         i.composites
           .filter((index) => !matchingIndexes(composites, index).length)
-          .map((index) => `${index.collectionGroup}/${indexSpec(index)}`),
+          .map((index) => `${index.collectionGroup}/${indexSpec(index)}`)
       );
       if (composites.length + missing.size > 200) fail('quota-exceeded');
       return 'within-budget';
@@ -991,7 +1074,7 @@ async function execute(request, deps) {
           `projects/${project}/defaultSupportedIdpConfigs/google.com`,
           'GET',
           undefined,
-          true,
+          true
         );
         return google?.enabled === true
           ? r.operation.startsWith('apply')
@@ -1020,7 +1103,7 @@ async function execute(request, deps) {
         {
           queryScope: i.index.queryScope,
           fields: i.index.fields,
-        },
+        }
       );
       const observed = matchingIndexes(await compositeInventory(), i.index);
       return compositeState(observed, true);
@@ -1040,7 +1123,7 @@ async function execute(request, deps) {
           x.queryScope === 'COLLECTION' &&
           x.fields?.length === 1 &&
           x.fields[0].fieldPath === i.field &&
-          x.fields[0].order === order,
+          x.fields[0].order === order
       );
       if (matched) {
         if (matched.state === 'CREATING')
@@ -1052,7 +1135,7 @@ async function execute(request, deps) {
       const configured = await pages(
         'firestore',
         `${database}/collectionGroups/-/fields?filter=${OVERRIDDEN_FIELDS_FILTER}`,
-        'fields',
+        'fields'
       );
       const unique = new Set(configured.map((x) => x.name));
       if (configured.some((x) => typeof x.name !== 'string') || unique.size !== configured.length)
@@ -1062,9 +1145,9 @@ async function execute(request, deps) {
       const indexes = existing.indexConfig.indexes.map((x) =>
         Object.fromEntries(
           Object.entries(x).filter(([key]) =>
-            ['queryScope', 'fields', 'apiScope', 'density', 'multikey', 'unique'].includes(key),
-          ),
-        ),
+            ['queryScope', 'fields', 'apiScope', 'density', 'multikey', 'unique'].includes(key)
+          )
+        )
       );
       indexes.push({ queryScope: 'COLLECTION', fields: [{ fieldPath: i.field, order }] });
       await api('firestore', `${name}?updateMask=indexConfig`, 'PATCH', {
@@ -1087,7 +1170,7 @@ async function execute(request, deps) {
         if (
           !Array.isArray(candidate?.source?.files) ||
           candidate.source.files.some(
-            (f) => typeof f.name !== 'string' || typeof f.content !== 'string',
+            (f) => typeof f.name !== 'string' || typeof f.content !== 'string'
           )
         )
           fail('unknown');
@@ -1123,13 +1206,28 @@ async function execute(request, deps) {
         latest === null ? 'POST' : 'PATCH',
         latest === null
           ? { name: release, rulesetName: found }
-          : { release: { name: release, rulesetName: found }, updateMask: 'rulesetName' },
+          : { release: { name: release, rulesetName: found }, updateMask: 'rulesetName' }
       );
       if ((await liveRules()) !== i.source) fail('unknown');
       return 'done';
     }
     fail('provider-rejected');
   } catch (error) {
+    if (isHosting) {
+      const original = withCause(error, phase, httpStatusClass);
+      if (effect && r.operation === 'apply-hosting') {
+        reconciling = true;
+        callBound = Math.min(deadline, now() + HOSTING_PHASE_MS);
+        try {
+          const observed = await hosting();
+          if (observed.state === 'satisfied') return { ...observed, state: 'done' };
+        } catch {
+          /* Preserve the original cause; never repeat a mutation. */
+        }
+      }
+      if (effect) original.code = 'unknown';
+      throw original;
+    }
     if (effect) fail('unknown', error instanceof DeployFailure ? error.provider : undefined);
     if (error instanceof DeployFailure) throw error;
     fail('provider-rejected');
@@ -1142,12 +1240,11 @@ async function run(raw, root, deps) {
     if (request.operation !== 'apply-hosting' && Buffer.byteLength(raw) > BYTES)
       fail('provider-rejected');
     compatibility(root);
-    if (request.operation === 'compatibility')
-      return { version: 1, result: { versions: SUPPORTED, maxBytes: BYTES, maxPages: PAGES } };
+    if (request.operation === 'compatibility') return { version: 1, result: capabilities() };
     const deadline = Date.now() + request.budgetMs;
     const result = await execute(
       request,
-      deps ?? { credential: credentials(root), http: fetchJson, deadline },
+      deps ?? { credential: credentials(root), http: fetchJson, deadline }
     );
     const output = { version: 1, result };
     if (Buffer.byteLength(JSON.stringify(output)) > BYTES) fail('unknown');
@@ -1157,6 +1254,7 @@ async function run(raw, root, deps) {
       version: 1,
       error: error instanceof DeployFailure && FAULTS.has(error.code) ? error.code : 'unknown',
       ...(error instanceof DeployFailure && error.provider ? { provider: error.provider } : {}),
+      ...(error instanceof DeployFailure && error.cause ? { cause: error.cause } : {}),
     };
   }
 }
@@ -1179,6 +1277,8 @@ async function main() {
 }
 module.exports = {
   SUPPORTED,
+  HOSTING_PHASE_MS,
+  HOSTING_APPLY_MS,
   BYTES,
   PAGES,
   DeployFailure,
