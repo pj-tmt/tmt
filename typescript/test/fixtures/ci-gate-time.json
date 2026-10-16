@@ -1,0 +1,3747 @@
+{
+  "recordedAt": "2026-10-16T12:14:34.513Z",
+  "responses": {
+    "actions/workflows/ci.yml/runs?event=pull_request&status=success&per_page=100&page=1": {
+      "total_count": 2500,
+      "workflow_runs": [
+        {
+          "id": 38897303392,
+          "event": "pull_request",
+          "conclusion": "success",
+          "created_at": "2026-10-16T11:58:14Z",
+          "run_attempt": 1
+        },
+        {
+          "id": 38893555274,
+          "event": "pull_request",
+          "conclusion": "success",
+          "created_at": "2026-10-16T11:24:22Z",
+          "run_attempt": 1
+        },
+        {
+          "id": 38884841774,
+          "event": "pull_request",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:05:00Z",
+          "run_attempt": 1
+        },
+        {
+          "id": 38877178423,
+          "event": "pull_request",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:57:41Z",
+          "run_attempt": 1
+        },
+        {
+          "id": 38871651699,
+          "event": "pull_request",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:07:54Z",
+          "run_attempt": 1
+        },
+        {
+          "id": 38870415776,
+          "event": "pull_request",
+          "conclusion": "success",
+          "created_at": "2026-10-16T07:56:40Z",
+          "run_attempt": 2
+        },
+        {
+          "id": 38868625716,
+          "event": "pull_request",
+          "conclusion": "success",
+          "created_at": "2026-10-16T07:39:40Z",
+          "run_attempt": 1
+        },
+        {
+          "id": 38868264312,
+          "event": "pull_request",
+          "conclusion": "success",
+          "created_at": "2026-10-16T07:36:13Z",
+          "run_attempt": 1
+        }
+      ]
+    },
+    "actions/runs/38870415776/jobs?filter=latest&per_page=100&page=1": {
+      "total_count": 26,
+      "jobs": [
+        {
+          "id": 116880334769,
+          "name": "Select affected areas",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:17:29Z",
+          "started_at": "2026-10-16T07:56:44Z",
+          "completed_at": "2026-10-16T07:57:00Z"
+        },
+        {
+          "id": 116880335203,
+          "name": "Native Rust MSRV",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:17:30Z",
+          "started_at": "2026-10-16T07:57:03Z",
+          "completed_at": "2026-10-16T07:57:45Z"
+        },
+        {
+          "id": 116880335304,
+          "name": "Packed install (macOS x64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:17:30Z",
+          "started_at": "2026-10-16T08:21:45Z",
+          "completed_at": "2026-10-16T08:22:42Z"
+        },
+        {
+          "id": 116880335523,
+          "name": "Native process contracts",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:17:30Z",
+          "started_at": "2026-10-16T07:57:03Z",
+          "completed_at": "2026-10-16T08:05:56Z"
+        },
+        {
+          "id": 116880335547,
+          "name": "Release rehearsal (${{ matrix.product }})",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T08:17:30Z",
+          "started_at": "2026-10-16T08:17:30Z",
+          "completed_at": "2026-10-16T08:17:29Z"
+        },
+        {
+          "id": 116880335651,
+          "name": "Docker E2E shard 2/2",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:17:30Z",
+          "started_at": "2026-10-16T07:57:03Z",
+          "completed_at": "2026-10-16T08:07:35Z"
+        },
+        {
+          "id": 116880335715,
+          "name": "Build native runtime (x86_64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:17:30Z",
+          "started_at": "2026-10-16T07:57:03Z",
+          "completed_at": "2026-10-16T07:59:34Z"
+        },
+        {
+          "id": 116880335732,
+          "name": "Native Rust clippy",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:17:30Z",
+          "started_at": "2026-10-16T07:57:03Z",
+          "completed_at": "2026-10-16T07:58:48Z"
+        },
+        {
+          "id": 116880335797,
+          "name": "Docker E2E shard 1/2",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:17:30Z",
+          "started_at": "2026-10-16T07:57:05Z",
+          "completed_at": "2026-10-16T08:08:24Z"
+        },
+        {
+          "id": 116880335800,
+          "name": "Native Rust workspace tests",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:17:30Z",
+          "started_at": "2026-10-16T07:57:03Z",
+          "completed_at": "2026-10-16T08:10:41Z"
+        },
+        {
+          "id": 116880335867,
+          "name": "Build native runtime (aarch64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:17:30Z",
+          "started_at": "2026-10-16T07:57:05Z",
+          "completed_at": "2026-10-16T07:58:52Z"
+        },
+        {
+          "id": 116880336257,
+          "name": "Build native runtime (x86_64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:17:30Z",
+          "started_at": "2026-10-16T07:57:08Z",
+          "completed_at": "2026-10-16T07:59:29Z"
+        },
+        {
+          "id": 116880336518,
+          "name": "Packed install (Linux glibc x64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:17:30Z",
+          "started_at": "2026-10-16T07:59:37Z",
+          "completed_at": "2026-10-16T08:00:00Z"
+        },
+        {
+          "id": 116880336632,
+          "name": "Docker E2E",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:17:30Z",
+          "started_at": "2026-10-16T08:08:28Z",
+          "completed_at": "2026-10-16T08:08:40Z"
+        },
+        {
+          "id": 116880336671,
+          "name": "Native Rust contracts",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:17:30Z",
+          "started_at": "2026-10-16T08:10:44Z",
+          "completed_at": "2026-10-16T08:10:55Z"
+        },
+        {
+          "id": 116880336753,
+          "name": "Packed install (Linux glibc arm64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:17:30Z",
+          "started_at": "2026-10-16T07:59:40Z",
+          "completed_at": "2026-10-16T08:00:00Z"
+        },
+        {
+          "id": 116880336889,
+          "name": "Packed install (Linux musl arm64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:17:30Z",
+          "started_at": "2026-10-16T07:59:40Z",
+          "completed_at": "2026-10-16T07:59:59Z"
+        },
+        {
+          "id": 116880336919,
+          "name": "Unit tests",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:17:30Z",
+          "started_at": "2026-10-16T07:59:37Z",
+          "completed_at": "2026-10-16T08:02:25Z"
+        },
+        {
+          "id": 116880336976,
+          "name": "Packed install (Linux musl x64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:17:30Z",
+          "started_at": "2026-10-16T07:59:37Z",
+          "completed_at": "2026-10-16T07:59:58Z"
+        },
+        {
+          "id": 116880337036,
+          "name": "Packed install (macOS arm64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:17:30Z",
+          "started_at": "2026-10-16T07:59:43Z",
+          "completed_at": "2026-10-16T08:00:00Z"
+        },
+        {
+          "id": 116880365830,
+          "name": "Native dependency notices",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T08:17:35Z",
+          "started_at": "2026-10-16T08:17:35Z",
+          "completed_at": "2026-10-16T07:57:00Z"
+        },
+        {
+          "id": 116880378979,
+          "name": "Build native runtime (aarch64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:17:37Z",
+          "started_at": "2026-10-16T07:57:08Z",
+          "completed_at": "2026-10-16T07:59:32Z"
+        },
+        {
+          "id": 116880385595,
+          "name": "Code quality",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:17:38Z",
+          "started_at": "2026-10-16T07:57:03Z",
+          "completed_at": "2026-10-16T08:00:00Z"
+        },
+        {
+          "id": 116882211460,
+          "name": "Native package matrix",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:22:42Z",
+          "started_at": "2026-10-16T08:22:45Z",
+          "completed_at": "2026-10-16T08:22:58Z"
+        },
+        {
+          "id": 116882314066,
+          "name": "Complete trusted-main verification",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T08:22:59Z",
+          "started_at": "2026-10-16T08:22:59Z",
+          "completed_at": "2026-10-16T08:22:59Z"
+        },
+        {
+          "id": 116882314832,
+          "name": "Report main verification failure",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T08:22:59Z",
+          "started_at": "2026-10-16T08:22:59Z",
+          "completed_at": "2026-10-16T08:22:59Z"
+        }
+      ]
+    },
+    "actions/runs/38871651699/jobs?filter=latest&per_page=100&page=1": {
+      "total_count": 121,
+      "jobs": [
+        {
+          "id": 116876894073,
+          "name": "Select affected areas",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:07:54Z",
+          "started_at": "2026-10-16T08:07:57Z",
+          "completed_at": "2026-10-16T08:08:11Z"
+        },
+        {
+          "id": 116876992902,
+          "name": "Native Rust workspace tests",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:08:11Z",
+          "started_at": "2026-10-16T08:08:14Z",
+          "completed_at": "2026-10-16T08:22:00Z"
+        },
+        {
+          "id": 116876992939,
+          "name": "Native dependency notices",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:08:11Z",
+          "started_at": "2026-10-16T08:08:14Z",
+          "completed_at": "2026-10-16T08:12:09Z"
+        },
+        {
+          "id": 116876992977,
+          "name": "Native Rust clippy",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:08:11Z",
+          "started_at": "2026-10-16T08:08:14Z",
+          "completed_at": "2026-10-16T08:10:03Z"
+        },
+        {
+          "id": 116876992981,
+          "name": "Docker E2E shard 2/2",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:08:11Z",
+          "started_at": "2026-10-16T08:08:14Z",
+          "completed_at": "2026-10-16T08:18:37Z"
+        },
+        {
+          "id": 116876993019,
+          "name": "Native Rust MSRV",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:08:11Z",
+          "started_at": "2026-10-16T08:08:14Z",
+          "completed_at": "2026-10-16T08:09:03Z"
+        },
+        {
+          "id": 116876993028,
+          "name": "Build native runtime (x86_64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:08:11Z",
+          "started_at": "2026-10-16T08:08:14Z",
+          "completed_at": "2026-10-16T08:10:42Z"
+        },
+        {
+          "id": 116876993033,
+          "name": "Native process contracts",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:08:11Z",
+          "started_at": "2026-10-16T08:08:14Z",
+          "completed_at": "2026-10-16T08:17:56Z"
+        },
+        {
+          "id": 116876993044,
+          "name": "Docker E2E shard 1/2",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:08:11Z",
+          "started_at": "2026-10-16T08:08:14Z",
+          "completed_at": "2026-10-16T08:17:41Z"
+        },
+        {
+          "id": 116876993068,
+          "name": "Build native runtime (aarch64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:08:11Z",
+          "started_at": "2026-10-16T08:12:42Z",
+          "completed_at": "2026-10-16T08:15:14Z"
+        },
+        {
+          "id": 116876993103,
+          "name": "Code quality",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:08:11Z",
+          "started_at": "2026-10-16T08:08:15Z",
+          "completed_at": "2026-10-16T08:11:16Z"
+        },
+        {
+          "id": 116876993157,
+          "name": "Build native runtime (x86_64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:08:11Z",
+          "started_at": "2026-10-16T08:14:35Z",
+          "completed_at": "2026-10-16T08:16:30Z"
+        },
+        {
+          "id": 116876993321,
+          "name": "Build native runtime (aarch64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:08:11Z",
+          "started_at": "2026-10-16T08:08:16Z",
+          "completed_at": "2026-10-16T08:09:49Z"
+        },
+        {
+          "id": 116876993361,
+          "name": "Release rehearsal (remote) / Build remote (x86_64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:08:11Z",
+          "started_at": "2026-10-16T08:08:14Z",
+          "completed_at": "2026-10-16T08:12:18Z"
+        },
+        {
+          "id": 116876993411,
+          "name": "Release rehearsal (colab) / Build colab (aarch64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:08:11Z",
+          "started_at": "2026-10-16T08:08:20Z",
+          "completed_at": "2026-10-16T08:15:18Z"
+        },
+        {
+          "id": 116876993420,
+          "name": "Release rehearsal (colab) / Build colab (x86_64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:08:11Z",
+          "started_at": "2026-10-16T08:08:20Z",
+          "completed_at": "2026-10-16T08:14:27Z"
+        },
+        {
+          "id": 116876993421,
+          "name": "Release rehearsal (remote) / Build remote (aarch64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:08:11Z",
+          "started_at": "2026-10-16T08:15:25Z",
+          "completed_at": "2026-10-16T08:21:36Z"
+        },
+        {
+          "id": 116876993422,
+          "name": "Release rehearsal (remote) / Build remote (x86_64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:08:11Z",
+          "started_at": "2026-10-16T08:08:21Z",
+          "completed_at": "2026-10-16T08:13:55Z"
+        },
+        {
+          "id": 116876993437,
+          "name": "Release rehearsal (colab) / Build colab (aarch64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:08:11Z",
+          "started_at": "2026-10-16T08:08:16Z",
+          "completed_at": "2026-10-16T08:12:22Z"
+        },
+        {
+          "id": 116876993439,
+          "name": "Release rehearsal (cli) / Build cli (x86_64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:08:11Z",
+          "started_at": "2026-10-16T08:08:15Z",
+          "completed_at": "2026-10-16T08:13:31Z"
+        },
+        {
+          "id": 116876993458,
+          "name": "Release rehearsal (cli) / Build cli (aarch64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:08:11Z",
+          "started_at": "2026-10-16T08:08:18Z",
+          "completed_at": "2026-10-16T08:12:34Z"
+        },
+        {
+          "id": 116876993477,
+          "name": "Release rehearsal (remote) / Build remote (aarch64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:08:11Z",
+          "started_at": "2026-10-16T08:08:17Z",
+          "completed_at": "2026-10-16T08:12:09Z"
+        },
+        {
+          "id": 116876993492,
+          "name": "Release rehearsal (ops) / Build ops (x86_64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:08:11Z",
+          "started_at": "2026-10-16T08:08:20Z",
+          "completed_at": "2026-10-16T08:14:21Z"
+        },
+        {
+          "id": 116876993575,
+          "name": "Release rehearsal (cli) / Build cli (x86_64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:08:11Z",
+          "started_at": "2026-10-16T08:22:53Z",
+          "completed_at": "2026-10-16T08:30:51Z"
+        },
+        {
+          "id": 116876993638,
+          "name": "Release rehearsal (colab) / Build colab (x86_64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:08:11Z",
+          "started_at": "2026-10-16T08:08:16Z",
+          "completed_at": "2026-10-16T08:13:04Z"
+        },
+        {
+          "id": 116876993643,
+          "name": "Release rehearsal (ops) / Build ops (aarch64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:08:11Z",
+          "started_at": "2026-10-16T08:16:37Z",
+          "completed_at": "2026-10-16T08:22:40Z"
+        },
+        {
+          "id": 116876993731,
+          "name": "Release rehearsal (ops) / Build ops (x86_64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:08:11Z",
+          "started_at": "2026-10-16T08:08:15Z",
+          "completed_at": "2026-10-16T08:13:25Z"
+        },
+        {
+          "id": 116876993736,
+          "name": "Release rehearsal (digest) / Build digest (aarch64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:08:11Z",
+          "started_at": "2026-10-16T08:43:10Z",
+          "completed_at": "2026-10-16T08:48:41Z"
+        },
+        {
+          "id": 116876993746,
+          "name": "Release rehearsal (ops) / Build ops (aarch64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:08:11Z",
+          "started_at": "2026-10-16T08:08:17Z",
+          "completed_at": "2026-10-16T08:12:09Z"
+        },
+        {
+          "id": 116876993821,
+          "name": "Release rehearsal (cli) / Build cli (aarch64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:08:11Z",
+          "started_at": "2026-10-16T08:08:17Z",
+          "completed_at": "2026-10-16T08:12:18Z"
+        },
+        {
+          "id": 116876993825,
+          "name": "Release rehearsal (driver-herdr) / Build driver-herdr (x86_64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:08:11Z",
+          "started_at": "2026-10-16T08:34:20Z",
+          "completed_at": "2026-10-16T08:43:02Z"
+        },
+        {
+          "id": 116876993837,
+          "name": "Release rehearsal (driver-herdr) / Build driver-herdr (aarch64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:08:11Z",
+          "started_at": "2026-10-16T08:08:17Z",
+          "completed_at": "2026-10-16T08:12:01Z"
+        },
+        {
+          "id": 116876993863,
+          "name": "Release rehearsal (digest) / Build digest (x86_64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:08:11Z",
+          "started_at": "2026-10-16T08:21:22Z",
+          "completed_at": "2026-10-16T08:27:27Z"
+        },
+        {
+          "id": 116876993868,
+          "name": "Release rehearsal (digest) / Build digest (aarch64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:08:11Z",
+          "started_at": "2026-10-16T08:08:17Z",
+          "completed_at": "2026-10-16T08:12:04Z"
+        },
+        {
+          "id": 116876993886,
+          "name": "Release rehearsal (digest) / Build digest (x86_64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:08:11Z",
+          "started_at": "2026-10-16T08:08:15Z",
+          "completed_at": "2026-10-16T08:13:05Z"
+        },
+        {
+          "id": 116876993928,
+          "name": "Release rehearsal (driver-herdr) / Build driver-herdr (aarch64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:08:11Z",
+          "started_at": "2026-10-16T08:36:17Z",
+          "completed_at": "2026-10-16T08:44:27Z"
+        },
+        {
+          "id": 116876993988,
+          "name": "Release rehearsal (driver-herdr) / Build driver-herdr (x86_64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:08:11Z",
+          "started_at": "2026-10-16T08:08:15Z",
+          "completed_at": "2026-10-16T08:13:07Z"
+        },
+        {
+          "id": 116877899025,
+          "name": "Packed install (Linux musl arm64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:10:42Z",
+          "started_at": "2026-10-16T08:10:47Z",
+          "completed_at": "2026-10-16T08:11:09Z"
+        },
+        {
+          "id": 116877899033,
+          "name": "Packed install (Linux glibc arm64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:10:42Z",
+          "started_at": "2026-10-16T08:10:47Z",
+          "completed_at": "2026-10-16T08:11:09Z"
+        },
+        {
+          "id": 116877899039,
+          "name": "Packed install (Linux glibc x64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:10:42Z",
+          "started_at": "2026-10-16T08:10:45Z",
+          "completed_at": "2026-10-16T08:11:06Z"
+        },
+        {
+          "id": 116877899106,
+          "name": "Unit tests",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:10:42Z",
+          "started_at": "2026-10-16T08:10:45Z",
+          "completed_at": "2026-10-16T08:13:16Z"
+        },
+        {
+          "id": 116877899169,
+          "name": "Packed install (Linux musl x64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:10:42Z",
+          "started_at": "2026-10-16T08:10:45Z",
+          "completed_at": "2026-10-16T08:11:11Z"
+        },
+        {
+          "id": 116879544029,
+          "name": "Release rehearsal (colab) / Assemble authoritative colab release manifest",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:15:18Z",
+          "started_at": "2026-10-16T08:15:21Z",
+          "completed_at": "2026-10-16T08:16:13Z"
+        },
+        {
+          "id": 116879878241,
+          "name": "Release rehearsal (colab) / Verify final colab bundle (aarch64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:16:13Z",
+          "started_at": "2026-10-16T08:43:30Z",
+          "completed_at": "2026-10-16T08:44:36Z"
+        },
+        {
+          "id": 116879878263,
+          "name": "Release rehearsal (colab) / Verify final colab bundle (x86_64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:16:13Z",
+          "started_at": "2026-10-16T08:16:16Z",
+          "completed_at": "2026-10-16T08:17:09Z"
+        },
+        {
+          "id": 116879878408,
+          "name": "Release rehearsal (colab) / Publication gates (dry) for the colab candidate",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:16:13Z",
+          "started_at": "2026-10-16T08:16:16Z",
+          "completed_at": "2026-10-16T08:16:59Z"
+        },
+        {
+          "id": 116879878511,
+          "name": "Release rehearsal (colab) / Verify final colab bundle (aarch64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:16:13Z",
+          "started_at": "2026-10-16T08:16:18Z",
+          "completed_at": "2026-10-16T08:17:06Z"
+        },
+        {
+          "id": 116879878842,
+          "name": "Release rehearsal (colab) / Verify final colab bundle (x86_64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:16:13Z",
+          "started_at": "2026-10-16T08:44:34Z",
+          "completed_at": "2026-10-16T08:47:45Z"
+        },
+        {
+          "id": 116879978608,
+          "name": "Packed install (macOS x64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:16:30Z",
+          "started_at": "2026-10-16T08:25:33Z",
+          "completed_at": "2026-10-16T08:26:32Z"
+        },
+        {
+          "id": 116879978762,
+          "name": "Packed install (macOS arm64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:16:30Z",
+          "started_at": "2026-10-16T08:25:33Z",
+          "completed_at": "2026-10-16T08:25:45Z"
+        },
+        {
+          "id": 116880726999,
+          "name": "Docker E2E",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:18:38Z",
+          "started_at": "2026-10-16T08:18:41Z",
+          "completed_at": "2026-10-16T08:18:53Z"
+        },
+        {
+          "id": 116881815609,
+          "name": "Release rehearsal (remote) / Assemble authoritative remote release manifest",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:21:36Z",
+          "started_at": "2026-10-16T08:21:39Z",
+          "completed_at": "2026-10-16T08:22:22Z"
+        },
+        {
+          "id": 116881964778,
+          "name": "Native Rust contracts",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:22:01Z",
+          "started_at": "2026-10-16T08:22:04Z",
+          "completed_at": "2026-10-16T08:22:16Z"
+        },
+        {
+          "id": 116882091636,
+          "name": "Release rehearsal (remote) / Publication gates (dry) for the remote candidate",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:22:22Z",
+          "started_at": "2026-10-16T08:22:25Z",
+          "completed_at": "2026-10-16T08:23:04Z"
+        },
+        {
+          "id": 116882091833,
+          "name": "Release rehearsal (remote) / Verify final remote bundle (aarch64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:22:22Z",
+          "started_at": "2026-10-16T08:44:33Z",
+          "completed_at": "2026-10-16T08:45:12Z"
+        },
+        {
+          "id": 116882091853,
+          "name": "Release rehearsal (remote) / Verify final remote bundle (aarch64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:22:22Z",
+          "started_at": "2026-10-16T08:22:28Z",
+          "completed_at": "2026-10-16T08:23:08Z"
+        },
+        {
+          "id": 116882091911,
+          "name": "Release rehearsal (remote) / Verify final remote bundle (x86_64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:22:22Z",
+          "started_at": "2026-10-16T08:22:25Z",
+          "completed_at": "2026-10-16T08:23:05Z"
+        },
+        {
+          "id": 116882092059,
+          "name": "Release rehearsal (remote) / Verify final remote bundle (x86_64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:22:22Z",
+          "started_at": "2026-10-16T08:44:44Z",
+          "completed_at": "2026-10-16T08:46:30Z"
+        },
+        {
+          "id": 116882200833,
+          "name": "Release rehearsal (ops) / Assemble authoritative ops release manifest",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:22:40Z",
+          "started_at": "2026-10-16T08:22:43Z",
+          "completed_at": "2026-10-16T08:23:32Z"
+        },
+        {
+          "id": 116882516082,
+          "name": "Release rehearsal (ops) / Verify final ops bundle (x86_64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:23:32Z",
+          "started_at": "2026-10-16T08:23:35Z",
+          "completed_at": "2026-10-16T08:24:16Z"
+        },
+        {
+          "id": 116882516124,
+          "name": "Release rehearsal (ops) / Publication gates (dry) for the ops candidate",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:23:32Z",
+          "started_at": "2026-10-16T08:23:36Z",
+          "completed_at": "2026-10-16T08:24:16Z"
+        },
+        {
+          "id": 116882516182,
+          "name": "Release rehearsal (ops) / Verify final ops bundle (x86_64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:23:32Z",
+          "started_at": "2026-10-16T08:57:23Z",
+          "completed_at": "2026-10-16T08:58:57Z"
+        },
+        {
+          "id": 116882516209,
+          "name": "Release rehearsal (ops) / Verify final ops bundle (aarch64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:23:32Z",
+          "started_at": "2026-10-16T08:56:26Z",
+          "completed_at": "2026-10-16T08:57:16Z"
+        },
+        {
+          "id": 116882516211,
+          "name": "Release rehearsal (ops) / Verify final ops bundle (aarch64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:23:32Z",
+          "started_at": "2026-10-16T08:23:38Z",
+          "completed_at": "2026-10-16T08:24:16Z"
+        },
+        {
+          "id": 116885163098,
+          "name": "Release rehearsal (cli) / Assemble authoritative cli release manifest",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:30:51Z",
+          "started_at": "2026-10-16T08:30:55Z",
+          "completed_at": "2026-10-16T08:31:39Z"
+        },
+        {
+          "id": 116885455170,
+          "name": "Release rehearsal (cli) / Verify final cli bundle (x86_64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:31:39Z",
+          "started_at": "2026-10-16T08:58:57Z",
+          "completed_at": "2026-10-16T09:01:13Z"
+        },
+        {
+          "id": 116885455199,
+          "name": "Release rehearsal (cli) / Verify final cli bundle (aarch64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:31:39Z",
+          "started_at": "2026-10-16T09:03:31Z",
+          "completed_at": "2026-10-16T09:04:42Z"
+        },
+        {
+          "id": 116885455233,
+          "name": "Release rehearsal (cli) / Publication gates (dry) for the cli candidate",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:31:39Z",
+          "started_at": "2026-10-16T08:31:42Z",
+          "completed_at": "2026-10-16T08:32:25Z"
+        },
+        {
+          "id": 116885455241,
+          "name": "Release rehearsal (cli) / Verify final cli bundle (x86_64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:31:39Z",
+          "started_at": "2026-10-16T08:31:42Z",
+          "completed_at": "2026-10-16T08:33:21Z"
+        },
+        {
+          "id": 116885455287,
+          "name": "Release rehearsal (cli) / Verify final cli bundle (aarch64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:31:39Z",
+          "started_at": "2026-10-16T08:31:49Z",
+          "completed_at": "2026-10-16T08:32:36Z"
+        },
+        {
+          "id": 116890113095,
+          "name": "Release rehearsal (driver-herdr) / Assemble authoritative driver-herdr release manifest",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:44:27Z",
+          "started_at": "2026-10-16T08:44:30Z",
+          "completed_at": "2026-10-16T08:45:11Z"
+        },
+        {
+          "id": 116890381606,
+          "name": "Release rehearsal (driver-herdr) / Publication gates (dry) for the driver-herdr candidate",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:45:11Z",
+          "started_at": "2026-10-16T08:45:15Z",
+          "completed_at": "2026-10-16T08:45:56Z"
+        },
+        {
+          "id": 116890381607,
+          "name": "Release rehearsal (driver-herdr) / Verify final driver-herdr bundle (aarch64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:45:11Z",
+          "started_at": "2026-10-16T09:04:47Z",
+          "completed_at": "2026-10-16T09:05:30Z"
+        },
+        {
+          "id": 116890381639,
+          "name": "Release rehearsal (driver-herdr) / Verify final driver-herdr bundle (aarch64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:45:11Z",
+          "started_at": "2026-10-16T08:45:17Z",
+          "completed_at": "2026-10-16T08:45:53Z"
+        },
+        {
+          "id": 116890381685,
+          "name": "Release rehearsal (driver-herdr) / Verify final driver-herdr bundle (x86_64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:45:11Z",
+          "started_at": "2026-10-16T08:45:14Z",
+          "completed_at": "2026-10-16T08:45:54Z"
+        },
+        {
+          "id": 116890381992,
+          "name": "Release rehearsal (driver-herdr) / Verify final driver-herdr bundle (x86_64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:45:11Z",
+          "started_at": "2026-10-16T09:05:39Z",
+          "completed_at": "2026-10-16T09:07:29Z"
+        },
+        {
+          "id": 116890866251,
+          "name": "Release rehearsal (remote) / Stage the remote candidate for the upgrade proof",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:46:31Z",
+          "started_at": "2026-10-16T08:46:34Z",
+          "completed_at": "2026-10-16T08:47:03Z"
+        },
+        {
+          "id": 116891060474,
+          "name": "Release rehearsal (remote) / Upgrade proof of the remote candidate / Upgrade remote to tmt-remote-v0.1.0-alpha.999999 (x86_64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:47:03Z",
+          "started_at": "2026-10-16T09:01:22Z",
+          "completed_at": "2026-10-16T09:03:22Z"
+        },
+        {
+          "id": 116891060487,
+          "name": "Release rehearsal (remote) / Upgrade proof of the remote candidate / Upgrade remote to tmt-remote-v0.1.0-alpha.999999 (x86_64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:47:03Z",
+          "started_at": "2026-10-16T08:47:06Z",
+          "completed_at": "2026-10-16T08:47:51Z"
+        },
+        {
+          "id": 116891060533,
+          "name": "Release rehearsal (remote) / Upgrade proof of the remote candidate / Upgrade remote to tmt-remote-v0.1.0-alpha.999999 (aarch64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:47:03Z",
+          "started_at": "2026-10-16T08:47:08Z",
+          "completed_at": "2026-10-16T08:47:47Z"
+        },
+        {
+          "id": 116891060594,
+          "name": "Release rehearsal (remote) / Upgrade proof of the remote candidate / Upgrade remote to tmt-remote-v0.1.0-alpha.999999 (aarch64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:47:03Z",
+          "started_at": "2026-10-16T09:05:44Z",
+          "completed_at": "2026-10-16T09:07:01Z"
+        },
+        {
+          "id": 116891317814,
+          "name": "Release rehearsal (colab) / Stage the colab candidate for the upgrade proof",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:47:46Z",
+          "started_at": "2026-10-16T08:47:49Z",
+          "completed_at": "2026-10-16T08:48:16Z"
+        },
+        {
+          "id": 116891505099,
+          "name": "Release rehearsal (colab) / Upgrade proof of the colab candidate / Upgrade colab to tmt-colab-v0.1.0-alpha.999999 (x86_64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:48:16Z",
+          "started_at": "2026-10-16T09:08:04Z",
+          "completed_at": "2026-10-16T09:10:22Z"
+        },
+        {
+          "id": 116891505148,
+          "name": "Release rehearsal (colab) / Upgrade proof of the colab candidate / Upgrade colab to tmt-colab-v0.1.0-alpha.999999 (x86_64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:48:16Z",
+          "started_at": "2026-10-16T08:48:20Z",
+          "completed_at": "2026-10-16T08:49:08Z"
+        },
+        {
+          "id": 116891505149,
+          "name": "Release rehearsal (colab) / Upgrade proof of the colab candidate / Upgrade colab to tmt-colab-v0.1.0-alpha.999999 (aarch64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:48:16Z",
+          "started_at": "2026-10-16T08:48:22Z",
+          "completed_at": "2026-10-16T08:49:01Z"
+        },
+        {
+          "id": 116891505216,
+          "name": "Release rehearsal (colab) / Upgrade proof of the colab candidate / Upgrade colab to tmt-colab-v0.1.0-alpha.999999 (aarch64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:48:16Z",
+          "started_at": "2026-10-16T09:08:55Z",
+          "completed_at": "2026-10-16T09:10:16Z"
+        },
+        {
+          "id": 116891655715,
+          "name": "Release rehearsal (digest) / Assemble authoritative digest release manifest",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:48:41Z",
+          "started_at": "2026-10-16T08:48:45Z",
+          "completed_at": "2026-10-16T08:49:31Z"
+        },
+        {
+          "id": 116891959296,
+          "name": "Release rehearsal (digest) / Verify final digest bundle (aarch64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:49:32Z",
+          "started_at": "2026-10-16T08:49:37Z",
+          "completed_at": "2026-10-16T08:50:15Z"
+        },
+        {
+          "id": 116891959375,
+          "name": "Release rehearsal (digest) / Verify final digest bundle (x86_64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:49:32Z",
+          "started_at": "2026-10-16T08:49:35Z",
+          "completed_at": "2026-10-16T08:50:20Z"
+        },
+        {
+          "id": 116891959390,
+          "name": "Release rehearsal (digest) / Publication gates (dry) for the digest candidate",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:49:32Z",
+          "started_at": "2026-10-16T08:49:35Z",
+          "completed_at": "2026-10-16T08:50:19Z"
+        },
+        {
+          "id": 116891959457,
+          "name": "Release rehearsal (digest) / Verify final digest bundle (aarch64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:49:32Z",
+          "started_at": "2026-10-16T09:06:28Z",
+          "completed_at": "2026-10-16T09:07:32Z"
+        },
+        {
+          "id": 116891959477,
+          "name": "Release rehearsal (digest) / Verify final digest bundle (x86_64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:49:32Z",
+          "started_at": "2026-10-16T09:07:09Z",
+          "completed_at": "2026-10-16T09:08:47Z"
+        },
+        {
+          "id": 116895378010,
+          "name": "Release rehearsal (ops) / Stage the ops candidate for the upgrade proof",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:58:57Z",
+          "started_at": "2026-10-16T08:59:00Z",
+          "completed_at": "2026-10-16T08:59:35Z"
+        },
+        {
+          "id": 116895609948,
+          "name": "Release rehearsal (ops) / Upgrade proof of the ops candidate / Upgrade ops to tmt-ops-v0.1.0-alpha.999999 (x86_64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:59:35Z",
+          "started_at": "2026-10-16T08:59:38Z",
+          "completed_at": "2026-10-16T09:00:18Z"
+        },
+        {
+          "id": 116895609952,
+          "name": "Release rehearsal (ops) / Upgrade proof of the ops candidate / Upgrade ops to tmt-ops-v0.1.0-alpha.999999 (x86_64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:59:35Z",
+          "started_at": "2026-10-16T09:10:05Z",
+          "completed_at": "2026-10-16T09:12:02Z"
+        },
+        {
+          "id": 116895610030,
+          "name": "Release rehearsal (ops) / Upgrade proof of the ops candidate / Upgrade ops to tmt-ops-v0.1.0-alpha.999999 (aarch64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:59:35Z",
+          "started_at": "2026-10-16T08:59:41Z",
+          "completed_at": "2026-10-16T09:00:27Z"
+        },
+        {
+          "id": 116895610534,
+          "name": "Release rehearsal (ops) / Upgrade proof of the ops candidate / Upgrade ops to tmt-ops-v0.1.0-alpha.999999 (aarch64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:59:35Z",
+          "started_at": "2026-10-16T09:10:22Z",
+          "completed_at": "2026-10-16T09:11:18Z"
+        },
+        {
+          "id": 116897523499,
+          "name": "Release rehearsal (cli) / Stage the cli candidate for the upgrade proof",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:04:42Z",
+          "started_at": "2026-10-16T09:04:45Z",
+          "completed_at": "2026-10-16T09:05:16Z"
+        },
+        {
+          "id": 116897738340,
+          "name": "Release rehearsal (cli) / Upgrade proof of the cli candidate / Upgrade cli to v5.0.0-alpha.999999 (aarch64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:05:17Z",
+          "started_at": "2026-10-16T09:10:32Z",
+          "completed_at": "2026-10-16T09:14:42Z"
+        },
+        {
+          "id": 116897738402,
+          "name": "Release rehearsal (cli) / Upgrade proof of the cli candidate / Upgrade cli to v5.0.0-alpha.999999 (x86_64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:05:17Z",
+          "started_at": "2026-10-16T09:05:20Z",
+          "completed_at": "2026-10-16T09:08:18Z"
+        }
+      ]
+    },
+    "actions/runs/38871651699/jobs?filter=latest&per_page=100&page=2": {
+      "total_count": 121,
+      "jobs": [
+        {
+          "id": 116897738425,
+          "name": "Release rehearsal (cli) / Upgrade proof of the cli candidate / Upgrade cli to v5.0.0-alpha.999999 (x86_64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:05:17Z",
+          "started_at": "2026-10-16T09:11:25Z",
+          "completed_at": "2026-10-16T09:18:00Z"
+        },
+        {
+          "id": 116897738644,
+          "name": "Release rehearsal (cli) / Upgrade proof of the cli candidate / Upgrade cli to v5.0.0-alpha.999999 (aarch64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:05:17Z",
+          "started_at": "2026-10-16T09:05:22Z",
+          "completed_at": "2026-10-16T09:07:40Z"
+        },
+        {
+          "id": 116898392577,
+          "name": "Release rehearsal (remote) / Upgrade proof of the remote candidate / Conclude the upgrade proof of tmt-remote-v0.1.0-alpha.999999",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:07:01Z",
+          "started_at": "2026-10-16T09:07:04Z",
+          "completed_at": "2026-10-16T09:07:22Z"
+        },
+        {
+          "id": 116898570458,
+          "name": "Release rehearsal (driver-herdr) / Stage the driver-herdr candidate for the upgrade proof",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:07:29Z",
+          "started_at": "2026-10-16T09:07:32Z",
+          "completed_at": "2026-10-16T09:07:57Z"
+        },
+        {
+          "id": 116898747889,
+          "name": "Release rehearsal (driver-herdr) / Upgrade proof of the driver-herdr candidate / Upgrade driver-herdr to tmt-driver-herdr-v0.1.0-alpha.999999 (x86_64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:07:57Z",
+          "started_at": "2026-10-16T09:15:17Z",
+          "completed_at": "2026-10-16T09:17:13Z"
+        },
+        {
+          "id": 116898747938,
+          "name": "Release rehearsal (driver-herdr) / Upgrade proof of the driver-herdr candidate / Upgrade driver-herdr to tmt-driver-herdr-v0.1.0-alpha.999999 (x86_64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:07:57Z",
+          "started_at": "2026-10-16T09:08:00Z",
+          "completed_at": "2026-10-16T09:08:46Z"
+        },
+        {
+          "id": 116898748049,
+          "name": "Release rehearsal (driver-herdr) / Upgrade proof of the driver-herdr candidate / Upgrade driver-herdr to tmt-driver-herdr-v0.1.0-alpha.999999 (aarch64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:07:57Z",
+          "started_at": "2026-10-16T09:08:03Z",
+          "completed_at": "2026-10-16T09:08:44Z"
+        },
+        {
+          "id": 116898748096,
+          "name": "Release rehearsal (driver-herdr) / Upgrade proof of the driver-herdr candidate / Upgrade driver-herdr to tmt-driver-herdr-v0.1.0-alpha.999999 (aarch64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:07:57Z",
+          "started_at": "2026-10-16T09:17:09Z",
+          "completed_at": "2026-10-16T09:18:19Z"
+        },
+        {
+          "id": 116899058018,
+          "name": "Release rehearsal (digest) / Stage the digest candidate for the upgrade proof",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:08:47Z",
+          "started_at": "2026-10-16T09:08:50Z",
+          "completed_at": "2026-10-16T09:09:16Z"
+        },
+        {
+          "id": 116899231746,
+          "name": "Release rehearsal (digest) / Upgrade proof of the digest candidate / Upgrade digest to tmt-digest-v0.1.0-alpha.999999 (aarch64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:09:16Z",
+          "started_at": "2026-10-16T09:17:21Z",
+          "completed_at": "2026-10-16T09:18:38Z"
+        },
+        {
+          "id": 116899231779,
+          "name": "Release rehearsal (digest) / Upgrade proof of the digest candidate / Upgrade digest to tmt-digest-v0.1.0-alpha.999999 (aarch64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:09:16Z",
+          "started_at": "2026-10-16T09:09:22Z",
+          "completed_at": "2026-10-16T09:10:00Z"
+        },
+        {
+          "id": 116899231822,
+          "name": "Release rehearsal (digest) / Upgrade proof of the digest candidate / Upgrade digest to tmt-digest-v0.1.0-alpha.999999 (x86_64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:09:16Z",
+          "started_at": "2026-10-16T09:18:44Z",
+          "completed_at": "2026-10-16T09:20:48Z"
+        },
+        {
+          "id": 116899231853,
+          "name": "Release rehearsal (digest) / Upgrade proof of the digest candidate / Upgrade digest to tmt-digest-v0.1.0-alpha.999999 (x86_64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:09:16Z",
+          "started_at": "2026-10-16T09:09:19Z",
+          "completed_at": "2026-10-16T09:10:05Z"
+        },
+        {
+          "id": 116899646450,
+          "name": "Release rehearsal (colab) / Upgrade proof of the colab candidate / Conclude the upgrade proof of tmt-colab-v0.1.0-alpha.999999",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:10:23Z",
+          "started_at": "2026-10-16T09:10:26Z",
+          "completed_at": "2026-10-16T09:10:36Z"
+        },
+        {
+          "id": 116900263745,
+          "name": "Release rehearsal (ops) / Upgrade proof of the ops candidate / Conclude the upgrade proof of tmt-ops-v0.1.0-alpha.999999",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:12:03Z",
+          "started_at": "2026-10-16T09:12:05Z",
+          "completed_at": "2026-10-16T09:12:17Z"
+        },
+        {
+          "id": 116902528007,
+          "name": "Release rehearsal (cli) / Upgrade proof of the cli candidate / Conclude the upgrade proof of v5.0.0-alpha.999999",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:18:00Z",
+          "started_at": "2026-10-16T09:18:03Z",
+          "completed_at": "2026-10-16T09:18:16Z"
+        },
+        {
+          "id": 116902651331,
+          "name": "Release rehearsal (driver-herdr) / Upgrade proof of the driver-herdr candidate / Conclude the upgrade proof of tmt-driver-herdr-v0.1.0-alpha.999999",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:18:19Z",
+          "started_at": "2026-10-16T09:18:22Z",
+          "completed_at": "2026-10-16T09:18:35Z"
+        },
+        {
+          "id": 116903572478,
+          "name": "Release rehearsal (digest) / Upgrade proof of the digest candidate / Conclude the upgrade proof of tmt-digest-v0.1.0-alpha.999999",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:20:48Z",
+          "started_at": "2026-10-16T09:20:51Z",
+          "completed_at": "2026-10-16T09:21:03Z"
+        },
+        {
+          "id": 116903667424,
+          "name": "Native package matrix",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:21:04Z",
+          "started_at": "2026-10-16T09:21:07Z",
+          "completed_at": "2026-10-16T09:21:20Z"
+        },
+        {
+          "id": 116903771571,
+          "name": "Report main verification failure",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T09:21:21Z",
+          "started_at": "2026-10-16T09:21:21Z",
+          "completed_at": "2026-10-16T09:21:20Z"
+        },
+        {
+          "id": 116903771907,
+          "name": "Complete trusted-main verification",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T09:21:21Z",
+          "started_at": "2026-10-16T09:21:21Z",
+          "completed_at": "2026-10-16T09:21:20Z"
+        }
+      ]
+    },
+    "actions/runs/38877178423/jobs?filter=latest&per_page=100&page=1": {
+      "total_count": 26,
+      "jobs": [
+        {
+          "id": 116894922051,
+          "name": "Select affected areas",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:57:42Z",
+          "started_at": "2026-10-16T08:57:45Z",
+          "completed_at": "2026-10-16T08:58:00Z"
+        },
+        {
+          "id": 116895031350,
+          "name": "Code quality",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:58:00Z",
+          "started_at": "2026-10-16T08:58:03Z",
+          "completed_at": "2026-10-16T09:01:09Z"
+        },
+        {
+          "id": 116895031416,
+          "name": "Build native runtime (x86_64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:58:00Z",
+          "started_at": "2026-10-16T08:58:21Z",
+          "completed_at": "2026-10-16T09:01:14Z"
+        },
+        {
+          "id": 116895031435,
+          "name": "Docker E2E shard 2/2",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:58:00Z",
+          "started_at": "2026-10-16T08:58:03Z",
+          "completed_at": "2026-10-16T09:08:29Z"
+        },
+        {
+          "id": 116895031447,
+          "name": "Native Rust MSRV",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:58:00Z",
+          "started_at": "2026-10-16T08:58:03Z",
+          "completed_at": "2026-10-16T08:59:00Z"
+        },
+        {
+          "id": 116895031463,
+          "name": "Build native runtime (x86_64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:58:00Z",
+          "started_at": "2026-10-16T08:58:03Z",
+          "completed_at": "2026-10-16T09:00:24Z"
+        },
+        {
+          "id": 116895031464,
+          "name": "Native Rust workspace tests",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:58:00Z",
+          "started_at": "2026-10-16T08:58:03Z",
+          "completed_at": "2026-10-16T09:11:58Z"
+        },
+        {
+          "id": 116895031479,
+          "name": "Build native runtime (aarch64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:58:00Z",
+          "started_at": "2026-10-16T09:04:35Z",
+          "completed_at": "2026-10-16T09:06:45Z"
+        },
+        {
+          "id": 116895031481,
+          "name": "Docker E2E shard 1/2",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:58:00Z",
+          "started_at": "2026-10-16T08:58:03Z",
+          "completed_at": "2026-10-16T09:07:18Z"
+        },
+        {
+          "id": 116895031538,
+          "name": "Build native runtime (aarch64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:58:00Z",
+          "started_at": "2026-10-16T08:58:12Z",
+          "completed_at": "2026-10-16T09:00:10Z"
+        },
+        {
+          "id": 116895031572,
+          "name": "Native process contracts",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:58:00Z",
+          "started_at": "2026-10-16T08:58:03Z",
+          "completed_at": "2026-10-16T09:06:49Z"
+        },
+        {
+          "id": 116895031647,
+          "name": "Native Rust clippy",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:58:00Z",
+          "started_at": "2026-10-16T08:58:03Z",
+          "completed_at": "2026-10-16T08:59:47Z"
+        },
+        {
+          "id": 116895032923,
+          "name": "Native dependency notices",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T08:58:00Z",
+          "started_at": "2026-10-16T08:58:00Z",
+          "completed_at": "2026-10-16T08:58:00Z"
+        },
+        {
+          "id": 116895033122,
+          "name": "Release rehearsal (${{ matrix.product }})",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T08:58:00Z",
+          "started_at": "2026-10-16T08:58:00Z",
+          "completed_at": "2026-10-16T08:58:00Z"
+        },
+        {
+          "id": 116895913244,
+          "name": "Unit tests",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:00:24Z",
+          "started_at": "2026-10-16T09:00:27Z",
+          "completed_at": "2026-10-16T09:03:08Z"
+        },
+        {
+          "id": 116895913526,
+          "name": "Packed install (Linux glibc x64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:00:24Z",
+          "started_at": "2026-10-16T09:00:28Z",
+          "completed_at": "2026-10-16T09:00:48Z"
+        },
+        {
+          "id": 116895913681,
+          "name": "Packed install (Linux glibc arm64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:00:24Z",
+          "started_at": "2026-10-16T09:00:30Z",
+          "completed_at": "2026-10-16T09:00:50Z"
+        },
+        {
+          "id": 116895913777,
+          "name": "Packed install (Linux musl x64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:00:24Z",
+          "started_at": "2026-10-16T09:00:30Z",
+          "completed_at": "2026-10-16T09:01:02Z"
+        },
+        {
+          "id": 116895917157,
+          "name": "Packed install (Linux musl arm64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:00:25Z",
+          "started_at": "2026-10-16T09:00:32Z",
+          "completed_at": "2026-10-16T09:00:58Z"
+        },
+        {
+          "id": 116898292923,
+          "name": "Packed install (macOS x64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:06:45Z",
+          "started_at": "2026-10-16T09:07:15Z",
+          "completed_at": "2026-10-16T09:07:56Z"
+        },
+        {
+          "id": 116898293094,
+          "name": "Packed install (macOS arm64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:06:45Z",
+          "started_at": "2026-10-16T09:09:04Z",
+          "completed_at": "2026-10-16T09:09:15Z"
+        },
+        {
+          "id": 116898943266,
+          "name": "Docker E2E",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:08:29Z",
+          "started_at": "2026-10-16T09:08:32Z",
+          "completed_at": "2026-10-16T09:08:43Z"
+        },
+        {
+          "id": 116900236655,
+          "name": "Native Rust contracts",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:11:59Z",
+          "started_at": "2026-10-16T09:12:02Z",
+          "completed_at": "2026-10-16T09:12:15Z"
+        },
+        {
+          "id": 116900343448,
+          "name": "Native package matrix",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:12:16Z",
+          "started_at": "2026-10-16T09:12:19Z",
+          "completed_at": "2026-10-16T09:12:32Z"
+        },
+        {
+          "id": 116900448182,
+          "name": "Report main verification failure",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T09:12:32Z",
+          "started_at": "2026-10-16T09:12:32Z",
+          "completed_at": "2026-10-16T09:12:32Z"
+        },
+        {
+          "id": 116900448479,
+          "name": "Complete trusted-main verification",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T09:12:32Z",
+          "started_at": "2026-10-16T09:12:32Z",
+          "completed_at": "2026-10-16T09:12:32Z"
+        }
+      ]
+    },
+    "actions/runs/38884841774/jobs?filter=latest&per_page=100&page=1": {
+      "total_count": 26,
+      "jobs": [
+        {
+          "id": 116919967033,
+          "name": "Select affected areas",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:05:01Z",
+          "started_at": "2026-10-16T10:05:04Z",
+          "completed_at": "2026-10-16T10:05:19Z"
+        },
+        {
+          "id": 116920080241,
+          "name": "Docker E2E shard 1/2",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:05:19Z",
+          "started_at": "2026-10-16T10:05:22Z",
+          "completed_at": "2026-10-16T10:14:28Z"
+        },
+        {
+          "id": 116920080286,
+          "name": "Native Rust clippy",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:05:19Z",
+          "started_at": "2026-10-16T10:05:22Z",
+          "completed_at": "2026-10-16T10:07:13Z"
+        },
+        {
+          "id": 116920080299,
+          "name": "Code quality",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:05:19Z",
+          "started_at": "2026-10-16T10:05:22Z",
+          "completed_at": "2026-10-16T10:08:13Z"
+        },
+        {
+          "id": 116920080303,
+          "name": "Native process contracts",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:05:19Z",
+          "started_at": "2026-10-16T10:05:22Z",
+          "completed_at": "2026-10-16T10:13:16Z"
+        },
+        {
+          "id": 116920080322,
+          "name": "Native Rust workspace tests",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:05:19Z",
+          "started_at": "2026-10-16T10:05:22Z",
+          "completed_at": "2026-10-16T10:19:11Z"
+        },
+        {
+          "id": 116920080337,
+          "name": "Build native runtime (x86_64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:05:19Z",
+          "started_at": "2026-10-16T10:05:26Z",
+          "completed_at": "2026-10-16T10:07:33Z"
+        },
+        {
+          "id": 116920080353,
+          "name": "Native Rust MSRV",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:05:19Z",
+          "started_at": "2026-10-16T10:05:22Z",
+          "completed_at": "2026-10-16T10:06:17Z"
+        },
+        {
+          "id": 116920080376,
+          "name": "Build native runtime (aarch64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:05:19Z",
+          "started_at": "2026-10-16T10:05:29Z",
+          "completed_at": "2026-10-16T10:07:28Z"
+        },
+        {
+          "id": 116920080400,
+          "name": "Docker E2E shard 2/2",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:05:19Z",
+          "started_at": "2026-10-16T10:05:22Z",
+          "completed_at": "2026-10-16T10:15:50Z"
+        },
+        {
+          "id": 116920080435,
+          "name": "Build native runtime (aarch64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:05:19Z",
+          "started_at": "2026-10-16T10:05:24Z",
+          "completed_at": "2026-10-16T10:07:02Z"
+        },
+        {
+          "id": 116920080593,
+          "name": "Build native runtime (x86_64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:05:19Z",
+          "started_at": "2026-10-16T10:05:22Z",
+          "completed_at": "2026-10-16T10:07:24Z"
+        },
+        {
+          "id": 116920082190,
+          "name": "Release rehearsal (${{ matrix.product }})",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T10:05:19Z",
+          "started_at": "2026-10-16T10:05:19Z",
+          "completed_at": "2026-10-16T10:05:19Z"
+        },
+        {
+          "id": 116920082496,
+          "name": "Native dependency notices",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T10:05:19Z",
+          "started_at": "2026-10-16T10:05:19Z",
+          "completed_at": "2026-10-16T10:05:19Z"
+        },
+        {
+          "id": 116920860949,
+          "name": "Packed install (Linux musl arm64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:07:24Z",
+          "started_at": "2026-10-16T10:07:29Z",
+          "completed_at": "2026-10-16T10:07:48Z"
+        },
+        {
+          "id": 116920861030,
+          "name": "Packed install (Linux glibc arm64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:07:24Z",
+          "started_at": "2026-10-16T10:07:29Z",
+          "completed_at": "2026-10-16T10:07:50Z"
+        },
+        {
+          "id": 116920861060,
+          "name": "Packed install (Linux musl x64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:07:24Z",
+          "started_at": "2026-10-16T10:07:27Z",
+          "completed_at": "2026-10-16T10:07:51Z"
+        },
+        {
+          "id": 116920861073,
+          "name": "Unit tests",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:07:24Z",
+          "started_at": "2026-10-16T10:07:27Z",
+          "completed_at": "2026-10-16T10:10:03Z"
+        },
+        {
+          "id": 116920861111,
+          "name": "Packed install (Linux glibc x64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:07:24Z",
+          "started_at": "2026-10-16T10:07:27Z",
+          "completed_at": "2026-10-16T10:07:45Z"
+        },
+        {
+          "id": 116920919065,
+          "name": "Packed install (macOS x64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:07:33Z",
+          "started_at": "2026-10-16T10:07:43Z",
+          "completed_at": "2026-10-16T10:08:40Z"
+        },
+        {
+          "id": 116920919162,
+          "name": "Packed install (macOS arm64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:07:33Z",
+          "started_at": "2026-10-16T10:07:44Z",
+          "completed_at": "2026-10-16T10:07:56Z"
+        },
+        {
+          "id": 116923970566,
+          "name": "Docker E2E",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:15:50Z",
+          "started_at": "2026-10-16T10:15:54Z",
+          "completed_at": "2026-10-16T10:16:06Z"
+        },
+        {
+          "id": 116925189476,
+          "name": "Native Rust contracts",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:19:11Z",
+          "started_at": "2026-10-16T10:19:14Z",
+          "completed_at": "2026-10-16T10:19:27Z"
+        },
+        {
+          "id": 116925284994,
+          "name": "Native package matrix",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:19:27Z",
+          "started_at": "2026-10-16T10:19:30Z",
+          "completed_at": "2026-10-16T10:19:43Z"
+        },
+        {
+          "id": 116925381531,
+          "name": "Complete trusted-main verification",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T10:19:44Z",
+          "started_at": "2026-10-16T10:19:44Z",
+          "completed_at": "2026-10-16T10:19:43Z"
+        },
+        {
+          "id": 116925382342,
+          "name": "Report main verification failure",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T10:19:44Z",
+          "started_at": "2026-10-16T10:19:44Z",
+          "completed_at": "2026-10-16T10:19:43Z"
+        }
+      ]
+    },
+    "actions/runs/38893555274/jobs?filter=latest&per_page=100&page=1": {
+      "total_count": 26,
+      "jobs": [
+        {
+          "id": 116951023987,
+          "name": "Select affected areas",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T11:31:17Z",
+          "started_at": "2026-10-16T11:31:19Z",
+          "completed_at": "2026-10-16T11:31:33Z"
+        },
+        {
+          "id": 116951126277,
+          "name": "Docker E2E shard 1/2",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T11:31:33Z",
+          "started_at": "2026-10-16T11:31:36Z",
+          "completed_at": "2026-10-16T11:42:58Z"
+        },
+        {
+          "id": 116951126321,
+          "name": "Docker E2E shard 2/2",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T11:31:33Z",
+          "started_at": "2026-10-16T11:31:37Z",
+          "completed_at": "2026-10-16T11:43:18Z"
+        },
+        {
+          "id": 116951126342,
+          "name": "Native process contracts",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T11:31:33Z",
+          "started_at": "2026-10-16T11:31:37Z",
+          "completed_at": "2026-10-16T11:41:31Z"
+        },
+        {
+          "id": 116951126346,
+          "name": "Native Rust workspace tests",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T11:31:33Z",
+          "started_at": "2026-10-16T11:31:36Z",
+          "completed_at": "2026-10-16T11:45:30Z"
+        },
+        {
+          "id": 116951126365,
+          "name": "Native Rust MSRV",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T11:31:33Z",
+          "started_at": "2026-10-16T11:31:36Z",
+          "completed_at": "2026-10-16T11:32:27Z"
+        },
+        {
+          "id": 116951126377,
+          "name": "Build native runtime (x86_64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T11:31:33Z",
+          "started_at": "2026-10-16T11:31:41Z",
+          "completed_at": "2026-10-16T11:33:41Z"
+        },
+        {
+          "id": 116951126385,
+          "name": "Build native runtime (x86_64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T11:31:33Z",
+          "started_at": "2026-10-16T11:31:36Z",
+          "completed_at": "2026-10-16T11:33:59Z"
+        },
+        {
+          "id": 116951126424,
+          "name": "Code quality",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T11:31:33Z",
+          "started_at": "2026-10-16T11:31:36Z",
+          "completed_at": "2026-10-16T11:34:30Z"
+        },
+        {
+          "id": 116951126504,
+          "name": "Native Rust clippy",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T11:31:33Z",
+          "started_at": "2026-10-16T11:31:36Z",
+          "completed_at": "2026-10-16T11:33:27Z"
+        },
+        {
+          "id": 116951126567,
+          "name": "Build native runtime (aarch64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T11:31:33Z",
+          "started_at": "2026-10-16T11:31:40Z",
+          "completed_at": "2026-10-16T11:33:18Z"
+        },
+        {
+          "id": 116951126601,
+          "name": "Build native runtime (aarch64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T11:31:33Z",
+          "started_at": "2026-10-16T11:31:42Z",
+          "completed_at": "2026-10-16T11:33:55Z"
+        },
+        {
+          "id": 116951128786,
+          "name": "Native dependency notices",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T11:31:34Z",
+          "started_at": "2026-10-16T11:31:34Z",
+          "completed_at": "2026-10-16T11:31:33Z"
+        },
+        {
+          "id": 116951129048,
+          "name": "Release rehearsal (${{ matrix.product }})",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T11:31:34Z",
+          "started_at": "2026-10-16T11:31:34Z",
+          "completed_at": "2026-10-16T11:31:33Z"
+        },
+        {
+          "id": 116951973894,
+          "name": "Packed install (macOS arm64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T11:33:55Z",
+          "started_at": "2026-10-16T11:34:02Z",
+          "completed_at": "2026-10-16T11:34:13Z"
+        },
+        {
+          "id": 116951974010,
+          "name": "Packed install (macOS x64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T11:33:55Z",
+          "started_at": "2026-10-16T11:34:04Z",
+          "completed_at": "2026-10-16T11:34:54Z"
+        },
+        {
+          "id": 116951996626,
+          "name": "Packed install (Linux glibc x64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T11:33:59Z",
+          "started_at": "2026-10-16T11:34:02Z",
+          "completed_at": "2026-10-16T11:34:25Z"
+        },
+        {
+          "id": 116951996767,
+          "name": "Unit tests",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T11:33:59Z",
+          "started_at": "2026-10-16T11:34:02Z",
+          "completed_at": "2026-10-16T11:36:23Z"
+        },
+        {
+          "id": 116951996769,
+          "name": "Packed install (Linux glibc arm64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T11:33:59Z",
+          "started_at": "2026-10-16T11:34:04Z",
+          "completed_at": "2026-10-16T11:34:20Z"
+        },
+        {
+          "id": 116951996783,
+          "name": "Packed install (Linux musl x64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T11:33:59Z",
+          "started_at": "2026-10-16T11:34:02Z",
+          "completed_at": "2026-10-16T11:34:22Z"
+        },
+        {
+          "id": 116951996837,
+          "name": "Packed install (Linux musl arm64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T11:33:59Z",
+          "started_at": "2026-10-16T11:34:04Z",
+          "completed_at": "2026-10-16T11:34:31Z"
+        },
+        {
+          "id": 116955336325,
+          "name": "Docker E2E",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T11:43:18Z",
+          "started_at": "2026-10-16T11:43:21Z",
+          "completed_at": "2026-10-16T11:43:33Z"
+        },
+        {
+          "id": 116956137738,
+          "name": "Native Rust contracts",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T11:45:30Z",
+          "started_at": "2026-10-16T11:45:33Z",
+          "completed_at": "2026-10-16T11:45:44Z"
+        },
+        {
+          "id": 116956222762,
+          "name": "Native package matrix",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T11:45:44Z",
+          "started_at": "2026-10-16T11:45:46Z",
+          "completed_at": "2026-10-16T11:45:57Z"
+        },
+        {
+          "id": 116956305826,
+          "name": "Report main verification failure",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T11:45:58Z",
+          "started_at": "2026-10-16T11:45:58Z",
+          "completed_at": "2026-10-16T11:45:57Z"
+        },
+        {
+          "id": 116956305992,
+          "name": "Complete trusted-main verification",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T11:45:58Z",
+          "started_at": "2026-10-16T11:45:58Z",
+          "completed_at": "2026-10-16T11:45:57Z"
+        }
+      ]
+    },
+    "actions/runs/38897303392/jobs?filter=latest&per_page=100&page=1": {
+      "total_count": 26,
+      "jobs": [
+        {
+          "id": 116961121694,
+          "name": "Select affected areas",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T11:59:16Z",
+          "started_at": "2026-10-16T11:59:19Z",
+          "completed_at": "2026-10-16T11:59:36Z"
+        },
+        {
+          "id": 116961241397,
+          "name": "Code quality",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T11:59:36Z",
+          "started_at": "2026-10-16T11:59:39Z",
+          "completed_at": "2026-10-16T12:02:39Z"
+        },
+        {
+          "id": 116961241448,
+          "name": "Build native runtime (x86_64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T11:59:36Z",
+          "started_at": "2026-10-16T11:59:43Z",
+          "completed_at": "2026-10-16T12:01:21Z"
+        },
+        {
+          "id": 116961241456,
+          "name": "Docker E2E shard 2/2",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T11:59:36Z",
+          "started_at": "2026-10-16T11:59:39Z",
+          "completed_at": "2026-10-16T12:10:38Z"
+        },
+        {
+          "id": 116961241466,
+          "name": "Native Rust clippy",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T11:59:36Z",
+          "started_at": "2026-10-16T11:59:39Z",
+          "completed_at": "2026-10-16T12:01:09Z"
+        },
+        {
+          "id": 116961241544,
+          "name": "Native Rust workspace tests",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T11:59:36Z",
+          "started_at": "2026-10-16T11:59:39Z",
+          "completed_at": "2026-10-16T12:12:31Z"
+        },
+        {
+          "id": 116961241551,
+          "name": "Native process contracts",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T11:59:36Z",
+          "started_at": "2026-10-16T11:59:39Z",
+          "completed_at": "2026-10-16T12:09:14Z"
+        },
+        {
+          "id": 116961241555,
+          "name": "Build native runtime (aarch64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T11:59:36Z",
+          "started_at": "2026-10-16T11:59:41Z",
+          "completed_at": "2026-10-16T12:01:22Z"
+        },
+        {
+          "id": 116961241566,
+          "name": "Native Rust MSRV",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T11:59:36Z",
+          "started_at": "2026-10-16T11:59:39Z",
+          "completed_at": "2026-10-16T12:00:36Z"
+        },
+        {
+          "id": 116961241567,
+          "name": "Docker E2E shard 1/2",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T11:59:36Z",
+          "started_at": "2026-10-16T11:59:39Z",
+          "completed_at": "2026-10-16T12:09:56Z"
+        },
+        {
+          "id": 116961241573,
+          "name": "Build native runtime (aarch64-apple-darwin)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T11:59:36Z",
+          "started_at": "2026-10-16T11:59:44Z",
+          "completed_at": "2026-10-16T12:01:54Z"
+        },
+        {
+          "id": 116961241590,
+          "name": "Build native runtime (x86_64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T11:59:36Z",
+          "started_at": "2026-10-16T11:59:40Z",
+          "completed_at": "2026-10-16T12:02:15Z"
+        },
+        {
+          "id": 116961242849,
+          "name": "Native dependency notices",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T11:59:37Z",
+          "started_at": "2026-10-16T11:59:37Z",
+          "completed_at": "2026-10-16T11:59:36Z"
+        },
+        {
+          "id": 116961243086,
+          "name": "Release rehearsal (${{ matrix.product }})",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T11:59:37Z",
+          "started_at": "2026-10-16T11:59:37Z",
+          "completed_at": "2026-10-16T11:59:36Z"
+        },
+        {
+          "id": 116962103048,
+          "name": "Packed install (macOS x64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T12:01:54Z",
+          "started_at": "2026-10-16T12:02:01Z",
+          "completed_at": "2026-10-16T12:02:42Z"
+        },
+        {
+          "id": 116962103063,
+          "name": "Packed install (macOS arm64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T12:01:54Z",
+          "started_at": "2026-10-16T12:02:01Z",
+          "completed_at": "2026-10-16T12:02:16Z"
+        },
+        {
+          "id": 116962233501,
+          "name": "Unit tests",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T12:02:16Z",
+          "started_at": "2026-10-16T12:02:18Z",
+          "completed_at": "2026-10-16T12:04:58Z"
+        },
+        {
+          "id": 116962233571,
+          "name": "Packed install (Linux musl arm64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T12:02:16Z",
+          "started_at": "2026-10-16T12:02:21Z",
+          "completed_at": "2026-10-16T12:02:41Z"
+        },
+        {
+          "id": 116962233640,
+          "name": "Packed install (Linux glibc arm64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T12:02:16Z",
+          "started_at": "2026-10-16T12:02:21Z",
+          "completed_at": "2026-10-16T12:02:45Z"
+        },
+        {
+          "id": 116962233674,
+          "name": "Packed install (Linux glibc x64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T12:02:16Z",
+          "started_at": "2026-10-16T12:02:18Z",
+          "completed_at": "2026-10-16T12:02:40Z"
+        },
+        {
+          "id": 116962233760,
+          "name": "Packed install (Linux musl x64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T12:02:16Z",
+          "started_at": "2026-10-16T12:02:19Z",
+          "completed_at": "2026-10-16T12:02:49Z"
+        },
+        {
+          "id": 116965351361,
+          "name": "Docker E2E",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T12:10:38Z",
+          "started_at": "2026-10-16T12:10:41Z",
+          "completed_at": "2026-10-16T12:10:51Z"
+        },
+        {
+          "id": 116966052562,
+          "name": "Native Rust contracts",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T12:12:32Z",
+          "started_at": "2026-10-16T12:12:35Z",
+          "completed_at": "2026-10-16T12:12:45Z"
+        },
+        {
+          "id": 116966137306,
+          "name": "Native package matrix",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T12:12:45Z",
+          "started_at": "2026-10-16T12:12:48Z",
+          "completed_at": "2026-10-16T12:13:01Z"
+        },
+        {
+          "id": 116966238429,
+          "name": "Complete trusted-main verification",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T12:13:02Z",
+          "started_at": "2026-10-16T12:13:02Z",
+          "completed_at": "2026-10-16T12:13:01Z"
+        },
+        {
+          "id": 116966238743,
+          "name": "Report main verification failure",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T12:13:02Z",
+          "started_at": "2026-10-16T12:13:02Z",
+          "completed_at": "2026-10-16T12:13:01Z"
+        }
+      ]
+    },
+    "actions/workflows/ci.yml/runs?event=merge_group&status=success&per_page=100&page=1": {
+      "total_count": 1202,
+      "workflow_runs": [
+        {
+          "id": 38888515965,
+          "event": "merge_group",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:38:04Z",
+          "run_attempt": 1
+        },
+        {
+          "id": 38885526684,
+          "event": "merge_group",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:11:04Z",
+          "run_attempt": 1
+        },
+        {
+          "id": 38881796802,
+          "event": "merge_group",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:38:06Z",
+          "run_attempt": 1
+        },
+        {
+          "id": 38873612900,
+          "event": "merge_group",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:25:41Z",
+          "run_attempt": 1
+        },
+        {
+          "id": 38871051179,
+          "event": "merge_group",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:02:32Z",
+          "run_attempt": 1
+        },
+        {
+          "id": 38870430661,
+          "event": "merge_group",
+          "conclusion": "success",
+          "created_at": "2026-10-16T07:56:49Z",
+          "run_attempt": 1
+        },
+        {
+          "id": 38868946919,
+          "event": "merge_group",
+          "conclusion": "success",
+          "created_at": "2026-10-16T07:42:41Z",
+          "run_attempt": 1
+        },
+        {
+          "id": 38865289554,
+          "event": "merge_group",
+          "conclusion": "success",
+          "created_at": "2026-10-16T07:08:05Z",
+          "run_attempt": 1
+        }
+      ]
+    },
+    "actions/runs/38870430661/jobs?filter=latest&per_page=100&page=1": {
+      "total_count": 24,
+      "jobs": [
+        {
+          "id": 116872968971,
+          "name": "Select affected areas",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T07:56:49Z",
+          "started_at": "2026-10-16T07:56:52Z",
+          "completed_at": "2026-10-16T07:57:05Z"
+        },
+        {
+          "id": 116873057491,
+          "name": "Native Rust workspace tests",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T07:57:05Z",
+          "started_at": "2026-10-16T07:57:07Z",
+          "completed_at": "2026-10-16T08:11:16Z"
+        },
+        {
+          "id": 116873057532,
+          "name": "Native Rust clippy",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T07:57:05Z",
+          "started_at": "2026-10-16T07:57:08Z",
+          "completed_at": "2026-10-16T07:58:33Z"
+        },
+        {
+          "id": 116873057537,
+          "name": "Code quality",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T07:57:05Z",
+          "started_at": "2026-10-16T07:57:08Z",
+          "completed_at": "2026-10-16T08:00:07Z"
+        },
+        {
+          "id": 116873057541,
+          "name": "Native process contracts",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T07:57:05Z",
+          "started_at": "2026-10-16T07:57:08Z",
+          "completed_at": "2026-10-16T08:06:55Z"
+        },
+        {
+          "id": 116873057552,
+          "name": "Native Rust MSRV",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T07:57:05Z",
+          "started_at": "2026-10-16T07:57:07Z",
+          "completed_at": "2026-10-16T07:57:58Z"
+        },
+        {
+          "id": 116873057635,
+          "name": "Docker E2E shard 1/2",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T07:57:05Z",
+          "started_at": "2026-10-16T07:57:07Z",
+          "completed_at": "2026-10-16T08:07:17Z"
+        },
+        {
+          "id": 116873057679,
+          "name": "Docker E2E shard 2/2",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T07:57:05Z",
+          "started_at": "2026-10-16T07:57:07Z",
+          "completed_at": "2026-10-16T08:06:55Z"
+        },
+        {
+          "id": 116873057783,
+          "name": "Build native runtime (x86_64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T07:57:05Z",
+          "started_at": "2026-10-16T07:57:08Z",
+          "completed_at": "2026-10-16T07:59:21Z"
+        },
+        {
+          "id": 116873057914,
+          "name": "Build native runtime (aarch64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T07:57:05Z",
+          "started_at": "2026-10-16T07:57:10Z",
+          "completed_at": "2026-10-16T07:58:51Z"
+        },
+        {
+          "id": 116873059333,
+          "name": "Build native runtime (${{ matrix.target }})",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T07:57:05Z",
+          "started_at": "2026-10-16T07:57:05Z",
+          "completed_at": "2026-10-16T07:57:05Z"
+        },
+        {
+          "id": 116873059374,
+          "name": "Packed install (${{ matrix.label }})",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T07:57:05Z",
+          "started_at": "2026-10-16T07:57:05Z",
+          "completed_at": "2026-10-16T07:57:05Z"
+        },
+        {
+          "id": 116873059393,
+          "name": "Release rehearsal (${{ matrix.product }})",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T07:57:05Z",
+          "started_at": "2026-10-16T07:57:05Z",
+          "completed_at": "2026-10-16T07:57:05Z"
+        },
+        {
+          "id": 116873059443,
+          "name": "Native dependency notices",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T07:57:05Z",
+          "started_at": "2026-10-16T07:57:05Z",
+          "completed_at": "2026-10-16T07:57:05Z"
+        },
+        {
+          "id": 116873826536,
+          "name": "Packed install (Linux glibc arm64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T07:59:22Z",
+          "started_at": "2026-10-16T07:59:26Z",
+          "completed_at": "2026-10-16T07:59:48Z"
+        },
+        {
+          "id": 116873826590,
+          "name": "Packed install (Linux musl x64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T07:59:22Z",
+          "started_at": "2026-10-16T07:59:24Z",
+          "completed_at": "2026-10-16T07:59:51Z"
+        },
+        {
+          "id": 116873826594,
+          "name": "Packed install (Linux musl arm64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T07:59:22Z",
+          "started_at": "2026-10-16T07:59:27Z",
+          "completed_at": "2026-10-16T07:59:50Z"
+        },
+        {
+          "id": 116873826613,
+          "name": "Packed install (Linux glibc x64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T07:59:22Z",
+          "started_at": "2026-10-16T07:59:24Z",
+          "completed_at": "2026-10-16T07:59:41Z"
+        },
+        {
+          "id": 116873826620,
+          "name": "Unit tests",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T07:59:22Z",
+          "started_at": "2026-10-16T07:59:24Z",
+          "completed_at": "2026-10-16T08:01:57Z"
+        },
+        {
+          "id": 116876660529,
+          "name": "Docker E2E",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:07:17Z",
+          "started_at": "2026-10-16T08:07:20Z",
+          "completed_at": "2026-10-16T08:07:31Z"
+        },
+        {
+          "id": 116878104971,
+          "name": "Native Rust contracts",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:11:17Z",
+          "started_at": "2026-10-16T08:11:19Z",
+          "completed_at": "2026-10-16T08:11:29Z"
+        },
+        {
+          "id": 116878183226,
+          "name": "Native package matrix",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:11:30Z",
+          "started_at": "2026-10-16T08:11:33Z",
+          "completed_at": "2026-10-16T08:11:44Z"
+        },
+        {
+          "id": 116878270487,
+          "name": "Complete trusted-main verification",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T08:11:44Z",
+          "started_at": "2026-10-16T08:11:44Z",
+          "completed_at": "2026-10-16T08:11:44Z"
+        },
+        {
+          "id": 116878272068,
+          "name": "Report main verification failure",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T08:11:45Z",
+          "started_at": "2026-10-16T08:11:45Z",
+          "completed_at": "2026-10-16T08:11:44Z"
+        }
+      ]
+    },
+    "actions/runs/38871051179/jobs?filter=latest&per_page=100&page=1": {
+      "total_count": 24,
+      "jobs": [
+        {
+          "id": 116874960226,
+          "name": "Select affected areas",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:02:33Z",
+          "started_at": "2026-10-16T08:02:35Z",
+          "completed_at": "2026-10-16T08:02:48Z"
+        },
+        {
+          "id": 116875049965,
+          "name": "Native Rust workspace tests",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:02:48Z",
+          "started_at": "2026-10-16T08:02:51Z",
+          "completed_at": "2026-10-16T08:16:45Z"
+        },
+        {
+          "id": 116875050027,
+          "name": "Native Rust clippy",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:02:48Z",
+          "started_at": "2026-10-16T08:02:51Z",
+          "completed_at": "2026-10-16T08:04:36Z"
+        },
+        {
+          "id": 116875050065,
+          "name": "Native Rust MSRV",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:02:48Z",
+          "started_at": "2026-10-16T08:02:51Z",
+          "completed_at": "2026-10-16T08:03:30Z"
+        },
+        {
+          "id": 116875050088,
+          "name": "Native process contracts",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:02:48Z",
+          "started_at": "2026-10-16T08:02:51Z",
+          "completed_at": "2026-10-16T08:12:24Z"
+        },
+        {
+          "id": 116875050128,
+          "name": "Build native runtime (x86_64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:02:48Z",
+          "started_at": "2026-10-16T08:02:51Z",
+          "completed_at": "2026-10-16T08:05:19Z"
+        },
+        {
+          "id": 116875050138,
+          "name": "Build native runtime (aarch64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:02:48Z",
+          "started_at": "2026-10-16T08:02:54Z",
+          "completed_at": "2026-10-16T08:04:29Z"
+        },
+        {
+          "id": 116875050161,
+          "name": "Code quality",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:02:48Z",
+          "started_at": "2026-10-16T08:02:51Z",
+          "completed_at": "2026-10-16T08:05:01Z"
+        },
+        {
+          "id": 116875050224,
+          "name": "Docker E2E shard 2/2",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:02:48Z",
+          "started_at": "2026-10-16T08:02:51Z",
+          "completed_at": "2026-10-16T08:15:29Z"
+        },
+        {
+          "id": 116875050248,
+          "name": "Docker E2E shard 1/2",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:02:48Z",
+          "started_at": "2026-10-16T08:02:52Z",
+          "completed_at": "2026-10-16T08:16:24Z"
+        },
+        {
+          "id": 116875051965,
+          "name": "Release rehearsal (${{ matrix.product }})",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T08:02:49Z",
+          "started_at": "2026-10-16T08:02:49Z",
+          "completed_at": "2026-10-16T08:02:48Z"
+        },
+        {
+          "id": 116875051990,
+          "name": "Native dependency notices",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T08:02:49Z",
+          "started_at": "2026-10-16T08:02:49Z",
+          "completed_at": "2026-10-16T08:02:48Z"
+        },
+        {
+          "id": 116875052444,
+          "name": "Build native runtime (${{ matrix.target }})",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T08:02:49Z",
+          "started_at": "2026-10-16T08:02:49Z",
+          "completed_at": "2026-10-16T08:02:48Z"
+        },
+        {
+          "id": 116875052669,
+          "name": "Packed install (${{ matrix.label }})",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T08:02:49Z",
+          "started_at": "2026-10-16T08:02:49Z",
+          "completed_at": "2026-10-16T08:02:48Z"
+        },
+        {
+          "id": 116875942140,
+          "name": "Unit tests",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:05:19Z",
+          "started_at": "2026-10-16T08:05:21Z",
+          "completed_at": "2026-10-16T08:08:02Z"
+        },
+        {
+          "id": 116875942179,
+          "name": "Packed install (Linux musl x64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:05:19Z",
+          "started_at": "2026-10-16T08:05:22Z",
+          "completed_at": "2026-10-16T08:05:51Z"
+        },
+        {
+          "id": 116875942274,
+          "name": "Packed install (Linux glibc x64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:05:19Z",
+          "started_at": "2026-10-16T08:05:22Z",
+          "completed_at": "2026-10-16T08:05:38Z"
+        },
+        {
+          "id": 116875942301,
+          "name": "Packed install (Linux glibc arm64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:05:19Z",
+          "started_at": "2026-10-16T08:05:24Z",
+          "completed_at": "2026-10-16T08:05:40Z"
+        },
+        {
+          "id": 116875942337,
+          "name": "Packed install (Linux musl arm64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:05:19Z",
+          "started_at": "2026-10-16T08:05:24Z",
+          "completed_at": "2026-10-16T08:05:44Z"
+        },
+        {
+          "id": 116879944181,
+          "name": "Docker E2E",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:16:24Z",
+          "started_at": "2026-10-16T08:16:27Z",
+          "completed_at": "2026-10-16T08:16:37Z"
+        },
+        {
+          "id": 116880070779,
+          "name": "Native Rust contracts",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:16:45Z",
+          "started_at": "2026-10-16T08:16:48Z",
+          "completed_at": "2026-10-16T08:17:01Z"
+        },
+        {
+          "id": 116880162219,
+          "name": "Native package matrix",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:17:01Z",
+          "started_at": "2026-10-16T08:17:04Z",
+          "completed_at": "2026-10-16T08:17:15Z"
+        },
+        {
+          "id": 116880251645,
+          "name": "Report main verification failure",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T08:17:15Z",
+          "started_at": "2026-10-16T08:17:15Z",
+          "completed_at": "2026-10-16T08:17:15Z"
+        },
+        {
+          "id": 116880251965,
+          "name": "Complete trusted-main verification",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T08:17:15Z",
+          "started_at": "2026-10-16T08:17:15Z",
+          "completed_at": "2026-10-16T08:17:15Z"
+        }
+      ]
+    },
+    "actions/runs/38873612900/jobs?filter=latest&per_page=100&page=1": {
+      "total_count": 24,
+      "jobs": [
+        {
+          "id": 116883300906,
+          "name": "Select affected areas",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:25:41Z",
+          "started_at": "2026-10-16T08:25:44Z",
+          "completed_at": "2026-10-16T08:25:58Z"
+        },
+        {
+          "id": 116883401235,
+          "name": "Native Rust workspace tests",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:25:58Z",
+          "started_at": "2026-10-16T08:26:01Z",
+          "completed_at": "2026-10-16T08:39:59Z"
+        },
+        {
+          "id": 116883401290,
+          "name": "Code quality",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:25:58Z",
+          "started_at": "2026-10-16T08:26:02Z",
+          "completed_at": "2026-10-16T08:29:04Z"
+        },
+        {
+          "id": 116883401298,
+          "name": "Native Rust MSRV",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:25:58Z",
+          "started_at": "2026-10-16T08:26:01Z",
+          "completed_at": "2026-10-16T08:26:54Z"
+        },
+        {
+          "id": 116883401337,
+          "name": "Native process contracts",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:25:58Z",
+          "started_at": "2026-10-16T08:26:01Z",
+          "completed_at": "2026-10-16T08:34:48Z"
+        },
+        {
+          "id": 116883401404,
+          "name": "Build native runtime (aarch64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:25:58Z",
+          "started_at": "2026-10-16T08:26:03Z",
+          "completed_at": "2026-10-16T08:27:41Z"
+        },
+        {
+          "id": 116883401436,
+          "name": "Native Rust clippy",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:25:58Z",
+          "started_at": "2026-10-16T08:26:01Z",
+          "completed_at": "2026-10-16T08:27:45Z"
+        },
+        {
+          "id": 116883401438,
+          "name": "Docker E2E shard 2/2",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:25:58Z",
+          "started_at": "2026-10-16T08:26:01Z",
+          "completed_at": "2026-10-16T08:36:27Z"
+        },
+        {
+          "id": 116883401503,
+          "name": "Docker E2E shard 1/2",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:25:58Z",
+          "started_at": "2026-10-16T08:26:01Z",
+          "completed_at": "2026-10-16T08:37:09Z"
+        },
+        {
+          "id": 116883401550,
+          "name": "Build native runtime (x86_64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:25:58Z",
+          "started_at": "2026-10-16T08:26:01Z",
+          "completed_at": "2026-10-16T08:28:30Z"
+        },
+        {
+          "id": 116883403145,
+          "name": "Release rehearsal (${{ matrix.product }})",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T08:25:58Z",
+          "started_at": "2026-10-16T08:25:58Z",
+          "completed_at": "2026-10-16T08:25:58Z"
+        },
+        {
+          "id": 116883403768,
+          "name": "Native dependency notices",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T08:25:58Z",
+          "started_at": "2026-10-16T08:25:58Z",
+          "completed_at": "2026-10-16T08:25:58Z"
+        },
+        {
+          "id": 116883403811,
+          "name": "Build native runtime (${{ matrix.target }})",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T08:25:58Z",
+          "started_at": "2026-10-16T08:25:58Z",
+          "completed_at": "2026-10-16T08:25:58Z"
+        },
+        {
+          "id": 116883404870,
+          "name": "Packed install (${{ matrix.label }})",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T08:25:59Z",
+          "started_at": "2026-10-16T08:25:59Z",
+          "completed_at": "2026-10-16T08:25:58Z"
+        },
+        {
+          "id": 116884308300,
+          "name": "Unit tests",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:28:30Z",
+          "started_at": "2026-10-16T08:28:34Z",
+          "completed_at": "2026-10-16T08:31:02Z"
+        },
+        {
+          "id": 116884308318,
+          "name": "Packed install (Linux glibc arm64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:28:30Z",
+          "started_at": "2026-10-16T08:28:36Z",
+          "completed_at": "2026-10-16T08:28:53Z"
+        },
+        {
+          "id": 116884308396,
+          "name": "Packed install (Linux musl x64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:28:30Z",
+          "started_at": "2026-10-16T08:28:34Z",
+          "completed_at": "2026-10-16T08:29:00Z"
+        },
+        {
+          "id": 116884308445,
+          "name": "Packed install (Linux musl arm64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:28:30Z",
+          "started_at": "2026-10-16T08:28:35Z",
+          "completed_at": "2026-10-16T08:29:03Z"
+        },
+        {
+          "id": 116884308481,
+          "name": "Packed install (Linux glibc x64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:28:30Z",
+          "started_at": "2026-10-16T08:28:33Z",
+          "completed_at": "2026-10-16T08:28:57Z"
+        },
+        {
+          "id": 116887444090,
+          "name": "Docker E2E",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:37:09Z",
+          "started_at": "2026-10-16T08:37:13Z",
+          "completed_at": "2026-10-16T08:37:26Z"
+        },
+        {
+          "id": 116888457875,
+          "name": "Native Rust contracts",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:39:59Z",
+          "started_at": "2026-10-16T08:40:02Z",
+          "completed_at": "2026-10-16T08:40:13Z"
+        },
+        {
+          "id": 116888544557,
+          "name": "Native package matrix",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T08:40:13Z",
+          "started_at": "2026-10-16T08:40:16Z",
+          "completed_at": "2026-10-16T08:40:30Z"
+        },
+        {
+          "id": 116888656922,
+          "name": "Complete trusted-main verification",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T08:40:31Z",
+          "started_at": "2026-10-16T08:40:31Z",
+          "completed_at": "2026-10-16T08:40:30Z"
+        },
+        {
+          "id": 116888657513,
+          "name": "Report main verification failure",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T08:40:31Z",
+          "started_at": "2026-10-16T08:40:31Z",
+          "completed_at": "2026-10-16T08:40:31Z"
+        }
+      ]
+    },
+    "actions/runs/38881796802/jobs?filter=latest&per_page=100&page=1": {
+      "total_count": 24,
+      "jobs": [
+        {
+          "id": 116910038337,
+          "name": "Select affected areas",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:38:06Z",
+          "started_at": "2026-10-16T09:38:09Z",
+          "completed_at": "2026-10-16T09:38:23Z"
+        },
+        {
+          "id": 116910142126,
+          "name": "Native process contracts",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:38:23Z",
+          "started_at": "2026-10-16T09:38:27Z",
+          "completed_at": "2026-10-16T09:48:21Z"
+        },
+        {
+          "id": 116910142132,
+          "name": "Native Rust workspace tests",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:38:23Z",
+          "started_at": "2026-10-16T09:38:26Z",
+          "completed_at": "2026-10-16T09:52:16Z"
+        },
+        {
+          "id": 116910142160,
+          "name": "Native Rust MSRV",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:38:23Z",
+          "started_at": "2026-10-16T09:38:27Z",
+          "completed_at": "2026-10-16T09:39:18Z"
+        },
+        {
+          "id": 116910142236,
+          "name": "Build native runtime (aarch64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:38:23Z",
+          "started_at": "2026-10-16T09:38:29Z",
+          "completed_at": "2026-10-16T09:40:22Z"
+        },
+        {
+          "id": 116910142250,
+          "name": "Code quality",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:38:23Z",
+          "started_at": "2026-10-16T09:38:27Z",
+          "completed_at": "2026-10-16T09:41:25Z"
+        },
+        {
+          "id": 116910142273,
+          "name": "Docker E2E shard 2/2",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:38:23Z",
+          "started_at": "2026-10-16T09:38:26Z",
+          "completed_at": "2026-10-16T09:48:53Z"
+        },
+        {
+          "id": 116910142288,
+          "name": "Native Rust clippy",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:38:23Z",
+          "started_at": "2026-10-16T09:38:27Z",
+          "completed_at": "2026-10-16T09:40:15Z"
+        },
+        {
+          "id": 116910142364,
+          "name": "Build native runtime (x86_64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:38:23Z",
+          "started_at": "2026-10-16T09:38:26Z",
+          "completed_at": "2026-10-16T09:40:49Z"
+        },
+        {
+          "id": 116910142390,
+          "name": "Docker E2E shard 1/2",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:38:23Z",
+          "started_at": "2026-10-16T09:38:26Z",
+          "completed_at": "2026-10-16T09:47:04Z"
+        },
+        {
+          "id": 116910143291,
+          "name": "Release rehearsal (${{ matrix.product }})",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T09:38:24Z",
+          "started_at": "2026-10-16T09:38:24Z",
+          "completed_at": "2026-10-16T09:38:23Z"
+        },
+        {
+          "id": 116910144304,
+          "name": "Build native runtime (${{ matrix.target }})",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T09:38:24Z",
+          "started_at": "2026-10-16T09:38:24Z",
+          "completed_at": "2026-10-16T09:38:23Z"
+        },
+        {
+          "id": 116910144580,
+          "name": "Native dependency notices",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T09:38:24Z",
+          "started_at": "2026-10-16T09:38:24Z",
+          "completed_at": "2026-10-16T09:38:23Z"
+        },
+        {
+          "id": 116910145659,
+          "name": "Packed install (${{ matrix.label }})",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T09:38:24Z",
+          "started_at": "2026-10-16T09:38:24Z",
+          "completed_at": "2026-10-16T09:38:23Z"
+        },
+        {
+          "id": 116911045654,
+          "name": "Unit tests",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:40:49Z",
+          "started_at": "2026-10-16T09:40:52Z",
+          "completed_at": "2026-10-16T09:43:15Z"
+        },
+        {
+          "id": 116911045790,
+          "name": "Packed install (Linux musl x64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:40:49Z",
+          "started_at": "2026-10-16T09:40:52Z",
+          "completed_at": "2026-10-16T09:41:20Z"
+        },
+        {
+          "id": 116911045848,
+          "name": "Packed install (Linux glibc x64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:40:49Z",
+          "started_at": "2026-10-16T09:40:52Z",
+          "completed_at": "2026-10-16T09:41:11Z"
+        },
+        {
+          "id": 116911045874,
+          "name": "Packed install (Linux glibc arm64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:40:49Z",
+          "started_at": "2026-10-16T09:40:55Z",
+          "completed_at": "2026-10-16T09:41:16Z"
+        },
+        {
+          "id": 116911045907,
+          "name": "Packed install (Linux musl arm64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:40:49Z",
+          "started_at": "2026-10-16T09:40:55Z",
+          "completed_at": "2026-10-16T09:41:24Z"
+        },
+        {
+          "id": 116914022934,
+          "name": "Docker E2E",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:48:53Z",
+          "started_at": "2026-10-16T09:48:56Z",
+          "completed_at": "2026-10-16T09:49:08Z"
+        },
+        {
+          "id": 116915281021,
+          "name": "Native Rust contracts",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:52:17Z",
+          "started_at": "2026-10-16T09:52:19Z",
+          "completed_at": "2026-10-16T09:52:31Z"
+        },
+        {
+          "id": 116915371188,
+          "name": "Native package matrix",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T09:52:32Z",
+          "started_at": "2026-10-16T09:52:34Z",
+          "completed_at": "2026-10-16T09:52:46Z"
+        },
+        {
+          "id": 116915461223,
+          "name": "Report main verification failure",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T09:52:46Z",
+          "started_at": "2026-10-16T09:52:46Z",
+          "completed_at": "2026-10-16T09:52:46Z"
+        },
+        {
+          "id": 116915461855,
+          "name": "Complete trusted-main verification",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T09:52:47Z",
+          "started_at": "2026-10-16T09:52:47Z",
+          "completed_at": "2026-10-16T09:52:46Z"
+        }
+      ]
+    },
+    "actions/runs/38885526684/jobs?filter=latest&per_page=100&page=1": {
+      "total_count": 24,
+      "jobs": [
+        {
+          "id": 116922217160,
+          "name": "Select affected areas",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:11:05Z",
+          "started_at": "2026-10-16T10:11:07Z",
+          "completed_at": "2026-10-16T10:11:21Z"
+        },
+        {
+          "id": 116922318406,
+          "name": "Native Rust clippy",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:11:21Z",
+          "started_at": "2026-10-16T10:11:24Z",
+          "completed_at": "2026-10-16T10:13:14Z"
+        },
+        {
+          "id": 116922318408,
+          "name": "Native Rust workspace tests",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:11:21Z",
+          "started_at": "2026-10-16T10:11:24Z",
+          "completed_at": "2026-10-16T10:24:25Z"
+        },
+        {
+          "id": 116922318453,
+          "name": "Code quality",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:11:21Z",
+          "started_at": "2026-10-16T10:11:24Z",
+          "completed_at": "2026-10-16T10:13:26Z"
+        },
+        {
+          "id": 116922318467,
+          "name": "Native Rust MSRV",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:11:21Z",
+          "started_at": "2026-10-16T10:11:24Z",
+          "completed_at": "2026-10-16T10:12:16Z"
+        },
+        {
+          "id": 116922318471,
+          "name": "Native dependency notices",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:11:21Z",
+          "started_at": "2026-10-16T10:11:24Z",
+          "completed_at": "2026-10-16T10:15:22Z"
+        },
+        {
+          "id": 116922318519,
+          "name": "Docker E2E shard 2/2",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:11:21Z",
+          "started_at": "2026-10-16T10:11:24Z",
+          "completed_at": "2026-10-16T10:21:38Z"
+        },
+        {
+          "id": 116922318589,
+          "name": "Build native runtime (aarch64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:11:21Z",
+          "started_at": "2026-10-16T10:11:26Z",
+          "completed_at": "2026-10-16T10:13:06Z"
+        },
+        {
+          "id": 116922318611,
+          "name": "Native process contracts",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:11:21Z",
+          "started_at": "2026-10-16T10:11:24Z",
+          "completed_at": "2026-10-16T10:20:13Z"
+        },
+        {
+          "id": 116922318661,
+          "name": "Docker E2E shard 1/2",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:11:21Z",
+          "started_at": "2026-10-16T10:11:24Z",
+          "completed_at": "2026-10-16T10:22:34Z"
+        },
+        {
+          "id": 116922318787,
+          "name": "Build native runtime (x86_64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:11:21Z",
+          "started_at": "2026-10-16T10:11:25Z",
+          "completed_at": "2026-10-16T10:13:58Z"
+        },
+        {
+          "id": 116922319858,
+          "name": "Build native runtime (${{ matrix.target }})",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T10:11:21Z",
+          "started_at": "2026-10-16T10:11:21Z",
+          "completed_at": "2026-10-16T10:11:21Z"
+        },
+        {
+          "id": 116922319937,
+          "name": "Release rehearsal (${{ matrix.product }})",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T10:11:21Z",
+          "started_at": "2026-10-16T10:11:21Z",
+          "completed_at": "2026-10-16T10:11:21Z"
+        },
+        {
+          "id": 116922320962,
+          "name": "Packed install (${{ matrix.label }})",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T10:11:22Z",
+          "started_at": "2026-10-16T10:11:22Z",
+          "completed_at": "2026-10-16T10:11:21Z"
+        },
+        {
+          "id": 116923276884,
+          "name": "Unit tests",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:13:58Z",
+          "started_at": "2026-10-16T10:14:01Z",
+          "completed_at": "2026-10-16T10:16:11Z"
+        },
+        {
+          "id": 116923276913,
+          "name": "Packed install (Linux glibc arm64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:13:58Z",
+          "started_at": "2026-10-16T10:14:03Z",
+          "completed_at": "2026-10-16T10:14:24Z"
+        },
+        {
+          "id": 116923276917,
+          "name": "Packed install (Linux musl x64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:13:58Z",
+          "started_at": "2026-10-16T10:14:01Z",
+          "completed_at": "2026-10-16T10:14:20Z"
+        },
+        {
+          "id": 116923276961,
+          "name": "Packed install (Linux glibc x64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:13:58Z",
+          "started_at": "2026-10-16T10:14:01Z",
+          "completed_at": "2026-10-16T10:14:21Z"
+        },
+        {
+          "id": 116923276993,
+          "name": "Packed install (Linux musl arm64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:13:58Z",
+          "started_at": "2026-10-16T10:14:03Z",
+          "completed_at": "2026-10-16T10:14:27Z"
+        },
+        {
+          "id": 116926422127,
+          "name": "Docker E2E",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:22:34Z",
+          "started_at": "2026-10-16T10:22:37Z",
+          "completed_at": "2026-10-16T10:22:49Z"
+        },
+        {
+          "id": 116927100862,
+          "name": "Native Rust contracts",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:24:25Z",
+          "started_at": "2026-10-16T10:24:28Z",
+          "completed_at": "2026-10-16T10:24:39Z"
+        },
+        {
+          "id": 116927185128,
+          "name": "Native package matrix",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:24:39Z",
+          "started_at": "2026-10-16T10:24:41Z",
+          "completed_at": "2026-10-16T10:24:53Z"
+        },
+        {
+          "id": 116927273278,
+          "name": "Report main verification failure",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T10:24:53Z",
+          "started_at": "2026-10-16T10:24:53Z",
+          "completed_at": "2026-10-16T10:24:53Z"
+        },
+        {
+          "id": 116927273815,
+          "name": "Complete trusted-main verification",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T10:24:53Z",
+          "started_at": "2026-10-16T10:24:53Z",
+          "completed_at": "2026-10-16T10:24:53Z"
+        }
+      ]
+    },
+    "actions/runs/38888515965/jobs?filter=latest&per_page=100&page=1": {
+      "total_count": 24,
+      "jobs": [
+        {
+          "id": 116932056141,
+          "name": "Select affected areas",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:38:04Z",
+          "started_at": "2026-10-16T10:38:07Z",
+          "completed_at": "2026-10-16T10:38:24Z"
+        },
+        {
+          "id": 116932170410,
+          "name": "Native Rust clippy",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:38:24Z",
+          "started_at": "2026-10-16T10:38:27Z",
+          "completed_at": "2026-10-16T10:40:17Z"
+        },
+        {
+          "id": 116932170436,
+          "name": "Native Rust workspace tests",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:38:24Z",
+          "started_at": "2026-10-16T10:38:27Z",
+          "completed_at": "2026-10-16T10:51:51Z"
+        },
+        {
+          "id": 116932170442,
+          "name": "Code quality",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:38:24Z",
+          "started_at": "2026-10-16T10:38:27Z",
+          "completed_at": "2026-10-16T10:40:34Z"
+        },
+        {
+          "id": 116932170457,
+          "name": "Build native runtime (aarch64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:38:24Z",
+          "started_at": "2026-10-16T10:38:29Z",
+          "completed_at": "2026-10-16T10:40:06Z"
+        },
+        {
+          "id": 116932170480,
+          "name": "Native Rust MSRV",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:38:24Z",
+          "started_at": "2026-10-16T10:38:27Z",
+          "completed_at": "2026-10-16T10:39:19Z"
+        },
+        {
+          "id": 116932170490,
+          "name": "Docker E2E shard 2/2",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:38:24Z",
+          "started_at": "2026-10-16T10:38:27Z",
+          "completed_at": "2026-10-16T10:47:39Z"
+        },
+        {
+          "id": 116932170494,
+          "name": "Docker E2E shard 1/2",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:38:24Z",
+          "started_at": "2026-10-16T10:38:27Z",
+          "completed_at": "2026-10-16T10:49:38Z"
+        },
+        {
+          "id": 116932170507,
+          "name": "Build native runtime (x86_64-unknown-linux-musl)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:38:24Z",
+          "started_at": "2026-10-16T10:38:27Z",
+          "completed_at": "2026-10-16T10:40:54Z"
+        },
+        {
+          "id": 116932170649,
+          "name": "Native process contracts",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:38:24Z",
+          "started_at": "2026-10-16T10:38:27Z",
+          "completed_at": "2026-10-16T10:47:54Z"
+        },
+        {
+          "id": 116932171628,
+          "name": "Native dependency notices",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T10:38:24Z",
+          "started_at": "2026-10-16T10:38:24Z",
+          "completed_at": "2026-10-16T10:38:24Z"
+        },
+        {
+          "id": 116932172443,
+          "name": "Build native runtime (${{ matrix.target }})",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T10:38:24Z",
+          "started_at": "2026-10-16T10:38:24Z",
+          "completed_at": "2026-10-16T10:38:24Z"
+        },
+        {
+          "id": 116932172518,
+          "name": "Release rehearsal (${{ matrix.product }})",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T10:38:24Z",
+          "started_at": "2026-10-16T10:38:24Z",
+          "completed_at": "2026-10-16T10:38:24Z"
+        },
+        {
+          "id": 116932173295,
+          "name": "Packed install (${{ matrix.label }})",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T10:38:24Z",
+          "started_at": "2026-10-16T10:38:24Z",
+          "completed_at": "2026-10-16T10:38:24Z"
+        },
+        {
+          "id": 116933062291,
+          "name": "Packed install (Linux musl arm64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:40:54Z",
+          "started_at": "2026-10-16T10:40:59Z",
+          "completed_at": "2026-10-16T10:41:22Z"
+        },
+        {
+          "id": 116933062354,
+          "name": "Unit tests",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:40:54Z",
+          "started_at": "2026-10-16T10:40:57Z",
+          "completed_at": "2026-10-16T10:43:21Z"
+        },
+        {
+          "id": 116933062398,
+          "name": "Packed install (Linux musl x64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:40:54Z",
+          "started_at": "2026-10-16T10:40:57Z",
+          "completed_at": "2026-10-16T10:41:17Z"
+        },
+        {
+          "id": 116933062403,
+          "name": "Packed install (Linux glibc x64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:40:54Z",
+          "started_at": "2026-10-16T10:40:57Z",
+          "completed_at": "2026-10-16T10:41:14Z"
+        },
+        {
+          "id": 116933062584,
+          "name": "Packed install (Linux glibc arm64)",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:40:54Z",
+          "started_at": "2026-10-16T10:41:00Z",
+          "completed_at": "2026-10-16T10:41:15Z"
+        },
+        {
+          "id": 116936153499,
+          "name": "Docker E2E",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:49:38Z",
+          "started_at": "2026-10-16T10:49:41Z",
+          "completed_at": "2026-10-16T10:49:54Z"
+        },
+        {
+          "id": 116936945059,
+          "name": "Native Rust contracts",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:51:52Z",
+          "started_at": "2026-10-16T10:51:54Z",
+          "completed_at": "2026-10-16T10:52:06Z"
+        },
+        {
+          "id": 116937030346,
+          "name": "Native package matrix",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-10-16T10:52:07Z",
+          "started_at": "2026-10-16T10:52:09Z",
+          "completed_at": "2026-10-16T10:52:22Z"
+        },
+        {
+          "id": 116937126978,
+          "name": "Complete trusted-main verification",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T10:52:23Z",
+          "started_at": "2026-10-16T10:52:23Z",
+          "completed_at": "2026-10-16T10:52:22Z"
+        },
+        {
+          "id": 116937127354,
+          "name": "Report main verification failure",
+          "status": "completed",
+          "conclusion": "skipped",
+          "created_at": "2026-10-16T10:52:23Z",
+          "started_at": "2026-10-16T10:52:23Z",
+          "completed_at": "2026-10-16T10:52:22Z"
+        }
+      ]
+    }
+  }
+}
