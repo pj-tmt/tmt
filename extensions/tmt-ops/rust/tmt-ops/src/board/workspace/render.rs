@@ -1135,7 +1135,9 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
                 || (draft.scroll.borrow().offset() == 0
                     && lines.len() <= usize::from(areas.content.height)));
         let buttons = [
-            crate::board::buttons::Button::secondary("Cancel").focused(focused == Some("cancel")),
+            crate::board::buttons::Button::secondary("Cancel")
+                .focused(focused == Some("cancel"))
+                .enabled(areas.content.height > 1),
             crate::board::buttons::Button::primary("Apply this exact operation")
                 .focused(focused == Some("apply"))
                 .enabled(apply_enabled),

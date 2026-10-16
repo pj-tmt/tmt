@@ -105,6 +105,14 @@ fn current_controls_and_keyboard_share_grid_without_recipient_or_draft_changes()
         paint(&mut app, 100, 36);
         assert_eq!(app.workspace.selected, target);
         assert!(app.input.is_none());
+        let previously_enabled = app
+            .usage_chart
+            .borrow()
+            .hits
+            .iter()
+            .find(|hit| hit.target == Target::Each(30))
+            .unwrap()
+            .area;
         let range = app
             .usage_chart
             .borrow()
@@ -116,15 +124,16 @@ fn current_controls_and_keyboard_share_grid_without_recipient_or_draft_changes()
         click(&mut app, range);
         assert_eq!(app.usage_chart.borrow().selection.range_minutes, 15);
         paint(&mut app, 100, 36);
-        let invalid = app
-            .usage_chart
-            .borrow()
-            .hits
-            .iter()
-            .find(|hit| hit.target == Target::Each(30))
-            .unwrap()
-            .area;
-        click(&mut app, invalid);
+        assert!(
+            app.usage_chart
+                .borrow()
+                .hits
+                .iter()
+                .all(|hit| hit.target != Target::Each(30)),
+            "a disabled interval paints its shape but publishes no hit"
+        );
+        let notice = app.notice.clone();
+        click(&mut app, previously_enabled);
         assert_eq!(
             app.usage_chart.borrow().selection,
             Selection {
@@ -133,8 +142,8 @@ fn current_controls_and_keyboard_share_grid_without_recipient_or_draft_changes()
             }
         );
         assert_eq!(
-            app.notice.as_deref(),
-            Some("Interval is longer than the range")
+            app.notice, notice,
+            "disabled clicks do not attempt a change"
         );
         assert_eq!(app.workspace.selected, target);
     });

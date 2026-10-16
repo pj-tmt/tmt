@@ -197,8 +197,8 @@ fn capture_chip_controls() {
         std::env::var_os("TMT_OPS_CHIP_CAPTURE").expect("task-owned evidence path"),
     );
     std::fs::create_dir_all(&root).unwrap();
-    let draw = |app: &mut App, width| {
-        let mut terminal = Terminal::new(TestBackend::new(width, 24)).unwrap();
+    let draw = |app: &mut App, width, height| {
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
         terminal
             .draw(|frame| {
                 crate::board::view::prepare(app, frame.area());
@@ -214,8 +214,9 @@ fn capture_chip_controls() {
             (Base::TmtLight, Depth::TrueColor),
             (Base::Tmt, Depth::None),
         ] {
-            for width in [160, 60] {
+            for width in [160, 100, 60] {
                 for state in ["idle", "hover", "focused", "busy", "squad"] {
+                    let height = if state == "idle" { 44 } else { 24 };
                     let look = crate::look::Look {
                         theme: Theme::new(base),
                         depth,
@@ -231,7 +232,7 @@ fn capture_chip_controls() {
                             .unwrap();
                         app.select(index);
                     }
-                    draw(&mut app, width);
+                    draw(&mut app, width, height);
                     if state == "hover" {
                         let hit = app.composer.send_hit.borrow().clone().unwrap();
                         assert!(moved(&mut app, hit.area.x, hit.area.y));
@@ -243,7 +244,7 @@ fn capture_chip_controls() {
                             app.in_flight = 1;
                         }
                     }
-                    let buffer = draw(&mut app, width);
+                    let buffer = draw(&mut app, width, height);
                     if state == "busy" {
                         assert!(app.composer.send_hit.borrow().is_none());
                     }
@@ -253,7 +254,7 @@ fn capture_chip_controls() {
                         .chunks(usize::from(width))
                         .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
                         .collect();
-                    let value = json!({"width":width,"height":24,"theme":if base == Base::TmtLight {"tmt-light"} else {"tmt"},"depth":format!("{depth:?}"),"state":state,"cells":cells,"lines":lines,"send":format!("{:?}",app.composer.send_hit.borrow().as_ref().map(|hit|hit.area)),"controls":format!("{:?}",app.buttons.regions.borrow())});
+                    let value = json!({"width":width,"height":height,"theme":if base == Base::TmtLight {"tmt-light"} else {"tmt"},"depth":format!("{depth:?}"),"state":state,"cells":cells,"lines":lines,"send":format!("{:?}",app.composer.send_hit.borrow().as_ref().map(|hit|hit.area)),"controls":format!("{:?}",app.buttons.regions.borrow())});
                     std::fs::write(
                         root.join(format!("{state}-{base:?}-{depth:?}-{width}.json")),
                         serde_json::to_vec(&value).unwrap(),

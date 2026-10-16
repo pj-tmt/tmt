@@ -245,7 +245,9 @@ impl Review {
             .unwrap_or("cancel");
         let apply_enabled = matches!(self.result, Some(Ok(_))) && areas.content.height > 0;
         let buttons = [
-            crate::board::buttons::Button::secondary("Cancel").focused(focused == "cancel"),
+            crate::board::buttons::Button::secondary("Cancel")
+                .focused(focused == "cancel")
+                .enabled(areas.content.height > 0),
             crate::board::buttons::Button::primary("Apply this exact operation")
                 .focused(focused == "apply")
                 .enabled(apply_enabled),
