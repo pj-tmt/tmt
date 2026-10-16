@@ -1,7 +1,7 @@
 //! One session chart controller shared by Overview and Digest. Source rings and
 //! frame diffs remain with their existing owners; this cache holds only 12 totals.
 use super::{detail::Details, model::Selection, project};
-use crate::board::m4_spark_row::Scene;
+use crate::board::spark_row::Scene;
 use crate::{
     board::{
         app::{App, Effect},
@@ -53,7 +53,7 @@ pub(in crate::board) struct State {
     hover: Option<usize>,
     observed: Option<Rc<Series>>,
     // The scene key includes all display values, coverage and solved dimensions.
-    scene: Option<(crate::board::m4_spark_row::Data, u16, Scene)>,
+    scene: Option<(crate::board::spark_row::Data, u16, Scene)>,
 }
 impl State {
     pub fn release_focus(&mut self) {

@@ -1,4 +1,4 @@
-//! M4 SparkRow: shared provider/member trends, numeric fences and optional quota.
+//! SparkRow: shared provider/member trends, numeric fences and optional quota.
 //! Callers supply projected row values; selection, acquisition and effects stay outside.
 mod quantize;
 use ratatui::{layout::Rect, text::Line};
@@ -296,7 +296,7 @@ impl Scene {
             );
         }
         if self.no_data {
-            crate::board::m18_empty_state::paint(
+            crate::board::empty_state::paint(
                 buffer,
                 Rect::new(
                     area.x + self.name_width + 1,

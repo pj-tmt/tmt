@@ -1,4 +1,4 @@
-//! M18 EmptyState: a shared status line; callers supply only currently usable keys.
+//! EmptyState: a shared status line; callers supply only currently usable keys.
 use crate::look::Look;
 use ratatui::{
     buffer::Buffer,

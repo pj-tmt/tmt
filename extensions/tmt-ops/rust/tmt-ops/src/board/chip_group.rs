@@ -1,4 +1,4 @@
-//! M13 ChipGroup: shared admitted options, selected padding and clipped hit IDs.
+//! ChipGroup: shared admitted options, selected padding and clipped hit IDs.
 use crate::look::Look;
 use ratatui::{buffer::Buffer, layout::Rect};
 use serde_json::json;

@@ -66,10 +66,10 @@ pub(in crate::board) fn display(
     Ok(display)
 }
 
-/// One adapter into shared M4; neither the component nor another tab re-derives
+/// One adapter into shared SparkRow; neither the component nor another tab re-derives
 /// provenance. Future consumers pass their own rows and captions to the same module.
-pub(in crate::board) fn spark_rows(series: &Series) -> crate::board::m4_spark_row::Data {
-    use crate::board::m4_spark_row::{Data, Row};
+pub(in crate::board) fn spark_rows(series: &Series) -> crate::board::spark_row::Data {
+    use crate::board::spark_row::{Data, Row};
     let mut drivers: Vec<_> = series
         .drivers
         .iter()

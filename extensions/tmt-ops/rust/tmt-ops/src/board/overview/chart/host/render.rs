@@ -228,7 +228,7 @@ fn paint_chart(
     let drivers: Vec<_> = view.drivers.iter().cloned().collect();
     let rows = project::spark_rows(&view);
     let quota_width = if app.shell.tab == OpsTab::Overview && quotas_visible(app) {
-        crate::board::m4_spark_row::quota_width(area.width, &rows)
+        crate::board::spark_row::quota_width(area.width, &rows)
     } else {
         0
     };

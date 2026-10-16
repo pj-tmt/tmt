@@ -1,8 +1,8 @@
-//! Each/Range controller over shared M13 ChipGroup; the chart owns effects.
+//! Each/Range controller over shared ChipGroup; the chart owns effects.
 use super::super::model::Selection;
 use super::{Focus, Hit, Target};
 use crate::{
-    board::m13_chip_group::{self as chips, ChipGroup, Choice},
+    board::chip_group::{self as chips, ChipGroup, Choice},
     look::Look,
 };
 use ratatui::{buffer::Buffer, layout::Rect};

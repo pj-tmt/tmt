@@ -193,7 +193,7 @@ applies or inspects, Tab selects Each/Range/buckets and Esc returns to the list.
 Invalid pairs preserve both controls. Direct control and bucket hits come from
 admitted, clipped nodes; resize and source replacement revoke their authority.
 Overview retains provider rows when counts are missing or measured zero. With no
-observed token bucket, M18 EmptyState paints one muted status in the trend track;
+observed token bucket, EmptyState paints one muted status in the trend track;
 provider names and available quotas remain, totals/shares are em dashes, and no
 axis, blank bar rows or invented unknown provider appears. Measured zero remains
 zero. Digest retains its existing summary collapse for nonpositive evidence. If
@@ -204,9 +204,9 @@ no spare target row omits the summary to retain the last usable row. At eight
 terminal rows, Overview keeps the table and omits summary/quota context; the
 effective filter, Details and usage-control keys remain reachable.
 
-Shared `board::m4_spark_row` owns the admitted trend rows, headings, numeric and
-quota tracks and drawn-width axis. `board::m13_chip_group` owns the reusable
-selector painter; `board::m18_empty_state` owns the empty-state line. These modules
+Shared `board::spark_row` owns the admitted trend rows, headings, numeric and
+quota tracks and drawn-width axis. `board::chip_group` owns the reusable
+selector painter; `board::empty_state` owns the empty-state line. These modules
 accept projected values and perform no acquisition. The Overview host adapts its
 model and handles admitted actions, so Agents can reuse the same elements.
 
