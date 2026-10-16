@@ -2,11 +2,11 @@
   "schemaVersion": 1,
   "product": "cli",
   "channel": "alpha",
-  "version": "5.0.0-alpha.264",
-  "tag": "v5.0.0-alpha.264",
+  "version": "5.0.0-alpha.265",
+  "tag": "v5.0.0-alpha.265",
   "record": {
-    "url": "https://github.com/pj-tmt/tmt/releases/download/v5.0.0-alpha.264/tmt-release-record.json",
+    "url": "https://github.com/pj-tmt/tmt/releases/download/v5.0.0-alpha.265/tmt-release-record.json",
     "size": 1511,
-    "sha256": "f426f06f6904f45b7c6a4c5fc18135e5a1f4bc56c421ead0b23b773067275a4e"
+    "sha256": "77129da7bb077a364e39b87adb5ae56ec500f58be227a88014a8957e39e01fa3"
   }
 }
