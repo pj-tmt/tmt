@@ -128,8 +128,9 @@ Collection `tmt ls --json` identity rows with a live pane optionally include
 the name the pane's host gives the agent it recognizes there (Herdr's agent
 name). It is absent, never null, when the host has no agent names (tmux), the
 row has no live observation, or the host reports no name. TMT sets that name
-from the identity's name, after an explicit bind or rename and, as best effort
-without output, after `tmt run` or `tmt resume` starts an agent
+from the identity's name, after an explicit bind or rename and, as best effort,
+after `tmt run` or `tmt resume` starts an agent: silently, except for one
+warning when a driver process it started could not be cleaned up
 ([`name-agent`](driver-protocol-v1.md#name-agent)). It never imports that name
 into the identity, so `agentName` can differ from `name`; human `tmt ls` then
 shows the difference with `tmt this` to set TMT's name. The projection reuses

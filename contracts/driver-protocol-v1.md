@@ -378,10 +378,11 @@ A host without agent names does not list it.
   reads the pane's `agentName` first; an agent that already has a name keeps
   it. Before that read and again right before the set, core checks that the
   same launch still holds the binding: the same binding, and `tmt run` and
-  its child both alive. It prints nothing, and it does not check that the
-  command is a known agent, so a command the host never recognizes costs up
-  to five `no_agent` calls. An explicit bind or `tmt mv` sets the name over
-  any name. Accepted limits: a rename (`tmt mv`, `tmt this` or in the host)
+  its child both alive. It prints nothing, except one warning after the agent
+  exits when a driver process it started could not be cleaned up. It does
+  not check that the command is a known agent, so a command the host never
+  recognizes costs up to five `no_agent` calls. An explicit bind or `tmt mv`
+  sets the name over any name. Accepted limits: a rename (`tmt mv`, `tmt this` or in the host)
   between that read and the set, or while the set runs, can be overwritten
   with the older name, and an unbind while it runs can leave the name;
   `tmt ls` shows the difference. When the agent exits, `tmt run` waits at
