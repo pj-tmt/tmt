@@ -52,3 +52,7 @@ workspace = true
 [[example]]
 name = "claude-hook-fixture"
 test = true
+
+[[example]]
+name = "provider-script-fixture"
+test = true

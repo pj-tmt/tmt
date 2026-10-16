@@ -914,6 +914,28 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    mod provider_launch {
+        include!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/examples/provider_launch/mod.rs"
+        ));
+    }
+
+    #[test]
+    fn managed_launch_prefix_is_accepted_by_the_script_fixture() {
+        use crate::runtime::{RuntimeCommand, lifecycle::RuntimeLifecycle};
+        let original: Vec<std::ffi::OsString> = ["/script", "literal argument", "--listen"]
+            .map(Into::into)
+            .to_vec();
+        let mut command = RuntimeCommand {
+            executable: NAME.into(),
+            args: original.clone(),
+        };
+        CodexLifecycle.prepare_launch(&mut command, std::path::Path::new("/private-state"), false);
+        provider_launch::scripted_launch_options(&mut command.args);
+        assert_eq!(command.args, original);
+    }
+
     #[test]
     fn managed_foreground_launch_and_fallback_are_embedded_with_only_the_state_root_added() {
         use crate::runtime::{RuntimeCommand, lifecycle::RuntimeLifecycle};
