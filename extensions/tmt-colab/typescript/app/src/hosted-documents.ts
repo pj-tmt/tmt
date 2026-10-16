@@ -55,7 +55,7 @@ export async function hostedOwnLog(
     document = {
       target: {
         resource: 'log',
-        id: `${scope.space}_${scope.page}_${scope.epoch}_${header.context.authorDevice}_${entry.seq}`,
+        id: `${scope.space}_${scope.page}_0_${header.context.authorDevice}_${entry.seq}`,
       },
       bytes,
       digest: hex(await digest(bytes)),
