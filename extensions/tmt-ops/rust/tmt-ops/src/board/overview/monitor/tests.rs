@@ -17,6 +17,39 @@ use ratatui::{
 use serde_json::json;
 const OTHER: &str = "33333333-3333-4333-8333-333333333333";
 const BLOCKED: &str = "44444444-4444-4444-8444-444444444444";
+#[test]
+fn filtered_counts_keep_the_admitted_denominator_in_both_views() {
+    let _no_commands = crate::runner::forbid_commands();
+    let mut app = board();
+    for view in [View::Squads, View::Agents] {
+        app.overview_view = view;
+        for (query, expected) in [
+            ("worker", "1 of 3 agents"),
+            ("no-such-agent", "0 of 3 agents"),
+        ] {
+            app.search = query.into();
+            app.overview_rows.borrow_mut().clear();
+            app.workspace_reconcile();
+            let buffer = paint(&mut app, 103, 51);
+            let lines: Vec<String> = buffer
+                .content
+                .chunks(103)
+                .map(|row| row.iter().map(|cell| cell.symbol()).collect())
+                .collect();
+            let filter = lines
+                .iter()
+                .position(|line| line.starts_with("  Squads   Agents"))
+                .unwrap();
+            assert!(!lines[filter].contains(expected));
+            assert!(
+                lines[filter + 2].ends_with(&format!("{expected} ──")),
+                "{:?}",
+                lines[filter + 2]
+            );
+            assert!(!lines[filter + 2].contains("waiting first"));
+        }
+    }
+}
 fn board() -> App {
     let mut app = crate::board::app::workspace::tests::board();
     app.shell.tab = OpsTab::Overview;

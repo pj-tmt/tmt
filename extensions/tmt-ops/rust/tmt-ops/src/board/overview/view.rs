@@ -40,7 +40,16 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             format!("~{n}")
         }
     };
-    let count = if agents {
+    let count = if !app.workspace.query.is_empty() {
+        Line::styled(
+            format!(
+                "{} of {} agents",
+                observed(scene.matching_agents),
+                observed(scene.summary.total)
+            ),
+            look.role(Role::Muted),
+        )
+    } else if agents {
         Line::from(vec![
             Span::styled(
                 format!("{} agents · ", observed(rows.len())),

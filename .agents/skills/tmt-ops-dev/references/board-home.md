@@ -48,7 +48,8 @@ non-interactive; retained hidden targets grant no action authority.
 `board::shell` owns Overview, Agents and Digest selection. Overview uses one
 switchable Squads/Agents list. The shared filter bar paints mode chips and an idle
 search field; section rules own right-aligned counts. `v` switches the view through
-the effective binding table; explicit authored keys win. Search interaction belongs
+the effective binding table; active searches show matching agents out of the
+admitted unsearched total on that rule. Explicit authored keys win. Search interaction belongs
 to its existing controller. The dedicated in-place search redesign is separate.
 `overview::monitor` caches canonical rows and the scoped numeric summary; acquired
 roster, preferences, label and meter/job updates invalidate it. Waiting membership

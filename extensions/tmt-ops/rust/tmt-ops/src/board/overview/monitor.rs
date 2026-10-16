@@ -94,6 +94,7 @@ impl View {
 }
 pub(in crate::board) struct Scene {
     pub rows: Rc<[OpsTreeRow]>,
+    pub matching_agents: usize,
     pub waiting: usize,
     pub summary: super::summary::Summary,
     pub squads: Vec<Squad>,
@@ -354,6 +355,7 @@ pub(in crate::board) fn scene(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<
         .collect::<Vec<_>>()
         .into();
     let squads = squads(app, snapshot, &key);
+    let matching_agents = agents.len();
     let rows = if key.view == View::Squads {
         squads
             .iter()
@@ -375,6 +377,7 @@ pub(in crate::board) fn scene(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<
     };
     let scene = Rc::new(Scene {
         squads,
+        matching_agents,
         waiting,
         rows,
         summary: super::summary::project(snapshot, &app.labels, &key.visibility),
