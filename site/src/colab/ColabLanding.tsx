@@ -567,10 +567,10 @@ export function ColabLanding() {
                 {backend === "own" && (
                   <p>
                     Read the{" "}
-                    <a href="https://github.com/pj-tmt/tmt/blob/main/.agents/skills/tmt-remote/references/object-backends.md">
-                      Remote backend guide
+                    <a href="https://github.com/pj-tmt/tmt/tree/main/.agents/skills/tmt-remote/references">
+                      Remote backend references
                     </a>{" "}
-                    for the adapter contract and the{" "}
+                    for the adapter and conformance guides, and the{" "}
                     <a href="https://github.com/pj-tmt/tmt/blob/main/extensions/tmt-colab/skills/tmt-colab/SKILL.md">
                       Colab agent skill
                     </a>{" "}
