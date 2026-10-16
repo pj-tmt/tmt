@@ -5,10 +5,12 @@ import type { EditOutcome } from './link-edit.js';
 import { saveMessage } from './save.js';
 import { SaveNotice, type SaveProblem } from './save-notice.js';
 import { text } from './strings.js';
-import { Circle, Diamond, X } from 'lucide-react';
+import { Diamond, X } from 'lucide-react';
 
-export type EditRequestOutcome = 'sent' | 'refused' | 'unconfirmed' | 'writer-in-use';
-/** Provider uncertainty never becomes a refusal or an automatic resend. */
+/** What a hosted request can end as before the page answers it. A request that was sent is
+ * answered by the page like a native one (`EditOutcome`), so it has no state here. Provider
+ * uncertainty never becomes a refusal or an automatic resend. */
+export type EditRequestOutcome = 'refused' | 'unconfirmed' | 'writer-in-use';
 export function EditRequestNotice({
   outcome,
   actions,
@@ -16,43 +18,22 @@ export function EditRequestNotice({
   outcome: EditRequestOutcome;
   actions?: ReactNode;
 }) {
+  const unconfirmed = outcome === 'unconfirmed';
   return (
     <div className="source-notice">
       <BrowserNotice
-        tone={
-          outcome === 'unconfirmed'
-            ? 'waiting'
-            : outcome === 'refused' || outcome === 'writer-in-use'
-              ? 'blocked'
-              : 'muted'
-        }
-        announcement={outcome === 'refused' || outcome === 'writer-in-use' ? 'alert' : 'status'}
+        tone={unconfirmed ? 'waiting' : 'blocked'}
+        announcement={unconfirmed ? 'status' : 'alert'}
         stateLabel={
-          outcome === 'writer-in-use'
-            ? 'Link in use'
-            : outcome === 'unconfirmed'
-              ? 'Unconfirmed'
-              : outcome === 'refused'
-                ? 'Not sent'
-                : 'Sent'
+          outcome === 'writer-in-use' ? 'Link in use' : unconfirmed ? 'Unconfirmed' : 'Not sent'
         }
-        mark={
-          outcome === 'unconfirmed' ? (
-            <Diamond fill="currentColor" />
-          ) : outcome === 'refused' || outcome === 'writer-in-use' ? (
-            <X />
-          ) : (
-            <Circle />
-          )
-        }
+        mark={unconfirmed ? <Diamond fill="currentColor" /> : <X />}
         title={
           outcome === 'writer-in-use'
             ? 'Another browser is already sending edits through this link, so this one can only read. Ask the owner for an editor link of your own.'
-            : outcome === 'unconfirmed'
+            : unconfirmed
               ? "Couldn't confirm the edit request. It may still reach the owner; check the page before sending it again."
-              : outcome === 'refused'
-                ? 'Edit request not sent. Ask the owner for a current link.'
-                : "Edit request sent. It appears on the page when the owner's Colab applies it."
+              : 'Edit request not sent. Ask the owner for a current link.'
         }
         body={null}
         actions={actions}
@@ -63,7 +44,8 @@ export function EditRequestNotice({
 
 /** Sends page text as an edit request for an editor link. It resolves once the page answers:
  * `applied` when the page shows the proposed text, `changed` when it shows anything else. A page
- * that has not changed after a while calls `onWaiting`, and the request is still not answered. */
+ * that has not changed after a while calls `onWaiting`, and the request is still not answered.
+ * A request that was not sent, or whose sending cannot be confirmed, resolves as `request`. */
 export type ReaderEdit = (
   source: string,
   base: string,
@@ -94,8 +76,7 @@ export function ReaderSource({
     [saving, setSaving] = useState(false),
     [problem, setProblem] = useState<SaveProblem | null>(null),
     [copied, setCopied] = useState<'copied' | 'failed' | null>(null),
-    [request, setRequest] = useState<EditRequestOutcome | null>(null),
-    [sentDraft, setSentDraft] = useState<string | null>(null);
+    [request, setRequest] = useState<EditRequestOutcome | null>(null);
   const latestDraft = useRef(draft);
   latestDraft.current = draft;
   // The page moved elsewhere while nothing is being edited: show it, and edit from it.
@@ -117,7 +98,6 @@ export function ReaderSource({
       );
       if ('request' in answer) {
         setRequest(answer.request);
-        if (answer.request === 'sent') setSentDraft(draft);
         if (answer.request === 'writer-in-use') onWriterInUse();
         return;
       }
@@ -169,7 +149,7 @@ export function ReaderSource({
         <span>
           <label htmlFor="source-edit">{text.source}</label>
           <button
-            disabled={saving || writerBlocked || draft === base.current || draft === sentDraft}
+            disabled={saving || writerBlocked || draft === base.current}
             onClick={() => void save()}
           >
             {saving && !problem ? text.saving : text.save}

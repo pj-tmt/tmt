@@ -166,7 +166,7 @@ for (const width of [390, 1280])
       await page.screenshot({ path: capturePath(`link-edit-save-disabled-${width}-${theme}.png`) });
     });
 
-for (const outcome of ['sent', 'refused', 'unconfirmed', 'writer-in-use'] as const) {
+for (const outcome of ['refused', 'unconfirmed', 'writer-in-use'] as const) {
   test(`a ${outcome} edit request retains its draft without claiming an owner-applied save`, async ({
     page,
   }) => {
@@ -181,11 +181,9 @@ for (const outcome of ['sent', 'refused', 'unconfirmed', 'writer-in-use'] as con
       page.getByText(
         outcome === 'writer-in-use'
           ? 'Link in use'
-          : outcome === 'sent'
-            ? 'Sent'
-            : outcome === 'refused'
-              ? 'Not sent'
-              : 'Unconfirmed',
+          : outcome === 'refused'
+            ? 'Not sent'
+            : 'Unconfirmed',
         { exact: true },
       ),
     ).toBeVisible();
@@ -195,7 +193,7 @@ for (const outcome of ['sent', 'refused', 'unconfirmed', 'writer-in-use'] as con
     await expect(
       page.frameLocator('iframe').getByRole('heading', { name: 'Release notes', exact: true }),
     ).toBeVisible();
-    if (outcome === 'sent' || outcome === 'writer-in-use') await expect(save).toBeDisabled();
+    if (outcome === 'writer-in-use') await expect(save).toBeDisabled();
     else await expect(save).toBeEnabled();
     if (outcome === 'writer-in-use') {
       await area.fill('<main>kept after definitive loss</main>');

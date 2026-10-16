@@ -53,7 +53,10 @@ page hints. `hosted-session` and `hosted-interests` fence, close and join one th
 before switching or bounded recovery. `hosted-budget` owns the cross-tab origin ledger.
 `hosted-discovery`/`hosted-query` bound finite reads; `hosted-documents` reconstructs the native
 mapping's exact originals. `hosted-authority` feeds Admission; `hosted-reader` routes wake reads through the chain
-inventory and admitted heads, verifies observed writers, then reuses Objects/Catchup/Fold before ReaderApp.
+inventory and admitted heads, verifies observed writers, then reuses Objects/Catchup/Fold before ReaderApp. For an
+editor link, `hosted-entry` answers a confirmed edit request with the same `PageAnswer` and `EditTooLarge` as
+the door, kept per selected page across hidden and recovered sessions and ended when the page is
+left; only not sent, unconfirmed and link in use (`EditRequestOutcome`) are hosted-only.
 The [hosted contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#hosted-page-consumer-2452-b4-3122)
 owns limits, refusals and the deferred baseline carrier. `link-edit.sendEditRequest` prepares the request;
 `hosted-publish` sends frozen originals once. `own-seal` shares native Writer's `Admission.ownAuthor` path.

@@ -11,6 +11,7 @@ import type { HostedBootstrap } from '../src/hosted-bootstrap.js';
 import type { ReaderLink } from '../src/reader-link.js';
 import { HostedEntry, type HostedEntryState } from '../src/hosted-entry.js';
 import { Admission } from '../src/admission.js';
+import { EditTooLarge } from '../src/save.js';
 import type { OwnAuthor } from '../src/own-seal.js';
 import type { OwnRecord } from '../src/fold-protocol.js';
 
@@ -20,6 +21,11 @@ const publication = vi.hoisted(() => ({
   device: '',
   records: [] as OwnRecord[],
   fits: false,
+  /** What the reader reports for the next request, and the size it asks the fit hook about. */
+  outcome: 'sent' as 'sent' | 'refused' | 'unconfirmed' | 'writer-in-use',
+  size: 100,
+  /** The page text the next refresh shows. */
+  source: 'verified only',
 }));
 afterEach(() => vi.restoreAllMocks());
 vi.mock('../src/hosted-reader.js', () => ({
@@ -37,15 +43,20 @@ vi.mock('../src/hosted-reader.js', () => ({
     }
     async submitOwn(records: OwnRecord[], _call: SyncCall, fits?: (size: number) => void) {
       await publication.author!(publication.device, '1');
-      fits?.(100);
       publication.fits = fits !== undefined;
       publication.records = records;
-      return { outcome: 'sent', confirmed: 1 };
+      try {
+        fits?.(publication.size);
+      } catch (failure) {
+        // The reader reports a request that does not fit as a refusal that carries the failure.
+        return { outcome: 'refused', confirmed: 0, failure };
+      }
+      return { outcome: publication.outcome, confirmed: publication.outcome === 'sent' ? 1 : 0 };
     }
     async refresh(call: SyncCall) {
       if (call.signal.aborted) throw new Error('cancelled');
       effects.push('verified');
-      return { source: 'verified only', title: 'Page' };
+      return { source: publication.source, title: 'Page' };
     }
     close() {
       effects.push('reader-close');
@@ -80,11 +91,15 @@ async function fixture() {
   effects.length = 0;
   publication.records = [];
   publication.fits = false;
+  publication.outcome = 'sent';
+  publication.size = 100;
+  publication.source = 'verified only';
   const states: HostedEntryState[] = [],
     creates: SyncMutation[] = [],
     ports: SealedSyncPort[] = [];
   const rows = new Map<string, SealedDocument>(),
-    wakes: ((error: unknown) => void)[] = [];
+    wakes: ((error: unknown) => void)[] = [],
+    changes: (() => void)[] = [];
   let active = 0,
     peak = 0,
     epoch = '1';
@@ -125,8 +140,9 @@ async function fixture() {
         wakes.push((error) => reject?.(error));
         return {
           next(call: SyncCall) {
-            return new Promise((_yes, no) => {
+            return new Promise((yes, no) => {
               reject = no;
+              changes.push(() => yes({ kind: 'changed' }));
               const abort = () => no({ code: 'REMOTE_STATE_UNAVAILABLE', state: 'cancelled' });
               call.signal.addEventListener('abort', abort, { once: true });
               if (call.signal.aborted) abort();
@@ -182,6 +198,11 @@ async function fixture() {
     creates,
     ports,
     wakes,
+    /** A listener sees a change: the page is read again and, when it differs, shown again. */
+    change: (source: string) => {
+      publication.source = source;
+      changes.splice(0).forEach((wake) => wake());
+    },
     active: () => active,
     peak: () => peak,
     epoch: (value: string) => {
@@ -247,7 +268,10 @@ it('the default editor wires fresh Colab ownAuthor and the one-document request-
     if (ready?.phase !== 'ready') throw new Error('expected a verified ready page');
     expect(ready.edit).toBeTypeOf('function');
     const source = '<main>A requested edit</main>';
-    expect(await ready.edit!(source, 'verified only', () => {})).toEqual({ request: 'sent' });
+    const answered = ready.edit!(source, 'verified only', () => {});
+    f.change(source);
+    // A confirmed request is answered by the page, as for a native link.
+    expect(await answered).toEqual({ kind: 'applied', source });
     expect(author).toHaveBeenCalledExactlyOnceWith('1');
     expect(publication.fits).toBe(true);
     expect(publication.records).toHaveLength(1);
@@ -326,4 +350,90 @@ it('Rules/budget/rate refusal stays stopped across visibility events, with no ne
     failure: { code: 'REMOTE_BUDGET_EXHAUSTED' },
   });
   await f.entry.close();
+});
+
+async function ready(f: Awaited<ReturnType<typeof fixture>>) {
+  vi.spyOn(Admission.prototype, 'ownAuthor').mockResolvedValue(new Uint8Array(32));
+  await f.entry.select(target());
+  await f.entry.signIn();
+  const state = f.states.at(-1);
+  if (state?.phase !== 'ready' || !state.edit) throw new Error('expected an editor page');
+  return state.edit;
+}
+
+it('a confirmed request is changed when the page shows other text, as for a native link', async () => {
+  const f = await fixture();
+  const edit = await ready(f);
+  const answered = edit('<main>mine</main>', 'verified only', () => {});
+  f.change('<main>merged elsewhere</main>');
+  expect(await answered).toEqual({ kind: 'changed', source: '<main>merged elsewhere</main>' });
+  await f.entry.close();
+});
+
+it('a request too large to send says how large, not that the link was refused', async () => {
+  const f = await fixture();
+  const edit = await ready(f);
+  // Over what one request carries: refused before anything is prepared.
+  await expect(
+    edit('x'.repeat(c.editRequest.SOURCE_BYTES + 1), 'verified only', () => {}),
+  ).rejects.toBeInstanceOf(EditTooLarge);
+  expect(publication.records).toEqual([]);
+  // Over what one document holds once prepared: the reader reports a refusal that carries it.
+  publication.size = 500_000;
+  await expect(edit('<main>big</main>', 'verified only', () => {})).rejects.toBeInstanceOf(
+    EditTooLarge,
+  );
+  expect(f.creates).toHaveLength(1); // Only holder enrollment: nothing was published.
+  await f.entry.close();
+});
+
+it.each(['refused', 'unconfirmed', 'writer-in-use'] as const)(
+  'a %s request ends without waiting for the page',
+  async (outcome) => {
+    const f = await fixture();
+    const edit = await ready(f);
+    publication.outcome = outcome;
+    expect(await edit('<main>mine</main>', 'verified only', () => {})).toEqual({
+      request: outcome,
+    });
+    await f.entry.close();
+  },
+);
+
+it('a request still waiting is answered by the page shown after the tab was hidden and shown', async () => {
+  const f = await fixture();
+  const edit = await ready(f);
+  const source = '<main>mine</main>';
+  const answered = edit(source, 'verified only', () => {});
+  await vi.waitFor(() => expect(publication.records).toHaveLength(1)); // Sent; now waiting.
+  await f.entry.visible(false);
+  expect(f.active()).toBe(0);
+  publication.source = source;
+  await f.entry.visible(true);
+  expect(await answered).toEqual({ kind: 'applied', source });
+  await f.entry.close();
+});
+
+it('a request still waiting ends when the page is left or the entry closes', async () => {
+  const f = await fixture();
+  const edit = await ready(f);
+  const left = edit('<main>mine</main>', 'verified only', () => {});
+  const settled = left.then(
+    () => 'answered',
+    (error: Error) => error.message,
+  );
+  await vi.waitFor(() => expect(publication.records).toHaveLength(1));
+  await f.entry.select(target('00000000-0000-4000-8000-000000000456'));
+  expect(await settled).toBe('Page closed');
+  const next = f.states.at(-1);
+  if (next?.phase !== 'ready' || !next.edit) throw new Error('expected the next editor page');
+  publication.records = [];
+  const closed = next.edit('<main>again</main>', 'verified only', () => {});
+  const ended = closed.then(
+    () => 'answered',
+    (error: Error) => error.message,
+  );
+  await vi.waitFor(() => expect(publication.records).toHaveLength(1));
+  await f.entry.close();
+  expect(await ended).toBe('Page closed');
 });

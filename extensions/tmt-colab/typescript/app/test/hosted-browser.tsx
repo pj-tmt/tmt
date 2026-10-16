@@ -5,6 +5,7 @@ import '../src/style.css';
 import { createRoot } from 'react-dom/client';
 import { HostedApp } from '../src/hosted-app.js';
 import type { HostedEntryState } from '../src/hosted-entry.js';
+import { EditTooLarge } from '../src/save.js';
 
 const states: Record<string, HostedEntryState> = {
   'sign-in': { phase: 'sign-in', hasLink: true },
@@ -42,9 +43,31 @@ states.editor = {
   },
   budget: { reads: 100, writes: 1, day: 1, state: 'ok' },
   role: 'editor',
-  edit: async () => ({ request: 'sent' }),
+  edit: async (source) => ({ kind: 'applied', source }),
 };
-for (const outcome of ['sent', 'refused', 'unconfirmed'] as const) {
+const requested = { ...states.editor, phase: 'ready' } as Extract<
+  HostedEntryState,
+  { phase: 'ready' }
+>;
+// Where a hosted request is in the same state as a native one, the page answers it the same way.
+for (const [name, edit] of [
+  [
+    'waiting',
+    async (_source: string, _base: string, onWaiting: () => void) => {
+      onWaiting();
+      return new Promise<never>(() => {});
+    },
+  ],
+  ['changed', async (source: string) => ({ kind: 'changed' as const, source: `${source}!` })],
+  [
+    'large',
+    async () => {
+      throw new EditTooLarge(200 * 1024, 128 * 1024);
+    },
+  ],
+] as const)
+  states[`request-${name}`] = { ...requested, edit };
+for (const outcome of ['refused', 'unconfirmed'] as const) {
   states[`request-${outcome}`] = {
     ...states.editor,
     phase: 'ready',

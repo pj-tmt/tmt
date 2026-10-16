@@ -16,7 +16,6 @@ let answer:
   | 'waiting'
   | 'large'
   | 'raced'
-  | 'sent'
   | 'refused'
   | 'unconfirmed'
   | 'writer-in-use' = 'applied';
@@ -58,12 +57,7 @@ export async function mount(role: 'viewer' | 'editor') {
         editor
           ? async (source, base, onWaiting) => {
               saves.push({ source, base });
-              if (
-                answer === 'sent' ||
-                answer === 'refused' ||
-                answer === 'unconfirmed' ||
-                answer === 'writer-in-use'
-              )
+              if (answer === 'refused' || answer === 'unconfirmed' || answer === 'writer-in-use')
                 return { request: answer };
               if (answer === 'large') throw new EditTooLarge(200 * 1024, 128 * 1024);
               if (answer === 'raced') throw new OwnAppendRefused('CONFLICT');
