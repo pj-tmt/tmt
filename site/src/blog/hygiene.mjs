@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 
 export function privatePath(path) {
-  return /(?:^|\/)(?:\.private|exports?|colab-export[^/]*|\.venv|node_modules|dist|\.generated|attachments)(?:\/|$)|(?:^|\/)(?:conversations\.(?:json|md)|page\.html|manifest\.json)$/.test(
+  return /(?:^|\/)(?:\.private|conversations|exports?|colab-export[^/]*|\.venv|node_modules|dist|\.generated|attachments)(?:\/|$)|(?:^|\/)(?:conversations\.(?:json|md)|page\.html|manifest\.json)$/.test(
     path,
   );
 }

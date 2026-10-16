@@ -68,6 +68,7 @@ test("private output is rejected by exact basename or private directory segment"
   for (const path of [
     "conversations.json",
     "notes/conversations.md",
+    "posts/one/conversations/thread.json",
     "manifest.json",
     "posts/one/approval.json",
     "posts/one/meta.json",

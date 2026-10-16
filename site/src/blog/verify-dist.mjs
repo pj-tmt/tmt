@@ -26,7 +26,7 @@ export async function verifyDist(
     );
   for (const path of Object.keys(allFiles))
     if (
-      /(?:^|\/)(?:\.private|conversations\.(?:json|md)|manifest\.json|approval\.json|meta\.json|source\.html)(?:\/|$)/.test(
+      /(?:^|\/)(?:\.private|conversations(?:\.(?:json|md))?|manifest\.json|approval\.json|meta\.json|source\.html)(?:\/|$)/.test(
         path,
       )
     )
