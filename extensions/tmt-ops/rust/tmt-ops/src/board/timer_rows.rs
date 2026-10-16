@@ -29,7 +29,8 @@ pub(in crate::board) fn line(row: &Row, width: usize, look: Look) -> Line<'stati
             align,
         )
     };
-    // At the approved widths: id 1, squad 4, schedule 15, next 26, purpose 36.
+    // Approved tracks: id 1, squad 4, schedule 15; right-aligned "in 19m" starts
+    // at 28 within the next field (26..34), followed by purpose at 36.
     let fields = [
         (&row.id, 2, Align::Left, 1),
         (&row.squad, 10, Align::Left, 1),
