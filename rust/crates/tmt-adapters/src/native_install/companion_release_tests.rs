@@ -513,4 +513,232 @@ printf '%s' '{"ok":{"protocols":[1],"kind":"host","name":"herdr","version":"0.0.
             Some(reapproved)
         );
     }
+
+    /// The registry file as bytes, empty when none exists.
+    fn registry_bytes(global: &Path) -> String {
+        fs::read_to_string(global.join(registry::REGISTRY_FILE)).unwrap_or_default()
+    }
+
+    #[test]
+    fn the_shipped_driver_is_approved_on_first_use_in_its_host_and_only_then() {
+        let (directory, active, _) = shipped();
+        let global = directory.path.join("global");
+        let runner = crate::process::UnixCommandRunner;
+        // Outside the host it serves, nothing is recorded.
+        assert_eq!(
+            registry::approve_shipped(&global, "herdr", &active, false, &runner).unwrap(),
+            None
+        );
+        assert_eq!(registry_bytes(&global), "");
+        // In the host: the record `tmt driver install herdr --yes` writes.
+        let Some(registry::Automatic::First(record)) =
+            registry::approve_shipped(&global, "herdr", &active, true, &runner).unwrap()
+        else {
+            panic!("first use approves the shipped driver");
+        };
+        assert_eq!(record.source, DriverSource::FirstParty);
+        assert_eq!(
+            record.digest,
+            crate::native_install::artifact::digest(HERDR_DRIVER)
+        );
+        let explicit = registry::inspect_first_party(&global, "herdr", &active, &runner).unwrap();
+        assert_eq!(
+            (&record.path, &record.capabilities),
+            (&explicit.path, &explicit.capabilities)
+        );
+        assert_eq!(
+            registry::state(&global, &record, &active, &runner),
+            (ApprovalState::Ok, None)
+        );
+        // Idempotent, and a registry without a removal reads as before.
+        let written = registry_bytes(&global);
+        assert_eq!(
+            registry::approve_shipped(&global, "herdr", &active, true, &runner).unwrap(),
+            None
+        );
+        assert_eq!(registry_bytes(&global), written);
+        assert!(!written.contains("declined"), "{written}");
+    }
+
+    #[test]
+    fn a_removed_shipped_driver_stays_removed_until_installed_explicitly() {
+        let (directory, active, _) = shipped();
+        let global = directory.path.join("global");
+        let runner = crate::process::UnixCommandRunner;
+        registry::approve_shipped(&global, "herdr", &active, true, &runner).unwrap();
+        assert!(registry::remove(&global, "herdr").unwrap());
+        assert!(registry_bytes(&global).contains(r#""declined": ["#));
+        for host_present in [true, false] {
+            assert_eq!(
+                registry::approve_shipped(&global, "herdr", &active, host_present, &runner)
+                    .unwrap(),
+                None
+            );
+        }
+        assert_eq!(registry::read(&global).unwrap(), []);
+        // Removing it again changes nothing; an explicit install lifts it.
+        assert!(!registry::remove(&global, "herdr").unwrap());
+        let inspected = registry::inspect_first_party(&global, "herdr", &active, &runner).unwrap();
+        registry::commit(&global, inspected).unwrap();
+        assert!(!registry_bytes(&global).contains("declined"));
+        assert_eq!(registry::read(&global).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn an_upgrade_asking_for_more_is_approved_again_wherever_the_command_runs() {
+        for (driver, extra) in [
+            (HERDR_DRIVER_MORE, "it now also runs capture"),
+            (HERDR_DRIVER_ENV, "it now also reads HERDR_PANE_ID"),
+        ] {
+            let (directory, active, release) = shipping(driver);
+            let path = fs::canonicalize(&release).unwrap().join(DRIVER);
+            let approved = record(
+                &path,
+                &crate::native_install::artifact::digest(b"older driver"),
+            );
+            let global = directory.path.join("global");
+            registry_with(&global, &approved);
+            let runner = crate::process::UnixCommandRunner;
+            let Some(registry::Automatic::Widened { record, reason }) =
+                registry::approve_shipped(&global, "herdr", &active, false, &runner).unwrap()
+            else {
+                panic!("a wider shipped driver is approved again");
+            };
+            assert_eq!(reason, extra);
+            assert_eq!(
+                record.digest,
+                crate::native_install::artifact::digest(driver)
+            );
+            assert_eq!(
+                registry::read(&global).unwrap(),
+                std::slice::from_ref(&record)
+            );
+            assert_eq!(
+                registry::current_first_party(&global, &record, &active, &runner),
+                Some(record)
+            );
+            assert_eq!(
+                registry::approve_shipped(&global, "herdr", &active, false, &runner).unwrap(),
+                None
+            );
+        }
+    }
+
+    #[test]
+    fn an_upgrade_within_its_approval_is_left_to_silent_adoption() {
+        let (directory, active, release) = shipped();
+        let path = fs::canonicalize(&release).unwrap().join(DRIVER);
+        let approved = record(
+            &path,
+            &crate::native_install::artifact::digest(b"older driver"),
+        );
+        let global = directory.path.join("global");
+        registry_with(&global, &approved);
+        let before = registry_bytes(&global);
+        let runner = crate::process::UnixCommandRunner;
+        assert_eq!(
+            registry::approve_shipped(&global, "herdr", &active, true, &runner).unwrap(),
+            None
+        );
+        assert_eq!(registry_bytes(&global), before);
+    }
+
+    #[test]
+    fn a_path_approval_of_the_name_and_a_removed_driver_are_never_touched() {
+        let (directory, active, release) = shipping(HERDR_DRIVER_MORE);
+        let path = fs::canonicalize(&release).unwrap().join(DRIVER);
+        let global = directory.path.join("global");
+        let runner = crate::process::UnixCommandRunner;
+        // The user's own executable under the shipped name: explicit trust.
+        let mut own = record(&path, "own digest");
+        own.source = DriverSource::Path;
+        registry_with(&global, &own);
+        let before = registry_bytes(&global);
+        assert_eq!(
+            registry::approve_shipped(&global, "herdr", &active, true, &runner).unwrap(),
+            None
+        );
+        assert_eq!(registry_bytes(&global), before);
+        // A removal recorded beside an old approval blocks the upgrade path too.
+        let approved = record(&path, "older digest");
+        fs::write(
+            global.join(registry::REGISTRY_FILE),
+            serde_json::to_vec(
+                &serde_json::json!({"version": 1, "drivers": [approved], "declined": ["herdr"]}),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let before = registry_bytes(&global);
+        assert_eq!(
+            registry::approve_shipped(&global, "herdr", &active, true, &runner).unwrap(),
+            None
+        );
+        assert_eq!(registry_bytes(&global), before);
+        // Another name is a third-party driver, whatever is installed.
+        assert_eq!(
+            registry::approve_shipped(&global, "fake", &active, true, &runner).unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn a_release_without_a_usable_driver_approves_nothing() {
+        let (directory, layout, old) = published_layout();
+        let four_files = layout
+            .root
+            .join("releases")
+            .join(old.id.to_string())
+            .join("tmt");
+        let global = directory.path.join("global");
+        let runner = crate::process::UnixCommandRunner;
+        let error =
+            registry::approve_shipped(&global, "herdr", &four_files, true, &runner).unwrap_err();
+        assert_eq!(error.code(), "DRIVER_REFUSED");
+        assert_eq!(registry_bytes(&global), "");
+        assert_eq!(
+            registry::approve_shipped(&global, "herdr", &four_files, false, &runner).unwrap(),
+            None
+        );
+    }
+
+    /// Processes racing the first use never approve twice. Reading the managed
+    /// installation can lose a race for its publication lock, which approves
+    /// nothing for that process, so a sequential use settles what is left.
+    #[test]
+    fn concurrent_first_uses_approve_once() {
+        let (directory, active, _) = shipped();
+        let global = directory.path.join("global");
+        let racing: Vec<_> = (0..4)
+            .map(|_| {
+                let (global, active) = (global.clone(), active.clone());
+                std::thread::spawn(move || {
+                    registry::approve_shipped(
+                        &global,
+                        "herdr",
+                        &active,
+                        true,
+                        &crate::process::UnixCommandRunner,
+                    )
+                    .ok()
+                    .flatten()
+                })
+            })
+            .collect();
+        let mut approvals = racing
+            .into_iter()
+            .filter_map(|approval| approval.join().unwrap())
+            .count();
+        let settled = registry::approve_shipped(
+            &global,
+            "herdr",
+            &active,
+            true,
+            &crate::process::UnixCommandRunner,
+        )
+        .unwrap();
+        approvals += usize::from(settled.is_some());
+        assert_eq!(approvals, 1);
+        assert_eq!(registry::read(&global).unwrap().len(), 1);
+    }
 }

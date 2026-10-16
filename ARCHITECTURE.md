@@ -335,7 +335,8 @@ contracts own behavior and limits.
 
 `tmt-driver-protocol` owns host/runtime wire types and `tmt-host-grammar` owns host
 syntax; [driver-protocol-v1](contracts/driver-protocol-v1.md) owns the wire contract.
-`tmt-adapters::driver_protocol` owns explicit approval and bounded calls, while
+`tmt-adapters::driver_protocol` owns explicit approval, the automatic approval of the
+driver the running release ships (`registry::approve_shipped`) and bounded calls, while
 `host::external` composes approved hosts. Core decides evidence; unavailable drivers
 never prove loss. External runtime launch/setup/hooks remain unwired. Details:
 [hosts and drivers](.agents/skills/tmt-core-runtime/references/hosts-drivers.md#driver-protocol-crates).

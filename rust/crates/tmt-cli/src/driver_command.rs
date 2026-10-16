@@ -348,6 +348,45 @@ fn write_listing(output: &mut impl Write, terminal: Terminal, rows: &[Listed]) -
     )
 }
 
+/// The shipped Herdr driver, approved without asking (#3220). Runs before the
+/// approved drivers' syntax is registered, so the command that triggered it
+/// already reads Herdr panes. The one line goes to stderr, whatever the
+/// output mode, because a person should know what TMT now runs; any failure
+/// approves nothing and leaves the install hint. The registry owns the rules.
+pub fn approve_shipped_automatically() {
+    let (Ok(paths), Ok(tmt)) = (ConfigPaths::discover(), std::env::current_exe()) else {
+        return;
+    };
+    let in_herdr_pane = crate::skill_reminder::herdr_pane_environment().is_some();
+    let Ok(Some(approval)) = registry::approve_shipped(
+        &paths.global_dir,
+        "herdr",
+        &tmt,
+        in_herdr_pane,
+        &UnixCommandRunner,
+    ) else {
+        return;
+    };
+    let mut stderr = tmt_cli_style::stream::stderr();
+    let terminal = stderr.terminal();
+    let _ = tmt_cli_style::message::success(&mut stderr, terminal, &automatic_text(&approval));
+}
+
+fn automatic_text(approval: &registry::Automatic) -> String {
+    match approval {
+        registry::Automatic::First(record) => format!(
+            "Approved {kind} driver {name} automatically: it ships with this tmt. Remove it with: tmt driver rm {name}",
+            kind = record.capabilities.kind(),
+            name = record.name
+        ),
+        registry::Automatic::Widened { record, reason } => format!(
+            "Approved {kind} driver {name} again after an upgrade: {reason}. Remove it with: tmt driver rm {name}",
+            kind = record.capabilities.kind(),
+            name = record.name
+        ),
+    }
+}
+
 pub fn execute(request: DriverRequest, mode: OutputMode) -> io::Result<u8> {
     let result = (|| -> Result<Answer, Failure> {
         let paths = ConfigPaths::discover()?;
@@ -387,6 +426,16 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
         &[],
     ),
     crate::cli_style_tests::HintSpec::core("tmt driver install {again}", &[""], &[]),
+    crate::cli_style_tests::HintSpec::core(
+        "Approved {kind} driver {name} automatically: it ships with this tmt. Remove it with: tmt driver rm {name}",
+        &[""],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "Approved {kind} driver {name} again after an upgrade: {reason}. Remove it with: tmt driver rm {name}",
+        &[""],
+        &[],
+    ),
 ];
 
 #[cfg(test)]
@@ -408,5 +457,29 @@ mod tests {
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
         assert!(error.to_string().contains("approve the driver again"));
         assert!(output.is_empty());
+    }
+
+    #[test]
+    fn an_automatic_approval_says_what_happened_and_how_to_undo_it() {
+        let record: DriverRecord = serde_json::from_value(json!({
+            "name": "herdr", "path": "/tmp/driver", "digest": "test", "protocol": 1,
+            "fingerprint": {"device": 0, "inode": 0, "size": 0, "modifiedNs": 0,
+                "changedNs": 0, "uid": 0, "mode": 0}, "approvedAtMs": 0,
+            "capabilities": {"kind": "host", "name": "herdr", "version": "test",
+                "protocols": [1], "ops": ["snapshot"], "paneId": {"prefix": "term_"},
+                "target": "w{n}:p{n}", "callerEnv": []}
+        }))
+        .unwrap();
+        assert_eq!(
+            automatic_text(&registry::Automatic::First(record.clone())),
+            "Approved host driver herdr automatically: it ships with this tmt. Remove it with: tmt driver rm herdr"
+        );
+        assert_eq!(
+            automatic_text(&registry::Automatic::Widened {
+                record,
+                reason: "it now also runs name-agent".into()
+            }),
+            "Approved host driver herdr again after an upgrade: it now also runs name-agent. Remove it with: tmt driver rm herdr"
+        );
     }
 }

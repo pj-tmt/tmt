@@ -83,6 +83,12 @@ pub fn first_party_file(name: &str) -> String {
 struct RegistryDocument {
     version: u8,
     drivers: Vec<DriverRecord>,
+    /// First-party drivers the user removed. They are not approved again
+    /// automatically ([`approve_shipped`]); `tmt driver install` clears the
+    /// name. Written only when not empty, so a registry that never saw a
+    /// removal reads the same in a tmt from before this list existed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    declined: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -141,13 +147,20 @@ pub fn registry_path(global_dir: &Path) -> PathBuf {
 
 /// The approved drivers; none when the registry doesn't exist.
 pub fn read(global_dir: &Path) -> Result<Vec<DriverRecord>, RegistryError> {
+    Ok(read_document(global_dir)?.drivers)
+}
+
+fn read_document(global_dir: &Path) -> Result<RegistryDocument, RegistryError> {
     let path = registry_path(global_dir);
     let bytes = match crate::bounded_file::read_no_follow(&path, REGISTRY_LIMIT) {
         Ok(bytes) => bytes,
         Err(crate::bounded_file::FileReadError::Io(error))
             if error.kind() == io::ErrorKind::NotFound =>
         {
-            return Ok(Vec::new());
+            return Ok(RegistryDocument {
+                version: 1,
+                ..RegistryDocument::default()
+            });
         }
         Err(error) => return Err(RegistryError::Io(io::Error::other(error.to_string()))),
     };
@@ -158,15 +171,11 @@ pub fn read(global_dir: &Path) -> Result<Vec<DriverRecord>, RegistryError> {
             "The driver registry uses an unsupported version.".into(),
         ));
     }
-    Ok(document.drivers)
+    Ok(document)
 }
 
-fn write(global_dir: &Path, drivers: &[DriverRecord]) -> Result<(), RegistryError> {
-    let bytes = serde_json::to_vec_pretty(&RegistryDocument {
-        version: 1,
-        drivers: drivers.to_vec(),
-    })
-    .map_err(io::Error::other)?;
+fn write(global_dir: &Path, document: &RegistryDocument) -> Result<(), RegistryError> {
+    let bytes = serde_json::to_vec_pretty(document).map_err(io::Error::other)?;
     if bytes.len() > REGISTRY_LIMIT {
         return Err(RegistryError::Invalid(
             "The approvals exceed the registry byte limit; nothing changed.".into(),
@@ -313,18 +322,115 @@ fn locked(global_dir: &Path) -> Result<nix::fcntl::Flock<fs::File>, RegistryErro
 
 /// Records an inspected driver, after checking again against the registry
 /// as it is now, since another approval may have landed in between.
-pub fn commit(global_dir: &Path, mut record: DriverRecord) -> Result<DriverRecord, RegistryError> {
+/// An explicit approval also lifts an earlier removal of that name.
+pub fn commit(global_dir: &Path, record: DriverRecord) -> Result<DriverRecord, RegistryError> {
     let _lock = locked(global_dir)?;
-    let mut drivers = read(global_dir)?;
-    admissible(&record, &drivers)?;
-    drivers.retain(|existing| existing.name != record.name);
+    let mut document = read_document(global_dir)?;
+    admissible(&record, &document.drivers)?;
+    document
+        .declined
+        .retain(|declined| *declined != record.name);
+    let record = insert(&mut document, record);
+    write(global_dir, &document)?;
+    Ok(record)
+}
+
+/// Puts `record` in its place, replacing an approval of the same name.
+fn insert(document: &mut RegistryDocument, mut record: DriverRecord) -> DriverRecord {
+    document
+        .drivers
+        .retain(|existing| existing.name != record.name);
     record.approved_at_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |elapsed| elapsed.as_millis() as u64);
-    drivers.push(record.clone());
-    drivers.sort_by(|left, right| left.name.cmp(&right.name));
-    write(global_dir, &drivers)?;
-    Ok(record)
+    document.drivers.push(record.clone());
+    document
+        .drivers
+        .sort_by(|left, right| left.name.cmp(&right.name));
+    record
+}
+
+/// What an automatic approval of a shipped driver changed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Automatic {
+    /// The first use of the host it serves: there was no approval.
+    First(DriverRecord),
+    /// A release shipped a driver that declares more than the approval
+    /// covered, and `reason` says what ([`beyond`]).
+    Widened {
+        record: DriverRecord,
+        reason: String,
+    },
+}
+
+/// Approves the first-party driver `name` that the running `tmt` ships when
+/// no one needs to be asked: the file is the one its release receipt records,
+/// so it carries no trust beyond the `tmt` already running (#3220). Nothing
+/// is recorded for a driver the user removed, for a path approval of that
+/// name, or when the release ships no usable driver.
+///
+/// - No approval and `host_present` (the caller's environment shows the host
+///   the driver serves): approved, as `tmt driver install <name> --yes` would.
+/// - An approval of a shipped driver the release replaced with one declaring
+///   more than was approved: approved again. A replacement within the
+///   approval is adopted by [`resolve_first_party`] without a word.
+///
+/// Both checks repeat under the registry lock, so concurrent processes
+/// approve once and only one of them reports it.
+pub fn approve_shipped(
+    global_dir: &Path,
+    name: &str,
+    tmt: &Path,
+    host_present: bool,
+    runner: &impl CommandRunner,
+) -> Result<Option<Automatic>, RegistryError> {
+    if !is_first_party(name) {
+        return Ok(None);
+    }
+    let document = read_document(global_dir)?;
+    if document.declined.iter().any(|declined| declined == name) {
+        return Ok(None);
+    }
+    match document.drivers.iter().find(|record| record.name == name) {
+        None if !host_present => Ok(None),
+        None => {
+            let record = inspect_first_party(global_dir, name, tmt, runner)?;
+            Ok(replace_unless_changed(global_dir, record, None)?.map(Automatic::First))
+        }
+        Some(approved) if approved.source != DriverSource::FirstParty => Ok(None),
+        Some(approved) => {
+            let Ok(Some(current)) = shipped_current(approved, tmt, runner) else {
+                return Ok(None);
+            };
+            let Some(reason) = beyond(approved, &current) else {
+                return Ok(None);
+            };
+            Ok(replace_unless_changed(global_dir, current, Some(approved))?
+                .map(|record| Automatic::Widened { record, reason }))
+        }
+    }
+}
+
+/// Records `record` if the registry still holds `expected` under its name
+/// (none for a first approval) and the user has not removed that name.
+fn replace_unless_changed(
+    global_dir: &Path,
+    record: DriverRecord,
+    expected: Option<&DriverRecord>,
+) -> Result<Option<DriverRecord>, RegistryError> {
+    let _lock = locked(global_dir)?;
+    let mut document = read_document(global_dir)?;
+    let held = document
+        .drivers
+        .iter()
+        .find(|existing| existing.name == record.name);
+    if held != expected || document.declined.contains(&record.name) {
+        return Ok(None);
+    }
+    admissible(&record, &document.drivers)?;
+    let record = insert(&mut document, record);
+    write(global_dir, &document)?;
+    Ok(Some(record))
 }
 
 /// Whether `record` may join `drivers`, replacing one of its own name.
@@ -569,6 +675,43 @@ pub fn resolve_first_party(
     tmt: &Path,
     runner: &impl CommandRunner,
 ) -> Result<DriverRecord, FirstPartyGap> {
+    let Some(mut current) = shipped_current(record, tmt, runner)? else {
+        return Ok(record.clone());
+    };
+    if let Some(reason) = beyond(record, &current) {
+        return Err(FirstPartyGap::unusable(format!(
+            "the upgraded driver needs approval again: {reason}"
+        )));
+    }
+    current.approved_at_ms = record.approved_at_ms;
+    let unwritable = |error: RegistryError| FirstPartyGap::unusable(error.to_string());
+    let _lock = locked(global_dir).map_err(unwritable)?;
+    let mut document = read_document(global_dir).map_err(unwritable)?;
+    // Removed or replaced since it was read: that approval stands.
+    if !document.drivers.iter().any(|existing| existing == record) {
+        return Err(FirstPartyGap::unusable(
+            "the approval changed while it was being updated".into(),
+        ));
+    }
+    document
+        .drivers
+        .retain(|existing| existing.name != current.name);
+    document.drivers.push(current.clone());
+    document
+        .drivers
+        .sort_by(|left, right| left.name.cmp(&right.name));
+    write(global_dir, &document).map_err(unwritable)?;
+    Ok(current)
+}
+
+/// The driver the running release ships under `record`'s name, described
+/// (its receipt digest and one `capabilities` probe), or none when it is the
+/// very file `record` approves.
+fn shipped_current(
+    record: &DriverRecord,
+    tmt: &Path,
+    runner: &impl CommandRunner,
+) -> Result<Option<DriverRecord>, FirstPartyGap> {
     let name = &record.name;
     let companion = crate::native_install::active_companion(tmt, &first_party_file(name))
         .map_err(|error| {
@@ -578,9 +721,9 @@ pub fn resolve_first_party(
             FirstPartyGap::not_shipped(format!("this tmt release ships no {name} driver"))
         })?;
     if companion.sha256 == record.digest && companion.path == record.path {
-        return Ok(record.clone());
+        return Ok(None);
     }
-    let mut current = described(
+    let current = described(
         &companion.path,
         DriverSource::FirstParty,
         Some(&companion.sha256),
@@ -593,26 +736,7 @@ pub fn resolve_first_party(
             current.name
         )));
     }
-    if let Some(reason) = beyond(record, &current) {
-        return Err(FirstPartyGap::unusable(format!(
-            "the upgraded driver needs approval again: {reason}"
-        )));
-    }
-    current.approved_at_ms = record.approved_at_ms;
-    let unwritable = |error: RegistryError| FirstPartyGap::unusable(error.to_string());
-    let _lock = locked(global_dir).map_err(unwritable)?;
-    let mut drivers = read(global_dir).map_err(unwritable)?;
-    // Removed or replaced since it was read: that approval stands.
-    if !drivers.iter().any(|existing| existing == record) {
-        return Err(FirstPartyGap::unusable(
-            "the approval changed while it was being updated".into(),
-        ));
-    }
-    drivers.retain(|existing| existing.name != current.name);
-    drivers.push(current.clone());
-    drivers.sort_by(|left, right| left.name.cmp(&right.name));
-    write(global_dir, &drivers).map_err(unwritable)?;
-    Ok(current)
+    Ok(Some(current))
 }
 
 /// [`resolve_first_party`] for a run: the record to use, or none, so the
@@ -626,15 +750,19 @@ pub fn current_first_party(
     resolve_first_party(global_dir, record, tmt, runner).ok()
 }
 
-/// Removes an approval; whether there was one.
+/// Removes an approval; whether there was one. Removing a first-party
+/// driver is remembered, so it is not approved again automatically.
 pub fn remove(global_dir: &Path, name: &str) -> Result<bool, RegistryError> {
     let _lock = locked(global_dir)?;
-    let mut drivers = read(global_dir)?;
-    let before = drivers.len();
-    drivers.retain(|existing| existing.name != name);
-    if drivers.len() == before {
+    let mut document = read_document(global_dir)?;
+    let before = document.drivers.len();
+    document.drivers.retain(|existing| existing.name != name);
+    if document.drivers.len() == before {
         return Ok(false);
     }
-    write(global_dir, &drivers)?;
+    if is_first_party(name) && !document.declined.iter().any(|declined| declined == name) {
+        document.declined.push(name.to_owned());
+    }
+    write(global_dir, &document)?;
     Ok(true)
 }

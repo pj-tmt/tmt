@@ -128,6 +128,11 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
     ) {
         return skill_refresh_command::execute(true, parsed.mode);
     }
+    // The shipped Herdr driver is approved before its syntax is registered,
+    // so this command already reads the pane it runs in.
+    if skill_reminder::works_with_hosts(&parsed.invocation) {
+        driver_command::approve_shipped_automatically();
+    }
     tmt_adapters::host::external::register_approved();
     // Companions reach core through this executable, whatever name it has.
     tmt_adapters::core_executable::declare_core();
