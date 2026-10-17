@@ -139,7 +139,9 @@ impl Tree {
     /// The parent element, or `None` at the top of the source (the browser's `parentElement` of
     /// a node directly in the template content).
     pub(super) fn parent_element(&self, id: Id) -> Option<Id> {
-        self.nodes[id].parent.filter(|parent| *parent != self.root)
+        self.nodes[id].parent.filter(|parent| {
+            *parent != self.root && matches!(self.nodes[*parent].kind, Kind::Element(_))
+        })
     }
 
     /// The ancestor elements, nearest first.
@@ -158,6 +160,39 @@ impl Tree {
     pub(super) fn closest(&self, id: Id, names: &[&str]) -> Option<Id> {
         self.ancestors(id)
             .find(|ancestor| names.contains(&self.name(*ancestor)))
+    }
+
+    /// Text nodes in document order, paired with their parent element. Template contents are
+    /// separate fragments and never appear in the renderer's body TreeWalker.
+    pub(super) fn text_nodes(&self) -> Vec<(Option<Id>, &str)> {
+        let mut found = Vec::new();
+        let mut stack: Vec<_> = self.nodes[self.root]
+            .children
+            .iter()
+            .rev()
+            .copied()
+            .collect();
+        while let Some(id) = stack.pop() {
+            match &self.nodes[id].kind {
+                Kind::Text(text) => {
+                    let parent = self.nodes[id]
+                        .parent
+                        .filter(|parent| matches!(self.nodes[*parent].kind, Kind::Element(_)));
+                    found.push((parent, text.as_str()))
+                }
+                Kind::Element(_) => stack.extend(self.nodes[id].children.iter().rev()),
+                _ => {}
+            }
+        }
+        found
+    }
+    pub(super) fn excluded(&self, id: Id) -> bool {
+        matches!(
+            self.name(id),
+            "head" | "script" | "style" | "template" | "noscript"
+        ) || ["hidden", "data-colab-highlight", "data-colab-image"]
+            .iter()
+            .any(|name| self.attr(id, name).is_some())
     }
 
     /// The `textContent` of an element: every descendant text node, comments excluded.

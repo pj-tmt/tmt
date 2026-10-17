@@ -1583,6 +1583,7 @@ function Page() {
             {questionLayer.ready && reviewLayer.ready && readingLayer.ready && (
               <NeedsYouHeader
                 items={pendingNeedsYou([
+                  ...proposalLayer.navigation,
                   ...readingLayer.items
                     .filter((item) => inlineSlots.readingIds.has(item.id))
                     .map((item) => ({
@@ -1594,7 +1595,12 @@ function Page() {
                   ...reviewLayer.navigation,
                 ])}
                 onPick={(item) => {
-                  if (item.kind === 'reading') readingLayer.jump(item.id, true);
+                  if (item.kind === 'proposal') {
+                    if (!proposalLayer.jump(item.id)) {
+                      const ref = proposalLayer.reference(item.id);
+                      if (ref) openThread(ref);
+                    }
+                  } else if (item.kind === 'reading') readingLayer.jump(item.id, true);
                   else if (item.kind === 'answer') questionLayer.jump(item.targetId ?? item.id);
                   else if (item.kind === 'review') reviewLayer.jump(item.id);
                 }}

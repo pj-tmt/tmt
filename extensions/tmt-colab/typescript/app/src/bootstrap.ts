@@ -20,6 +20,8 @@ export const LABELS_PER_PAGE = 8;
 
 /** Page summary limits; the contract's Page summary section holds the same numbers. */
 export const AUTHOR_BYTES = 128;
+/** 200 proposals + 50 readings + 50 answer blocks + 50 reviews. */
+export const NEEDS_YOU_MAX = 350;
 const COMMENTS_MAX = 4_294_967_295;
 /** The complete `/api/pages` reply: 1,000 pages with the longest labels and summaries (about 780 KB) fit. */
 export const DISCOVERY_BYTES = 1024 * 1024;
@@ -29,6 +31,8 @@ export interface PageActivity {
   comments: number;
   /** At least one undecided, unresolved proposal; in v1 the mark means "a proposal awaits you". */
   waiting: boolean;
+  /** Pending proposals, readings, answer blocks and reviews; one count per target ID. */
+  needsYou: number;
   /** The page's creation label (`meta.originalAuthor`); omitted when it has none. */
   author?: string;
 }
@@ -57,12 +61,21 @@ export interface Bootstrap {
 /** The owner's display-only summary is untrusted text: bounded and typed, never trusted for more. */
 function activity(value: unknown): asserts value is PageActivity {
   requireValue(value !== null && typeof value === 'object' && !Array.isArray(value));
-  exactKeys(value, 'author' in value ? ['comments', 'waiting', 'author'] : ['comments', 'waiting']);
+  exactKeys(
+    value,
+    'author' in value
+      ? ['comments', 'waiting', 'needsYou', 'author']
+      : ['comments', 'waiting', 'needsYou'],
+  );
   requireValue(
     Number.isSafeInteger(value.comments) &&
       Number(value.comments) >= 0 &&
       Number(value.comments) <= COMMENTS_MAX &&
-      typeof value.waiting === 'boolean',
+      typeof value.waiting === 'boolean' &&
+      Number.isSafeInteger(value.needsYou) &&
+      Number(value.needsYou) >= 0 &&
+      Number(value.needsYou) <= NEEDS_YOU_MAX &&
+      value.waiting === Number(value.needsYou) > 0,
   );
   if ('author' in value)
     requireValue(

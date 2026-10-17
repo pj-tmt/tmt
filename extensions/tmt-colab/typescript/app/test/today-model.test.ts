@@ -13,9 +13,21 @@ function page(id: string, ago: number | null, extra: Partial<PageSummary> = {}):
     ...extra,
   };
 }
-const waiting = { summary: { comments: 0, waiting: true } };
+const waiting = { summary: { comments: 0, waiting: true, needsYou: 1 } };
 
 describe('todayModel', () => {
+  it('sums pending items rather than the number of waiting pages', () => {
+    const pages = [
+      page('three', hour, { summary: { comments: 0, waiting: true, needsYou: 3 } }),
+      page('two', 2 * hour, { summary: { comments: 0, waiting: true, needsYou: 2 } }),
+      page('archived', hour, {
+        archived: true,
+        summary: { comments: 0, waiting: true, needsYou: 9 },
+      }),
+    ];
+    expect(todayModel(pages, now).counts.waiting).toBe(5);
+  });
+
   it('puts waiting pages first, newest first, then the recent pages', () => {
     const model = todayModel(
       [
@@ -44,7 +56,7 @@ describe('todayModel', () => {
   it('leaves archived pages to All pages and never counts them', () => {
     const model = todayModel([page('a', hour, { archived: true }), page('b', hour)], now);
     expect(model.recent.map((p) => p.id)).toEqual(['b']);
-    expect(model.counts).toEqual({ waiting: 0, updatedToday: 1, pages: 1 });
+    expect(model.counts).toEqual({ waiting: 0, updatedToday: 1, pages: 1, complete: false });
   });
 
   it('counts pages updated since the start of the viewer day', () => {
@@ -57,10 +69,26 @@ describe('todayModel', () => {
       ],
       now,
     );
-    expect(model.counts).toEqual({ waiting: 0, updatedToday: 2, pages: 4 });
+    expect(model.counts).toEqual({ waiting: 0, updatedToday: 2, pages: 4, complete: false });
   });
 
-  it('counts a page with no summary as not waiting and keeps pages without an update time last', () => {
+  it('keeps incomplete counts distinct from a confirmed zero and ignores unknown archived pages', () => {
+    const unknown = page('unknown', hour);
+    const known = page('known', hour, { summary: { comments: 0, waiting: true, needsYou: 3 } });
+    expect(todayModel([unknown, known], now).counts).toMatchObject({ waiting: 3, complete: false });
+    expect(todayModel([unknown], now).counts).toMatchObject({ waiting: 0, complete: false });
+    expect(
+      todayModel(
+        [
+          { ...unknown, archived: true },
+          { ...known, summary: { comments: 0, waiting: false, needsYou: 0 } },
+        ],
+        now,
+      ).counts,
+    ).toMatchObject({ waiting: 0, complete: true });
+  });
+
+  it('counts a page with no summary as unknown and keeps pages without an update time last', () => {
     const model = todayModel([page('none', null), page('known', hour)], now);
     expect(model.counts.waiting).toBe(0);
     expect(model.recent.map((p) => p.id)).toEqual(['known', 'none']);

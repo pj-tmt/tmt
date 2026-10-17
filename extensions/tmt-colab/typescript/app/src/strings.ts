@@ -127,8 +127,8 @@ export const text = {
   needsYouLabel: (count: number) => `Needs you: ${count}`,
   needsYouNothing: '✓ Nothing waits',
   needsYouNothingWord: 'Nothing waits',
-  needsYouGroup: (kind: 'reading' | 'answer' | 'review', count: number) =>
-    `${kind === 'reading' ? 'Please read' : kind === 'answer' ? 'Please answer' : 'Please confirm'} · ${count}`,
+  needsYouGroup: (kind: 'proposal' | 'reading' | 'answer' | 'review', count: number) =>
+    `${kind === 'proposal' ? 'Please decide' : kind === 'reading' ? 'Please read' : kind === 'answer' ? 'Please answer' : 'Please confirm'} · ${count}`,
 
   browserUnsupported: 'Unsupported browser',
   browserUpdate: 'Update your browser',
@@ -572,22 +572,23 @@ export const text = {
   shared: 'Shared',
   archived: 'Archived',
   showArchived: 'Show archived',
-  /** The Today home. The hero counts proposals because that is all the owner summary reports
-   * awaiting the owner; the words become "things" once the summary carries the full count. */
+  /** Today and the page header share the owner-derived pending-item definition. */
   today: {
     title: 'Today',
     navLabel: 'Home views',
     nav: { today: 'Today', waiting: 'Waiting', all: 'All pages' },
     greeting: { morning: 'Good morning', afternoon: 'Good afternoon', evening: 'Good evening' },
-    waitingCount: (count: number) =>
-      count === 1 ? '1 proposal waits for you' : `${count} proposals wait for you`,
-    nothingWaiting: 'No open proposals',
+    waitingCount: (count: number, complete = true) =>
+      `${count}${complete ? '' : '+'} ${count === 1 ? 'thing waits' : 'things wait'} for you`,
+    checking: 'Checking pages…',
+    nothingWaiting: 'Nothing waits for you',
     metricsLabel: 'Overview',
-    metrics: { waiting: 'Proposals', updatedToday: 'Updated today', pages: 'All pages' },
+    metrics: { waiting: 'Needs you', updatedToday: 'Updated today', pages: 'All pages' },
     chaptersLabel: 'Pages',
     kickerWaiting: 'Waiting',
     kickerUpdated: (when: string) => `Updated ${when}`,
     waitingForYou: 'Waiting for you',
+    pendingCount: (count: number) => `Needs you ${count}`,
     olderLabel: 'Older pages',
     byAuthor: (name: string) => `by ${name}`,
   },
@@ -606,7 +607,7 @@ export const text = {
     removeAuthorFilter: (name: string) => `Remove author filter ${name}`,
     byAuthor: (name: string) => `by ${name}`,
     commentCount: (count: number) => `${count} ${count === 1 ? 'comment' : 'comments'}`,
-    /** The mark means a proposal awaits the owner (v1); the word is part of the mark. */
+    /** The mark means a shared pending item awaits the owner; the word is part of the mark. */
     waitingForYou: 'Waiting for you',
     labelsFor: (title: string) => `Labels for ${title}`,
     newLabelItem: 'New label…',

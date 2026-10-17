@@ -4,6 +4,7 @@ import type { ThreadView } from './thread-records.js';
 type Target = { id: string; title: string; agent: string; targetId?: string };
 export type NeedsYouCandidate = Target &
   (
+    | { kind: 'proposal'; state: 'waiting' | 'settled' }
     | { kind: 'reading'; state: 'unread' | 'read' }
     | { kind: 'answer'; state: 'unanswered' | 'answered' }
     | { kind: 'review'; state: 'waiting' | 'changes' | 'closed' }
@@ -12,8 +13,13 @@ export type NeedsYouCandidate = Target &
 /** Each admitted owner supplies its existing state. The header adds no independent state. */
 export function pendingNeedsYou(candidates: readonly NeedsYouCandidate[]): NeedsYouCandidate[] {
   const seen = new Set<string>();
-  const pending = { reading: 'unread', answer: 'unanswered', review: 'waiting' } as const;
-  return (['reading', 'answer', 'review'] as const).flatMap((kind) =>
+  const pending = {
+    proposal: 'waiting',
+    reading: 'unread',
+    answer: 'unanswered',
+    review: 'waiting',
+  } as const;
+  return (['proposal', 'reading', 'answer', 'review'] as const).flatMap((kind) =>
     candidates.filter((item) => {
       if (item.kind !== kind || item.state !== pending[kind] || seen.has(item.id)) return false;
       seen.add(item.id);

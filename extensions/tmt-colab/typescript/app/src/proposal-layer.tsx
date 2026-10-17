@@ -20,6 +20,7 @@ import { presentationOf } from './thread-status-presentation.js';
 import type { ThreadView } from './thread-records.js';
 import type { PageSnapshot, PageView, PageBinding } from './transport.js';
 import { text } from './strings.js';
+import { focusNeedsYouTarget, type NeedsYouCandidate } from './needs-you.js';
 
 /** Parent-owned proposal presentation; the router wires admitted page and renderer ports. */
 export function useProposalLayer({
@@ -53,6 +54,7 @@ export function useProposalLayer({
   activeThread: string | null;
   setActiveThread: Dispatch<SetStateAction<string | null>>;
 }) {
+  const targets = useRef(new Map<string, HTMLDivElement>());
   const [revealedHistory, setRevealedHistory] = useState<string>();
   useEffect(() => setRevealedHistory(undefined), [snapshot.id]);
   const [proposalStatusErrors, setProposalStatusErrors] = useState(new Set<string>());
@@ -275,7 +277,25 @@ export function useProposalLayer({
   }
   const proposals = (view.threads ?? []).filter((thread) => thread.proposal && !thread.deleted);
   proposalContext.current = { discussionBlocked, snapshot, view, binding };
+  const navigation: NeedsYouCandidate[] = proposals.map((thread) => ({
+    kind: 'proposal',
+    state:
+      !thread.resolved && (!thread.decision || thread.decision.deleted) ? 'waiting' : 'settled',
+    id: thread.proposal!.proposalId,
+    title: thread.proposal!.title,
+    agent: thread.proposal!.proposer.label,
+  }));
   return {
+    navigation,
+    jump: (id: string) => {
+      const thread = proposals.find((thread) => thread.proposal!.proposalId === id);
+      return (
+        !!thread &&
+        slotPositions.some((slot) => slot.id === thread.threadId) &&
+        focusNeedsYouTarget(targets.current.get(id))
+      );
+    },
+    reference: (id: string) => proposals.find((thread) => thread.proposal!.proposalId === id)?.ref,
     activateNotification: (ref: DiscussionRef) => {
       const thread = proposals.find(
         (thread) => thread.ref.writer === ref.writer && thread.ref.id === ref.id,
@@ -300,6 +320,11 @@ export function useProposalLayer({
             return (
               <div
                 key={`${thread.ref.writer}:${thread.ref.id}`}
+                ref={(node) => {
+                  const id = thread.proposal!.proposalId;
+                  if (node) targets.current.set(id, node);
+                  else targets.current.delete(id);
+                }}
                 data-inline-proposal={thread.threadId}
                 data-inline-slot={thread.threadId}
                 className="proposal-inline"

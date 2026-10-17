@@ -123,7 +123,7 @@ function Chapter({
           </p>
         </div>
         <div className="today-chapter-state">
-          {waiting && <NeedsYouBar tone="needs" word={t.waitingForYou} />}
+          {waiting && <NeedsYouBar tone="needs" word={t.pendingCount(page.summary!.needsYou)} />}
           {comments ? (
             <span className="today-comments">{text.pageList.commentCount(comments)}</span>
           ) : null}
@@ -167,12 +167,14 @@ export function Today() {
                 <span className="today-mark" aria-hidden="true">
                   ◆
                 </span>{' '}
-                {t.waitingCount(counts.waiting)}
+                {t.waitingCount(counts.waiting, counts.complete)}
               </>
-            ) : (
+            ) : counts.complete ? (
               <>
                 <span aria-hidden="true">✓</span> {t.nothingWaiting}
               </>
+            ) : (
+              t.checking
             )}
           </p>
         )}
@@ -196,7 +198,13 @@ export function Today() {
                   if (event.isTrusted) jumpTo('waiting');
                 }}
               >
-                <strong className="today-numeral">{counts.waiting}</strong>
+                <strong className="today-numeral">
+                  {counts.complete
+                    ? counts.waiting
+                    : counts.waiting > 0
+                      ? `${counts.waiting}+`
+                      : '—'}
+                </strong>
                 <span>{t.metrics.waiting}</span>
               </button>
             </li>

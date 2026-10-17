@@ -493,7 +493,7 @@ is added.
   the CLI catalog. They are never a log statement, so a label change never contends with
   sharing or member changes. `delete_page_data` removes a page's rows; an open page is one
   that still has its epoch secrets.
-- Page summaries (`summary.rs`: comment count, a proposal awaiting the owner, the creator) are
+- Page summaries (`summary.rs`: comment count, pending-item count, the creator) are
   display-only values for the owner list that only the owner fold can read, so the serve keeps
   them in an in-memory `SummaryCache` keyed by each page's fingerprint (epoch, membership head,
   receipt and checkpoint counts, read in the same store transaction as `page_list()`). A list
@@ -543,8 +543,13 @@ and the viewer-clock greeting). Both views read the loader's `spaceHome()` pages
 `useHomeSpace` (`home-space.ts`), which fills a missing title by the bounded hint read, and share
 `HomeNav` (Today, Waiting, All pages; the ⌘K search is the header's control). Waiting and the metric
 jumps are in-page scrolls: the mounted history keeps its route in the location hash and drops
-search, so a URL anchor cannot carry them. The hero counts proposals because the owner summary's
-`waiting` means exactly that; the words follow the data. A `/` location that still carries list
+search, so a URL anchor cannot carry them. `summary_pending.rs` derives the shared pending target
+IDs (proposals first, readings, answer groups, reviews) from the admitted owner fold and
+`page_check::summary`'s static-source quote associations (200 ms projection bound), without executing authored code or
+trusting device labels. The shared needs-you vectors pin native/browser parity. Today sums
+`needsYou` items and shows chapter counts; missing summaries make the total a lower bound or
+`Checking pages…`, never a false zero. Returning through the existing Home loader or reloading
+reads again; no new polling loop. Per-item details remain #3578. A `/` location that still carries list
 search redirects to `/all` with it (`beforeLoad`).
 
 The list is the `/all` route ("All pages"). `home.tsx` renders it from the same pages;

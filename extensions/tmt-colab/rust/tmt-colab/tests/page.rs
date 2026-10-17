@@ -4982,7 +4982,7 @@ fn the_owner_list_serves_fresh_summaries_only_and_refreshes_a_changed_page_in_th
     let fresh = settled(false);
     assert_eq!(
         fresh["summary"],
-        json!({"comments":0,"waiting":false,"author":"Studio agent"})
+        json!({"comments":0,"waiting":false,"needsYou":0,"author":"Studio agent"})
     );
     // An accepted write changes the page's fingerprint: the old summary is stale, so it is no
     // longer served, and the next refresh brings the new state.
@@ -5005,7 +5005,9 @@ fn the_owner_list_serves_fresh_summaries_only_and_refreshes_a_changed_page_in_th
         entry().get("summary").is_none(),
         "a page changed since its summary was computed must not serve it"
     );
-    assert_eq!(settled(true)["summary"]["waiting"], true);
+    let pending = settled(true);
+    assert_eq!(pending["summary"]["waiting"], true);
+    assert_eq!(pending["summary"]["needsYou"], 1);
 }
 
 #[test]

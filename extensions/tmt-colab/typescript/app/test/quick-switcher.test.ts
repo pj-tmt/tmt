@@ -11,6 +11,7 @@ const page = (
     labels?: string[];
     author?: string;
     waiting?: boolean;
+    needsYou?: number;
     archived?: boolean;
     updated?: number;
   } = {},
@@ -26,6 +27,7 @@ const page = (
         summary: {
           comments: 0,
           waiting: extra.waiting ?? false,
+          needsYou: extra.needsYou ?? Number(extra.waiting ?? false),
           ...(extra.author === undefined ? {} : { author: extra.author }),
         },
       }
@@ -41,7 +43,7 @@ it('without text, a page waiting for you comes first, then the most recently ope
     page(1, 'Old', { updated: 100 }),
     page(2, 'Newest edit', { updated: 900 }),
     page(3, 'Opened lately', { updated: 60 }),
-    page(4, 'Waiting', { updated: 10, waiting: true }),
+    page(4, 'Waiting', { updated: 10, waiting: true, needsYou: 1 }),
     page(5, 'Never touched'),
   ];
   const opened = new Map([[id(3), 800]]);
@@ -105,7 +107,7 @@ it('free text ranks by match strength first, whatever the recency', () => {
 it('within one strength, waiting comes before recency; no free text reports no match', () => {
   const pages = [
     page(1, 'Plan A', { updated: 900 }),
-    page(2, 'Plan B', { updated: 100, waiting: true }),
+    page(2, 'Plan B', { updated: 100, waiting: true, needsYou: 1 }),
     page(3, 'Plan C', { updated: 500 }),
   ];
   expect(titles(pages, { text: 'plan' })).toEqual(['Plan B', 'Plan A', 'Plan C']);

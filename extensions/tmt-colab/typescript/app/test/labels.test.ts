@@ -90,9 +90,13 @@ describe('the page list', () => {
   });
   describe('by creator', () => {
     const authored = [
-      page(1, ['design'], { summary: { comments: 3, waiting: true, author: 'Studio agent' } }),
-      page(2, [], { summary: { comments: 0, waiting: false, author: 'Review agent' } }),
-      page(3, ['design'], { summary: { comments: 1, waiting: false } }),
+      page(1, ['design'], {
+        summary: { comments: 3, waiting: true, needsYou: 1, author: 'Studio agent' },
+      }),
+      page(2, [], {
+        summary: { comments: 0, waiting: false, needsYou: 0, author: 'Review agent' },
+      }),
+      page(3, ['design'], { summary: { comments: 1, waiting: false, needsYou: 0 } }),
       page(4, [], {}),
     ];
     const ids = (authors: string[], labels: string[] = [], text = '') =>

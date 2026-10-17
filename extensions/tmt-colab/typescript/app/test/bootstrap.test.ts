@@ -74,12 +74,17 @@ it('keeps 1000 worst-sized summaries inside the bounded response', async () => {
     ...metadata,
     pageId: `10000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
     labels: index < 125 ? Array.from({ length: 8 }, (_, n) => `${n}${rockets}`) : [],
-    summary: { comments: 4_294_967_295, waiting: true, author },
+    summary: { comments: 4_294_967_295, waiting: true, needsYou: 350, author },
   }));
   const body = await response(pages);
   expect(new TextEncoder().encode(body).length).toBeLessThan(DISCOVERY_BYTES);
   const boot = await discover(mount);
-  expect(boot.pages[999].summary).toEqual({ comments: 4_294_967_295, waiting: true, author });
+  expect(boot.pages[999].summary).toEqual({
+    comments: 4_294_967_295,
+    waiting: true,
+    needsYou: 350,
+    author,
+  });
 });
 it('accepts a summary with or without a creator and leaves absent summaries absent', async () => {
   vi.stubGlobal('navigator', {
@@ -87,17 +92,22 @@ it('accepts a summary with or without a creator and leaves absent summaries abse
   });
   const id = (n: number) => `10000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
   await response([
-    { ...metadata, pageId: id(1), summary: { comments: 0, waiting: false } },
+    { ...metadata, pageId: id(1), summary: { comments: 0, waiting: false, needsYou: 0 } },
     {
       ...metadata,
       pageId: id(2),
-      summary: { comments: 3, waiting: true, author: 'Ada \u{1F680}' },
+      summary: { comments: 3, waiting: true, needsYou: 1, author: 'Ada \u{1F680}' },
     },
     { ...metadata, pageId: id(3) },
   ]);
   const { pages } = await discover(mount);
-  expect(pages[0].summary).toEqual({ comments: 0, waiting: false });
-  expect(pages[1].summary).toEqual({ comments: 3, waiting: true, author: 'Ada \u{1F680}' });
+  expect(pages[0].summary).toEqual({ comments: 0, waiting: false, needsYou: 0 });
+  expect(pages[1].summary).toEqual({
+    comments: 3,
+    waiting: true,
+    needsYou: 1,
+    author: 'Ada \u{1F680}',
+  });
   expect('summary' in pages[2]).toBe(false);
 });
 it('refuses summaries outside the bounds the owner derives', async () => {
@@ -110,25 +120,35 @@ it('refuses summaries outside the bounds the owner derives', async () => {
     'x',
     {},
     { comments: 1 },
-    { waiting: true },
-    { comments: -1, waiting: false },
-    { comments: 1.5, waiting: false },
-    { comments: 4_294_967_296, waiting: false },
-    { comments: '1', waiting: false },
+    { waiting: true, needsYou: 1 },
+    { comments: -1, waiting: false, needsYou: 0 },
+    { comments: 0, waiting: true, needsYou: 0 },
+    { comments: 0, waiting: false, needsYou: 1 },
+    { comments: 0, waiting: true, needsYou: 351 },
+    { comments: 0, waiting: true, needsYou: 1.5 },
+    { comments: 0, waiting: false, needsYou: -1 },
+    { comments: 0, waiting: true, needsYou: '1' },
+    { comments: 0, waiting: false },
+    { comments: 1.5, waiting: false, needsYou: 0 },
+    { comments: 4_294_967_296, waiting: false, needsYou: 0 },
+    { comments: '1', waiting: false, needsYou: 0 },
     { comments: 1, waiting: 'yes' },
-    { comments: 1, waiting: false, extra: 1 },
-    { comments: 1, waiting: false, author: '' },
-    { comments: 1, waiting: false, author: 7 },
-    { comments: 1, waiting: false, author: 'a'.repeat(AUTHOR_BYTES + 1) },
-    { comments: 1, waiting: false, author: '\u{1F680}'.repeat(33) },
-    { comments: 1, waiting: false, author: 'tab\there' },
+    { comments: 1, waiting: false, needsYou: 0, extra: 1 },
+    { comments: 1, waiting: false, needsYou: 0, author: '' },
+    { comments: 1, waiting: false, needsYou: 0, author: 7 },
+    { comments: 1, waiting: false, needsYou: 0, author: 'a'.repeat(AUTHOR_BYTES + 1) },
+    { comments: 1, waiting: false, needsYou: 0, author: '\u{1F680}'.repeat(33) },
+    { comments: 1, waiting: false, needsYou: 0, author: 'tab\there' },
   ]) {
     await response([{ ...metadata, summary }]);
     await expect(discover(mount)).rejects.toThrow();
   }
   // The longest allowed author is accepted at the byte boundary.
   await response([
-    { ...metadata, summary: { comments: 1, waiting: false, author: 'a'.repeat(AUTHOR_BYTES) } },
+    {
+      ...metadata,
+      summary: { comments: 1, waiting: false, needsYou: 0, author: 'a'.repeat(AUTHOR_BYTES) },
+    },
   ]);
   expect((await discover(mount)).pages[0].summary?.author).toHaveLength(AUTHOR_BYTES);
 });

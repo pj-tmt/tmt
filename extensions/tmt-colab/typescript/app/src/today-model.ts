@@ -5,14 +5,14 @@ import type { PageSummary } from './transport.js';
 export const RECENT_CHAPTERS = 10;
 
 export interface TodayModel {
-  /** Pages with a proposal awaiting the owner, most recently updated first. */
+  /** Pages with items awaiting the owner, most recently updated first. */
   waiting: PageSummary[];
   /** The most recently updated other pages that keep a chapter. */
   recent: PageSummary[];
   /** Everything older than the visible chapters. */
   folded: PageSummary[];
   /** Counts over active (not archived) pages, each computed from the owner list summary. */
-  counts: { waiting: number; updatedToday: number; pages: number };
+  counts: { waiting: number; updatedToday: number; pages: number; complete: boolean };
 }
 
 /** Today shows active pages only; the archived ones stay in All pages. */
@@ -27,7 +27,8 @@ export function todayModel(pages: readonly PageSummary[], now: number): TodayMod
     recent: others.slice(0, RECENT_CHAPTERS),
     folded: others.slice(RECENT_CHAPTERS),
     counts: {
-      waiting: waiting.length,
+      complete: ordered.every((page) => page.summary !== undefined),
+      waiting: waiting.reduce((total, page) => total + (page.summary?.needsYou ?? 0), 0),
       updatedToday: ordered.filter(
         (page) => page.lastUpdateAtMs != null && page.lastUpdateAtMs >= startOfDay.getTime(),
       ).length,
