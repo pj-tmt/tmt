@@ -1,4 +1,5 @@
-import { HomeTitleHints, HomeTitleLink } from './home-titles.js';
+import { HomeTitleLink } from './home-titles.js';
+import { useHomeSpace, useSpaceTitle } from './home-space.js';
 import { BrowserAction, BrowserList, BrowserListRow, BrowserMenu } from '@tmt/browser-ui/react';
 import { getRouteApi, useRouter } from '@tanstack/react-router';
 import { Settings, Tag } from 'lucide-react';
@@ -26,12 +27,13 @@ import {
 } from './page-list-search.js';
 import { RetentionHint } from './retention-hint.js';
 import { text } from './strings.js';
+import { HomeNav } from './today.js';
 import type { PageSummary } from './transport.js';
 import './page-list.css';
 
 const t = text.pageList;
 const rootRoute = getRouteApi('__root__');
-const homeRoute = getRouteApi('/');
+const homeRoute = getRouteApi('/all');
 /** The query that may filter and order the list (and a copied URL), bounded and validated. */
 export interface HomeSearch {
   q?: string;
@@ -182,32 +184,7 @@ export function Home() {
   const search = homeRoute.useSearch();
   const navigate = homeRoute.useNavigate();
   const router = useRouter();
-  const [filled, setFilled] = useState<{ pages: typeof space.pages; titles: Map<string, string> }>(
-    () => ({ pages: space.pages, titles: new Map() }),
-  );
-  const [titleHints, setTitleHints] = useState<HomeTitleHints>();
-  useEffect(() => {
-    const read = transport.readTitle;
-    if (!read) {
-      setTitleHints(undefined);
-      return;
-    }
-    const hints = new HomeTitleHints(read, (id, title) =>
-      setFilled((previous) => ({
-        pages: space.pages,
-        titles: new Map(previous.pages === space.pages ? previous.titles : []).set(id, title),
-      })),
-    );
-    setTitleHints(hints);
-    return () => {
-      void hints.close();
-    };
-  }, [transport, space.pages]);
-  const homePages = space.pages.map((page) =>
-    page.titleMissing && filled.pages === space.pages && filled.titles.has(page.id)
-      ? { ...page, title: filled.titles.get(page.id)!, titleMissing: false }
-      : page,
-  );
+  const { pages: homePages, hints: titleHints } = useHomeSpace(space);
   const port = transport.management;
   const archived = !!port && search.archived === true;
   const sort: PageSort = search.sort ?? 'updated';
@@ -219,10 +196,7 @@ export function Home() {
   const allNames = labelCounts(space.pages).map((label) => label.name);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => setNow(Date.now()), [space.pages, archived]);
-  useEffect(() => {
-    document.title =
-      space.title === text.product ? text.product : `${space.title} · ${text.product}`;
-  }, [space.title]);
+  useSpaceTitle(space.title, text.product);
 
   function setSearch(patch: Partial<HomeSearch>) {
     void navigate({ search: (previous) => ({ ...previous, ...patch }), replace: true });
@@ -287,6 +261,7 @@ export function Home() {
   const filtered = filter.labels.length > 0 || filter.authors.length > 0 || filter.text !== '';
   return (
     <section className="home">
+      <HomeNav current="all" />
       <p className="eyebrow">{text.pages}</p>
       <h1>{space.title}</h1>
       <p className="intro">{text.intro}</p>

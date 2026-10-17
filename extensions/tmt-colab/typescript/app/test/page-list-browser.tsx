@@ -100,6 +100,6 @@ export async function mountPageList(size: 'few' | 'bulk' | 'none' | 'unmanaged' 
     ...(size === 'unmanaged' ? {} : { management }),
     spaceHome: async () => ({ title: 'Studio pages', pages: state.pages }),
   });
-  location.hash = '/';
+  location.hash = '/all';
   root.render(<RouterProvider router={router} />);
 }
