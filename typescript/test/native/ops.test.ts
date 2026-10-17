@@ -5430,7 +5430,7 @@ describe('large board responsiveness', () => {
             { timeout: 30_000, interval: 50 }
           );
           tmux(['send-keys', '-t', pane, 'Right']);
-          await vi.waitFor(() => expect(screen()).toContain('▾ product'), {
+          await vi.waitFor(() => expect(screen()).toContain('▾   product'), {
             timeout: 10_000,
             interval: 25,
           });
@@ -5664,7 +5664,7 @@ describe('large board responsiveness', () => {
           sort: 'name',
           reversed: false,
           agentsFilter: 'all',
-          overviewView: 'squads',
+          overviewView: 'agents',
         });
         expect(retained.controls).not.toHaveProperty('overviewFilter');
         expect(retained).not.toHaveProperty('scope');
