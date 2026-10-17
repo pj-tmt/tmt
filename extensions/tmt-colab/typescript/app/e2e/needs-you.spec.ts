@@ -177,6 +177,19 @@ for (const width of [1440, 390])
         .poll(async () => (await trigger.innerText()).replace(/\s+/g, ''))
         .toBe(width === 390 ? '◆3▾' : '◆Needsyou3▾');
       await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+      const decoration = () =>
+        trigger.evaluate((node) => getComputedStyle(node).textDecorationLine);
+      await page.mouse.move(0, 0);
+      expect(await decoration()).toBe('none');
+      await trigger.hover();
+      expect(await decoration()).toBe('underline');
+      await page.mouse.move(0, 0);
+      await trigger.press('Shift+Tab');
+      await page.keyboard.press('Tab');
+      await expect(trigger).toBeFocused();
+      expect(await decoration()).toBe('underline');
+      await trigger.evaluate((node) => (node as HTMLButtonElement).blur());
+      expect(await decoration()).toBe('none');
       const colours = await trigger.evaluate((node) => ({
         mark: getComputedStyle(node.querySelector('.needs-you-header-mark')!).color,
         text: getComputedStyle(node).color,

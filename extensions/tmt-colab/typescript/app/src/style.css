@@ -125,6 +125,10 @@ footer {
 .needs-you-header .needs-you-header-trigger {
   padding-inline: 0;
   gap: 4px;
+  text-decoration: none;
+}
+.needs-you-header .needs-you-header-trigger:is(:hover, :focus-visible) {
+  text-decoration: underline;
 }
 .needs-you-header-empty {
   color: var(--tmt-ui-color-secondary);

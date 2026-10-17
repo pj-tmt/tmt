@@ -17,7 +17,9 @@ sit inside a question or group. Run `tmt colab page check` before publishing.
 Colab draws the controls under the section; page HTML cannot confirm, close or count anything.
 `✓ Confirm and close` resolves the section's thread and tells you once. `✎ Needs change…` adds a
 comment, asks you, and leaves the thread open. A closed section fades but stays expanded, and the
-page head shows `n / m closed`. Answering every question inside a section closes it too.
+page head's `Needs you` menu counts sections waiting for the reader, alongside unread readings
+and unanswered question blocks. Changes waiting for the agent are excluded. Answering every
+question inside a section closes it too.
 
 Read results with `tmt colab threads PAGE --json`. The section's thread is anchored on the whole
 heading; its comments start `Confirmed “…”`, `Needs change to “…”: …` or `Answered “…”`. Only a
