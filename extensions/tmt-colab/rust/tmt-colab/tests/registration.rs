@@ -1947,3 +1947,78 @@ fn a_store_that_cannot_be_read_asks_for_a_resync_and_a_real_refusal_stays_denied
         Err(SyncCode::ResyncRequired)
     );
 }
+
+#[test]
+fn mounted_chapter_details_use_owner_context_and_never_turn_unavailable_into_zero() {
+    let mut f = Fixture::new();
+    register(
+        &mut f,
+        Some(&context(DEVICE, 1)),
+        &request(DEVICE, NOW),
+        NOW,
+    )
+    .unwrap();
+    Store::open(&f.layout).unwrap().create_page(OTHER).unwrap();
+    let service = Arc::new(Mutex::new(f.service.take().unwrap()));
+    let key = Keyring::read(&f.layout).unwrap();
+    let socket = MountSocket::bind(&f.layout, &key.space_id, Tunnels::PRODUCT)
+        .unwrap()
+        .with_registration(&f.layout, Arc::clone(&service))
+        .unwrap();
+    let path = socket.path.clone();
+    let stop = Arc::new(AtomicBool::new(false));
+    struct Running(Arc<AtomicBool>, Option<std::thread::JoinHandle<()>>);
+    impl Drop for Running {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::Release);
+            if let Some(worker) = self.1.take() {
+                let _ = worker.join();
+            }
+        }
+    }
+    let flag = Arc::clone(&stop);
+    let mut running = Running(
+        stop,
+        Some(thread::spawn(move || socket.run(&flag).unwrap())),
+    );
+    let call = |route: &str, headers: &str, body: &str| {
+        let mut peer = UnixStream::connect(&path).unwrap();
+        peer.set_read_timeout(Some(std::time::Duration::from_secs(3)))
+            .unwrap();
+        write!(
+            peer,
+            "GET {route} HTTP/1.1\r\nContent-Length: {}\r\n{headers}\r\n{body}",
+            body.len()
+        )
+        .unwrap();
+        peer.shutdown(std::net::Shutdown::Write).unwrap();
+        let mut reply = String::new();
+        peer.read_to_string(&mut reply).unwrap();
+        reply
+    };
+    let route = format!("/api/pages/{OTHER}/summary-details");
+    let owner = format!("tmt-device-context: {}\r\n", context(DEVICE, 1));
+    let mut member: Value = serde_json::from_str(&context(DEVICE, 1)).unwrap();
+    member["owner"] = json!(false);
+    let cookie = call(&route, "Cookie: tmt_door=forged\r\n", "");
+    let denied = call(&route, &format!("tmt-device-context: {member}\r\n"), "");
+    let admitted = call(&route, &owner, "");
+    let body = call(&route, &owner, "x");
+    let query = call(&format!("{route}?page=other"), &owner, "");
+    let malformed = call("/api/pages/not-a-page/summary-details", &owner, "");
+    running.0.store(true, Ordering::Release);
+    running.1.take().unwrap().join().unwrap();
+    assert!(cookie.starts_with("HTTP/1.1 403"), "{cookie}");
+    assert!(denied.starts_with("HTTP/1.1 403"), "{denied}");
+    assert!(admitted.starts_with("HTTP/1.1 200"), "{admitted}");
+    let bytes = admitted.split_once("\r\n\r\n").unwrap().1;
+    assert_eq!(
+        serde_json::from_str::<Value>(bytes).unwrap(),
+        json!({"pageId":OTHER,"state":"unavailable"})
+    );
+    for reply in [body, query, malformed] {
+        assert!(reply.starts_with("HTTP/1.1 400"), "{reply}");
+    }
+    assert!(!path.exists());
+    f.service = Some(Arc::try_unwrap(service).ok().unwrap().into_inner().unwrap());
+}

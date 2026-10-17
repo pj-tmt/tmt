@@ -149,8 +149,42 @@ test('recommended reading records one person read and notification, survives rel
       agent.pane,
     );
     const first = await openPage(door, author, created);
+    const ownerReadings = async (unread: number) => {
+      await expect
+        .poll(async () => {
+          const response = await first
+            .context()
+            .request.get(new URL(`api/pages/${created.pageId}/summary-details`, first.url()).href);
+          expect(response.status()).toBe(200);
+          const details = await response.json();
+          if (details.state !== 'ready') return undefined;
+          expect(details.summary.needsYou).toBe(unread);
+          return details.readings.filter((row: { state: string }) => row.state === 'unread').length;
+        })
+        .toBe(unread);
+    };
+    await ownerReadings(2);
+    await first.getByRole('link', { name: 'Space home', exact: true }).click();
+    const chapter = first.locator(`[data-page-id="${created.pageId}"]`);
+    await expect(chapter.locator('.needs-you-bar')).toContainText('Needs you 2');
+    await expect(chapter.locator('.today-readings li')).toHaveCount(2);
+    await chapter.getByRole('link', { name: 'First decision', exact: true }).click();
     const band = first.locator(`[data-inline-reading="${id}"]`);
     await expect(band.getByRole('button', { name: 'Mark read', exact: true })).toBeEnabled();
+    const highlighted = (page: import('@playwright/test').Page) =>
+      page
+        .frameLocator('iframe')
+        .locator('body')
+        .evaluate(() => {
+          const highlights = (CSS as unknown as { highlights: Map<string, { size: number }> })
+            .highlights;
+          return highlights.get('colab-reading')?.size;
+        });
+    await expect.poll(() => highlighted(first)).toBe(1);
+    expect(
+      JSON.parse(run(world, world.binaries.colab, ['threads', created.pageId, '--json'])).threads,
+    ).toHaveLength(0);
+    expect(agent.received()).toHaveLength(0);
     await band.getByRole('button', { name: 'Mark read', exact: true }).click();
     await expect(band).toHaveAttribute('data-reading-state', 'read');
     await expect.poll(() => agent.received().length).toBe(1);
@@ -172,6 +206,15 @@ test('recommended reading records one person read and notification, survives rel
     expect(read.resolved).toBe(true);
     expect(read.comments).toHaveLength(1);
     expect(read.comments[0].body).toContain(`Reading: ${id}`);
+    await ownerReadings(1);
+    await first.getByRole('link', { name: 'Space home', exact: true }).click();
+    await expect(chapter.locator('.needs-you-bar')).toContainText('Needs you 1');
+    await expect(chapter.locator('.today-readings li')).toHaveCount(1);
+    await expect(chapter.getByRole('link', { name: 'First decision', exact: true })).toHaveCount(0);
+    await chapter.getByRole('link', { name: 'Next decision', exact: true }).click();
+    await expect.poll(() => highlighted(first)).toBe(1);
+    expect(listing().filter((thread) => thread.anchor?.exact === 'Next decision')).toHaveLength(0);
+    expect(agent.received()).toHaveLength(1);
     await first.reload();
     await expect(first.locator(`[data-inline-reading="${id}"]`)).toHaveAttribute(
       'data-reading-state',
@@ -188,18 +231,7 @@ test('recommended reading records one person read and notification, survives rel
       'data-reading-state',
       'unread',
     );
-    await expect
-      .poll(async () =>
-        second
-          .frameLocator('iframe')
-          .locator('body')
-          .evaluate(() => {
-            const highlights = (CSS as unknown as { highlights: Map<string, { size: number }> })
-              .highlights;
-            return highlights.get('colab-reading')?.size;
-          }),
-      )
-      .toBe(1);
+    await expect.poll(() => highlighted(second)).toBe(1);
     expect(listing().filter((thread) => thread.anchor?.exact === 'Next decision')).toHaveLength(0);
     expect(agent.received()).toHaveLength(1);
   });

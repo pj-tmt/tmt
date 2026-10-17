@@ -73,8 +73,36 @@ fn count(conversations: &Conversations, author: Option<&str>, needs_you: u32) ->
     }
 }
 
-/// One page through the owner fold: the same snapshot and materialize path `threads` reads.
+/// The count and reading descriptors are one projection and share one cache fingerprint.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SummaryProjection {
+    pub summary: Summary,
+    pub readings: Vec<crate::summary_readings::ReadingDescriptor>,
+}
+
+#[cfg(test)]
+impl From<Summary> for SummaryProjection {
+    fn from(summary: Summary) -> Self {
+        Self {
+            summary,
+            readings: Vec::new(),
+        }
+    }
+}
+
+pub enum CachedDetails {
+    Pending,
+    Unavailable,
+    Ready(SummaryProjection),
+}
+
+/// Numeric callers use the same complete fold; there is no second reading-state owner.
 pub fn summarize(source: &mut Source, page: &str) -> Result<Summary> {
+    summarize_details(source, page).map(|projection| projection.summary)
+}
+
+/// One page through the owner fold: the same snapshot and materialize path `threads` reads.
+pub fn summarize_details(source: &mut Source, page: &str) -> Result<SummaryProjection> {
     let snapshot = page::snapshot(&source.store, &source.keyring, page, false)?;
     let folded = snapshot.materialize(&source.keyring, page, &mut source.decoder)?;
     let conversations = discussion::project(&source.keyring, page, &snapshot, &folded);
@@ -85,11 +113,18 @@ pub fn summarize(source: &mut Source, page: &str) -> Result<Summary> {
     if pending.len() > crate::limits::NEEDS_YOU_ITEMS {
         return Err(std::io::Error::other("summary item budget").into());
     }
-    Ok(count(
-        &conversations,
-        folded.original_author.as_deref(),
-        u32::try_from(pending.len())?,
-    ))
+    let readings = crate::summary_readings::descriptors(&report, &anchors, &pending);
+    if readings.len() > crate::limits::READING_PAGE {
+        return Err(std::io::Error::other("summary reading budget").into());
+    }
+    Ok(SummaryProjection {
+        summary: count(
+            &conversations,
+            folded.original_author.as_deref(),
+            u32::try_from(pending.len())?,
+        ),
+        readings,
+    })
 }
 
 #[derive(Default)]
@@ -97,7 +132,7 @@ struct CachedSummary {
     fingerprint: String,
     /// `None` records that the fold failed at this fingerprint: the page is retried on a later
     /// read, after every page that has not failed.
-    summary: Option<Summary>,
+    projection: Option<SummaryProjection>,
 }
 /// Fresh summaries by page, each valid for the fingerprint it was computed at. The fingerprint is
 /// the page's epoch, the membership head and its receipt and checkpoint counts, read in the same
@@ -117,14 +152,41 @@ impl SummaryCache {
         self.lock()
             .get(page)
             .filter(|entry| entry.fingerprint == fingerprint)
-            .and_then(|entry| entry.summary.clone())
+            .and_then(|entry| {
+                entry
+                    .projection
+                    .as_ref()
+                    .map(|projection| projection.summary.clone())
+            })
     }
-    pub fn put(&self, page: &str, fingerprint: &str, summary: Option<Summary>) {
-        self.lock().insert(
+    /// Fresh failure differs from a cache miss. Neither becomes an empty complete list.
+    pub fn details(&self, page: &str, fingerprint: &str) -> CachedDetails {
+        let entries = self.lock();
+        match entries
+            .get(page)
+            .filter(|entry| entry.fingerprint == fingerprint)
+        {
+            None if !entries.contains_key(page) && entries.len() >= crate::limits::PAGES => {
+                CachedDetails::Unavailable
+            }
+            None => CachedDetails::Pending,
+            Some(entry) => match &entry.projection {
+                None => CachedDetails::Unavailable,
+                Some(projection) => CachedDetails::Ready(projection.clone()),
+            },
+        }
+    }
+    pub fn put(&self, page: &str, fingerprint: &str, projection: Option<SummaryProjection>) {
+        let mut entries = self.lock();
+        // Direct details reads need not list the catalog, which normally prunes deleted pages.
+        if !entries.contains_key(page) && entries.len() >= crate::limits::PAGES {
+            return;
+        }
+        entries.insert(
             page.to_owned(),
             CachedSummary {
                 fingerprint: fingerprint.to_owned(),
-                summary,
+                projection,
             },
         );
     }
@@ -146,7 +208,8 @@ impl SummaryCache {
                 .filter(|entry| entry.fingerprint == *fingerprint)
             {
                 Some(CachedSummary {
-                    summary: Some(_), ..
+                    projection: Some(_),
+                    ..
                 }) => {}
                 Some(_) => fresh_failures.push((page.clone(), fingerprint.clone())),
                 None => stale.push((page.clone(), fingerprint.clone())),
@@ -176,11 +239,25 @@ impl Drop for Worker {
 pub fn run(
     cache: &SummaryCache,
     pages: &[(String, String)],
-    mut summarize: impl FnMut(&str) -> Result<Summary>,
+    mut summarize: impl FnMut(&str, &str) -> Result<SummaryProjection>,
 ) {
     for (page, fingerprint) in pages {
-        cache.put(page, fingerprint, summarize(page).ok());
+        cache.put(page, fingerprint, summarize(page, fingerprint).ok());
     }
+}
+
+/// Counts and membership revisions are monotonic. Matching before and after the fold
+/// proves it belongs to the scheduled fingerprint, even when the worker started late.
+fn require_fingerprint(source: &Source, page: &str, expected: &str) -> Result<()> {
+    let current = source.store.owner_read(
+        &source.keyring.space_id,
+        &source.keyring.owner_public(),
+        |tx| tx.page_fingerprint(page),
+    )?;
+    if current.as_deref() != Some(expected) {
+        return Err(std::io::Error::other("summary fingerprint changed").into());
+    }
+    Ok(())
 }
 
 /// Schedules `pages` for refresh on one background worker with its own read-only source, unless a
@@ -206,7 +283,12 @@ pub fn refresh(
                 }
                 return;
             };
-            run(&cache, &pages, |page| summarize(&mut source, page));
+            run(&cache, &pages, |page, fingerprint| {
+                require_fingerprint(&source, page, fingerprint)?;
+                let projection = summarize_details(&mut source, page)?;
+                require_fingerprint(&source, page, fingerprint)?;
+                Ok(projection)
+            });
         });
     // A thread that could not start drops its closure, and with it the worker claim.
     drop(spawned);
@@ -369,10 +451,12 @@ mod tests {
     #[test]
     fn a_summary_is_fresh_only_at_the_fingerprint_it_was_computed_at() {
         let cache = SummaryCache::default();
-        cache.put("a", "1:5", Some(summary(2)));
+        cache.put("a", "1:5", Some(summary(2).into()));
         assert_eq!(cache.get("a", "1:5"), Some(summary(2)));
+        assert!(matches!(cache.details("a", "1:5"), CachedDetails::Ready(_)));
         // A new receipt changes the fingerprint: the old entry is stale, not served.
         assert_eq!(cache.get("a", "1:6"), None);
+        assert!(matches!(cache.details("a", "1:6"), CachedDetails::Pending));
         assert_eq!(
             cache.stale(&fingerprints(&[("a", "1:6")]), 8),
             vec![("a".into(), "1:6".into())]
@@ -381,9 +465,38 @@ mod tests {
     }
 
     #[test]
+    fn direct_details_reads_cannot_grow_the_cache_past_the_page_limit() {
+        let cache = SummaryCache::default();
+        for page in 0..crate::limits::PAGES {
+            cache.put(&page.to_string(), "1", None);
+        }
+        cache.put("new", "1", Some(summary(7).into()));
+        assert_eq!(cache.lock().len(), crate::limits::PAGES);
+        assert_eq!(cache.get("new", "1"), None);
+        assert!(matches!(
+            cache.details("new", "1"),
+            CachedDetails::Unavailable
+        ));
+
+        // Existing entries may be refreshed even while the cache is full.
+        cache.put("0", "2", Some(summary(3).into()));
+        assert_eq!(cache.get("0", "2"), Some(summary(3)));
+        assert!(matches!(cache.details("0", "3"), CachedDetails::Pending));
+
+        // A catalog refresh removes deleted pages and admits the new page again.
+        assert_eq!(
+            cache.stale(&fingerprints(&[("new", "1")]), 8),
+            vec![("new".into(), "1".into())]
+        );
+        cache.put("new", "1", Some(summary(7).into()));
+        assert_eq!(cache.lock().len(), 1);
+        assert_eq!(cache.get("new", "1"), Some(summary(7)));
+    }
+
+    #[test]
     fn a_refresh_takes_at_most_the_limit_and_forgets_deleted_pages() {
         let cache = SummaryCache::default();
-        cache.put("gone", "1", Some(summary(1)));
+        cache.put("gone", "1", Some(summary(1).into()));
         let map: BTreeMap<_, _> = (b'a'..=b'k')
             .map(|c| ((c as char).to_string(), "1".to_owned()))
             .collect();
@@ -424,17 +537,21 @@ mod tests {
             ("b".to_owned(), "1".to_owned()),
         ];
         let mut calls = Vec::new();
-        run(&cache, &pages, |page| {
+        run(&cache, &pages, |page, _| {
             calls.push(page.to_owned());
             if page == "a" {
                 Err(crate::page::Fault::Unavailable.into())
             } else {
-                Ok(summary(4))
+                Ok(summary(4).into())
             }
         });
         // One attempt each, in order, and no retry within the run.
         assert_eq!(calls, ["a", "b"]);
         assert_eq!(cache.get("a", "1"), None);
+        assert!(matches!(
+            cache.details("a", "1"),
+            CachedDetails::Unavailable
+        ));
         assert_eq!(cache.get("b", "1"), Some(summary(4)));
         // The failed page is still stale (retried on a later read), and ordered last.
         assert_eq!(

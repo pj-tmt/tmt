@@ -743,3 +743,76 @@ it('a replacement Session reads once after the stale Remote snapshot settles', a
   expect(secondRead).toHaveBeenCalledTimes(1);
   mounted.close();
 });
+
+it('joins a canceled chapter-details request across Home generations without opening Live', async () => {
+  setup.register.mockReset().mockResolvedValue(setup.first);
+  setup.remote.mockReset().mockResolvedValue({});
+  const mounted = await mountedTransport();
+  let release!: (response: Response) => void;
+  const pageId = '10000000-0000-4000-8000-000000000001';
+  const fetcher = vi
+    .fn()
+    .mockImplementationOnce(
+      () =>
+        new Promise<Response>((done) => {
+          release = done;
+        }),
+    )
+    .mockResolvedValueOnce(Response.json({ pageId, state: 'unavailable' }));
+  vi.stubGlobal('fetch', fetcher);
+  setup.events.length = 0;
+  try {
+    const old = new AbortController();
+    const first = mounted.transport.readingDetails!(pageId, old.signal).catch(
+      (error: unknown) => error,
+    );
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1));
+    old.abort();
+    const successor = mounted.transport.readingDetails!(pageId, new AbortController().signal);
+    await Promise.resolve();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    release(Response.json({ pageId, state: 'pending' }));
+    expect(await first).toBeInstanceOf(Error);
+    expect(await successor).toEqual({ pageId, state: 'unavailable' });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(setup.events).toEqual([]);
+    expect(setup.titleConnections).toHaveLength(0);
+  } finally {
+    mounted.close();
+    vi.unstubAllGlobals();
+  }
+});
+
+it('fences chapter metadata returned by a replaced Session and admits the successor read', async () => {
+  setup.register.mockReset().mockResolvedValueOnce(setup.first).mockResolvedValue(setup.second);
+  setup.remote.mockReset().mockResolvedValue({});
+  const mounted = await mountedTransport();
+  await mounted.transport.page('page');
+  const pageId = '10000000-0000-4000-8000-000000000001';
+  let release!: (response: Response) => void;
+  const fetcher = vi
+    .fn()
+    .mockImplementationOnce(
+      () =>
+        new Promise<Response>((done) => {
+          release = done;
+        }),
+    )
+    .mockResolvedValueOnce(Response.json({ pageId, state: 'pending' }));
+  vi.stubGlobal('fetch', fetcher);
+  try {
+    const first = mounted.transport.readingDetails!(pageId, new AbortController().signal).catch(
+      (error: unknown) => error,
+    );
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1));
+    await setup.owner!.reconnect(setup.first as never);
+    const successor = mounted.transport.readingDetails!(pageId, new AbortController().signal);
+    release(Response.json({ pageId, state: 'pending' }));
+    expect(await first).toBeInstanceOf(Error);
+    expect(await successor).toEqual({ pageId, state: 'pending' });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  } finally {
+    mounted.close();
+    vi.unstubAllGlobals();
+  }
+});

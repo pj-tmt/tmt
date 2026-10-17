@@ -1,6 +1,7 @@
 /** The Today home with deterministic pages and a fixed clock: no real transport. */
 import { createRoot, type Root } from 'react-dom/client';
 import { RouterProvider } from '@tanstack/react-router';
+import type { ReadingDetails } from '../src/reading-details.js';
 import { createAppRouter } from '../src/router.js';
 import { localTransport, type PageSnapshot, type PageSummary } from '../src/transport.js';
 
@@ -10,6 +11,10 @@ const hour = 3_600_000;
 let root: Root | undefined;
 let homePages: PageSummary[] = [];
 let homeReads = 0;
+let detailsReads: string[] = [];
+export function readingDetailReads() {
+  return [...detailsReads];
+}
 
 /** Replace only the next owner-list response; the router and mounted view stay alive. */
 export function nextHome(kind: TodayKind) {
@@ -38,6 +43,9 @@ const waiting = (comments: number, author?: string) => ({
 });
 
 export type TodayKind =
+  | 'readings'
+  | 'reading-one'
+  | 'reading-unknown'
   | 'few'
   | 'many'
   | 'none'
@@ -49,6 +57,18 @@ export type TodayKind =
 
 function pagesFor(kind: TodayKind): PageSummary[] {
   if (kind === 'none') return [];
+  if (['readings', 'reading-one', 'reading-unknown'].includes(kind))
+    return [
+      page(1, 'Reading for the release', 1, {
+        summary: {
+          comments: 2,
+          waiting: true,
+          needsYou: kind === 'reading-one' ? 1 : 5,
+          author: 'Agent 1',
+        },
+      }),
+      page(2, 'Completed notes', 2, { summary: { comments: 0, waiting: false, needsYou: 0 } }),
+    ];
   if (kind === 'checking') return [page(1, 'Pages are being checked', 1)];
   if (kind === 'partial')
     return [
@@ -126,9 +146,41 @@ export async function mountToday(kind: TodayKind = 'few', hash = '/') {
   const pages = pagesFor(kind);
   homePages = pages;
   homeReads = 0;
+  detailsReads = [];
   const snapshots: PageSnapshot[] = pages.map((p) => ({ ...p, source: '<h1>Fixture</h1>' }));
   const router = createAppRouter({
     ...localTransport('Studio pages', snapshots),
+    ...(['readings', 'reading-one', 'reading-unknown'].includes(kind)
+      ? {
+          readingDetails: async (pageId: string): Promise<ReadingDetails> => {
+            detailsReads.push(pageId);
+            if (kind === 'reading-unknown') return { pageId, state: 'unavailable' };
+            const target = homePages.find((page) => page.id === pageId)!;
+            return {
+              pageId,
+              state: 'ready',
+              fingerprint: 'a'.repeat(64),
+              summary: target.summary!,
+              readings: Array.from({ length: kind === 'reading-one' ? 1 : 5 }, (_, index) => ({
+                id: `20000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
+                title: [
+                  'Deployment plan',
+                  'Risk and rollback',
+                  'Verification results',
+                  'Later reading',
+                  'Final notes',
+                ][index],
+                agent: `Agent ${index + 1}`,
+                why:
+                  index === 1
+                    ? 'A deliberately long explanation that remains on one muted line and ends with an ellipsis on a narrow chapter'
+                    : 'Before deciding the release',
+                state: 'unread',
+              })),
+            };
+          },
+        }
+      : {}),
     spaceHome: async () => {
       homeReads++;
       return { title: 'Studio pages', pages: homePages };

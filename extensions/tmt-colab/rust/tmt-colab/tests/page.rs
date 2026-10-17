@@ -5249,3 +5249,151 @@ fn proposal_capacity_refuses_a_new_record_before_publication() {
             .contains("maximum 200")
     );
 }
+
+#[test]
+fn owner_chapter_details_are_complete_at_one_fingerprint_and_reject_nonowners() {
+    use tmt_colab::registration::{Code, Registration};
+    let mut f = Fixture::with_author(Some("Agent 1"));
+    let source = "<h1>Page</h1><tmt-read data-id=\"20000000-0000-4000-8000-000000000001\" data-agent=\"Agent 1\" data-why=\"Before deciding\"><h2 data-title>First passage</h2><p>Text.</p></tmt-read><tmt-read data-id=\"20000000-0000-4000-8000-000000000002\" data-agent=\"Agent 2\" data-why=\"For context\"><h2 data-title>Second passage</h2><p>More.</p></tmt-read>";
+    f.write(source);
+    let context = json!({"deviceId":DEVICE,"kind":"browser","origin":"http://127.0.0.1:1","name":"Laptop",
+        "publicKey":values::encode_binary(SigningKey::from_bytes(&[9;32]).verifying_key().as_bytes()),
+        "owner":true,"grantRevision":1}).to_string();
+    let root = f.root.clone();
+    let registration = Registration::with_decoder_config(
+        Store::open(&f.layout).unwrap(),
+        Keyring::read(&f.layout).unwrap(),
+        support::decoder_config(BINARY.into()),
+    )
+    .unwrap()
+    .with_summary_source(std::sync::Arc::new(move || {
+        tmt_colab::page::save::open_source(&root, support::decoder_config(BINARY.into()))
+    }));
+    let read = || -> Value {
+        serde_json::from_slice(
+            &registration
+                .page_summary_details(Some(&context), PAGE)
+                .unwrap(),
+        )
+        .unwrap()
+    };
+    let settled = || -> Value {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        loop {
+            let value = read();
+            if value["state"] == "ready" {
+                return value;
+            }
+            assert_eq!(
+                value["state"], "pending",
+                "a failed projection is not readiness: {value}"
+            );
+            assert!(
+                std::time::Instant::now() < deadline,
+                "details not ready: {value}"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    };
+    assert_eq!(read(), json!({"pageId":PAGE,"state":"pending"}));
+    let first = settled();
+    assert_eq!(first["summary"]["needsYou"], 2);
+    assert_eq!(
+        first["readings"],
+        json!([
+            {"id":"20000000-0000-4000-8000-000000000001","title":"First passage","agent":"Agent 1","why":"Before deciding","state":"unread"},
+            {"id":"20000000-0000-4000-8000-000000000002","title":"Second passage","agent":"Agent 2","why":"For context","state":"unread"}
+        ])
+    );
+    assert!(
+        first["fingerprint"]
+            .as_str()
+            .unwrap()
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+    );
+    assert_eq!(first["fingerprint"].as_str().unwrap().len(), 64);
+    let mut denied: Value = serde_json::from_str(&context).unwrap();
+    denied["owner"] = json!(false);
+    assert_eq!(
+        registration
+            .page_summary_details(Some(&denied.to_string()), PAGE)
+            .unwrap_err(),
+        Code::Denied
+    );
+    assert_eq!(
+        registration.page_summary_details(None, PAGE).unwrap_err(),
+        Code::Denied
+    );
+    assert_eq!(
+        registration
+            .page_summary_details(Some(&context), "not-a-page")
+            .unwrap_err(),
+        Code::Invalid
+    );
+    assert_eq!(
+        registration
+            .page_summary_details(Some(&context), "20000000-0000-4000-8000-000000000099")
+            .unwrap_err(),
+        Code::Denied
+    );
+    let one = source
+        .split("<tmt-read data-id=\"20000000-0000-4000-8000-000000000002\"")
+        .next()
+        .unwrap();
+    f.write(one);
+    assert_eq!(
+        read(),
+        json!({"pageId":PAGE,"state":"pending"}),
+        "old descriptors never survive the new fingerprint"
+    );
+    let second = settled();
+    assert_ne!(first["fingerprint"], second["fingerprint"]);
+    assert_eq!(second["summary"]["needsYou"], 1);
+    assert_eq!(second["readings"].as_array().unwrap().len(), 1);
+    let catalog: Value =
+        serde_json::from_slice(&registration.pages(Some(&context)).unwrap()).unwrap();
+    assert_eq!(catalog["pages"][0]["summary"], second["summary"]);
+    let many = (0..50).map(|index| format!(
+        "<tmt-read data-id=\"20000000-0000-4000-8000-{index:012}\" data-agent=\"{}\" data-why=\"{}\"><h2 data-title>{index:03}{}</h2><p>Passage.</p></tmt-read>",
+        "🦉".repeat(64), "🌍".repeat(200), "🐈".repeat(197),
+    )).collect::<String>();
+    f.write(&many);
+    assert_eq!(read()["state"], "pending");
+    let largest = settled();
+    assert_eq!(largest["summary"]["needsYou"], 50);
+    assert_eq!(largest["readings"].as_array().unwrap().len(), 50);
+    assert!(
+        serde_json::to_vec(&largest).unwrap().len() <= tmt_colab::limits::SUMMARY_DETAILS_BYTES
+    );
+    registration.close().unwrap();
+}
+
+#[test]
+fn a_summary_refresh_never_labels_a_new_fold_with_a_stale_scheduled_fingerprint() {
+    use tmt_colab::summary::{CachedDetails, SummaryCache};
+    let mut f = Fixture::new();
+    f.write("<h1>A changed page</h1>");
+    let root = f.root.clone();
+    let open: tmt_colab::page::save::SourceOpener = std::sync::Arc::new(move || {
+        tmt_colab::page::save::open_source(&root, support::decoder_config(BINARY.into()))
+    });
+    let cache = std::sync::Arc::new(SummaryCache::default());
+    let stale = "a fingerprint scheduled before the page changed";
+    tmt_colab::summary::refresh(&cache, &open, vec![(PAGE.to_owned(), stale.to_owned())]);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    loop {
+        match cache.details(PAGE, stale) {
+            CachedDetails::Unavailable => break,
+            CachedDetails::Ready(_) => {
+                panic!("a fold from a different fingerprint was labelled complete")
+            }
+            CachedDetails::Pending => {}
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "stale refresh did not settle"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+}

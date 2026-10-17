@@ -169,3 +169,20 @@ it('never converts a refused or oversized details response into a ready zero', a
   await expect(readReadingDetails(mount, pageId, new AbortController().signal)).rejects.toThrow();
   expect(fetcher).toHaveBeenCalledTimes(2);
 });
+
+it('admits all fifty bounded non-ASCII readings without truncating the result', () => {
+  const value = {
+    ...ready(),
+    readings: Array.from({ length: 50 }, (_, i) => ({
+      id: `20000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
+      title: '🐈'.repeat(200),
+      agent: '🦉'.repeat(64),
+      why: '🌍'.repeat(200),
+      state: 'unread',
+    })),
+  };
+  expect(new TextEncoder().encode(JSON.stringify(value)).length).toBeLessThanOrEqual(
+    READING_DETAILS_BYTES,
+  );
+  expect(readingDetails(value, pageId)).toEqual(value);
+});
