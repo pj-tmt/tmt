@@ -20,11 +20,12 @@ board-only home/meter/`usage.*` data.
 - `Config::write` owns format-preserving replacement for `me`/`me_id`, tab order, board
   views, theme bases and settings edits. It checks the original bytes, edits a cloned
   document, skips unchanged bytes and assigns the new document only after successful
-  publication. A changed file is refused, not overwritten. A stable, owned,
-  no-follow `ops.toml.lock` serializes runtime writers, with a five-second acquisition
-  deadline; it is never unlinked on release. Publication remains bounded to 1 MiB,
-  and no backups are created. Every named `Config::set_*`/`remove_*` edit uses this
-  owner. The migration cutover guard stays separate.
+  publication. A changed file is refused, not overwritten. The shared
+  `tmt-extension-state` Document lock serializes runtime writers: the byte check and the
+  atomic replacement run under it, a busy file is refused after five seconds, and a
+  no-op edit takes no lock. Publication remains bounded to 1 MiB, and no backups are
+  created. Every named `Config::set_*`/`remove_*` edit uses this owner. The migration
+  cutover guard stays separate.
 - Source-bearing readers (`config::sourced`) carry provenance; presentation never
   inspects TOML or resolves values. `config::duration` converts UTF-8-safe whole-unit
   suffixes for provider, refresh and reminder timing; callers keep their own units,
@@ -50,7 +51,7 @@ board-only home/meter/`usage.*` data.
 Shared unread markers live in `[workspace.read_markers.<actor-uuid>]`, keyed by
 member UUID with a positive safe-integer submission timestamp. `config::unread`
 validates canonical UUID pairs and max-merges updates into a freshly read document
-under the same writer lock. Separate layouts cannot regress or erase one another's
+under the same document lock. Separate layouts cannot regress or erase one another's
 markers or unrelated authored settings. The field is separate from `OpsPreferences`,
 so a quiet read update cannot invalidate a panel/pin preference comparison. It is
 shared Config data, never a named-layer ViewState hint; reset-view and exec reload
@@ -72,16 +73,16 @@ The stable `.ops-paths.lock` beside the config serializes first runs and unfinis
 `.ops-paths-v1` marker makes later decisions check only completion/legacy-name metadata, with no lock or legacy content reads. The marker is read only when the old config name exists, to distinguish an unchanged ignored file from a reappeared one.
 Help, completion, embedded skills and offline layout checks never migrate.
 
-| Path                                                                                                                      | Owner and migration                                                                           |
-| ------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `ops.toml`, `ops.toml.lock`, `.ops.toml.<pid>`                                                                            | Config/CAS writer and stable writer lock; exact `squad.toml` migrates, staging is disposable. |
-| `<dataRoot>/ops/cron/{jobs.json,jobs.lock,jobs.tmp}`                                                                      | Cron document, stable writer lock and staging.                                                |
-| `<dataRoot>/ops/cron/{clock.json,clock.lock,clock.tmp}`                                                                   | Clock lease, stable lock and staging.                                                         |
-| `<dataRoot>/ops/checklist/<room-uuid>/{items.json,items.lock,items.tmp}`                                                  | Checklist document, stable lock and staging.                                                  |
-| `.ops-paths-pending.json`, `.ops-paths-cutover-v1`, `.ops-paths-v1`, `.ops-paths*.tmp`, `.ops-migrate-<name>-<timestamp>` | Migration journal, durable cutover/completion markers and unpublished staging.                |
-| `squad.toml.migrated-<timestamp>`, `<dataRoot>/squad.migrated-<timestamp>`                                                | Retained original backups; no reader enumerates them.                                         |
-| `$XDG_CACHE_HOME/tmt-ops/{fields,staleness,back}`                                                                         | Disposable observations and navigation.                                                       |
-| `ops.tmux.conf`, tmux-config `.tmt-ops-backup-*` / staging                                                                | Consented hotkey owner; former `squad.tmux.conf` is retained.                                 |
+| Path                                                                                                                      | Owner and migration                                                            |
+| ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `ops.toml`, `.ops.toml.tmt-staging`                                                                                       | Config/CAS writer (shared Document); exact `squad.toml` migrates.              |
+| `<dataRoot>/ops/ops.db` (+ SQLite `-wal`/`-shm`)                                                                          | Cron and checklist [documents](data-and-state.md#ops-state-database).          |
+| `<dataRoot>/ops/cron/{clock.json,clock.lock,clock.tmp}`                                                                   | Clock lease, stable lock and staging.                                          |
+| `<dataRoot>/ops/cron/jobs.json.migrated-<date>`, `<dataRoot>/ops/checklist/<room-uuid>/items.json.migrated-<date>`        | Previous release's documents after import; kept, never read or deleted.        |
+| `.ops-paths-pending.json`, `.ops-paths-cutover-v1`, `.ops-paths-v1`, `.ops-paths*.tmp`, `.ops-migrate-<name>-<timestamp>` | Migration journal, durable cutover/completion markers and unpublished staging. |
+| `squad.toml.migrated-<timestamp>`, `<dataRoot>/squad.migrated-<timestamp>`                                                | Retained original backups; no reader enumerates them.                          |
+| `$XDG_CACHE_HOME/tmt-ops/{fields,staleness,back}`                                                                         | Disposable observations and navigation.                                        |
+| `ops.tmux.conf`, tmux-config `.tmt-ops-backup-*` / staging                                                                | Consented hotkey owner; former `squad.tmux.conf` is retained.                  |
 
 Old-only files are copied and synced, checked for byte/tree equality (config is also
 parsed), then all new targets are atomically published and reverified. Only after
@@ -157,7 +158,8 @@ first loaded Ops draw.
 
 `<dataRoot>/.ops-board-switch-v1.json` is separate from the migration journal:
 private 0600, same-user regular files with no-follow opens, at most 32 boards and
-1 MiB, serialized by a nonblocking switch lock. A switch without tmux retains an
+1 MiB, serialized by the shared `Guard` on `.ops-board-switch.d/switch.lock` (Ops' own 0700 directory; a second
+switch is refused naming the holder's PID and start time). A switch without tmux retains an
 empty pending record that binds to the chosen socket before any board effect.
 On a consented retry, an older still-running record can acquire freshly verified
 clock-lease provenance without replacing its saved identity or launch progress.

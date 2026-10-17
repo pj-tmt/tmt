@@ -387,7 +387,6 @@ fn locked_publication_rechecks_room_actor_privilege_and_assignment() {
         );
         assert!(error.current.is_none());
         assert_eq!(f.bytes(), before);
-        assert!(!f.directory().join("items.tmp").exists());
         f.change(|m| {
             m["roomRetired"] = json!(false);
             m["retired"] = json!([]);
@@ -409,9 +408,9 @@ fn unknown_readback_after_another_edit_and_delete_never_settles_original_operati
         .apply(&create(ITEM, InventoryExpectation::Absent, None))
         .unwrap();
     let error = store::with_fault(
-        Box::new(|stage, _| {
-            if stage == store::Stage::DirectorySync {
-                Err(std::io::Error::other("directory durability failed"))
+        Box::new(|stage| {
+            if stage == store::Stage::AfterCommit {
+                Err(std::io::Error::other("the commit was not acknowledged"))
             } else {
                 Ok(())
             }
@@ -473,7 +472,7 @@ fn revision_seven_completion_filtered_empty_and_overflow_refuse_without_lost_byt
         .unwrap();
     let mut literal = f.literal();
     literal["items"][0]["revision"] = json!(7);
-    fs::write(f.directory().join("items.json"), literal.to_string()).unwrap();
+    f.overwrite(literal.to_string().as_bytes());
     let result = manager.apply(&mutate(ITEM, 7, Mutation::Complete)).unwrap();
     assert_eq!(result.item_revision, Some(8));
     let filtered = manager
@@ -502,7 +501,7 @@ fn revision_seven_completion_filtered_empty_and_overflow_refuse_without_lost_byt
     let mut literal = f.literal();
     literal["items"][0]["revision"] = json!(u64::MAX);
     literal["inventoryRevision"] = json!(u64::MAX);
-    fs::write(f.directory().join("items.json"), literal.to_string()).unwrap();
+    f.overwrite(literal.to_string().as_bytes());
     let before = f.bytes();
     assert_eq!(
         manager
@@ -523,7 +522,6 @@ fn revision_seven_completion_filtered_empty_and_overflow_refuse_without_lost_byt
         Code::StorageError
     );
     assert_eq!(f.bytes(), before);
-    assert!(!f.directory().join("items.tmp").exists());
 }
 
 #[test]
@@ -549,8 +547,8 @@ fn no_op_assignment_refreshes_only_projection_and_user_privilege_reload_refuses(
     let user = f.service();
     let config_path = f.root.join("ops.toml");
     let error = store::with_fault(
-        Box::new(move |stage, _| {
-            if stage == store::Stage::FileSync {
+        Box::new(move |stage| {
+            if stage == store::Stage::BeforePublish {
                 fs::write(&config_path, "")?;
             }
             Ok(())
@@ -561,7 +559,6 @@ fn no_op_assignment_refreshes_only_projection_and_user_privilege_reload_refuses(
     assert_eq!(error.code, Code::Forbidden);
     assert!(error.current.is_none());
     assert_eq!(f.bytes(), before);
-    assert!(!f.directory().join("items.tmp").exists());
 }
 
 #[test]

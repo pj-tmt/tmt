@@ -51,10 +51,12 @@ if a[0]=='api':
   (p/'blocked.pid').write_text(str(os.getpid()))
   signal.pause()
   fcntl.flock(guard,fcntl.LOCK_EX); m=json.loads((p/'model.json').read_text())
- if (p/'ops/cron/jobs.lock').exists():
-  with open(p/'ops/cron/jobs.lock','r+') as lock:
-   try: fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
-   except BlockingIOError: locked=True
+ if (p/'ops/ops.db').exists():
+  import sqlite3
+  try:
+   probe=sqlite3.connect(str(p/'ops/ops.db'),timeout=0,isolation_level=None)
+   probe.execute('BEGIN IMMEDIATE'); probe.execute('ROLLBACK'); probe.close()
+  except sqlite3.OperationalError: locked=True
  m['calls'].append({'request':q,'locked':locked})
  if m.get('failOperation')==op: save(m); fail('STORAGE_UNAVAILABLE')
  if op=='storage.root': out={'dataRoot':str(p)}
@@ -136,8 +138,10 @@ if a[0]=='api':
 elif a[0]=='config': print(json.dumps({'paths':{'global':str(p/'config.toml')}}))
 elif a[0]=='room' and a[1]=='leave':
  m['calls'].append({'command':a})
- jobs=p/'ops/cron/jobs.json'
- m['jobsAtLeave']=json.loads(jobs.read_text()) if jobs.exists() else {'jobs':[]}
+ import sqlite3
+ database=p/'ops/ops.db'
+ row=sqlite3.connect(str(database),timeout=5).execute("SELECT body FROM documents WHERE kind='cron' AND key=''").fetchone() if database.exists() else None
+ m['jobsAtLeave']=json.loads(row[0]) if row else {'jobs':[]}
  if m.get('leaveFailure'): save(m); fail(m['leaveFailure'])
  id=a[a.index('--identity')+1]
  if id not in m['rosterWithout']: m['rosterWithout'].append(id)

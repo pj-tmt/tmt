@@ -2,17 +2,19 @@
 
 use super::{fail, string};
 use crate::core::SquadError;
-use nix::fcntl::{Flock, FlockArg, OFlag};
+use nix::fcntl::OFlag;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
     fs::{self, File, OpenOptions},
     io::{Read, Write},
-    os::unix::fs::{MetadataExt, OpenOptionsExt},
+    os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt},
     path::{Path, PathBuf},
 };
+use tmt_extension_state::{Guard, StateError};
 
 const NAME: &str = ".ops-board-switch-v1.json";
+const SWITCH_RETRY: &str = "Wait for it to finish, then run the switch again.";
 const READY: &str = ".ops-board-switch-ready-";
 const LIMIT: u64 = 1024 * 1024;
 
@@ -47,7 +49,7 @@ fn open(path: &Path, write: bool, create: bool) -> Result<File, SquadError> {
 }
 
 pub(super) struct Record {
-    _guard: Flock<File>,
+    _guard: Guard,
     root: PathBuf,
     prefix: PathBuf,
     socket: String,
@@ -148,10 +150,33 @@ impl Record {
     }
 }
 
-fn switch_lock(root: &Path) -> Result<Flock<File>, SquadError> {
-    let file = open(&root.join(".ops-board-switch.lock"), true, true)?;
-    Flock::lock(file, FlockArg::LockExclusiveNonblock)
-        .map_err(|_| fail("Another board switch is running."))
+/// One board switch at a time. Contention names the process that holds the switch. The
+/// lock lives in a private directory of Ops' own, because the data root is not ours to
+/// require a mode of.
+fn switch_lock(root: &Path) -> Result<Guard, SquadError> {
+    let directory = root.join(".ops-board-switch.d");
+    match fs::DirBuilder::new().mode(0o700).create(&directory) {
+        Ok(()) => File::open(root)
+            .and_then(|root| root.sync_all())
+            .map_err(fail)?,
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(fail(error)),
+    }
+    Guard::acquire(&directory.join("switch.lock"), SWITCH_RETRY).map_err(|error| {
+        let StateError::GuardBusy { holder, .. } = &error else {
+            return fail(error);
+        };
+        fail(match holder {
+            Some(holder) => format!(
+                "Another board switch is running (process {}, started {}). {SWITCH_RETRY}",
+                holder.pid,
+                jiff::Timestamp::from_millisecond(holder.acquired_at_ms as i64)
+                    .map(|time| time.to_string())
+                    .unwrap_or_else(|_| format!("{} ms", holder.acquired_at_ms)),
+            ),
+            None => format!("Another board switch is running (holder unknown). {SWITCH_RETRY}"),
+        })
+    })
 }
 
 fn publish_switch_record(root: &Path, name: &str, value: &Value) -> Result<(), SquadError> {
@@ -207,4 +232,45 @@ pub(super) fn read_ready(path: &Path) -> Result<String, SquadError> {
         return Err(fail("Invalid readiness marker."));
     }
     Ok(value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn a_second_switch_is_refused_naming_the_process_that_holds_the_first() {
+        let root = std::env::temp_dir().join(format!("ops-switch-lock-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        // The data root is not ours to constrain: an ordinary 0755 directory works.
+        fs::DirBuilder::new().mode(0o755).create(&root).unwrap();
+        let prefix = root.join("prefix");
+        let first = Record::open(&root, &prefix, "socket").unwrap();
+        let error = Record::open(&root, &prefix, "socket").err().unwrap();
+        assert_eq!(error.code, "OPS_BOARD_SWITCH_FAILED");
+        assert!(
+            error
+                .message
+                .contains(&format!("process {}", std::process::id())),
+            "{}",
+            error.message
+        );
+        assert!(
+            error.message.contains("run the switch again"),
+            "{}",
+            error.message
+        );
+        assert_eq!(
+            fs::metadata(root.join(".ops-board-switch.d"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        drop(first);
+        drop(Record::open(&root, &prefix, "socket").unwrap());
+        fs::remove_dir_all(&root).unwrap();
+    }
 }

@@ -11,11 +11,11 @@ use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
     fs,
-    io::{self, Read, Write},
-    os::unix::fs::OpenOptionsExt,
+    io::{self, Read},
     path::{Path, PathBuf},
     time::Duration,
 };
+use tmt_extension_state::{Document as StateDocument, UpdateError};
 use toml_edit::{DocumentMut, Item, Table, TableLike, value};
 
 mod edit;
@@ -36,6 +36,8 @@ pub(crate) use workspace::{
 };
 
 const FILE_LIMIT: u64 = 1024 * 1024;
+/// What a busy document lock tells the user to do; an edit is never retried silently.
+const WRITE_RETRY: &str = "Try the same change again.";
 const MAX_SECTIONS: usize = 16;
 
 fn split_value(split: &Split) -> Value {
@@ -2302,91 +2304,73 @@ impl Config {
 
     /// Replaces the file atomically with one edit applied. Refuses if another
     /// editor changed the file since it was read, rather than overwriting
-    /// their edit.
+    /// their edit. The comparison and the replacement run under one document
+    /// lock, so two editors cannot both pass the comparison and then overwrite
+    /// each other.
     fn write(&mut self, edit: impl FnOnce(&mut DocumentMut)) -> Result<(), SquadError> {
-        let _migration = crate::migration::config_write_guard(&self.path)?;
-        let _writer = write_guard(&self.path)?;
-        let current = read_bounded(&self.path).map_err(|error| write_failed(&self.path, error))?;
-        if current != self.original {
-            return Err(SquadError::new(
+        let changed = || {
+            SquadError::new(
                 "SQUAD_CONFIG_CHANGED",
                 format!(
                     "{} changed while squad was running; retry.",
                     self.path.display()
                 ),
-            ));
-        }
-        let mut document = self.document.clone();
-        edit(&mut document);
-        self.publish_document(document)
-    }
-
-    /// Both snapshot edits and monotonic read-marker merges publish here.
-    fn publish_document(&mut self, document: DocumentMut) -> Result<(), SquadError> {
-        let bytes = document.to_string().into_bytes();
+            )
+        };
+        let _migration = crate::migration::config_write_guard(&self.path)?;
+        let mut next = self.document.clone();
+        edit(&mut next);
+        let bytes = next.to_string().into_bytes();
         if bytes.len() as u64 > FILE_LIMIT {
-            return Err(invalid("The edited Ops configuration would exceed 1 MiB."));
+            return Err(too_large());
         }
         if self.original.as_deref().unwrap_or_default() == bytes {
-            return Ok(());
+            // Nothing to publish, so no lock and no replacement; a file that moved on
+            // since it was read is still reported.
+            let current =
+                read_bounded(&self.path).map_err(|error| write_failed(&self.path, error))?;
+            return if current == self.original {
+                Ok(())
+            } else {
+                Err(changed())
+            };
         }
-        publish(&self.path, &bytes).map_err(|error| write_failed(&self.path, error))?;
-        self.document = document;
+        let outcome = self.state_document()?.update(|current| {
+            if current != self.original.as_deref() {
+                return Err(changed());
+            }
+            Ok(bytes.clone())
+        });
+        self.settled(outcome)?;
+        self.document = next;
         self.original = Some(bytes);
         Ok(())
     }
-}
 
-/// A stable inode serializes edits across running views before their source
-/// comparison or read-marker merge. Publication never replaces this lock.
-fn write_guard(path: &Path) -> Result<nix::fcntl::Flock<fs::File>, SquadError> {
-    use nix::fcntl::{Flock, FlockArg, OFlag};
-    use std::{os::unix::fs::MetadataExt, time::Instant};
-    let failed = |error: io::Error| write_failed(path, error);
-    let parent = path
-        .parent()
-        .ok_or_else(|| failed(io::ErrorKind::InvalidInput.into()))?;
-    fs::create_dir_all(parent).map_err(failed)?;
-    let mut name = path
-        .file_name()
-        .ok_or_else(|| failed(io::ErrorKind::InvalidInput.into()))?
-        .to_os_string();
-    name.push(".lock");
-    let mut file = fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .mode(0o600)
-        .custom_flags((OFlag::O_NOFOLLOW | OFlag::O_NONBLOCK).bits())
-        .open(parent.join(name))
-        .map_err(failed)?;
-    let metadata = file.metadata().map_err(failed)?;
-    if !metadata.is_file() || metadata.uid() != nix::unistd::geteuid().as_raw() {
-        return Err(failed(io::Error::other(
-            "Ops configuration lock is not an owned regular file",
-        )));
+    /// The shared lock and atomic replacement behind every write to the file.
+    fn state_document(&self) -> Result<StateDocument, SquadError> {
+        let directory = self
+            .path
+            .parent()
+            .ok_or_else(|| write_failed(&self.path, io::Error::other("no parent directory")))?;
+        fs::create_dir_all(directory).map_err(|error| write_failed(&self.path, error))?;
+        StateDocument::new(directory, &self.path, FILE_LIMIT, WRITE_RETRY)
+            .map_err(|error| write_failed(&self.path, io::Error::other(error)))
     }
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        match Flock::lock(file, FlockArg::LockExclusiveNonblock) {
-            Ok(guard) => return Ok(guard),
-            Err((unlocked, error)) => {
-                file = unlocked;
-                if error != nix::errno::Errno::EWOULDBLOCK {
-                    return Err(failed(io::Error::from_raw_os_error(error as i32)));
-                }
-                let remaining = deadline.saturating_duration_since(Instant::now());
-                if remaining.is_zero() {
-                    return Err(failed(io::Error::new(
-                        io::ErrorKind::TimedOut,
-                        "Ops configuration remained busy for 5 seconds; retry the action",
-                    )));
-                }
-                std::thread::sleep(remaining.min(Duration::from_millis(10)));
+
+    fn settled(&self, outcome: Result<(), UpdateError<SquadError>>) -> Result<(), SquadError> {
+        match outcome {
+            Ok(()) => Ok(()),
+            Err(UpdateError::Change(error)) => Err(error),
+            Err(UpdateError::State(error)) => {
+                Err(write_failed(&self.path, io::Error::other(error)))
             }
         }
     }
+}
+
+fn too_large() -> SquadError {
+    invalid("The edited Ops configuration would exceed 1 MiB.")
 }
 
 /// The shape core gives identity UUIDs; anything else is a hand edit.
@@ -2422,28 +2406,6 @@ fn read_bounded(path: &Path) -> io::Result<Option<Vec<u8>>> {
         return Err(io::Error::other("larger than 1 MiB"));
     }
     Ok(Some(bytes))
-}
-
-fn publish(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let directory = path
-        .parent()
-        .ok_or_else(|| io::Error::other("no parent directory"))?;
-    fs::create_dir_all(directory)?;
-    let staged = directory.join(format!(".ops.toml.{}", std::process::id()));
-    let mut file = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(&staged)?;
-    let written = file
-        .write_all(bytes)
-        .and_then(|()| file.sync_all())
-        .and_then(|()| fs::rename(&staged, path));
-    if written.is_err() {
-        let _ = fs::remove_file(&staged);
-    }
-    written?;
-    fs::File::open(directory)?.sync_all()
 }
 
 fn empty_table_without_comments(item: &Item) -> bool {
@@ -2710,11 +2672,10 @@ mod tests {
         let original = "[board.theme]\nbase = \"tmt\"\n";
         fs::write(&path, original).unwrap();
         let mut config = Config::read(path.clone()).unwrap();
-        let staged = path
-            .parent()
-            .unwrap()
-            .join(format!(".ops.toml.{}", std::process::id()));
-        fs::write(&staged, "occupied stage").unwrap();
+        // The document's reserved staging name is taken by something that is not a file it
+        // may clear, so the replacement is refused before it starts.
+        let staged = path.parent().unwrap().join(".ops.toml.tmt-staging");
+        fs::create_dir(&staged).unwrap();
         assert_eq!(
             config
                 .set_theme_base(&ThemeScope::Board, Base::Mono)
@@ -2725,11 +2686,63 @@ mod tests {
         assert_eq!(config.document.to_string(), original);
         assert_eq!(config.original.as_deref(), Some(original.as_bytes()));
         assert_eq!(fs::read_to_string(&path).unwrap(), original);
-        fs::remove_file(staged).unwrap();
+        fs::remove_dir(staged).unwrap();
         config
             .set_me("ada", "7c41e9d2-77aa-4c3d-9f10-3b2a1c0d9e8f")
             .unwrap();
         assert!(fs::read_to_string(&path).unwrap().contains(original));
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn eight_editors_racing_from_one_read_never_overwrite_each_other() {
+        use crate::theme::ThemeScope;
+        use tmt_cli_style::Base;
+        let path = temp("eight-editors");
+        fs::write(&path, "[board.theme]\nbase = \"tmt\"\n").unwrap();
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
+        let threads: Vec<_> = (0..8)
+            .map(|n| {
+                let (path, barrier) = (path.clone(), barrier.clone());
+                std::thread::spawn(move || {
+                    // Every editor starts from the same original bytes; losers re-read.
+                    let mut config = Config::read(path.clone()).unwrap();
+                    barrier.wait();
+                    let scope = ThemeScope::Squad(format!("squad{n}"));
+                    let mut refused = 0;
+                    loop {
+                        match config.set_theme_base(&scope, Base::Mono) {
+                            Ok(_) => return refused,
+                            Err(error) if error.code == "SQUAD_CONFIG_CHANGED" => {
+                                refused += 1;
+                                config = Config::read(path.clone()).unwrap();
+                            }
+                            Err(error) => panic!("{error:?}"),
+                        }
+                    }
+                })
+            })
+            .collect();
+        let refused: u32 = threads.into_iter().map(|t| t.join().unwrap()).sum();
+        // The editors raced from one read, so most were told to retry rather than overwrite.
+        assert!(refused > 0);
+        let text = fs::read_to_string(&path).unwrap();
+        for n in 0..8 {
+            assert!(
+                text.contains(&format!("squad{n}")),
+                "squad{n} lost:\n{text}"
+            );
+        }
+        assert!(
+            text.starts_with("[board.theme]\nbase = \"tmt\"\n"),
+            "{text}"
+        );
+        let leftovers: Vec<_> = fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|name| name.starts_with('.'))
+            .collect();
+        assert!(leftovers.is_empty(), "{leftovers:?}");
         fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
@@ -2741,11 +2754,8 @@ mod tests {
         let original = "[board.theme]\nbase = 'mono' # untouched\n";
         fs::write(&path, original).unwrap();
         let mut config = Config::read(path.clone()).unwrap();
-        let staged = path
-            .parent()
-            .unwrap()
-            .join(format!(".ops.toml.{}", std::process::id()));
-        fs::write(&staged, "publish would fail").unwrap();
+        // A write would be refused: the document's staging name is taken by a directory.
+        fs::create_dir(path.parent().unwrap().join(".ops.toml.tmt-staging")).unwrap();
         assert!(
             !config
                 .set_theme_base(&ThemeScope::Board, Base::Mono)

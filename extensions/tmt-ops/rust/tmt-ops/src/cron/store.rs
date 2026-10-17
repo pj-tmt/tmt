@@ -1,38 +1,16 @@
 use super::{Error, Schedule};
-use nix::fcntl::{Flock, FlockArg, OFlag};
+use crate::state::{BUSY_RETRY as STATE_RETRY, Cause, Database, Refusal, Slot, StateFailure};
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
-    fs::{self, File, OpenOptions},
-    io::{Read, Write},
-    os::unix::fs::{DirBuilderExt, OpenOptionsExt},
     path::{Path, PathBuf},
-    time::{Duration, Instant},
 };
 
 const LIMIT: u64 = 16 * 1024 * 1024;
-const READ_LOCK_WAIT: Duration = Duration::from_secs(1);
-/// A writer queues behind the holder (a writer fsyncs, and a membership change keeps the
-/// lock through its core command), so its budget is longer than a reader's.
-const WRITE_LOCK_WAIT: Duration = Duration::from_secs(5);
-const LOCK_STEP: Duration = Duration::from_millis(25);
 /// Code of the one failure a waiter reports once its budget is spent.
 pub const STORE_BUSY: &str = "SQUAD_CRON_STORE_BUSY";
 /// The single next step for [`STORE_BUSY`]; the caller attaches it to the message.
-pub const BUSY_RETRY: &str = "Run the same command again.";
-
-#[cfg(test)]
-thread_local! {
-    /// Lets a test spend a short budget on this thread; threads it spawns keep the real one.
-    static WRITE_WAIT: std::cell::Cell<Duration> = const { std::cell::Cell::new(WRITE_LOCK_WAIT) };
-}
-
-fn write_wait() -> Duration {
-    #[cfg(test)]
-    return WRITE_WAIT.with(std::cell::Cell::get);
-    #[cfg(not(test))]
-    WRITE_LOCK_WAIT
-}
+pub const BUSY_RETRY: &str = STATE_RETRY;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Pause {
@@ -300,10 +278,11 @@ impl Jobs {
     }
 }
 
-/// A durable extension subtree. The caller supplies the invocation-selected Ops or pending legacy root;
-/// merely constructing or reading an absent Store creates nothing.
+/// The cron jobs document in the Ops state database. The caller supplies the
+/// invocation-selected Ops or pending legacy root; constructing or reading an absent Store
+/// creates nothing. Admission, the write queue and commits belong to [`crate::state`].
 pub struct Store {
-    directory: PathBuf,
+    root: PathBuf,
 }
 
 impl Store {
@@ -312,160 +291,104 @@ impl Store {
             return Err(io("The selected extension root must be absolute."));
         }
         Ok(Self {
-            directory: extension_root.join("cron"),
+            root: extension_root.into(),
         })
     }
-    fn lock(&self, create: bool) -> Result<Option<Flock<File>>, Error> {
-        if create {
-            fs::DirBuilder::new()
-                .recursive(true)
-                .mode(0o700)
-                .create(&self.directory)
-                .map_err(io)?;
+    fn slot(&self) -> Slot {
+        Slot {
+            kind: "cron",
+            key: String::new(),
+            legacy: self.root.join("cron").join("jobs.json"),
+            limit: LIMIT,
         }
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(create)
-            .truncate(false)
-            .mode(0o600)
-            .custom_flags((OFlag::O_NOFOLLOW | OFlag::O_NONBLOCK).bits())
-            .open(self.directory.join("jobs.lock"));
-        let file = match file {
-            Ok(file) => file,
-            Err(e) if !create && e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(e) => return Err(io(e)),
-        };
-        if !file.metadata().map_err(io)?.is_file() {
-            return Err(io("Cron lock is not a regular file."));
-        }
-        // Readers may overlap. A contended reader or writer retries within its budget,
-        // so concurrent mutations queue and each one reads the document it then holds.
-        let (mode, wait, what) = if create {
-            (
-                FlockArg::LockExclusiveNonblock,
-                write_wait(),
-                "so nothing was saved",
-            )
-        } else {
-            (
-                FlockArg::LockSharedNonblock,
-                READ_LOCK_WAIT,
-                "so the jobs could not be read",
-            )
-        };
-        let deadline = Instant::now() + wait;
-        let mut file = file;
-        loop {
-            match Flock::lock(file, mode) {
-                Ok(lock) => return Ok(Some(lock)),
-                Err((unlocked, error)) => {
-                    let remaining = deadline.saturating_duration_since(Instant::now());
-                    if error != nix::errno::Errno::EWOULDBLOCK {
-                        return Err(Error::new(STORE_BUSY, error.to_string()));
-                    }
-                    if remaining.is_zero() {
-                        return Err(Error::new(
-                            STORE_BUSY,
-                            format!(
-                                "Another Ops process still holds the cron store lock after {} s, {what}.",
-                                wait.as_secs()
-                            ),
-                        ));
-                    }
-                    file = unlocked;
-                    std::thread::sleep(LOCK_STEP.min(remaining));
-                }
-            }
-        }
-    }
-    fn read_locked(&self) -> Result<Jobs, Error> {
-        let file = OpenOptions::new()
-            .read(true)
-            .custom_flags((OFlag::O_NOFOLLOW | OFlag::O_NONBLOCK).bits())
-            .open(self.directory.join("jobs.json"));
-        let file = match file {
-            Ok(file) => file,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Jobs::default()),
-            Err(e) => return Err(io(e)),
-        };
-        if !file.metadata().map_err(io)?.is_file() {
-            return Err(io("Cron store is not a regular file."));
-        }
-        let mut bytes = Vec::new();
-        file.take(LIMIT + 1).read_to_end(&mut bytes).map_err(io)?;
-        if bytes.len() as u64 > LIMIT {
-            return Err(corrupt("Cron store exceeds 16 MiB."));
-        }
-        let value = serde_json::from_slice(&bytes).map_err(|e| corrupt(e.to_string()))?;
-        Jobs::from_document(&value)
     }
     pub fn read(&self) -> Result<Jobs, Error> {
-        let Some(_lock) = self.lock(false)? else {
-            if self.directory.join("jobs.json").try_exists().map_err(io)? {
-                return Err(corrupt("Cron store exists without its stable lock."));
-            }
+        let slot = self.slot();
+        let Some(mut database) =
+            Database::open_existing(&self.root, &slot.legacy).map_err(refused)?
+        else {
             return Ok(Jobs::default());
         };
-        self.read_locked()
+        database.read(&slot, decode).map_err(failed)
     }
-    /// On closure/validation/write failure no partial job edit is published.
-    /// A directory-sync error after rename reports an uncertain commit; reread.
+    /// On closure/validation/write failure no partial job edit is saved.
     pub fn update<T>(
         &self,
         change: impl FnOnce(&mut Jobs) -> Result<T, Error>,
     ) -> Result<T, Error> {
-        self.update_then(change, |_| ()).map(|(value, ())| value)
+        let slot = self.slot();
+        let mut database = Database::open(&self.root).map_err(refused)?;
+        database
+            .update(
+                &slot,
+                |bytes| {
+                    let mut jobs = decode(bytes)?;
+                    let before = jobs.document();
+                    let result = change(&mut jobs)?;
+                    jobs.validate()?;
+                    let document = jobs.document();
+                    if document == before {
+                        return Ok((None, result));
+                    }
+                    let bytes = serde_json::to_vec(&document).map_err(io)?;
+                    if bytes.len() as u64 > LIMIT {
+                        return Err(corrupt("Cron store exceeds 16 MiB."));
+                    }
+                    Ok((Some(bytes), result))
+                },
+                |_| Ok(()),
+            )
+            .map_err(failed)
     }
 
-    /// Publish the job change before the dependent effect, retaining the store
-    /// lock through that effect. Membership uses this barrier so no job can be
-    /// added between its owner's durable pause and leave. The effect result is
-    /// separate: failure/panic never rolls back the already-published pause.
-    pub fn update_then<T, U>(
+    /// Pause a departing owner's jobs, run `departure`, then pause once more. The first
+    /// pause is committed before `departure` starts, so a departure that fails, or a
+    /// process that dies during it, still leaves the jobs paused. Nothing is held across
+    /// `departure` (it runs a core command), so a job its owner adds meanwhile is caught
+    /// by the second pause, which is best effort: the departure is already done.
+    pub fn pause_owner_then<U>(
         &self,
-        change: impl FnOnce(&mut Jobs) -> Result<T, Error>,
-        committed: impl FnOnce(&T) -> U,
-    ) -> Result<(T, U), Error> {
-        let _lock = self.lock(true)?.expect("create obtains a lock or fails");
-        let mut jobs = self.read_locked()?;
-        let before = jobs.document();
-        let result = change(&mut jobs)?;
-        jobs.validate()?;
-        let document = jobs.document();
-        if document == before {
-            let effect = committed(&result);
-            return Ok((result, effect));
-        }
-        let bytes = serde_json::to_vec(&document).map_err(io)?;
-        if bytes.len() as u64 > LIMIT {
-            return Err(corrupt("Cron store exceeds 16 MiB."));
-        }
-        // The stable jobs.lock serializes writers, so a stale temporary belongs
-        // to an interrupted writer, never another live publication.
-        let temporary = self.directory.join("jobs.tmp");
-        match fs::remove_file(&temporary) {
-            Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => return Err(io(e)),
-        }
-        let publish = (|| {
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .open(&temporary)?;
-            file.write_all(&bytes)?;
-            file.sync_all()?;
-            fs::rename(&temporary, self.directory.join("jobs.json"))?;
-            File::open(&self.directory)?.sync_all()
-        })();
-        if publish.is_err() {
-            let _ = fs::remove_file(&temporary);
-        }
-        publish.map_err(io)?;
-        let effect = committed(&result);
-        Ok((result, effect))
+        room_id: &str,
+        identity_id: &str,
+        now_ms: i64,
+        departure: impl FnOnce(&[String]) -> U,
+    ) -> Result<(Vec<String>, U), Error> {
+        let paused = self.update(|jobs| jobs.pause_owner(room_id, identity_id, now_ms))?;
+        let effect = departure(&paused);
+        let _ = self.update(|jobs| jobs.pause_owner(room_id, identity_id, now_ms));
+        Ok((paused, effect))
+    }
+}
+
+fn decode(bytes: Option<&[u8]>) -> Result<Jobs, Error> {
+    let Some(bytes) = bytes else {
+        return Ok(Jobs::default());
+    };
+    let value = serde_json::from_slice(bytes).map_err(|e| corrupt(e.to_string()))?;
+    Jobs::from_document(&value)
+}
+fn refused(refusal: Refusal) -> Error {
+    // A commit that timed out may have been saved: repeating the change could add it twice.
+    if refusal.may_not_be_saved {
+        return Error::new(
+            "SQUAD_CRON_STORE_UNCERTAIN",
+            format!(
+                "{} List the jobs before repeating the change.",
+                refusal.message
+            ),
+        );
+    }
+    let code = match refusal.cause {
+        Cause::Busy => STORE_BUSY,
+        Cause::Newer => "SQUAD_CRON_STORE_NEWER",
+        Cause::Failed => "SQUAD_CRON_STORE_IO",
+    };
+    Error::new(code, refusal.message)
+}
+fn failed(failure: StateFailure<Error>) -> Error {
+    match failure {
+        StateFailure::Refused(refusal) => refused(refusal),
+        StateFailure::Change(error) => error,
     }
 }
 

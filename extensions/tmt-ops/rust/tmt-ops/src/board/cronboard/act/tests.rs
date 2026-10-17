@@ -1,6 +1,6 @@
 use super::*;
 use crate::cron_service::{list_jobs, test_support::*};
-use std::fs;
+use crate::test_support::stored_jobs;
 
 const NOW: i64 = 1_700_000_000_000;
 
@@ -43,7 +43,7 @@ fn existing(
 }
 
 fn store(f: &Fixture) -> Vec<u8> {
-    fs::read(f.directory.join("ops/cron/jobs.json")).unwrap()
+    stored_jobs(&f.directory)
 }
 
 #[test]

@@ -1,5 +1,6 @@
 use super::*;
 use crate::cron_service::{Mutation, test_support::*};
+use crate::test_support::stored_jobs;
 use std::{fs, time::Instant};
 
 fn request_calls(model: &Value) -> Vec<&Value> {
@@ -117,14 +118,11 @@ fn manual_send_preserves_operator_revision_paused_state_and_exact_message() {
     let job = f.add(&lead, WORKER).unwrap().job.job;
     let paused = f.mutate(&lead, &job, Mutation::Pause).unwrap().job.job;
     let key = JobKey::of(&paused);
-    let before = fs::read(f.directory.join("ops/cron/jobs.json")).unwrap();
+    let before = stored_jobs(&f.directory);
     let id = manual_operation().unwrap();
     let accepted = send_now(&f.core, &f.config, &key, &lead, paused.revision, &id).unwrap();
     assert_eq!(accepted["dispatch"]["operationId"], id);
-    assert_eq!(
-        before,
-        fs::read(f.directory.join("ops/cron/jobs.json")).unwrap()
-    );
+    assert_eq!(before, stored_jobs(&f.directory));
     let model = f.model();
     let calls = request_calls(&model);
     assert_eq!(calls.len(), 1);
@@ -295,7 +293,16 @@ fn running_clock_baselines_at_start_and_rejects_a_second_foreground_clock() {
         .finished
         .recv_timeout(Duration::from_secs(10))
         .unwrap();
-    assert_eq!(second.stop().unwrap_err().code, "SQUAD_CRON_CLOCK_RUNNING");
+    let refused = second.stop().unwrap_err();
+    assert_eq!(refused.code, "SQUAD_CRON_CLOCK_RUNNING");
+    // The refusal names the clock that holds the lease: this very process runs both workers.
+    assert!(
+        refused
+            .message
+            .contains(&format!("process {}", std::process::id())),
+        "{}",
+        refused.message
+    );
     assert!(request_calls(&f.model()).is_empty());
     first.stop().unwrap();
     assert_eq!(clock.status(now()), ClockStatus::NoClock);
@@ -424,7 +431,7 @@ fn deferred_ui_workers_never_take_the_old_clock_and_migrate_without_stopping() {
     let mut f = Fixture::new();
     let actor = f.actor(LEAD);
     f.add(&actor, WORKER).unwrap();
-    let original = fs::read(f.directory.join("ops/cron/jobs.json")).unwrap();
+    let original = stored_jobs(&f.directory);
     fs::rename(f.directory.join("ops"), f.directory.join("squad")).unwrap();
     fs::rename(f.directory.join("ops.toml"), f.directory.join("squad.toml")).unwrap();
     for name in [".ops-paths-v1", ".ops-paths-cutover-v1"] {
@@ -486,10 +493,7 @@ fn deferred_ui_workers_never_take_the_old_clock_and_migrate_without_stopping() {
         Config::load(&f.core).unwrap().path(),
         f.directory.join("ops.toml")
     );
-    assert_eq!(
-        fs::read(f.directory.join("ops/cron/jobs.json")).unwrap(),
-        original
-    );
+    assert_eq!(stored_jobs(&f.directory), original);
     assert!(!f.directory.join("squad").exists());
     assert!(first.finished.try_recv().is_err());
     assert!(second.finished.try_recv().is_err());

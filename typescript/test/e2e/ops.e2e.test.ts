@@ -70,6 +70,24 @@ async function squadWithMember(fixture: E2EFixture): Promise<string> {
   return member;
 }
 
+/** A stored document of the Ops state database (`cron`, or one room's `checklist`), if any. */
+function storedDocument(
+  database: string,
+  kind: 'cron' | 'checklist',
+  key = ''
+): Buffer | undefined {
+  if (!fs.existsSync(database)) return undefined;
+  const db = new Database(database, { readonly: true });
+  try {
+    const row = db
+      .prepare('SELECT body FROM documents WHERE kind = ? AND key = ?')
+      .get(kind, key) as { body: Buffer } | undefined;
+    return row?.body;
+  } finally {
+    db.close();
+  }
+}
+
 describe('squad on a private tmux server', { concurrent: false }, () => {
   it('creates from the empty workspace only after exact review and keeps section keys out of fields', async () => {
     await withE2EFixture(async (fixture) => {
@@ -234,12 +252,17 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
         const ops = path.join(fixture.globalDir, 'ops');
         fs.appendFileSync(config, `\n[board]\nrefresh = "off"\n[board.theme]\nbase = "${theme}"\n`);
         const beforeConfig = fs.readFileSync(config);
-        const beforeJobs = fs.readFileSync(path.join(ops, 'cron', 'jobs.json'));
+        const beforeJobs = storedDocument(path.join(ops, 'ops.db'), 'cron');
+        expect(beforeJobs).toBeDefined();
         fs.renameSync(config, path.join(fixture.globalDir, 'squad.toml'));
         fs.renameSync(ops, path.join(fixture.globalDir, 'squad'));
         fs.unlinkSync(path.join(fixture.globalDir, '.ops-paths-v1'));
         fs.unlinkSync(path.join(fixture.globalDir, '.ops-paths-cutover-v1'));
         const lease = path.join(fixture.globalDir, 'squad', 'cron', 'clock.json');
+        fs.mkdirSync(path.join(fixture.globalDir, 'squad', 'cron'), {
+          recursive: true,
+          mode: 0o700,
+        });
         fs.writeFileSync(path.join(fixture.globalDir, 'squad', 'cron', 'clock.lock'), '');
         fs.writeFileSync(
           lease,
@@ -339,7 +362,7 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
           shell.pane
         );
         expect(fs.readFileSync(config)).toEqual(beforeConfig);
-        expect(fs.readFileSync(path.join(ops, 'cron', 'jobs.json'))).toEqual(beforeJobs);
+        expect(storedDocument(path.join(ops, 'ops.db'), 'cron')).toEqual(beforeJobs);
         // A compatible authored key proves refresh reads the promoted file.
         // Retired factory views no longer change the workspace shell.
         const adoptedConfig = Buffer.concat([beforeConfig, Buffer.from('\n[bind]\n0 = "help"\n')]);
@@ -376,7 +399,7 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
         );
         expect(fs.existsSync(nextLease)).toBe(false);
         expect(fs.readFileSync(config)).toEqual(adoptedConfig);
-        expect(fs.readFileSync(path.join(ops, 'cron', 'jobs.json'))).toEqual(beforeJobs);
+        expect(storedDocument(path.join(ops, 'ops.db'), 'cron')).toEqual(beforeJobs);
         expect(fs.existsSync(path.join(fixture.globalDir, 'squad'))).toBe(false);
       });
     }
@@ -710,11 +733,12 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
           await fixture.runJsonCli<{ room: { id: string } }>(['room', 'show', 'squad-product'])
         );
         const roomId = shown.room.id;
-        const file = path.join(fixture.globalDir, 'ops', 'checklist', roomId, 'items.json');
-        expect(fs.existsSync(file)).toBe(false);
+        const database = path.join(fixture.globalDir, 'ops', 'ops.db');
+        const read = () => storedDocument(database, 'checklist', roomId);
+        expect(read()).toBeUndefined();
         fixture.tmux(['send-keys', '-t', shell.pane, 'Down', 'Enter']);
-        await fixture.waitFor(() => fs.existsSync(file), 5_000, 'checklist publication');
-        let stored = JSON.parse(fs.readFileSync(file, 'utf8'));
+        await fixture.waitFor(() => read() !== undefined, 5_000, 'checklist publication');
+        let stored = JSON.parse(read()!.toString('utf8'));
         expect(stored.items).toHaveLength(1);
         expect(stored.items[0]).toMatchObject({
           title: 'Native board item',
@@ -733,11 +757,11 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
         );
         fixture.tmux(['send-keys', '-t', shell.pane, 'Down', 'Enter']);
         await fixture.waitFor(
-          () => JSON.parse(fs.readFileSync(file, 'utf8')).items[0].completion === 'complete',
+          () => JSON.parse(read()!.toString('utf8')).items[0].completion === 'complete',
           5_000,
           'explicit completion'
         );
-        stored = JSON.parse(fs.readFileSync(file, 'utf8'));
+        stored = JSON.parse(read()!.toString('utf8'));
         expect(stored.items[0].revision).toBe(2);
         expect(stored.inventoryRevision).toBe(1);
         expect(durableState(fixture)).toEqual(state);

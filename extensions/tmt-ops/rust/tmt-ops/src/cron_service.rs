@@ -352,10 +352,7 @@ pub(crate) fn with_departure_pause<T>(
 ) -> Result<(Vec<String>, T), SquadError> {
     let (store, _migration) = store(core)?;
     store
-        .update_then(
-            |jobs| jobs.pause_owner(room_id, identity_id, now_ms),
-            |_| leave_or_move(),
-        )
+        .pause_owner_then(room_id, identity_id, now_ms, |_| leave_or_move())
         .map_err(Into::into)
 }
 
