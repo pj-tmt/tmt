@@ -93,8 +93,12 @@ fn help_and_invalid_authorization_do_not_invoke_core_or_provider() {
 fn old_installed_colab_is_truthfully_unavailable_without_tool_or_storage_calls() {
     let root = Root::new();
     let layout = root.layout();
-    let mut record =
-        tmt_remote::deploy_record::DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
+    let mut record = tmt_remote::deploy_record::DeployRecordStore::open(
+        &layout,
+        "demo-remote-1",
+        "retry deploy fixture",
+    )
+    .unwrap();
     record
         .persist(&tmt_remote::deploy_run::DeployRecord::new(
             deploy_fixture::ID,
@@ -218,9 +222,12 @@ fn available_binary_plan_is_read_only_and_authorization_completes_the_saved_orig
     let root = Root::new();
     available(&root);
     let package = installed(&root, "process");
-    let mut writer =
-        tmt_remote::deploy_record::DeployRecordStore::open(&root.layout(), "demo-remote-1")
-            .unwrap();
+    let mut writer = tmt_remote::deploy_record::DeployRecordStore::open(
+        &root.layout(),
+        "demo-remote-1",
+        "retry deploy fixture",
+    )
+    .unwrap();
     writer
         .persist(&tmt_remote::deploy_run::DeployRecord::new(
             deploy_fixture::ID,
@@ -655,8 +662,12 @@ fn declared_hosting_runs_through_the_binary_and_publishes_only_after_joint_readb
         fs::read(root.remote().join("deployments/demo-remote-1/deploy.json")).unwrap();
     let provider_before = fs::read(package.join("calls.jsonl")).unwrap();
     let layout = root.layout();
-    let writer =
-        tmt_remote::deploy_record::DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
+    let writer = tmt_remote::deploy_record::DeployRecordStore::open(
+        &layout,
+        "demo-remote-1",
+        "retry deploy fixture",
+    )
+    .unwrap();
     let first = base(&root).args(["link", "--json"]).output().unwrap();
     let second = base(&root).args(["link", "--json"]).output().unwrap();
     assert!(first.status.success(), "{:?}", first);

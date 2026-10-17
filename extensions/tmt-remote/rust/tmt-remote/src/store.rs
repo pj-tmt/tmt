@@ -891,6 +891,38 @@ mod tests {
     use crate::state::Layout;
 
     #[test]
+    fn sqlite_contention_has_its_own_five_second_wait_and_no_effect() {
+        use std::time::{Duration, Instant};
+        let root = std::env::temp_dir().join(format!("tmt-state-wait-{}", uuid_v4().unwrap()));
+        let serving = Layout::open(&root).unwrap().serve_lock().unwrap();
+        let store = Store::open(&serving).unwrap();
+        let configured: i64 = store
+            .connection
+            .query_row("PRAGMA busy_timeout", [], |row| row.get(0))
+            .unwrap();
+        // Pin the actual connection policy, not only a similarly named constant.
+        assert_eq!(configured, 5_000);
+        store.remember_port(12345).unwrap();
+        let holder = Connection::open(serving.layout().directory.join("remote.db")).unwrap();
+        holder.execute_batch("BEGIN IMMEDIATE").unwrap();
+        let start = Instant::now();
+        let error = store.remember_port(23456).unwrap_err();
+        let elapsed = start.elapsed();
+        holder.execute_batch("ROLLBACK").unwrap();
+        assert_eq!(error.code, "REMOTE_STATE_UNAVAILABLE");
+        assert!(error.message.contains("locked") || error.message.contains("busy"));
+        assert!(
+            elapsed >= Duration::from_millis(4_500) && elapsed < Duration::from_secs(10),
+            "wait was {elapsed:?}"
+        );
+        assert_eq!(store.remembered_port().unwrap(), Some(12345));
+        drop(holder);
+        drop(store);
+        drop(serving);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn existing_full_grant_reopens_without_narrowing_or_receipt_change() {
         let root = std::env::temp_dir().join(format!("tmt-talk-legacy-{}", uuid_v4().unwrap()));
         let serving = Layout::open(&root).unwrap().serve_lock().unwrap();

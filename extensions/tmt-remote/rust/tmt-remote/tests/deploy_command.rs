@@ -71,7 +71,8 @@ fn input<'a>(plan: &'a tmt_remote::deploy_plan::Plan, body: &'a [u8]) -> DeployC
 fn plan_only_matches_independent_human_and_json_goldens_without_provider_effects() {
     let root = Root::new();
     let layout = root.layout();
-    let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
+    let mut store =
+        DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture").unwrap();
     store.persist(&DeployRecord::new(ID)).unwrap();
     let plan = plan();
     let body = fixture("deploy_run", "rules-body.rules");
@@ -108,7 +109,8 @@ fn plan_only_matches_independent_human_and_json_goldens_without_provider_effects
     );
     drop(store);
     let bytes = std::fs::read(root.remote().join("deployments/demo-remote-1/deploy.json")).unwrap();
-    let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
+    let mut store =
+        DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture").unwrap();
     let again = execute(
         &input(&plan, &body),
         &DeployCommandOptions::default(),
@@ -127,7 +129,8 @@ fn plan_only_matches_independent_human_and_json_goldens_without_provider_effects
 fn first_plan_creates_a_stable_local_draft_but_refused_inputs_create_no_record() {
     let root = Root::new();
     let layout = root.layout();
-    let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
+    let mut store =
+        DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture").unwrap();
     let plan = plan();
     let body = fixture("deploy_run", "rules-body.rules");
     let mut port = Fake::new(ACCOUNT);
@@ -155,7 +158,8 @@ fn first_plan_creates_a_stable_local_draft_but_refused_inputs_create_no_record()
     )
     .unwrap();
     drop(store);
-    let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
+    let mut store =
+        DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture").unwrap();
     let second = execute(
         &request,
         &DeployCommandOptions::default(),
@@ -171,7 +175,8 @@ fn first_plan_creates_a_stable_local_draft_but_refused_inputs_create_no_record()
 fn stale_short_changed_account_and_foreign_authorizations_have_zero_effects() {
     let root = Root::new();
     let layout = root.layout();
-    let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
+    let mut store =
+        DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture").unwrap();
     store.persist(&DeployRecord::new(ID)).unwrap();
     let plan = plan();
     let body = fixture("deploy_run", "rules-body.rules");
@@ -299,7 +304,8 @@ fn stale_short_changed_account_and_foreign_authorizations_have_zero_effects() {
 fn interactive_foreign_rules_warning_names_y_while_plain_output_keeps_digest() {
     let root = Root::new();
     let layout = root.layout();
-    let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
+    let mut store =
+        DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture").unwrap();
     store.persist(&DeployRecord::new(ID)).unwrap();
     let extensions = plan();
     let body = fixture("deploy_run", "rules-body.rules");
@@ -404,7 +410,8 @@ fn every_interrupted_save_reloads_the_same_original_and_never_duplicates_provide
     for fail_at in 0..baseline.saved.len() {
         let root = Root::new();
         let layout = root.layout();
-        let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
+        let mut store =
+            DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture").unwrap();
         store.persist(&DeployRecord::new(ID)).unwrap();
         let mut port = Fake::new(ACCOUNT);
         port.unrelated
@@ -433,7 +440,8 @@ fn every_interrupted_save_reloads_the_same_original_and_never_duplicates_provide
             reloaded.usable_binding().is_none(),
             "binding prematurely saved at {fail_at}"
         );
-        let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
+        let mut store =
+            DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture").unwrap();
         let done =
             deploy_run::run(&plan, &authorization, reloaded, &mut port, &mut store, 11).unwrap();
         assert!(done.usable_binding().is_some());
@@ -450,7 +458,8 @@ fn every_interrupted_save_reloads_the_same_original_and_never_duplicates_provide
 fn lost_effect_returns_unknown_and_same_authorization_observes_before_resuming() {
     let root = Root::new();
     let layout = root.layout();
-    let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
+    let mut store =
+        DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture").unwrap();
     let plan = plan();
     let body = fixture("deploy_run", "rules-body.rules");
     let request = input(&plan, &body);
@@ -478,7 +487,8 @@ fn lost_effect_returns_unknown_and_same_authorization_observes_before_resuming()
             .is_none()
     );
     drop(store);
-    let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
+    let mut store =
+        DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture").unwrap();
     let done = execute(&request, &opts, &mut store, &mut port, 3).unwrap();
     assert_eq!(done.json["record"]["run"]["state"], "complete");
     assert_eq!(port.effects_of("rules"), 1);
@@ -501,7 +511,8 @@ fn every_provider_failure_keeps_real_file_partial_and_only_a_successful_resume_b
         for when in [When::BeforeEffect, When::AfterEffectUnknown] {
             let root = Root::new();
             let layout = root.layout();
-            let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
+            let mut store =
+                DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture").unwrap();
             let mut port = Fake::new(ACCOUNT);
             port.unrelated.insert("other".into(), "untouched".into());
             let preview = execute(
@@ -531,7 +542,8 @@ fn every_provider_failure_keeps_real_file_partial_and_only_a_successful_resume_b
                 "unknown"
             }));
             drop(store);
-            let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
+            let mut store =
+                DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture").unwrap();
             execute(&request, &opts, &mut store, &mut port, 3).unwrap();
             assert!(
                 deploy_record::read(&layout)
@@ -550,7 +562,8 @@ fn old_open_reader_sees_the_draft_while_new_readers_see_the_verified_binding() {
     use std::io::Read;
     let root = Root::new();
     let layout = root.layout();
-    let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
+    let mut store =
+        DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture").unwrap();
     let plan = plan();
     let body = fixture("deploy_run", "rules-body.rules");
     let request = input(&plan, &body);
@@ -591,7 +604,8 @@ fn old_open_reader_sees_the_draft_while_new_readers_see_the_verified_binding() {
 fn existing_binding_survives_pre_rules_failure_but_not_a_possible_new_rules_effect() {
     let root = Root::new();
     let layout = root.layout();
-    let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
+    let mut store =
+        DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture").unwrap();
     let plan = plan();
     let body = fixture("deploy_run", "rules-body.rules");
     let mut port = Fake::new(ACCOUNT);
@@ -654,7 +668,8 @@ fn existing_binding_survives_pre_rules_failure_but_not_a_possible_new_rules_effe
 fn owner_action_and_building_are_reported_without_a_usable_binding() {
     let root = Root::new();
     let layout = root.layout();
-    let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
+    let mut store =
+        DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture").unwrap();
     let plan = plan();
     let body = fixture("deploy_run", "rules-body.rules");
     let request = input(&plan, &body);
@@ -839,7 +854,8 @@ mod cli_composition {
     fn summary_uses_captured_rules_and_database_evidence_but_still_asks() {
         let root = Root::new();
         let layout = root.layout();
-        let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
+        let mut store =
+            DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture").unwrap();
         store.persist(&DeployRecord::new(ID)).unwrap();
         drop(store);
         let mut source = DeployCliSource(0, true);
@@ -933,7 +949,8 @@ mod cli_composition {
         let run = |extra: &[&str]| {
             let root = Root::new();
             let layout = root.layout();
-            let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
+            let mut store =
+                DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture").unwrap();
             store.persist(&DeployRecord::new(ID)).unwrap();
             drop(store);
             let mut source = DeployCliSource(0, true);
@@ -1015,7 +1032,8 @@ mod cli_composition {
         {
             let root = Root::new();
             let layout = root.layout();
-            let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
+            let mut store =
+                DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture").unwrap();
             store.persist(&DeployRecord::new(ID)).unwrap();
             drop(store);
             let inventory = HostingInventory {
@@ -1420,7 +1438,8 @@ mod cli_composition {
     fn a_known_owner_action_is_not_described_as_an_unknown_effect() {
         let root = Root::new();
         let layout = root.layout();
-        let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
+        let mut store =
+            DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture").unwrap();
         store.persist(&DeployRecord::new(ID)).unwrap();
         drop(store);
         let mut source = DeployCliSource(0, true);
@@ -1479,7 +1498,8 @@ mod cli_composition {
     fn discovered_plan_authorizes_whole_envelope_and_recovers_without_resending() {
         let root = Root::new();
         let layout = root.layout();
-        let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
+        let mut store =
+            DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture").unwrap();
         store.persist(&DeployRecord::new(ID)).unwrap();
         drop(store);
         let mut source = DeployCliSource(0, true);
@@ -1727,7 +1747,8 @@ mod cli_composition {
 fn a_second_home_sees_the_first_homes_rules_as_foreign_and_must_authorize_its_own_plan() {
     let first = Root::new();
     let first_layout = first.layout();
-    let mut first_store = DeployRecordStore::open(&first_layout, "demo-remote-1").unwrap();
+    let mut first_store =
+        DeployRecordStore::open(&first_layout, "demo-remote-1", "retry deploy fixture").unwrap();
     let extensions = plan();
     let body = fixture("deploy_run", "rules-body.rules");
     let mut provider = Fake::new(ACCOUNT);
@@ -1757,7 +1778,8 @@ fn a_second_home_sees_the_first_homes_rules_as_foreign_and_must_authorize_its_ow
     let effects = provider.effects.clone();
     let second = Root::new();
     let second_layout = second.layout();
-    let mut second_store = DeployRecordStore::open(&second_layout, "demo-remote-1").unwrap();
+    let mut second_store =
+        DeployRecordStore::open(&second_layout, "demo-remote-1", "retry deploy fixture").unwrap();
     let second_request = request_for_foreign(&extensions, &body, &live);
     let takeover = execute(
         &second_request,
@@ -1830,7 +1852,8 @@ fn frozen_hosting_plan_covers_content_and_foreign_release_but_cannot_run_rules_a
     };
     let root = Root::new();
     let layout = root.layout();
-    let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
+    let mut store =
+        DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture").unwrap();
     store.persist(&DeployRecord::new(ID)).unwrap();
     let mut declaration: serde_json::Value =
         serde_json::from_slice(&fixture("declarations", "colab-firestore.json")).unwrap();
@@ -2131,7 +2154,8 @@ fn only_an_interactive_person_can_implicitly_authorize_and_the_copy_is_pinned() 
 fn account_changed_after_the_displayed_snapshot_refuses_before_effects() {
     let root = Root::new();
     let layout = root.layout();
-    let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
+    let mut store =
+        DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture").unwrap();
     let extensions = plan();
     let body = fixture("deploy_run", "rules-body.rules");
     let input = input(&extensions, &body);
