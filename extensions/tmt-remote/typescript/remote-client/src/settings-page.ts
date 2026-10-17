@@ -1,3 +1,4 @@
+import { settingsChoice } from './settings-controls.js';
 import { remoteRegistryPage } from './remote-registry-page.js';
 import { management, reopenSession, RefusalError } from 'remote-browser-sdk';
 import { renderFirestore } from './firestore-page.js';
@@ -8,8 +9,8 @@ function element<T extends HTMLElement>(id: string): T {
   if (!found) throw new Error(`Settings page lacks #${id}.`);
   return found as T;
 }
-const opening = element<HTMLSelectElement>('opening');
-const mode = element<HTMLSelectElement>('limit-mode');
+const opening = element<HTMLButtonElement>('opening');
+const mode = element<HTMLButtonElement>('limit-mode');
 const custom = element<HTMLInputElement>('limit-custom');
 const devices = element<HTMLDivElement>('devices');
 const refresh = element<HTMLButtonElement>('refresh');
@@ -17,6 +18,46 @@ const more = element<HTMLButtonElement>('more');
 const first = element<HTMLButtonElement>('first');
 const rows = new Map<string, HTMLElement>();
 let initialized = false;
+let choices: (() => void)[] | undefined;
+type Device = NonNullable<ManagementPage['devices']>['devices'][number];
+let confirmation: { button: HTMLButtonElement; clientId: string; signature: string } | undefined;
+function targetSignature(target: Device): string {
+  return JSON.stringify([target.name, target.revoked, target.talkEnabled, target.thisBrowser]);
+}
+function cancelConfirmation(refocus = false): void {
+  if (!confirmation) return;
+  const { button, clientId } = confirmation;
+  const panel = rows.get(clientId)?.querySelector<HTMLElement>('[data-confirmation]');
+  if (panel) panel.hidden = true;
+  button.removeAttribute('aria-describedby');
+  button.setAttribute('aria-expanded', 'false');
+  confirmation = undefined;
+  if (refocus && button.isConnected && !button.disabled) button.focus({ preventScroll: true });
+}
+/** A second deliberate press confirms only the same currently admitted presentation. */
+function confirmDevice(
+  button: HTMLButtonElement,
+  target: Device,
+  kind: 'talk' | 'revoke',
+): boolean {
+  const signature = targetSignature(target);
+  if (confirmation?.button === button && confirmation.signature === signature) {
+    cancelConfirmation();
+    return true;
+  }
+  cancelConfirmation();
+  const panel = rows.get(target.clientId)!.querySelector<HTMLElement>('[data-confirmation]')!;
+  const consequence = panel.querySelector('p')!;
+  consequence.textContent =
+    kind === 'talk'
+      ? `${target.name} will be able to send to its permitted agents. Press Enable sending again to allow it. You can disable sending later.`
+      : `Revoking ${target.name} ends ${target.thisBrowser ? 'this browser’s' : 'its'} access. Press Revoke again to end it. Pair again to restore access.`;
+  panel.hidden = false;
+  button.setAttribute('aria-describedby', consequence.id);
+  button.setAttribute('aria-expanded', 'true');
+  confirmation = { button, clientId: target.clientId, signature };
+  return false;
+}
 let page: ManagementPage;
 const registryState = remoteRegistryPage(() => {
   if (!page) return '';
@@ -160,6 +201,13 @@ function render(): void {
           ? 'Checking'
           : 'Unconfirmed',
   );
+  if (confirmation) {
+    const target = page.devices?.devices.find(
+      (device) => device.clientId === confirmation!.clientId,
+    );
+    if (!page.writable || !target || targetSignature(target) !== confirmation.signature)
+      cancelConfirmation();
+  }
   renderFirestore(element('firestore-content'), page.firestoreAccess, page.firestore);
   const capacity = capacityCopy(page.accessRefusal);
   const access =
@@ -242,8 +290,17 @@ function render(): void {
   custom.required = mode.value === 'custom';
   for (const field of [opening, mode, custom])
     field.disabled = !editable || (field === custom && mode.value !== 'custom');
-  for (const button of document.querySelectorAll<HTMLButtonElement>('form button'))
+  for (const button of document.querySelectorAll<HTMLButtonElement>(
+    'form button:not(.settings-choice):not([role="option"])',
+  ))
     button.disabled = !page.writable;
+  if (page.settings) {
+    choices ??= [
+      settingsChoice(opening, element('opening-options')),
+      settingsChoice(mode, element('limit-mode-options')),
+    ];
+    for (const update of choices) update();
+  }
   saveState('opening-form', 'opening-unchanged', openingChanged(), opening.checkValidity());
   saveState(
     'limit-form',
@@ -299,16 +356,16 @@ function render(): void {
         revokeLabel.className = 'tmt-ui-action-label';
         revokeLabel.textContent = 'Revoke';
         revoke.append(revokeLabel);
-        revoke.addEventListener('click', () => {
-          if (!page.writable) return;
+        revoke.addEventListener('click', (event) => {
+          if (event.detail > 1 || !page.writable) return;
           // Confirmation is local presentation, never server authority.
           const target = page.devices?.devices.find((item) => item.clientId === device.clientId);
           if (!target || target.revoked) return;
-          if (confirm(`Revoke ${target.name}${target.thisBrowser ? ' (this device)' : ''}?`))
-            void change({
-              kind: 'revoke',
-              input: { operationId: crypto.randomUUID(), clientId: device.clientId },
-            });
+          if (!confirmDevice(revoke, target, 'revoke')) return;
+          void change({
+            kind: 'revoke',
+            input: { operationId: crypto.randomUUID(), clientId: device.clientId },
+          });
         });
         form.addEventListener('submit', (event) => {
           event.preventDefault();
@@ -332,15 +389,11 @@ function render(): void {
         const talkLabel = document.createElement('span');
         talkLabel.className = 'tmt-ui-action-label';
         talk.append(talkLabel);
-        talk.addEventListener('click', () => {
-          if (!page.writable) return;
+        talk.addEventListener('click', (event) => {
+          if (event.detail > 1 || !page.writable) return;
           const target = page.devices?.devices.find((item) => item.clientId === device.clientId);
           if (!target || target.revoked) return;
-          if (
-            !target.talkEnabled &&
-            !confirm(`Allow ${target.name} to send to its permitted agents?`)
-          )
-            return;
+          if (!target.talkEnabled && !confirmDevice(talk, target, 'talk')) return;
           void change({
             kind: 'talk',
             input: {
@@ -351,10 +404,41 @@ function render(): void {
           });
         });
         form.append(field, save, talk, revoke);
+        const panel = document.createElement('div');
+        panel.className = 'device-confirmation';
+        panel.dataset.confirmation = '';
+        panel.id = `confirm-${device.clientId}`;
+        panel.hidden = true;
+        const consequence = document.createElement('p');
+        consequence.id = `${panel.id}-consequence`;
+        consequence.setAttribute('role', 'status');
+        const cancel = document.createElement('button');
+        cancel.type = 'button';
+        cancel.className = 'tmt-ui-action';
+        const cancelLabel = document.createElement('span');
+        cancelLabel.className = 'tmt-ui-action-label';
+        cancelLabel.textContent = 'Cancel';
+        cancel.append(cancelLabel);
+        cancel.addEventListener('click', () => cancelConfirmation(true));
+        panel.append(consequence, cancel);
+        for (const button of [talk, revoke]) {
+          button.setAttribute('aria-controls', panel.id);
+          button.setAttribute('aria-expanded', 'false');
+          button.addEventListener('keydown', (event) => {
+            if ((event.repeat || event.isComposing) && ['Enter', ' '].includes(event.key))
+              event.preventDefault();
+          });
+        }
+        row.addEventListener('keydown', (event) => {
+          if (event.key === 'Escape' && confirmation?.clientId === device.clientId) {
+            event.preventDefault();
+            cancelConfirmation(true);
+          }
+        });
         const disabledReason = document.createElement('p');
         disabledReason.id = `device-reason-${device.clientId}`;
         disabledReason.className = 'tmt-ui-field-description';
-        row.append(summary, form, deviceFeedback(device.clientId), disabledReason);
+        row.append(summary, form, panel, deviceFeedback(device.clientId), disabledReason);
         rows.set(device.clientId, row);
         devices.append(row);
       }
@@ -399,6 +483,8 @@ function render(): void {
       for (const button of row.querySelectorAll<HTMLButtonElement>('form button')) {
         button.disabled = !page.writable || device.revoked;
         if (disabledReason.textContent) button.setAttribute('aria-describedby', disabledReason.id);
+        else if (confirmation?.button === button)
+          button.setAttribute('aria-describedby', `confirm-${device.clientId}-consequence`);
         else button.removeAttribute('aria-describedby');
         button.setAttribute('aria-busy', String(page.busy));
       }
@@ -407,6 +493,7 @@ function render(): void {
   renderOutcome();
 }
 async function run(action: () => Promise<void>): Promise<void> {
+  cancelConfirmation();
   const pending = action();
   render();
   try {
