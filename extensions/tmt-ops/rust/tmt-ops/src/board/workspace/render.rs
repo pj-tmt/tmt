@@ -1092,8 +1092,7 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
             app,
             frame.buffer_mut(),
             areas.footer,
-            &[crate::board::buttons::Button::secondary(label.as_str())
-                .focused(focused == Some("cancel"))],
+            &[crate::board::buttons::Button::secondary(label).focused(focused == Some("cancel"))],
             tmt_cli_style::grid::Align::Left,
             Some(crate::board::app::Overlay::Workspace),
         )[0];

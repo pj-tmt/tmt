@@ -650,9 +650,10 @@ impl Config {
         &self,
         scope: OpsKeyScope,
         row: Option<&Value>,
+        recipient: Option<&Value>,
         squad: Option<&str>,
     ) -> Result<(Action, String), SquadError> {
-        let host = row.and_then(|row| row["pane"]["location"]["host"].as_str());
+        let host = recipient.and_then(|row| row["pane"]["location"]["host"].as_str());
         let sections = squad
             .filter(|name| !name.is_empty())
             .map(|name| self.sections(name))

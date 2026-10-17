@@ -284,8 +284,10 @@ Theme, Token window and Actions. It does not expose the former general
 configuration-inspection overlay. Host action reuses the Settings list, editor and Config CAS writer for
 Focus agent, Swap beside board (left/right/up/down), or Custom command. It reads
 the winning global/host/selected-section owner through `workspace_keys`, names
-that exact write scope and preserves other bindings. A preview holds the selected
-row at opening, fills argv without execution and leaves missing context unavailable;
+that exact write scope and preserves other bindings. A preview freezes the selected
+binding context and recipient at opening: a squad uses its lead for host/argv
+evidence while retaining the squad selection for section overrides. It fills argv
+without execution and leaves missing context unavailable;
 Preset previews are read-only (`s` saves); Custom command keeps typing and Enter
 save. Esc cancels, and a file conflict keeps the
 unsaved draft/error without retry. Other keys and nested configuration remain
