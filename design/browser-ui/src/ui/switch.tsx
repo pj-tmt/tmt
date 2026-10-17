@@ -22,7 +22,7 @@ function Switch({
       data-size={size}
       className={cn(
         'tmt:p-0 tmt:bg-background tmt:text-foreground tmt:appearance-none tmt:[border-radius:var(--tmt-foundation-radius)] tmt:font-body tmt:m-0 tmt:box-border',
-        'tmt:peer tmt:group/switch tmt:inline-flex tmt:shrink-0 tmt:items-center tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:border-transparent tmt:focus-visible:border-ring tmt:focus-visible:outline-solid tmt:focus-visible:outline-ring tmt:focus-visible:outline-(length:--tmt-foundation-focus-width) tmt:disabled:cursor-not-allowed tmt:disabled:opacity-50 tmt:data-[size=default]:h-5 tmt:data-[size=default]:w-8 tmt:data-[size=sm]:h-3.5 tmt:data-[size=sm]:w-6 tmt:data-[state=checked]:bg-primary tmt:data-[state=unchecked]:bg-input',
+        'tmt:peer tmt:group/switch tmt:inline-flex tmt:shrink-0 tmt:items-center tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:border-transparent tmt:focus-visible:border-ring tmt:focus-visible:outline-solid tmt:focus-visible:outline-ring tmt:focus-visible:outline-(length:--tmt-foundation-focus-width) tmt:disabled:cursor-not-allowed tmt:disabled:opacity-50 tmt:data-[size=default]:h-5 tmt:data-[size=default]:w-8 tmt:data-[size=sm]:h-3.5 tmt:data-[size=sm]:w-6 tmt:data-[state=checked]:bg-primary tmt:data-[state=unchecked]:bg-indicator',
         className,
       )}
       {...props}

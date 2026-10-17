@@ -18,7 +18,7 @@ function Checkbox({
       data-slot="checkbox"
       className={cn(
         'tmt:p-0 tmt:bg-background tmt:text-foreground tmt:appearance-none tmt:[border-radius:var(--tmt-foundation-radius)] tmt:font-body tmt:m-0 tmt:box-border',
-        'tmt:peer tmt:size-4 tmt:shrink-0 tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:border-input tmt:focus-visible:border-ring tmt:focus-visible:outline-solid tmt:focus-visible:outline-ring tmt:focus-visible:outline-(length:--tmt-foundation-focus-width) tmt:disabled:cursor-not-allowed tmt:disabled:opacity-50 tmt:aria-invalid:border-destructive tmt:data-[state=checked]:border-primary tmt:data-[state=checked]:bg-primary tmt:data-[state=checked]:text-primary-foreground',
+        'tmt:peer tmt:size-4 tmt:shrink-0 tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:border-indicator tmt:focus-visible:border-ring tmt:focus-visible:outline-solid tmt:focus-visible:outline-ring tmt:focus-visible:outline-(length:--tmt-foundation-focus-width) tmt:disabled:cursor-not-allowed tmt:disabled:opacity-50 tmt:aria-invalid:border-destructive tmt:data-[state=checked]:border-primary tmt:data-[state=checked]:bg-primary tmt:data-[state=checked]:text-primary-foreground',
         className,
       )}
       {...props}
