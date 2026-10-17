@@ -1,3 +1,4 @@
+import type { ReadingDetails } from './reading-details.js';
 import type { RemotePresence } from './remote-presence.js';
 import type { CompactReport, PageUsage } from './page-usage.js';
 import type { attachment } from '@tmt/colab-client';
@@ -93,6 +94,8 @@ export interface PageTransport {
   spaceHome(): Promise<SpaceHome>;
   /** A verified title only: no editor, discussion or live subscription. */
   readTitle?(id: string, budget: TitleReadBudget, signal: AbortSignal): Promise<string | undefined>;
+  /** Optional, owner-only cached metadata. No page subscription, fold or publication. */
+  readingDetails?(id: string, signal: AbortSignal): Promise<ReadingDetails>;
   page(id: string, signal?: AbortSignal): Promise<PageSnapshot>;
 }
 

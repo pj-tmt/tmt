@@ -4313,6 +4313,67 @@ that has not failed at its fingerprint, never in a loop. A restart refills the c
 escapes to at most 256 bytes on the wire), so a full space of 1,000 pages with the longest
 labels stays within the unchanged 1 MiB discovery cap (the browser boundary test pins the complete encoded reply).
 
+### Owner chapter details (#3578; planned)
+
+The numeric discovery summary stays small. The planned owner/paired-only
+`GET /api/pages/<pageId>/summary-details` reads one canonical lowercase page UUID,
+with no query, request body or upgrade. It uses the same Remote-authenticated owner
+context and local-space owner-read admission as `/api/pages`; a member, reader or
+hosted adapter gains no route or owner metadata. It never opens a page connection,
+Subscribes, touches the active page, stores a record or sends a notification.
+
+The JSON result is exactly one of:
+
+- `{pageId, state:"ready", fingerprint, summary, readings}`. `fingerprint` is the
+  lowercase SHA-256 of the existing cache fingerprint's UTF-8 bytes, not a signature
+  or admission token. `summary` has the discovery summary shape. `readings` is the
+  complete ordered list of admitted, uniquely anchored reading descriptors from
+  that same cached fold: `{id,title,agent,why,state:"unread"|"read"}`. The four text
+  fields retain their markup bounds: canonical UUID, 1–200 title code points,
+  1–64 agent code points and 1–200 reason code points, without control characters.
+  Read state uses the same canonical device comment and person Resolve as the
+  page; labels or agent prose never count as a read. Pending reading IDs must
+  agree with the shared pending-target projection, including cross-kind ID
+  deduplication. Today links only unread readings; it never offers Mark read.
+- `{pageId, state:"pending"}` when no fresh cached fold is available and it has
+  not failed at the current fingerprint. The existing bounded summary refresher
+  may schedule it; the request itself never waits for a decoder or starts another
+  worker.
+- `{pageId, state:"unavailable"}` when the fold failed at the current fingerprint,
+  the source is unavailable, or the complete result exceeds a projection or reply
+  bound. No descriptors or numeric zero accompany pending/unavailable.
+
+The owner samples the page's current fingerprint through the existing owner-read
+transaction and returns only a matching cache entry. The summary and descriptors
+are cached and replaced together, never assembled from different folds. A missing
+or deleted page is denied. Malformed requests use existing `INVALID`; owner-context
+refusals retain `DENIED`/`EXPIRED`, and failed store admission retains the existing
+error mapping. There is no partial success or truncated descriptor list.
+
+Each UTF-8 JSON reply is at most 128 KiB, with at most 50 descriptors and no
+pagination. The browser validates exact keys, byte/count/text bounds, UUID
+uniqueness and states before rendering any descriptor as inert text. A malformed,
+failed or stale result remains unknown, never an empty complete list. Discovery
+keeps its unchanged 1 MiB and 1,000-page bounds.
+
+One cancellable queue belongs to the current Home route/space generation. It reads
+only chapters currently displayed by Today whose known summary has `needsYou > 0`,
+in their displayed order, at most once per page per generation and with one request
+in flight. At most 20 such pages (2.5 MiB of complete replies) can be admitted per
+generation; later chapters keep their counts without details. Each request has a
+10 s deadline. Route/space change or unmount aborts the request, drops the queue and
+fences late results. Pending/unavailable results are not polled or retried in that
+generation. Existing Home navigation/reload creates a fresh generation and refetches;
+returning after an in-page read therefore removes the newly settled reading link.
+A changed chapter summary invalidates its held details rather than silently mixing
+counts. Counts remain visible even when details are unknown.
+
+A reading link reuses the existing validated owner/paired reading-link builder and
+its `read=<UUID>` hint. It only opens the page and scrolls/highlights a resolved
+reading heading. Missing or stale headings are inert; no record, Ask or notification
+is created. These are display-only owner metadata, not signed page statements or
+new authority. The existing fold, cache and static-source limitations above apply.
+
 ## Root-local page creation
 
 `tmt colab page create --title <title> [--file <path|->] [--json]` creates a private
