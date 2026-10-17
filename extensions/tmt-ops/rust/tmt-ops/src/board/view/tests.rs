@@ -1001,6 +1001,17 @@ fn help_lines(app: &App) -> Vec<String> {
 }
 
 #[test]
+fn editor_help_distinguishes_portable_newlines_from_enhanced_shift_enter() {
+    let help = help_lines(&workspace_board());
+    assert!(help.iter().any(|line| line == "Alt-Enter / Ctrl-J / Ctrl-N  insert a newline; Shift-Enter also works when enhanced terminal key reporting is active"));
+    assert!(
+        !help
+            .iter()
+            .any(|line| line.starts_with("Shift-Enter / Ctrl-N  "))
+    );
+}
+
+#[test]
 fn policy_chips_keep_actual_workspace_row_height_hits_and_selection_at_each_width() {
     use crate::board::{app::RowTarget, shell::OpsTab};
     crate::status::with_now_ms(1_000, || {

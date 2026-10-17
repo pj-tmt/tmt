@@ -231,7 +231,7 @@ pub(super) fn model(app: &App) -> KeyHelp {
     ]));
     sections.push(section("editor", "message editor", &[
         ("Enter", "while typing, send to the displayed recipient; while @ completion is open, Enter/Tab insert the selected reference instead"),
-        ("Shift-Enter / Ctrl-N", "insert a newline; Ctrl-N also works without extended terminal key reporting"),
+        ("Alt-Enter / Ctrl-J / Ctrl-N", "insert a newline; Shift-Enter also works when enhanced terminal key reporting is active"),
         ("Esc", "leave the editor and keep its draft; drafts and folded pastes are session-only and do not survive restart"),
         ("arrows / Home / End", "move by grapheme or wrapped line; Shift selects; Ctrl-A selects all"),
         ("click / drag", "place the caret or select text; terminal IME commits arrive as ordinary input"),
