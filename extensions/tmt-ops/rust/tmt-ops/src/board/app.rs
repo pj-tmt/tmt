@@ -1719,11 +1719,13 @@ impl App {
     }
 
     pub(super) fn host_action_selection(&self) -> super::settings::host_action::Selection {
+        let recipient = self.workspace_message_target();
         super::settings::host_action::Selection {
             row: self.selected_row().cloned(),
-            recipient: self
-                .workspace_message_target()
-                .and_then(|target| self.workspace_snapshot()?.rows.get(&target).cloned()),
+            recipient: recipient
+                .as_ref()
+                .and_then(|target| self.workspace_snapshot()?.rows.get(target).cloned()),
+            default_action: self.workspace_factory_j(recipient.as_ref()),
             squad: self
                 .workspace
                 .selected

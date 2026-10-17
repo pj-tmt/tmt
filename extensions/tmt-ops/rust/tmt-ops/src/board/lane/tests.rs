@@ -49,6 +49,7 @@ fn selection() -> super::super::settings::host_action::Selection {
     super::super::settings::host_action::Selection {
         row: Some(json!({"id":"identity", "name":"alpha", "fields":{"board_pane":"%99"}})),
         recipient: Some(json!({"id":"identity", "name":"alpha", "fields":{"board_pane":"%99"}})),
+        default_action: Some(Action::parse("jump").unwrap()),
         squad: None,
         scope: OpsKeyScope::Member,
         invoker_tmux: true,

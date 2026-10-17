@@ -140,3 +140,46 @@ fn squad_host_action_keeps_its_binding_context_and_current_lead_recipient() {
         );
     }
 }
+
+#[test]
+fn host_editor_projects_the_same_factory_j_as_dispatch_in_each_pane() {
+    for tab in [OpsTab::Overview, OpsTab::Agents] {
+        for reader in [false, true] {
+            let mut app = configured_member(
+                "",
+                json!({"id":MEMBER,"name":"worker","presence":"active","pane":{"id":"%3","location":{"host":"tmux"}}}),
+            );
+            app.shell.tab = tab;
+            paint(&app, 160, 36);
+            if reader {
+                key(&mut app, KeyCode::Tab);
+            }
+            let expected = if tab == OpsTab::Overview && reader {
+                "scroll-down"
+            } else {
+                "jump"
+            };
+            assert_eq!(app.bindings()["j"].text, expected);
+            let selection = app.host_action_selection();
+            let path = std::path::PathBuf::from(&app.workspace_snapshot().unwrap().config_path);
+            assert!(
+                !path.exists(),
+                "configured_member removes its temporary file"
+            );
+            app.open_host_action(
+                Config::read(path.clone()).unwrap(),
+                selection,
+                Some("%9".into()),
+            )
+            .unwrap();
+            let overlay = app.settings.as_ref().unwrap();
+            assert_eq!(overlay.settings.entries[0].value, expected);
+            assert_eq!(overlay.settings.entries[0].source, "workspace default");
+            assert_eq!(
+                overlay.picks[0].value,
+                if expected == "jump" { "(current)" } else { "" }
+            );
+            assert!(!path.exists(), "opening the editor never authors a binding");
+        }
+    }
+}

@@ -281,18 +281,20 @@ membership target; unsupported legacy actions are reported rather than remapped.
 
 The comma menu offers workspace layout, Digest estimate windows, Host action (j),
 Theme, Token window and Actions. It does not expose the former general
-configuration-inspection overlay. Host action reuses the Settings list, editor and Config CAS writer for
-Focus agent, Swap beside board (left/right/up/down), or Custom command. It reads
-the winning global/host/selected-section owner through `workspace_keys`, names
-that exact write scope and preserves other bindings. A preview freezes the selected
-binding context and recipient at opening: a squad uses its lead for host/argv
-evidence, and its root does not inherit the lead's member-section binding. It fills argv
-without execution and leaves missing context unavailable;
-Preset previews are read-only (`s` saves); Custom command keeps typing and Enter
-save. Esc cancels, and a file conflict keeps the
-unsaved draft/error without retry. Other keys and nested configuration remain
-file-owned; `config show` retains independent values/provenance. Ordinary
-Settings and Theme openings do not acquire host-action context.
+configuration-inspection overlay. Host action reuses the Settings list, editor and
+Config CAS writer for Focus agent, directional Swap beside board, or Custom
+command. `workspace_keys` supplies the effective action; Config's shared provenance
+resolver identifies its global/host/selected-section write owner and preserves
+other bindings. App supplies the same recipient-dependent factory action as
+dispatch. Retired bindings retain their fallback or unset value; a chosen preset
+repairs their authored owner. Preview freezes the binding context and recipient:
+a squad uses its lead for host/argv evidence without inheriting the lead's member
+section. It fills argv without execution and keeps missing context unavailable.
+Preset previews are read-only (`s` saves); Custom keeps typing and Enter save.
+Esc cancels; a file conflict retains the unsaved draft/error without retry.
+Other keys and nested configuration remain file-owned; `config show` retains
+independent values/provenance. Ordinary Settings and Theme openings do not
+acquire host-action context.
 
 Workspace preferences use one Config CAS writer: compare the opening values and
 file bytes, validate before publication and preserve comments/unrelated keys.

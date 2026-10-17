@@ -226,8 +226,12 @@ impl Overlay {
         };
         let settings = host.settings(&config)?;
         let mut overlay = Self::new(settings);
-        overlay.picks =
-            host_action::HostAction::picks(overlay.settings.entries[0].value.as_str().unwrap());
+        overlay.picks = host_action::HostAction::picks(
+            overlay.settings.entries[0]
+                .value
+                .as_str()
+                .unwrap_or_default(),
+        );
         overlay.surface = RefCell::new(picker_surface::State::new(
             None,
             list_rows(&overlay.settings, &overlay.picks),
@@ -301,8 +305,9 @@ impl Overlay {
             let context = self.settings.context.clone();
             self.settings = host.settings(config).expect("validated host action write");
             self.settings.context = context;
-            self.picks =
-                host_action::HostAction::picks(self.settings.entries[0].value.as_str().unwrap());
+            self.picks = host_action::HostAction::picks(
+                self.settings.entries[0].value.as_str().unwrap_or_default(),
+            );
             group_entries(&mut self.settings);
             self.surface
                 .borrow_mut()
@@ -458,7 +463,7 @@ impl Overlay {
                         .iter()
                         .find(|entry| entry.key == "bind.j")
                         .and_then(|entry| entry.value.as_str())
-                        .unwrap_or("jump");
+                        .unwrap_or_default();
                     if let Some(line) =
                         host.pick(self.selected_pick().expect("selected pick").id, current)
                     {
