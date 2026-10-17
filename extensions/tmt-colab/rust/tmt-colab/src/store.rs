@@ -1,5 +1,6 @@
 //! Durable opaque envelopes. Callers own signature/session/role admission.
 //! Receipt/hash rows survive payload pruning, including interleaved namespaces.
+mod collections;
 mod edits;
 pub use edits::{EDIT_DECISIONS, EditState};
 pub mod owner;

@@ -347,6 +347,20 @@ impl Store {
     }
 }
 impl OwnerTransaction<'_> {
+    /// Collection edits use this owner transaction, not a page mutation or publication receipt.
+    pub fn apply_collection(
+        &mut self,
+        command: &crate::collections::Command,
+        person: bool,
+    ) -> Result<crate::collections::Outcome> {
+        let now = if person && matches!(command, crate::collections::Command::Seen { .. }) {
+            (self.clock)()?
+        } else {
+            0
+        };
+        super::collections::apply(self.tx, command, person, now)
+    }
+
     /// One page's labels, sorted by code point.
     pub fn page_labels(&self, page: &str) -> Result<Vec<String>> {
         let mut query = self

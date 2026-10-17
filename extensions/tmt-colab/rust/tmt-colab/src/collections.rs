@@ -185,6 +185,46 @@ pub struct Detail {
     pub seen: Vec<Seen>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Outcome {
+    pub detail: Detail,
+    pub changed: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Fault {
+    Invalid,
+    Capacity,
+    Conflict,
+    NotFound,
+}
+impl Fault {
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::Invalid => "COLAB_INPUT_INVALID",
+            Self::Capacity => "COLAB_CAPACITY",
+            Self::Conflict => "COLAB_CONFLICT",
+            Self::NotFound => "COLAB_COLLECTION_NOT_FOUND",
+        }
+    }
+}
+impl std::fmt::Display for Fault {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::Invalid => "Invalid collection change. Nothing was changed.",
+            Self::Capacity => "The collection limit was reached. Nothing was changed.",
+            Self::Conflict => {
+                "This ID already names different collection data. Read it before changing it."
+            }
+            Self::NotFound => {
+                "Collection not found. List the collections and choose an existing ID."
+            }
+        })
+    }
+}
+impl std::error::Error for Fault {}
+
 /// A root-local request may inspect or maintain collections, but it never marks a person's Seen.
 /// The browser admission owner explicitly enables only the last two person actions.
 #[derive(Debug, Clone, Deserialize, Serialize)]
