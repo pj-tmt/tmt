@@ -84,7 +84,7 @@ fn dispatch(
         )
     })?;
     let input = json!({"operationId":operation_id,"recipientIds":[owner],"message":job.message,"kind":"request","room":{"kind":"direct","roomId":job.room_id}});
-    let receipt = match core.api_write("dispatch.create", input, identity) {
+    let receipt = match core.dispatch_automated(input, identity) {
         Ok(receipt) => receipt,
         Err(error)
             if matches!(

@@ -112,6 +112,7 @@ if a[0]=='api':
   m['hooks']=[h for h in m['hooks'] if h!=i]; out={'acknowledged':True}
  elif op=='dispatch.create':
   assert not locked, 'dispatch ran under jobs lock'
+  if m.get('rejectOrigin') and 'origin' in i: save(m); fail('API_INPUT_INVALID')
   if i['kind']=='announcement' and m['noticeFailure']:
    save(m); fail('DISPATCH_FAILURE')
   intent={'input':i,'identity':q.get('identity'),'originator':q.get('originator')}
