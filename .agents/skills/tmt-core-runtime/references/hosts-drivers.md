@@ -10,7 +10,8 @@ channels and the driver protocol. The owner map is in
 ## Process and tmux effects
 
 - `Host::for_server` selects the recorded host and socket. Selected tmux snapshots
-  are read-only: no marker initialization or ambient fallback. Default caller
+  are read-only: no marker initialization or ambient fallback; an explicitly
+  empty pane scope reads only server evidence. Default caller
   snapshots and explicit binding discovery retain their existing adoption rules.
 
 - A running-command handle separates launch from wait but keeps the original deadline and

@@ -435,7 +435,13 @@ impl<R: CommandRunner> Tmux<R> {
     }
 
     pub fn snapshot(&self, options: OperationOptions<'_>) -> Result<EndpointSnapshot, TmuxError> {
-        if self.selected_socket.is_some() {
+        if let Some(socket) = self.selected_socket.as_deref() {
+            if options.pane_ids.is_some_and(<[String]>::is_empty) {
+                return Ok(EndpointSnapshot {
+                    server: self.server_evidence(Some(socket), None, options)?,
+                    panes: Vec::new(),
+                });
+            }
             self.observe_snapshot(options)
         } else {
             self.snapshot_on(None, options)
