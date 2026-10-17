@@ -1956,14 +1956,22 @@ command. Hosting preparation/observation, a mutation reply and one read-only rec
 have a separate 30-second budget; the apply child is bounded to their combined 90 seconds,
 including process I/O and exit. After an ambiguous mutation the adapter reconciles once in the
 same run, accepts only exact original evidence, and never sends a second mutation. Partial or
-mismatching file inventory remains unknown, never permission to re-populate.
+mismatching file inventory remains unknown, never permission to re-populate. File inventories
+union explicit `status=EXPECTED` and `status=ACTIVE` bounded listings, including live inventory;
+an identical path/hash transitioning between them counts once as ACTIVE. Conflicting hashes,
+duplicate paths within one status and an incomplete union refuse. Populate compares the union's
+paths/hashes; upload/finalize/release also require the appropriate ACTIVE evidence. Omitted
+`uploadRequiredHashes` means none required; a supplied list must contain only planned hashes.
 
-Each unknown Hosting step adds optional `cause:{code,phase,httpStatusClass?}` to its existing
-step record, human output and JSON. `phase` is `credentials`, `list`, `mutation`, `body` or
+Each unknown Hosting step adds optional `cause:{code,phase,httpStatusClass?,files?}` to its existing
+step record and JSON; the human Cause line is unchanged. `phase` is `credentials`, `list`, `mutation`, `body` or
 `child-exit`; the closed cause codes are `deadline`, `transport`, `invalid-response`, `body-invalid`,
 `body-too-large`, `inventory-incomplete`, `files-mismatch`, `http-rejected`, `child-failed`,
 `output-invalid`, `call-incomplete` and `unconfirmed-create`. HTTP classes, when known, are
-`1xx` through `5xx`. No provider body or identifier crosses this boundary. The field defaults
+`1xx` through `5xx`. Optional `files:{planned,expected,active,listed,missing,extra}` reports only
+integer counts (0–256): planned files, union members by EXPECTED/ACTIVE status, union total,
+and missing/extra path+hash pairs. Unknown/incomplete enumeration does not claim exact counts.
+No provider body or identifier crosses this boundary. The field defaults
 absent, is omitted when absent and clears on a definitive outcome; old records read unchanged
 and resume without a version bump. Diagnostics are outside the authorized plan grammar.
 An unconfirmed create reports that it will not be repeated: rerun the same command to observe

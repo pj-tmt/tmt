@@ -200,6 +200,11 @@ The real port inventories Hosting and executes the frozen steps through the same
 The adapter captures it with prepared content and passes it only in its private helper request;
 the helper uses its prefix for labels/read-back without a second hash implementation. Full
 file/config checks remain; no frozen plan/record field or old-label migration is added.
+Every Version file inventory unions explicit `status=EXPECTED` and `status=ACTIVE` bounded
+lists; a matching path/hash seen transitioning to ACTIVE counts once. Conflicting hashes,
+duplicates within a status list and incomplete/mismatching unions refuse without re-populating.
+An omitted `uploadRequiredHashes` is empty. Optional cause file counts contain no identifiers
+and do not enter the frozen envelope or its digest.
 Unsupported lazy factories refuse declared Hosting before login or record setup. Concrete stage
 substeps save resource handles and the frozen envelope in the versioned checkpoint; v1/v2 records
 remain readable without conversion. Unknown creates are reconciled by bounded identity lookup,

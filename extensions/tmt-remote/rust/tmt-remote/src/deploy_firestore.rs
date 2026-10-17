@@ -1035,6 +1035,22 @@ mod cause_tests {
     }
 
     #[test]
+    fn file_mismatch_counts_cross_the_helper_boundary_without_identifiers() {
+        let bytes = br#"{"version":1,"error":"unknown","cause":{"code":"files-mismatch","phase":"list","httpStatusClass":"2xx","files":{"planned":15,"expected":10,"active":4,"listed":14,"missing":1,"extra":0}}}"#;
+        let error = parse_reply(bytes).unwrap_err();
+        let cause = error.cause.expect("bounded file counts are admitted");
+        assert_eq!(serde_json::to_value(cause).unwrap()["files"]["missing"], 1);
+        let encoded = String::from_utf8(bytes.to_vec()).unwrap();
+        for invalid in [
+            encoded.replace("\"missing\":1", "\"missing\":-1"),
+            encoded.replace("\"listed\":14", "\"listed\":257"),
+            encoded.replace("\"extra\":0", "\"extra\":0,\"message\":\"SECRET\""),
+        ] {
+            assert!(parse_reply(invalid.as_bytes()).unwrap_err().cause.is_none());
+        }
+    }
+
+    #[test]
     fn helper_causes_are_closed_and_preserved_without_provider_text() {
         let failure = parse_reply(br#"{"version":1,"error":"unknown","cause":{"code":"deadline","phase":"body","httpStatusClass":"2xx"}}"#).unwrap_err();
         assert!(matches!(

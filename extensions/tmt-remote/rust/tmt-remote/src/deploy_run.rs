@@ -546,6 +546,32 @@ pub enum HttpStatusClass {
     #[serde(rename = "5xx")]
     ServerError,
 }
+/// Identifier-free union counts, bounded by the existing Hosting file cap.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FileCounts {
+    pub planned: u16,
+    pub expected: u16,
+    pub active: u16,
+    pub listed: u16,
+    pub missing: u16,
+    pub extra: u16,
+}
+fn file_counts<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<FileCounts>, D::Error> {
+    let counts = Option::<FileCounts>::deserialize(d)?;
+    if counts.is_some_and(|c| {
+        [
+            c.planned, c.expected, c.active, c.listed, c.missing, c.extra,
+        ]
+        .into_iter()
+        .any(|n| usize::from(n) > crate::limits::HOSTING_FILES)
+    }) {
+        return Err(serde::de::Error::custom(
+            "file counts exceed inventory bound",
+        ));
+    }
+    Ok(counts)
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StepCause {
@@ -553,6 +579,12 @@ pub struct StepCause {
     pub phase: CausePhase,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub http_status_class: Option<HttpStatusClass>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "file_counts"
+    )]
+    pub files: Option<FileCounts>,
 }
 impl StepCause {
     pub fn new(code: CauseCode, phase: CausePhase) -> Self {
@@ -560,6 +592,7 @@ impl StepCause {
             code,
             phase,
             http_status_class: None,
+            files: None,
         }
     }
 }

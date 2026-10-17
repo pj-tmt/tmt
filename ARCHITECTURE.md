@@ -574,13 +574,13 @@ Target design (proposed, #3290): `talk` → Remote interface → target host →
 Receive: `transport` driver (`routes`) → shared `message` → `session`/`operations`; same-ID public Core API dispatch/recovery.
 Door: `remote-v1.js` ([SDK README](extensions/tmt-remote/typescript/remote-client/README.md))
 and owner-installed extensions. [Colab](#colab-extension) mounts at `/r/<prefix>/x/colab/`;
-otherwise public CLI/SDK/`tmt-extension-objects`, never Remote state files.
+else public CLI/SDK/`tmt-extension-objects`, never Remote state files.
 
 `object_service`: leased object/v3 carrier; `firebase_auth`: credentials/HTTP.
 Serve: Auth/runtime/factory/tick/joins/flush; v3 opt-in.
-`native_sync`: COUNT/read limits; Colab cursors; no Core state/carrier. Emulation never ships.
+`native_sync`: COUNT/read limits; Colab cursors; no Core/carrier. Emulation never ships.
 [object-backends](.agents/skills/tmt-remote/references/object-backends.md): channels/backends/quotas.
-Deploy: `hosting` hash; frozen consent/`--details`/history, Rules/Hosting fences; record readiness.
+Deploy: `hosting` hash; frozen consent/history/`--details`; Rules/Hosting fences; EXPECTED+ACTIVE/readiness.
 [Modules](.agents/skills/tmt-remote/references/architecture-internals.md);
 [door/discovery](.agents/skills/tmt-remote/references/door-and-discovery.md): lifecycle/status/management.
 [Background](contracts/extension-serve-v1.md).

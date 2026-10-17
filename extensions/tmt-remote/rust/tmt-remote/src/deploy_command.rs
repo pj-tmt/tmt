@@ -522,6 +522,14 @@ mod tests {
     }
 
     #[test]
+    fn human_cause_line_stays_unchanged_with_file_counts() {
+        let cause = serde_json::from_str(r#"{"code":"files-mismatch","phase":"list","httpStatusClass":"2xx","files":{"planned":15,"expected":10,"active":4,"listed":14,"missing":1,"extra":0}}"#).unwrap();
+        let mut text = String::new();
+        describe_cause(&mut text, Some(cause), "Cause");
+        assert_eq!(text, "Cause: files-mismatch (phase list; HTTP 2xx).\n");
+    }
+
+    #[test]
     fn human_progress_collapses_uploads_and_names_the_original_create_exit() {
         let mut record = DeployRecord::new("fixture");
         record.run = Some(Run {
@@ -542,6 +550,7 @@ mod tests {
                         code: deploy_run::CauseCode::Deadline,
                         phase: deploy_run::CausePhase::Body,
                         http_status_class: Some(deploy_run::HttpStatusClass::Success),
+                        files: None,
                     }),
                     id: "hosting:stage:create".into(),
                     state: StepState::Unknown,
