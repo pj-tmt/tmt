@@ -1,5 +1,7 @@
 //! Private, consumer-schema SQLite with one write admission and commit owner.
-use crate::{Layout, StateError, UpdateError, locking::WRITE_WAIT};
+use crate::{
+    Layout, StateError, UpdateError, locking::WRITE_WAIT, shared_error::NEWER_STORE_REASON,
+};
 use nix::unistd::Uid;
 use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior, params};
 use std::{
@@ -210,7 +212,7 @@ fn migration_start(
     if history.len() > migrations.len() {
         return Err(StateError::Migration {
             path: path.into(),
-            reason: "store is newer than this binary; use the newer binary",
+            reason: NEWER_STORE_REASON,
         });
     }
     if history

@@ -32,6 +32,8 @@
 //! admission and is never replayed. Busy at COMMIT is the same typed timeout,
 //! with an explicit "may not be saved" consequence and the caller's exact retry;
 //! there is no silent commit retry. Other SQLite/I/O causes remain distinguishable.
+//! `StateError::is_newer` distinguishes newer history from other migration
+//! refusals; consumers must not classify errors by display text.
 //! Existing database and sidecar files are admitted by lstat without opening extra
 //! descriptors whose close could release another live connection's POSIX locks.
 //! Concurrent first creation of one store by threads in the same process can still
