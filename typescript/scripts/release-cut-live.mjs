@@ -138,6 +138,10 @@ export async function runReleaseCuts({
   const actions = [];
   for (const row of plan.components) {
     if (product && row.product !== product) continue;
+    if (row.status !== 'proposed') {
+      actions.push({ product: row.product, status: row.status, reason: row.reason });
+      continue;
+    }
     try {
       // A fresh bounded read precedes each component mutation. Other components progress independently.
       const fresh = live ? client.metadata(cut) : metadata;
