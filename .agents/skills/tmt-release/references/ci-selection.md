@@ -156,7 +156,8 @@ selects `colab_app` for the app, colab-client and browser-ui paths, the workflow
 the pnpm lockfile, and also runs weekly and manually. The specs that need the native
 Colab executables skip with a named reason there, so the run proves the browser
 components only. It keeps a bounded run log and failure traces for seven days and is
-advisory like the rest of the workflow.
+advisory like the rest of the workflow. The dot and JSON reporters share the existing results
+artifact (`results.json` holds per-test durations); use that evidence to fit file weights.
 
 The advisory `colab-hosted` PR job runs the hosted bundle spec when `colab_hosted` or
 `colab_hosted_emulator` selects it. `selectHostedReaderEmulator` in `ci-scope.mjs` owns the

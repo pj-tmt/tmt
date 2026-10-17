@@ -6,6 +6,13 @@ const ACCEPTANCE_DIRECTORY = new URL(
   import.meta.url
 );
 const WEIGHTS = new URL('shard-weights.json', ACCEPTANCE_DIRECTORY);
+const ACCEPTANCE_PATTERN = '^[a-z0-9-]+\\.spec\\.ts$';
+const ACCEPTANCE = {
+  directory: ACCEPTANCE_DIRECTORY,
+  weightsFile: WEIGHTS,
+  specPattern: ACCEPTANCE_PATTERN,
+  prefix: 'acceptance',
+};
 
 /** Shards of the real-binary acceptance run. The workflow declares one job per shard, so this is fixed. */
 export const ACCEPTANCE_SHARDS = 2;
@@ -24,11 +31,17 @@ export function loadShardWeights(text = readFileSync(WEIGHTS, 'utf8')) {
   return weights;
 }
 
+/** Whole files directly in a suite directory, sorted; specPattern is a regex source without flags. */
+export function listSpecFiles(directory, specPattern) {
+  const pattern = new RegExp(specPattern);
+  return readdirSync(directory)
+    .filter((name) => pattern.test(name))
+    .sort();
+}
+
 /** The acceptance spec file names, sorted. Playwright runs only files directly in this directory. */
 export function listAcceptanceFiles(directory = ACCEPTANCE_DIRECTORY) {
-  return readdirSync(directory)
-    .filter((name) => /^[a-z0-9-]+\.spec\.ts$/.test(name))
-    .sort();
+  return listSpecFiles(directory, ACCEPTANCE_PATTERN);
 }
 
 /**
@@ -38,7 +51,7 @@ export function listAcceptanceFiles(directory = ACCEPTANCE_DIRECTORY) {
  * (11 and 21 minutes for two shards, #2827). Each shard's files are sorted by name. Every file
  * lands in exactly one shard, whatever the weights.
  */
-export function splitAcceptanceFiles(files, count, weights = loadShardWeights()) {
+export function splitSpecFiles(files, count, weights) {
   if (!Number.isInteger(count) || count < 1)
     throw new Error('The shard count must be a positive integer.');
   const seconds = (file) => weights.files[file] ?? weights.defaultSeconds;
@@ -52,13 +65,24 @@ export function splitAcceptanceFiles(files, count, weights = loadShardWeights())
   return shards.map((shard) => ({ files: shard.files.sort(), seconds: shard.load }));
 }
 
-/** The Playwright file filters (paths under the app directory) of shard `index` (1-based) of `count`. */
-export function acceptanceShardFiles(index, count, files = listAcceptanceFiles()) {
+export function splitAcceptanceFiles(files, count, weights = loadShardWeights()) {
+  return splitSpecFiles(files, count, weights);
+}
+
+/** Playwright filters under the app directory, using the caller's discovery and measured weights. */
+export function specShardFiles(index, count, suite, files = listSpecFiles(suite.directory, suite.specPattern)) {
   if (!Number.isInteger(index) || index < 1 || index > count)
     throw new Error('The shard index must be between 1 and the shard count.');
-  return splitAcceptanceFiles(files, count)
+  if (!/^[a-z0-9-]+$/.test(suite.prefix) || !files.every((file) => /^[a-z0-9-]+\.(?:spec|test)\.[cm]?[jt]sx?$/.test(file)))
+    throw new Error('Shard filters need plain suite and spec file names.');
+  return splitSpecFiles(files, count, loadShardWeights(readFileSync(suite.weightsFile, 'utf8')))
     .at(index - 1)
-    .files.map((file) => `acceptance/${file}`);
+    .files.map((file) => `${suite.prefix}/${file}`);
+}
+
+/** The Playwright file filters (paths under the app directory) of shard `index` (1-based) of `count`. */
+export function acceptanceShardFiles(index, count, files = listAcceptanceFiles()) {
+  return specShardFiles(index, count, ACCEPTANCE, files);
 }
 
 // `node scripts/colab-acceptance-shards.mjs INDEX COUNT` prints the filters on one line for the workflow;

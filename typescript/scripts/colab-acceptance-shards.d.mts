@@ -8,6 +8,26 @@ export interface FileShard {
   readonly seconds: number;
 }
 
+export interface SpecSuite {
+  readonly directory: URL;
+  readonly weightsFile: URL;
+  readonly specPattern: string;
+  readonly prefix: string;
+}
+
+export function listSpecFiles(directory: URL, specPattern: string): string[];
+export function splitSpecFiles(
+  files: readonly string[],
+  count: number,
+  weights: ShardWeights
+): FileShard[];
+export function specShardFiles(
+  index: number,
+  count: number,
+  suite: SpecSuite,
+  files?: readonly string[]
+): string[];
+
 export const ACCEPTANCE_SHARDS: number;
 export function loadShardWeights(text?: string): ShardWeights;
 export function listAcceptanceFiles(directory?: URL): string[];

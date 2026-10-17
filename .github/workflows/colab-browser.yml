@@ -235,9 +235,11 @@ jobs:
       # One worker and no retries, as configured. The native-fixture specs (cli, chrome) skip
       # with a named reason here; the real-binary job below owns native behavior.
       - name: Run the app component specs
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/colab-app-results/results.json
         working-directory: typescript
         shell: bash
-        run: pnpm --filter @tmt/colab-app --fail-if-no-match test:browser --shard=${{ matrix.shard }}/3 --output "$RUNNER_TEMP/colab-app-results/traces" 2>&1 | tee "$RUNNER_TEMP/colab-app-results/run.log"
+        run: pnpm --filter @tmt/colab-app --fail-if-no-match test:browser --shard=${{ matrix.shard }}/3 --reporter=dot,json --output "$RUNNER_TEMP/colab-app-results/traces" 2>&1 | tee "$RUNNER_TEMP/colab-app-results/run.log"
       - name: Upload run log and failure traces
         if: always()
         uses: actions/upload-artifact@v4
