@@ -605,8 +605,6 @@ export const text = {
     summaryLabel: 'Since the last update',
     /** The last muted segment of the summary's meta line when a page changed after it. */
     summaryChanged: 'pages changed since',
-    summaryMeta: (author: string | undefined, when: string) =>
-      author ? `${author} · ${when}` : when,
   },
   /** A chapter opened from Today: a panel beside it, or the full page. */
   chapter: {

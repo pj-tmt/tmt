@@ -25,7 +25,7 @@ test('a home summary the maintainer writes reaches Today in a paired browser, an
       'Plan updated',
       'Two items need your review',
     ]);
-    // Who wrote it comes from the caller's agent identity, never from the request body.
+    // The author is the caller's agent identity, sent by the CLI over the owner socket.
     await expect(summary.locator('.today-summary-meta')).toContainText('summary-agent');
     // The page was created before the summary, so nothing changed after it.
     await expect(summary.locator('.today-summary-meta')).not.toContainText('changed since');

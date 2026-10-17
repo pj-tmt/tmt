@@ -4453,7 +4453,8 @@ whitespace inside it is kept as written. A longer, blank, missing or extra line 
 `limits.rs`; the app's `bootstrap.ts` and its test hold the same numbers, and the browser refuses a
 reply that breaks them. `author` is the writer's display name (the bounded label `page create`
 records as `publisherAgent`), omitted when the writer had no agent identity; it is never proof of
-who wrote. `atMs` is the owner's clock at the write, a safe integer, and a request names neither.
+who wrote. The CLI sends its caller's display name over the owner-only socket; the serve stamps
+`atMs`, the owner's clock at the write, a safe integer. No browser request names either.
 
 The one write is root-local, not a management operation, because the summary belongs to no page:
 `tmt colab home summary set --line FIRST --line SECOND`, `show` and `clear`. Like

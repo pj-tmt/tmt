@@ -183,23 +183,12 @@ fn rows(mode: &str, outcome: &Outcome) -> Vec<(&'static str, String)> {
     rows.push(("written", utc(*at_ms)));
     rows
 }
-/// `2026-10-17 09:30 UTC` for an epoch-millisecond time (civil-from-days, proleptic Gregorian).
+/// `2026-10-17 09:30 UTC` for an epoch-millisecond time.
 fn utc(ms: u64) -> String {
-    let days = (ms / 86_400_000) as i64;
-    let minutes = ms / 60_000 % 1440;
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = doy - (153 * mp + 2) / 5 + 1;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = yoe + era * 400 + i64::from(month <= 2);
+    let t = tmt_colab::utc::utc_parts(ms);
     format!(
-        "{year:04}-{month:02}-{day:02} {:02}:{:02} UTC",
-        minutes / 60,
-        minutes % 60
+        "{:04}-{:02}-{:02} {:02}:{:02} UTC",
+        t.year, t.month, t.day, t.hour, t.minute
     )
 }
 

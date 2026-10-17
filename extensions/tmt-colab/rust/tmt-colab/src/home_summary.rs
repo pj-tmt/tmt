@@ -8,8 +8,9 @@ use serde::{Deserialize, Serialize};
 pub mod ipc;
 
 /// The stored summary and the object the owner-served discovery reply carries as `homeSummary`.
-/// `author` is the writing agent's display name (omitted when the writer had no agent identity)
-/// and `at_ms` the owner's clock at the write; a request names neither.
+/// `author` is the writing agent's display name (omitted when the writer had no agent identity);
+/// the CLI sends it over the owner-only socket and the serve stamps `at_ms` from the owner's clock.
+/// No browser request names either.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct HomeSummary {
@@ -39,8 +40,9 @@ pub fn lines_valid(lines: &[String]) -> bool {
             .all(|(line, max)| line_valid(line, max))
 }
 
-/// The writer's display name as `page create` records it, or none: an invalid name is dropped
-/// rather than invented around.
+/// The writer's display name as `page create` records it. `core::publisher_agent` already yields
+/// none for a name that fails this check, so the CLI never sends one; the store and the serve
+/// route still refuse one that reaches them, since the owner socket is a trust boundary.
 pub fn author_valid(author: &str) -> bool {
     crate::decoder::valid_publisher_agent(author)
 }
