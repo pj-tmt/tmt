@@ -1864,7 +1864,12 @@ test('bare pairing is read only and settings explicitly enables audited sending'
       return original.call(crypto);
     };
   });
-  await enable.click();
+  await enable.dblclick();
+  expect(
+    await page.evaluate(
+      () => (window as typeof window & { confirmationIds?: number }).confirmationIds,
+    ),
+  ).toBe(0);
   await expect(page.locator('[data-confirmation]')).toContainText(
     'Settings browser will be able to send to its permitted agents.',
   );
@@ -2310,6 +2315,11 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
       'settings-saving-self-rename',
       'Actual native effect with acknowledgement held; saving and disabled actions',
     );
+    // A pending effect fences Save, while native-style choice drafts stay editable.
+    await expect(page.locator('#opening')).toBeEnabled();
+    await chooseSetting(page, 'opening', 'on');
+    await expect(page.locator('#opening-form button[type=submit]')).toBeDisabled();
+    await chooseSetting(page, 'opening', 'off');
     await name.fill('Unsent next name');
     await name.evaluate((input) => {
       (input as HTMLInputElement).setSelectionRange(2, 2);
@@ -2357,7 +2367,21 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
   );
   // Lost self-revoke acknowledgement: one fresh read-only admission, accurate access loss + unknown.
   const revoke = page.getByRole('button', { name: 'Revoke Renamed browser', exact: true });
-  await revoke.click();
+  await page.evaluate(() => {
+    const original = crypto.randomUUID;
+    const fixture = window as typeof window & { confirmationIds?: number };
+    fixture.confirmationIds = 0;
+    crypto.randomUUID = () => {
+      fixture.confirmationIds!++;
+      return original.call(crypto);
+    };
+  });
+  await revoke.dblclick();
+  expect(
+    await page.evaluate(
+      () => (window as typeof window & { confirmationIds?: number }).confirmationIds,
+    ),
+  ).toBe(0);
   await expect(page.locator('[data-confirmation]')).toContainText(
     'Revoking Renamed browser ends this browser’s access.',
   );
