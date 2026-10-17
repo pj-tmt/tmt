@@ -439,7 +439,7 @@ an editor; Ctrl-C quits globally. In Member and conversation focus, default `v`
 opens the full response reader; compatible explicit bindings still win.
 Pointer controls use only their current visible rectangles.
 
-With Agents tree focus, `a` opens Add agent; configured bindings retain
+With Agents tree focus, `s` opens Add agent; configured bindings retain
 precedence. An empty Common pool offers the same visible action. Opening offers
 Scan or Close and performs no discovery or binding itself. Scan reads the
 current tmux environment; review a candidate, choose a new name or exact
@@ -564,12 +564,19 @@ composer; clicking it also focuses. The composer stays visible while idle and
 after Send. Factory `t` is unassigned; compatible explicit bindings retain their
 meaning. Writing requires a recorded sender. Common pool supports Talk without
 inventing
-a squad; notes and manual squad status require a real membership. Explicit
-`annotate`/`reply` bindings reuse the same validated composer for squad members:
-real request IDs answer through `tmt answer`, and notes retain the actual lead or
-explicit member recipient. Multiple open requests require an explicit choice.
+a squad; notes and manual squad status require a real membership.
+On a selected workspace member, `y` copies `{name}: {task} ({state})`, and `a`
+opens a note to its observed squad lead with the member named, even when a request
+is pending. Both actions follow the selection while the conversation is focused.
+A missing lead or Common pool membership shows a notice instead of opening a
+composer to another recipient. Authored bindings retain precedence.
+`reply` uses real request IDs through `tmt answer`; multiple open requests require
+an explicit choice. Notes retain the actual lead or explicit member recipient.
 The recipient and source are frozen and rechecked at submission. Esc returns to
 the list with the message draft kept; empty input sends nothing.
+Every workspace message input completes acquired agent and squad references with
+the shared fuzzy matcher. Matching characters are bold; accepting a reference
+inserts text only and never changes the recipient. Colab pages are not candidates.
 Member Rename defaults to `r` in the Agents list only;
 its reviewed UUID and exact current name must still match before Core changes the name.
 

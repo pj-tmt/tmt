@@ -16,6 +16,46 @@ pub(in crate::board) const TEXT_INSET: u16 = 2;
 pub(in crate::board) const HINT_INSET: u16 = 1;
 const SEND_HINT: &str = "⏎ send · Esc cancel";
 
+#[derive(Clone, Copy)]
+pub(in crate::board) enum Caption<'a> {
+    Message(&'a str),
+    Note { to: &'a str, row: &'a str },
+}
+
+impl Caption<'_> {
+    fn recipient(self) -> String {
+        super::notes::single_line(match self {
+            Self::Message(to) | Self::Note { to, .. } => to,
+        })
+    }
+    fn note(self, width: usize) -> Option<String> {
+        let Self::Note { to, row } = self else {
+            return None;
+        };
+        let to = super::notes::single_line(to);
+        let row = super::notes::single_line(row);
+        let room = width.saturating_sub("Note to  · about ".width());
+        let to_room = room.saturating_sub(row.width().min(room / 2));
+        let row_room = room.saturating_sub(to.width().min(to_room));
+        Some(format!(
+            "Note to {} · about {}",
+            super::view::fit(&to, to_room).trim_end(),
+            super::view::fit(&row, row_room).trim_end()
+        ))
+    }
+    pub(in crate::board) fn heading(self, width: usize) -> String {
+        self.note(width).unwrap_or_else(|| {
+            super::view::fit(&format!("Message → {}", self.recipient()), width)
+                .trim_end()
+                .to_owned()
+        })
+    }
+    fn active(self, width: usize) -> String {
+        self.note(width)
+            .unwrap_or_else(|| format!("› {} as you…", self.recipient()))
+    }
+}
+
 pub(in crate::board) fn send_hint(area: Rect) -> Option<Rect> {
     let available = area.width.saturating_sub(TEXT_INSET + HINT_INSET);
     let width = SEND_HINT.width() as u16;
@@ -36,7 +76,7 @@ pub(in crate::board) fn style(look: Look, focused: bool) -> Style {
 pub(in crate::board) fn paint(
     buffer: &mut Buffer,
     area: Rect,
-    recipient: &str,
+    caption: Caption<'_>,
     start: &str,
     focused: bool,
     replying: bool,
@@ -64,7 +104,7 @@ pub(in crate::board) fn paint(
         let words = format!(
             " to {} {}",
             if replying { "reply to" } else { "message" },
-            super::notes::single_line(recipient)
+            caption.recipient()
         );
         strip::paint_left(
             buffer,
@@ -96,7 +136,7 @@ pub(in crate::board) fn paint(
         buffer,
         left,
         Line::styled(
-            format!("› {} as you…", super::notes::single_line(recipient)),
+            caption.active(usize::from(left.width)),
             base.patch(look.role(Role::Muted)),
         ),
     );
@@ -120,7 +160,7 @@ mod tests {
         paint(
             &mut buffer,
             area,
-            "night-2",
+            Caption::Message("night-2"),
             "⏎",
             false,
             true,
@@ -138,7 +178,7 @@ mod tests {
         let editor = paint(
             &mut buffer,
             area,
-            "night-2",
+            Caption::Message("night-2"),
             "⏎",
             true,
             true,

@@ -70,7 +70,10 @@ fn native_wide_table_draws_one_three_and_many_identities_below_the_all_row() {
                     .position(|line| line.contains("CTX 24h"))
                     .expect("wide table header");
                 let left = lines[header].chars().position(|c| c == '│').unwrap() + 1;
-                let rows: Vec<_> = lines[header + 1..]
+                // The full-width footer can extend past the pane divider; it is
+                // outside the matrix even when its cells below this table are nonblank.
+                let body_bottom = lines.len().saturating_sub(1);
+                let rows: Vec<_> = lines[header + 1..body_bottom]
                     .iter()
                     .map(|line| line.chars().skip(left).collect::<String>())
                     .take_while(|line| !line.trim().is_empty())

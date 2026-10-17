@@ -323,7 +323,11 @@ fn footer_orders_hints_by_priority_and_always_keeps_quit_and_more() {
         order.windows(2).all(|pair| at(pair[0]) < at(pair[1])),
         "{full}"
     );
-    let whole = shown_hints(&full);
+    // Note keeps its paint position but drops before the core priority prefix.
+    let whole: Vec<_> = shown_hints(&full)
+        .into_iter()
+        .filter(|hint| *hint != "a note")
+        .collect();
     for width in 0..=full.width() {
         let shown = hints(&app, width);
         assert!(shown.width() <= width);
@@ -332,7 +336,10 @@ fn footer_orders_hints_by_priority_and_always_keeps_quit_and_more() {
             6..=13 => assert_eq!(shown, "? help"),
             _ => assert!(shown.ends_with("? help  q quit"), "{width}: {shown}"),
         }
-        let kept = shown_hints(&shown);
+        let kept: Vec<_> = shown_hints(&shown)
+            .into_iter()
+            .filter(|hint| *hint != "a note")
+            .collect();
         assert_eq!(kept, whole[..kept.len()], "{width}: {shown}");
     }
 }

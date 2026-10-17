@@ -99,6 +99,63 @@ fn clicking_a_painted_candidate_inserts_without_sending_or_retargeting() {
 }
 
 #[test]
+fn fuzzy_picker_bolds_only_matched_label_characters_and_fills_the_selected_row_neutrally() {
+    let mut app = app();
+    for ch in "@dcs".chars() {
+        key(&mut app, KeyCode::Char(ch));
+    }
+    let buffer = draw_completion(&app);
+    assert_eq!(app.mentions.completion.matches[0].label, "docs");
+    let (area, _) = app.mentions.hits.borrow()[0];
+    let label = (area.x..area.right())
+        .find(|x| buffer[(*x, area.y)].symbol() == "d")
+        .unwrap();
+    for (offset, bold) in [(0, true), (1, false), (2, true), (3, true)] {
+        assert_eq!(
+            buffer[(label + offset, area.y)]
+                .modifier
+                .contains(ratatui::style::Modifier::BOLD),
+            bold
+        );
+    }
+    assert_eq!(
+        buffer[(area.right() - 1, area.y)].bg,
+        app.look().role(Role::Track).bg.unwrap()
+    );
+    assert!(
+        !buffer[(label, area.y)]
+            .modifier
+            .contains(ratatui::style::Modifier::REVERSED)
+    );
+    let before = app.input.as_ref().unwrap().compose.clone();
+    key(&mut app, KeyCode::Tab);
+    assert_eq!(app.input.as_ref().unwrap().text.as_str(), "@docs ");
+    assert_eq!(app.input.as_ref().unwrap().compose, before);
+}
+
+#[test]
+fn picker_stays_outside_the_whole_composer_band_including_its_header() {
+    let mut app = app();
+    for ch in "@docs".chars() {
+        key(&mut app, KeyCode::Char(ch));
+    }
+    let band = Rect::new(0, 10, 100, 5);
+    app.input_band.set(Some(band));
+    draw_completion(&app);
+    assert!(!app.mentions.hits.borrow().is_empty());
+    for (area, _) in app.mentions.hits.borrow().iter() {
+        let picker = Rect {
+            height: area.height + 1,
+            ..*area
+        };
+        assert!(
+            picker.intersection(band).is_empty(),
+            "candidate and picker footer must both stay outside {band:?}: {picker:?}"
+        );
+    }
+}
+
+#[test]
 fn inserting_a_squad_reference_keeps_the_direct_recipient_and_does_not_send() {
     let mut app = app();
     for ch in "@product".chars() {

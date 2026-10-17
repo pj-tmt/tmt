@@ -121,6 +121,16 @@ pub(super) fn model(app: &App) -> KeyHelp {
                         }
                         _ => "pin or unpin the selected agent or squad".into(),
                     }
+                } else if app.workspace_snapshot().is_some()
+                    && action.verb == crate::action::Verb::Annotate
+                    && action.args.first().and_then(|arg| arg.literal()) != Some("member")
+                {
+                    match app.workspace.selected {
+                        Some(crate::board::workspace::OpsTarget::Squad(_)) => {
+                            "write a note to the selected squad's lead".into()
+                        }
+                        _ => "write a note to the selected agent's lead".into(),
+                    }
                 } else {
                     action.description()
                 };

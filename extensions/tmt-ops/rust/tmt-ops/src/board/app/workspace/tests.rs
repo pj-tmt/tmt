@@ -489,6 +489,7 @@ pub(in crate::board) fn populated_board(squads: usize, agents: usize) -> App {
 fn key(app: &mut App, code: KeyCode) -> Effect {
     app.key(KeyEvent::new(code, KeyModifiers::NONE))
 }
+
 fn paint(app: &App, width: u16, height: u16) -> Vec<String> {
     let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
     terminal
@@ -2792,6 +2793,7 @@ fn workspace_focus_ignores_retired_home_composition_and_jumps_from_the_tree() {
     );
 }
 
+mod member_actions;
 mod member_rename;
 mod membership_context;
 mod navigation;

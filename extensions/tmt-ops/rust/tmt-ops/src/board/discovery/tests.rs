@@ -513,7 +513,7 @@ fn agents_default_and_modal_open_close_use_the_effective_table_without_scan() {
     app.shell.tab = OpsTab::Agents;
     app.focus = 0;
     assert_eq!(
-        app.bindings()["a"].verb,
+        app.bindings()["s"].verb,
         Verb::Ui(OpsUiAction::DiscoverAgents)
     );
     app.focus = 1;
@@ -524,7 +524,7 @@ fn agents_default_and_modal_open_close_use_the_effective_table_without_scan() {
     );
     app.focus = 0;
     assert_eq!(
-        app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)),
+        app.key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE)),
         Effect::None
     );
     assert!(app.discovery_shown());
@@ -551,7 +551,7 @@ fn help_has_one_effective_discovery_key_only_in_agents() {
         app.shell.tab = tab;
         app.focus = 0;
         let value = crate::board::help::model(&app).value().to_string();
-        assert_eq!(value.matches("\"keys\":\"a\"").count(), expected);
+        assert_eq!(value.matches("\"keys\":\"s\"").count(), expected);
     }
 }
 

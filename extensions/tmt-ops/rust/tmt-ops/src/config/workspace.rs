@@ -260,9 +260,10 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
         OpsKeyScope::Squad | OpsKeyScope::Member | OpsKeyScope::Pool
     ) {
         entries.push(("w", "workspace-snapshots"));
-        entries.push(("a", "discover-agents"));
+        entries.push(("s", "discover-agents"));
         entries.push(("f", "agents-filter"));
     }
+    entries.extend([("y", "copy"), ("a", "annotate lead")]);
     entries
         .into_iter()
         .map(|(key, action)| {

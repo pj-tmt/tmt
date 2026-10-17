@@ -45,8 +45,12 @@ One spelling per value kind; anything else fails admission with a located error:
   content without changing send/copy source. Callers supply byte limits and own
   submit policy, session drafts, focus and effects.
 - `components::Completion` owns the active source token, stable candidate
-  selection and replacement. Callers provide candidate identities and decide
-  which fields admit completion; the component grants no routing authority.
+  selection and replacement. Its case-insensitive matcher ignores `-`, `_`, `.`,
+  and spaces, ranking exact, prefix, word-start initials, substring, then scattered
+  subsequence matches; ties preserve caller order. Label source ranges identify
+  matched characters for emphasis, including Unicode case expansion. Callers
+  provide candidate identities and decide which fields admit completion; the
+  component grants no routing authority.
 
 - `components::surface::compile` lowers `tmt-modal`, `tmt-scroll` and `tmt-key-help`
   into primitive templates and checks depth/node budgets and schemas eagerly. A

@@ -209,14 +209,12 @@ pub(in crate::board) fn inline_prompt(
                 let reason = app
                     .composer_layout_reason()
                     .map_or_else(String::new, |reason| format!(" · {reason}"));
-                let name = super::fit(
-                    &crate::board::notes::sanitize(projection.recipient),
-                    usize::from(band.width).saturating_sub(
-                        14 + unicode_width::UnicodeWidthStr::width(reason.as_str()),
-                    ),
-                );
+                let caption = composer_caption(app, &projection)
+                    .heading(usize::from(band.width).saturating_sub(
+                        4 + unicode_width::UnicodeWidthStr::width(reason.as_str()),
+                    ));
                 let outline = tmt_tui::components::Outline {
-                    title: Line::from(format!(" Message → {}{reason} ", name.trim_end())),
+                    title: Line::from(format!(" {caption}{reason} ")),
                     border: look.role(border_role),
                     title_style: look.role(border_role),
                 };
@@ -606,6 +604,23 @@ pub(in crate::board) fn inline_prompt(
         .retain(|hit| !covered(&Rect::new(hit.x, hit.y, hit.width, 1)));
 }
 
+/// Project the active typed note without changing the draft or routing owner.
+fn composer_caption<'a>(
+    app: &'a crate::board::app::App,
+    projection: &crate::board::composer::Projection<'a>,
+) -> crate::board::input_field::Caption<'a> {
+    if projection.focused
+        && let Some(crate::board::app::Input {
+            compose: crate::board::app::Compose::Annotate { to, row },
+            ..
+        }) = app.input.as_ref()
+    {
+        crate::board::input_field::Caption::Note { to, row }
+    } else {
+        crate::board::input_field::Caption::Message(projection.recipient)
+    }
+}
+
 /// Final input-field placement adapts the same editor, quotes and UUID draft admission.
 fn final_input(
     frame: &mut ratatui::Frame,
@@ -644,7 +659,7 @@ fn final_input(
     let editor_area = field::paint(
         frame.buffer_mut(),
         band,
-        projection.recipient,
+        composer_caption(app, &projection),
         key,
         projection.focused,
         replying,
