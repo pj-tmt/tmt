@@ -8,6 +8,7 @@ use serde_json::json;
 use unicode_width::UnicodeWidthStr;
 
 pub(in crate::board) mod performance;
+mod recent_output_packet;
 
 fn fixture() -> App {
     let mut app = App::new(Some("product".into()));
@@ -723,7 +724,8 @@ fn switching_shell_keeps_uuid_and_link_while_overview_discusses_only_an_observed
                 "Digest shows status details"
             );
         } else if tab == OpsTab::Overview {
-            assert!(text.contains("No question observed"), "{text}");
+            assert!(text.contains("No question observed."), "{text}");
+            assert!(!text.contains("Loading recent pane output"), "{text}");
             assert!(
                 !text.contains("worker line 089"),
                 "an unrelated outgoing result is not the incoming question"
@@ -987,6 +989,8 @@ fn response_position_counts_retained_lines_rather_than_empty_viewport_cells() {
             .map(|cell| cell.symbol())
             .collect();
         assert!(screen.contains("1–1 / 1"), "{screen}");
+        assert!(screen.contains("Exchange history unavailable"));
+        assert!(!screen.contains("Loading recent pane output"));
     }
 }
 
@@ -1055,4 +1059,355 @@ fn member_projection_keeps_exact_response_and_refresh_invalidates_only_the_displ
             .is_none()
     );
     assert_eq!(session.reply.as_ref().unwrap().body, raw);
+}
+
+#[test]
+fn pane_output_is_neutral_bounded_and_never_a_request_source() {
+    use crate::board::recent_responses::{Item, Observation};
+    use ratatui::style::Modifier;
+    let mut session = Session::default();
+    session.update(Some(reply(
+        "real-request",
+        "real exchange\nlast source line",
+    )));
+    session.transcript_context = transcript::Context {
+        enabled: true,
+        name: "alpha".into(),
+        times: vec![1000],
+        exchanges_observed: true,
+        output_ages: vec!["now".into()],
+    };
+    session.pane_output = Observation::Observed(vec![Item {
+        text: "untrusted **pane**\r\nlast line\n".into(),
+        ended_ms: 1000,
+        truncated: true,
+    }]);
+    let original = match &session.pane_output {
+        Observation::Observed(items) => items[0].text.clone(),
+        _ => unreachable!(),
+    };
+    for width in [20, 60, 140] {
+        session.prepare(width, Look::default(), &Default::default());
+        let rendered = session.rendered.as_ref().unwrap();
+        let labels: Vec<_> = rendered
+            .mapped
+            .lines
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        let header = labels
+            .iter()
+            .position(|line| line.contains("pane output"))
+            .unwrap();
+        assert!(
+            labels[0].contains("real exchange"),
+            "exchange wins equal-time tie"
+        );
+        assert!(header > 0);
+        for (index, source) in rendered.mapped.sources.iter().enumerate() {
+            if index >= header {
+                assert!(
+                    session.response_key_at(*source).is_none(),
+                    "pane line {index} has no request authority"
+                );
+            } else {
+                assert_eq!(
+                    session.response_key_at(*source).unwrap().0.request,
+                    "real-request"
+                );
+            }
+        }
+        let line = &rendered.mapped.lines[header];
+        assert!(!line.style.add_modifier.contains(Modifier::BOLD));
+        assert!(
+            line.spans
+                .iter()
+                .all(|span| !span.style.add_modifier.contains(Modifier::BOLD))
+        );
+        assert_eq!(line.style.fg, Look::default().role(Role::Muted).fg);
+        assert!(
+            labels
+                .iter()
+                .any(|line| line.starts_with(" │ ") && line.contains("untrusted"))
+        );
+        assert_eq!(labels.last().unwrap(), "… truncated");
+        assert!(
+            rendered
+                .mapped
+                .mentions
+                .iter()
+                .skip(header)
+                .all(Vec::is_empty)
+        );
+    }
+    assert_eq!(
+        match &session.pane_output {
+            Observation::Observed(items) => &items[0].text,
+            _ => unreachable!(),
+        },
+        &original,
+        "display never rewrites captured bytes"
+    );
+}
+
+#[test]
+fn pane_output_pending_unavailable_and_observed_empty_are_distinct() {
+    use crate::board::recent_responses::Observation;
+    let mut session = Session {
+        transcript_context: transcript::Context {
+            enabled: true,
+            name: "alpha".into(),
+            times: vec![],
+            exchanges_observed: true,
+            output_ages: vec![],
+        },
+        ..Default::default()
+    };
+    session.update(Some(reply("known", "known exchange")));
+    session.prepare(60, Look::default(), &Default::default());
+    let pending_lines: Vec<_> = session
+        .rendered
+        .as_ref()
+        .unwrap()
+        .mapped
+        .lines
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    assert!(
+        pending_lines
+            .iter()
+            .any(|line| line.contains("known exchange"))
+    );
+    assert!(
+        !pending_lines
+            .iter()
+            .any(|line| line.contains("recent pane output"))
+    );
+    session.pane_output = Observation::Observed(vec![]);
+    session.rendered = None;
+    session.prepare(60, Look::default(), &Default::default());
+    assert_eq!(
+        pending_lines,
+        session
+            .rendered
+            .as_ref()
+            .unwrap()
+            .mapped
+            .lines
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        "pending and observed-empty add nothing to known exchanges"
+    );
+    session.update(None);
+    session.prepare(60, Look::default(), &Default::default());
+    let empty_lines: Vec<_> = session
+        .rendered
+        .as_ref()
+        .unwrap()
+        .mapped
+        .lines
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    assert!(
+        empty_lines
+            .iter()
+            .any(|line| line.contains("(no response in loaded history)")),
+        "{empty_lines:?}"
+    );
+    assert!(
+        !empty_lines
+            .iter()
+            .any(|line| line.contains("Exchange history unavailable"))
+    );
+    session = Session {
+        transcript_context: transcript::Context {
+            enabled: true,
+            name: "alpha".into(),
+            exchanges_observed: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    session.pane_output = Observation::Unavailable;
+    session.prepare(60, Look::default(), &Default::default());
+    assert_eq!(
+        session
+            .rendered
+            .as_ref()
+            .unwrap()
+            .mapped
+            .lines
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        ["Recent pane output unavailable"]
+    );
+    assert!(session.response_key_at(0).is_none());
+    session.pane_output = Observation::Observed(vec![]);
+    session.transcript_context.exchanges_observed = false;
+    session.rendered = None;
+    session.prepare(60, Look::default(), &Default::default());
+    assert_eq!(
+        session.rendered.as_ref().unwrap().mapped.lines[0].to_string(),
+        "Exchange history unavailable"
+    );
+}
+
+#[test]
+fn ten_long_pane_outputs_share_scroll_follow_and_leave_real_exchange_reachable() {
+    use crate::board::recent_responses::{Item, Observation};
+    let mut app = fixture();
+    app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["id"] =
+        json!("11111111-1111-4111-8111-111111111111");
+    app.view.as_mut().unwrap().replies[0]["recipientId"] =
+        json!("11111111-1111-4111-8111-111111111111");
+    draw(&app, 80, 18);
+    let key = app.pane_output_read().expect("visible exact UUID");
+    app.apply_pane_output(
+        key.clone(),
+        Observation::Observed(
+            (0..10)
+                .map(|index| Item {
+                    text: format!("pane {index}\n{}\nend {index}", "long line\n".repeat(600)),
+                    ended_ms: 1000 + index,
+                    truncated: false,
+                })
+                .collect(),
+        ),
+    );
+    assert!(
+        app.pane_output_read().is_none(),
+        "one read per held observation"
+    );
+    let bottom = draw(&app, 80, 18);
+    assert!(bottom.contains("end 9"));
+    app.scroll_pane(Pane::Replies, Step::Top);
+    assert!(draw(&app, 80, 18).contains("alpha line 000"));
+    let offset = app.scrolls.offset(Pane::Replies);
+    draw(&app, 60, 18);
+    assert_eq!(
+        app.scrolls.offset(Pane::Replies),
+        offset,
+        "resize does not resume follow"
+    );
+    app.scroll_pane(Pane::Replies, Step::Bottom);
+    assert!(draw(&app, 60, 18).contains("end 9"));
+    app.conversation.borrow_mut().refresh_pane_output();
+    assert_eq!(app.pane_output_read(), Some(key));
+}
+
+#[test]
+fn digest_details_do_not_admit_recent_output_even_with_the_shared_scroll_pane() {
+    let mut app = workspace_fixture();
+    workspace(&mut app, 160, 36);
+    let key = app
+        .pane_output_read()
+        .expect("Agents admits the selected UUID");
+    app.apply_pane_output(
+        key,
+        crate::board::recent_responses::Observation::Observed(vec![
+            crate::board::recent_responses::Item {
+                text: "Agents-only pane capture".into(),
+                ended_ms: 1000,
+                truncated: false,
+            },
+        ]),
+    );
+    workspace(&mut app, 160, 36);
+    assert!(draw(&app, 160, 36).contains("Agents-only pane capture"));
+    let selected = app.workspace.selected.clone().unwrap();
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .rows
+        .get_mut(&selected)
+        .unwrap()["waitingOnYou"] = json!([{"requestId":"req_55555555-5555-4555-8555-555555555555","preparedAtMs":1000,"preview":"A real waiting question keeps Overview's response viewport visible."}]);
+    app.shell.tab = crate::board::shell::OpsTab::Overview;
+    workspace(&mut app, 160, 36);
+    assert!(
+        app.scrolls.visible(Pane::Replies),
+        "a waiting Overview question really paints the shared viewport"
+    );
+    assert!(
+        app.pane_output_read().is_none(),
+        "Overview keeps its existing question-only owner"
+    );
+    assert!(
+        !draw(&app, 160, 36).contains("Agents-only pane capture"),
+        "cached Agents captures never leak into Overview"
+    );
+    assert!(
+        !app.conversation
+            .borrow()
+            .sessions
+            .values()
+            .any(|session| session.transcript_context.enabled)
+    );
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .rows
+        .get_mut(&selected)
+        .unwrap()["waitingOnYou"] = json!([]);
+    app.shell.tab = crate::board::shell::OpsTab::Digest;
+    workspace(&mut app, 160, 36);
+    assert!(
+        app.scrolls.visible(Pane::Replies),
+        "Digest Details is genuinely painted"
+    );
+    assert!(
+        app.pane_output_read().is_none(),
+        "Details is not a conversation read owner"
+    );
+    assert!(app.selected_read().is_none());
+}
+
+#[test]
+fn pane_output_uses_the_exchange_header_time_format() {
+    use crate::board::recent_responses::{Item, Observation};
+    for (age, expected) in [
+        ("now", "now"),
+        ("–", "—"),
+        ("—", "—"),
+        ("1m", "1m ago"),
+        ("6h", "6h ago"),
+    ] {
+        assert_eq!(exchange::age_stamp(age), expected);
+    }
+    crate::status::with_now_ms(30_000_000, || {
+        let app = workspace_fixture();
+        let row = json!({"id":"11111111-1111-4111-8111-111111111111","name":"alpha"});
+        let mut session = Session {
+            pane_output: Observation::Observed(vec![Item {
+                text: "pane body".into(),
+                ended_ms: 8_400_000,
+                truncated: false,
+            }]),
+            ..Default::default()
+        };
+        session.transcript_context(&app, &row);
+        session.prepare(60, Look::default(), &Default::default());
+        assert!(
+            session
+                .rendered
+                .as_ref()
+                .unwrap()
+                .mapped
+                .lines
+                .iter()
+                .any(|line| line.width() == 60
+                    && line.to_string().trim_end() == "alpha · pane output · 6h ago")
+        );
+    });
 }

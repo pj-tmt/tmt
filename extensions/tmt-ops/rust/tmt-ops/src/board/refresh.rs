@@ -65,6 +65,7 @@ impl Generation {
 pub(super) enum SelectedRead {
     Status(crate::membership::status_update::Target),
     Message(super::home_leads::MessageKey),
+    PaneOutput(super::conversation::ConversationKey),
 }
 
 pub struct Worker {
@@ -226,6 +227,15 @@ impl Worker {
                             result: crate::membership::status_update::read(&reader, &target)
                                 .map_err(|error| error.message),
                             target,
+                            revision,
+                            cancellation: cancellation.clone(),
+                        },
+                        Deferred::Selected {
+                            read: SelectedRead::PaneOutput(key),
+                            revision,
+                        } => super::BoardEvent::PaneOutput {
+                            observation: super::recent_responses::read(&reader, &key.1),
+                            key,
                             revision,
                             cancellation: cancellation.clone(),
                         },
@@ -3284,5 +3294,70 @@ esac
         let long = failure(&"x".repeat(500));
         assert_eq!(long.chars().count(), 160 + "….".chars().count());
         assert!(long.ends_with("…."));
+    }
+    #[test]
+    fn selected_pane_output_reads_capability_then_exact_uuid_on_the_existing_worker() {
+        let dir =
+            std::env::temp_dir().join(format!("ops-selected-pane-output-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fake = dir.join("tmt");
+        let calls = dir.join("calls");
+        crate::test_support::write_ready_executable(
+            &fake,
+            &format!(
+                r###"#!/bin/sh
+if [ "$1" = api ]; then
+  request=$(cat)
+  printf '%s\n' "$request" >> '{}'
+  case "$request" in
+    *capabilities*) printf '%s\n' '{{"operations":["responses.recent"]}}';;
+    *responses.recent*) printf '%s\n' '{{"identityId":"11111111-1111-4111-8111-111111111111","items":[{{"text":"final\r\nline","endedMs":3,"provider":"codex","truncated":false}}]}}';;
+    *) exit 1;;
+  esac
+  exit 0
+fi
+printf '%s\n' '{{}}'
+"###,
+                calls.display()
+            ),
+        );
+        let key = (
+            Some("owner".into()),
+            "11111111-1111-4111-8111-111111111111".into(),
+        );
+        let (events, input) = mpsc::channel();
+        let worker = Worker::spawn(Core::at(fake), false, events, None);
+        worker.selected(17, Some(SelectedRead::PaneOutput(key.clone())));
+        let super::super::BoardEvent::PaneOutput {
+            key: delivered,
+            revision,
+            observation,
+            cancellation,
+        } = input.recv_timeout(Duration::from_secs(30)).unwrap()
+        else {
+            panic!("pane output event")
+        };
+        assert_eq!(delivered, key);
+        assert_eq!(revision, 17);
+        let super::super::recent_responses::Observation::Observed(items) = observation else {
+            panic!("observed output")
+        };
+        assert_eq!(items[0].text, "final\r\nline");
+        assert!(!cancellation.cancelled());
+        let calls: Vec<Value> = std::fs::read_to_string(calls)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(
+            calls,
+            [
+                json!({"version":1,"operation":"capabilities","input":{}}),
+                json!({"version":1,"operation":"responses.recent","input":{"identityId":key.1,"limit":10}})
+            ]
+        );
+        drop(worker);
+        assert!(cancellation.cancelled());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

@@ -9,8 +9,8 @@ the [refresh reference](refresh-and-meter.md#refresh-worker) owns worker priorit
 ## Inert text and independent notebook/source utilities
 
 The workspace has no notebook/detail pane or notebook-link activation route.
-Selecting an agent never queues `notes.read`; selected worker jobs are only typed
-Status preview and exact Message sources. The old notebook event, eight-entry
+Selecting an agent never queues `notes.read`; selected worker jobs are typed
+Status previews, exact Message sources and bounded recent pane-output observations. The old notebook event, eight-entry
 cache, per-squad cursor/link maps and painters are removed. Notebook storage,
 public source APIs and saved-identity behavior retain their independent owners.
 `observe` and `refresh::lead_notes` retain the bounded acquired-data conversion,
@@ -70,6 +70,19 @@ new output alone do not resume it; Send enables follow.
 `Scrolls` remains the sole viewport owner. Rendering and reading acknowledge
 nothing. Layout uses terminal cells and degrades side/stack preferences to one
 focused pane when dimensions cannot support a split.
+In Agents member focus, the same selected worker reads [recent pane output](../../../../contracts/extension-api.md#recent-agent-responses)
+after capability discovery, by exact identity UUID. Each session projects at most
+ten provider-final captures, oldest capture first without a timestamp sort. It
+stably merges the exchange and capture heads by their literal times, exchange
+first on ties; ordering within each source is preserved through clock rollback.
+Neutral `agent · pane output · time` headers use the exchange age wording, including `ago`; a muted `… truncated` caption
+separate these observations from replies. Pending and observed-empty pane reads add no line; unsupported/failed reads remain distinct. A failed read says `Recent pane output unavailable`;
+an empty conversation requires both sources observed empty. Pane text creates no
+request-source, reply, acknowledgment or annotation authority. The existing
+UUID/revision/cancellation fences reject obsolete reads, and the shared viewport
+keeps long captures scrollable without displacing the composer. Overview keeps its
+question-only presentation and does not acquire or paint these captures.
+
 The selected agent's composer stays visible at the conversation bottom, including
 while unfocused and after Send. Default Enter focuses its retained editor; active
 Enter submits, and Esc keeps the draft and returns to the originating list.

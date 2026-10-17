@@ -72,9 +72,10 @@ enum Outcome {
 
 pub(super) struct Entry {
     ticket: Ticket,
+    pub(super) started_ms: u64,
     outcome: Option<Outcome>,
     question: Option<String>,
-    reply: Option<Reply>,
+    pub(super) reply: Option<Reply>,
 }
 impl Entry {
     pub(super) fn pending(&self) -> bool {
@@ -311,7 +312,6 @@ impl Session {
         }
         self.text = text;
         self.rendered = None;
-        self.anchor.reconcile(&self.text);
     }
 }
 
@@ -384,6 +384,7 @@ impl App {
         }
         session.outgoing.push_back(Entry {
             ticket: ticket.clone(),
+            started_ms: crate::status::now_ms(),
             outcome: None,
             question: match &input.compose {
                 crate::board::app::Compose::Reply { request, .. } => Some(request.clone()),

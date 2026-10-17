@@ -234,6 +234,13 @@ impl Fetch {
 }
 
 impl State {
+    pub(super) fn results_observed(&self, sender: Option<&str>) -> bool {
+        sender.is_some()
+            && self.sender.as_deref() == sender
+            && self.results_observed
+            && self.failure.is_none()
+    }
+
     pub fn set_sender(&mut self, sender: Option<&str>) {
         if self.sender.as_deref() != sender {
             self.sender = sender.map(str::to_owned);
