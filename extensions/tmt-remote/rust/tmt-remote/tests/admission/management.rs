@@ -4,11 +4,8 @@ use super::core_fixture;
 use serde_json::{Value, json};
 use std::sync::Arc;
 use tmt_remote::{
-    devices::Devices,
-    operations::Operations,
-    pairing::now_ms,
+    devices::Devices, message::MessageService, operations::Operations, pairing::now_ms,
     store::uuid_v4,
-    transport::{LoopbackTransport, Transport},
 };
 fn app(owner: &OwnerDoor, core: &core_fixture::Core) -> Arc<Operations> {
     let devices = Arc::new(Devices::new(
@@ -43,7 +40,7 @@ fn request(
         wire["id"] = json!(id);
         owner.resign(&mut wire);
     }
-    let transport = LoopbackTransport::new(Arc::clone(&owner.sessions), 65536).with_operations(app);
+    let transport = MessageService::new(Arc::clone(&owner.sessions), 65536).with_operations(app);
     let bytes = transport
         .append(owner.request_origin(), &serde_json::to_vec(&wire).unwrap())
         .unwrap();
@@ -261,8 +258,8 @@ fn another_key_on_the_same_origin_cannot_impersonate_the_designated_browser() {
     let signature = impostor
         .sign(&canonical::envelope(&super::test_envelope(&wire, payload.as_bytes())).unwrap());
     wire["signature"] = json!(canonical::base64url(&signature.to_bytes()));
-    let transport = LoopbackTransport::new(Arc::clone(&owner.sessions), 65536)
-        .with_operations(Arc::clone(&app));
+    let transport =
+        MessageService::new(Arc::clone(&owner.sessions), 65536).with_operations(Arc::clone(&app));
     assert!(
         transport
             .append(owner.request_origin(), &serde_json::to_vec(&wire).unwrap())
@@ -442,8 +439,8 @@ fn response_sequence_publication_failure_preserves_committed_settings_receipt() 
     );
     wire["id"] = json!(id);
     owner.resign(&mut wire);
-    let transport = LoopbackTransport::new(Arc::clone(&owner.sessions), 65536)
-        .with_operations(Arc::clone(&app));
+    let transport =
+        MessageService::new(Arc::clone(&owner.sessions), 65536).with_operations(Arc::clone(&app));
     assert!(
         transport
             .append(owner.request_origin(), &serde_json::to_vec(&wire).unwrap())

@@ -22,6 +22,7 @@ use tmt_remote::{
     crypto,
     devices::Devices,
     http::{Door, Handler},
+    message::MessageService,
     mount::{IdleClock, Mounts},
     object_service::ObjectReadiness,
     pages::Pages,
@@ -117,10 +118,7 @@ impl Harness {
             Some(Arc::clone(&sessions)),
         ));
         let readiness_core = management.then(core_fixture::Core::new);
-        let mut routes = Routes::new(1024, machine.route_prefix.clone())
-            .unwrap()
-            .with_pairing(Arc::clone(&pairing))
-            .with_sessions(Arc::clone(&sessions));
+        let mut messages = MessageService::new(Arc::clone(&sessions), 1024);
         if let Some(core) = &readiness_core {
             let operations = Arc::new(
                 Arc::try_unwrap(core.operations())
@@ -129,8 +127,13 @@ impl Harness {
                     .with_management(Arc::clone(&devices))
                     .with_firestore(Arc::clone(&layers)),
             );
-            routes = routes.with_operations(operations);
+            messages = messages.with_operations(operations);
         }
+        let routes = Routes::new(1024, machine.route_prefix.clone())
+            .unwrap()
+            .with_pairing(Arc::clone(&pairing))
+            .with_sessions(Arc::clone(&sessions))
+            .with_messages(Arc::new(messages));
         let stop = Arc::new(AtomicBool::new(false));
         let control = Control::start_with_views(
             &serving,

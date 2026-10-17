@@ -566,9 +566,10 @@ Archive: pages, CSS, SDK, wordlist; no companions/skills; [release gates](.agent
 
 [Contract](contracts/remote-channel-v1.md) owns wire, pairing, sessions, operations, settings authority,
 mounts, serve lifecycle, discovery shapes and [hard lines](contracts/remote-channel-v1.md#user-path).
-Remote owns authority; shared components supply presentation only. One message layer: signed envelopes, grants, scope, allowlist, hold, uncertainty and audit.
-Target design (proposed, #3290): `talk` → common Remote interface → resolve target host → backend driver.
-Receive: same-ID dispatch/recovery via Core's public API (`operations`).
+Remote owns authority; shared components supply presentation only.
+`message`: signed envelopes/grants/scope/allowlist/hold/uncertainty/audit.
+Target design (proposed, #3290): `talk` → Remote interface → target host → driver.
+Receive: `transport` driver (`routes`) → shared `message` → `session`/`operations`; same-ID public Core API dispatch/recovery.
 Door: `remote-v1.js` ([SDK README](extensions/tmt-remote/typescript/remote-client/README.md))
 and owner-installed extensions. [Colab](#colab-extension) mounts at `/r/<prefix>/x/colab/`;
 otherwise public CLI/SDK/`tmt-extension-objects`, never Remote state files.
@@ -578,9 +579,9 @@ Serve: Auth/runtime/factory/tick/joins/flush; v3 opt-in.
 `native_sync`: COUNT/read limits; Colab cursors; no Core state/carrier. Emulation never ships.
 [object-backends](.agents/skills/tmt-remote/references/object-backends.md): channels/backends/quotas.
 Deploy: frozen consent/history, Rules/Hosting fences; records feed readiness.
-[Internals](.agents/skills/tmt-remote/references/architecture-internals.md): module rules;
+[Module rules](.agents/skills/tmt-remote/references/architecture-internals.md);
 [door/discovery](.agents/skills/tmt-remote/references/door-and-discovery.md): lifecycle/status/management.
-Background: [extension-serve-v1](contracts/extension-serve-v1.md).
+[Background start](contracts/extension-serve-v1.md).
 
 ## Colab extension
 

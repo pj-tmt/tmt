@@ -6,9 +6,10 @@ use crate::{
     error::RemoteError,
     http::{Handler, Head, Reply, Request},
     limits,
+    message::MessageService,
     pairing::{Pairing, Submission},
     session::DoorSessions,
-    transport::{LoopbackTransport, Transport},
+    transport::{Closed, Transport},
 };
 use serde_json::json;
 use std::{
@@ -27,8 +28,7 @@ pub struct Routes {
     /// Present while serve can open door sessions.
     sessions: Option<Arc<DoorSessions>>,
     body_limit: usize,
-    input_limit: usize,
-    transport: LoopbackTransport,
+    messages: Option<Arc<MessageService>>,
     attempts: Mutex<Attempts>,
 }
 struct Attempts {
@@ -51,8 +51,7 @@ impl Routes {
             pairing: None,
             sessions: None,
             body_limit: 4 * input_limit.div_ceil(3) + limits::METADATA_BYTES,
-            input_limit,
-            transport: LoopbackTransport::default(),
+            messages: None,
             attempts: Mutex::new(Attempts {
                 count: 0,
                 reset: Instant::now() + Duration::from_secs(60),
@@ -64,12 +63,11 @@ impl Routes {
         self
     }
     pub fn with_sessions(mut self, sessions: Arc<DoorSessions>) -> Self {
-        self.transport = LoopbackTransport::new(Arc::clone(&sessions), self.input_limit);
         self.sessions = Some(sessions);
         self
     }
-    pub fn with_operations(mut self, operations: Arc<crate::operations::Operations>) -> Self {
-        self.transport = self.transport.with_operations(operations);
+    pub fn with_messages(mut self, messages: Arc<MessageService>) -> Self {
+        self.messages = Some(messages);
         self
     }
     /// Route prefix; not a credential.
@@ -149,13 +147,10 @@ impl Handler for Routes {
                     }
                     return Some(reply);
                 }
-                self.transport
-                    .append(request.origin.as_deref(), &request.body)
+                self.append(request.origin.as_deref(), &request.body)
             }
-            Some("/subscribe") => self
-                .transport
-                .subscribe(request.origin.as_deref(), &request.body),
-            Some("/ack") => self.transport.ack(request.origin.as_deref(), &request.body),
+            Some("/subscribe") => self.subscribe(request.origin.as_deref(), &request.body),
+            Some("/ack") => self.ack(request.origin.as_deref(), &request.body),
             Some("/pair") => {
                 let Some(pairing) = &self.pairing else {
                     return Some(Reply::empty(404));
@@ -192,5 +187,23 @@ impl Handler for Routes {
             }
             Err(_) => Reply::empty(if self.attempt() { 404 } else { 429 }),
         })
+    }
+}
+
+impl Transport for Routes {
+    fn append(&self, origin: Option<&str>, envelope: &[u8]) -> Result<Vec<u8>, Closed> {
+        self.messages
+            .as_ref()
+            .ok_or(Closed)?
+            .append(origin, envelope)
+    }
+    fn subscribe(&self, origin: Option<&str>, envelope: &[u8]) -> Result<Vec<u8>, Closed> {
+        self.messages
+            .as_ref()
+            .ok_or(Closed)?
+            .subscribe(origin, envelope)
+    }
+    fn ack(&self, origin: Option<&str>, envelope: &[u8]) -> Result<Vec<u8>, Closed> {
+        self.messages.as_ref().ok_or(Closed)?.ack(origin, envelope)
     }
 }

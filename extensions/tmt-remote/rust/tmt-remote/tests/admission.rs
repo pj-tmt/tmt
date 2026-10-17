@@ -12,11 +12,11 @@ use tmt_remote::{
     authority::{DispatchMode, PermittedAgents},
     canonical::{self, Envelope},
     crypto,
+    message::MessageService,
     pairing::now_ms,
     session::DoorSessions,
     state::{Layout, MachineKey, Serving},
     store::{Grant, SUPPORTED_SCOPES, Store, uuid_v4},
-    transport::{LoopbackTransport, Transport},
     wire::{SignedMessage, strict_json},
 };
 struct AdmissionRoot(PathBuf);
@@ -244,7 +244,7 @@ fn exact_payload_and_duplicate_member_admission() {
 fn closed_transport_consumes_once_and_machine_responses_increase() {
     let owner = OwnerDoor::new();
     let session = owner.open();
-    let transport = LoopbackTransport::new(Arc::clone(&owner.sessions), 1024);
+    let transport = MessageService::new(Arc::clone(&owner.sessions), 1024);
     let first = owner.wire(&session, "1", "capabilities", b"{}");
     let send = |wire: &Value| -> Value {
         serde_json::from_slice(
@@ -851,3 +851,34 @@ mod management;
 
 #[path = "support/core.rs"]
 mod core_fixture;
+
+#[test]
+fn loopback_driver_uses_the_injected_common_message_owner() {
+    use tmt_remote::{routes::Routes, transport::Transport};
+
+    let owner = OwnerDoor::new();
+    let session = owner.open();
+    let messages = Arc::new(MessageService::new(Arc::clone(&owner.sessions), 1024));
+    let prefix = owner.store.lock().unwrap().machine().unwrap().route_prefix;
+    let routes = Routes::new(1024, prefix)
+        .unwrap()
+        .with_messages(Arc::clone(&messages));
+    let driver: &dyn Transport = &routes;
+    let first = owner.wire(&session, "1", "capabilities", b"{}");
+    let bytes = serde_json::to_vec(&first).unwrap();
+
+    let reply: Value = serde_json::from_slice(&driver.append(None, &bytes).unwrap()).unwrap();
+    assert_eq!(reply["sequence"], "2");
+    assert_eq!(
+        owner.verify_reply(&reply, &first)["error"]["code"],
+        "REMOTE_CLOSED"
+    );
+
+    let replay: Value = serde_json::from_slice(&messages.append(None, &bytes).unwrap()).unwrap();
+    assert_eq!(replay["sequence"], "3");
+    assert_eq!(
+        owner.verify_reply(&replay, &first)["error"]["code"],
+        "REMOTE_REPLAY"
+    );
+    assert!(driver.append(None, b"not a signed envelope").is_err());
+}

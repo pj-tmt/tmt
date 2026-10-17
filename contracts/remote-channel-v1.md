@@ -47,9 +47,14 @@ and rejects unauthenticated traffic at its edge; HTTP status, a document ID or a
 connection never grants authority. Changing bindings must not change the signature, scope or
 grant rules.
 
-All listening and remote state belong to `extensions/tmt-remote`. One extension-owned transport
-trait exposes `append`, `subscribe` and `ack`; it does not execute core work or decide authority.
-The same message service admits every binding before effects. Core never listens or stays resident.
+All listening and remote state belong to `extensions/tmt-remote`. The `transport::Transport`
+driver port carries exact envelope/result bytes through `append`, `subscribe` and `ack`; it does
+not execute core work or decide authority. The local `routes::Routes` driver receives the shared
+`message::MessageService` from foreground composition. That service hands ordinary signed calls
+to session admission and the existing operation/journal owners before returning its signed result
+or an opaque closed refusal. Subscribe is a finite journal read; ack is the caller's explicit
+checkpoint, never an implicit consequence of delivery or failure. No driver retries an uncertain
+effect. Core never listens or stays resident.
 Remote uses `$TMT_EXECUTABLE api` and documented ordinary JSON commands; it never opens core SQLite,
 imports core behavior crates, calls host adapters or scrapes panes itself. The
 [extension API](extension-api.md) owns core JSON resources, errors, limits, retention and

@@ -910,7 +910,7 @@ fn rename_request(
 
 #[test]
 fn signed_rename_preserves_revision_session_cookie_and_held_original_with_audited_receipt() {
-    use tmt_remote::transport::{LoopbackTransport, Transport};
+    use tmt_remote::message::MessageService;
     let h = Harness::new(FAST);
     let colab = Colab::serve(&h);
     let device = Device::browser(&h, 7);
@@ -968,7 +968,7 @@ fn signed_rename_preserves_revision_session_cookie_and_held_original_with_audite
             .unwrap()
             .with_management(Arc::clone(&h.devices)),
     );
-    let transport = LoopbackTransport::new(Arc::clone(&h.sessions), 65536).with_operations(app);
+    let transport = MessageService::new(Arc::clone(&h.sessions), 65536).with_operations(app);
     let rename_id = uuid_v4().unwrap();
     let wire = rename_request(
         &h,
@@ -2020,10 +2020,8 @@ fn held_work_remains_approvable_after_last_transport_close_and_visible_to_later_
         })
         .unwrap();
         probe["signature"] = json!(canonical::base64url(&device.key.sign(&signed).to_bytes()));
-        let transport =
-            tmt_remote::transport::LoopbackTransport::new(Arc::clone(&h.sessions), 65536)
-                .with_operations(Arc::clone(&operations));
-        use tmt_remote::transport::Transport;
+        let transport = tmt_remote::message::MessageService::new(Arc::clone(&h.sessions), 65536)
+            .with_operations(Arc::clone(&operations));
         let reply: Value = serde_json::from_slice(
             &transport
                 .append(Some(&h.origin), probe.to_string().as_bytes())

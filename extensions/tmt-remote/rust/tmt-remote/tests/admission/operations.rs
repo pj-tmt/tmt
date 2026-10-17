@@ -12,10 +12,10 @@ use tmt_remote::{
     approval::Approval,
     control::{self, Control},
     devices::Devices,
+    message::MessageService,
     operations::Operations,
     pairing::{Pairing, Timing},
     store::uuid_v4,
-    transport::{LoopbackTransport, Transport},
 };
 fn input(id: &str, recipient: &str, message: &str) -> Value {
     json!({"version":1,"operation":"dispatch.create","originator":"anonymous","input":{"operationId":id,"recipientIds":[recipient],"message":message,"kind":"request"}})
@@ -40,7 +40,7 @@ fn wire(
 }
 fn append(owner: &OwnerDoor, operations: Arc<Operations>, wire: &Value) -> Value {
     let transport =
-        LoopbackTransport::new(Arc::clone(&owner.sessions), 65536).with_operations(operations);
+        MessageService::new(Arc::clone(&owner.sessions), 65536).with_operations(operations);
     let bytes = transport
         .append(None, &serde_json::to_vec(wire).unwrap())
         .unwrap();
@@ -834,7 +834,7 @@ fn another_store_revoke_waits_for_a_blocked_core_effect_beyond_the_old_timeout()
                 .to_string()
                 .as_bytes(),
         );
-        let transport = LoopbackTransport::new(Arc::clone(&owner.sessions), 65536)
+        let transport = MessageService::new(Arc::clone(&owner.sessions), 65536)
             .with_operations(Arc::clone(&operations));
         assert!(
             transport
