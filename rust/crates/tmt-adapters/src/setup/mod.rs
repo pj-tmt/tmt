@@ -199,11 +199,10 @@ mod preview_tests {
         .events()
     }
 
-    /// The preview names exactly the hooks a plan changes: Claude's text is
-    /// unchanged, Codex's adds its activity-only interrupt observer (#3207).
+    /// The preview names each driver-owned activity observer separately from usage consent.
     #[test]
     fn the_preview_names_the_codex_interrupt_observer_only_for_codex() {
-        const ALL: &str = "SessionStart, SessionEnd, UserPromptSubmit and Stop (context usage, consumption, activity and recent responses) hooks";
+        const ALL: &str = "SessionStart, SessionEnd, UserPromptSubmit, Notification (activity only), PostToolUse (activity only), PostToolUseFailure (activity only) and Stop (context usage, consumption, activity and recent responses) hooks";
         const CODEX_ALL: &str = "SessionStart, SessionEnd, UserPromptSubmit, Interrupt (activity only) and Stop (context usage, consumption, activity and recent responses) hooks";
         assert_eq!(
             events(&claude::DRIVER, "{}", false, UsageHook::Default),
@@ -215,7 +214,7 @@ mod preview_tests {
         );
         assert_eq!(
             events(&claude::DRIVER, "{}", false, UsageHook::Remove),
-            "SessionStart, SessionEnd and UserPromptSubmit hooks"
+            "SessionStart, SessionEnd, UserPromptSubmit, Notification (activity only), PostToolUse (activity only) and PostToolUseFailure (activity only) hooks"
         );
         assert_eq!(
             events(&codex::DRIVER, "{}", false, UsageHook::Remove),

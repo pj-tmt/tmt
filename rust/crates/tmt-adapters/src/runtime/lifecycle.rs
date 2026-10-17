@@ -296,9 +296,13 @@ pub trait RuntimeLifecycle {
         None
     }
 
-    /// Provider events, beyond the shared lifecycle set, that only feed
-    /// activity. Setup and launch composition observe them with the lifecycle
-    /// hooks, independent of the Stop usage consent.
+    /// Route a non-prompt, non-turn-end observation to the existing main-session CAS.
+    fn decode_activity_session(&self, _payload: &[u8]) -> Option<ProviderSessionId> {
+        None
+    }
+
+    /// Provider events beyond the shared lifecycle set that only feed activity.
+    /// Setup and launch composition observe them independently of Stop usage consent.
     fn activity_events(&self) -> &'static [&'static str] {
         &[]
     }

@@ -31,7 +31,7 @@ const BUDGET: Duration = Duration::from_millis(crate::invocation::MAXIMUM_HOOK_W
 const ERROR_LINE: &str = "tmt: lifecycle context unavailable; continuing without context.";
 
 /// Provider hooks always exit successfully. The existing bounded process owner
-/// terminates/reaps the internal worker on timeout; no daemon, permission hook,
+/// terminates/reaps the internal worker on timeout; no daemon, permission decision,
 /// unbounded background thread or potentially late context write is introduced.
 pub fn execute(
     provider: &str,
@@ -484,6 +484,15 @@ fn observe(
     let harness = HarnessId::new(provider).map_err(|_| ())?;
     let lifecycle = registry.lifecycle(&harness).ok_or(())?;
     let activity = lifecycle.decode_activity(input.as_bytes());
+    // Notification observers receive non-permission notifications too. Declared
+    // activity-only events that carry no admitted main event are quiet no-ops.
+    let activity_only_event = serde_json::from_str::<serde_json::Value>(input)
+        .ok()
+        .and_then(|value| value["hook_event_name"].as_str().map(str::to_owned))
+        .is_some_and(|event| lifecycle.activity_events().contains(&event.as_str()));
+    if activity_only_event && activity.is_none() {
+        return Ok(String::new());
+    }
     if let Some(turn) = lifecycle.decode_turn(input.as_bytes()) {
         return observe_turn(
             provider,
@@ -497,13 +506,24 @@ fn observe(
         .map(|()| String::new());
     }
     if let Some(session) = lifecycle.decode_prompt(input.as_bytes()) {
-        return observe_prompt(
+        return observe_main_event(
             provider,
             &harness,
             lifecycle,
             &session,
             activity.as_ref(),
-            input.as_bytes(),
+            Some(input.as_bytes()),
+            deadline,
+        );
+    }
+    if let Some(session) = lifecycle.decode_activity_session(input.as_bytes()) {
+        return observe_main_event(
+            provider,
+            &harness,
+            lifecycle,
+            &session,
+            activity.as_ref(),
+            None,
             deadline,
         );
     }
@@ -759,15 +779,15 @@ pub(super) fn commit_session(
         .map_err(|_| ())
 }
 
-/// Prompt submission only contributes context to an already admitted session.
-/// It cannot name, bind, resume or revive an identity.
-fn observe_prompt(
+/// Main events observe an already admitted session; only prompts contribute context.
+/// They cannot name, bind, resume or revive an identity.
+fn observe_main_event(
     provider: &str,
     harness: &HarnessId,
     lifecycle: &dyn RuntimeLifecycle,
     session: &ProviderSessionId,
     activity: Option<&tmt_adapters::runtime::hook_protocol::ActivityObservation>,
-    payload: &[u8],
+    payload: Option<&[u8]>,
     deadline: Instant,
 ) -> Result<String, ()> {
     let host = lifecycle.host_evidence().map_err(|_| ())?;
@@ -817,13 +837,17 @@ fn observe_prompt(
     {
         return Ok(String::new());
     }
-    let context = crate::context_command::render_prompt(
-        &stored,
-        &paths,
-        deadline
-            .checked_sub(Duration::from_millis(200))
-            .unwrap_or(deadline),
-    );
+    let context = if payload.is_some() {
+        crate::context_command::render_prompt(
+            &stored,
+            &paths,
+            deadline
+                .checked_sub(Duration::from_millis(200))
+                .unwrap_or(deadline),
+        )
+    } else {
+        String::new()
+    };
     // A callback can run public commands: do not hand its context to a binding
     // or conversation that changed while the callback was running.
     let refreshed = Storage::context_by_pane(
@@ -850,7 +874,8 @@ fn observe_prompt(
         .remembered
         .as_ref()
         .and_then(|r| r.state.as_ref());
-    let reading = if binding.session.launch_owner.is_some()
+    let reading = if payload.is_some()
+        && binding.session.launch_owner.is_some()
         && previous
             .and_then(|state| lifecycle.state_consumption(state))
             .is_none()
@@ -859,7 +884,7 @@ fn observe_prompt(
             .is_some_and(tmt_adapters::setup::usage_hook_installed)
     {
         ProviderEnvironment::capture().ok().and_then(|environment| {
-            let locator = lifecycle.consumption_locator(payload, &environment);
+            let locator = lifecycle.consumption_locator(payload?, &environment);
             let turn =
                 lifecycle.sampling_turn(session, locator.as_deref(), &environment, deadline)?;
             let now = tmt_adapters::request_runtime::wall_time_ms();

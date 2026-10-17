@@ -372,6 +372,7 @@ fn read_activity(value: &Value) -> Option<Activity> {
     }
     let phase = match value["state"].as_str()? {
         "working" => ActivityPhase::Working,
+        "waiting" => ActivityPhase::Waiting,
         "idle" => ActivityPhase::Idle,
         _ => return None,
     };
@@ -442,7 +443,7 @@ mod tests {
         let process = ProcessIncarnation::new(42, "birth").unwrap();
         let previous = after_start(Some("opus"), Some(usage(10)), None, 50).unwrap();
         let event = Event {
-            phase: ActivityPhase::Working,
+            kind: tmt_core::binding::session::activity::EventKind::TurnStarted,
             turn: Some(ProviderSessionId::new("turn").unwrap()),
         };
         let active =
@@ -456,6 +457,43 @@ mod tests {
         assert_eq!(state_usage(&active), Some(usage(10)));
         assert!(state_activity(&active).unwrap().matches(&session, &process));
         assert!(after_activity(Some(&active), &session, &process, &event, None, 101).is_none());
+        let waiting = after_activity(
+            Some(&active),
+            &session,
+            &process,
+            &Event {
+                kind: tmt_core::binding::session::activity::EventKind::ApprovalPrompt,
+                turn: event.turn.clone(),
+            },
+            None,
+            102,
+        )
+        .unwrap();
+        assert_eq!(
+            state_activity(&waiting).unwrap().phase,
+            ActivityPhase::Waiting
+        );
+        assert_eq!(state_model(&waiting), state_model(&active));
+        assert_eq!(state_usage(&waiting), state_usage(&active));
+        assert_eq!(waiting.version(), active.version());
+        let cleared = after_activity(
+            Some(&waiting),
+            &session,
+            &process,
+            &Event {
+                kind: tmt_core::binding::session::activity::EventKind::ToolFinished,
+                turn: event.turn.clone(),
+            },
+            None,
+            103,
+        )
+        .unwrap();
+        assert_eq!(
+            state_activity(&cleared).unwrap().phase,
+            ActivityPhase::Working
+        );
+        assert_eq!(state_model(&cleared), state_model(&active));
+        assert_eq!(state_usage(&cleared), state_usage(&active));
         let updated = after_observation(Some(usage(12)), None, Some(&active)).unwrap();
         assert_eq!(state_activity(&updated), state_activity(&active));
         let resumed = after_start(None, None, Some(&active), 102).unwrap();

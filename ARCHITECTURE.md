@@ -231,12 +231,13 @@ a working directory, active pane or sole identity.
   conclusive evidence or explicit unbind, and exchanges are kept. Presence is
   observation, not routing permission: a marker or socket cannot authorize a
   different identity, and the pane marker proves ownership by IDs, never by name.
-- `binding::session` separates identity-owned session preferences from
-  binding-owned runtime observations, and observation writes are compare-and-set
-  inside the binding transaction. Drivers own process verification, event mapping
-  and driver-state persistence; ordinary CLI calls learn direct sessions after output through the same admission/CAS, with bounded silent refusal, storage-only prechecks and private TTL hints; core stores driver state without parsing it.
-  Provider end leaves stored readiness Unknown pending a fresh start; only conclusive
-  process loss ends the runtime incarnation.
+- `binding::session` separates identity-owned preferences from binding-owned runtime
+  observations, with compare-and-set writes inside the binding transaction.
+  Drivers verify processes, map events and own state; core never parses it. CLI learns direct sessions after output via this admission/CAS,
+  with bounded silent refusal, storage-only prechecks and private TTL hints.
+  Provider end leaves readiness Unknown until fresh start; only proven process loss
+  ends the incarnation. Claude approval notifications set waiting;
+  only admitted events clear it, never a timer.
 - Presence reads acquire host evidence outside the database writer lock and
   recheck their captured records before reconciliation. Changed records never
   authorize retirement or detachment; unchanged records retain conclusive stale
