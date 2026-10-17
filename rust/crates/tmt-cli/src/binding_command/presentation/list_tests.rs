@@ -547,6 +547,7 @@ fn activity_projection_requires_current_scope_and_runtime_evidence() {
             kind: tmt_core::binding::session::activity::EventKind::ApprovalPrompt,
             turn: None,
         },
+        None,
         11,
     );
     assert_eq!(

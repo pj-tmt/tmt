@@ -620,14 +620,14 @@ mod tests {
 
     fn working(turn: &str) -> Event {
         Event {
-            phase: ActivityPhase::Working,
+            kind: tmt_core::binding::session::activity::EventKind::TurnStarted,
             turn: Some(ProviderSessionId::new(turn).unwrap()),
         }
     }
 
     fn idle(turn: &str) -> Event {
         Event {
-            phase: ActivityPhase::Idle,
+            kind: tmt_core::binding::session::activity::EventKind::TurnEnded,
             turn: Some(ProviderSessionId::new(turn).unwrap()),
         }
     }

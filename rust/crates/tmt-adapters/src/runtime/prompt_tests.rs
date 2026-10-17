@@ -160,7 +160,8 @@ fn only_a_codex_main_turn_interrupt_with_its_turn_id_is_an_idle_end() {
             .decode_activity(prompt.to_string().as_bytes())
             .unwrap()
             .event
-            .kind.phase(),
+            .kind
+            .phase(),
         ActivityPhase::Working
     );
 }
@@ -251,7 +252,9 @@ fn claude_permission_notifications_report_waiting_without_matching_message_text(
     });
     let observed = driver.decode_activity(permission.to_string().as_bytes());
     assert_eq!(
-        observed.as_ref().map(|event| event.event.kind.phase().as_str()),
+        observed
+            .as_ref()
+            .map(|event| event.event.kind.phase().as_str()),
         Some("waiting")
     );
     assert!(observed.unwrap().event.turn.is_none());
