@@ -230,10 +230,14 @@ this first discovery slice. CLI fixtures suppress automatic browser opens.
   `NOFOLLOW`) and SQLite places the journals under `tmt.db`. Removing the link belongs to the
   later alias decision.
 
-- `config::document` keeps unknown JSON fields and validates known settings through
-  `tmt-core::settings`; `json_document` keeps number compatibility and raw object order on targeted
-  edits. `init` creates the local file as `{}\n` exclusively and refuses existing paths. The three
-  `defaults.*` settings are global-file-only.
+- `config::document` uses shared `Document` for set, theme-base and clear: current-byte
+  read, known-setting validation through `tmt-core::settings` and mutation share one
+  directory lock. `ConfigPaths.global_dir` owns lock state, never a project sibling
+  lock. `json_document` preserves unknown fields, number compatibility and raw object
+  order; publication preserves permissions. Shared failures keep their consequence
+  and retry instruction in the existing envelope. `init` creates the local file as
+  `{}\n` exclusively and refuses existing paths. The three `defaults.*` settings are
+  global-file-only.
 - `config set --global theme.base` uses the CLI style's base registry (excluding board-only
   `auto`); the config adapter changes only `theme.base`, preserving opaque keys and token overrides.
   A malformed theme container refuses the write. Token writes remain file-only; `config rm` still
