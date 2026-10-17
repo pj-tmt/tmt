@@ -374,10 +374,10 @@ it('rejects missing artifact verifier imports and transitive URL file inputs', (
   expect(broken).not.toBe(current);
   const missing = missingScriptInputs(file, broken, trackedFiles, readSource);
   expect(missing).toContain(
-    `${file} [1]: typescript/scripts/verify-native-installation.mjs -> typescript/scripts/migrated-state.mjs (expected /verification/typescript/scripts/migrated-state.mjs)`
+    `${file} [verification]: typescript/scripts/verify-native-installation.mjs -> typescript/scripts/migrated-state.mjs (expected /verification/typescript/scripts/migrated-state.mjs)`
   );
   expect(missing).toContain(
-    `${file} [1]: typescript/scripts/e2e-shards.mjs -> typescript/test/e2e/shard-weights.json (expected /verification/typescript/test/e2e/shard-weights.json)`
+    `${file} [verification]: typescript/scripts/e2e-shards.mjs -> typescript/test/e2e/shard-weights.json (expected /verification/typescript/test/e2e/shard-weights.json)`
   );
 });
 
@@ -390,7 +390,7 @@ it('rejects removal of the compiled schema verifier import from the artifact ima
   );
   expect(broken).not.toBe(current);
   expect(missingScriptInputs(file, broken, trackedFiles, readSource)).toContain(
-    `${file} [1]: typescript/scripts/verify-native-artifact.mjs -> typescript/scripts/native-application-schema.mjs (expected /verification/typescript/scripts/native-application-schema.mjs)`
+    `${file} [verification]: typescript/scripts/verify-native-artifact.mjs -> typescript/scripts/native-application-schema.mjs (expected /verification/typescript/scripts/native-application-schema.mjs)`
   );
 });
 

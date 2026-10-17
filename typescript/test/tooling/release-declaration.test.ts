@@ -159,6 +159,30 @@ describe('generated minimum CLI declarations', () => {
     ).toThrow('minimum-cli-unpublished');
   });
 
+  it('regenerates standalone proof bytes from the existing captured snapshot without a catalogue read', () => {
+    const f = fixture();
+    const transport = mkdtempSync(join(tmpdir(), 'tmt-declaration-transport-'));
+    roots.push(transport);
+    const snapshot = join(transport, 'release-version-state.json');
+    writeFileSync(snapshot, JSON.stringify(f.snapshot));
+    const script = new URL('../../scripts/release-declaration.mjs', import.meta.url);
+    const result = spawnSync(
+      process.execPath,
+      [script.pathname, 'generate', f.root, snapshot, 'ops'],
+      {
+        cwd: f.root,
+        encoding: 'utf8',
+        env: { PATH: process.env.PATH, HOME: transport },
+        timeout: 10000,
+      }
+    );
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toBe('');
+    expect(readFileSync(join(f.root, DECLARATION_OUTPUT))).toEqual(
+      declarationBytes({ ...f.context, record: f.record })
+    );
+  });
+
   it('rejects hand edits, source copies, wrong cut/product and duplicate cut metadata', () => {
     const f = fixture();
     writeDeclaration(f.root, f.snapshot, f.context.map);

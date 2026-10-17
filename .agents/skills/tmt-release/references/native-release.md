@@ -75,7 +75,7 @@ skills tree. The installer enforces inventory in
 `tmt-core`'s `native_install/product.rs`: adding, renaming or dropping an entry
 changes the installer contract and needs upgrade proof.
 Extension archives carry generated `TMT-USES.json`; Core owns its format and installer
-validation in [`extension-api.md`](../../../../../contracts/extension-api.md#optional-cross-extension-uses).
+validation in [`extension-api.md`](../../../../contracts/extension-api.md#optional-cross-extension-uses).
 Historical archives without it remain valid. The single authored feature source is each
 product's `uses` array in `.github/components.json` (absent means `[]`); never commit a
 `TMT-USES.json` or hand-write `requiresCli`.
@@ -172,7 +172,12 @@ workflow job that runs it on macOS first runs `.github/actions/warm-xcrun` (a gu
 fails otherwise); Linux needs `readelf`. A generated notice file is not legal certification.
 `typescript/test/native/artifact.Dockerfile` builds a matching-architecture Linux musl image
 (`TARGET_TRIPLE`, optional `--build-arg PRODUCT=<product>`, task-owned name, run with
-`--rm --init --network none`); remove that image afterwards.
+`--rm --init --network none`); remove that image afterwards. For extension proofs,
+build from the same version-injected checkout and pass its existing captured snapshot
+with `--secret id=release-version-state,src=<snapshot>`. The builder uses that snapshot
+to regenerate the declaration, checks it before packaging, and carries the snapshot
+inside the local proof image for final archive verification; no GitHub credentials or
+second CLI selection enter the image. CLI/driver proofs need no declaration snapshot.
 
 Negative archive tests use real tar fixtures: exercise checksum corruption, truncation,
 missing executable/notices, links, unexpected paths, duplicates, bounds and cleanup, never

@@ -233,7 +233,7 @@ export function verifyDeclarationBytes(file, snapshot, map) {
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const [product, cutArg, tag = '', expectedProduct] = process.argv.slice(2);
-    if (product === 'verify') {
+    if (product === 'verify' || product === 'generate') {
       const root = resolve(cutArg);
       const snapshot = JSON.parse(readFileSync(tag, 'utf8'));
       assert.equal(
@@ -243,11 +243,9 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       );
       if (declaresMinimumCli(expectedProduct))
         assert(snapshot.declaration, 'Extension packaging needs frozen CLI metadata.');
-      verifyDeclarationBytes(
-        join(root, DECLARATION_OUTPUT),
-        snapshot,
-        parseComponentMap(readFileSync(join(root, '.github/components.json'), 'utf8'))
-      );
+      const map = parseComponentMap(readFileSync(join(root, '.github/components.json'), 'utf8'));
+      if (product === 'generate') writeDeclaration(root, snapshot, map);
+      verifyDeclarationBytes(join(root, DECLARATION_OUTPUT), snapshot, map);
     } else {
       assert(
         ['all', 'cli', 'driver-herdr', ...EXTENSIONS].includes(product),

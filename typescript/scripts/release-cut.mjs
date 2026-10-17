@@ -1,4 +1,8 @@
-import { resolveDeclaration, gitDeclarationAncestry } from './release-declaration.mjs';
+import {
+  resolveDeclaration,
+  gitDeclarationAncestry,
+  declaresMinimumCli,
+} from './release-declaration.mjs';
 // Plans release cuts without mutation. This module has no network/mutation interface.
 import assert from 'node:assert/strict';
 import { appendFileSync, readFileSync } from 'node:fs';
@@ -420,7 +424,24 @@ export async function planReleaseCuts({ metadata, map, workspace, git, date, ver
       }
       if (!history.previous && (!component.bootstrapSha || !component.initialVersion))
         throw new Error('First cut needs bootstrapSha and an owner-approved initial version.');
-
+      if (
+        !declaresMinimumCli(product) &&
+        component.requiresCliSha &&
+        (!history.previous ||
+          (component.predecessor && !publishedReleases(metadata.releases, product).length))
+      ) {
+        const cli = publishedReleases(metadata.releases, 'cli')[0];
+        const reason = `First ${product} cut requires a published supporting CLI containing registration ${component.requiresCliSha}.`;
+        if (!cli) throw new Error(reason);
+        const cliSha = git(['rev-parse', '--verify', `refs/tags/${cli.tag_name}^{commit}`]).trim();
+        if (!SHA.test(cliSha)) throw new Error('Missing supporting CLI tag commit.');
+        try {
+          git(['merge-base', '--is-ancestor', component.requiresCliSha, cliSha]);
+        } catch (error) {
+          if (error.cause?.status !== 1) throw error;
+          throw new Error(`${reason} Newest published CLI ${cli.tag_name} predates registration.`);
+        }
+      }
       const previous = history.previous?.sha ?? component.bootstrapSha;
       if (!SHA.test(previous)) throw new Error('Missing previous product cut commit.');
       const previousVersion = history.highestVersion;
