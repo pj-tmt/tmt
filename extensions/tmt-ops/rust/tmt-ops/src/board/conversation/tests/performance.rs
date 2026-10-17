@@ -41,7 +41,7 @@ fn populated_conversation(rows: usize) -> (App, String, OpsTarget) {
             panic!("probe must submit a real composer turn");
         };
         let ticket = app.outgoing_ticket(&request).unwrap();
-        assert_eq!(ticket.text, text);
+        assert_eq!(ticket.text, format!("[squad-00 · agent-00000] {text}"));
         assert_eq!(ticket.key.1, member);
         app.finished_send(crate::board::conversation::outgoing::Completed {
             ticket: Some(ticket),
