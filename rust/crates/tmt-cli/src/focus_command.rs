@@ -76,7 +76,7 @@ enum FocusResult {
 }
 
 /// `target` is an identity UUID, name or pane target (such as a previous
-/// `from`); Focus resolves UUIDs first, on the current server only.
+/// `from`); Focus resolves UUIDs first through their recorded binding.
 fn run(target: String, into: Option<SwapDirection>) -> Result<FocusResult, Failure> {
     // A focus changes the invoking user's own view: the caller's host.
     let host = Host::for_caller(&CallerEnvironment::current());
@@ -108,7 +108,7 @@ fn run(target: String, into: Option<SwapDirection>) -> Result<FocusResult, Failu
             "Could not open identity storage.",
         )
     })?;
-    let pending = target::resolve_focus(&mut storage, &host, &target).and_then(|observed| {
+    let pending = target::resolve_focus(&mut storage, &target).and_then(|observed| {
         if let Some(direction) = into {
             let invoker = invoker.as_ref().ok_or_else(host_unsupported)?;
             if observed.server.host != host.kind() || observed.server.socket_path != invoker.socket

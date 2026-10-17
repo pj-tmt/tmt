@@ -74,7 +74,7 @@ pub(super) fn prepare(
     let observed = if input.options.inbox || offline {
         None
     } else {
-        Some(target::resolve(storage, host, &input.target).map_err(|error| {
+        Some(target::resolve(storage, &input.target).map_err(|error| {
             if error.code == "NAME_NOT_FOUND"
                 && tmt_core::identity::find_by_name(storage, &input.target)
                     .ok()
