@@ -1,3 +1,4 @@
+import { openAllPages } from '../test/all-pages.js';
 import { pageAction } from '../test/page-actions.js';
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { openColab, pairBrowser, startDoor } from './harness/browser.js';
@@ -101,6 +102,7 @@ test('native page titles fill missing visible home labels without opening the pa
         expect(await row().evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
       }
     }
+    await openAllPages(page);
     await row()
       .getByRole('button', { name: /^Actions for/ })
       .click();
