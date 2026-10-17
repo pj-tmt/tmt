@@ -874,7 +874,7 @@ fn named_reads_project_authority_and_preserve_empty_final_without_dispatch() {
 }
 
 #[test]
-fn another_store_revoke_waits_for_a_blocked_core_effect_beyond_the_old_timeout() {
+fn another_store_revoke_times_out_without_crossing_a_blocked_core_effect() {
     use std::time::{Duration, Instant};
     use tmt_remote::store::Store;
     let owner = OwnerDoor::new();
@@ -922,29 +922,27 @@ fn another_store_revoke_waits_for_a_blocked_core_effect_beyond_the_old_timeout()
             done_tx.send(revoker.revoke(&client)).unwrap();
         });
         attempted_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        // Wait on the revocation outcome, not a fixed sleep: the old five-second
-        // timeout returns an error here while the effect barrier remains held.
-        let early = done_rx.recv_timeout(Duration::from_millis(5200));
-        let waited_for_effect = matches!(&early, Err(std::sync::mpsc::RecvTimeoutError::Timeout));
+        // The authority writer has its own five-second budget. Exhausting it
+        // refuses honestly; it must not cross the earlier effect's transaction.
+        let refused =
+            done_rx.recv_timeout(tmt_remote::limits::AUTHORITY_WAIT + Duration::from_secs(2));
         gate.write_all(b"release\n").unwrap();
-        let revoked = match early {
-            Ok(result) => result,
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                done_rx.recv_timeout(Duration::from_secs(5)).unwrap()
-            }
-            Err(error) => panic!("revoker disconnected: {error}"),
-        }
-        .unwrap()
-        .unwrap();
         revoking.join().unwrap();
         let observed = sending.join().unwrap();
+        let error = refused
+            .expect("authority writer did not honor its bounded wait")
+            .unwrap_err();
+        assert_eq!(error.code, "REMOTE_STATE_UNAVAILABLE");
+        assert!(error.message.contains("locked"), "{}", error.message);
         assert!(
-            waited_for_effect,
-            "revocation must wait past five seconds until the earlier effect releases its fence"
-        );
-        assert!(
-            revoked.disabled,
-            "revoke must commit after the earlier effect"
+            !owner
+                .store
+                .lock()
+                .unwrap()
+                .grant(&owner.grant.client_id)
+                .unwrap()
+                .unwrap()
+                .disabled
         );
         assert!(matches!(
             observed["state"].as_str(),
@@ -954,6 +952,15 @@ fn another_store_revoke_waits_for_a_blocked_core_effect_beyond_the_old_timeout()
         let receipt: Value =
             serde_json::from_slice(&fs::read(core.root.join("receipt")).unwrap()).unwrap();
         assert_eq!(receipt["operationId"], id);
+        // A new owner attempt after the effect finishes can revoke normally.
+        let revoked = owner
+            .store
+            .lock()
+            .unwrap()
+            .revoke(&owner.grant.client_id)
+            .unwrap()
+            .unwrap();
+        assert!(revoked.disabled);
         assert!(
             owner
                 .store
