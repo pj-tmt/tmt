@@ -28,7 +28,7 @@ test('a home summary the maintainer writes reaches Today in a paired browser, an
     // Who wrote it comes from the caller's agent identity, never from the request body.
     await expect(summary.locator('.today-summary-meta')).toContainText('summary-agent');
     // The page was created before the summary, so nothing changed after it.
-    await expect(summary.locator('.today-summary-note')).toHaveCount(0);
+    await expect(summary.locator('.today-summary-meta')).not.toContainText('changed since');
 
     // A line over its limit is refused whole: the stored summary and Today are unchanged.
     expect(() => home('set', '--line', 'x'.repeat(25), '--line', 'fine', '--json')).toThrow(

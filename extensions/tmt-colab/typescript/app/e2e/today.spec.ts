@@ -355,7 +355,7 @@ test('the maintainer summary sits under the greeting with who wrote it and when'
   await expect(summary(page).locator('.today-summary-meta')).toHaveText(
     'Studio agent · 1 hour ago',
   );
-  await expect(summary(page).locator('.today-summary-note')).toHaveCount(0);
+  await expect(summary(page).locator('.today-summary-meta')).not.toContainText('changed since');
   await expect(summary(page)).toHaveAccessibleName('Since the last update');
   // Under the greeting, above the counts.
   const box = async (locator: ReturnType<typeof summary>) => (await locator.boundingBox())!;
@@ -364,9 +364,24 @@ test('the maintainer summary sits under the greeting with who wrote it and when'
   const below = await box(app(page).locator('.today-count'));
   expect(mid.y).toBeGreaterThanOrEqual(above.y + above.height - 1);
   expect(below.y).toBeGreaterThanOrEqual(mid.y + mid.height - 1);
+  // One group: 12px under the greeting, 2px between its lines, 4px before the meta line and
+  // 20px before the hero count.
+  const gaps = await app(page).evaluate((root) => {
+    const rect = (selector: string) => root.querySelector(selector)!.getBoundingClientRect();
+    const lines = [...root.querySelectorAll('.today-summary-line')].map((node) =>
+      node.getBoundingClientRect(),
+    );
+    return {
+      greeting: lines[0].top - rect('.today h1').bottom,
+      lines: lines[1].top - lines[0].bottom,
+      meta: rect('.today-summary-meta').top - lines[1].bottom,
+      count: rect('.today-count').top - rect('.today-summary-meta').bottom,
+    };
+  });
+  expect(gaps).toEqual({ greeting: 12, lines: 2, meta: 4, count: 20 });
 });
 
-test('a summary older than the newest page change stays, with a muted note and never "no changes"', async ({
+test('a summary older than the newest page change stays, with one more muted segment and never "no changes"', async ({
   page,
 }) => {
   await mount(page, 'summary-stale');
@@ -374,12 +389,11 @@ test('a summary older than the newest page change stays, with a muted note and n
     'Two pages changed',
     'Budget review waits on you',
   ]);
+  // The stale mark is a segment of the meta line, never a sentence of its own.
   await expect(summary(page).locator('.today-summary-meta')).toHaveText(
-    'Studio agent · 5 hours ago',
+    'Studio agent · 5 hours ago · pages changed since',
   );
-  await expect(summary(page).locator('.today-summary-note')).toHaveText(
-    'Pages have changed since this was written.',
-  );
+  await expect(summary(page).locator('.today-summary-note')).toHaveCount(0);
   await expect(app(page).getByText(/no changes/i)).toHaveCount(0);
 });
 

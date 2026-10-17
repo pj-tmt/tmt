@@ -603,7 +603,8 @@ export const text = {
     byAuthor: (name: string) => `by ${name}`,
     /** The maintainer agent's two lines under the greeting. */
     summaryLabel: 'Since the last update',
-    summaryChanged: 'Pages have changed since this was written.',
+    /** The last muted segment of the summary's meta line when a page changed after it. */
+    summaryChanged: 'pages changed since',
     summaryMeta: (author: string | undefined, when: string) =>
       author ? `${author} · ${when}` : when,
   },

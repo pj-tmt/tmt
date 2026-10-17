@@ -1,3 +1,4 @@
+import { Fragment } from 'react';
 import type { HomeSummary } from './bootstrap.js';
 import { pageUpdate } from './page-index.js';
 import { text } from './strings.js';
@@ -7,7 +8,8 @@ import type { PageSummary } from './transport.js';
 const t = text.today;
 
 /** The maintainer agent's two lines under the greeting, with who wrote them and when. A summary
- * older than the newest page change stays, with a muted note: it never claims nothing changed. */
+ * older than the newest page change stays, with one more muted segment on its meta line: it never
+ * claims nothing changed. Each segment keeps together, so a narrow screen wraps only at a `·`. */
 export function TodaySummary({
   summary,
   pages,
@@ -28,18 +30,25 @@ export function TodaySummary({
         ))}
       </div>
       <p className="today-summary-meta">
-        {summary.author ? `${summary.author} · ` : null}
-        {written.dateTime ? (
-          <time dateTime={written.dateTime} title={written.absolute}>
-            {written.label}
-          </time>
-        ) : (
-          written.label
-        )}
+        {[
+          summary.author ? <span key="author">{summary.author}</span> : null,
+          written.dateTime ? (
+            <time key="written" dateTime={written.dateTime} title={written.absolute}>
+              {written.label}
+            </time>
+          ) : (
+            <span key="written">{written.label}</span>
+          ),
+          pagesChangedSince(summary, pages) ? <span key="changed">{t.summaryChanged}</span> : null,
+        ]
+          .filter((part) => part !== null)
+          .map((part, index) => (
+            <Fragment key={part.key}>
+              {index > 0 && ' · '}
+              {part}
+            </Fragment>
+          ))}
       </p>
-      {pagesChangedSince(summary, pages) && (
-        <p className="today-summary-note">{t.summaryChanged}</p>
-      )}
     </section>
   );
 }
