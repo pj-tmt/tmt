@@ -1077,10 +1077,10 @@ Optional row `activity` forwards only Core's public [`ls --json` session.activit
 when absent or malformed: the state must be one of those four and `sinceMs` must be null or a
 non-negative JavaScript-safe integer. Neither `lastActivityMs`, `providers` nor other session data
 is disclosed; top-level Core `activity` is not a fallback. Each row also carries `observedAtMs`,
-the owner's integer-millisecond wall clock sampled once at the start of the existing Core list
-read. Compare `sinceMs` with that owner time, never the viewer's clock. SDK `RemoteAgent` keeps both
-fields optional for older owners and independently omits malformed values without failing the
-list. The same `agents.read` grant filters rows before projection; there is no extra Core call,
+the owner's integer-millisecond wall clock sampled once when the Core list read returns.
+Compare `sinceMs` with that owner time, never the viewer's clock; viewers clamp negative elapsed
+values to zero. SDK `RemoteAgent` keeps both fields optional for older owners and independently
+omits malformed values without failing the list. The same `agents.read` grant filters rows before projection; there is no extra Core call,
 admission rule or limit increase. Activity grants no delivery, readiness, completion or dispatch authority.
 
 Helper payloads are `agents.list:{}`, `check:{agentId,lines?}`, `operation.show:{operationId}` and

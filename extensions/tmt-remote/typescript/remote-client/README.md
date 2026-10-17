@@ -73,8 +73,9 @@ never null. Recognizing a new driver needs an additive SDK release; this grants 
 Optional `activity: {state: 'working' | 'idle' | 'unknown' | 'ended', sinceMs: number | null}`
 forwards only Core's public [`ls --json` session.activity](../../../../contracts/extension-api.md),
 without `lastActivityMs`, `providers` or session identifiers. Each row's optional `observedAtMs`
-is the owner wall clock sampled once at the Core read, in integer milliseconds; use it with
-`sinceMs` instead of the viewer's clock. Both times must be non-negative JavaScript-safe integers
+is the owner wall clock sampled once when the Core list read returns, in integer milliseconds;
+use it with `sinceMs` instead of the viewer's clock and clamp negative elapsed values to zero.
+Both times must be non-negative JavaScript-safe integers
 (`sinceMs` may also be null). Invalid optional values are independently omitted, never null,
 without failing the list; older owners keep their existing row shape. No extra subprocess,
 scope or limit is added. Activity is advisory and proves neither readiness nor completion.
