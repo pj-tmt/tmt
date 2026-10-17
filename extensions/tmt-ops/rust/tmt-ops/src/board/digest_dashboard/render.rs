@@ -371,26 +371,74 @@ fn members(frame: &mut Frame, app: &App, area: Rect) {
 fn details(frame: &mut Frame, app: &App, area: Rect) {
     let look = app.look();
     let inside = crate::board::pane_chrome::paint(frame, app, area, Pane::Replies, "Details");
+    let row = app.selected_row();
+    let target = row.and_then(|_| app.row_target(app.selected));
+    let lines: Vec<_> = detail_lines(app, inside.width, crate::status::now_ms(), row)
+        .into_iter()
+        .map(|text| Line::styled(text, look.role(Role::Text)))
+        .collect();
+    app.scrolls.show(frame, Pane::Replies, inside, lines, look);
+    if !inside.is_empty()
+        && let Some(target) = target
+    {
+        app.frame_clocks
+            .borrow_mut()
+            .push(crate::board::view::ClockSurface::DigestDetails {
+                target,
+                width: inside.width,
+                height: inside.height,
+            });
+    }
+}
+
+fn detail_lines(
+    app: &App,
+    width: u16,
+    now_ms: u64,
+    row: Option<&serde_json::Value>,
+) -> Vec<String> {
     let mut text = Vec::new();
-    if let Some(row) = app.selected_row() {
+    if let Some(row) = row {
         text.push(crate::board::notes::sanitize(
             row["name"].as_str().unwrap_or("Agent"),
         ));
         if let Some(id) = row["id"].as_str() {
-            text.extend(model::details(&app.labels, id));
+            text.extend(model::details(
+                &app.labels,
+                id,
+                now_ms,
+                app.local_zone.as_ref().unwrap_or(&jiff::tz::TimeZone::UTC),
+            ));
         }
     } else {
         text.push("Select a visible agent to inspect its Digest status".into());
     }
-    let lines: Vec<_> = text
-        .into_iter()
+    text.into_iter()
         .flat_map(|text| {
-            crate::board::notes::wrap(
-                &crate::board::notes::sanitize(&text),
-                usize::from(inside.width),
-            )
+            crate::board::notes::wrap(&crate::board::notes::sanitize(&text), usize::from(width))
         })
-        .map(|text| Line::styled(text, look.role(Role::Text)))
-        .collect();
-    app.scrolls.show(frame, Pane::Replies, inside, lines, look);
+        .collect()
+}
+
+/// The clock compares exactly the visible wrapped rows, through the painter's projection.
+pub(in crate::board) fn details_clock_mark(
+    app: &App,
+    target: &crate::board::app::RowTarget,
+    width: u16,
+    height: u16,
+    now_ms: u64,
+) -> String {
+    let lines = detail_lines(app, width, now_ms, app.target_row(target));
+    let viewport =
+        crate::board::scroll::Scrolls::viewport(Rect::new(0, 0, width, height), lines.len());
+    let offset = app
+        .scrolls
+        .offset(Pane::Replies)
+        .min(lines.len().saturating_sub(viewport));
+    lines
+        .into_iter()
+        .skip(offset)
+        .take(viewport)
+        .collect::<Vec<_>>()
+        .join("\n")
 }

@@ -58,6 +58,8 @@
   combine summed numerators over one exact interval and are recomputed once, never added or
   averaged; each unit keeps its own coverage and a `conflict` flag. The root `pricing`
   table is read-only metadata for the Digest Details; the board never opens its sources.
+  Details observation times use the shared relative-age wording plus local `HH:MM`;
+  absent, zero, future or invalid instants show `unknown`, never a fabricated age.
   The Overview Digest panel (`overview/summary.rs`) calls it over the visible roster, so
   its `(N of M)` agrees with the line's agent counts; the held Overview scene is keyed by
   the Digest window and appends the shared `savings_caption` only when it fits whole.

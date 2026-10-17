@@ -62,7 +62,12 @@ pub(in crate::board) fn labels(
         .collect()
 }
 
-pub(in crate::board) fn details(supplied: &Supplied, id: &str) -> Vec<String> {
+pub(in crate::board) fn details(
+    supplied: &Supplied,
+    id: &str,
+    now_ms: u64,
+    zone: &jiff::tz::TimeZone,
+) -> Vec<String> {
     let mut fields: Vec<_> = labels(supplied, id)
         .into_iter()
         .map(|(text, _, _)| text)
@@ -92,12 +97,13 @@ pub(in crate::board) fn details(supplied: &Supplied, id: &str) -> Vec<String> {
             .held_count
             .map_or("unavailable".into(), |n| n.to_string())
     ));
-    fields.push(format!("Status observed: {} ms", status.observed_at_ms));
+    fields.push(format!(
+        "Status observed: {}",
+        observation_time(Some(status.observed_at_ms), now_ms, zone)
+    ));
     fields.push(format!(
         "Stats observed: {}",
-        member
-            .stats_observed_at_ms
-            .map_or("unavailable".into(), |n| format!("{n} ms"))
+        observation_time(member.stats_observed_at_ms, now_ms, zone)
     ));
     if member.mode == crate::labels::digest::Mode::Auto {
         fields.push("Auto: when idle".into());
@@ -118,6 +124,24 @@ pub(in crate::board) fn details(supplied: &Supplied, id: &str) -> Vec<String> {
     fields.extend(valuation_details(member));
     fields.extend(pricing_details(status));
     fields
+}
+
+/// Read-only observation wording using the shared Ops age formatter and held local zone.
+fn observation_time(at_ms: Option<u64>, now_ms: u64, zone: &jiff::tz::TimeZone) -> String {
+    let Some(at_ms) = at_ms.filter(|at| *at > 0 && *at <= now_ms) else {
+        return "unknown".into();
+    };
+    let Some(at) = i64::try_from(at_ms)
+        .ok()
+        .and_then(|at| jiff::Timestamp::from_millisecond(at).ok())
+    else {
+        return "unknown".into();
+    };
+    format!(
+        "{} ({})",
+        tmt_cli_style::value::relative_time(now_ms - at_ms),
+        at.to_zoned(zone.clone()).strftime("%H:%M")
+    )
 }
 
 /// What stands behind the cost and share figures of one member, so each can be
