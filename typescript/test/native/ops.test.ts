@@ -5722,6 +5722,7 @@ describe('large board responsiveness', () => {
         ]);
         const server = Number(tmux(['display-message', '-p', '#{pid}']));
         const pane = tmux(['display-message', '-p', '#{pane_id}']);
+        const boardPid = Number(tmux(['display-message', '-p', '-t', pane, '#{pane_pid}']));
         const screen = () => tmux(['capture-pane', '-p', '-t', pane]);
         const captures: { scene: string; text: string; ansi: string }[] = [];
         const capture = (scene: string) =>
@@ -5732,13 +5733,13 @@ describe('large board responsiveness', () => {
           });
         const shellQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
         try {
-          const colour = theme === 'NO_COLOR' ? 'NO_COLOR=1' : 'env -u NO_COLOR';
+          const colour = theme === 'NO_COLOR' ? 'env NO_COLOR=1' : 'env -u NO_COLOR';
           tmux([
             'send-keys',
             '-t',
             pane,
             '-l',
-            `${colour} ${shellQuote(sandbox.cli.executable)} ops ui --squad product --view copy-quote --reset-view`,
+            `exec ${colour} ${shellQuote(sandbox.cli.executable)} ops ui --squad product --view copy-quote --reset-view`,
           ]);
           tmux(['send-keys', '-t', pane, 'Enter']);
           await vi.waitFor(
@@ -5832,11 +5833,27 @@ describe('large board responsiveness', () => {
               JSON.stringify({ theme, width, captures })
             );
         } finally {
-          spawnSync(executable, ['-S', socket, 'kill-server'], { env: sandbox.env, timeout: 5000 });
-          await vi.waitFor(() => expect(() => process.kill(server, 0)).toThrow(), {
-            timeout: 10_000,
-            interval: 25,
-          });
+          try {
+            // The pane shell was replaced by the board. Let its existing
+            // shutdown owner join workers before stopping the private server.
+            spawnSync(executable, ['-S', socket, 'send-keys', '-t', pane, 'C-c'], {
+              env: sandbox.env,
+              timeout: 5000,
+            });
+            await vi.waitFor(() => expect(() => process.kill(boardPid, 0)).toThrow(), {
+              timeout: 10_000,
+              interval: 25,
+            });
+          } finally {
+            spawnSync(executable, ['-S', socket, 'kill-server'], {
+              env: sandbox.env,
+              timeout: 5000,
+            });
+            await vi.waitFor(() => expect(() => process.kill(server, 0)).toThrow(), {
+              timeout: 10_000,
+              interval: 25,
+            });
+          }
         }
       });
     },
