@@ -74,6 +74,38 @@ test('a wide chapter click opens a right panel over a held Today', async ({ page
   await expect(panel(page)).toHaveCSS('box-shadow', 'none');
 });
 
+test('the held Today marks the open chapter with a rule and shows no cut-off column', async ({
+  page,
+}) => {
+  await wide(page);
+  await mount(page, 'few');
+  // The pointer stays on the title it clicked, so the hover look is under test too.
+  await link(page, 'Budget review').click();
+  await expect(panel(page)).toBeVisible();
+  const open = held(page).locator('[data-open]');
+  await expect(open).toHaveCount(1);
+  const title = open.locator('.today-title a');
+  await expect(title).toHaveCSS('text-decoration-line', 'none');
+  const ink = await page.evaluate(() => {
+    const probe = document.createElement('i');
+    probe.style.color = 'var(--tmt-ui-color-selected-text)';
+    document.body.append(probe);
+    const value = getComputedStyle(probe).color;
+    probe.remove();
+    return value;
+  });
+  await expect(title).toHaveCSS('color', ink);
+  const rule = open.locator('.today-chapter-main');
+  await expect(rule).toHaveCSS('border-left-width', '2px');
+  await expect(rule).toHaveCSS('border-left-color', ink);
+  // The rule sits in the margin: the open title lines up with the others.
+  const x = async (name: string) =>
+    (await held(page).getByRole('link', { name, exact: true }).boundingBox())!.x;
+  expect(await x('Budget review')).toBeCloseTo(await x('Vendor contract'), 0);
+  // The right column would be clipped mid-word by the panel, so it is not drawn.
+  await expect(held(page).locator('.today-chapter-state').first()).toBeHidden();
+});
+
 test('a narrow chapter click opens the full page with a way back', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await mount(page);

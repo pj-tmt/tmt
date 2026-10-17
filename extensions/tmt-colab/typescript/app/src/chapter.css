@@ -109,3 +109,20 @@ main[data-chapter='panel'] {
     animation: none;
   }
 }
+
+/* The held Today keeps its left column whole beside the panel; the right column (band, count)
+   would be cut mid-word, so it is not shown while the panel is open. The open chapter is marked by
+   a rule, never by the link colour. */
+.chapter-held .today-chapter-state {
+  display: none;
+}
+.chapter-held [data-open] .today-chapter-main {
+  margin-left: -18px;
+  padding-left: 16px;
+  border-left: 2px solid var(--tmt-ui-color-selected-text);
+}
+.chapter-held [data-open] a,
+.chapter-held [data-open] a:hover {
+  color: var(--tmt-ui-color-selected-text);
+  text-decoration: none;
+}

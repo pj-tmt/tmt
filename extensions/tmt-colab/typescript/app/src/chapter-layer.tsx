@@ -46,7 +46,7 @@ export function HeldToday({ pageId, chapter }: { pageId: string; chapter: Chapte
       }}
     >
       <div className="chapter-held-inner">
-        {space && <TodayView space={space} held={{ scroll: chapter.scroll }} />}
+        {space && <TodayView space={space} held={{ scroll: chapter.scroll, open: pageId }} />}
       </div>
     </div>
   );

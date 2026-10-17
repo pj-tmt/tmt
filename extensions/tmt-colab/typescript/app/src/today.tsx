@@ -76,6 +76,7 @@ function Chapter({
   hints,
   details,
   onOpen,
+  open,
 }: {
   page: PageSummary;
   waiting: boolean;
@@ -86,6 +87,8 @@ function Chapter({
   hints?: HomeTitleHints;
   details?: ReadingDetails;
   onOpen: (event: MouseEvent<HTMLAnchorElement>, page: PageSummary) => void;
+  /** The chapter that is open beside Today. */
+  open: boolean;
 }) {
   const updated = pageUpdate(page.lastUpdateAtMs, now);
   const when = updated.dateTime ? t.kickerUpdated(updated.label) : updated.label;
@@ -98,6 +101,7 @@ function Chapter({
       data-today-waiting={first.includes('waiting') || undefined}
       data-today-updated-today={first.includes('updated-today') || undefined}
       data-updated-today={today || undefined}
+      data-open={open || undefined}
     >
       <article>
         <div className="today-chapter-main">
@@ -151,7 +155,14 @@ export function Today() {
 }
 
 /** Today's page, or its held copy behind an open chapter (`held`: the offset it keeps). */
-export function TodayView({ space, held }: { space: SpaceHome; held?: { scroll: number } }) {
+export function TodayView({
+  space,
+  held,
+}: {
+  space: SpaceHome;
+  /** The held copy behind an open chapter: the offset it keeps and the chapter that is open. */
+  held?: { scroll: number; open: string };
+}) {
   const router = useRouter();
   const { pages, hints } = useHomeSpace(space);
   const readingDetails = useTodayReadings(space);
@@ -288,6 +299,7 @@ export function TodayView({ space, held }: { space: SpaceHome; held?: { scroll: 
                 hints={hints}
                 details={readingDetails.get(page.id)}
                 onOpen={onOpen}
+                open={held?.open === page.id}
               />
             ))}
           </ul>
@@ -296,7 +308,11 @@ export function TodayView({ space, held }: { space: SpaceHome; held?: { scroll: 
               {model.folded.map((page) => {
                 const updated = pageUpdate(page.lastUpdateAtMs, now);
                 return (
-                  <li key={page.id} data-page-id={page.id}>
+                  <li
+                    key={page.id}
+                    data-page-id={page.id}
+                    data-open={held?.open === page.id || undefined}
+                  >
                     <HomeTitleLink
                       page={page}
                       hints={hints}
