@@ -137,7 +137,9 @@ impl Survey {
                 let candidate = GroupCandidate {
                     id: tree.attr(*group, "data-id").unwrap_or("").to_owned(),
                     holders: 0,
-                    nested: tree.closest(*group, &[GROUP, QUESTION]).is_some(),
+                    nested: tree
+                        .closest(*group, &[GROUP, QUESTION, "tmt-read"])
+                        .is_some(),
                     titles: titles.len(),
                     title: titles
                         .first()

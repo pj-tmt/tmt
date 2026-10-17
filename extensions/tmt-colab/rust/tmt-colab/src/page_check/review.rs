@@ -71,7 +71,10 @@ pub(super) fn check(
                 .first()
                 .map_or_else(String::new, |h| question_text(&tree.text(*h))),
             nested: tree
-                .closest(*review, &["tmt-review", "tmt-question", "tmt-questions"])
+                .closest(
+                    *review,
+                    &["tmt-review", "tmt-question", "tmt-questions", "tmt-read"],
+                )
                 .is_some(),
             holders: survey.holders(id_value),
         };

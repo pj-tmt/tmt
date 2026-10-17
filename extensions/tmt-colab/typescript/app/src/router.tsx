@@ -10,6 +10,7 @@ import {
 } from '@tmt/browser-ui/react';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { validPagePrefix } from './short-links.js';
+import { ownerReadingHint, ownerReadingHref, readingSearch } from './reading-link.js';
 import { ArrowUpRight, MessageCircle, MessageSquare, Moon, MousePointer2, Sun } from 'lucide-react';
 import { PageHeaderActions, type PageHeaderAction } from './page-header-actions.js';
 import { ColabHeader } from './colab-header.js';
@@ -47,6 +48,7 @@ import { QuickSwitcherHost, QuickSwitcherModalPresence } from './quick-switcher-
 import { useQuickSwitcher } from './quick-switcher-context.js';
 import { useQuestionLayer } from './question-layer.js';
 import { useReviewLayer } from './review-layer.js';
+import { useReadingLayer } from './reading-layer.js';
 import { useInlineSlots } from './inline-slots.js';
 import { inspectQuestions } from './questions.js';
 import { useReplyNotifications } from './use-reply-notifications.js';
@@ -618,6 +620,7 @@ const home = createRoute({
 const page = createRoute({
   getParentRoute: () => root,
   path: '/pages/$pageId',
+  validateSearch: readingSearch,
   loader: ({ context, params, abortController }) =>
     context.transport.page(params.pageId, abortController.signal),
   component: Page,
@@ -626,7 +629,8 @@ const page = createRoute({
 const shortPage = createRoute({
   getParentRoute: () => root,
   path: '/short/$prefix',
-  loader: async ({ context, params }) => {
+  validateSearch: readingSearch,
+  loader: async ({ context, params, location }) => {
     if (!validPagePrefix(params.prefix)) throw new Error('Page unavailable');
     const home = await context.transport.spaceHome();
     const known = home.pageIds ?? home.pages.map((page) => ({ pageId: page.id, deleted: false }));
@@ -642,13 +646,19 @@ const shortPage = createRoute({
       }));
     if (pages.length === 0) throw new Error('Page unavailable');
     if (pages.length === 1 && !pages[0].deleted)
-      throw redirect({ to: '/pages/$pageId', params: { pageId: pages[0].id }, replace: true });
+      throw redirect({
+        to: '/pages/$pageId',
+        params: { pageId: pages[0].id },
+        search: readingSearch(location.search),
+        replace: true,
+      });
     return { pages, prefix: params.prefix };
   },
   component: ShortPageChoice,
 });
 function ShortPageChoice() {
   const { pages, prefix } = shortPage.useLoaderData();
+  const search = shortPage.useSearch();
   const deleted = pages.length === 1 && pages[0].deleted;
   return (
     <NoticeCard
@@ -679,7 +689,7 @@ function ShortPageChoice() {
                 <code className="tmt-ui-code">{page.id}</code>
               </span>
             ) : (
-              <Link to="/pages/$pageId" params={{ pageId: page.id }}>
+              <Link to="/pages/$pageId" params={{ pageId: page.id }} search={search}>
                 <span>
                   <span className="short-page-title">
                     {page.title}
@@ -1286,7 +1296,7 @@ function Page() {
     return () => document.removeEventListener('keydown', key);
   }, [canSelect, selectionMode]);
   const host = useRef<HTMLDivElement>(null);
-  const { questions, groups, reviews } = useMemo(
+  const { questions, groups, reviews, readings } = useMemo(
     () => inspectQuestions(view.source),
     [view.source],
   );
@@ -1300,7 +1310,7 @@ function Page() {
       .map((thread) => thread.threadId)
       .join(
         ',',
-      )}|${groups.map((group) => group.id).join(',')}|${reviews.map((review) => review.id).join(',')}`,
+      )}|${groups.map((group) => group.id).join(',')}|${reviews.map((review) => review.id).join(',')}|${readings.map((reading) => reading.id).join(',')}`,
   });
   const associatedQuestionThreads = useRef<(id: string) => readonly ThreadView[]>(() => []);
   const reviewLayer = useReviewLayer({
@@ -1314,10 +1324,24 @@ function Page() {
     slotPositions: inlineSlots.positions,
     questionThreads: associatedQuestionThreads,
   });
+  const { read: readingHint } = page.useSearch();
+  const readingLayer = useReadingLayer({
+    readings,
+    snapshot,
+    view,
+    binding,
+    blocked: discussionBlocked,
+    status: statusCoordinator,
+    renderer,
+    hint: space ? readingHint : undefined,
+    slotPositions: inlineSlots.positions,
+    readingIds: inlineSlots.readingIds,
+  });
   const questionLayer = useQuestionLayer({
     questions,
     groups,
     reviews: reviewLayer.blocks,
+    readings: readingLayer.blocks,
     onRecorded: reviewLayer.answered,
     snapshot,
     view,
@@ -1330,6 +1354,7 @@ function Page() {
   associatedQuestionThreads.current = questionLayer.associated;
   const { onQuestions } = questionLayer;
   const { onAnchors: onReviewAnchors } = reviewLayer;
+  const { onAnchors: onReadingAnchors } = readingLayer;
   const onQuestionAnchors = useCallback(
     (anchored: QuestionAnchor[], reviewed: ReviewAnchor[], checked = true) => {
       onQuestions(anchored, checked);
@@ -1370,6 +1395,7 @@ function Page() {
       onState: setState,
       onSlots: inlineSlots.onSlots,
       onQuestions: onQuestionAnchors,
+      onReadings: onReadingAnchors,
       viewportInset: () =>
         (toolbar.current?.offsetHeight ?? 0) + (toolbar.current?.getBoundingClientRect().top ?? 0),
       onSelection: (_value, quote, rect) => {
@@ -1418,7 +1444,7 @@ function Page() {
       controller.abort();
       renderer.current = null;
     };
-  }, [view.source, endedError, inlineSlots.onSlots, onQuestionAnchors]);
+  }, [view.source, endedError, inlineSlots.onSlots, onQuestionAnchors, onReadingAnchors]);
   useEffect(() => {
     if (state !== 'ready') return;
     renderer.current?.highlight(
@@ -1631,6 +1657,7 @@ function Page() {
           <div className="frame-host" ref={host} />
           {proposalLayer.inline}
           {reviewLayer.inline}
+          {readingLayer.inline}
           {questionLayer.inline}
           {(state === 'navigation' || state === 'failed') && (
             <NoticeCard
@@ -2056,16 +2083,17 @@ export function createAppRouter(transport: PageTransport, space?: string) {
           const fragment = new URLSearchParams(location.hash.slice(1));
           let path = fragment.get('space') === space ? (fragment.get('path') ?? '/') : '/blocked';
           if (!/^\/(?:pages\/[0-9a-f-]+|short\/[0-9a-f-]{8,36})?$/.test(path)) path = '/blocked';
+          const read = ownerReadingHint(new URL(location.href), space);
+          const search = read ? `?read=${read}` : '';
           return {
-            href: path,
+            href: path + search,
             pathname: path,
-            search: '',
+            search,
             hash: '',
             state: { ...window.history.state, __TSR_index: window.history.state?.__TSR_index ?? 0 },
           };
         },
-        createHref: (path) =>
-          `${location.pathname}#space=${space}${path === '/' ? '' : `&path=${encodeURIComponent(path)}`}`,
+        createHref: (path) => ownerReadingHref(path, location.pathname, space),
       })
     : createHashHistory();
   const router = createRouter({

@@ -97,3 +97,26 @@ test('deleting the original page reserves old prefixes and never exposes its tit
   await expect(page.locator('[aria-disabled="true"]')).toContainText('Deleted page');
   await expect(page.locator('#short-fixture iframe')).toHaveCount(0);
 });
+
+for (const collision of [false, true])
+  test(`an owner reading hint survives ${collision ? 'the prefix chooser' : 'unique prefix resolution'} and only highlights its passage`, async ({
+    page,
+  }) => {
+    const read = '10000000-0000-4000-8000-000000000401';
+    await page.goto('/');
+    await page.evaluate(
+      async ({ fixture, collision, read }) =>
+        (await import(fixture)).mount('12345678', collision, false, read),
+      { fixture, collision, read },
+    );
+    if (collision) {
+      await expect(page.getByRole('heading', { name: 'Choose a page' })).toBeVisible();
+      await page.getByRole('link', { name: /Original proposal/ }).click();
+    }
+    const frame = page.frameLocator('#short-fixture iframe');
+    await expect(frame.getByRole('heading', { name: 'Recommended passage' })).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`&read=${read}$`));
+    await expect
+      .poll(() => frame.locator('body').evaluate(() => CSS.highlights.has('colab-reading')))
+      .toBe(true);
+  });

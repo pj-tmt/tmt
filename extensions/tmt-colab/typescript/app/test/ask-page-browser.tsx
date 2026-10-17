@@ -1712,3 +1712,85 @@ export function resumeAttachmentUploads() {
   releaseAttachmentUpload?.();
   releaseAttachmentUpload = undefined;
 }
+
+/** Inert reading markup exercises the real page parser, renderer and person-status owner. */
+export function reading(options: { count?: number; darkPage?: boolean; forged?: boolean } = {}) {
+  current = {
+    ...current,
+    threads: [],
+    asks: [],
+    source: `<style>body{margin:24px;font:16px/1.5 sans-serif;background:${options.darkPage ? '#181818' : '#fff'};color:${options.darkPage ? '#eee' : '#222'}}</style><h1>Release reading</h1><p>Read the decisions before the next step.</p>${Array.from({ length: options.count ?? 2 }, (_, index) => `<tmt-read data-id="${id(240 + index)}" data-agent="Agent 1" data-why="Read before approving the release"${options.forged ? ' data-colab-reading-closed="true"' : ''}><h2 data-title>Decision ${index + 1}</h2><p>Content of reading ${index + 1}. The page remains readable after marking it read.</p></tmt-read>`).join('')}<p>The page continues here.</p>`,
+  };
+  emit();
+}
+
+/** Already admitted notification outcomes; the UI never converts Resolve into delivery. */
+export function readingDelivery(state: PageAsk['state'] | 'unavailable') {
+  const thread = current.threads!.find((thread) => thread.status?.recipients.length)!;
+  const status = thread.status!;
+  const recipient = status.recipients[0];
+  if (state === 'unavailable') {
+    current = {
+      ...current,
+      asks: [],
+      threads: current.threads!.map((row) =>
+        row === thread
+          ? {
+              ...row,
+              statuses: [status],
+              notifications: [
+                {
+                  version: 1,
+                  kind: 'thread-notification',
+                  spaceId: thread.spaceId,
+                  pageId: thread.pageId,
+                  epoch: thread.epoch,
+                  senderDevice: status.senderDevice,
+                  revision: '1',
+                  deleted: false,
+                  deviceName: 'You',
+                  at: status.at,
+                  status: status.ref,
+                  operationId: recipient.operationId,
+                  reason: 'RECIPIENT_UNAVAILABLE',
+                },
+              ],
+            }
+          : row,
+      ),
+    };
+  } else {
+    current = {
+      ...current,
+      threads: current.threads!.map((row) =>
+        row === thread ? { ...row, statuses: [status] } : row,
+      ),
+      asks: [
+        {
+          thread: thread.threadId,
+          writer: status.ref.writer,
+          operationId: recipient.operationId,
+          machine: recipient.machine,
+          agent: recipient.agent,
+          agentName: recipient.agentName,
+          messageIds: [],
+          message: '',
+          deviceName: 'You',
+          issuedAt: Date.now(),
+          canTrack: true,
+          state,
+        },
+      ],
+    };
+  }
+  emit();
+}
+
+/** A later authored requester rename cannot rewrite an admitted notification recipient. */
+export function renameReadingRequester() {
+  current = {
+    ...current,
+    source: current.source.replaceAll('data-agent="Agent 1"', 'data-agent="Agent 2"'),
+  };
+  emit();
+}

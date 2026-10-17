@@ -156,3 +156,28 @@ it('no-op, reopen and failed status publication cannot notify or enumerate recip
   );
   expect([sends, lists, writes]).toEqual([0, 0, 1]);
 });
+
+it('a reading close freezes only its named current agent, never title, reason or prose mentions', () => {
+  const a = agent('alpha', '1');
+  const b = agent('beta', '2');
+  const captured = thread('Read “@beta”\nReading: reading-id\nPage: @beta\n@alpha\nProse @missing');
+  const frozen = freezeThreadRecipients(captured, [ask()], [a, b], 'alpha');
+  expect(Object.keys(frozen.recipients[0]).sort()).toEqual([
+    'agent',
+    'agentName',
+    'machine',
+    'operationId',
+  ]);
+  expect(
+    frozen.recipients.map(({ machine, agent, agentName }) => ({ machine, agent, agentName })),
+  ).toEqual([{ machine: a.machine, agent: a.agent, agentName: 'alpha' }]);
+  expect(frozen.warnings).toEqual([]);
+  expect(freezeThreadRecipients(captured, [ask()], [], 'alpha')).toEqual({
+    recipients: [],
+    warnings: [{ name: 'alpha', reason: 'unknown' }],
+  });
+  expect(freezeThreadRecipients(captured, [], [a, agent('alpha', '3')], 'alpha')).toEqual({
+    recipients: [],
+    warnings: [{ name: 'alpha', reason: 'ambiguous' }],
+  });
+});

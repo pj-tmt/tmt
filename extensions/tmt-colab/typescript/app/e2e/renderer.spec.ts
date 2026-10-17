@@ -54,6 +54,9 @@ async function mount(page: Page, source: string) {
           host.dataset.questions = JSON.stringify(questions);
           host.dataset.reviews = JSON.stringify(reviews);
         },
+        onReadings: (readings: unknown[]) => {
+          host.dataset.readings = JSON.stringify(readings);
+        },
         onOpenThread: (id: string) => {
           host.dataset.opened = id;
         },
@@ -1057,12 +1060,14 @@ test('question groups and split slot geometry admit only the current closed resp
     const id = '80000000-0000-4000-8000-000000000001';
     const group = '80000000-0000-4000-8000-000000000002';
     const section = '80000000-0000-4000-8000-000000000003';
+    const reading = '80000000-0000-4000-8000-000000000004';
+    const readingBlocks = [{ id: reading, title: 'Read this', closed: false }];
     const blocks = [{ id, title: 'Which heading?' }];
     const groups = [{ id: group, title: 'Review', questions: [id], active: id }];
     const reviews = [{ id: section, title: 'Plan', closed: false }];
-    w.probe.handle.questions(blocks, [], groups, reviews);
+    w.probe.handle.questions(blocks, [], groups, reviews, readingBlocks);
     const stale = w.questionRequest.requestId;
-    w.probe.handle.questions(blocks, [], groups, reviews);
+    w.probe.handle.questions(blocks, [], groups, reviews, readingBlocks);
     const current = {
       type: 'colab.render.questions',
       renderId: w.questionRequest.renderId,
@@ -1071,6 +1076,9 @@ test('question groups and split slot geometry admit only the current closed resp
         { id, selector: { exact: 'Which heading?', prefix: '', suffix: '' }, threads: [] },
       ],
       reviews: [{ id: section, selector: { exact: 'Plan', prefix: '', suffix: '' }, threads: [] }],
+      readings: [
+        { id: reading, selector: { exact: 'Read this', prefix: '', suffix: '' }, threads: [] },
+      ],
     };
     const emit = (value: unknown) =>
       w.questionPort.dispatchEvent(new MessageEvent('message', { data: value }));
@@ -1085,6 +1093,17 @@ test('question groups and split slot geometry admit only the current closed resp
       // The previous four-key response and every unrequested, forged or repeated section.
       previousShape,
       { ...current, reviews: [{ ...current.reviews[0], answered: true }] },
+      { ...current, readings: null },
+      { ...current, readings: [{ ...current.readings[0], read: true }] },
+      { ...current, readings: [{ ...current.readings[0], id }] },
+      { ...current, readings: [{ ...current.readings[0], threads: ['foreign'] }] },
+      { ...current, readings: [current.readings[0], current.readings[0]] },
+      {
+        ...current,
+        readings: [
+          { ...current.readings[0], selector: { exact: 'Forged', prefix: '', suffix: '' } },
+        ],
+      },
       { ...current, reviews: [{ ...current.reviews[0], id }] },
       { ...current, reviews: [{ ...current.reviews[0], threads: ['foreign'] }] },
       { ...current, reviews: [current.reviews[0], current.reviews[0]] },
@@ -1109,6 +1128,7 @@ test('question groups and split slot geometry admit only the current closed resp
     emit(current);
     const admitted = read();
     const admittedReviews = readReviews();
+    const admittedReadings = document.getElementById('probe')!.dataset.readings;
     w.probe.handle.slots([{ id: group, height: 99999, before: 99999 }]);
     const slot = {
       id: group,
@@ -1165,6 +1185,7 @@ test('question groups and split slot geometry admit only the current closed resp
       rejected,
       admitted,
       admittedReviews,
+      admittedReadings,
       groups: w.questionRequest.groups,
       rejectedGeometry,
       clamped: w.splitRequest.slots[0],
@@ -1173,9 +1194,10 @@ test('question groups and split slot geometry admit only the current closed resp
       restored: geometry(),
     };
   });
-  expect(result.rejected).toEqual(Array(14).fill('[]'));
+  expect(result.rejected).toEqual(Array(20).fill('[]'));
   expect(JSON.parse(result.admitted!)).toHaveLength(1);
   expect(JSON.parse(result.admittedReviews!)).toHaveLength(1);
+  expect(JSON.parse(result.admittedReadings!)).toHaveLength(1);
   expect(result.groups).toEqual([
     {
       id: '80000000-0000-4000-8000-000000000002',
@@ -1733,3 +1755,68 @@ test('cosmetic key notifications admit only the current render and closed Escape
   await page.keyboard.press('@');
   await expect(probe).toHaveAttribute('data-keys', '["@","Escape","@"]');
 });
+
+test('reading headings resolve only requested IDs and jumps only highlight without opening a thread', async ({
+  page,
+}) => {
+  const id = '10000000-0000-4000-8000-000000000401';
+  await page.goto('/');
+  await mount(
+    page,
+    `<tmt-read data-id="${id}" data-agent="Agent 1" data-why="Read this"><h2 data-title>Hosting</h2><p>The passage.</p></tmt-read>`,
+  );
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  await page.evaluate((id) => {
+    const w = window as unknown as {
+      probe: { handle: Awaited<ReturnType<typeof import('../src/renderer.js').mountRenderer>> };
+    };
+    w.probe.handle.questions([], [], [], [], [{ id, title: 'Hosting', closed: false }]);
+  }, id);
+  await expect.poll(() => page.locator('#probe').getAttribute('data-readings')).toContain(id);
+  const readings = JSON.parse((await page.locator('#probe').getAttribute('data-readings'))!);
+  expect(readings).toEqual([
+    { id, selector: expect.objectContaining({ exact: 'Hosting' }), threads: [] },
+  ]);
+  await page.evaluate((id) => {
+    const w = window as unknown as {
+      probe: { handle: Awaited<ReturnType<typeof import('../src/renderer.js').mountRenderer>> };
+    };
+    w.probe.handle.scrollReading(id);
+  }, id);
+  const frame = page.frameLocator('#probe iframe');
+  await expect
+    .poll(() => frame.locator('body').evaluate(() => CSS.highlights.has('colab-reading')))
+    .toBe(true);
+  await expect(page.locator('#probe')).not.toHaveAttribute('data-opened');
+});
+
+for (const admitted of [false, true])
+  test(`an ${admitted ? 'admitted' : 'unadmitted'} reading tag cannot steal an existing proposal slot`, async ({
+    page,
+  }) => {
+    const id = '10000000-0000-4000-8000-000000000401';
+    await page.goto('/');
+    await mount(
+      page,
+      `<tmt-proposal data-id="${id}"></tmt-proposal><tmt-read data-id="${id}" data-agent="Agent 1" data-why="Read this"><h2 data-title>Reading</h2></tmt-read>`,
+    );
+    await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+    await page.evaluate(
+      ({ id, admitted }) => {
+        const w = window as unknown as {
+          probe: { handle: Awaited<ReturnType<typeof import('../src/renderer.js').mountRenderer>> };
+        };
+        w.probe.handle.questions(
+          [],
+          [],
+          [],
+          [],
+          admitted ? [{ id, title: 'Reading', closed: false }] : [],
+        );
+        w.probe.handle.slots([{ id, height: 20 }]);
+      },
+      { id, admitted },
+    );
+    await expect.poll(() => page.locator('#probe').getAttribute('data-slots')).toContain(id);
+    expect(JSON.parse((await page.locator('#probe').getAttribute('data-slots'))!)).toHaveLength(1);
+  });

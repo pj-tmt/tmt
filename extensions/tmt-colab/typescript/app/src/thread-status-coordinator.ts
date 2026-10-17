@@ -25,6 +25,7 @@ export function freezeThreadRecipients(
   thread: ThreadView,
   asks: readonly PageAsk[],
   destinations: readonly AgentDestination[],
+  onlyAgentName?: string,
 ) {
   const current = new Map<
     string,
@@ -40,6 +41,33 @@ export function freezeThreadRecipients(
     map.set(name, matches);
   };
   for (const destination of destinations) put(current, destination.agentName, destination);
+  // Reading actions resolve their authored name from the current directory only. The
+  // passage's other mentions and prior Asks must not expand this explicit recipient.
+  if (onlyAgentName !== undefined) {
+    const matches = current.get(onlyAgentName);
+    if (matches?.size !== 1)
+      return {
+        recipients: [] as ThreadRecipient[],
+        warnings: [
+          {
+            name: onlyAgentName,
+            reason: matches?.size ? ('ambiguous' as const) : ('unknown' as const),
+          },
+        ],
+      };
+    const value = [...matches.values()][0];
+    return {
+      recipients: [
+        {
+          machine: value.machine,
+          agent: value.agent,
+          agentName: onlyAgentName,
+          operationId: crypto.randomUUID(),
+        },
+      ],
+      warnings: [] as MentionWarning[],
+    };
+  }
   const recipients = new Map<string, ThreadRecipient>();
   const warnings = new Map<string, MentionWarning>();
   for (const comment of thread.comments.filter((value) => !value.deleted)) {
@@ -110,17 +138,24 @@ export interface ThreadStatusCoordinatorOptions {
 export class ThreadStatusCoordinator {
   #changing = new Map<string, Promise<StatusChange & { warnings?: MentionWarning[] }>>();
   constructor(private options: ThreadStatusCoordinatorOptions) {}
-  change(thread: ThreadView, resolved: boolean) {
+  change(thread: ThreadView, resolved: boolean, options?: { onlyAgentName: string }) {
     const key = discussionRefKey(thread.ref);
     const pending = this.#changing.get(key);
     if (pending) return pending;
     const captured = structuredClone(thread);
     const asks = structuredClone([...this.options.asks()]);
-    const task = this.#change(captured, asks, resolved).finally(() => this.#changing.delete(key));
+    const task = this.#change(captured, asks, resolved, options?.onlyAgentName).finally(() =>
+      this.#changing.delete(key),
+    );
     this.#changing.set(key, task);
     return task;
   }
-  async #change(thread: ThreadView, asks: readonly PageAsk[], resolved: boolean) {
+  async #change(
+    thread: ThreadView,
+    asks: readonly PageAsk[],
+    resolved: boolean,
+    onlyAgentName?: string,
+  ) {
     requireValue(isStatusThread(thread));
     if (thread.resolved === resolved) return { changed: false } as const;
     let destinations: readonly AgentDestination[] = [];
@@ -133,7 +168,7 @@ export class ThreadStatusCoordinator {
       }
     }
     const frozen = resolved
-      ? freezeThreadRecipients(thread, asks, destinations)
+      ? freezeThreadRecipients(thread, asks, destinations, onlyAgentName)
       : { recipients: [], warnings: [] };
     const result = await this.options.binding.setStatus(
       thread.ref,

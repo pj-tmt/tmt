@@ -79,9 +79,8 @@ opening. Open browsers only on request.
 tmt colab page check page.html --json
 ```
 
-Offline and instant. It lists question blocks and groups the browser would silently ignore, heavy
-`data:` images and `colab-attachment:` references that cannot show, each with a `code` and a
-`line`; exit 1 means fix the page first (`tmt colab skill questions` explains the codes).
+Offline: lists ignored markup, heavy `data:` images and unusable `colab-attachment:` references,
+with `code` and `line`. Exit 1 means fix the page first.
 `page create` and `page write` run the same check and report `warnings`; `--strict`
 refuses to publish while any remain.
 
@@ -212,5 +211,7 @@ characters and no leading, trailing or doubled spaces; a page holds at most 8 la
 write replaces the page's whole set (last writer wins); `changed:false` means nothing
 differed. `ls` and `show --json` list each page's `labels`.
 
-Read [references/questions.md](references/questions.md) or `tmt colab skill questions` for answer-block markup and thread answers.
-Read [references/reviews.md](references/reviews.md) or `tmt colab skill reviews` for review-section markup.
+After page create/update, add reading anchors for passages the reader must not miss.
+Markup: [questions](references/questions.md) (`tmt colab skill questions`),
+[reviews](references/reviews.md) (`tmt colab skill reviews`),
+[reading](references/reading.md) (`tmt colab skill reading`).

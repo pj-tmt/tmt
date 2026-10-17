@@ -6614,6 +6614,10 @@ fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
             include_bytes!("../../../skills/tmt-colab/references/questions.md").as_slice(),
         ),
         (
+            "reading",
+            include_bytes!("../../../skills/tmt-colab/references/reading.md").as_slice(),
+        ),
+        (
             "reviews",
             include_bytes!("../../../skills/tmt-colab/references/reviews.md").as_slice(),
         ),
@@ -7256,6 +7260,30 @@ fn page_check_reports_review_sections_by_reason_and_keeps_their_questions() {
     let report: Value = serde_json::from_slice(&ok.stdout).unwrap();
     assert_eq!(report["reviews"], json!({"admitted": 1, "ignored": 0}));
     assert_eq!(report["ok"], true);
+}
+#[test]
+fn page_check_reports_reading_admission_and_required_metadata() {
+    let pilot = Pilot::new(None);
+    let file = pilot.root.join("reading.html");
+    fs::write(&file, concat!(
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000401\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>\n",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000402\"><h2 data-title>Other</h2></tmt-read>"
+    )).unwrap();
+    let output = pilot
+        .command()
+        .args(["page", "check", file.to_str().unwrap(), "--json"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["readings"], json!({"admitted": 1, "ignored": 1}));
+    assert_eq!(
+        finding_codes(&report["findings"]),
+        [
+            ("reading-agent-invalid".to_owned(), 2),
+            ("reading-why-invalid".to_owned(), 2),
+        ]
+    );
 }
 #[test]
 fn page_check_refuses_input_it_cannot_read_and_pages_it_cannot_find() {

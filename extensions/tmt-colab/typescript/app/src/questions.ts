@@ -7,6 +7,7 @@ import {
 
 export const QUESTION_LIMIT = 50;
 export const REVIEW_LIMIT = 50;
+export const READING_LIMIT = 50;
 export const QUESTION_GROUP_LIMIT = 12;
 export const QUESTION_LABEL_POINTS = 24;
 export const QUESTION_TITLE_POINTS = 200;
@@ -40,6 +41,13 @@ export interface Review {
   title: string;
   agent: string;
   questions: string[];
+}
+/** Inert authored metadata; a person's thread record owns the read state. */
+export interface Reading {
+  id: string;
+  title: string;
+  agent: string;
+  why: string;
 }
 const bytes = (value: string) => new TextEncoder().encode(value).length;
 export const questionText = (value: string) => value.replace(/\s+/gu, ' ').trim();
@@ -98,7 +106,18 @@ export type QuestionFindingCode =
   | 'review-title-empty'
   | 'review-title-too-long'
   | 'review-title-control'
-  | 'review-agent-invalid';
+  | 'review-agent-invalid'
+  | 'reading-page-limit'
+  | 'reading-id-invalid'
+  | 'reading-id-duplicate'
+  | 'reading-nested'
+  | 'reading-heading-missing'
+  | 'reading-heading-multiple'
+  | 'reading-title-empty'
+  | 'reading-title-too-long'
+  | 'reading-title-control'
+  | 'reading-agent-invalid'
+  | 'reading-why-invalid';
 export interface QuestionFinding {
   /** Lowercase tag name, and the 1-based index among elements with that tag in document order. */
   element: string;
@@ -115,6 +134,7 @@ export interface QuestionInspection {
   questions: Question[];
   groups: QuestionGroup[];
   reviews: Review[];
+  readings: Reading[];
   findings: QuestionFinding[];
 }
 
@@ -205,6 +225,29 @@ const REVIEW_RULES: ReadonlyArray<readonly [QuestionFindingCode, (c: ReviewCandi
     ['review-title-control', (c) => c.headings === 1 && hasControl(c.title)],
     ['review-agent-invalid', (c) => over(c.agent, QUESTION_AGENT_POINTS) || hasControl(c.agent)],
   ];
+interface ReadingCandidate extends ReviewCandidate {
+  why: string;
+}
+const READING_RULES: ReadonlyArray<
+  readonly [QuestionFindingCode, (c: ReadingCandidate) => boolean]
+> = [
+  ['reading-id-invalid', (c) => !uuid.test(c.id)],
+  ['reading-id-duplicate', (c) => uuid.test(c.id) && c.holders > 1],
+  ['reading-nested', (c) => c.nested],
+  ['reading-heading-missing', (c) => c.headings === 0],
+  ['reading-heading-multiple', (c) => c.headings > 1],
+  ['reading-title-empty', (c) => c.headings === 1 && !c.title],
+  ['reading-title-too-long', (c) => c.headings === 1 && over(c.title, QUESTION_TITLE_POINTS)],
+  ['reading-title-control', (c) => c.headings === 1 && hasControl(c.title)],
+  [
+    'reading-agent-invalid',
+    (c) => !c.agent.trim() || over(c.agent, QUESTION_AGENT_POINTS) || hasControl(c.agent),
+  ],
+  [
+    'reading-why-invalid',
+    (c) => !c.why.trim() || over(c.why, QUESTION_TITLE_POINTS) || hasControl(c.why),
+  ],
+];
 const LABEL_RULES: ReadonlyArray<readonly [QuestionFindingCode, (label: string) => boolean]> = [
   ['group-label-too-long', (label) => over(label, QUESTION_LABEL_POINTS)],
   ['group-label-control', hasControl],
@@ -229,6 +272,8 @@ export const QUESTION_FINDING_CODES: readonly QuestionFindingCode[] = [
   'question-form-member',
   'review-page-limit',
   ...REVIEW_RULES.map(([code]) => code),
+  'reading-page-limit',
+  ...READING_RULES.map(([code]) => code),
 ];
 
 /**
@@ -243,6 +288,8 @@ export function inspectQuestions(source: string): QuestionInspection {
   const nodes = [...root.querySelectorAll('tmt-question')];
   const groupNodes = [...root.querySelectorAll('tmt-questions')];
   const allReviewNodes = [...root.querySelectorAll('tmt-review')];
+  const allReadingNodes = [...root.querySelectorAll('tmt-read')];
+  const readingNodes = allReadingNodes.length > READING_LIMIT ? [] : allReadingNodes;
   // Past the cap the page supplies no sections at all, and none of them holds an ID.
   const reviewNodes = allReviewNodes.length > REVIEW_LIMIT ? [] : allReviewNodes;
   const authored = (node: Element | undefined) => node?.getAttribute('data-id') ?? null;
@@ -252,6 +299,7 @@ export function inspectQuestions(source: string): QuestionInspection {
       questions: [],
       groups: [],
       reviews: [],
+      readings: [],
       findings: [
         {
           element: 'tmt-question',
@@ -269,7 +317,7 @@ export function inspectQuestions(source: string): QuestionInspection {
       id: idOf(node),
       headings: headings.length,
       title: questionText(headings[0]?.textContent ?? ''),
-      nested: !!node.parentElement?.closest('tmt-questions, tmt-question'),
+      nested: !!node.parentElement?.closest('tmt-questions, tmt-question, tmt-read'),
       count: [...node.children].filter((child) => child.matches('tmt-question')).length,
       holders: 0,
     });
@@ -287,6 +335,7 @@ export function inspectQuestions(source: string): QuestionInspection {
   // hold IDs only when non-duplicate structural rules passed; wrapped children never hold IDs.
   groupNodes.forEach(hold);
   reviewNodes.forEach(hold);
+  readingNodes.forEach(hold);
   const questionHolders = new Set<Element>();
   for (const node of nodes) {
     const group = node.parentElement?.closest('tmt-questions');
@@ -331,7 +380,7 @@ export function inspectQuestions(source: string): QuestionInspection {
     if (suppressed(node)) return;
     const id = idOf(node);
     const group = node.parentElement?.closest('tmt-questions') ?? null;
-    const nested = !!node.parentElement?.closest('tmt-question');
+    const nested = !!node.parentElement?.closest('tmt-question, tmt-read');
     const headings = [...node.children].filter((child) => child.hasAttribute('data-question'));
     const candidate: Candidate = {
       id,
@@ -412,7 +461,7 @@ export function inspectQuestions(source: string): QuestionInspection {
       agent: node.getAttribute('data-agent') ?? '',
       headings: headings.length,
       title: questionText(headings[0]?.textContent ?? ''),
-      nested: !!node.parentElement?.closest('tmt-review, tmt-question, tmt-questions'),
+      nested: !!node.parentElement?.closest('tmt-review, tmt-question, tmt-questions, tmt-read'),
       holders: holders.get(idOf(node)) ?? 0,
     };
     const failed = REVIEW_RULES.filter(([, fails]) => fails(candidate));
@@ -433,6 +482,45 @@ export function inspectQuestions(source: string): QuestionInspection {
         .filter(([question]) => node.contains(question))
         .map(([, question]) => question.id),
     });
+  });
+  const readings: Reading[] = [];
+  if (allReadingNodes.length > READING_LIMIT)
+    findings.push({
+      element: 'tmt-read',
+      ordinal: READING_LIMIT + 1,
+      id: authored(allReadingNodes[READING_LIMIT]),
+      severity: 'ignored',
+      code: 'reading-page-limit',
+    });
+  readingNodes.forEach((node, index) => {
+    const headings = [...node.children].filter((child) => child.hasAttribute('data-title'));
+    const candidate: ReadingCandidate = {
+      id: idOf(node),
+      agent: node.getAttribute('data-agent') ?? '',
+      why: node.getAttribute('data-why') ?? '',
+      headings: headings.length,
+      title: questionText(headings[0]?.textContent ?? ''),
+      nested:
+        !!node.parentElement?.closest('tmt-read, tmt-review, tmt-question, tmt-questions') ||
+        !!node.querySelector('tmt-read, tmt-review, tmt-question, tmt-questions'),
+      holders: holders.get(idOf(node)) ?? 0,
+    };
+    const failed = READING_RULES.filter(([, fails]) => fails(candidate));
+    for (const [code] of failed)
+      findings.push({
+        element: 'tmt-read',
+        ordinal: index + 1,
+        id: authored(node),
+        severity: 'ignored',
+        code,
+      });
+    if (!failed.length)
+      readings.push({
+        id: candidate.id,
+        title: candidate.title,
+        agent: candidate.agent,
+        why: candidate.why,
+      });
   });
   const groups: QuestionGroup[] = [];
   // Preserve authored group/lone-question order. Empty is a post-child result, never structural.
@@ -497,7 +585,7 @@ export function inspectQuestions(source: string): QuestionInspection {
       code: 'question-marker-misplaced',
     });
   }
-  return { questions, groups, reviews, findings };
+  return { questions, groups, reviews, readings, findings };
 }
 
 export const readQuestions = (source: string): Question[] => inspectQuestions(source).questions;

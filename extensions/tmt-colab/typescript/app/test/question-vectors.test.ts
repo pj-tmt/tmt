@@ -9,6 +9,7 @@ import {
   QUESTION_LIMIT,
   QUESTION_TITLE_POINTS,
   REVIEW_LIMIT,
+  READING_LIMIT,
 } from '../src/questions.js';
 import { vectors } from './question-vectors.js';
 
@@ -17,6 +18,7 @@ it('the vector limits equal the named constants, so a number cannot drift', () =
   expect({
     pageQuestions: limits.pageQuestions,
     pageReviews: limits.pageReviews,
+    pageReadings: limits.pageReadings,
     groupQuestions: limits.groupQuestions,
     labelPoints: limits.labelPoints,
     titlePoints: limits.titlePoints,
@@ -26,6 +28,7 @@ it('the vector limits equal the named constants, so a number cannot drift', () =
   }).toEqual({
     pageQuestions: QUESTION_LIMIT,
     pageReviews: REVIEW_LIMIT,
+    pageReadings: READING_LIMIT,
     groupQuestions: QUESTION_GROUP_LIMIT,
     labelPoints: QUESTION_LABEL_POINTS,
     titlePoints: QUESTION_TITLE_POINTS,

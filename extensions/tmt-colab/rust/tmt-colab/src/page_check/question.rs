@@ -3,12 +3,12 @@
 use std::collections::HashMap;
 
 use super::{
-    Finding, Question, QuestionGroup, Report, Severity, group, review,
+    Finding, Question, QuestionGroup, Report, Severity, group, reading, review,
     tree::{Id, Tree},
 };
 use crate::limits::{
     QUESTION_AGENT_POINTS, QUESTION_CHOICE_POINTS, QUESTION_CHOICES, QUESTION_PAGE,
-    QUESTION_TITLE_POINTS, REVIEW_PAGE,
+    QUESTION_TITLE_POINTS, READING_PAGE, REVIEW_PAGE,
 };
 
 const KINDS: [&str; 4] = ["single", "multiple", "short", "long"];
@@ -188,6 +188,8 @@ pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) 
     let all_reviews = named("tmt-review");
     report.question_blocks = questions.len();
     report.review_blocks = all_reviews.len();
+    let all_readings = named("tmt-read");
+    report.reading_blocks = all_readings.len();
     if questions.len() > QUESTION_PAGE {
         // The browser drops the whole page's questions; one finding names the first over the cap.
         report.findings.push(finding(
@@ -210,7 +212,20 @@ pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) 
     } else {
         all_reviews
     };
-    let survey = group::Survey::new(tree, &groups, &questions, &reviews);
+    let readings = if all_readings.len() > READING_PAGE {
+        report.findings.push(finding(
+            all_readings[READING_PAGE],
+            Severity::Ignored,
+            "reading-page-limit",
+            None,
+        ));
+        Vec::new()
+    } else {
+        all_readings
+    };
+    let mut identity_holders = reviews.clone();
+    identity_holders.extend(&readings);
+    let survey = group::Survey::new(tree, &groups, &questions, &identity_holders);
     for group in &groups {
         if let Some((code, skipped)) = survey.skipped(*group) {
             report
@@ -248,7 +263,7 @@ pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) 
                 .filter(|child| tree.attr(*child, "data-choice").is_some())
                 .map(|child| question_text(&tree.text(child)))
                 .collect(),
-            nested: tree.has_ancestor(id, "tmt-question"),
+            nested: tree.has_ancestor(id, "tmt-question") || tree.has_ancestor(id, "tmt-read"),
             wrapped: container.is_some_and(|c| {
                 tree.name(c) == "tmt-questions" && tree.parent_element(id) != Some(c)
             }),
@@ -364,6 +379,7 @@ pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) 
         }
     }
     review::check(tree, &ordinals, &survey, &reviews, &admitted_nodes, report);
+    reading::check(tree, &ordinals, &survey, &readings, report);
     // A marker outside a question is plain content to the browser: nothing is ignored, nothing
     // shows. Inside a skipped group the whole subtree is silent.
     for id in elements {

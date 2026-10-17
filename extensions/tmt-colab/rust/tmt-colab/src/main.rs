@@ -39,6 +39,10 @@ const SKILL_REFERENCES: &[(&str, &str)] = &[
         include_str!("../../../skills/tmt-colab/references/questions.md"),
     ),
     (
+        "reading",
+        include_str!("../../../skills/tmt-colab/references/reading.md"),
+    ),
+    (
         "reviews",
         include_str!("../../../skills/tmt-colab/references/reviews.md"),
     ),

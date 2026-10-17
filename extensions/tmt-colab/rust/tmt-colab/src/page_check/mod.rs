@@ -9,6 +9,7 @@
 mod group;
 mod image;
 mod question;
+mod reading;
 mod review;
 mod tree;
 
@@ -90,6 +91,15 @@ pub struct Review {
     pub questions: Vec<String>,
 }
 
+/// An inert reading passage; its ordinary thread records own the read state.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Reading {
+    pub id: String,
+    pub title: String,
+    pub agent: String,
+    pub why: String,
+}
+
 /// A `colab-attachment:` reference in the right form, at its first use on the page.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Reference {
@@ -107,6 +117,10 @@ pub struct Report {
     pub groups: Vec<QuestionGroup>,
     /// The review sections the page shows, in document order.
     pub reviews: Vec<Review>,
+    /// Reading passages, in document order.
+    pub readings: Vec<Reading>,
+    /// Authored reading blocks, admitted or not.
+    pub reading_blocks: usize,
     /// How many `tmt-question` blocks the source holds, shown or not.
     pub question_blocks: usize,
     /// How many `tmt-review` blocks the source holds, shown or not.
@@ -213,6 +227,8 @@ pub fn codes() -> Vec<&'static str> {
     codes.extend(group::RULES.iter().map(|(code, _)| *code));
     codes.extend(group::LABEL_CODES);
     codes.extend(group::FORM_CODES);
+    codes.push("reading-page-limit");
+    codes.extend(reading::RULES.iter().map(|(code, _)| *code));
     codes.push("review-page-limit");
     codes.extend(review::RULES.iter().map(|(code, _)| *code));
     // Not a rule of the group itself: a group that passed and shows nothing.

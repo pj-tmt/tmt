@@ -102,3 +102,76 @@ test('a section confirmed in the browser is a resolved thread to the CLI, and an
     await expect.poll(() => thread('Section two')?.resolved).toBe(true);
   });
 });
+
+test('recommended reading records one person read and notification, survives reload, and links only scroll', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const agent = await world.startAgent('reading-agent');
+    const author = await pairBrowser(world, 'reading-author', { talk: true });
+    const viewer = await pairBrowser(world, 'reading-viewer', { talk: true });
+    const id = '10000000-0000-4000-8000-000000000401';
+    const next = '10000000-0000-4000-8000-000000000402';
+    const block = (id: string, title: string) =>
+      `<tmt-read data-id="${id}" data-agent="${agent.name}" data-why="Read before deciding"><h2 data-title>${title}</h2><p>Content of ${title}.</p></tmt-read>`;
+    const created = createPage(
+      world,
+      'Reading acceptance',
+      `<h1>Read these decisions</h1>${block(id, 'First decision')}<div style="height:1000px"></div>${block(next, 'Next decision')}`,
+      agent.pane,
+    );
+    const first = await openPage(door, author, created);
+    const band = first.locator(`[data-inline-reading="${id}"]`);
+    await expect(band.getByRole('button', { name: 'Mark read', exact: true })).toBeEnabled();
+    await band.getByRole('button', { name: 'Mark read', exact: true }).click();
+    await expect(band).toHaveAttribute('data-reading-state', 'read');
+    await expect.poll(() => agent.received().length).toBe(1);
+    await expect(band).toContainText(`${agent.name} notified`);
+    const listing = () =>
+      (
+        JSON.parse(run(world, world.binaries.colab, ['threads', created.pageId, '--json'])) as {
+          threads: {
+            resolved: boolean;
+            comments: { body: string }[];
+            anchor: { exact: string } | null;
+          }[];
+        }
+      ).threads;
+    await expect
+      .poll(() => listing().filter((thread) => thread.anchor?.exact === 'First decision').length)
+      .toBe(1);
+    const read = listing().find((thread) => thread.anchor?.exact === 'First decision')!;
+    expect(read.resolved).toBe(true);
+    expect(read.comments).toHaveLength(1);
+    expect(read.comments[0].body).toContain(`Reading: ${id}`);
+    await first.reload();
+    await expect(first.locator(`[data-inline-reading="${id}"]`)).toHaveAttribute(
+      'data-reading-state',
+      'read',
+    );
+    expect(agent.received()).toHaveLength(1);
+    const second = await openPage(door, viewer, created);
+    const url = new URL(second.url());
+    const fragment = new URLSearchParams(url.hash.slice(1));
+    fragment.set('read', next);
+    url.hash = fragment.toString();
+    await second.goto(url.href);
+    await expect(second.locator(`[data-inline-reading="${next}"]`)).toHaveAttribute(
+      'data-reading-state',
+      'unread',
+    );
+    await expect
+      .poll(async () =>
+        second
+          .frameLocator('iframe')
+          .locator('body')
+          .evaluate(() => {
+            const highlights = (CSS as unknown as { highlights: Map<string, { size: number }> })
+              .highlights;
+            return highlights.get('colab-reading')?.size;
+          }),
+      )
+      .toBe(1);
+    expect(listing().filter((thread) => thread.anchor?.exact === 'Next decision')).toHaveLength(0);
+    expect(agent.received()).toHaveLength(1);
+  });
+});
