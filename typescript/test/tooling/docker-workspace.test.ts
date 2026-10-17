@@ -788,3 +788,19 @@ process.exit(result.status ?? 1);
     }
   }
 });
+
+it('keeps the host E2E bootstrap independent of installed packages', () => {
+  const read = (file: string) => readFileSync(path.join(root, file), 'utf8');
+  expect(
+    imports(read('typescript/scripts/run-e2e.mjs')).filter((module) => !module.startsWith('node:'))
+  ).toEqual(['./e2e-dependency-cache.mjs']);
+  expect(
+    imports(read('typescript/scripts/e2e-dependency-cache.mjs')).filter(
+      (module) => !module.startsWith('node:')
+    )
+  ).toEqual([]);
+  expect(read('.dockerignore').split('\n')).toContain('**/node_modules');
+  const image = read('typescript/test/e2e/Dockerfile');
+  expect(image).toContain('RUN npm install --global pnpm@10.33.0');
+  expect(image).toContain('RUN cd typescript && pnpm --filter tmt install --frozen-lockfile');
+});

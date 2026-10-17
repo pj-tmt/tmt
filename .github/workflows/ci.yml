@@ -558,11 +558,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Set up Node.js and pnpm
-        uses: ./.github/actions/setup-tooling
-      - name: Install dependencies
-        working-directory: typescript
-        run: pnpm --filter tmt install --frozen-lockfile
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
       - name: Name exact native E2E dependencies
         id: e2e-dependency-key
         run: node typescript/scripts/e2e-dependency-cache.mjs key >> "$GITHUB_OUTPUT"
@@ -602,7 +601,7 @@ jobs:
         working-directory: typescript
         env:
           TMT_E2E_DEPENDENCY_CACHE: ${{ steps.e2e-admission.outputs.usable == 'true' && format('{0}/tmt-e2e-dependencies', runner.temp) || '' }}
-        run: pnpm test:e2e
+        run: node scripts/run-e2e.mjs
 
   docker-e2e-shard-2:
     name: Docker E2E shard 2/2

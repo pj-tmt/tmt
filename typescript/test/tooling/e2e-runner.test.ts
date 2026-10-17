@@ -338,3 +338,107 @@ process.exitCode = args.includes('build') ? Number(process.env.TMT_BUILD_STATUS)
     }
   }
 );
+
+it.each(['success', 'build failure', 'container failure'])(
+  'runs the host bootstrap without pnpm or node_modules: %s',
+  (mode) => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'tmt-e2e-node-only-')));
+    try {
+      const scripts = path.join(root, 'typescript/scripts');
+      const bin = path.join(root, 'bin');
+      fs.mkdirSync(scripts, { recursive: true });
+      fs.mkdirSync(bin);
+      fs.symlinkSync(process.execPath, path.join(bin, 'node'));
+      for (const file of ['run-e2e.mjs', 'e2e-dependency-cache.mjs']) {
+        fs.copyFileSync(
+          fileURLToPath(new URL(`../../scripts/${file}`, import.meta.url)),
+          path.join(scripts, file)
+        );
+      }
+      const log = path.join(root, 'calls.jsonl');
+      writeExecutable(
+        path.join(bin, 'docker'),
+        `#!/usr/bin/env node
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+fs.appendFileSync(process.env.TMT_RUNNER_LOG, JSON.stringify(['docker', ...args]) + '\\n');
+process.exitCode = args[0] === 'build' ? Number(process.env.TMT_BUILD_STATUS) : args[0] === 'run' ? Number(process.env.TMT_RUNNER_STATUS) : 0;
+`,
+        0o755
+      );
+      for (const command of ['pnpm', 'corepack']) {
+        writeExecutable(
+          path.join(bin, command),
+          `#!/usr/bin/env node
+require('node:fs').appendFileSync(process.env.TMT_RUNNER_LOG, JSON.stringify([${JSON.stringify(command)}]) + '\\n');
+process.exitCode = 99;
+`,
+          0o755
+        );
+      }
+      const result = spawnSync(process.execPath, [path.join(scripts, 'run-e2e.mjs')], {
+        cwd: root,
+        encoding: 'utf8',
+        timeout: 10_000,
+        env: {
+          PATH: bin,
+          HOME: root,
+          TMPDIR: root,
+          TMT_RUNNER_LOG: log,
+          TMT_BUILD_STATUS: mode === 'build failure' ? '23' : '0',
+          TMT_RUNNER_STATUS: mode === 'container failure' ? '29' : '0',
+          TMT_E2E_FILES: 'smoke.e2e.test.ts',
+          TMT_E2E_ADAPTER_TESTS: '1',
+          CARGO_BUILD_JOBS: '2',
+        },
+      });
+      expect(result.error).toBeUndefined();
+      expect(result.signal).toBeNull();
+      expect(result.status).toBe(
+        mode === 'build failure' ? 23 : mode === 'container failure' ? 29 : 0
+      );
+      expect(result.stderr).toBe('');
+      expect(fs.existsSync(path.join(root, 'node_modules'))).toBe(false);
+      expect(fs.existsSync(path.join(root, 'typescript/node_modules'))).toBe(false);
+      const calls: string[][] = fs
+        .readFileSync(log, 'utf8')
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line));
+      expect(calls.every((call) => call[0] === 'docker')).toBe(true);
+      const image = calls[0][3];
+      expect(calls[0]).toEqual([
+        'docker',
+        'build',
+        '--tag',
+        image,
+        '--build-arg',
+        'CARGO_BUILD_JOBS=2',
+        '--build-arg',
+        'TMT_E2E_ADAPTER_TESTS=1',
+        '--file',
+        path.join(root, 'typescript/test/e2e/Dockerfile'),
+        root,
+      ]);
+      if (mode !== 'build failure') {
+        expect(calls[1]).toEqual([
+          'docker',
+          'run',
+          '--rm',
+          '--init',
+          '--network',
+          'none',
+          '--env',
+          'TMT_E2E_FILES=smoke.e2e.test.ts',
+          '--env',
+          'TMT_E2E_ADAPTER_TESTS=1',
+          image,
+        ]);
+      }
+      expect(calls).toHaveLength(mode === 'build failure' ? 2 : 3);
+      expect(calls.at(-1)).toEqual(['docker', 'image', 'rm', '--force', image]);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }
+);
