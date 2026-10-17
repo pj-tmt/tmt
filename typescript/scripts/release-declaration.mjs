@@ -63,31 +63,46 @@ export function declarationAncestry({ repository }) {
 
 export const declaresMinimumCli = (product) => EXTENSIONS.has(product);
 
-/** The cut planner and full-history preparation checkout share the same local ancestry port. */
+/** One tag snapshot and one containment query per floor, shared by this captured plan's products. */
 export function gitDeclarationAncestry(git) {
-  const tags = new Map();
-  const cache = new Map();
+  let tags;
+  const containing = new Map();
   return (cli, floor) => {
-    const key = `${cli.tag_name}:${floor}`;
-    if (cache.has(key)) return cache.get(key);
-    if (!tags.has(cli.tag_name))
-      tags.set(
-        cli.tag_name,
-        git(['rev-parse', '--verify', `refs/tags/${cli.tag_name}^{commit}`]).trim()
+    if (!tags) {
+      const rows = git([
+        'for-each-ref',
+        '--format=%(refname:strip=2)%09%(objectname)%09%(*objectname)%09%(objecttype)%09%(*objecttype)',
+        'refs/tags/v*',
+      ]);
+      tags = new Map(
+        rows
+          .split('\n')
+          .filter(Boolean)
+          .map((row) => {
+            const [name, object, peeled, type, peeledType] = row.split('\t');
+            // Git's starred fields recursively peel annotated tags. Non-commit tags cannot supply a CLI.
+            return [
+              name,
+              type === 'commit' ? object : peeledType === 'commit' ? peeled : undefined,
+            ];
+          })
       );
-    const sha = tags.get(cli.tag_name);
-    assert(SHA.test(sha), 'Missing supporting CLI tag commit.');
-    try {
-      git(['merge-base', '--is-ancestor', floor, sha]);
-    } catch (error) {
-      if (error.cause?.status !== 1) throw error;
-      const observation = { sha, status: 'behind' };
-      cache.set(key, observation);
-      return observation;
     }
-    const observation = { sha, status: floor === sha ? 'identical' : 'ahead' };
-    cache.set(key, observation);
-    return observation;
+    const sha = tags.get(cli.tag_name);
+    assert(SHA.test(sha ?? ''), 'Missing supporting CLI tag commit.');
+    if (!containing.has(floor))
+      containing.set(
+        floor,
+        new Set(git(['tag', '--contains', floor, '--list', 'v*']).split('\n').filter(Boolean))
+      );
+    return {
+      sha,
+      status: containing.get(floor).has(cli.tag_name)
+        ? floor === sha
+          ? 'identical'
+          : 'ahead'
+        : 'behind',
+    };
   };
 }
 

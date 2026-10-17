@@ -1222,6 +1222,21 @@ pub struct VerifiedHostingPublication {
     content_digest: String,
 }
 impl VerifiedHostingPublication {
+    // Both names refer to a selected site's live release; retain the received name.
+    fn release_id<'a>(name: &'a str, site: &str) -> Option<&'a str> {
+        if name.len() > 256 {
+            return None;
+        }
+        let id = name
+            .strip_prefix(&format!("sites/{site}/releases/"))
+            .or_else(|| name.strip_prefix(&format!("sites/{site}/channels/live/releases/")))?;
+        (!id.is_empty()
+            && id
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"_:-".contains(&b)))
+        .then_some(id)
+    }
+
     pub fn public_config(&self) -> &serde_json::Value {
         &self.public_config
     }
@@ -1243,9 +1258,7 @@ impl VerifiedHostingPublication {
             return None;
         }
         let release = value["release"].as_str()?;
-        if !release.starts_with(&format!("sites/{project}/releases/")) || release.len() > 256 {
-            return None;
-        }
+        Self::release_id(release, project)?;
         Some(Self {
             project: project.clone(),
             region: plan.view.database.location.clone(),
@@ -1281,9 +1294,7 @@ impl VerifiedHostingPublication {
             && self
                 .version
                 .starts_with(&format!("sites/{}/versions/", view.project))
-            && self
-                .release
-                .starts_with(&format!("sites/{}/releases/", view.project))
+            && Self::release_id(&self.release, &view.project).is_some()
             && self.rules_digest == view.rules.digest
             && view
                 .hosting
