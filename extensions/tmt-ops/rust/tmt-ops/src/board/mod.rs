@@ -121,7 +121,7 @@ pub fn exit_status(signal: Option<i32>) -> u8 {
 /// Terminal input on its own thread. A blocking read can spin forever once the
 /// terminal hangs up, so the board never waits on it directly; the thread ends
 /// with the process, and a read error disconnects the channel.
-pub(super) enum BoardEvent {
+pub(in crate::board) enum BoardEvent {
     Migration(Option<String>),
     /// The host could not say which agent runs the board, once at startup; the
     /// text is core's own error, shown instead of a bare sender prompt.
@@ -200,6 +200,7 @@ pub(super) enum BoardEvent {
     Opened {
         opening: lane::Opening,
         config: Result<Config, String>,
+        board_pane: Option<String>,
     },
     TokenWindowSaved(Result<Config, String>),
     /// A quiet cache publication; it owns no user action or progress notice.
@@ -324,6 +325,19 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
                 ),
             })
             .map_err(|error| error.message),
+        Request::Swap {
+            target,
+            name,
+            direction,
+        } => effects::swap(core, &target, &direction)
+            .map(|swapped| {
+                if swapped {
+                    format!("Swapped {name} into the {direction} pane beside the board.")
+                } else {
+                    format!("{name} is already beside the board.")
+                }
+            })
+            .map_err(|error| error.message),
         Request::Back => match back::back(core) {
             Ok(Some(focus)) => Ok(format!("Back at {}.", focus.pane)),
             Ok(None) => Ok("Nothing to go back to.".into()),
@@ -337,6 +351,11 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
                 .map(|copied| copied.describe().to_owned())
         }
         Request::Run(argv) => effects::spawn(&argv).map(|()| format!("Started {}.", argv[0])),
+        Request::PreparedRun { action, row } => core
+            .json(&["whoami"])
+            .map_err(|error| error.message)
+            .and_then(|caller| action.argv_with_board_pane(&row, caller["pane"].as_str()))
+            .and_then(|argv| effects::spawn(&argv).map(|()| format!("Started {}.", argv[0]))),
         Request::Talk {
             me,
             squad,
@@ -821,7 +840,11 @@ fn session(
                 }
                 Effect::None
             }
-            Ok(BoardEvent::Opened { opening, config }) => {
+            Ok(BoardEvent::Opened {
+                opening,
+                config,
+                board_pane,
+            }) => {
                 app.in_flight = app.in_flight.saturating_sub(1);
                 dirty = true;
                 app.set_notice(None, false);
@@ -829,6 +852,10 @@ fn session(
                     (_, Err(error)) => Err(error),
                     (lane::Opening::Settings, Ok(config)) => app
                         .open_settings(config)
+                        .map_err(|error| error.message)
+                        .map(|()| true),
+                    (lane::Opening::HostAction(selection), Ok(config)) => app
+                        .open_host_action(config, *selection, board_pane)
                         .map_err(|error| error.message)
                         .map(|()| true),
                     (lane::Opening::ThemePicker(squad), Ok(config)) => {
@@ -945,6 +972,12 @@ fn session(
                 io(lane::Job::Discovery(task));
             }
             Effect::Settings => submit(app, lane::Job::Open(lane::Opening::Settings)),
+            Effect::HostAction => submit(
+                app,
+                lane::Job::Open(lane::Opening::HostAction(Box::new(
+                    app.host_action_selection(),
+                ))),
+            ),
             Effect::SaveSetting => {
                 if app.settings.as_mut().is_some_and(|overlay| overlay.save()) {
                     app.settings_preview();
@@ -1783,7 +1816,13 @@ mod tests {
                 lane::Job::Open(opening) => {
                     reads.set(reads.get() + 1);
                     let config = Config::read(path.clone()).map_err(|error| error.message);
-                    events.send(BoardEvent::Opened { opening, config }).unwrap();
+                    events
+                        .send(BoardEvent::Opened {
+                            opening,
+                            config,
+                            board_pane: None,
+                        })
+                        .unwrap();
                     for code in [KeyCode::Down, KeyCode::Enter, KeyCode::Char('j')] {
                         events.send(key(code)).unwrap();
                     }
@@ -1833,7 +1872,13 @@ mod tests {
                     panic!("unexpected {job:?}")
                 };
                 let config = Config::read(path.clone()).map_err(|error| error.message);
-                events.send(BoardEvent::Opened { opening, config }).unwrap();
+                events
+                    .send(BoardEvent::Opened {
+                        opening,
+                        config,
+                        board_pane: None,
+                    })
+                    .unwrap();
                 for code in [
                     KeyCode::Down,
                     KeyCode::Tab,
@@ -1883,7 +1928,13 @@ mod tests {
                     panic!("unexpected {job:?}")
                 };
                 let config = Config::read(path.clone()).map_err(|error| error.message);
-                events.send(BoardEvent::Opened { opening, config }).unwrap();
+                events
+                    .send(BoardEvent::Opened {
+                        opening,
+                        config,
+                        board_pane: None,
+                    })
+                    .unwrap();
                 for code in [
                     KeyCode::Down,
                     KeyCode::Enter,

@@ -36,6 +36,18 @@ pub(in crate::board) fn host_preview(
         Verb::Jump => host(row, true)
             .map(|id| format!("tmt focus {id}"))
             .unwrap_or_else(|reason| format!("Unavailable: {reason}")),
+        Verb::Swap => row["id"]
+            .as_str()
+            .map(|id| {
+                format!(
+                    "tmt focus {id} --into {} --json",
+                    action.args[0].literal().expect("validated direction")
+                )
+            })
+            .unwrap_or_else(|| "Unavailable: target UUID unavailable".into()),
+        Verb::Run if action.needs_board_pane() => {
+            format!("{} · board_pane resolves when pressed", action.text)
+        }
         Verb::Run => action
             .argv(row)
             .map(|argv| format!("argv {argv:?}"))
@@ -103,6 +115,23 @@ mod tests {
         assert!(
             host_preview(&row, false, Some(("f6", &jump)))
                 .contains("opens conversation · Esc returns")
+        );
+    }
+    #[test]
+    fn host_preview_leaves_dispatch_context_unresolved_and_swap_capability_unclaimed() {
+        let row = json!({"id":"uuid", "pane":{"location":{"host":"herdr"}}, "fields":{"board_pane":"%99"}});
+        let run = Action::parse("run recorder {board_pane} {pane}").unwrap();
+        let preview = host_preview(&row, false, Some(("j", &run)));
+        assert!(preview.contains("run recorder {board_pane} {pane}"));
+        assert!(preview.contains("board_pane resolves when pressed"));
+        assert!(!preview.contains("argv") && !preview.contains("%99"));
+        assert!(!preview.contains("Unavailable"));
+        let swap = Action::parse("swap left").unwrap();
+        let preview = host_preview(&row, false, Some(("j", &swap)));
+        assert!(preview.contains("press j: tmt focus uuid --into left --json"));
+        assert!(!preview.contains("Swapped") && !preview.contains("Started"));
+        assert!(
+            host_preview(&json!({}), false, Some(("j", &swap))).contains("target UUID unavailable")
         );
     }
     #[test]

@@ -131,6 +131,8 @@ pub(super) fn model(app: &App) -> KeyHelp {
                         }
                         _ => "write a note to the selected agent's lead".into(),
                     }
+                } else if app.workspace_snapshot().is_some() {
+                    action.workspace_description()
                 } else {
                     action.description()
                 };

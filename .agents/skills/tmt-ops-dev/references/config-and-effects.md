@@ -279,10 +279,22 @@ membership target; unsupported legacy actions are reported rather than remapped.
 
 ## Settings inspection and editing
 
-The comma menu offers workspace layout, Digest estimate windows, Theme, Token window and Actions. It does
-not expose the former general configuration-inspection overlay. `config show`
-retains effective values/provenance independently; provider argv, run bindings,
-patterns and nested structures remain inert/read-only to inspection.
+The comma menu offers workspace layout, Digest estimate windows, Host action (j),
+Theme, Token window and Actions. It does not expose the former general
+configuration-inspection overlay. Host action reuses the Settings list, editor and
+Config CAS writer for Focus agent, directional Swap beside board, or Custom
+command. `workspace_keys` supplies the effective action; Config's shared provenance
+resolver identifies its global/host/selected-section write owner and preserves
+other bindings. App supplies the same recipient-dependent factory action as
+dispatch. Retired bindings retain their fallback or unset value; a chosen preset
+repairs their authored owner. Preview freezes the binding context and recipient:
+a squad uses its lead for host/argv evidence without inheriting the lead's member
+section. It fills argv without execution and keeps missing context unavailable.
+Preset previews are read-only (`s` saves); Custom keeps typing and Enter save.
+Esc cancels; a file conflict retains the unsaved draft/error without retry.
+Other keys and nested configuration remain file-owned; `config show` retains
+independent values/provenance. Ordinary Settings and Theme openings do not
+acquire host-action context.
 
 Workspace preferences use one Config CAS writer: compare the opening values and
 file bytes, validate before publication and preserve comments/unrelated keys.
@@ -307,8 +319,9 @@ scoped override semantics; CLI configuration remains available for explicit edit
   no observation, cache publication or reminder claim; confirmed edits reach the shared
   observer on the ordinary reload.
 - `board::help` projects navigation, effective bindings and meter explanations into
-  `tmt-tui::components::KeyHelp` sections; `Action::description` owns binding wording for
-  help and settings, while settings keep their literal JSON value and source apart from
+  `tmt-tui::components::KeyHelp` sections; Action owns binding wording: `description` preserves independent CLI/config
+  prose, while `workspace_description` names workspace effects in Help and the
+  host-action editor. Settings keep their literal JSON value and source apart from
   presentation prose. Meter input keeps observed roster names (including the lead and
   members omitted from displayed rows) for excluded labels.
 
@@ -339,7 +352,21 @@ scoped override semantics; CLI configuration remains available for explicit edit
   Programs run as argv, never through a shell: the top-level `opener` and `clipboard`
   arrays, or the system opener. An opener starts in its own process group with null stdio
   and a reaper thread. `run` fills one argv element per template (refusing a value that
-  would start an argument with `-`) and starts it the same way.
+  would start an argument with `-`) and starts it the same way. Reserved `{board_pane}` for Run comes only from public
+  `whoami --json`: the effect lane reads it at dispatch, while the Host action
+  opening reads a nullable sample for preview. Agent fields cannot supply it,
+  and paint/input never read Core. `{{` and `}}` are literal braces; for example
+  `{{left-of}}` stays a literal program argument, never a row placeholder.
+- `swap <left|right|up|down>` is an Action beside Jump, resolved through the same
+  effective binding table and described by Help/footer. Its effect calls Core
+  `focus <selected UUID> --into <direction>`; Core owns the host, neighbour,
+  server and pane validation. Ops admits the published exchange/already-present
+  JSON shapes, preserves typed refusals and never claims a swap from Started.
+  Standard exchange has no home/history store: the previous neighbour moves to
+  the selected agent's old slot; selecting the previous neighbour agent swaps
+  it back beside the board. No pane is killed and the board keeps focus;
+  unsupported hosts and missing panes/neighbours refuse in Core. Custom Run
+  remains detached.
 - Copy prefers the configured program; inside tmux it then uses
   `tmux -S <invoker socket> load-buffer -w -`, where `-V` must report 3.2 or later and
   `show -sv set-clipboard` decides whether the text reached the clipboard or only a buffer;

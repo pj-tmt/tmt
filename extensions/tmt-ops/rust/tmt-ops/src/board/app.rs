@@ -135,6 +135,11 @@ pub struct Snapshot {
 pub enum Request {
     /// Show this member's pane in the invoking client.
     Jump(String),
+    Swap {
+        target: String,
+        name: String,
+        direction: String,
+    },
     /// Return the invoker's client to where its last jump came from.
     Back,
     Open {
@@ -146,6 +151,11 @@ pub enum Request {
         program: Option<Vec<String>>,
     },
     Run(Vec<String>),
+    /// The effect lane supplies reserved invocation context before argv filling.
+    PreparedRun {
+        action: Action,
+        row: Value,
+    },
     Talk {
         me: String,
         squad: String,
@@ -192,7 +202,8 @@ impl Request {
     pub fn progress(&self) -> &'static str {
         match self {
             Self::Jump(_) | Self::Back => "Jumping…",
-            Self::Open { .. } | Self::Run(_) => "Opening…",
+            Self::Swap { .. } => "Swapping…",
+            Self::Open { .. } | Self::Run(_) | Self::PreparedRun { .. } => "Opening…",
             Self::DigestOpen(_) => "Checking digest access…",
             Self::Digest(_) => "Saving digest…",
             Self::Copy { .. } => "Copying…",
@@ -234,6 +245,7 @@ pub enum Effect {
     Load(String),
     Refresh,
     Settings,
+    HostAction,
     SaveSetting,
     ResetSetting,
     CycleTokenWindow,
@@ -262,6 +274,7 @@ pub enum Choice {
         identity_id: String,
         room_id: String,
     },
+    HostAction,
     WorkspaceLayout(crate::config::OpsLayout),
     DigestWindow(crate::config::DigestWindow),
     /// The window the Digest tab's Usage report shows.
@@ -1705,6 +1718,41 @@ impl App {
         Effect::Load(next)
     }
 
+    pub(super) fn host_action_selection(&self) -> super::settings::host_action::Selection {
+        let recipient = self.workspace_message_target();
+        super::settings::host_action::Selection {
+            row: self.selected_row().cloned(),
+            recipient: recipient
+                .as_ref()
+                .and_then(|target| self.workspace_snapshot()?.rows.get(target).cloned()),
+            default_action: self.workspace_factory_j(recipient.as_ref()),
+            squad: self
+                .workspace
+                .selected
+                .as_ref()
+                .and_then(|target| self.target_squad(&RowTarget::Workspace(target.clone())))
+                .filter(|name| !name.is_empty()),
+            scope: self.workspace_scope(),
+            invoker_tmux: self.invoker_tmux,
+        }
+    }
+
+    pub(super) fn open_host_action(
+        &mut self,
+        config: Config,
+        selection: super::settings::host_action::Selection,
+        board_pane: Option<String>,
+    ) -> Result<(), crate::core::SquadError> {
+        let mut overlay =
+            super::settings::Overlay::open_host_action(config, selection, board_pane)?;
+        overlay.settings.context = self.shown.clone();
+        overlay.opening_focus = self.focus;
+        overlay.squad_keys = self.squad_keys.clone();
+        self.settings = Some(overlay);
+        self.help = false;
+        Ok(())
+    }
+
     pub(super) fn open_settings(&mut self, config: Config) -> Result<(), crate::core::SquadError> {
         let window = self
             .meter
@@ -2161,6 +2209,18 @@ impl App {
                 Some(name) => Ok(Request::Jump(name.to_owned())),
                 None => Err("This row has no member name.".to_owned()),
             },
+            Verb::Swap => match (
+                row["id"].as_str(),
+                row["name"].as_str(),
+                action.args.first().and_then(|arg| arg.literal()),
+            ) {
+                (Some(target), Some(name), Some(direction)) => Ok(Request::Swap {
+                    target: target.into(),
+                    name: super::notes::sanitize(name),
+                    direction: direction.into(),
+                }),
+                _ => Err("Swap needs a visible agent and a direction.".into()),
+            },
             Verb::Open => effects::resolve_open(action, &row).map(|link| Request::Open {
                 link,
                 opener: view.opener.clone(),
@@ -2168,6 +2228,10 @@ impl App {
             Verb::Copy => action.args[0].fill(&row).map(|text| Request::Copy {
                 text,
                 program: view.clipboard.clone(),
+            }),
+            Verb::Run if action.needs_board_pane() => Ok(Request::PreparedRun {
+                action: action.clone(),
+                row,
             }),
             Verb::Run => action.argv(&row).map(Request::Run),
             _ => unreachable!("handled above"),
@@ -2694,6 +2758,7 @@ impl App {
                 identity_id,
                 room_id,
             } => self.workspace_choose_room(kind, &identity_id, &room_id),
+            Choice::HostAction => Effect::HostAction,
             Choice::WorkspaceLayout(layout) => self.workspace_layout(layout),
             Choice::DigestWindow(window) => self.select_digest_window(window),
             Choice::UsageReportSince(since) => {
