@@ -1,7 +1,7 @@
 //! Deployment argv and composition through the installed adapter seam;
 //! fixtures inject declaration/provider ports, never an alternate deploy algorithm.
 use crate::{
-    deploy_command::{self, DeployCommandInput, DeployCommandOptions, DeployCommandOutput},
+    deploy_command::{self, DeployCommandInput, DeployCommandOutput},
     deploy_discovery::{self, DeclarationSource, DiscoveryRefusal},
     deploy_record::DeployRecordStore,
     deploy_run::{DeployPort, SignInProvider},
@@ -84,7 +84,7 @@ pub fn command() -> Command {
         name: "firestore", summary: "Plan or explicitly authorize Firestore sharing deployment",
         examples: &[tmt_cli_style::Example { command: "tmt remote deploy firestore --project <project-id> --region <region> --sign-in anonymous --json", note: "Read the exact plan without changing your Firebase project" }],
         outputs: tmt_cli_style::OutputModes::HumanAndJson,
-        details: "Needs the Firebase CLI and your own firebase login. Without --authorize it only prints the plan. To deploy, pass --authorize with the first 12 or more characters of the plan digest; signing in alone never deploys. The plan names any live Rules it will replace; authorizing that plan allows the destructive replacement. Each project keeps its own history on this machine; its region cannot change after authorization. Uses Firebase's free Spark plan; no paid features are set up.",
+        details: "Needs the Firebase CLI and your own firebase login. At a terminal, review the changes and answer y/N. Rerunning the same unfinished approved deploy continues without another question. Agents, CI, --json and non-interactive input only print the plan unless --authorize names its digest (at least 12 characters); signing in alone never deploys. There is no --yes flag. The plan names any live Rules it will replace; authorizing that plan allows the destructive replacement. Each project keeps its own history on this machine; its region cannot change after authorization. Uses Firebase's free Spark plan; no paid features are set up.",
     })
         .arg(Arg::new("project").long("project"))
         .arg(Arg::new("region").long("region").required(true))
@@ -147,6 +147,25 @@ pub fn execute<P: FirestoreCommandPort>(
     layout_factory: impl FnOnce() -> Result<crate::state::Layout, DeployCliError>,
     now: impl FnOnce() -> Result<u64, DeployCliError>,
 ) -> Result<DeployCommandOutput, DeployCliError> {
+    execute_with_confirmation(
+        args,
+        source,
+        enabled,
+        provider_factory,
+        layout_factory,
+        now,
+        None,
+    )
+}
+pub fn execute_with_confirmation<P: FirestoreCommandPort>(
+    args: &FirestoreArgs,
+    source: &mut dyn DeclarationSource,
+    enabled: &[&str],
+    provider_factory: impl FnOnce() -> Result<P, DeployCliError>,
+    layout_factory: impl FnOnce() -> Result<crate::state::Layout, DeployCliError>,
+    now: impl FnOnce() -> Result<u64, DeployCliError>,
+    confirmation: Option<&mut PlanConfirmation<'_>>,
+) -> Result<DeployCommandOutput, DeployCliError> {
     let discovered =
         deploy_discovery::discover(source, enabled).map_err(DeployCliError::Discovery)?;
     if let Some(output) = unavailable(&discovered) {
@@ -182,10 +201,19 @@ pub fn execute<P: FirestoreCommandPort>(
     let mut provider = provider_factory()?;
     provider.login().map_err(DeployCliError::Setup)?;
     let path = store.record_path();
-    let mut output = execute_prepared(args, &discovered, &mut provider, &mut store, now()?, &path)?;
-    if output.json["record"]["run"]["steps"]
-        .as_array()
-        .is_some_and(|steps| steps.iter().any(|step| step["state"] == "unknown"))
+    let mut output = execute_prepared(
+        args,
+        &discovered,
+        &mut provider,
+        &mut store,
+        now()?,
+        &path,
+        confirmation,
+    )?;
+    if output.json["declined"] != true
+        && output.json["record"]["run"]["steps"]
+            .as_array()
+            .is_some_and(|steps| steps.iter().any(|step| step["state"] == "unknown"))
     {
         output.human.push_str(&uncertain_message(&path));
         output.human.push('\n');
@@ -219,6 +247,7 @@ fn execute_prepared<P: FirestoreCommandPort>(
     store: &mut DeployRecordStore,
     now_ms: u64,
     record_path: &std::path::Path,
+    confirmation: Option<&mut PlanConfirmation<'_>>,
 ) -> Result<DeployCommandOutput, DeployCliError> {
     provider
         .check_index_budget(&args.project, &discovered.extensions)
@@ -226,6 +255,7 @@ fn execute_prepared<P: FirestoreCommandPort>(
     let live_rules = provider
         .live_rules(&args.project)
         .map_err(DeployCliError::Provider)?;
+    let mut website_changed = false;
     let hosting = discovered
         .hosting
         .as_ref()
@@ -259,6 +289,7 @@ fn execute_prepared<P: FirestoreCommandPort>(
                     record_path.to_path_buf(),
                 )
             })?;
+            website_changed = inventory.live.is_none() || view.replaces != "none";
             if let Some(checkpoint) = record
                 .run
                 .as_ref()
@@ -285,24 +316,76 @@ fn execute_prepared<P: FirestoreCommandPort>(
             Ok(view)
         })
         .transpose()?;
-    deploy_command::execute_with_hosting(
-        &DeployCommandInput {
-            extensions: &discovered.extensions,
-            project: &args.project,
-            location: &args.region,
-            sign_in: &args.sign_in,
-            rules_body: discovered.artifacts.rules.as_bytes(),
-            live_rules: live_rules.as_deref(),
-        },
-        &DeployCommandOptions {
-            authorize: args.authorize.as_deref(),
-        },
+    let input = DeployCommandInput {
+        extensions: &discovered.extensions,
+        project: &args.project,
+        location: &args.region,
+        sign_in: &args.sign_in,
+        rules_body: discovered.artifacts.rules.as_bytes(),
+        live_rules: live_rules.as_deref(),
+    };
+    let map = |error| DeployCliError::Command(error, record_path.to_path_buf());
+    let prepared = deploy_command::prepare_with_hosting(&input, store, provider, hosting.as_ref())
+        .map_err(map)?;
+    let mut continuing = false;
+    let authorization = if let Some(typed) = args.authorize.as_deref() {
+        Some(
+            crate::deploy_run::authorize(prepared.plan(), typed)
+                .map_err(|r| map(deploy_command::DeployCommandError::Refused(r)))?,
+        )
+    } else if let Some(confirm) = confirmation.filter(|_| !args.json) {
+        if prepared.record().run.as_ref().is_some_and(|r| {
+            r.state != crate::deploy_run::RunState::Complete
+                && r.plan_digest == prepared.plan().digest()
+        }) {
+            continuing = true;
+            Some(
+                crate::deploy_run::authorize(prepared.plan(), prepared.plan().digest())
+                    .map_err(|r| map(deploy_command::DeployCommandError::Refused(r)))?,
+            )
+        } else {
+            if let Some(reason) = crate::deploy_run::interactive_supersession_refusal(
+                prepared.plan(),
+                prepared.record(),
+            ) {
+                return Err(map(deploy_command::DeployCommandError::Refused(reason)));
+            }
+            let mut preview = prepared
+                .preview(&input, store, hosting.as_ref())
+                .map_err(map)?;
+            preview.human.push_str(&confirmation_notice(
+                prepared.plan(),
+                prepared.record(),
+                live_rules.as_deref() != Some(prepared.plan().deployed_rules()),
+                hosting.as_ref().map(|_| website_changed),
+            ));
+            if !confirm(&preview)? {
+                preview.human = format!("{DECLINED}\n");
+                preview.json["declined"] = json!(true);
+                return Ok(preview);
+            }
+            Some(
+                crate::deploy_run::authorize_interactive(prepared.plan(), prepared.record())
+                    .map_err(|r| map(deploy_command::DeployCommandError::Refused(r)))?,
+            )
+        }
+    } else {
+        None
+    };
+    let mut output = deploy_command::execute_prepared(
+        &input,
+        prepared,
+        authorization,
         store,
         provider,
         now_ms,
         hosting.as_ref(),
     )
-    .map_err(|error| DeployCliError::Command(error, record_path.to_path_buf()))
+    .map_err(map)?;
+    if continuing {
+        output.human.insert_str(0, &format!("{CONTINUING}\n"));
+    }
+    Ok(output)
 }
 
 /// Preserve typed pre-effect refusals from either preparation or the pure runner.
@@ -324,4 +407,71 @@ pub fn command_error(
             crate::error::RemoteError::new("REMOTE_DEPLOY_UNAVAILABLE", &uncertain_message(path))
         }
     }
+}
+
+/// The terminal adapter displays captured bytes and returns one answer; it never
+/// supplies a replacement digest, new flags or another provider snapshot.
+pub type PlanConfirmation<'a> =
+    dyn FnMut(&DeployCommandOutput) -> Result<bool, DeployCliError> + 'a;
+
+pub const DEPLOY_PROMPT: &str = "Deploy these changes to your Firebase project? [y/N]";
+pub const DECLINED: &str = "Not deployed. Nothing in your Firebase project changed.";
+pub const CONTINUING: &str = "Continuing the deploy you already approved.";
+pub const REPLACING: &str = "An earlier deploy did not finish. This one replaces it. Anything the earlier one already changed stays as it is; nothing is undone.";
+pub const KNOWN_VERSION: &str = "The earlier deploy left an uploaded website version that is not live. It stays in your project, unchanged.";
+pub const UNKNOWN_VERSION: &str = "Your project may already hold one uploaded website version that is not live. It stays that way, and this deploy may upload another.";
+/// Interaction owns terminal evidence; agents/CI never become implicit consent.
+pub fn may_prompt(interaction: tmt_cli_style::Interaction, agent: bool, ci: bool) -> bool {
+    !agent && !ci && interaction.prompt() == tmt_cli_style::Mode::Interactive
+}
+pub fn confirmation_answer(bytes: &[u8]) -> bool {
+    let Ok(answer) = std::str::from_utf8(bytes) else {
+        return false;
+    };
+    answer.trim().eq_ignore_ascii_case("y") || answer.trim().eq_ignore_ascii_case("yes")
+}
+
+/// Display observations already captured for this decision, without a provider read.
+pub fn confirmation_notice(
+    plan: &crate::deploy_run::DeployPlan,
+    record: &crate::deploy_run::DeployRecord,
+    rules_changed: bool,
+    website_changed: Option<bool>,
+) -> String {
+    let mut text = String::from(if rules_changed {
+        "Security rules: will be updated.\n"
+    } else {
+        "Security rules: no change.\n"
+    });
+    if let Some(changed) = website_changed {
+        text.push_str(if changed {
+            "Website files: will be updated.\n"
+        } else {
+            "Website files: no change.\n"
+        });
+    }
+    if let Some(previous) = crate::deploy_run::superseded_run(plan, record) {
+        text.push_str(REPLACING);
+        text.push('\n');
+        if previous
+            .steps
+            .iter()
+            .any(|s| s.id == "hosting:release" && s.state == crate::deploy_run::StepState::Pending)
+        {
+            if previous.steps.iter().any(|s| {
+                s.id == "hosting:stage:create" && s.state == crate::deploy_run::StepState::Unknown
+            }) {
+                text.push_str(UNKNOWN_VERSION);
+                text.push('\n');
+            } else if previous
+                .hosting
+                .as_ref()
+                .is_some_and(|h| h.version.is_some())
+            {
+                text.push_str(KNOWN_VERSION);
+                text.push('\n');
+            }
+        }
+    }
+    text
 }

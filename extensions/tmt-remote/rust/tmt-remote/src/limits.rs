@@ -200,3 +200,7 @@ pub const REMOTE_CATALOG_BYTES: usize = 65_536;
 pub const NATIVE_SYNC_HEARTBEAT_MS: u64 = 600_000;
 // At most 256 records plus the empty page that proves run completion.
 pub const NATIVE_DISCOVERY_RUN_PAGES: u16 = 257;
+
+/// Wake the terminal confirmation on SIGINT/SIGTERM without a detached stdin reader.
+pub const DEPLOY_CONFIRM_POLL_MS: u16 = 100;
+pub const DEPLOY_CONFIRM_BYTES: usize = 64;

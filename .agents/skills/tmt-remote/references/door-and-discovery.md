@@ -289,12 +289,18 @@ without charging or making provider requests.
 
 ## Firestore deployment
 
-`tmt remote deploy firestore --project <project-id> --region <region> --sign-in anonymous --json`
-reads an exact Spark sharing plan; sign-in selection is required, not inferred. Google sign-in
+In the Firebase console, open Authentication and choose Get started. Then run
+`tmt remote deploy firestore --project <project-id> --region <region> --sign-in anonymous`
+in a terminal, review the changes and answer y/N; rerun the same command after a partial result.
+The same unfinished approved digest continues without another question; changed unfinished work gets one
+confirmation and retains its earlier outcomes. An earlier known or possibly created unreleased
+website Version stays untouched; unknown web-app/site/config creation still requires observation.
+Agents, CI, `--json` and non-interactive input keep plan-only or explicit-digest authorization.
+Sign-in selection is required, not inferred. Google sign-in
 uses `google.com`. Provider reads require the owner's installed Firebase CLI and own login.
 `--authorize <plan-digest-prefix>` needs at least 12 lowercase hex characters of the whole
 envelope digest, including the fingerprint of any foreign live Rules it destructively replaces.
-Each project keeps its own history on this machine; its region stays fixed after authorization. A changed unfinished plan never blocks preview: authorization supersedes it only without an unconfirmed creation or staged Version (except the existing expired-Version abandonment path), retains its outcomes, and undoes nothing.
+Each project keeps its own history on this machine; its region stays fixed after authorization. A changed unfinished plan never blocks preview: explicit `--authorize` supersedes it only without an unconfirmed creation or staged Version (except the existing expired-Version abandonment path), retains its outcomes, and undoes nothing.
 Use `--project` to create or plan a project, or `--remote` to select a catalog name or owned project
 id. Status layers and link also accept `--project`; when both selectors are given they must agree.
 Without explicit selection, the configured
@@ -306,7 +312,7 @@ default and refuse explicit non-local administration. See the contract's
 An old single-path setup is refused with one command to move it aside; no migration or conversion
 ships.
 Login, pairing and installation never authorize
-deployment. No prompt or `--yes` bypass exists. An unknown outcome requires read-back and exact-plan resume, not a
+deployment. There is no `--yes` flag. An unknown outcome requires read-back and exact-plan resume, not a
 blind repeat of an effect. Composite indexes are created as a batch, then checked with elapsed progress for up to three minutes; a still-building index names its position and asks for the same command again in a minute.
 A preflight HTTP failure names the operation and status (also
 `error.provider` in JSON), so a failed field/index inventory is distinguishable from Rules
