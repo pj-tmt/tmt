@@ -693,6 +693,13 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for CodexLifecycle {
         crate::runtime::driver_state::state_model(state)
     }
 
+    fn state_observed_model(
+        &self,
+        state: &tmt_core::binding::session::DriverState,
+    ) -> Option<crate::runtime::driver_state::ObservedModel> {
+        crate::runtime::driver_state::state_observed_model(state)
+    }
+
     fn state_usage(
         &self,
         state: &tmt_core::binding::session::DriverState,

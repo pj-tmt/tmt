@@ -19,7 +19,8 @@ pub fn shell_word(value: &str) -> String {
 /// The remembered session projection shared by `identity show` and
 /// `ls --json`. It is additive: the `resume` key appears only while a session
 /// is remembered, and `usage` only while its driver recorded one (#519). The
-/// model, usage and optional consumption come from the session's own driver;
+/// model, the last observed model, usage and optional consumption come from
+/// the session's own driver;
 /// core never parses
 /// driver state.
 pub fn resume_document(
@@ -34,6 +35,9 @@ pub fn resume_document(
             "model": registry.remembered_model(session),
             "staleAtMs": session.stale_at_ms,
         });
+        if let Some(observed) = registry.remembered_observed_model(session) {
+            resume["observedModel"] = observed.document();
+        }
         if let Some(usage) = registry.remembered_usage(session) {
             resume["usage"] = usage.document();
         }
@@ -103,7 +107,12 @@ mod tests {
             HarnessId, ProviderSessionId, RememberedSession, RuntimeMode, SessionPreferences,
         };
         let usage = driver_state::Usage::new(195_664, None, 100).unwrap();
-        let original = driver_state::after_start(Some("model-a"), Some(usage), None, 100).unwrap();
+        // A start document as a pre-v5 binary wrote it: no observed model.
+        let original = tmt_core::binding::session::DriverState::new(
+            driver_state::USAGE_STATE_VERSION,
+            &serde_json::json!({"model":"model-a","usage":usage.document()}).to_string(),
+        )
+        .unwrap();
         let mut preferences = SessionPreferences {
             channel: None,
             preferred_harness: None,
@@ -143,5 +152,43 @@ mod tests {
             "existing fields are byte-equivalent values"
         );
         assert!(resume_document(&SessionPreferences::default(), &registry).is_none());
+    }
+
+    #[test]
+    fn the_observed_model_is_additive_and_absent_when_unrecorded() {
+        use tmt_adapters::runtime::{RuntimeRegistry, driver_state};
+        use tmt_core::binding::session::{
+            HarnessId, ProviderSessionId, RememberedSession, RuntimeMode, SessionPreferences,
+        };
+        let registry = RuntimeRegistry::first_party();
+        let project = |state| {
+            let preferences = SessionPreferences {
+                channel: None,
+                preferred_harness: None,
+                remembered: Some(RememberedSession {
+                    harness: HarnessId::new("codex").unwrap(),
+                    mode: RuntimeMode::new("embedded").unwrap(),
+                    provider_session: ProviderSessionId::new("s").unwrap(),
+                    state,
+                    stale_at_ms: None,
+                    resume_pending_at_ms: None,
+                }),
+            };
+            resume_document(&preferences, &registry).unwrap()
+        };
+        let started = driver_state::after_start(Some("gpt-5.2-codex"), None, None, 100);
+        assert_eq!(
+            project(started.clone()),
+            serde_json::json!({
+                "driver":"codex", "mode":"embedded", "session":"s", "model":"gpt-5.2-codex",
+                "observedModel":{"model":"gpt-5.2-codex","observedAtMs":100}, "staleAtMs":null
+            })
+        );
+        // Without a recorded observation the key is absent, never null.
+        let cleared = driver_state::after_start(None, None, started.as_ref(), 200);
+        let document = project(cleared);
+        assert!(document.get("observedModel").is_none());
+        assert_eq!(document["model"], "gpt-5.2-codex");
+        assert!(project(None).get("observedModel").is_none());
     }
 }

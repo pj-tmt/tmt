@@ -399,6 +399,16 @@ impl RuntimeRegistry {
             .state_model(session.state.as_ref()?)
     }
 
+    /// The last observed model a remembered session's own driver recorded, if
+    /// it can read its state. It is a recorded fact, never the current model.
+    pub fn remembered_observed_model(
+        &self,
+        session: &RememberedSession,
+    ) -> Option<driver_state::ObservedModel> {
+        self.lifecycle(&session.harness)?
+            .state_observed_model(session.state.as_ref()?)
+    }
+
     /// The context usage a remembered session's own driver recorded, if it
     /// can read its state.
     pub fn remembered_usage(&self, session: &RememberedSession) -> Option<driver_state::Usage> {

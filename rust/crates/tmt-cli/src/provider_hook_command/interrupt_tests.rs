@@ -63,8 +63,15 @@ fn a_racing_binding_or_preferences_change_wins_over_an_interrupt() {
     let session = ProviderSessionId::new("s-1").unwrap();
     let process = ProcessIncarnation::new(20, "runtime").unwrap();
     let interrupt = codex
-        .decode_activity(br#"{"hook_event_name":"Interrupt","session_id":"s-1","turn_id":"a"}"#)
+        .decode_activity(
+            br#"{"hook_event_name":"Interrupt","session_id":"s-1","turn_id":"a","model":"hook-model"}"#,
+        )
         .unwrap();
+    let observed = |state: &tmt_core::binding::session::DriverState| {
+        codex
+            .state_observed_model(state)
+            .map(|observed| observed.model)
+    };
     for race in ["unchanged", "preferences", "binding"] {
         let directory = Directory::new();
         let paths = ConfigPaths {
@@ -129,13 +136,10 @@ fn a_racing_binding_or_preferences_change_wins_over_an_interrupt() {
             .with_binding_transaction::<_, StorageError>(|records| {
                 match race {
                     "preferences" => {
-                        let later = codex.activity_state(
-                            &turn(ActivityPhase::Working, "b"),
-                            &session,
-                            &process,
-                            Some(&working),
-                            150,
-                        );
+                        let mut racer = turn(ActivityPhase::Working, "b");
+                        racer.model = Some("racer-model".into());
+                        let later =
+                            codex.activity_state(&racer, &session, &process, Some(&working), 150);
                         preferences.remembered.as_mut().unwrap().state = later;
                         records.set_session_preferences(&identity.id, &preferences)?;
                     }
@@ -172,9 +176,14 @@ fn a_racing_binding_or_preferences_change_wins_over_an_interrupt() {
                 codex.state_activity(&state).unwrap().phase,
                 ActivityPhase::Idle
             );
+            assert_eq!(observed(&state).as_deref(), Some("hook-model"));
         } else {
             assert_eq!(after.entry, before.entry, "{race}");
             assert_eq!(after.preferences, before.preferences, "{race}");
+            // The losing hook's model is never stored.
+            let state = after.preferences.remembered.unwrap().state.unwrap();
+            let expected = (race == "preferences").then_some("racer-model");
+            assert_eq!(observed(&state).as_deref(), expected, "{race}");
         }
         // An interrupt never adds a consumption source or a response.
         assert_eq!(rows(&paths.database, "consumption_sources"), 0);

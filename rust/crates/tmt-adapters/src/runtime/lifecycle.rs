@@ -421,6 +421,14 @@ pub trait RuntimeLifecycle {
         None
     }
 
+    /// The last observed model recorded in this driver's own state.
+    fn state_observed_model(
+        &self,
+        _state: &DriverState,
+    ) -> Option<super::driver_state::ObservedModel> {
+        None
+    }
+
     /// Cumulative completed-request counters, never context-window size.
     fn state_consumption(&self, _state: &DriverState) -> Option<super::consumption::Consumption> {
         None
