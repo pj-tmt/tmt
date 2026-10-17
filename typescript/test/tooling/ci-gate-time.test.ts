@@ -241,7 +241,7 @@ describe('gate measurement edge cases', () => {
       value: 302,
       budget: 301,
     });
-    expect(budgets.gate.pull_request).toEqual({ median: 710, p90: 1190 });
+    expect(budgets.gate.pull_request).toEqual({ median: 710, p90: 1095 });
     expect(budgets.gate.merge_group).toEqual({ median: 790, p90: 911 });
     for (const [name, pr] of [
       [producer, 301],

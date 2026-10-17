@@ -359,6 +359,69 @@ it('keeps the workflow compile-once, VM-isolated and fail-closed under its origi
   expect(setup).toContain('sha256sum --check');
 });
 
+it('keeps Ops on common setup plus Cargo/architecture while full scope owns the partition path', () => {
+  const workflow = readFileSync(
+    new URL('../../../.github/workflows/workspace-partitions.yml', import.meta.url),
+    'utf8'
+  );
+  const producer = workflow.split('\n  producer:\n')[1].split('\n  consumers:')[0];
+  const steps = producer.split('\n      - ').slice(1);
+  const common = [
+    'name: Check out repository',
+    'uses: actions/setup-node@v4',
+    'name: Record the pinned Node version',
+    'name: Admit scope and partition count',
+    'name: Install pinned Rust toolchains',
+    'name: Cache Rust dependencies',
+  ];
+  const full = [
+    'Install pinned nextest',
+    'Test and build workspace',
+    'Archive the verified compilation inventory',
+    'Build workspace development binaries',
+    'Upload compiled closure',
+  ];
+  const fullSync = [
+    'Select hosted Temurin 21 for native sync acceptance',
+    'Install pinned native sync emulator tools',
+    'Prove native Auth and sealed sync against Colab Rules',
+    'Prove Colab cloud sync between real serves and Colab Rules',
+  ];
+  const guards = new Map<string, string | undefined>([
+    ...common.map((name) => [name, undefined] as const),
+    ...full.map((name) => [`name: ${name}`, "inputs.scope == 'full'"] as const),
+    ...fullSync.map(
+      (name) => [`name: ${name}`, "inputs.scope == 'full' && inputs.native-sync"] as const
+    ),
+    [
+      'name: Test workspace documentation separately',
+      "always() && inputs.scope == 'full' && steps.toolchain.outcome == 'success'",
+    ],
+    [
+      'name: Preserve independent inventory and phase evidence',
+      "always() && inputs.scope == 'full'",
+    ],
+    ['name: Test Ops and architecture', "inputs.scope == 'ops'"],
+  ]);
+  expect(steps).toHaveLength(guards.size);
+  for (const step of steps) {
+    const name = step.split('\n')[0];
+    expect(guards.has(name), name).toBe(true);
+    expect(step.match(/^        if: (.+)$/m)?.[1], name).toBe(guards.get(name));
+    if (name === 'name: Test Ops and architecture') {
+      expect(step).toContain('cargo test --locked -p tmt-ops');
+      expect(step).toContain('cargo test --locked -p tmt-cli --test architecture');
+    }
+  }
+  const consumers = workflow.split('\n  consumers:\n')[1].split('\n  aggregate:')[0];
+  expect(consumers).toContain("    if: inputs.scope == 'full'\n");
+  const aggregate = workflow.split('\n  aggregate:\n')[1];
+  expect(aggregate).toContain('if: always()');
+  expect(aggregate).toContain('test "$PRODUCER_RESULT" = success');
+  expect(aggregate).toContain('if [ "$SCOPE" = full ]; then test "$CONSUMERS_RESULT" = success');
+  expect(aggregate).toContain('elif [ "$SCOPE" = ops ]; then test "$CONSUMERS_RESULT" = skipped');
+});
+
 it('admits observed compiler versions while collectors validate only their own run context', () => {
   const context = { source: 'a'.repeat(40), run: '123', attempt: '1', toolchain: TOOLCHAIN };
   const machine = {

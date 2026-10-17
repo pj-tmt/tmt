@@ -1,55 +1,19 @@
 {
-  "baseline": "#3284 PR K2 five-run series, 2026-10-17 (p90=max; macOS queue outlier retained); unrelated jobs and all MG limits retain #3230. New workspace MG rows inherit the unchanged 861s limit until 10 natural MG runs.",
+  "baseline": "#3284 PR K2 series, 2026-10-17: gate median and child p90s measured (n=5); PR gate p90 retains 1095s, below the 1190s queue outlier. Unrelated jobs/all MG limits retain #3230; workspace MG rows inherit 861s until 10 natural MG runs.",
   "gate": {
-    "pull_request": {
-      "median": 710,
-      "p90": 1190
-    },
-    "merge_group": {
-      "median": 790,
-      "p90": 911
-    }
+    "pull_request": { "median": 710, "p90": 1095 },
+    "merge_group": { "median": 790, "p90": 911 }
   },
   "jobs": {
-    "Native Rust workspace tests / Compile workspace test closure": {
-      "pull_request": 301,
-      "merge_group": 861
-    },
-    "Native Rust workspace tests / Execute partition 1": {
-      "pull_request": 221,
-      "merge_group": 861
-    },
-    "Native Rust workspace tests / Execute partition 2": {
-      "pull_request": 318,
-      "merge_group": 861
-    },
-    "Native Rust workspace tests / Verify exact workspace test identities": {
-      "pull_request": 18,
-      "merge_group": 861
-    },
-    "Docker E2E shard 1/2": {
-      "pull_request": 672,
-      "merge_group": 692
-    },
-    "Docker E2E shard 2/2": {
-      "pull_request": 655,
-      "merge_group": 639
-    },
-    "Native process contracts": {
-      "pull_request": 592,
-      "merge_group": 585
-    },
-    "Code quality": {
-      "pull_request": 180,
-      "merge_group": 176
-    },
-    "Unit tests": {
-      "pull_request": 175,
-      "merge_group": 170
-    },
-    "Native package matrix": {
-      "pull_request": 14,
-      "merge_group": 15
-    }
+    "Native Rust workspace tests / Compile workspace test closure": { "pull_request": 301, "merge_group": 861 },
+    "Native Rust workspace tests / Execute partition 1": { "pull_request": 221, "merge_group": 861 },
+    "Native Rust workspace tests / Execute partition 2": { "pull_request": 318, "merge_group": 861 },
+    "Native Rust workspace tests / Verify exact workspace test identities": { "pull_request": 18, "merge_group": 861 },
+    "Docker E2E shard 1/2": { "pull_request": 672, "merge_group": 692 },
+    "Docker E2E shard 2/2": { "pull_request": 655, "merge_group": 639 },
+    "Native process contracts": { "pull_request": 592, "merge_group": 585 },
+    "Code quality": { "pull_request": 180, "merge_group": 176 },
+    "Unit tests": { "pull_request": 175, "merge_group": 170 },
+    "Native package matrix": { "pull_request": 14, "merge_group": 15 }
   }
 }
