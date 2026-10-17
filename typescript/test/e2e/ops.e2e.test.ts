@@ -92,13 +92,14 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
       await fixture.waitForCapture(
         (screen) =>
           screen.includes('OPS / UI') &&
-          /^ SQUAD[ \t]+TEAM[ \t]+TOK 1h[ \t]+NOW\b/m.test(screen) &&
-          screen.includes('No squads yet.') &&
-          /Squads[ \t]+Agents[ \t]+\/ Search/.test(screen),
+          /^ AGENT[ \t]+SQUAD[ \t]+STATE[ \t]+TOK 1h[ \t]+NOW\b/m.test(screen) &&
+          /^   Ben[ \t]+Common pool[ \t]+\? unreported/m.test(screen) &&
+          /^   worker[ \t]+Common pool[ \t]+\? unreported/m.test(screen) &&
+          /Agents[ \t]+Squads[ \t]+\/ Search/.test(screen),
         shell.pane
       );
-      // Creation remains in the Agents tab; Overview starts in its Squads view.
-      fixture.tmux(['send-keys', '-t', shell.pane, '2', 'Right']);
+      // Overview selects an agent; select the visible Common pool before expanding it.
+      fixture.tmux(['send-keys', '-t', shell.pane, '2', 'Home', 'Right']);
       await fixture.waitForCapture((screen) => {
         const header = screen.split('\n').find((line) => line.includes('SQUAD / AGENT'));
         const rule = screen.split('\n').find((line) => line.startsWith(' ── Squads '));
@@ -111,8 +112,8 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
             header.slice(0, 75)
           ) &&
           rule.slice(77).startsWith('── Common pool ') &&
-          /^[ \t]+├ Ben[ \t]+— unreported[ \t]/m.test(screen) &&
-          /^[ \t]+└ worker[ \t]+— unreported[ \t]/m.test(screen)
+          /^[ \t]+├   Ben[ \t]+— unreported[ \t]/m.test(screen) &&
+          /^[ \t]+└   worker[ \t]+— unreported[ \t]/m.test(screen)
         );
       }, shell.pane);
       fixture.tmux(['send-keys', '-t', shell.pane, 'n']);
@@ -678,7 +679,7 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
           'Enter',
         ]);
         await fixture.waitForCapture(
-          (screen) => /^[ \t]*[▸▾] product[ \t]+◌ 0 members\b/m.test(screen),
+          (screen) => /^[ \t]*[▸▾]   product[ \t]+◌ 0 members\b/m.test(screen),
           shell.pane
         );
         fixture.tmux(['send-keys', '-t', shell.pane, ',']);
@@ -746,7 +747,8 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
         fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
         await fixture.waitForCapture(
           (screen) =>
-            !screen.includes('Checklist') && /^[ \t]*[▸▾] product[ \t]+◌ 0 members\b/m.test(screen),
+            !screen.includes('Checklist') &&
+            /^[ \t]*[▸▾]   product[ \t]+◌ 0 members\b/m.test(screen),
           shell.pane
         );
         fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
@@ -871,7 +873,7 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
       ]);
       await fixture.waitForCapture(
         (screen) =>
-          screen.includes('OPS / UI') && /^[ \t]*[▸▾] product[ \t]+● 2 members\b/m.test(screen),
+          screen.includes('OPS / UI') && /^[ \t]*[▸▾]   product[ \t]+● 2 members\b/m.test(screen),
         shell.pane
       );
       fixture.tmux(['send-keys', '-t', shell.pane, 'Right']);
