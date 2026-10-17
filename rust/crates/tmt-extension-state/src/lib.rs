@@ -15,7 +15,56 @@
 //! its bytes. The extension retains entropy, key interpretation, error mapping and
 //! its existing staging/removal/directory-sync failure ordering. Store schemas,
 //! identity derivation and Remote's serve-lock proof remain extension-owned; this
-//! leaf neither discovers roots nor accesses core state or provider configuration.
+//! leaf discovers no roots and interprets no Core or provider state.
+//!
+//! ## Planned shared mutation entries
+//!
+//! The caller supplies paths, schemas, codecs, byte bounds and the exact retry
+//! command. The shared entries own admission, locking and durable publication;
+//! they never execute a retry or discover application roots. Existing `Layout`
+//! and `Publication` callers keep their present behavior until migrated.
+//!
+//! `Store` opens a caller-owned private SQLite file and private sidecars, enables
+//! foreign keys, verifies WAL and uses Core's synchronous NORMAL policy without
+//! importing Core's schema. Consumer-supplied ordered migrations run forward-only
+//! in an immediate transaction; future or non-prefix history is refused. A write
+//! waits at most five seconds for BEGIN IMMEDIATE. Its callback runs once after
+//! admission and is never replayed. Busy at COMMIT is the same typed timeout,
+//! with an explicit "may not be saved" consequence and the caller's exact retry;
+//! there is no silent commit retry. Other SQLite/I/O causes remain distinguishable.
+//!
+//! `Document` updates current bytes under an exclusive lock: admit, read, validate,
+//! change once, stage, write, fsync, rename, then fsync the destination directory.
+//! The lock for an external document lives under the caller's private TMT state
+//! root, keyed by the canonical destination path; no persistent sibling lock is
+//! created in a project directory. Existing document permissions are preserved;
+//! new documents are 0600. Missing reads create nothing. Unsafe or oversized
+//! inputs refuse before the callback or publication. Write-lock admission waits
+//! at most five seconds and does not renew its budget.
+//!
+//! Every destination reserves one sibling staging name, `.<name>.tmt-staging`.
+//! Under the same document lock, remove a previous entry at that exact name only
+//! when it is a regular file owned by this user; otherwise refuse with the named
+//! cause. Create staging exclusively, never follow a link, and remove it on each
+//! normal or error return. No directory sweep or intent registry is introduced.
+//! After an uncatchable process death the destination is immediately old or new;
+//! the next update or recovery under the same lock removes owned staging and
+//! leaves the project directory clean. There is no instant-cleanup promise after
+//! SIGKILL and no daemon. A failure after rename is reported as uncertain, never
+//! as a successful rollback; the original failure keeps precedence over cleanup.
+//!
+//! `Guard` is fail-fast ownership, using the existing OS-lock mechanism rather
+//! than a data-write queue. Contention names the holder PID and acquisition start
+//! time when recorded; legacy, unpublished or invalid metadata is explicitly
+//! unknown. The record is diagnostic, not process-incarnation evidence, and never
+//! authorizes killing a process or unlinking an active lock. Dropping a held guard
+//! releases the OS lock without deleting another owner's state.
+//!
+//! The new entries share one typed timeout carrying the store/path, operation,
+//! preserved cause and exact retry. Guard contention is a separate typed outcome.
+//! Five seconds bounds write-lock admission, not consumer computation. Callers
+//! retain their own CLI codes, formatting and schemas. Process-crash recovery
+//! tests prove old/new state; they do not simulate power loss.
 use nix::{
     errno::Errno,
     fcntl::{Flock, FlockArg, OFlag},
