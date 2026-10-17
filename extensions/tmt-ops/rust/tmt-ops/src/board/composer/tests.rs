@@ -155,16 +155,14 @@ fn agents_composer_is_visible_idle_and_escape_keeps_the_uuid_draft_at_every_widt
         let buffer = draw(&mut app, width, 18);
         let painted: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
         assert!(
-            painted.contains("Message → worker") && painted.contains("Write a message…"),
+            painted.contains("⏎ to message worker"),
             "{width}: {painted}"
         );
-        assert!(painted.contains("│ › Write a message…"));
-        let send = app.composer.send_hit.borrow().clone().unwrap();
-        let label: String = (send.area.x..send.area.right())
-            .map(|x| buffer[(x, send.area.y)].symbol())
-            .collect();
-        assert_eq!(label, " Send ");
-        assert_eq!(send.area.width, 6);
+        assert!(!painted.contains("Message →") && !painted.contains("│ ›"));
+        assert!(
+            app.composer.send_hit.borrow().is_none(),
+            "idle field does not advertise Send"
+        );
         assert!(app.input.is_none());
         assert!(app.input_band.get().unwrap().height >= 1);
         app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
@@ -229,9 +227,8 @@ fn eight_row_composer_keeps_arrow_selection_and_home_restores_the_list() {
                 assert!(app.input.is_none() && app.focused() == Pane::Rows);
                 assert_eq!(app.input_band.get().unwrap().height, 4);
                 assert!(app.hits.borrow().iter().all(|hit| hit.row().is_none()));
-                assert!(
-                    painted.contains("Message → worker") && painted.contains("eight-row draft")
-                );
+                assert!(painted.contains("eight-row draft"));
+                assert!(!painted.contains("Message →"));
                 assert_eq!(app.workspace.selected, member);
 
                 assert_eq!(
@@ -346,13 +343,18 @@ fn boxed_send_is_clickable_only_on_its_current_whole_uuid_fenced_button() {
     for width in [160, 100, 60] {
         let mut app = crate::board::app::workspace::tests::board();
         draw(&mut app, width, 18);
-        let hit = app.composer.send_hit.borrow().clone().unwrap();
+        assert!(app.composer.send_hit.borrow().is_none());
         app.key(ratatui::crossterm::event::KeyEvent::new(
             ratatui::crossterm::event::KeyCode::Enter,
             KeyModifiers::NONE,
         ));
         app.paste("explicit button text");
-        draw(&mut app, width, 18);
+        let buffer = draw(&mut app, width, 18);
+        let hit = app.composer.send_hit.borrow().clone().unwrap();
+        let label: String = (hit.area.x..hit.area.right())
+            .map(|x| buffer[(x, hit.area.y)].symbol())
+            .collect();
+        assert_eq!(label, "⏎ send");
         let click = MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
             column: hit.area.x,
@@ -519,7 +521,11 @@ fn scoped_enter_preserves_group_inspect_and_explicit_keys_in_help_and_hints() {
     for scope in [OpsKeyScope::Pool, OpsKeyScope::Squad] {
         assert_eq!(
             crate::config::workspace_defaults(scope)["enter"].text,
-            "inspect"
+            if scope == OpsKeyScope::Pool {
+                "inspect"
+            } else {
+                "talk"
+            }
         );
     }
     let mut app = crate::board::app::workspace::tests::board();
@@ -701,7 +707,11 @@ fn quote_remove_is_a_current_whole_control_and_retains_text_and_other_quotes() {
         assert!(painted.contains("Quote · worker:") && painted.contains("second excerpt"));
         assert!(!painted.contains("req-second-quote") && !painted.contains("bytes 0.."));
         let hit = app.composer.quote_hit.borrow().clone().unwrap();
-        assert_eq!(hit.area.width, 3);
+        assert_eq!(hit.area.width, 1);
+        assert_eq!(
+            draw(&mut app, width, 18)[(hit.area.x, hit.area.y)].symbol(),
+            "✕"
+        );
         assert_eq!(
             hit.area.intersection(app.input_band.get().unwrap()),
             hit.area
@@ -787,18 +797,19 @@ fn degraded_layout_explains_the_painted_fallback_without_losing_the_editor_row()
                         "{preference:?} {width}×{height} {focused}"
                     );
                     assert_eq!(app.workspace.selected, selected);
-                    if let Some(reason) = app.composer_layout_reason() {
-                        assert!(
-                            painted.contains(reason),
-                            "{preference:?} {width}×{height} {focused}: {painted}"
-                        );
-                    }
-                    assert!(painted.contains("Message → worker"));
+                    assert_eq!(
+                        app.workspace_snapshot().unwrap().preferences.layout,
+                        preference
+                    );
+                    assert!(
+                        !painted.contains("Message →"),
+                        "filled input has no frame/title"
+                    );
                     if focused {
                         assert_eq!(app.input.as_ref().unwrap().text.as_str(), "kept draft");
                     } else {
                         assert!(
-                            painted.contains("⏎ write"),
+                            painted.contains("⏎ to message worker"),
                             "{preference:?} {width}×{height}: {painted}"
                         );
                     }
@@ -1076,7 +1087,7 @@ fn blocking_owners_mask_only_the_passive_band_and_restore_the_exact_uuid_draft()
                     let point = if remove {
                         app.composer.quote_hit.borrow().as_ref().unwrap().area
                     } else {
-                        app.composer.send_hit.borrow().as_ref().unwrap().area
+                        app.input_viewport.get().unwrap().0
                     };
                     open_blocking_owner(&mut app, owner);
                     let covered = draw(&mut app, width, height);
@@ -1115,6 +1126,9 @@ fn blocking_owners_mask_only_the_passive_band_and_restore_the_exact_uuid_draft()
                     assert!(!app.modal_open(), "{owner}: dismissal");
                     assert_eq!(app.workspace.selected, selected, "{owner}");
                     assert_eq!(app.workspace.expanded, expanded, "{owner}");
+                    // Overlay actions may leave transient feedback; compare the
+                    // stable base as above, while keeping every draft/focus fence.
+                    app.notice = None;
                     let restored = draw(&mut app, width, height);
                     assert_eq!(app.scrolls.offsets(), scrolls, "{owner}");
                     let changed_rows = (0..height)
@@ -1137,7 +1151,7 @@ fn blocking_owners_mask_only_the_passive_band_and_restore_the_exact_uuid_draft()
                     assert_eq!(draft.text.unwrap().as_str(), "retained message draft");
                     assert_eq!(draft.quotes, &[quote]);
                     assert!(
-                        app.composer.send_hit.borrow().is_some()
+                        app.composer.send_hit.borrow().is_none()
                             && app.composer.quote_hit.borrow().is_some()
                     );
                 }

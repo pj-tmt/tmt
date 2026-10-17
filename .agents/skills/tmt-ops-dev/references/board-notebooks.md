@@ -95,12 +95,17 @@ reopen/j retry, without an automatic retry loop. Shutdown drains admitted writes
 after restoring the terminal. Shared markers survive restart, named-view changes,
 reset-view and exec reload. Pane captures never supply request read watermarks.
 
-The selected agent's composer stays visible at the conversation bottom, including
-while unfocused and after Send. Default Enter focuses its retained editor; active
-Enter submits, and Esc keeps the draft and returns to the originating list.
-Group Enter still inspects. The focused title and footer name the back path;
-effective custom bindings retain their meaning. Compact composer titles explain
-when the actual layout cannot keep the preferred split. The effective Member/Reader
+Agents focus titles its currently actor-only history `Exchanges with you`; an
+all-party title waits for #3217's read contract. It creates no other-pair rows or
+qualification sentence. The existing conversation session supplies grouped
+exchanges and pane-output observations. Its filled three-row input follows the
+last observed group with one blank row above; only overflow pins it to the bottom.
+The same InputField/editor owns Overview, member focus and squad focus, with no
+frame or title rule. Factory Enter replies to an observed exact question or
+messages the selected member/current squad lead from either pane; active Enter
+submits, and Esc keeps the draft and returns to the originating list. Common pool
+and an unobserved or replaced lead grant no substitute recipient. The effective
+footer owns key hints; authored bindings retain their meaning. The effective Member/Reader
 `view-reply` binding (default `v`) opens the full response reader without changing
 its exact-source admission; a missing response is explained in the status line.
 

@@ -99,7 +99,6 @@ pub enum AgentsField {
     Lead,
     State,
     Tokens,
-    Digest,
     Cron,
 }
 
@@ -107,38 +106,34 @@ impl AgentsField {
     pub fn caption(self, glyphs: crate::board::overview::cron_counts::GlyphSet) -> &'static str {
         match self {
             Self::Agent => "SQUAD / AGENT",
-            Self::Lead => "LEAD",
-            Self::State => "MEMBERS / STATE",
+            Self::Lead => "",
+            Self::State => "STATE",
             Self::Tokens => TOKENS_CAPTION,
-            Self::Digest => "DIGEST",
-            Self::Cron => cron_caption(glyphs),
+            Self::Cron => match glyphs {
+                crate::board::overview::cron_counts::GlyphSet::Unicode => "◷",
+                crate::board::overview::cron_counts::GlyphSet::Ascii => "CRON",
+            },
         }
     }
     fn minimum(self) -> u16 {
         match self {
-            Self::Agent => 22,
-            Self::Lead => 20,
-            Self::State => 15,
-            Self::Tokens => 8,
-            Self::Digest => 7,
-            Self::Cron => 7,
+            Self::Agent => 25,
+            Self::State => 16,
+            Self::Tokens => 7,
+            Self::Cron => 4,
+            Self::Lead => 4,
         }
     }
     fn gap(self) -> u16 {
         match self {
-            Self::Lead | Self::Tokens => 2,
+            Self::Tokens => 3,
+            Self::Cron => 1,
             _ => 1,
         }
     }
 }
 
 pub const TOKENS_CAPTION: &str = "TOK 1h";
-pub fn cron_caption(glyphs: crate::board::overview::cron_counts::GlyphSet) -> &'static str {
-    match glyphs {
-        crate::board::overview::cron_counts::GlyphSet::Unicode => "◷ CRON",
-        crate::board::overview::cron_counts::GlyphSet::Ascii => "CRON",
-    }
-}
 
 #[derive(Default)]
 pub(in crate::board) struct AgentsLayout {
@@ -204,52 +199,49 @@ impl AgentsLayout {
             .as_ref()
             .is_none_or(|(width, _)| *width != inside.width)
         {
-            let width = inside.width.saturating_sub(2);
-            let mut fields = vec![AgentsField::Agent];
-            if inside.width >= 100 {
-                fields.push(AgentsField::Lead);
-            }
-            fields.push(AgentsField::State);
-            if inside.width >= 100 {
-                fields.push(AgentsField::Tokens);
-            }
-            fields.extend([AgentsField::Digest, AgentsField::Cron]);
-            let gap = |field: AgentsField| {
-                if inside.width >= 100 && field == AgentsField::State {
-                    2
-                } else {
-                    field.gap()
-                }
-            };
+            let width = inside.width;
+            let mut fields = vec![
+                AgentsField::Agent,
+                AgentsField::State,
+                AgentsField::Tokens,
+                AgentsField::Cron,
+                AgentsField::Lead,
+            ];
             let demand = |fields: &[AgentsField]| {
                 fields.iter().map(|f| f.minimum()).sum::<u16>()
                     + fields
                         .iter()
                         .take(fields.len().saturating_sub(1))
-                        .map(|f| gap(*f))
+                        .map(|f| f.gap())
                         .sum::<u16>()
             };
-            for optional in [AgentsField::Digest, AgentsField::Cron] {
+            for optional in [AgentsField::Lead, AgentsField::Cron, AgentsField::Tokens] {
                 if demand(&fields) <= width {
                     break;
                 }
                 fields.retain(|f| *f != optional);
             }
-            let fixed = demand(&fields).saturating_sub(AgentsField::State.minimum());
-            let state_width = width.saturating_sub(fixed);
+            let state_width = AgentsField::State.minimum().min(width.saturating_sub(2));
+            let name_width = if fields.len() == 2 {
+                width.saturating_sub(state_width + 1)
+            } else {
+                AgentsField::Agent.minimum()
+            };
             let tracks: Vec<_> = fields
                 .iter()
                 .copied()
                 .map(|field| {
                     (
                         field,
-                        if field == AgentsField::State {
+                        if field == AgentsField::Agent {
+                            name_width
+                        } else if field == AgentsField::State {
                             state_width
                         } else {
                             field.minimum()
                         },
                         field.caption(Default::default()),
-                        gap(field),
+                        field.gap(),
                     )
                 })
                 .collect();
@@ -263,7 +255,7 @@ impl AgentsLayout {
             .map(|(field, slot)| {
                 (
                     *field,
-                    Rect::new(inside.x.saturating_add(1 + slot.x), inside.y, slot.width, 1)
+                    Rect::new(inside.x.saturating_add(slot.x), inside.y, slot.width, 1)
                         .intersection(inside),
                 )
             })
@@ -278,14 +270,34 @@ pub fn paint_agents_header(
     look: crate::look::Look,
     glyphs: crate::board::overview::cron_counts::GlyphSet,
 ) {
-    paint_header_tracks(
-        buffer,
-        area,
-        slots,
-        look,
-        |field| field.caption(glyphs).into(),
-        |_| ("", false),
-    );
+    if area.height == 0 {
+        return;
+    }
+    for (field, slot) in slots {
+        let caption = if *field == AgentsField::Agent {
+            format!("  {}", field.caption(glyphs))
+        } else {
+            field.caption(glyphs).to_owned()
+        };
+        let align = if *field == AgentsField::Tokens {
+            tmt_cli_style::grid::Align::Right
+        } else {
+            tmt_cli_style::grid::Align::Left
+        };
+        tmt_tui::components::strip::paint_left(
+            buffer,
+            *slot,
+            ratatui::text::Line::styled(
+                tmt_tui::text::fit_line(
+                    &caption,
+                    slot.width,
+                    tmt_tui::style::TextFlow::Truncate,
+                    align,
+                ),
+                look.role(Role::Muted),
+            ),
+        );
+    }
 }
 
 pub fn paint_roster_header(
@@ -564,7 +576,6 @@ pub struct WorkspaceColumnValues {
     pub tokens: Option<f64>,
     pub partial: bool,
     pub digest: Option<String>,
-    pub digest_labels: Vec<WorkspaceColumnLabel>,
     pub cron: Option<(u32, u32)>,
     pub runtime: Option<String>,
     pub model: Option<String>,
@@ -601,6 +612,17 @@ impl WorkspaceColumnValues {
     }
 }
 
+pub fn member_digest_labels(labels: &Supplied, id: &str) -> Vec<WorkspaceColumnLabel> {
+    labels
+        .of(id)
+        .filter(|(source, _)| *source == "digest")
+        .map(|(_, label)| WorkspaceColumnLabel {
+            text: label.text.clone(),
+            actionable: label.action.is_some(),
+        })
+        .collect()
+}
+
 pub fn project(input: WorkspaceColumnInput<'_>) -> Option<WorkspaceColumnValues> {
     let OpsTarget::Member {
         room_id,
@@ -625,15 +647,7 @@ pub fn project(input: WorkspaceColumnInput<'_>) -> Option<WorkspaceColumnValues>
         .labels
         .digest()
         .is_some_and(|(status, stale)| !stale && status.members.contains_key(identity_id));
-    let digest_labels: Vec<_> = input
-        .labels
-        .of(identity_id)
-        .filter(|(source, _)| *source == "digest")
-        .map(|(_, label)| WorkspaceColumnLabel {
-            text: label.text.clone(),
-            actionable: label.action.is_some(),
-        })
-        .collect();
+    let digest_labels = member_digest_labels(input.labels, identity_id);
     let digest = verified
         .then(|| digest_labels.first().map(|label| label.text.clone()))
         .flatten();
@@ -644,7 +658,6 @@ pub fn project(input: WorkspaceColumnInput<'_>) -> Option<WorkspaceColumnValues>
         tokens: input.usage.map(|reading| reading.tokens as f64),
         partial: input.usage.is_some_and(|reading| reading.partial),
         digest,
-        digest_labels,
         cron: input.timers,
         runtime: input.agent.and_then(|agent| agent.runtime.clone()),
         model: input.agent.and_then(|agent| agent.model.clone()),
@@ -659,40 +672,20 @@ mod tests {
     #[test]
     fn agents_tracks_follow_pane_width_and_drop_only_whole_optional_fields() {
         let mut layout = AgentsLayout::default();
-        let narrow = layout.slots(Rect::new(1, 7, 58, 1));
-        assert_eq!(
-            narrow
-                .iter()
-                .map(|(field, slot)| (*field, slot.x, slot.width))
-                .collect::<Vec<_>>(),
-            vec![
-                (AgentsField::Agent, 2, 22),
-                (AgentsField::State, 25, 17),
-                (AgentsField::Digest, 43, 7),
-                (AgentsField::Cron, 51, 7)
-            ]
-        );
-        assert!(
-            !layout
-                .slots(Rect::new(1, 7, 98, 1))
-                .iter()
-                .any(|(field, _)| *field == AgentsField::Lead)
-        );
-        let wide = layout.slots(Rect::new(1, 7, 158, 1));
+        let wide = layout.slots(Rect::new(0, 7, 70, 1));
         assert_eq!(
             wide.iter()
                 .map(|(field, slot)| (*field, slot.x, slot.width))
                 .collect::<Vec<_>>(),
             vec![
-                (AgentsField::Agent, 2, 22),
-                (AgentsField::Lead, 25, 20),
-                (AgentsField::State, 47, 84),
-                (AgentsField::Tokens, 133, 8),
-                (AgentsField::Digest, 143, 7),
-                (AgentsField::Cron, 151, 7)
+                (AgentsField::Agent, 0, 25),
+                (AgentsField::State, 26, 16),
+                (AgentsField::Tokens, 43, 7),
+                (AgentsField::Cron, 53, 4),
+                (AgentsField::Lead, 58, 4),
             ]
         );
-        for width in [0, 1, 22, 40, 53, 54, 60, 73, 98, 100, 158] {
+        for width in 0..=160 {
             let area = Rect::new(4, 8, width, 1);
             let slots = layout.slots(area);
             assert!(
@@ -707,13 +700,18 @@ mod tests {
             );
             assert_eq!(
                 slots.iter().any(|(field, _)| *field == AgentsField::Lead),
-                width >= 100
+                width >= 62
             );
-            if width < 54 {
-                assert!(!slots.iter().any(|(field, _)| *field == AgentsField::Digest));
+            for (field, slot) in &slots {
+                if matches!(
+                    field,
+                    AgentsField::Tokens | AgentsField::Cron | AgentsField::Lead
+                ) {
+                    assert_eq!(slot.width, field.minimum(), "optional fields fit whole");
+                }
             }
         }
-        assert_eq!(cron_caption(Default::default()), "◷ CRON");
+        assert_eq!(AgentsField::Cron.caption(Default::default()), "◷");
     }
 
     #[test]
@@ -741,7 +739,7 @@ mod tests {
                     " ",
                     "header cannot paint into its data row"
                 );
-                assert_eq!(buffer[(0, 1)].symbol(), "─");
+                assert_eq!(buffer[(0, 1)].symbol(), " ");
                 assert!(
                     buffer
                         .content
@@ -792,7 +790,10 @@ mod tests {
             projected.digest.is_none(),
             "generic labels cannot invent typed mode evidence"
         );
-        assert_eq!(projected.digest_labels[0].text, "supplier mode");
+        assert_eq!(
+            member_digest_labels(&app.labels, identity_id)[0].text,
+            "supplier mode"
+        );
         assert_eq!(
             app.labels.of(identity_id).next().unwrap().1.role,
             Role::Waiting
@@ -824,7 +825,6 @@ mod tests {
             tokens: None,
             partial: false,
             digest: None,
-            digest_labels: Vec::new(),
             cron: None,
             runtime: runtime.map(str::to_owned),
             model: None,

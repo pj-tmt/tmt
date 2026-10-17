@@ -175,8 +175,8 @@ pub(in crate::board) fn inline_prompt(
     use tmt_cli_style::Role;
     use tmt_tui::components::{Modal, Placement};
     app.composer.invalidate();
-    if app.shell.tab == crate::board::shell::OpsTab::Overview
-        && frame.area().width >= 140
+    if (app.shell.tab == crate::board::shell::OpsTab::Agents
+        || app.shell.tab == crate::board::shell::OpsTab::Overview && frame.area().width >= 140)
         && app.composer_projection().is_some()
     {
         final_input(frame, app, body);
@@ -644,7 +644,9 @@ fn final_input(
     else {
         return;
     };
-    if app.modal_open() {
+    if app.modal_open()
+        && (app.shell.tab != crate::board::shell::OpsTab::Agents || !projection.focused)
+    {
         return;
     }
     let look = app.look();
@@ -653,9 +655,15 @@ fn final_input(
     let key = start
         .as_ref()
         .map_or("click", |(key, _)| super::footer::key_label(key));
-    let replying = start
-        .as_ref()
-        .is_none_or(|(_, action)| action.verb == Verb::Reply);
+    let replying = if projection.focused {
+        app.input
+            .as_ref()
+            .is_some_and(|input| matches!(input.compose, crate::board::app::Compose::Reply { .. }))
+    } else {
+        start
+            .as_ref()
+            .is_none_or(|(_, action)| action.verb == Verb::Reply)
+    };
     let editor_area = field::paint(
         frame.buffer_mut(),
         band,

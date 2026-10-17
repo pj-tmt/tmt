@@ -722,14 +722,33 @@ impl Rate {
             .saturating_mul(SLOT_MS)
     }
     pub fn trend(&self, now: u64, window: TokenWindow) -> [Option<f64>; 8] {
-        let bar_slots = (window.milliseconds() / SLOT_MS).div_ceil(8);
+        Self::trend_of(self.members.values(), now, window)
+    }
+
+    /// Member focus and squad rows use the same admitted buckets and bounds.
+    pub fn member_trend<const N: usize>(
+        &self,
+        id: &str,
+        now: u64,
+        window: TokenWindow,
+    ) -> [Option<f64>; N] {
+        Self::trend_of(self.members.get(id).into_iter(), now, window)
+    }
+
+    fn trend_of<'a, const N: usize>(
+        members: impl Iterator<Item = &'a Member> + Clone,
+        now: u64,
+        window: TokenWindow,
+    ) -> [Option<f64>; N] {
+        assert!(N > 0, "trend requires a nonempty bucket grid");
+        let bar_slots = (window.milliseconds() / SLOT_MS).div_ceil(N as u64);
         let end = now / SLOT_MS;
         std::array::from_fn(|index| {
-            let last = end.checked_sub((7 - index) as u64 * bar_slots)?;
+            let last = end.checked_sub((N - 1 - index) as u64 * bar_slots)?;
             let first = last.saturating_sub(bar_slots - 1);
             let mut tokens = 0_u128;
             let mut evidence = false;
-            for bucket in self.members.values().flat_map(|member| &member.buckets) {
+            for bucket in members.clone().flat_map(|member| &member.buckets) {
                 if bucket
                     .slot
                     .is_some_and(|slot| (first..=last).contains(&slot))

@@ -617,7 +617,7 @@ fn compact_workspace_labels_keep_name_state_and_complete_source_units() {
             row.contains("worker") && row.contains("● working"),
             "{width}: {row}"
         );
-        assert_eq!(row.contains("Auto"), width >= 60, "{width}: {row}");
+        assert!(!row.contains("Auto"), "{width}: {row}");
         assert_eq!(
             row.contains("17"),
             row.contains("17 held"),
@@ -634,7 +634,7 @@ fn compact_workspace_labels_keep_name_state_and_complete_source_units() {
         if width == 100 {
             let conversation = paint(&app, width, 36).join("\n");
             assert!(
-                conversation.contains("17 held") && conversation.contains("tail-extra-whole"),
+                conversation.contains("17 held") && !conversation.contains("tail-extra-wh…"),
                 "{conversation}"
             );
         }
@@ -1213,24 +1213,18 @@ fn reader_dispatch_help_and_footer_share_effective_keys_and_preserve_overrides()
     paint(&app, 160, 36);
     key(&mut app, KeyCode::Tab);
     let target = app.workspace.selected.clone();
-    assert_eq!(app.bindings()["j"].text, "scroll-down");
+    assert_eq!(app.bindings()["j"].text, "jump");
     assert_eq!(app.bindings()["2"].text, "agents");
-    assert_eq!(key(&mut app, KeyCode::Char('j')), Effect::None);
+    assert_eq!(
+        key(&mut app, KeyCode::Char('j')),
+        Effect::Act(Request::Jump(MEMBER.into()))
+    );
     assert_eq!(app.workspace.selected, target);
     assert_eq!(app.focused_pane(), Some(Pane::Replies));
-    let keys = app
-        .view
-        .as_mut()
-        .unwrap()
-        .home
-        .as_mut()
-        .unwrap()
-        .workspace
-        .keys
-        .get_mut(&OpsKeyScope::Reader)
-        .unwrap();
-    keys.insert("j".into(), Action::parse("copy $name").unwrap());
-    keys.insert("k".into(), Action::parse("jump").unwrap());
+    crate::board::app::tests::configure_workspace(
+        &mut app,
+        "[bind]\nj = 'copy $name'\nk = 'jump'\n",
+    );
     let help = crate::board::help::model(&app);
     let bindings = help
         .sections
@@ -1262,7 +1256,7 @@ fn reader_dispatch_help_and_footer_share_effective_keys_and_preserve_overrides()
 }
 
 #[test]
-fn a_refresh_cannot_restore_factory_pane_focus_or_turn_reader_j_into_host() {
+fn refresh_preserves_pane_focus_and_selected_factory_host_action() {
     let mut app = board();
     paint(&app, 160, 36);
     key(&mut app, KeyCode::Tab);
@@ -1281,7 +1275,10 @@ fn a_refresh_cannot_restore_factory_pane_focus_or_turn_reader_j_into_host() {
     app.apply(loaded);
     paint(&app, 160, 36);
     assert_eq!(app.focused_pane(), Some(Pane::Replies));
-    assert_eq!(key(&mut app, KeyCode::Char('j')), Effect::None);
+    assert_eq!(
+        key(&mut app, KeyCode::Char('j')),
+        Effect::Act(Request::Jump(MEMBER.into()))
+    );
     assert_eq!(app.workspace.selected, selected);
 }
 
@@ -1458,32 +1455,43 @@ fn partial_item_result_survives_as_readable_evidence_with_no_automatic_retry() {
     assert!(app.workspace_form.is_some());
 }
 #[test]
-fn squad_controls_are_clickable_and_stale_controls_never_retarget() {
+fn squad_actions_keep_metadata_inert_and_refuse_unobserved_targets() {
     let mut app = board();
     app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
     app.workspace_reconcile();
     paint(&app, 160, 36);
-    let (area, _, _) = app
-        .workspace_action_hits
-        .borrow()
-        .iter()
-        .find(|(_, _, choice)| matches!(choice, Choice::WorkspaceBegin(Kind::Add)))
+    assert!(
+        app.workspace_action_hits
+            .borrow()
+            .iter()
+            .all(|(_, _, choice)| !matches!(choice, Choice::WorkspaceBegin(_))),
+        "actions moved out of panel chrome"
+    );
+    assert_eq!(key(&mut app, KeyCode::Char('m')), Effect::None);
+    let choice = app
+        .menu
+        .as_ref()
         .unwrap()
+        .entries
+        .iter()
+        .find(|entry| matches!(entry.choice, Choice::WorkspaceBegin(Kind::Add)))
+        .unwrap()
+        .choice
         .clone();
-    let event = MouseEvent {
-        kind: MouseEventKind::Down(MouseButton::Left),
-        column: area.x,
-        row: area.y,
-        modifiers: KeyModifiers::NONE,
-    };
+    key(&mut app, KeyCode::Esc);
     app.workspace.selected = Some(OpsTarget::Pool);
-    assert_eq!(app.mouse(event, Instant::now()), Effect::None);
-    assert!(app.workspace_form.is_none());
+    app.choose(choice.clone());
+    assert!(
+        app.workspace_form.is_none(),
+        "no stale squad context can become a pool membership write"
+    );
     app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
+    app.workspace_reconcile();
     paint(&app, 160, 36);
-    assert_eq!(app.mouse(event, Instant::now()), Effect::None);
+    app.choose(choice);
     assert_eq!(app.workspace_form.as_ref().unwrap().kind, Kind::Add);
 }
+
 #[test]
 fn no_squads_is_a_known_empty_workspace_with_an_explicit_creation_action() {
     let mut app = board();
@@ -1599,11 +1607,7 @@ fn supplied_label_choice_hit_at_look(look: crate::look::Look) {
         app.shell.tab = tab;
         for width in [100, 160] {
             let screen = paint(&app, width, 36).join("\n");
-            let mode = if matches!(tab, OpsTab::Digest | OpsTab::Overview) {
-                "Auto ▾"
-            } else {
-                "digest Auto ▾"
-            };
+            let mode = "Auto ▾";
             assert!(screen.contains(mode), "{tab:?}: {screen}");
             assert!(screen.contains("1 held"));
             assert!(
@@ -1621,7 +1625,13 @@ fn supplied_label_choice_hit_at_look(look: crate::look::Look) {
             // unrelated "1 held" in the Digest summary or conversation history.
             for (area, _) in &chips {
                 for x in area.right()..width.saturating_sub(5).min(area.right() + 12) {
-                    let start = usize::from(area.y) * usize::from(width) + usize::from(x);
+                    let label_y = area.y + u16::from(tab == OpsTab::Agents);
+                    let label_x = if tab == OpsTab::Agents {
+                        area.x + (x - area.right())
+                    } else {
+                        x
+                    };
+                    let start = usize::from(label_y) * usize::from(width) + usize::from(label_x);
                     let cells = &buffer.content[start..start + 6];
                     if cells.iter().map(|cell| cell.symbol()).collect::<String>() == "1 held" {
                         held.push(cells);
@@ -2061,7 +2071,11 @@ fn a_composer_with_its_own_key_legend_does_not_advertise_list_shortcuts() {
         key(&mut app, KeyCode::Enter);
         let lines = paint(&app, width, 36);
         assert!(app.input_band.get().is_some());
-        assert!(lines.iter().any(|line| line.contains("Enter send")));
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("⏎ send · Esc cancel"))
+        );
         assert!(
             lines.last().unwrap().trim().is_empty(),
             "{width}: {:?}",
@@ -2106,11 +2120,7 @@ fn compact_overview_talk_opens_agents_but_wide_overview_keeps_the_shared_convers
         );
         let lines = paint(&app, width, 36);
         assert!(app.input_band.get().is_some());
-        assert!(lines.iter().any(|line| line.contains(if width >= 140 {
-            "› worker as you…"
-        } else {
-            "Message → worker"
-        })));
+        assert!(lines.iter().any(|line| line.contains("Message worker…")));
         assert_eq!(app.workspace.selected, selected);
         key(&mut app, KeyCode::Char('2')); // Message input owns digits.
         assert_eq!(app.input.as_ref().unwrap().text.as_str(), "2");
@@ -2143,7 +2153,10 @@ fn overview_reader_resize_and_refresh_keep_reader_keys_instead_of_host_scope() {
     assert_eq!(app.shell.tab, OpsTab::Agents);
     assert_eq!(app.focused_pane(), Some(Pane::Replies));
     paint(&app, 80, 36);
-    assert_eq!(key(&mut app, KeyCode::Char('j')), Effect::None);
+    assert_eq!(
+        key(&mut app, KeyCode::Char('j')),
+        Effect::Act(Request::Jump(MEMBER.into()))
+    );
     assert_eq!(app.workspace.selected, selected);
 }
 
@@ -2166,9 +2179,9 @@ fn selected_squad_discloses_existing_usage_facts_without_private_lead_fields() {
             paint(&app, width, 36);
             key(&mut app, KeyCode::Tab);
             let text = paint(&app, width, 36).join("\n");
-            assert!(text.contains("Lead usage:"), "{width}: {text}");
+            assert!(text.contains("── Usage "), "{width}: {text}");
             assert!(text.contains("~21 tok"), "{width}: {text}");
-            assert!(text.contains("Lead share: ~100%"), "{width}: {text}");
+            assert!(text.contains("~100%"), "{width}: {text}");
             assert!(!text.contains("private lead task") && !text.contains("private PR"));
         }
     });
@@ -2302,8 +2315,8 @@ fn workspace_settings_cancel_returns_to_the_exact_reader_without_factory_actions
         assert_eq!(app.focused_pane(), Some(Pane::Replies));
         assert_eq!(
             key(&mut app, KeyCode::Char('j')),
-            Effect::None,
-            "the restored Reader must scroll rather than jump to host"
+            Effect::Act(Request::Jump(MEMBER.into())),
+            "restoring Reader preserves the selected factory host action"
         );
         assert_eq!(app.workspace.selected, selected);
     }
@@ -2796,7 +2809,10 @@ fn workspace_focus_ignores_retired_home_composition_and_jumps_from_the_tree() {
     );
     key(&mut app, KeyCode::Tab);
     assert_eq!(app.focused_pane(), Some(Pane::Replies));
-    assert_eq!(key(&mut app, KeyCode::Char('j')), Effect::None);
+    assert_eq!(
+        key(&mut app, KeyCode::Char('j')),
+        Effect::Act(Request::Jump(MEMBER.into()))
+    );
     let original = app.workspace.selected.clone();
     key(&mut app, KeyCode::Char('1'));
     assert_eq!(app.shell.tab, OpsTab::Overview);
@@ -2892,18 +2908,18 @@ fn agents_table_cells_and_hits_keep_state_color_scoped_across_sizes_and_focus() 
                                 .collect::<String>();
                             assert!(
                                 text.contains(if selected_squad {
-                                    "▾   product"
+                                    "▾ product"
                                 } else {
-                                    "└   worker"
+                                    "└ worker"
                                 }),
                                 "{width}x{height}: {text}"
                             );
                         } else {
                             assert!(
                                 lines.iter().any(|line| line.contains(if selected_squad {
-                                    "Roster preview"
+                                    "── Board "
                                 } else {
-                                    "Message → worker"
+                                    "Exchanges with you"
                                 })),
                                 "{width}x{height}: {lines:?}"
                             );
@@ -3087,11 +3103,11 @@ fn agents_wide_table_uses_hour_readings_once_and_marks_missing_members() {
             let slots = app
                 .agents_layout
                 .borrow_mut()
-                .slots(Rect::new(1, row.y, 158, 1));
+                .slots(Rect::new(0, row.y, 160, 1));
             for (field, expected) in [
                 (
                     crate::board::workspace::columns::AgentsField::Lead,
-                    "worker".to_owned(),
+                    String::new(),
                 ),
                 (
                     crate::board::workspace::columns::AgentsField::Tokens,
@@ -3495,9 +3511,9 @@ fn visibility_capture_matrix_keeps_shell_global_and_views_scoped() {
                     }
                     if tab == OpsTab::Agents {
                         assert!(text.contains(if mode == "revealed" {
-                            "Agents · 2 squads"
+                            "2 squads ·"
                         } else {
-                            "Agents · 1 squad"
+                            "1 squad ·"
                         }));
                         if mode == "scoped" {
                             assert!(!text.contains("+ Common pool"));
@@ -3782,14 +3798,8 @@ fn overview_retains_supplier_values_without_recreating_the_removed_mode_cell() {
                 .all(|(area, _)| area.intersection(list).is_empty()),
             "no retired table dropdown retains an authority"
         );
-        let values = crate::board::overview::monitor::values(
-            &app,
-            app.workspace_snapshot().unwrap(),
-            &app.workspace_rows()[0],
-        );
         assert!(
-            values
-                .digest_labels
+            crate::board::workspace::columns::member_digest_labels(&app.labels, MEMBER)
                 .iter()
                 .any(|label| label.text == "1 held")
         );
@@ -3884,12 +3894,18 @@ fn search_follows_first_match_and_clearing_restores_the_original_selection() {
             assert!(
                 lines
                     .iter()
-                    .any(|line| line.contains(&format!("Conversation · {name}"))),
+                    .any(|line| line.contains(&format!("── {name} "))),
                 "the previous conversation remains painted"
             );
         } else {
             assert!(
-                lines.iter().any(|line| line.contains("Roster preview")),
+                lines
+                    .iter()
+                    .any(|line| line.contains(if tab == OpsTab::Agents {
+                        "── Board "
+                    } else {
+                        "Roster preview"
+                    })),
                 "the previous squad remains painted"
             );
         }
@@ -4024,7 +4040,7 @@ fn empty_search_preview_does_not_assume_a_retained_member_payload_is_available()
         assert!(
             lines
                 .iter()
-                .any(|line| line.contains("Select an agent to read its response."))
+                .any(|line| line.contains("Selected agent unavailable."))
         );
         assert_eq!(app.workspace.selected, Some(target));
         assert!(app.workspace_action_hits.borrow().is_empty());
@@ -4490,7 +4506,7 @@ fn pinned_filter_disclosure_matches_temporarily_shown_children() {
         assert!(
             lines
                 .iter()
-                .any(|line| line.contains(&format!("▾   {group}"))),
+                .any(|line| line.contains(&format!("▾ {group}"))),
             "{lines:?}"
         );
         assert!(app.workspace.expanded.is_empty() && !app.workspace.pool_expanded);
@@ -4573,7 +4589,8 @@ fn pinned_name_marks_are_muted_and_keep_column_geometry_in_both_hosts() {
             };
             let x = name_x(&after, after_y);
             assert!(x >= 2, "name must reserve two cells for its pin mark");
-            assert_eq!(after[(x - 2, after_y)].symbol(), "▪");
+            let pin_x = if tab == OpsTab::Agents { 0 } else { x - 2 };
+            assert_eq!(after[(pin_x, after_y)].symbol(), "▪");
             let pinned_row = (0..148)
                 .map(|column| after[(column, after_y)].symbol())
                 .collect::<String>();
@@ -4584,9 +4601,9 @@ fn pinned_name_marks_are_muted_and_keep_column_geometry_in_both_hosts() {
                 x,
                 "unpinned names reserve the same two cells"
             );
-            assert_eq!(before[(x - 2, before_y)].symbol(), " ");
+            assert_eq!(before[(pin_x, before_y)].symbol(), " ");
             assert_eq!(
-                after[(x - 2, after_y)].fg,
+                after[(pin_x, after_y)].fg,
                 app.look()
                     .role(tmt_cli_style::Role::Muted)
                     .fg

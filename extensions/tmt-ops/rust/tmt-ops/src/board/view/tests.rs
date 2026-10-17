@@ -138,7 +138,7 @@ fn narrow_annotation_caption_keeps_excerpt_and_whole_removal_control_and_hint() 
     assert!(
         lines
             .iter()
-            .any(|line| line.contains("Enter send · Esc list · Alt-⌫ remove")),
+            .any(|line| line.contains("⏎ send · Esc cancel")),
         "{lines:?}"
     );
     assert!(!lines.iter().any(|line| line.contains(request)));
@@ -148,11 +148,11 @@ fn narrow_annotation_caption_keeps_excerpt_and_whole_removal_control_and_hint() 
         .borrow()
         .clone()
         .expect("whole painted removal control");
-    assert_eq!(hit.area.width, 3);
+    assert_eq!(hit.area.width, 1);
     let control: String = (hit.area.x..hit.area.right())
         .map(|x| buffer[(x, hit.area.y)].symbol())
         .collect();
-    assert_eq!(control, " ✕ ");
+    assert_eq!(control, "✕");
     assert_eq!(hit.source.request, request);
 }
 
@@ -347,7 +347,7 @@ fn footer_orders_hints_by_priority_and_always_keeps_quit_and_more() {
 #[test]
 fn footer_shows_only_the_row_actions_the_selected_row_allows() {
     let mut app = workspace_board();
-    workspace_keys(&mut app, "[bind]\nr = \"reply\"\n");
+    workspace_keys(&mut app, "[bind]\nenter = \"talk\"\nr = \"reply\"\n");
     let plain = hints(&app, usize::MAX);
     assert!(plain.contains("⏎ chat") && plain.contains("j host"));
     assert!(!plain.contains("r reply") && !plain.contains("o open"));
@@ -764,7 +764,9 @@ fn member_task_states_are_red_only_when_blocked_whatever_the_projected_token() {
                         Role::Muted
                     });
                     let expected = if selected {
-                        look.selection().patch(look.row_span(true, token, false))
+                        look.selection()
+                            .patch(look.row_span(true, token, false))
+                            .remove_modifier(Modifier::BOLD)
                     } else {
                         token
                     };
@@ -1216,17 +1218,13 @@ fn supplied_digest_zero_held_and_mode_changes_replace_old_labels_and_keep_the_ch
                     let context = format!("{tab:?}/{width}/{mode}/{held}:\n{screen}");
                     assert!(!screen.contains("No held messages"), "{context}");
                     if tab == crate::board::shell::OpsTab::Overview {
-                        let rows = app.workspace_rows();
-                        let values = crate::board::overview::monitor::values(
-                            &app,
-                            app.workspace_snapshot().unwrap(),
-                            &rows[0],
-                        );
                         assert_eq!(
-                            values
-                                .digest_labels
-                                .iter()
-                                .any(|label| label.text == "3 held"),
+                            crate::board::workspace::columns::member_digest_labels(
+                                &app.labels,
+                                MEMBER
+                            )
+                            .iter()
+                            .any(|label| label.text == "3 held"),
                             held,
                             "{context}"
                         );

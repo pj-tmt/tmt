@@ -317,7 +317,19 @@ fn find(app: &App, text: &str) -> (u16, u16) {
             .map(|x| buffer[(x, y)].symbol().to_owned())
             .collect();
         if let Some(at) = line.find(text) {
-            return (line[..at].chars().count() as u16, y);
+            let point = (line[..at].chars().count() as u16, y);
+            if app
+                .menu
+                .as_ref()
+                .and_then(|menu| {
+                    menu.surface.borrow().as_ref().and_then(|surface| {
+                        surface.pointer(mouse(MouseEventKind::Down(MouseButton::Left), point))
+                    })
+                })
+                .is_some()
+            {
+                return point;
+            }
         }
     }
     panic!("{text} is not drawn");
@@ -347,8 +359,9 @@ fn the_mouse_chooses_an_entry_scrolls_the_highlight_and_ignores_the_outside() {
     );
     assert!(app.menu.is_some());
     // The wheel moves the highlight, one entry per notch, within the list.
+    let selected = app.menu.as_ref().unwrap().selected;
     app.mouse(mouse(MouseEventKind::ScrollDown, hour), Instant::now());
-    assert_eq!(app.menu.as_ref().unwrap().selected, 4);
+    assert_eq!(app.menu.as_ref().unwrap().selected, selected + 1);
     for _ in 0..5 {
         app.mouse(mouse(MouseEventKind::ScrollUp, hour), Instant::now());
     }

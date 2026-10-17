@@ -146,7 +146,10 @@ impl App {
             })
     }
     pub(in crate::board) fn focus_composer(&mut self) -> super::app::Effect {
-        let action = if self.shell.tab == super::shell::OpsTab::Overview {
+        let action = if matches!(
+            self.shell.tab,
+            super::shell::OpsTab::Overview | super::shell::OpsTab::Agents
+        ) {
             self.composer_start()
                 .map(|(_, action)| action)
                 .unwrap_or_else(|| crate::action::Action::parse("reply").expect("built-in Reply"))

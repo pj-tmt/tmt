@@ -113,17 +113,16 @@ state only, no squad data or durable preference policy.
   carries no section binding, and public JSON keeps it outside `sections`.
   The retired UI-only member rule/count is absent; workspace tree rows and counts
   derive from the acquired UUID roster instead of this document projection.
-- `workspace::render::tree` paints viewport UUID targets as a fixed-column Agents
-  table. `workspace::columns` owns the Agents profile, captions, whole-column drop
-  policy and shared TUI track/header solver; LEAD is local presentation vocabulary.
-  The list pane's inner width admits LEAD/TOK 1h at 100 cells. Room counts include
-  the distinct lead; connectors follow the filtered sibling sequence. Only state
-  glyphs/words receive state colour. Selection uses a background (the existing
-  reverse fallback in NO_COLOR), and inactive selections keep the pane focus cues.
-  Digest choices and timer counts publish only complete visible frozen hits.
-  The selected group's roster preview is MEMBER / STATE / TASK / NEXT ACTION;
-  choosing a member retains the exact room/identity target. Unknown readings,
-  membership and timer totals remain distinct from observed zero.
+- `workspace::render::tree` projects viewport UUID targets through `tree_row`.
+  `workspace::columns` owns fixed tracks and whole optional-column removal;
+  TOK 1h is visible with STATE, owned-timer count and a local lead marker when
+  they fit. Connectors follow filtered siblings. Selection fills the whole row
+  at normal weight, including when the conversation has focus; attention belongs
+  to state glyphs. `agents_focus` owns selected member/squad projection through
+  shared identity/stat/usage/timer/exchange/input components. Digest choices and
+  timer counts publish only complete clipped current-frame hits. Unknown readings,
+  membership and timer totals remain distinct from observed zero. The
+  [workspace surface](board-home.md#shell-geometry-and-input) owns its layout.
 
 - Selection words: `Look::selected_words` is the one owner of what a real selection
   background (`tmt`, `tmt-light`) does to colors. `render_frame` runs it last, over the

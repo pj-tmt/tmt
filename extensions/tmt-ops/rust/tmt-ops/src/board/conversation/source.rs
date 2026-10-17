@@ -47,6 +47,15 @@ pub(super) struct Source {
     annotate: Option<(Rect, Quote)>,
 }
 impl Source {
+    pub(super) fn desired_height(&self, width: u16) -> usize {
+        self.selection
+            .source
+            .layout(width)
+            .lines
+            .len()
+            .saturating_add(1)
+    }
+
     pub(super) fn scroll(&mut self, offset: usize, step: super::Step, visible: bool) {
         match step {
             super::Step::Top => self.anchor = Anchor::Byte(0),
@@ -248,17 +257,6 @@ impl App {
             _ => None,
         }
     }
-}
-
-pub(super) fn paint(
-    frame: &mut Frame,
-    app: &App,
-    source: &mut Source,
-    target: &RowTarget,
-    body: Rect,
-    look: Look,
-) {
-    paint_with_interactivity(frame, app, source, target, body, look, true);
 }
 
 pub(super) fn paint_with_interactivity(

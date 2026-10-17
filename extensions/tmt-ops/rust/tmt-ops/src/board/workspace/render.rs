@@ -184,50 +184,11 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         crate::board::divider::paint(
             frame.buffer_mut(),
             Rect::new(list.right(), list.y, 1, list.height),
-            false,
+            true,
             app.look(),
         );
     }
     if let Some(bands) = placement.agents {
-        let snapshot = app.workspace_snapshot().unwrap();
-        let count = snapshot
-            .roster
-            .squads
-            .iter()
-            .filter(|squad| {
-                app.workspace
-                    .visibility
-                    .shows_squad(&squad.room_id, &snapshot.preferences)
-            })
-            .count();
-        let title = format!(
-            "Agents · {}{} {}{}",
-            count,
-            if snapshot.roster.complete() {
-                ""
-            } else {
-                " observed"
-            },
-            if count == 1 { "squad" } else { "squads" },
-            if app.workspace.visibility.scope.is_empty() {
-                " + Common pool"
-            } else {
-                ""
-            }
-        );
-        strip::paint_left(
-            frame.buffer_mut(),
-            Rect::new(
-                bands.title.x + 2,
-                bands.title.y,
-                bands.title.width.saturating_sub(37),
-                1,
-            ),
-            Line::styled(
-                crate::board::view::fit(&title, usize::from(bands.title.width.saturating_sub(37))),
-                app.look().role(Role::Muted),
-            ),
-        );
         agents_controls(frame, app, bands);
     }
     if let Some(list) = placement.list {
@@ -239,7 +200,9 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     }
     app.conversation.borrow_mut().pane = placement.conversation;
     if let Some(detail) = placement.conversation {
-        if let Some(target) = app.workspace_retained_search_target() {
+        if app.shell.tab == OpsTab::Agents {
+            crate::board::agents_focus::render(frame, app, detail);
+        } else if let Some(target) = app.workspace_retained_search_target() {
             if matches!(target, OpsTarget::Member { .. }) {
                 crate::board::conversation::render_retained(frame, app, detail, target);
             } else {
@@ -260,11 +223,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
         return;
     };
     let look = app.look();
-    let inside = if area.width >= 3 {
-        Rect::new(area.x + 1, area.y, area.width - 2, area.height)
-    } else {
-        area
-    };
+    let inside = area;
     // The section rule yields before the table header, range and last target.
     let rule_height = u16::from(inside.height >= 4);
     let header_height = u16::from(inside.height >= 3);
@@ -273,7 +232,33 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
         ..inside
     });
     let note = if app.workspace.query.is_empty() {
-        Line::default()
+        let squads = snapshot
+            .roster
+            .squads
+            .iter()
+            .filter(|squad| {
+                app.workspace
+                    .visibility
+                    .shows_squad(&squad.room_id, &snapshot.preferences)
+                    && (app.workspace.filter != super::AgentsFilter::Pinned
+                        || snapshot.preferences.pinned.contains(&squad.room_id)
+                        || squad
+                            .members
+                            .iter()
+                            .any(|id| snapshot.preferences.agent_pins.contains(id)))
+            })
+            .count();
+        let (_, agents) = app
+            .workspace
+            .search_counts(&snapshot.roster, &snapshot.preferences);
+        Line::styled(
+            format!(
+                "{squads} {} · {agents} {}",
+                if squads == 1 { "squad" } else { "squads" },
+                if agents == 1 { "agent" } else { "agents" }
+            ),
+            look.role(Role::Muted),
+        )
     } else {
         let (matched, total) = app
             .workspace
@@ -331,9 +316,6 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
             let y = viewport.y + (index - offset) as u16;
             let selected = Some(&row.target) == app.workspace.selected.as_ref();
             let stripe = Rect::new(viewport.x, y, viewport.width, 1);
-            if selected && app.focused() == Pane::Rows {
-                frame.buffer_mut().set_style(stripe, look.selection());
-            }
             let scope = match &row.target {
                 OpsTarget::Squad(room) => Some(
                     crate::board::overview::cron_counts::CronCountScope::Room(room),
@@ -348,271 +330,142 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                 OpsTarget::Pool => None,
             };
             let timers = scope.and_then(|scope| app.cron.counts.count(scope));
-            let values = columns::project(columns::WorkspaceColumnInput {
-                row,
-                snapshot,
-                labels: &app.labels,
-                usage: match &row.target {
-                    OpsTarget::Member { identity_id, .. } => app.overview_member_usage(identity_id),
-                    _ => None,
+            let tokens = match &row.target {
+                OpsTarget::Squad(room) => snapshot
+                    .roster
+                    .squads
+                    .iter()
+                    .find(|squad| &squad.room_id == room)
+                    .and_then(|squad| app.overview_squad_usage(squad)),
+                OpsTarget::Member { identity_id, .. } => app
+                    .overview_member_usage(identity_id)
+                    .map(|reading| (reading.tokens, reading.partial)),
+                OpsTarget::Pool => None,
+            }
+            .map_or_else(
+                || "—".into(),
+                |(tokens, partial)| {
+                    format!(
+                        "{}{}",
+                        if partial { "~" } else { "" },
+                        crate::source::tokens(tokens as f64)
+                    )
                 },
-                agent: match &row.target {
-                    OpsTarget::Member { identity_id, .. } => app.references.agents.get(identity_id),
-                    _ => None,
-                },
-                timers: timers.map(|count| (count.active, count.total)),
-            });
-            for (field, header) in &slots {
-                let cell = Rect::new(header.x, y, header.width, 1).intersection(viewport);
-                if cell.is_empty() {
-                    continue;
-                }
-                let style = columns::table_style(app, selected, look.role(Role::Text));
-                let text = match field {
-                    Field::Agent => {
-                        let children_shown = rows
-                            .get(index + 1)
-                            .is_some_and(|next| next.depth > row.depth);
-                        let prefix = match &row.target {
-                            OpsTarget::Pool => {
-                                if app.workspace.pool_expanded || children_shown {
-                                    "▾ "
-                                } else {
-                                    "▸ "
-                                }
-                            }
-                            OpsTarget::Squad(room) => {
-                                if app.workspace.expanded.contains(room)
-                                    || !app.workspace.query.is_empty()
-                                    || children_shown
-                                {
-                                    "▾ "
-                                } else {
-                                    "▸ "
-                                }
-                            }
-                            OpsTarget::Member { .. } => {
-                                if rows.get(index + 1).is_some_and(|next| next.depth == 1) {
-                                    "  ├ "
-                                } else {
-                                    "  └ "
-                                }
-                            }
-                        };
-                        let mut pin = pin_mark(&row.target, &snapshot.preferences, look);
-                        let name_width = usize::from(cell.width)
-                            .saturating_sub(unicode_width::UnicodeWidthStr::width(prefix))
-                            .saturating_sub(pin.width());
-                        pin.style = columns::table_style(app, selected, pin.style);
-                        let line = Line::from(vec![
-                            Span::styled(prefix, style),
-                            pin,
-                            Span::styled(
-                                crate::board::view::fit(&safe(&row.title), name_width),
-                                style,
-                            ),
-                        ]);
-                        strip::paint_left(
-                            frame.buffer_mut(),
-                            cell,
-                            crate::board::search_field::highlight_line(line, &app.workspace.query),
-                        );
-                        continue;
-                    }
-                    Field::Lead => match &row.target {
-                        OpsTarget::Squad(room) => snapshot
-                            .roster
-                            .squads
-                            .iter()
-                            .find(|s| &s.room_id == room)
-                            .and_then(|s| s.lead.as_ref())
-                            .and_then(|id| snapshot.roster.members.get(id))
-                            .map_or_else(|| "—".into(), |member| safe(&member.name)),
-                        OpsTarget::Pool => "—".into(),
-                        _ => String::new(),
-                    },
-                    Field::State => {
-                        let group = !matches!(row.target, OpsTarget::Member { .. });
-                        if let Some(label) = app.activity_label(row) {
-                            paint_member_state(frame, app, row, &label, cell, selected, style);
-                            continue;
-                        }
-                        let state = if group {
-                            format!(
-                                "{} {}",
-                                row.count.map_or_else(|| "?".into(), |n| n.to_string()),
-                                member_noun(row.count)
-                            )
-                        } else {
-                            safe(row.state.as_deref().unwrap_or("unreported"))
-                        };
-                        let symbol = if group && row.state.is_none() {
-                            "◌"
-                        } else {
-                            columns::state_symbol(row.state.as_deref())
-                        };
-                        let primary = if group {
-                            symbol.to_owned()
-                        } else {
-                            format!("{symbol} {state}")
-                        };
-                        let primary = crate::board::view::fit(
-                            &primary,
-                            unicode_width::UnicodeWidthStr::width(primary.as_str())
-                                .min(usize::from(cell.width)),
-                        );
-                        let unread = app.unread_target(&row.target);
-                        let unread_line = crate::board::state_cell::unread(unread, look);
-                        let width = unread_line
-                            .as_ref()
-                            .map_or_else(
-                                || unicode_width::UnicodeWidthStr::width(primary.as_str()),
-                                |line| line.width(),
-                            )
-                            .min(usize::from(cell.width))
-                            as u16;
-                        let state_cell = Rect::new(cell.x, y, width, 1);
-                        app.workspace_state_cells.borrow_mut().push(state_cell);
-                        let state_style =
-                            columns::table_style(app, selected, columns::state_style(app, row));
-                        let line = if let Some(mut line) = unread_line {
-                            for span in &mut line.spans {
-                                span.style = columns::table_style(app, selected, span.style);
-                            }
-                            line
-                        } else {
-                            Line::styled(primary, state_style)
-                        };
-                        strip::paint_left(frame.buffer_mut(), state_cell, line);
-                        let suffix = if group {
-                            format!("{} {state}", if unread.total > 0 { " ·" } else { "" })
-                        } else {
-                            format!(
-                                " · {}",
-                                if row.lead {
-                                    "lead"
-                                } else if matches!(
-                                    row.target,
-                                    OpsTarget::Member { room_id: None, .. }
-                                ) {
-                                    "agent"
-                                } else {
-                                    "member"
-                                }
-                            )
-                        };
-                        strip::paint_left(
-                            frame.buffer_mut(),
-                            Rect::new(cell.x + width, y, cell.width.saturating_sub(width), 1),
-                            Line::styled(
-                                crate::board::view::fit(
-                                    &suffix,
-                                    usize::from(cell.width.saturating_sub(width)),
-                                ),
-                                style,
-                            ),
-                        );
-                        continue;
-                    }
-                    Field::Tokens => {
-                        if let OpsTarget::Squad(room) = &row.target {
-                            let squad = snapshot
-                                .roster
-                                .squads
-                                .iter()
-                                .find(|s| &s.room_id == room)
-                                .unwrap();
-                            app.overview_squad_usage(squad).map_or_else(
-                                || "—".into(),
-                                |(total, partial)| {
-                                    format!(
-                                        "{}{}",
-                                        if partial { "~" } else { "" },
-                                        crate::source::tokens(total as f64)
-                                    )
-                                },
-                            )
-                        } else if matches!(row.target, OpsTarget::Pool) {
-                            "—".into()
-                        } else {
-                            String::new()
-                        }
-                    }
-                    Field::Digest => {
-                        if let Some(values) = &values {
-                            let label = values.digest_labels.first();
-                            let text = label.map_or_else(
-                                || "—".into(),
-                                |label| {
-                                    format!(
-                                        "{}{}",
-                                        safe(&label.text),
-                                        if label.actionable { " ▾" } else { "" }
-                                    )
-                                },
-                            );
-                            if label.is_some_and(|label| label.actionable)
-                                && unicode_width::UnicodeWidthStr::width(text.as_str())
-                                    <= usize::from(cell.width)
-                            {
-                                app.chip_hits.borrow_mut().push((
-                                    Rect::new(
-                                        cell.x,
-                                        y,
-                                        unicode_width::UnicodeWidthStr::width(text.as_str()) as u16,
-                                        1,
-                                    ),
-                                    index,
-                                ));
-                            }
-                            text
-                        } else {
-                            "—".into()
-                        }
-                    }
-                    Field::Cron => {
-                        let text = timers
-                            .map_or_else(|| "—".into(), |c| format!("{}/{}", c.active, c.total));
-                        if timers.is_some()
-                            && unicode_width::UnicodeWidthStr::width(text.as_str())
-                                <= usize::from(cell.width)
-                        {
-                            let (room, owner) = match &row.target {
-                                OpsTarget::Squad(room) => (Some(room.clone()), None),
-                                OpsTarget::Member {
-                                    room_id,
-                                    identity_id,
-                                } => (room_id.clone(), Some(identity_id.clone())),
-                                _ => (None, None),
-                            };
-                            app.cron_scope_hits
-                                .borrow_mut()
-                                .push(crate::board::app::TimerHit {
-                                    area: Rect::new(
-                                        cell.x,
-                                        y,
-                                        unicode_width::UnicodeWidthStr::width(text.as_str()) as u16,
-                                        1,
-                                    ),
-                                    target: row.target.clone(),
-                                    room,
-                                    owner,
-                                });
-                        }
-                        text
-                    }
+            );
+            let state_width = slots
+                .iter()
+                .find(|(field, _)| *field == Field::State)
+                .map_or(0, |(_, rect)| usize::from(rect.width));
+            let state = if matches!(row.target, OpsTarget::Member { .. }) {
+                crate::board::state_cell::unread(app.unread_target(&row.target), look)
+                    .unwrap_or_else(|| {
+                        Line::from(vec![
+                            crate::board::state_cell::mark(row.state.as_deref(), look),
+                            Span::raw(" "),
+                            crate::board::state_cell::word(row.state.as_deref(), look),
+                        ])
+                    })
+            } else {
+                let squad = if let OpsTarget::Squad(room) = &row.target {
+                    snapshot
+                        .roster
+                        .squads
+                        .iter()
+                        .find(|squad| &squad.room_id == room)
+                } else {
+                    None
                 };
-                strip::paint_left(
-                    frame.buffer_mut(),
-                    cell,
-                    crate::board::search_field::highlight_line(
-                        Line::styled(
-                            crate::board::view::fit(&text, usize::from(cell.width)),
-                            style,
-                        ),
-                        &app.workspace.query,
-                    ),
+                let ids: Vec<_> = squad.map_or_else(
+                    || {
+                        snapshot
+                            .roster
+                            .pool()
+                            .map(|member| member.id.as_str())
+                            .collect()
+                    },
+                    |squad| squad.members.iter().map(String::as_str).collect(),
                 );
+                let members: Vec<_> = ids
+                    .iter()
+                    .map(|id| crate::board::team_strip::Member {
+                        id,
+                        state: match squad {
+                            Some(squad) => squad
+                                .member_states
+                                .get(*id)
+                                .and_then(|member| member.state.as_deref()),
+                            None => snapshot
+                                .roster
+                                .members
+                                .get(*id)
+                                .and_then(|member| member.state.as_deref()),
+                        },
+                        unread: app.unread_count(id),
+                    })
+                    .collect();
+                if members.is_empty() && snapshot.roster.observation != OpsObservation::Complete {
+                    Line::styled("—", look.role(Role::Muted))
+                } else {
+                    crate::board::team_strip::line(
+                        &members,
+                        squad.and_then(|squad| squad.lead.as_deref()),
+                        state_width,
+                        look,
+                    )
+                }
+            };
+            let expanded = rows
+                .get(index + 1)
+                .is_some_and(|next| next.depth > row.depth)
+                || match &row.target {
+                    OpsTarget::Squad(room) => app.workspace.expanded.contains(room),
+                    OpsTarget::Pool => app.workspace.pool_expanded,
+                    _ => false,
+                };
+            let pinned = match &row.target {
+                OpsTarget::Squad(room) => snapshot.preferences.pinned.contains(room),
+                OpsTarget::Member { identity_id, .. } => {
+                    snapshot.preferences.agent_pins.contains(identity_id)
+                }
+                OpsTarget::Pool => false,
+            };
+            let painted = crate::board::tree_row::paint(
+                frame.buffer_mut(),
+                stripe,
+                &slots,
+                &crate::board::tree_row::Row {
+                    source: row,
+                    expanded,
+                    last: !rows.get(index + 1).is_some_and(|next| next.depth == 1),
+                    pinned,
+                    state,
+                    tokens,
+                    timers: timers.map(|count| count.total),
+                    selected,
+                    query: &app.workspace.query,
+                },
+                look,
+            );
+            if let Some(state) = painted.state {
+                app.workspace_state_cells.borrow_mut().push(state);
+            }
+            if let Some(area) = painted.timers {
+                let (room, owner) = match &row.target {
+                    OpsTarget::Squad(room) => (Some(room.clone()), None),
+                    OpsTarget::Member {
+                        room_id,
+                        identity_id,
+                    } => (room_id.clone(), Some(identity_id.clone())),
+                    OpsTarget::Pool => (None, None),
+                };
+                app.cron_scope_hits
+                    .borrow_mut()
+                    .push(crate::board::app::TimerHit {
+                        area,
+                        target: row.target.clone(),
+                        room,
+                        owner,
+                    });
             }
             app.hits.borrow_mut().push(Hit {
                 x: stripe.x,
@@ -671,14 +524,8 @@ fn agents_controls(
     app: &App,
     bands: crate::board::conversation::layout::AgentsBands,
 ) {
-    let inside = Rect::new(
-        bands.filters.x + 1,
-        bands.filters.y,
-        bands.filters.width.saturating_sub(2),
-        2,
-    );
+    let inside = bands.filters;
     use super::AgentsFilter;
-    use crate::action::OpsUiAction;
     for hit in crate::board::filter_bar::paint(
         frame.buffer_mut(),
         inside,
@@ -695,62 +542,6 @@ fn agents_controls(
         app.workspace_strip_hits
             .borrow_mut()
             .push((hit.area, choice));
-    }
-    let total = app
-        .cron
-        .counts
-        .count(crate::board::overview::cron_counts::CronCountScope::All);
-    let prefix = if matches!(
-        app.cron_glyphs,
-        crate::board::overview::cron_counts::GlyphSet::Ascii
-    ) {
-        "CRON"
-    } else {
-        "◷"
-    };
-    let timer = total.map_or_else(
-        || "Timers unknown".into(),
-        |c| format!("{prefix} {} timers", c.total),
-    );
-    for (label, action, x, y) in [
-        (
-            "Workspace snapshots".to_owned(),
-            OpsUiAction::WorkspaceSnapshots,
-            inside.x + 1,
-            bands.actions.y,
-        ),
-        (
-            timer,
-            OpsUiAction::Timers,
-            bands.title.right().saturating_sub(34),
-            bands.title.y,
-        ),
-        (
-            "Scan…".into(),
-            OpsUiAction::DiscoverAgents,
-            bands.title.right().saturating_sub(15),
-            bands.title.y,
-        ),
-    ] {
-        let width = unicode_width::UnicodeWidthStr::width(label.as_str()) as u16 + 2;
-        if x >= inside.x && x.saturating_add(width) <= inside.right() {
-            let Some(area) = crate::board::buttons::paint(
-                app,
-                frame.buffer_mut(),
-                Rect::new(x, y, width, 1),
-                &[crate::board::buttons::Button::secondary(&label)],
-                tmt_cli_style::grid::Align::Left,
-                None,
-            )[0] else {
-                continue;
-            };
-            let choice = if action == OpsUiAction::Timers {
-                Choice::WorkspaceTimers
-            } else {
-                Choice::Action(crate::action::Action::parse(action.spec().name).unwrap())
-            };
-            app.workspace_strip_hits.borrow_mut().push((area, choice));
-        }
     }
 }
 
@@ -804,6 +595,19 @@ fn squad_usage(
         text.push("Usage: not reported".into());
     }
     text
+}
+
+pub(in crate::board) fn selection_message(state: SelectionState) -> &'static str {
+    match state {
+        SelectionState::Hidden => {
+            "Selected target is hidden by the filter or collapse. Select a visible target explicitly."
+        }
+        SelectionState::Missing => {
+            "Selected target no longer exists. Select a new target explicitly."
+        }
+        SelectionState::Unknown => "Selected target could not be observed. Refresh before acting.",
+        _ => "Select a squad or agent.",
+    }
 }
 
 fn squad_detail(frame: &mut Frame, app: &App, area: Rect) {
@@ -909,16 +713,7 @@ fn squad_detail(frame: &mut Frame, app: &App, area: Rect) {
         );
         return;
     }
-    let text = match app.workspace_selection_state() {
-        SelectionState::Hidden => {
-            "Selected target is hidden by the filter or collapse. Select a visible target explicitly."
-        }
-        SelectionState::Missing => {
-            "Selected target no longer exists. Select a new target explicitly."
-        }
-        SelectionState::Unknown => "Selected target could not be observed. Refresh before acting.",
-        _ => "Select a squad or agent.",
-    };
+    let text = selection_message(app.workspace_selection_state());
     let lines: Vec<_> = crate::board::notes::wrap(text, usize::from(inside.width))
         .into_iter()
         .map(|text| Line::styled(text, look.role(Role::Text)))

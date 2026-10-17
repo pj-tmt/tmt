@@ -673,7 +673,10 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
         // Notices and errors above stay; the base key hints would misname the keys.
         Line::default()
     } else if let Some(hint) = app.member_link_hint() {
-        if app.shell.tab == crate::board::shell::OpsTab::Overview {
+        if matches!(
+            app.shell.tab,
+            crate::board::shell::OpsTab::Overview | crate::board::shell::OpsTab::Agents
+        ) {
             crate::board::key_hints::legacy_line(hint, look, look.role(Role::Text), "  ")
         } else {
             hint_line(hint, look)
@@ -702,7 +705,9 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
             line
         } else {
             if let Some(lines) = &legend {
-                paint_hints(&lines[1], look, Role::Accent)
+                paint_hints(&lines[1], look, Role::Text)
+            } else if app.shell.tab == crate::board::shell::OpsTab::Agents {
+                crate::board::key_hints::legacy_line(&text, look, look.role(Role::Text), "  ")
             } else {
                 hint_line(&text, look)
             }
@@ -724,7 +729,15 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
         strip::paint_left(
             frame.buffer_mut(),
             Rect::new(footer.x, footer.bottom() - 2, footer.width, 1),
-            paint_hints(&first, look, Role::Accent),
+            paint_hints(
+                &first,
+                look,
+                if app.shell.tab == crate::board::shell::OpsTab::Agents {
+                    Role::Text
+                } else {
+                    Role::Accent
+                },
+            ),
         );
     }
     strip::paint_left(frame.buffer_mut(), hint_area, footer_line);

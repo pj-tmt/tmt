@@ -95,9 +95,18 @@ pub(in crate::board) fn paint(
     }
     let y = area.y + u16::from(area.height > 1);
     let inner = Rect::new(
-        area.x + area.width.min(TEXT_INSET),
+        area.x
+            + if area.width > TEXT_INSET * 2 {
+                TEXT_INSET
+            } else {
+                0
+            },
         y,
-        area.width.saturating_sub(TEXT_INSET * 2),
+        if area.width > TEXT_INSET * 2 {
+            area.width - TEXT_INSET * 2
+        } else {
+            area.width
+        },
         1,
     );
     if !focused {

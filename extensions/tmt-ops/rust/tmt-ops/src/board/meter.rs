@@ -312,6 +312,15 @@ impl Meter {
         self.rate.observation(id, self.milliseconds(now), window)
     }
 
+    pub(in crate::board) fn member_trend<const N: usize>(
+        &self,
+        id: &str,
+        now: Instant,
+    ) -> [Option<f64>; N] {
+        self.rate
+            .member_trend(id, self.milliseconds(now), TokenWindow::HOUR)
+    }
+
     pub(in crate::board) fn history(&self) -> &Rate {
         &self.rate
     }

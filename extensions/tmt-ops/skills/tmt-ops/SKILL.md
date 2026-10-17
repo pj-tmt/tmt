@@ -377,11 +377,14 @@ marker. It survives restart, named views and reset-view. A save failure keeps th
 unread count and names the cause; reopen the conversation or jump to retry. These
 Ops markers never acknowledge Core results.
 
-The Agents tree is a fixed-column table: SQUAD / AGENT, LEAD, MEMBERS / STATE,
-TOK 1h, DIGEST and ◷ CRON. LEAD and room token totals appear at 100 inner list cells;
-narrower tables drop whole optional columns. Only the state glyph carries state
-colour; a member's task state is red only when it is `blocked`, and selection
-uses a background or the existing NO_COLOR reverse cue.
+The Agents tree keeps SQUAD / AGENT, STATE, TOK 1h, ◷ and a lead marker;
+narrow tables drop whole optional columns. Member token values and squad sums use
+the same observed hour. ◷ is the total **timers owned** by that member in the row's
+room, paused included: known zero is `0`, unavailable is `—`. Digest/model/runtime
+appear in selection-driven focus. Only attention glyphs carry state colour; a member task state is red only when blocked;
+selected rows use a full neutral background at normal weight, or the existing
+NO_COLOR reverse cue. The All/Pinned chips and search remain above the list;
+counts belong to the Squads rule.
 All keeps Common pool first, then pinned squads and the selected sort order.
 `f` cycles the layer-local All / Pinned filter; explicit bindings win. Pinned shows
 pinned squads and individually pinned agents with their containing group. `p`
@@ -397,13 +400,20 @@ are retained independently, and hidden squads still contribute to global shell
 attention. Explicit Hide moves the selection only after the save succeeds;
 search and missing targets retain their UUID anchors.
 Expand a squad to see its members; the lead is marked and included once in
-its count. A collapsed squad retains its worst observed member state. An identity
+its count. A collapsed squad shows its admitted member state strip, lead first;
+attention ordering uses its worst observed state. An identity
 in several squads keeps each squad's state and one conversation/draft by UUID.
 Common pool means no Ops squad membership, not no Core room membership. Partial
 or failed reads never prove that an identity belongs in the pool.
 
-With tree focus, ↑/↓ move, Right expands and Left collapses; Enter focuses a
-selected agent's composer. Enter on a squad or Common pool inspects that group.
+With tree focus, ↑/↓ move, Right expands and Left collapses. From either pane,
+factory Enter replies to an observed question or messages the selected member or
+squad's observed current lead; `j` uses that recipient's guarded host action.
+A missing lead or Common pool grants no substitute recipient. The focus shows
+member identity/stat tiles or squad Board/Usage/Timers, then `Exchanges with you`
+(the currently observed actor-only history). Its filled input follows the last
+group with one blank row, and pins to the bottom only on overflow. Key hints stay
+in the effective footer, and the link line shows only its resolved target.
 These defaults are the same on every host (tmux, Herdr or unknown); a
 `[bind.<host>]` table only overrides keys for rows on that host and never changes
 the default of a host without one.

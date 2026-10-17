@@ -3,7 +3,7 @@ use crate::board::{app::App, cronboard, timer_rows};
 use std::collections::BTreeSet;
 use tmt_ops::cron::ClockStatus;
 
-pub(super) struct Model {
+pub(in crate::board) struct Model {
     pub rows: Vec<timer_rows::Row>,
     pub total: usize,
     pub title: &'static str,
@@ -27,6 +27,14 @@ pub(super) fn project(app: &App) -> Model {
     } else {
         "Timers · global"
     };
+    project_scope(app, None, title, &app.workspace.query)
+}
+
+pub(in crate::board) fn project_room(app: &App, room: &str) -> Model {
+    project_scope(app, Some(room), "Timers", "")
+}
+
+fn project_scope(app: &App, room: Option<&str>, title: &'static str, query: &str) -> Model {
     let Some(cron) = &app.cron.cron else {
         return Model {
             rows: vec![],
@@ -39,7 +47,7 @@ pub(super) fn project(app: &App) -> Model {
     let stale = app.cron.failure.is_some();
     let mut seen = BTreeSet::new();
     let mut jobs: Vec<_> = cron
-        .jobs_in(None)
+        .jobs_in(room)
         .filter(|view| seen.insert((view.job.room_id.as_str(), view.job.id())))
         .collect();
     let paused = jobs
@@ -61,11 +69,10 @@ pub(super) fn project(app: &App) -> Model {
     let total = jobs.len();
     let mut note = if stale {
         "stale".into()
-    } else if let Some(count) = app
-        .cron
-        .counts
-        .count(super::cron_counts::CronCountScope::All)
-    {
+    } else if let Some(count) = app.cron.counts.count(room.map_or(
+        super::cron_counts::CronCountScope::All,
+        super::cron_counts::CronCountScope::Room,
+    )) {
         let mut label = format!("{} on · {paused} paused", count.active);
         let unassigned = usize::try_from(count.total)
             .unwrap_or(usize::MAX)
@@ -90,7 +97,7 @@ pub(super) fn project(app: &App) -> Model {
     }
     // Search all held jobs before the preview limit; a later match must remain
     // discoverable. Counts describe this projection, never a fresh service read.
-    let query = app.workspace.query.to_lowercase();
+    let query = query.to_lowercase();
     jobs.retain(|view| {
         [
             view.job.id(),

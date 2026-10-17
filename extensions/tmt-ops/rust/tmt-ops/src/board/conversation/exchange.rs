@@ -2,10 +2,42 @@
 use super::*;
 use crate::board::{empty_state, exchange_view as exchange};
 
+/// The host chooses placement and admission; sessions and scrolling stay here.
+pub(in crate::board) enum Surface {
+    Overview,
+    Agents {
+        target: RowTarget,
+        interactive: bool,
+    },
+}
+impl Surface {
+    fn target(&self, app: &App) -> Option<RowTarget> {
+        match self {
+            Self::Overview => app.conversation_target(),
+            Self::Agents { target, .. } => Some(target.clone()),
+        }
+    }
+    fn interactive(&self) -> bool {
+        !matches!(
+            self,
+            Self::Agents {
+                interactive: false,
+                ..
+            }
+        )
+    }
+    fn is_agents(&self) -> bool {
+        matches!(self, Self::Agents { .. })
+    }
+}
+
 /// Measure the held group with the same wrapped body the painter uses. Empty
 /// observations never reserve a minimum transcript or impose a growth cap.
 pub(in crate::board) fn desired_height(app: &App, width: u16) -> u16 {
-    let Some(target) = app.conversation_target() else {
+    desired_height_for(app, width, &Surface::Overview)
+}
+pub(in crate::board) fn desired_height_for(app: &App, width: u16, surface: &Surface) -> u16 {
+    let Some(target) = surface.target(app) else {
         return 1;
     };
     let Some(row) = app.target_row(&target) else {
@@ -18,23 +50,21 @@ pub(in crate::board) fn desired_height(app: &App, width: u16) -> u16 {
         app.view.as_ref().and_then(|view| view.me_id.clone()),
         id.to_owned(),
     );
-    let has_link = super::link_preview(app, row, &app.workspace_bindings()).is_some();
+    let has_link =
+        !surface.is_agents() && super::link_preview(app, row, &app.workspace_bindings()).is_some();
     let mut state = app.conversation.borrow_mut();
     let session = state.sessions.entry(identity).or_default();
-    session.update(
-        app.detail(&Target::Row(target))
-            .and_then(|detail| detail.reply),
-    );
-    session.correlate_loaded(app, row["name"].as_str().unwrap_or("unknown agent"));
-    session.transcript_context(app, row);
-    if session.reply.is_none() && session.outgoing.is_empty() {
+    session.observe_context(app, &target, row);
+    if let Some(source) = &session.exact_source {
+        return source
+            .desired_height(width)
+            .saturating_add(1)
+            .min(usize::from(u16::MAX)) as u16;
+    }
+    if !surface.is_agents() && session.reply.is_none() && session.outgoing.is_empty() {
         return 1;
     }
-    session.prepare(
-        usize::from(width.saturating_sub(3).max(1)),
-        app.look(),
-        &app.references,
-    );
+    session.prepare_grouped(usize::from(width), app.look(), &app.references);
     let waiting = session.outgoing.is_empty()
         && session.reply.as_ref().is_some_and(|reply| {
             reply
@@ -42,13 +72,17 @@ pub(in crate::board) fn desired_height(app: &App, width: u16) -> u16 {
                 .as_ref()
                 .is_some_and(|key| key.kind == super::super::home_leads::Kind::Question)
         });
-    (1 + session.rendered.as_ref().unwrap().mapped.lines.len()
+    (usize::from(session.reply.is_some() || !session.outgoing.is_empty())
+        + session.rendered.as_ref().unwrap().mapped.lines.len()
         + usize::from(waiting)
         + usize::from(has_link))
     .min(usize::from(u16::MAX)) as u16
 }
 
 pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
+    render_for(frame, app, area, &Surface::Overview);
+}
+pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, surface: &Surface) {
     let look = app.look();
     {
         let mut state = app.conversation.borrow_mut();
@@ -56,7 +90,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         state.reply_hits.clear();
         state.response_area = None;
     }
-    let Some(target) = app.conversation_target() else {
+    let Some(target) = surface.target(app) else {
         app.conversation.borrow_mut().active = None;
         empty_state::paint(
             frame.buffer_mut(),
@@ -67,15 +101,25 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         );
         return;
     };
-    let row = app.target_row(&target).expect("admitted conversation");
+    let Some(row) = app
+        .target_row(&target)
+        .filter(|row| row["id"].as_str().is_some())
+    else {
+        app.conversation.borrow_mut().active = None;
+        empty_state::paint(
+            frame.buffer_mut(),
+            area,
+            "Selected agent unavailable.",
+            None,
+            look,
+        );
+        return;
+    };
     let id = row["id"].as_str().expect("member identity");
     let identity = (
         app.view.as_ref().and_then(|view| view.me_id.clone()),
         id.to_owned(),
     );
-    let incoming = app
-        .detail(&Target::Row(target.clone()))
-        .and_then(|detail| detail.reply);
     let me = app
         .view
         .as_ref()
@@ -83,10 +127,16 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         .unwrap_or("you");
     let name = row["name"].as_str().unwrap_or("unknown agent");
     let bindings = app.workspace_bindings();
-    let link = super::link_preview(app, row, &bindings);
+    let link = (!surface.is_agents())
+        .then(|| super::link_preview(app, row, &bindings))
+        .flatten();
     let reader_keys = app.workspace_context_bindings(
         app.workspace.selected.as_ref(),
-        crate::config::OpsKeyScope::OverviewReader,
+        if surface.is_agents() {
+            crate::config::OpsKeyScope::Reader
+        } else {
+            crate::config::OpsKeyScope::OverviewReader
+        },
         row["pane"]["location"]["host"].as_str(),
     );
     let earlier_key = reader_keys
@@ -96,17 +146,16 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         })
         .map(|(key, _)| crate::board::view::footer::key_label(key).to_owned())
         .filter(|_| app.input.is_none() && !app.modal_open() && !app.loading());
-    let read_only = app
-        .composer_projection()
-        .is_none_or(|projection| projection.key.is_none());
+    let read_only = !surface.interactive()
+        || app
+            .composer_projection()
+            .is_none_or(|projection| projection.key.is_none());
     let mut state = app.conversation.borrow_mut();
     let switched = state.active.as_ref() != Some(&identity);
     state.active = Some(identity.clone());
     let session = state.sessions.entry(identity).or_default();
-    session.update(incoming);
-    session.correlate_loaded(app, name);
-    session.transcript_context(app, row);
-    if session.reply.is_none() && session.outgoing.is_empty() {
+    session.observe_context(app, &target, row);
+    if !surface.is_agents() && session.reply.is_none() && session.outgoing.is_empty() {
         empty_state::paint(
             frame.buffer_mut(),
             area,
@@ -127,26 +176,40 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         .as_ref()
         .map_or("—", |reply| reply.age.as_str());
     let stamp = age_stamp(age);
-    let stamp = if session.change != Change::Current {
+    let stamp = if surface.is_agents() && session.change != Change::Current {
+        format!(
+            "{stamp} · {}",
+            if session.change == Change::NewOutput {
+                "new output"
+            } else {
+                "unavailable"
+            }
+        )
+    } else if session.change != Change::Current {
         format!("{stamp} · End follows")
     } else {
         stamp
     };
     let read_only = read_only || session.change != Change::Current;
     let header = Rect {
-        height: area.height.min(1),
+        height: area.height.min(u16::from(
+            session.reply.is_some() || !session.outgoing.is_empty(),
+        )),
         ..area
     };
     strip::paint_left(
         frame.buffer_mut(),
         header,
-        exchange::header(name, me, &stamp, read_only, usize::from(area.width), look),
+        if session.exact_source.is_some() {
+            Line::styled(
+                format!("Exact response source · {name}"),
+                look.role(Role::Muted),
+            )
+        } else {
+            exchange::header(name, me, &stamp, read_only, usize::from(area.width), look)
+        },
     );
-    let rebuilt = session.prepare(
-        usize::from(area.width.saturating_sub(3).max(1)),
-        look,
-        &app.references,
-    );
+    let rebuilt = session.prepare_grouped(usize::from(area.width), look, &app.references);
     let footer_rows = u16::from(question && session.outgoing.is_empty() && area.height >= 3)
         + u16::from(link.is_some() && area.height >= 4);
     // Long observations retain their viewport and paging indicator; optional
@@ -169,7 +232,15 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         return;
     }
     if let Some(source) = &mut session.exact_source {
-        source::paint(frame, app, source, &target, body, look);
+        source::paint_with_interactivity(
+            frame,
+            app,
+            source,
+            &target,
+            body,
+            look,
+            surface.interactive(),
+        );
         return;
     }
     let mapped = &session.rendered.as_ref().unwrap().mapped;
@@ -187,26 +258,40 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         &mapped.lines,
         look,
         earlier_key,
-        |index, line| match session.authored_lines.get(&mapped.sources[index]) {
-            Some(AuthoredLine::Outgoing { answer: true }) => exchange::replier(me, look),
-            Some(AuthoredLine::Outgoing { answer: false }) => {
-                exchange::header(me, name, "now", read_only, usize::from(body.width), look)
+        |index, line| {
+            let source = session
+                .rendered
+                .as_ref()
+                .unwrap()
+                .response_sources
+                .as_ref()
+                .map_or(Some(mapped.sources[index]), |sources| {
+                    sources.get(mapped.sources[index]).copied().flatten()
+                });
+            let Some(source) = source else {
+                return line.clone();
+            };
+            match session.authored_lines.get(&source) {
+                Some(AuthoredLine::Outgoing { answer: true }) => exchange::replier(me, look),
+                Some(AuthoredLine::Outgoing { answer: false }) => {
+                    exchange::header(me, name, "now", read_only, usize::from(body.width), look)
+                }
+                Some(AuthoredLine::ReplyHeading) => {
+                    exchange::replier(line.to_string().trim().trim_end_matches(" · now"), look)
+                }
+                Some(AuthoredLine::Status) => {
+                    let text = line.to_string();
+                    let suffix = format!(" · {}", session.agent_mark);
+                    exchange::feedback(
+                        text.trim_end()
+                            .strip_suffix(suffix.trim_end())
+                            .unwrap_or(text.trim_end())
+                            .trim_end(),
+                        look,
+                    )
+                }
+                None => exchange::body(line.clone(), look),
             }
-            Some(AuthoredLine::ReplyHeading) => {
-                exchange::replier(line.to_string().trim().trim_end_matches(" · now"), look)
-            }
-            Some(AuthoredLine::Status) => {
-                let text = line.to_string();
-                let suffix = format!(" · {}", session.agent_mark);
-                exchange::feedback(
-                    text.trim_end()
-                        .strip_suffix(suffix.trim_end())
-                        .unwrap_or(text.trim_end())
-                        .trim_end(),
-                    look,
-                )
-            }
-            None => exchange::body(line.clone(), look),
         },
     );
     let text_area = Rect::new(
@@ -215,21 +300,24 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         body.width.saturating_sub(3),
         body.height,
     );
-    super::super::member_links::paint_hits(
-        frame,
-        app,
-        text_area,
-        offset,
-        shown,
-        &mapped.mentions,
-        super::super::member_links::Paint {
-            reader: true,
-            role: Role::Text,
-        },
-    );
+    if surface.interactive() {
+        super::super::member_links::paint_hits(
+            frame,
+            app,
+            text_area,
+            offset,
+            shown,
+            &mapped.mentions,
+            super::super::member_links::Paint {
+                reader: true,
+                role: Role::Text,
+            },
+        );
+    }
     let mut hits = Vec::new();
     for index in offset..offset.saturating_add(shown).min(mapped.lines.len()) {
-        if mapped.lines[index].width() > 0
+        if surface.interactive()
+            && mapped.lines[index].width() > 0
             && let Some((key, sequence)) = session.response_key_at(mapped.sources[index])
         {
             hits.push(source::ReplyHit {

@@ -254,7 +254,6 @@ pub enum Choice {
         jump: bool,
     },
     Unavailable(String),
-    WorkspaceTimers,
     AgentsFilter(super::workspace::AgentsFilter),
     WorkspaceTarget(super::workspace::OpsTarget),
     WorkspaceBegin(super::workspace::manage::Kind),
@@ -974,17 +973,37 @@ impl App {
     }
 
     pub(in crate::board) fn overview_member_usage(&self, id: &str) -> Option<super::rate::Reading> {
+        self.member_usage_observation(id, Instant::now())
+            .map(|(_, reading)| reading)
+    }
+
+    pub(in crate::board) fn overview_member_trend<const N: usize>(
+        &self,
+        id: &str,
+    ) -> [Option<f64>; N] {
         let now = Instant::now();
-        let view = self.view.as_ref()?;
-        view.home_rate
+        self.member_usage_observation(id, now)
+            .map_or([None; N], |(meter, _)| meter.member_trend(id, now))
+    }
+
+    fn member_usage_observation(
+        &self,
+        id: &str,
+        now: Instant,
+    ) -> Option<(&super::meter::Meter, super::rate::Reading)> {
+        self.view
+            .as_ref()?
+            .home_rate
             .iter()
             .filter(|(_, rate)| rate.settings.enabled)
             .filter_map(|(squad, _)| {
-                self.home_meter(squad)?
-                    .observation(id, crate::config::TokenWindow::HOUR, now)
+                let meter = self.home_meter(squad)?;
+                let (reading, evidence) =
+                    meter.observation(id, crate::config::TokenWindow::HOUR, now)?;
+                Some((meter, reading, evidence))
             })
-            .max_by_key(|(reading, evidence)| (*evidence, reading.span, !reading.partial))
-            .map(|(reading, _)| reading)
+            .max_by_key(|(_, reading, evidence)| (*evidence, reading.span, !reading.partial))
+            .map(|(meter, reading, _)| (meter, reading))
     }
 
     /// The same HOUR readings and per-room UUID de-duplication supply both tables.
@@ -2645,7 +2664,6 @@ impl App {
         match choice {
             Choice::MemberLink { target, jump } => self.member_link_action(&target, jump),
             Choice::Unavailable(reason) => self.say(reason),
-            Choice::WorkspaceTimers => self.workspace_owner_timers(None, None),
             Choice::AgentsFilter(filter) => self.agents_filter(filter),
             Choice::WorkspaceTarget(target) => {
                 if self
@@ -3865,7 +3883,7 @@ impl App {
         {
             if placement
                 .agents
-                .is_some_and(|bands| bands.title.contains((column, row).into()))
+                .is_some_and(|bands| bands.filters.contains((column, row).into()))
             {
                 return Some(Pane::Rows);
             }
@@ -4321,7 +4339,16 @@ pub(crate) mod tests {
 
     /// Install a coherent held rate observation through its existing Meter owner.
     pub(in crate::board) fn install_rate_observation(app: &mut App, name: String, rate: RateView) {
-        let now = Instant::now();
+        install_rate_observation_at(app, name, rate, Instant::now());
+    }
+
+    /// A fixture may pin the monotonic origin while the scoped wall clock is frozen.
+    pub(in crate::board) fn install_rate_observation_at(
+        app: &mut App,
+        name: String,
+        rate: RateView,
+        now: Instant,
+    ) {
         let mut meter = super::super::meter::Meter::new(rate.settings, &rate.input, now);
         if let Some(seeds) = &rate.history {
             meter.seed(&rate.input, seeds, now, false);
@@ -4727,7 +4754,7 @@ pub(crate) mod tests {
                 json!([{"requestId": "q9", "preview": "ok to merge?"}]);
         }
         app.workspace_reconcile();
-        press(&mut app, KeyCode::Enter);
+        app.perform(&Action::parse("talk").unwrap());
         assert_eq!(
             app.input.as_ref().unwrap().prompt,
             "→ auth-fix (product) · talk"
@@ -4752,7 +4779,7 @@ pub(crate) mod tests {
         assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
         assert_eq!(app.notice.as_deref(), Some("Nothing sent."));
         press(&mut app, KeyCode::Esc);
-        press(&mut app, KeyCode::Enter);
+        app.perform(&Action::parse("talk").unwrap());
         typed(&mut app, "draft");
         assert_eq!(press(&mut app, KeyCode::Esc), Effect::None);
         assert!(app.input.is_none() && app.notice.as_deref() == Some("Nothing sent."));

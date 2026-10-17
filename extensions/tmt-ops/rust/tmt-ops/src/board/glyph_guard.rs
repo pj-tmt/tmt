@@ -191,7 +191,7 @@ fn unavailable_table_cell_uses_the_registered_em_dash_without_broadening_decorat
         .content
         .chunks(60)
         .map(|row| row.iter().map(|c| c.symbol()).collect::<String>())
-        .find(|row| row.contains("▸   Common pool"))
+        .find(|row| row.contains("▸ Common pool"))
         .unwrap();
     assert!(row.contains('—'));
     assert_eq!(glyph_error(&row), None);
