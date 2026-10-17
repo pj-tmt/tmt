@@ -244,8 +244,7 @@ pub(super) fn has_owned_hook(provider: &DriverDefinition, text: &str, event: &st
 /// The lifecycle events, in the order setup inserts them.
 const LIFECYCLE: [&str; 3] = ["SessionStart", "SessionEnd", "UserPromptSubmit"];
 
-/// The driver's own activity-only events (a Codex interrupt), installed with
-/// the lifecycle hooks after them; Claude has none.
+/// Driver-owned activity-only events, installed after the lifecycle hooks.
 pub(super) fn activity_events(provider: &DriverDefinition) -> &'static [&'static str] {
     provider
         .runtime

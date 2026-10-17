@@ -20,7 +20,7 @@ impl Directory {
     fn new() -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let path = std::env::temp_dir().join(format!(
-            "tmt-interrupt-cas-{}-{}",
+            "tmt-activity-cas-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
@@ -40,7 +40,11 @@ fn turn(
 ) -> tmt_adapters::runtime::hook_protocol::ActivityObservation {
     tmt_adapters::runtime::hook_protocol::ActivityObservation {
         event: Event {
-            phase,
+            kind: match phase {
+                ActivityPhase::Working => tmt_core::binding::session::activity::EventKind::TurnStarted,
+                ActivityPhase::Waiting => tmt_core::binding::session::activity::EventKind::ApprovalPrompt,
+                ActivityPhase::Idle => tmt_core::binding::session::activity::EventKind::TurnEnded,
+            },
             turn: Some(ProviderSessionId::new(id).unwrap()),
         },
         model: None,
@@ -58,19 +62,40 @@ fn rows(database: &std::path::Path, table: &str) -> i64 {
 
 #[test]
 fn a_racing_binding_or_preferences_change_wins_over_an_interrupt() {
-    let codex = RuntimeRegistry::first_party();
-    let codex = codex.lifecycle(&HarnessId::new("codex").unwrap()).unwrap();
+    assert_activity_cas("codex", "Interrupt", ActivityPhase::Idle);
+}
+
+#[test]
+fn a_racing_binding_or_preferences_change_wins_over_an_approval_notification() {
+    assert_activity_cas("claude", "Notification", ActivityPhase::Waiting);
+}
+
+fn assert_activity_cas(provider: &str, event: &str, expected_phase: ActivityPhase) {
+    let registry = RuntimeRegistry::first_party();
+    let driver = registry
+        .lifecycle(&HarnessId::new(provider).unwrap())
+        .unwrap();
     let session = ProviderSessionId::new("s-1").unwrap();
     let process = ProcessIncarnation::new(20, "runtime").unwrap();
-    let interrupt = codex
+    let interrupt = driver
         .decode_activity(
-            br#"{"hook_event_name":"Interrupt","session_id":"s-1","turn_id":"a","model":"hook-model"}"#,
+            serde_json::json!({
+                "hook_event_name":event, "session_id":"s-1", "turn_id":"a",
+                "notification_type":"permission_prompt", "model":"hook-model",
+            })
+            .to_string()
+            .as_bytes(),
         )
         .unwrap();
+    let start = |id| {
+        let mut event = turn(ActivityPhase::Working, id);
+        if provider == "claude" {
+            event.event.turn = None;
+        }
+        event
+    };
     let observed = |state: &tmt_core::binding::session::DriverState| {
-        codex
-            .state_observed_model(state)
-            .map(|observed| observed.model)
+        driver.state_observed_model(state).map(|observed| observed.model)
     };
     for race in ["unchanged", "preferences", "binding"] {
         let directory = Directory::new();
@@ -96,25 +121,19 @@ fn a_racing_binding_or_preferences_change_wins_over_an_interrupt() {
             id: "%1".into(),
             target: None,
             cwd: None,
-            command: "codex".into(),
+            command: provider.into(),
             pane_pid: 11,
             pane_incarnation: Some("pane".into()),
             suggested_name: None,
             marker: None,
             location: None,
         };
-        let harness = HarnessId::new("codex").unwrap();
+        let harness = HarnessId::new(provider).unwrap();
         let mode = RuntimeMode::new("embedded").unwrap();
         let mut preferences = SessionPreferences::default();
         preferences.remember(harness.clone(), mode.clone(), session.clone());
-        let working = codex
-            .activity_state(
-                &turn(ActivityPhase::Working, "a"),
-                &session,
-                &process,
-                None,
-                100,
-            )
+        let working = driver
+            .activity_state(&start("a"), &session, &process, None, 100)
             .unwrap();
         preferences.remembered.as_mut().unwrap().state = Some(working.clone());
         storage
@@ -127,7 +146,7 @@ fn a_racing_binding_or_preferences_change_wins_over_an_interrupt() {
         let stored = Storage::context_by_identity(&paths.database, &identity.id, 0)
             .unwrap()
             .unwrap();
-        let next = codex.activity_state(&interrupt, &session, &process, Some(&working), 200);
+        let next = driver.activity_state(&interrupt, &session, &process, Some(&working), 200);
         assert!(next.is_some());
 
         // The concurrent writer commits between the hook's read and its commit.
@@ -136,10 +155,9 @@ fn a_racing_binding_or_preferences_change_wins_over_an_interrupt() {
             .with_binding_transaction::<_, StorageError>(|records| {
                 match race {
                     "preferences" => {
-                        let mut racer = turn(ActivityPhase::Working, "b");
-                        racer.model = Some("racer-model".into());
-                        let later =
-                            codex.activity_state(&racer, &session, &process, Some(&working), 150);
+                        let mut racer = start("b");
+                        racer.model = (provider == "codex").then(|| "racer-model".into());
+                        let later = driver.activity_state(&racer, &session, &process, Some(&working), 150);
                         preferences.remembered.as_mut().unwrap().state = later;
                         records.set_session_preferences(&identity.id, &preferences)?;
                     }
@@ -172,17 +190,14 @@ fn a_racing_binding_or_preferences_change_wins_over_an_interrupt() {
         if applied {
             let state = after.preferences.remembered.unwrap().state.unwrap();
             assert_eq!(Some(&state), next.as_ref());
-            assert_eq!(
-                codex.state_activity(&state).unwrap().phase,
-                ActivityPhase::Idle
-            );
-            assert_eq!(observed(&state).as_deref(), Some("hook-model"));
+            assert_eq!(driver.state_activity(&state).unwrap().phase, expected_phase);
+            assert_eq!(observed(&state).as_deref(), (provider == "codex").then_some("hook-model"));
         } else {
             assert_eq!(after.entry, before.entry, "{race}");
             assert_eq!(after.preferences, before.preferences, "{race}");
             // The losing hook's model is never stored.
             let state = after.preferences.remembered.unwrap().state.unwrap();
-            let expected = (race == "preferences").then_some("racer-model");
+            let expected = (race == "preferences" && provider == "codex").then_some("racer-model");
             assert_eq!(observed(&state).as_deref(), expected, "{race}");
         }
         // An interrupt never adds a consumption source or a response.
