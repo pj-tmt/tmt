@@ -2533,6 +2533,62 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
         }
         _ => {}
     }
+    if scene.starts_with("unread-") {
+        let actor = app.view.as_ref().unwrap().me_id.clone().unwrap();
+        let partial = matches!(scene, "unread-working" | "unread-squads");
+        let count = if partial { 50 } else { 2 };
+        let items: Vec<_> = (1..=count).map(|index| json!({
+            "requestId":format!("unread-{index}"), "kind":"request", "sender":{"identityId":actor},
+            "recipientId":MEMBER, "recipientAcknowledged":true,
+            "final":{"status":"retained","submittedAtMs":100+index}
+        })).collect();
+        let next = if partial {
+            json!({"submittedAtMs":101,"requestId":"unread-1"})
+        } else {
+            Value::Null
+        };
+        app.home_leads
+            .test_results(&actor, json!({"items":items,"nextBefore":next}));
+        if scene == "unread-idle" {
+            let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+            snapshot.roster.members.get_mut(MEMBER).unwrap().state = Some("idle".into());
+            snapshot.roster.squads[0]
+                .member_states
+                .get_mut(MEMBER)
+                .unwrap()
+                .state = Some("idle".into());
+            snapshot
+                .rows
+                .get_mut(app.workspace.selected.as_ref().unwrap())
+                .unwrap()["state"] = json!("idle");
+        }
+        if scene == "unread-waiting" {
+            observe_waiting_member(&mut app);
+            app.shell.tab = OpsTab::Overview;
+        }
+        if scene == "unread-squads" {
+            app.shell.tab = OpsTab::Overview;
+            app.overview_view = crate::board::overview::monitor::View::Squads;
+            app.view
+                .as_mut()
+                .unwrap()
+                .home
+                .as_mut()
+                .unwrap()
+                .workspace
+                .roster
+                .squads[0]
+                .lead = Some(MEMBER.into());
+            app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
+        }
+        if scene == "unread-cleared" {
+            let mut marks = crate::config::ReadMarkers::default();
+            marks.advance(&actor, MEMBER, 102).unwrap();
+            app.finished_unread(Ok(marks));
+        }
+        app.overview_rows.borrow_mut().clear();
+        app.workspace_reconcile();
+    }
     app
 }
 
@@ -2543,29 +2599,47 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
 fn capture_workspace_packet() {
     let output = std::env::var("TMT_WORKSPACE_CAPTURE").expect("task-owned evidence path");
     let mut captures = Vec::new();
-    for scene in [
-        "member-links",
-        "member-links-menu",
-        "named-layer-long",
-        "named-layer-long-partial",
-        "named-layer",
-        "overview",
-        "agents",
-        "digest",
-        "empty",
-        "pool",
-        "dense",
-        "squads-eight",
-        "squads-thirty-six",
-        "partial",
-        "stale",
-        "help",
-        "review",
-        "result",
-        "conversation",
-    ] {
-        for width in [160, 100, 80, 60] {
-            for height in [36, 8] {
+    let unread = std::env::var("TMT_WORKSPACE_CAPTURE_PROFILE").as_deref() == Ok("unread");
+    let scenes: &[&str] = if unread {
+        &[
+            "unread-working",
+            "unread-idle",
+            "unread-waiting",
+            "unread-squads",
+            "unread-cleared",
+        ]
+    } else {
+        &[
+            "member-links",
+            "member-links-menu",
+            "named-layer-long",
+            "named-layer-long-partial",
+            "named-layer",
+            "overview",
+            "agents",
+            "digest",
+            "empty",
+            "pool",
+            "dense",
+            "squads-eight",
+            "squads-thirty-six",
+            "partial",
+            "stale",
+            "help",
+            "review",
+            "result",
+            "conversation",
+        ]
+    };
+    let widths: &[u16] = if unread {
+        &[148, 103, 60]
+    } else {
+        &[160, 100, 80, 60]
+    };
+    let heights: &[u16] = if unread { &[51] } else { &[36, 8] };
+    for &scene in scenes {
+        for &width in widths {
+            for &height in heights {
                 for (base, depth) in [
                     ("tmt", tmt_cli_style::Depth::TrueColor),
                     ("tmt-light", tmt_cli_style::Depth::TrueColor),
@@ -2601,7 +2675,7 @@ fn capture_workspace_packet() {
             }
         }
     }
-    assert_eq!(captures.len(), 608);
+    assert_eq!(captures.len(), if unread { 60 } else { 608 });
     std::fs::write(output, serde_json::to_vec(&captures).unwrap()).unwrap();
 }
 

@@ -23,8 +23,10 @@ mod rename;
 mod settings;
 mod sourced;
 mod states;
+mod unread;
 mod workspace;
 pub use states::{Rank, States};
+pub(crate) use unread::ReadMarkers;
 pub use workspace::{
     DigestPanel, DigestPanels, OpsKeyScope, OpsLayout, OpsPreferences, OpsSort, OverviewColumn,
     OverviewDirection, OverviewPanel, OverviewPanels, OverviewSort, Panel, PanelSetting, Panels,
@@ -2303,6 +2305,7 @@ impl Config {
     /// their edit.
     fn write(&mut self, edit: impl FnOnce(&mut DocumentMut)) -> Result<(), SquadError> {
         let _migration = crate::migration::config_write_guard(&self.path)?;
+        let _writer = write_guard(&self.path)?;
         let current = read_bounded(&self.path).map_err(|error| write_failed(&self.path, error))?;
         if current != self.original {
             return Err(SquadError::new(
@@ -2315,7 +2318,15 @@ impl Config {
         }
         let mut document = self.document.clone();
         edit(&mut document);
+        self.publish_document(document)
+    }
+
+    /// Both snapshot edits and monotonic read-marker merges publish here.
+    fn publish_document(&mut self, document: DocumentMut) -> Result<(), SquadError> {
         let bytes = document.to_string().into_bytes();
+        if bytes.len() as u64 > FILE_LIMIT {
+            return Err(invalid("The edited Ops configuration would exceed 1 MiB."));
+        }
         if self.original.as_deref().unwrap_or_default() == bytes {
             return Ok(());
         }
@@ -2323,6 +2334,58 @@ impl Config {
         self.document = document;
         self.original = Some(bytes);
         Ok(())
+    }
+}
+
+/// A stable inode serializes edits across running views before their source
+/// comparison or read-marker merge. Publication never replaces this lock.
+fn write_guard(path: &Path) -> Result<nix::fcntl::Flock<fs::File>, SquadError> {
+    use nix::fcntl::{Flock, FlockArg, OFlag};
+    use std::{os::unix::fs::MetadataExt, time::Instant};
+    let failed = |error: io::Error| write_failed(path, error);
+    let parent = path
+        .parent()
+        .ok_or_else(|| failed(io::ErrorKind::InvalidInput.into()))?;
+    fs::create_dir_all(parent).map_err(failed)?;
+    let mut name = path
+        .file_name()
+        .ok_or_else(|| failed(io::ErrorKind::InvalidInput.into()))?
+        .to_os_string();
+    name.push(".lock");
+    let mut file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .custom_flags((OFlag::O_NOFOLLOW | OFlag::O_NONBLOCK).bits())
+        .open(parent.join(name))
+        .map_err(failed)?;
+    let metadata = file.metadata().map_err(failed)?;
+    if !metadata.is_file() || metadata.uid() != nix::unistd::geteuid().as_raw() {
+        return Err(failed(io::Error::other(
+            "Ops configuration lock is not an owned regular file",
+        )));
+    }
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        match Flock::lock(file, FlockArg::LockExclusiveNonblock) {
+            Ok(guard) => return Ok(guard),
+            Err((unlocked, error)) => {
+                file = unlocked;
+                if error != nix::errno::Errno::EWOULDBLOCK {
+                    return Err(failed(io::Error::from_raw_os_error(error as i32)));
+                }
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    return Err(failed(io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        "Ops configuration remained busy for 5 seconds; retry the action",
+                    )));
+                }
+                std::thread::sleep(remaining.min(Duration::from_millis(10)));
+            }
+        }
     }
 }
 

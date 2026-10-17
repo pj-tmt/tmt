@@ -11,6 +11,7 @@ use unicode_width::UnicodeWidthStr;
 
 pub(in crate::board) struct Attention {
     pub online: String,
+    pub unread: super::unread::Count,
     pub waiting: String,
     pub blocked: String,
     pub waiting_positive: bool,
@@ -20,7 +21,7 @@ pub(in crate::board) struct Attention {
 }
 impl Attention {
     fn line(&self, look: Look) -> Line<'static> {
-        Line::from(vec![
+        let mut spans = vec![
             Span::styled(
                 format!(
                     "{} {} online  ",
@@ -61,7 +62,28 @@ impl Attention {
                 ),
                 look.role(Role::Muted),
             ),
-        ])
+        ];
+        if let Some(mut unread) = super::state_cell::unread(self.unread, look) {
+            unread
+                .spans
+                .push(Span::styled("  ", look.role(Role::Muted)));
+            spans.splice(3..3, unread.spans);
+        }
+        Line::from(spans)
+    }
+    fn fitted(&self, look: Look, width: usize) -> Line<'static> {
+        let mut line = self.line(look);
+        // The ≥ counts already carry partial evidence. At narrow widths keep
+        // every count before the redundant explanatory suffix or layer name.
+        if line.width() > width
+            && self.unread.total > 0
+            && !self.complete
+            && let Some(last) = line.spans.last_mut()
+            && let Some(text) = last.content.strip_suffix(" · totals unknown")
+        {
+            last.content = text.to_owned().into();
+        }
+        line
     }
 }
 
@@ -77,7 +99,7 @@ pub(in crate::board) fn paint(
         Span::styled("OPS / UI", look.role(Role::Muted)),
     ]);
     let caption_width = caption.width() as u16;
-    let attention = attention.map(|value| value.line(look));
+    let attention = attention.map(|value| value.fitted(look, usize::from(area.width)));
     let left_width = attention.as_ref().map_or(area.width, |line| {
         area.width
             .saturating_sub((line.width() as u16).saturating_add(2))
@@ -117,6 +139,7 @@ mod tests {
         let look = Look::default();
         let mut attention = Attention {
             online: "28".into(),
+            unread: Default::default(),
             waiting: "9".into(),
             blocked: "1".into(),
             waiting_positive: true,
@@ -164,6 +187,7 @@ mod narrow_tests {
         let mut buffer = Buffer::empty(Rect::new(0, 0, 60, 1));
         let attention = Attention {
             online: "≥28".into(),
+            unread: Default::default(),
             waiting: "≥9".into(),
             blocked: "≥1".into(),
             waiting_positive: true,
@@ -190,5 +214,46 @@ mod narrow_tests {
                 && text.contains("totals unknown"),
             "{text}"
         );
+    }
+}
+
+#[cfg(test)]
+mod unread_tests {
+    use super::*;
+    #[test]
+    fn unread_is_neutral_except_its_glyph_and_attention_fits_before_a_named_layer() {
+        let attention = Attention {
+            online: "≥28".into(),
+            unread: super::super::unread::Count {
+                total: 50,
+                more: true,
+            },
+            waiting: "≥9".into(),
+            blocked: "≥1".into(),
+            waiting_positive: true,
+            blocked_positive: true,
+            complete: false,
+            ascii: false,
+        };
+        let look = Look::default();
+        let line = attention.line(look);
+        assert_eq!(line.spans[3].style, look.role(Role::Unread));
+        assert_eq!(line.spans[4].style, look.role(Role::Muted));
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 60, 1));
+        paint(
+            &mut buffer,
+            Rect::new(0, 0, 60, 1),
+            Some("long layer name yields first"),
+            Some(&attention),
+            look,
+        );
+        let text = buffer
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        for word in ["≥28 online", "≥9 waiting", "50+ unread", "≥1 blocked"] {
+            assert!(text.contains(word), "{text}");
+        }
     }
 }

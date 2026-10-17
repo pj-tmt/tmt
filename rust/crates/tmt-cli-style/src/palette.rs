@@ -31,7 +31,7 @@ pub enum Token {
 fn sixteen(role: crate::Role) -> Option<AnsiColor> {
     use crate::Role;
     match role {
-        Role::Accent => Some(AnsiColor::Blue),
+        Role::Accent | Role::Unread => Some(AnsiColor::Blue),
         Role::Working => Some(AnsiColor::Green),
         Role::Waiting => Some(AnsiColor::Yellow),
         Role::Blocked => Some(AnsiColor::Red),

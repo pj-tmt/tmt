@@ -124,7 +124,11 @@ impl Config {
         Ok(())
     }
 
-    fn insert_setting(&mut self, path: &[&str], mut replacement: Item) -> Result<(), SquadError> {
+    pub(super) fn insert_setting(
+        &mut self,
+        path: &[&str],
+        mut replacement: Item,
+    ) -> Result<(), SquadError> {
         let mut table: &mut dyn TableLike = self.document.as_table_mut();
         for (index, name) in path[..path.len() - 1].iter().enumerate() {
             if !table.contains_key(name) {

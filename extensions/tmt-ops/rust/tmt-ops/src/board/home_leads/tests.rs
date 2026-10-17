@@ -563,6 +563,7 @@ fn failed_reads_are_not_empty_evidence_and_changed_sender_drops_observations() {
         sender: Some("other".into()),
         leads: vec![lead("a", "squad")],
         replies: vec![],
+        unread: None,
         failure: None,
         calls: 0,
         elapsed_ms: 0,
@@ -699,5 +700,73 @@ impl State {
                         .get(&(lead.squad.clone(), lead.id().to_owned()))
                         == Some(&true)
             })
+    }
+}
+
+#[test]
+fn unread_uses_only_the_originator_page_and_holds_it_across_failed_or_late_reads() {
+    let mut state = State::default();
+    state.reconcile(&observation_home(vec![lead("a", "room")]), Some("me"));
+    let read = fetch(vec![lead("a", "room")]).read(
+        |input| {
+            if input["view"] == "results" {
+                Ok(json!({"items":[reply("new", "a", 100, Some("answer"))], "nextBefore":null}))
+            } else {
+                Ok(json!({"items":[reply("older", "a", 90, Some("older"))], "nextBefore":null}))
+            }
+        },
+        200,
+    );
+    assert_eq!(read.calls, 2, "no extra query to count unread");
+    state.replace(read);
+    assert_eq!(
+        state.replies.len(),
+        2,
+        "conversation metadata still includes history"
+    );
+    assert_eq!(state.unread("me").unwrap().count("a", 0).total, 1);
+    let held = state.unread("me").unwrap().clone();
+    state.replace(fetch(vec![]).read(|_| Err(SquadError::new("FAILED", "missing")), 200));
+    assert_eq!(state.unread("me"), Some(&held));
+    state.replace(fetch(vec![]).read(|_| Ok(json!({"items":[], "nextBefore":{}})), 200));
+    assert_eq!(
+        state.unread("me"),
+        Some(&held),
+        "malformed optional page cannot erase held evidence"
+    );
+    let late = fetch(vec![]).read(|_| Ok(json!({"items":[], "nextBefore":null})), 200);
+    state.set_sender(Some("other"));
+    state.replace(late);
+    assert!(state.unread("me").is_none());
+    assert!(
+        state.unread("other").is_none(),
+        "late actor result cannot mark another user's page"
+    );
+    let mut replacement = fetch(vec![]);
+    replacement.sender.as_mut().unwrap().id = "other".into();
+    state.replace(replacement.read(|_| Ok(json!({"items":[], "nextBefore":null})), 200));
+    assert_eq!(state.unread("other").unwrap().count("a", 0).total, 0);
+}
+
+/// Native scenarios admit the same bounded originator document as the worker.
+impl State {
+    pub(in crate::board) fn test_results(&mut self, actor: &str, document: Value) {
+        self.set_sender(Some(actor));
+        let read = Fetch::results(Some(Me {
+            id: actor.into(),
+            name: "Owner".into(),
+        }))
+        .read(
+            |input| {
+                assert_eq!(
+                    input,
+                    json!({"originatorId":actor,"view":"results","limit":50})
+                );
+                Ok(document.clone())
+            },
+            crate::status::now_ms(),
+        );
+        assert_eq!(read.calls, 1);
+        self.replace(read);
     }
 }

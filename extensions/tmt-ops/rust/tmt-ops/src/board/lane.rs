@@ -22,6 +22,11 @@ pub(crate) enum Opening {
 #[derive(Debug)]
 pub(super) enum Job {
     Act(Request),
+    Jump {
+        member: String,
+        seen: Option<super::unread::publish::Seen>,
+        publisher: super::unread::publish::Writer,
+    },
     Send {
         request: Request,
         ticket: super::conversation::outgoing::Ticket,
@@ -32,6 +37,7 @@ pub(super) enum Job {
     /// Save the header's token-rate window with no settings overlay open.
     TokenWindow(String),
     ViewState(super::view_state::Writer),
+    ReadMarkers(super::unread::publish::Writer),
 }
 
 impl Job {
@@ -39,6 +45,8 @@ impl Job {
     pub fn progress(&self) -> &'static str {
         match self {
             Self::Act(request) | Self::Send { request, .. } => request.progress(),
+            Self::Jump { .. } => "Jumping…",
+            Self::ReadMarkers(_) => "Saving read markers…",
             Self::Recovery(_) => "Reading or applying the selected workspace snapshot…",
             Self::Discovery(_) => "Scanning or binding the selected agent…",
             Self::Open(Opening::Settings) => "Loading settings…",
@@ -52,6 +60,29 @@ impl Job {
 /// The result of one job.
 pub(super) fn run(core: &Core, labels: Option<&Refresh>, job: Job) -> BoardEvent {
     match job {
+        Job::ReadMarkers(writer) => BoardEvent::ReadMarkersPublished(writer.publish(core)),
+        Job::Jump {
+            member,
+            seen,
+            publisher,
+        } => {
+            let seen = seen.filter(|seen| seen.matches_member(&member));
+            let outcome = execute(core, Request::Jump(member));
+            let outcome = match (outcome, seen) {
+                (Ok(super::ActionOutcome::Message(message)), Some(seen)) => {
+                    Ok(super::ActionOutcome::JumpRead {
+                        message,
+                        markers: publisher.publish_seen(&seen, core),
+                    })
+                }
+                (outcome, _) => outcome,
+            };
+            BoardEvent::Acted {
+                jump: true,
+                sends: false,
+                outcome,
+            }
+        }
         Job::ViewState(writer) => {
             writer.publish(std::time::Instant::now(), false);
             BoardEvent::ViewStatePublished

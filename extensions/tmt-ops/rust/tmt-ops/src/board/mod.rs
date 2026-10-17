@@ -61,6 +61,7 @@ mod tab_strip;
 mod team_strip;
 mod timer_rows;
 mod top_bar;
+mod unread;
 pub(crate) use crate::tabs;
 mod shell;
 mod terminal;
@@ -198,6 +199,7 @@ pub(super) enum BoardEvent {
     TokenWindowSaved(Result<Config, String>),
     /// A quiet cache publication; it owns no user action or progress notice.
     ViewStatePublished,
+    ReadMarkersPublished(Result<crate::config::ReadMarkers, String>),
 }
 
 fn spawn_input(sender: Sender<BoardEvent>, mut filter: Option<terminal::background::ReplyFilter>) {
@@ -248,6 +250,10 @@ pub(super) enum ActionOutcome {
     Workspace(Box<Result<crate::membership::Outcome, crate::core::SquadError>>),
     RenameMember(Box<workspace::rename_member::Completed>),
     Message(String),
+    JumpRead {
+        message: String,
+        markers: Result<crate::config::ReadMarkers, String>,
+    },
     WorkspacePreferences(Box<(crate::config::OpsPreferences, String)>),
     Send(Box<conversation::outgoing::Completed>),
     Answer(Box<conversation::outgoing::Answered>),
@@ -434,10 +440,24 @@ fn session(
     let mut history_demand = None;
     // Hands a job to the lane and says so at once; the event that comes back says how it ended.
     let submit = |app: &mut App, job: lane::Job| {
+        let job = match job {
+            lane::Job::Act(Request::Jump(member)) => {
+                let seen = app.unread_jump(&member);
+                lane::Job::Jump {
+                    member,
+                    seen,
+                    publisher: app.unread.writer.clone(),
+                }
+            }
+            other => other,
+        };
         // An overlay opens once: a second request for one waits for the first.
         if !matches!(
             job,
-            lane::Job::Act(_) | lane::Job::Send { .. } | lane::Job::Recovery(_)
+            lane::Job::Act(_)
+                | lane::Job::Jump { .. }
+                | lane::Job::Send { .. }
+                | lane::Job::Recovery(_)
         ) && app.in_flight > 0
         {
             app.set_notice(
@@ -483,6 +503,9 @@ fn session(
                 io(lane::Job::ViewState(writer));
             }
         }
+        if let Some(writer) = app.unread.writer.offer() {
+            io(lane::Job::ReadMarkers(writer));
+        }
         // The footer names a waiting reload, so a new one repaints.
         dirty |= app.expire_notice(now);
         dirty |= app.reload.poll(now);
@@ -524,6 +547,7 @@ fn session(
         }
         if dirty {
             draw(app)?;
+            app.unread_drawn();
             // Painting may admit/drop clock surfaces. Set the comparison base
             // from that frame, so initial paint or clipping does not cause a
             // second unchanged frame on the next loop tick.
@@ -763,6 +787,10 @@ fn session(
                     }
                     Ok(ActionOutcome::Status(outcome)) => app.finished_status(*outcome),
                     Ok(ActionOutcome::Message(message)) => app.finished(Ok(message)),
+                    Ok(ActionOutcome::JumpRead { message, markers }) => {
+                        app.finished(Ok(message));
+                        app.finished_unread(markers);
+                    }
                     Ok(ActionOutcome::WorkspacePreferences(completed)) => {
                         let (preferences, message) = *completed;
                         app.finished_workspace_preferences(preferences, message);
@@ -772,7 +800,7 @@ fn session(
                     Ok(ActionOutcome::Digest(granted)) => app.open_digest(*granted),
                     Err(error) => app.finished(Err(error)),
                 }
-                if jumped && app.popup {
+                if jumped && app.popup && app.unread.writer.failure().is_none() {
                     return Ok(None);
                 }
                 if sends {
@@ -849,6 +877,11 @@ fn session(
                 Effect::None
             }
             Ok(BoardEvent::ViewStatePublished) => Effect::None,
+            Ok(BoardEvent::ReadMarkersPublished(result)) => {
+                app.finished_unread(result);
+                dirty = true;
+                Effect::None
+            }
             Ok(BoardEvent::Input(Event::Key(key))) if key.kind == KeyEventKind::Press => {
                 dirty = true;
                 app.key(key)
@@ -1272,6 +1305,9 @@ pub fn run(
     // Restore first, whatever happened; then report the session's outcome.
     let restored = guard.restore();
     lane.finish();
+    // Also reports a failed queued save whose event the UI never consumed.
+    // A last admitted draw drains once; failure alone never starts a retry.
+    let read_markers = app.unread.writer.finish(&core);
     if restored.is_ok()
         && let Some(state) = &mut view_state
     {
@@ -1283,6 +1319,7 @@ pub fn run(
     let signal = result.map_err(failed)?;
     restored.map_err(failed)?;
     stopped?;
+    read_markers?;
     if let Some(resume) = app.restart.take() {
         // The terminal is restored and the loop has ended. Stop the refresh worker,
         // then become the new board: this returns only when that failed.
@@ -1310,7 +1347,7 @@ mod tests {
     /// test runner waiting forever on its own still-open event sender. The
     /// production stop fence ends the session; completion wakes the watchdog.
     #[allow(clippy::too_many_arguments)] // Match the existing injected session seam.
-    fn session(
+    pub(in crate::board) fn session(
         app: &mut App,
         stop: &AtomicUsize,
         input: &Receiver<BoardEvent>,
@@ -1678,7 +1715,11 @@ mod tests {
                         .unwrap();
                     events.send(key(KeyCode::Char('j'))).unwrap();
                 }
-                lane::Job::Act(Request::Jump(identity)) => {
+                lane::Job::Jump {
+                    member: identity,
+                    seen: None,
+                    ..
+                } => {
                     assert_eq!(identity, app::workspace::tests::MEMBER);
                     jumps.set(jumps.get() + 1);
                     events.send(acted(true, false, Ok("Jumped"))).unwrap();
@@ -1742,8 +1783,10 @@ mod tests {
                         events.send(key(code)).unwrap();
                     }
                 }
-                lane::Job::Act(request) => {
-                    assert_eq!(request, Request::Jump(app::workspace::tests::MEMBER.into()));
+                lane::Job::Jump {
+                    member, seen: None, ..
+                } => {
+                    assert_eq!(member, app::workspace::tests::MEMBER);
                     actions.set(actions.get() + 1);
                     events.send(acted(true, false, Ok("Jumped"))).unwrap();
                     events.send(key(KeyCode::Char('q'))).unwrap();
@@ -2286,10 +2329,13 @@ mod tests {
                 |_, _| {},
                 |_| {},
                 |job| {
-                    let lane::Job::Act(request) = job else {
+                    let lane::Job::Jump {
+                        member, seen: None, ..
+                    } = job
+                    else {
                         panic!("unexpected {job:?}")
                     };
-                    assert_eq!(request, Request::Jump(app::workspace::tests::MEMBER.into()));
+                    assert_eq!(member, app::workspace::tests::MEMBER);
                     jumps.set(jumps.get() + 1);
                     events
                         .send(BoardEvent::Acted {

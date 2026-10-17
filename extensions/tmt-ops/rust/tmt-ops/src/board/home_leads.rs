@@ -9,7 +9,7 @@ use crate::{
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, time::Instant};
 
-const LIMIT: usize = 50;
+const LIMIT: usize = super::unread::RESULTS_LIMIT;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Kind {
@@ -127,6 +127,7 @@ pub struct Read {
     sender: Option<String>,
     pub(super) leads: Vec<Lead>,
     pub(super) replies: Vec<Value>,
+    unread: Option<super::unread::Page>,
     pub(super) failure: Option<String>,
     /// Measured subprocess cost, including the shared originator results page.
     pub(super) calls: usize,
@@ -142,6 +143,7 @@ pub(super) struct State {
     pub leads: Vec<Lead>,
     /// Bounded result metadata from the same originator read, for HOME members.
     pub replies: Vec<Value>,
+    unread: Option<super::unread::Page>,
     pub failure: Option<String>,
 }
 
@@ -191,6 +193,7 @@ impl Fetch {
             sender: self.sender.as_ref().map(|me| me.id.clone()),
             leads: self.leads,
             replies: Vec::new(),
+            unread: None,
             failure: None,
             calls: 0,
             elapsed_ms: 0,
@@ -200,8 +203,10 @@ impl Fetch {
         };
         read.calls += 1;
         let results = match list(json!({"originatorId":sender.id,"view":"results","limit":LIMIT}))
-            .and_then(page)
-        {
+            .and_then(|document| {
+                read.unread = super::unread::Page::read(&sender.id, &document);
+                page(document)
+            }) {
             Ok(items) => items,
             Err(error) => {
                 read.failure = Some(error.to_string());
@@ -234,6 +239,15 @@ impl Fetch {
 }
 
 impl State {
+    /// Only the originator page for this exact actor supplies unread evidence.
+    /// Recipient history and pane output never extend its bounded count.
+    pub(super) fn unread(&self, actor: &str) -> Option<&super::unread::Page> {
+        (self.sender.as_deref() == Some(actor))
+            .then_some(self.unread.as_ref())
+            .flatten()
+            .filter(|page| page.actor == actor)
+    }
+
     pub(super) fn results_observed(&self, sender: Option<&str>) -> bool {
         sender.is_some()
             && self.sender.as_deref() == sender
@@ -245,6 +259,7 @@ impl State {
         if self.sender.as_deref() != sender {
             self.sender = sender.map(str::to_owned);
             self.results_observed = false;
+            self.unread = None;
             self.lead_observed.clear();
             self.replies.clear();
             self.leads.clear();
@@ -277,6 +292,7 @@ impl State {
             }
         } else {
             self.results_observed = false;
+            self.unread = None;
             self.replies.clear();
             self.failure = None;
         }
@@ -293,6 +309,9 @@ impl State {
         let admitted = self.sender.is_some() && read.calls > 0;
         if admitted && read.failure.is_none() {
             self.results_observed = true;
+        }
+        if let Some(unread) = read.unread.take() {
+            self.unread = Some(unread);
         }
         if read.failure.is_none() {
             self.replies = std::mem::take(&mut read.replies);

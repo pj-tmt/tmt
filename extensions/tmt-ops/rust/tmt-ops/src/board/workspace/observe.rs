@@ -27,6 +27,7 @@ pub(crate) struct OpsWorkspaceSnapshot {
     /// adapters. Display models never reconstruct send data from visible text.
     pub rows: BTreeMap<OpsTarget, Value>,
     pub preferences: OpsPreferences,
+    pub read_markers: crate::config::ReadMarkers,
     pub squad_looks: BTreeMap<String, crate::look::Look>,
     pub keys: BTreeMap<OpsKeyScope, Bindings>,
     pub hosts: BTreeMap<String, BTreeMap<OpsKeyScope, Bindings>>,
@@ -74,6 +75,7 @@ impl OpsWorkspaceSnapshot {
     pub(crate) fn configure(&mut self, config: &Config) -> Result<(), SquadError> {
         self.shell_counts = self.roster.shell_counts();
         self.set_preferences(config.workspace_preferences()?);
+        self.read_markers = config.read_markers()?;
         self.config_path = config.path().display().to_string();
         let scopes = [
             OpsKeyScope::Overview,

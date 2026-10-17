@@ -253,7 +253,7 @@ impl OpsRoster {
         squad.members.iter().filter_map(|id| self.members.get(id))
     }
 
-    fn pool(&self) -> impl Iterator<Item = &OpsMember> {
+    pub(in crate::board) fn pool(&self) -> impl Iterator<Item = &OpsMember> {
         let complete = self.membership_complete
             && matches!(
                 self.observation,

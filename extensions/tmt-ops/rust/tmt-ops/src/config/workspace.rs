@@ -407,6 +407,9 @@ impl Config {
         let mut result = OpsPreferences::default();
         for (key, item) in table.iter() {
             match key {
+                "read_markers" => {
+                    self.read_markers()?;
+                }
                 "overview_panels" => result.overview_panels = Some(PanelSetting::observe(item)),
                 "digest_panels" => result.digest_panels = Some(PanelSetting::observe(item)),
                 "pinned" => {

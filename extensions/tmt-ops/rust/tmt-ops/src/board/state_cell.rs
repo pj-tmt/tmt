@@ -31,6 +31,25 @@ pub(in crate::board) fn word(state: Option<&str>, look: Look) -> Span<'static> {
     )
 }
 
+/// The same unread mark on tables, strips and global attention.
+pub(in crate::board) fn unread_mark(
+    count: super::unread::Count,
+    look: Look,
+) -> Option<Span<'static>> {
+    (count.total > 0).then(|| Span::styled("●", look.role(Role::Unread)))
+}
+
+/// Shared unread override: colour belongs to the glyph alone.
+pub(in crate::board) fn unread(
+    count: super::unread::Count,
+    look: Look,
+) -> Option<ratatui::text::Line<'static>> {
+    Some(ratatui::text::Line::from(vec![
+        unread_mark(count, look)?,
+        Span::styled(format!(" {}", count.label()?), look.role(Role::Muted)),
+    ]))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -55,5 +74,41 @@ mod tests {
             }
         }
         assert_eq!(line(None, None, look).to_string(), "? unreported");
+    }
+}
+
+#[cfg(test)]
+mod unread_tests {
+    use super::*;
+    #[test]
+    fn unread_words_are_neutral_and_zero_is_not_a_state_even_with_a_partial_page() {
+        let mut look = Look::default();
+        let count = crate::board::unread::Count {
+            total: 2,
+            more: true,
+        };
+        let line = unread(count, look).unwrap();
+        assert_eq!(line.to_string(), "● 2+ unread");
+        assert_eq!(line.spans[0].style, look.role(Role::Unread));
+        assert_eq!(line.spans[1].style, look.role(Role::Muted));
+        assert!(
+            unread(
+                crate::board::unread::Count {
+                    total: 0,
+                    more: true
+                },
+                look
+            )
+            .is_none()
+        );
+        look.depth = tmt_cli_style::Depth::None;
+        let plain = unread(count, look).unwrap();
+        assert_eq!(plain.to_string(), "● 2+ unread");
+        assert!(
+            plain
+                .spans
+                .iter()
+                .all(|span| span.style.fg.is_none() && span.style.bg.is_none())
+        );
     }
 }

@@ -336,6 +336,11 @@ fn captures() -> Value {
                 "result",
                 "conversation",
                 "header-usage",
+                "unread-working",
+                "unread-idle",
+                "unread-waiting",
+                "unread-squads",
+                "unread-cleared",
             ] {
                 for width in [160, 100, 80, 60] {
                     for height in [36, 8] {
