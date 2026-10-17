@@ -5741,11 +5741,19 @@ describe('large board responsiveness', () => {
             `${colour} ${shellQuote(sandbox.cli.executable)} ops ui --squad product --view copy-quote --reset-view`,
           ]);
           tmux(['send-keys', '-t', pane, 'Enter']);
-          await vi.waitFor(() => expect(screen()).toContain('Roster preview'), {
-            timeout: 30_000,
+          await vi.waitFor(
+            () => {
+              expect(screen()).toContain('room product');
+              expect(screen()).toContain('No current recipient observed.');
+            },
+            { timeout: 30_000, interval: 50 }
+          );
+          tmux(['send-keys', '-t', pane, 'Right']);
+          await vi.waitFor(() => expect(screen()).toMatch(/^[ \t]+▾ product[ \t]+/m), {
+            timeout: 10_000,
             interval: 50,
           });
-          tmux(['send-keys', '-t', pane, 'Right', 'End']);
+          tmux(['send-keys', '-t', pane, 'End']);
           await vi.waitFor(() => expect(screen()).toContain('second line'), {
             timeout: 30_000,
             interval: 50,
@@ -5760,9 +5768,9 @@ describe('large board responsiveness', () => {
             timeout: 10_000,
             interval: 50,
           });
-          // Enter the shared raw Reader from the visible wide roster, then
+          // Enter the shared raw Reader from the selected agent, then
           // exercise selection/Quote at the requested actual viewport width.
-          // Compact layouts intentionally hide an unfocused squad preview.
+          // Start wide so the focused response is visible before resizing.
           if (width !== 160) {
             tmux(['resize-window', '-t', 'source', '-x', String(width), '-y', '36']);
             await vi.waitFor(
@@ -5794,6 +5802,14 @@ describe('large board responsiveness', () => {
           expect(screen()).toContain('+ Quote in chat');
           capture('clipboard-failed');
           tmux(['send-keys', '-t', pane, 'Enter']);
+          await vi.waitFor(() => expect(screen()).toContain('as you…'), {
+            timeout: 10_000,
+            interval: 50,
+          });
+          // The single-line S4 viewport follows the caret to the new blank
+          // line. Inspect the retained quote without changing its bytes.
+          capture('quoted-draft-blank-line');
+          tmux(['send-keys', '-t', pane, 'C-Home']);
           await vi.waitFor(() => expect(screen()).toContain('> "漢字 é **raw** second line"'), {
             timeout: 10_000,
             interval: 50,
