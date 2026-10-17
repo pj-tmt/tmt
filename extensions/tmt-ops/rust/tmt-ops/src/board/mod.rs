@@ -332,10 +332,21 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
         Request::Open { link, opener } => {
             effects::open(&link, opener.as_deref()).map(|()| format!("Opened {link}"))
         }
-        Request::Copy { text, program } => {
-            effects::copy(&text, program.as_deref(), effects::tmux_socket().as_deref())
-                .map(|copied| copied.describe().to_owned())
-        }
+        Request::Copy {
+            text,
+            program,
+            feedback,
+        } => effects::copy(&text, program.as_deref(), effects::tmux_socket().as_deref())
+            .map(|copied| match feedback {
+                app::CopyFeedback::Destination => copied.describe().to_owned(),
+                app::CopyFeedback::Selection => {
+                    format!("⧉ Copied {} characters", text.chars().count())
+                }
+            })
+            .map_err(|error| match feedback {
+                app::CopyFeedback::Destination => error,
+                app::CopyFeedback::Selection => format!("Could not copy: {error}"),
+            }),
         Request::Run(argv) => effects::spawn(&argv).map(|()| format!("Started {}.", argv[0])),
         Request::Talk {
             me,

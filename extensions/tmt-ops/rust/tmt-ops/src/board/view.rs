@@ -100,6 +100,7 @@ pub(in crate::board) fn render_frame(
     app.input_band.set(None);
     app.input_viewport.set(None);
     app.conversation.borrow_mut().pane = None;
+    super::conversation::task::begin_frame(app);
     app.pane_resize.begin_frame();
     app.buttons.begin_frame();
     app.hits.borrow_mut().clear();

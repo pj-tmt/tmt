@@ -202,14 +202,16 @@ fn exact_response_selection_attaches_to_a_retained_draft_without_acknowledging()
             .range,
         0..4
     );
-    assert_eq!(
-        app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL)),
-        Effect::None
+    assert!(
+        matches!(app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL)), Effect::Act(app::Request::Copy {text, ..}) if text == source)
     );
     assert!(
         matches!(press(&mut app,KeyCode::Char('y')),Effect::Act(app::Request::Copy { text,.. }) if text==source)
     );
-    assert_eq!(press(&mut app, KeyCode::Char('a')), Effect::None);
+    assert_eq!(
+        app.perform(&crate::action::Action::parse("annotate member").unwrap()),
+        Effect::None
+    );
     assert!(app.row_details.reader.is_none());
     let quote = &app.input.as_ref().unwrap().response_quotes[0];
     assert_eq!(quote.key.request, "r1");
@@ -283,7 +285,10 @@ fn scrolled_wrapped_source_drag_preserves_unicode_bytes_across_resize() {
     assert_eq!(source.get(quote.range.clone()), Some(selected));
     assert!(matches!(press(&mut app, KeyCode::Char('y')),
         Effect::Act(app::Request::Copy { text, .. }) if text == selected));
-    assert_eq!(press(&mut app, KeyCode::Char('a')), Effect::None);
+    assert_eq!(
+        app.perform(&crate::action::Action::parse("annotate member").unwrap()),
+        Effect::None
+    );
     assert_eq!(app.input.as_ref().unwrap().response_quotes[0], quote);
 }
 
@@ -310,7 +315,7 @@ fn common_pool_response_quote_opens_talk_without_a_squad_note_or_acknowledgment(
     open_response(&mut app);
     press(&mut app, KeyCode::Char('s'));
     app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL));
-    assert_eq!(press(&mut app, KeyCode::Char('a')), Effect::None);
+    assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
     assert!(app.row_details.reader.is_none());
     let input = app.input.as_ref().unwrap();
     assert!(matches!(&input.compose, app::Compose::Talk { to } if to == "worker"));
@@ -321,16 +326,22 @@ fn common_pool_response_quote_opens_talk_without_a_squad_note_or_acknowledgment(
             .iter()
             .all(|mode| !matches!(mode, app::Compose::Annotate { .. }))
     );
-    let quote = &input.response_quotes[0];
-    assert_eq!(quote.key.lead, MEMBER);
-    assert_eq!(quote.range, 0..source.len());
-    assert_eq!(quote.text, source);
+    assert!(input.response_quotes.is_empty());
+    assert_eq!(
+        input.text.as_str(),
+        "> \"A **literal** response 漢字 e\u{301}\"\n"
+    );
     assert_eq!(app.view.as_ref().unwrap().document, before);
-    assert!(matches!(
-        press(&mut app, KeyCode::Enter),
-        Effect::Act(app::Request::DirectTalk { recipient, text, .. })
-            if recipient == MEMBER && text == "[Common pool · worker]\n> A **literal** response\n> 漢字 e\u{301}"
-    ));
+    let sent = press(&mut app, KeyCode::Enter);
+    assert!(
+        matches!(
+            &sent,
+            Effect::Act(app::Request::DirectTalk { recipient, text, .. })
+                if recipient == MEMBER && text == "[Common pool · worker] > \"A **literal** response 漢字 e\u{301}\"\n"
+        ),
+        "{sent:?}; notice={:?}",
+        app.notice
+    );
 }
 
 #[test]
@@ -348,7 +359,10 @@ fn failed_or_replaced_response_source_cannot_be_attached() {
     press(&mut app, KeyCode::Char('s'));
     app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL));
     app.view.as_mut().unwrap().replies[0]["requestId"] = json!("replacement");
-    assert_eq!(press(&mut app, KeyCode::Char('a')), Effect::None);
+    assert_eq!(
+        app.perform(&crate::action::Action::parse("annotate member").unwrap()),
+        Effect::None
+    );
     assert!(app.input.is_none());
     assert!(app.notice.as_deref().unwrap().contains("source changed"));
     app.view.as_mut().unwrap().replies.clear();
@@ -365,7 +379,10 @@ fn failed_or_replaced_response_source_cannot_be_attached() {
         .clear();
     app.reconcile_row_details();
     assert!(text(&draw(&app, 80, 24)).contains("exact source"));
-    assert_eq!(press(&mut app, KeyCode::Char('a')), Effect::None);
+    assert_eq!(
+        app.perform(&crate::action::Action::parse("annotate member").unwrap()),
+        Effect::None
+    );
     assert!(app.input.is_none(), "a vanished agent is never retargeted");
     assert!(matches!(
         press(&mut app, KeyCode::Char('y')),

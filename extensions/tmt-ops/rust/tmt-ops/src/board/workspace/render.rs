@@ -835,16 +835,15 @@ fn roster_preview(
                             columns::state_symbol(row.state.as_deref()),
                             safe(row.state.as_deref().unwrap_or("unreported"))
                         ),
-                        RosterField::Task => {
-                            let task = raw.and_then(|r| r["fields"]["task"].as_str()).unwrap_or("");
-                            let next = raw.and_then(|r| r["fields"]["next"].as_str()).unwrap_or("");
-                            safe(&match (task.is_empty(), next.is_empty()) {
-                                (true, true) => "—".into(),
-                                (false, true) => task.into(),
-                                (true, false) => next.into(),
-                                _ => format!("{task} → {next}"),
+                        RosterField::Task => safe(
+                            &raw.and_then(|row| {
+                                crate::board::conversation::task::text(
+                                    row,
+                                    crate::board::conversation::task::Field::TaskAndNext,
+                                )
                             })
-                        }
+                            .unwrap_or_else(|| "—".into()),
+                        ),
                     };
                     let style = if *field == RosterField::State {
                         app.workspace_state_cells.borrow_mut().push(cell);
@@ -864,6 +863,14 @@ fn roster_preview(
                         )
                     });
                     strip::paint_left(frame.buffer_mut(), cell, line);
+                    if interactive && *field == RosterField::Task {
+                        crate::board::conversation::task::publish(
+                            app,
+                            &row.target,
+                            crate::board::conversation::task::Field::TaskAndNext,
+                            cell,
+                        );
+                    }
                 }
                 if interactive {
                     app.workspace_action_hits.borrow_mut().push((

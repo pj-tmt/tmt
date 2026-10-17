@@ -52,7 +52,7 @@ fn reader_attachment_preserves_effect_notice_quote_and_limit_behavior() {
         app.notice = Some("existing notice".into());
         let before = app.view.as_ref().unwrap().document.clone();
         assert_eq!(
-            app.reader_event(&key(KeyCode::Char('a'), KeyModifiers::NONE)),
+            app.perform(&crate::action::Action::parse("annotate member").unwrap()),
             Effect::None
         );
         assert_eq!(app.view.as_ref().unwrap().document, before);
@@ -112,7 +112,7 @@ fn shared_attachment_matches_reader_and_leaves_surface_dismissal_to_the_caller()
             "helper cannot dismiss a Reader"
         );
         assert_eq!(
-            reader.reader_event(&key(KeyCode::Char('a'), KeyModifiers::NONE)),
+            reader.perform(&crate::action::Action::parse("annotate member").unwrap()),
             effect
         );
         assert_eq!(reader.notice, inline.notice);
@@ -134,7 +134,7 @@ fn shared_attachment_matches_reader_and_leaves_surface_dismissal_to_the_caller()
 fn changed_exact_source_is_refused_at_send_without_losing_the_draft() {
     for change in ["request", "body", "range"] {
         let mut app = source_reader("held exact passage");
-        app.reader_event(&key(KeyCode::Char('a'), KeyModifiers::NONE));
+        app.perform(&crate::action::Action::parse("annotate member").unwrap());
         app.paste("my unsent comment");
         match change {
             "request" => app.view.as_mut().unwrap().replies[0]["requestId"] = json!("replaced"),
@@ -161,7 +161,7 @@ fn changed_exact_source_is_refused_at_send_without_losing_the_draft() {
 #[test]
 fn final_body_limit_counts_the_row_tag_and_quote_markup_and_retains_the_source() {
     let mut app = source_reader(&"x".repeat(crate::board::app::MESSAGE_LIMIT));
-    app.reader_event(&key(KeyCode::Char('a'), KeyModifiers::NONE));
+    app.perform(&crate::action::Action::parse("annotate member").unwrap());
     let quotes = app.input.as_ref().unwrap().response_quotes.clone();
     assert_eq!(quotes.len(), 1);
     assert_eq!(
@@ -232,7 +232,7 @@ fn pending_questions_quote_only_the_acquired_exact_body_and_revalidate_before_se
             .quote()
             .unwrap();
         assert_eq!(selected.text, RAW);
-        app.reader_event(&key(KeyCode::Char('a'), KeyModifiers::NONE));
+        app.perform(&crate::action::Action::parse("annotate member").unwrap());
         app.paste("my decision");
         app.reconcile_row_details();
         assert!(
@@ -328,7 +328,7 @@ fn capture_row_context_packet() {
             {
                 *scoped = look;
             }
-            app.reader_event(&key(KeyCode::Char('a'), KeyModifiers::NONE));
+            app.perform(&crate::action::Action::parse("annotate member").unwrap());
             app.paste("my comment about this row");
             for scene in ["quoted-draft", "quoted-outgoing"] {
                 if scene == "quoted-outgoing" {
@@ -367,4 +367,158 @@ fn capture_row_context_packet() {
         }
     }
     std::fs::write(output, serde_json::to_vec_pretty(&frames).unwrap()).unwrap();
+}
+
+#[test]
+fn reader_enter_inserts_compact_text_without_a_note_attachment_or_dispatch() {
+    let mut app = source_reader("first raw line\nsecond line");
+    let before = app.view.as_ref().unwrap().document.clone();
+    assert_eq!(
+        app.reader_event(&key(KeyCode::Enter, KeyModifiers::NONE)),
+        Effect::None
+    );
+    assert!(app.row_details.reader.is_none());
+    let input = app.input.as_ref().expect("existing chat composer opens");
+    assert_eq!(input.text.as_str(), "> \"first raw line second line\"\n");
+    assert!(input.response_quotes.is_empty());
+    assert_eq!(app.view.as_ref().unwrap().document, before);
+}
+
+#[test]
+fn reader_note_key_uses_the_configured_recipient_and_has_no_hard_coded_a() {
+    let mut app = source_reader("exact source");
+    // The default a action is a note to the lead. This fixture has no lead:
+    // the gesture must not silently turn that into a note to the member.
+    app.reader_event(&key(KeyCode::Char('a'), KeyModifiers::NONE));
+    assert!(app.input.is_none());
+    assert!(app.row_details.reader.is_some());
+    assert_eq!(
+        app.notice.as_deref(),
+        Some("This squad has no observed lead to receive the note.")
+    );
+    app.perform(&crate::action::Action::parse("annotate member").unwrap());
+    assert_eq!(
+        app.input.as_ref().unwrap().response_quotes[0].text,
+        "exact source"
+    );
+}
+
+fn draw_reader(app: &mut crate::board::app::App, width: u16) {
+    use ratatui::{Terminal, backend::TestBackend};
+    let mut terminal = Terminal::new(TestBackend::new(width, 36)).unwrap();
+    terminal
+        .draw(|frame| {
+            crate::board::view::prepare(app, frame.area());
+            crate::board::view::render(frame, app);
+        })
+        .unwrap();
+}
+
+#[test]
+fn reader_chip_uses_fresh_geometry_and_changed_source_cannot_copy_or_quote() {
+    use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    for change in ["none", "source", "geometry"] {
+        let mut app = source_reader("exact raw text");
+        draw_reader(&mut app, 100);
+        let hit = app
+            .row_details
+            .reader
+            .as_ref()
+            .unwrap()
+            .quote_button
+            .get()
+            .expect("whole chip beside selected end");
+        if change == "source" {
+            app.view.as_mut().unwrap().replies[0]["response"] = json!("new source");
+        }
+        if change == "geometry" {
+            app.invalidate_frame_geometry();
+        }
+        let click = Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: hit.x,
+            row: hit.y,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert_eq!(app.reader_event(&click), Effect::None);
+        if change == "none" {
+            assert_eq!(
+                app.input.as_ref().unwrap().text.as_str(),
+                "> \"exact raw text\"\n"
+            );
+        } else {
+            assert!(app.input.is_none(), "{change}");
+            let copy = app.reader_event(&key(KeyCode::Char('y'), KeyModifiers::NONE));
+            if change == "source" {
+                assert!(
+                    matches!(copy, Effect::Act(crate::board::app::Request::Copy {text, ..}) if text == "exact raw text"),
+                    "frozen read-only text remains explicitly copyable"
+                );
+            } else {
+                assert_eq!(copy, Effect::None, "cleared selection cannot copy");
+            }
+        }
+    }
+}
+
+#[test]
+fn reader_keyboard_selection_copies_exact_scalars_and_outside_press_clears_it() {
+    use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let mut app = source_reader("漢字 e\u{301}");
+    draw_reader(&mut app, 100);
+    app.reader_event(&key(KeyCode::Home, KeyModifiers::CONTROL));
+    let Effect::Act(crate::board::app::Request::Copy {
+        text,
+        feedback: crate::board::app::CopyFeedback::Selection,
+        ..
+    }) = app.reader_event(&key(KeyCode::Char('a'), KeyModifiers::CONTROL))
+    else {
+        panic!("new keyboard range copies");
+    };
+    assert_eq!(text, "漢字 e\u{301}");
+    let area = app
+        .row_details
+        .reader
+        .as_ref()
+        .unwrap()
+        .source_area
+        .get()
+        .unwrap();
+    app.reader_event(&Event::Mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: area.x.saturating_sub(1),
+        row: area.y,
+        modifiers: KeyModifiers::NONE,
+    }));
+    assert!(
+        app.row_details
+            .reader
+            .as_ref()
+            .unwrap()
+            .selection
+            .as_ref()
+            .unwrap()
+            .quote()
+            .is_none()
+    );
+    assert!(app.input.is_none());
+}
+
+#[test]
+fn a_non_note_key_never_inserts_characters_in_the_read_only_reader() {
+    let mut app = source_reader("read only source");
+    app.reader_event(&key(KeyCode::Char('a'), KeyModifiers::ALT));
+    assert_eq!(
+        app.row_details
+            .reader
+            .as_ref()
+            .unwrap()
+            .selection
+            .as_ref()
+            .unwrap()
+            .source
+            .as_str(),
+        "read only source"
+    );
+    assert!(app.input.is_none());
 }

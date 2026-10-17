@@ -641,6 +641,8 @@ pub(super) struct Reader {
     pub frozen: Option<Reply>,
     pub selection: Option<super::response::Selection>,
     pub source_area: std::cell::Cell<Option<Rect>>,
+    pub quote_button: std::cell::Cell<Option<Rect>>,
+    pub copy_pending: std::cell::Cell<bool>,
     pub target: Target,
     pub scroll: std::cell::RefCell<tmt_tui::components::ScrollState>,
     rendered: std::cell::RefCell<Option<ReaderRender>>,
@@ -660,6 +662,8 @@ impl Reader {
             frozen,
             selection: None,
             source_area: Default::default(),
+            quote_button: Default::default(),
+            copy_pending: Default::default(),
             scroll: Default::default(),
             rendered: Default::default(),
         }
@@ -711,6 +715,7 @@ pub(super) fn render_reader(frame: &mut ratatui::Frame, app: &App, body: Rect) {
     let areas = modal.areas(body, [body.width, body.height], true, false);
     modal.paint(areas, frame.buffer_mut(), &look.theme, look.depth);
     reader.source_area.set(Some(areas.content));
+    reader.quote_button.set(None);
     let mut scroll = reader.scroll.borrow_mut();
     if let Some(selection) = &reader.selection {
         let layout = selection.source.layout(areas.content.width);
@@ -721,10 +726,23 @@ pub(super) fn render_reader(frame: &mut ratatui::Frame, app: &App, body: Rect) {
             scroll.offset(),
             selection.source.selection(),
             look.role(Role::Text),
-            look.role(Role::Text)
-                .add_modifier(ratatui::style::Modifier::REVERSED),
+            look.selection(),
         ) {
             frame.set_cursor_position(caret);
+        }
+        if let Some(quote) = selection
+            .quote()
+            .filter(|quote| app.response_quote_current(&reader.target, quote))
+        {
+            reader.quote_button.set(super::response::quote_control(
+                app,
+                frame.buffer_mut(),
+                &layout,
+                quote.range.end,
+                areas.content,
+                scroll.offset(),
+                Some(super::app::Overlay::ReplyReader),
+            ));
         }
     } else {
         reader.prepare(&reply, areas.content.width, look);
@@ -765,7 +783,7 @@ pub(super) fn render_reader(frame: &mut ratatui::Frame, app: &App, body: Rect) {
         areas.footer,
         super::view::footer::hint_line(
             if reader.selection.is_some() {
-                "Shift-arrows / drag select · y copy · a annotate · Esc close"
+                "Select text to copy · Enter quotes in chat · Esc clears"
             } else {
                 "↑↓ scroll · PgUp/PgDn page · s select source · Esc close"
             },

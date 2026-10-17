@@ -5618,6 +5618,215 @@ describe('composer terminal input', () => {
 // board 235 ms, a tab switch repaints in 10 ms. The budgets are ten times that, so only
 // blocking work placed ahead of a frame fails, not a loaded CI machine.
 describe('large board responsiveness', () => {
+  it.each([
+    { theme: 'tmt', width: 160 },
+    { theme: 'tmt-light', width: 160 },
+    { theme: 'NO_COLOR', width: 60 },
+  ])(
+    'copies exact source and inserts a compact unsent chat quote: %j',
+    async ({ theme, width }) => {
+      await withSandbox(async (sandbox) => {
+        const bin = installSquad(sandbox);
+        const found = spawnSync('/usr/bin/which', ['tmux'], { encoding: 'utf8' });
+        if (found.status !== 0) throw new Error('Install tmux for private source-selection checks');
+        const executable = found.stdout.trim();
+        const socket = path.join(sandbox.root, 'source.sock');
+        sandbox.env.PATH = [path.dirname(executable), sandbox.env.PATH].join(path.delimiter);
+        sandbox.env.TERM = 'xterm-256color';
+        sandbox.env.COLORTERM = 'truecolor';
+        if (theme === 'NO_COLOR') sandbox.env.NO_COLOR = '1';
+        await identity(sandbox, 'Ben');
+        const worker = await identity(sandbox, 'worker');
+        expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
+        expect((await squad(sandbox, ['add', 'worker'])).status).toBe(0);
+        const copied = path.join(sandbox.root, 'selected.txt');
+        const fail = path.join(sandbox.root, 'fail-copy');
+        const clipboard = path.join(bin, 'record-selection');
+        writeExecutable(
+          clipboard,
+          `#!/bin/sh\nif test -f '${fail}'; then exit 7; fi\ncat > '${copied}.tmp'\nmv '${copied}.tmp' '${copied}'\n`,
+          0o755
+        );
+        const config = path.join(sandbox.globalDir, 'ops.toml');
+        writeFileSync(
+          config,
+          `${readFileSync(config, 'utf8')}\nclipboard = ["${clipboard}"]\n[bind]\nz = "view-reply"\n`
+        );
+        if (theme !== 'NO_COLOR')
+          expect(
+            (await runCli(sandbox, ['config', 'set', '--global', 'theme.base', theme, '--json']))
+              .status
+          ).toBe(0);
+        const sent = await runCli(sandbox, [
+          'talk',
+          'worker',
+          'source selection proof',
+          '--identity',
+          'Ben',
+          '--room',
+          'squad-product',
+          '--inbox',
+          '--detach',
+          '--json',
+        ]);
+        expect(sent.status).toBe(0);
+        const request = JSON.parse(sent.stdout).requestId;
+        const incoming = await runCli(sandbox, [
+          'x',
+          'show',
+          request,
+          '--incoming',
+          '--identity',
+          'worker',
+          '--json',
+        ]);
+        expect(incoming.status).toBe(0);
+        const raw = '漢字 é **raw**\nsecond line';
+        expect(
+          (
+            await runCli(sandbox, [
+              'reply',
+              request,
+              '--receipt',
+              JSON.parse(incoming.stdout).exchange.reply.receipt,
+              '--message',
+              raw,
+              '--json',
+            ])
+          ).status
+        ).toBe(0);
+        const tmux = (args: string[]) => {
+          const result = spawnSync(executable, ['-S', socket, ...args], {
+            env: sandbox.env,
+            encoding: 'utf8',
+            timeout: 5000,
+          });
+          if (result.status !== 0)
+            throw new Error(`Private source fixture failed: ${result.stderr}`);
+          return result.stdout.trimEnd();
+        };
+        tmux([
+          '-f',
+          '/dev/null',
+          'new-session',
+          '-d',
+          '-s',
+          'source',
+          '-c',
+          sandbox.root,
+          '-x',
+          '160',
+          '-y',
+          '36',
+          '/bin/sh',
+        ]);
+        const server = Number(tmux(['display-message', '-p', '#{pid}']));
+        const pane = tmux(['display-message', '-p', '#{pane_id}']);
+        const screen = () => tmux(['capture-pane', '-p', '-t', pane]);
+        const captures: { scene: string; text: string; ansi: string }[] = [];
+        const capture = (scene: string) =>
+          captures.push({
+            scene,
+            text: screen(),
+            ansi: tmux(['capture-pane', '-p', '-e', '-t', pane]),
+          });
+        const shellQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+        try {
+          const colour = theme === 'NO_COLOR' ? 'NO_COLOR=1' : 'env -u NO_COLOR';
+          tmux([
+            'send-keys',
+            '-t',
+            pane,
+            '-l',
+            `${colour} ${shellQuote(sandbox.cli.executable)} ops ui --squad product --view copy-quote --reset-view`,
+          ]);
+          tmux(['send-keys', '-t', pane, 'Enter']);
+          await vi.waitFor(() => expect(screen()).toContain('Roster preview'), {
+            timeout: 30_000,
+            interval: 50,
+          });
+          tmux(['send-keys', '-t', pane, 'Right', 'End']);
+          await vi.waitFor(() => expect(screen()).toContain('second line'), {
+            timeout: 30_000,
+            interval: 50,
+          });
+          tmux(['send-keys', '-t', pane, 'z']);
+          await vi.waitFor(() => expect(screen()).toContain('select source'), {
+            timeout: 10_000,
+            interval: 50,
+          });
+          tmux(['send-keys', '-t', pane, 's']);
+          await vi.waitFor(() => expect(screen()).toContain('**raw**'), {
+            timeout: 10_000,
+            interval: 50,
+          });
+          // Enter the shared raw Reader from the visible wide roster, then
+          // exercise selection/Quote at the requested actual viewport width.
+          // Compact layouts intentionally hide an unfocused squad preview.
+          if (width !== 160) {
+            tmux(['resize-window', '-t', 'source', '-x', String(width), '-y', '36']);
+            await vi.waitFor(
+              () => {
+                expect(tmux(['display-message', '-p', '-t', pane, '#{pane_width}'])).toBe(
+                  String(width)
+                );
+                expect(screen()).toContain('**raw**');
+              },
+              { timeout: 10_000, interval: 50 }
+            );
+          }
+          tmux(['send-keys', '-t', pane, 'C-a']);
+          await vi.waitFor(() => expect(readFileSync(copied, 'utf8')).toBe(raw), {
+            timeout: 10_000,
+            interval: 50,
+          });
+          await vi.waitFor(
+            () => expect(screen()).toContain(`Copied ${[...raw].length} characters`),
+            { timeout: 10_000, interval: 50 }
+          );
+          capture('selected');
+          writeFileSync(fail, 'fail');
+          tmux(['send-keys', '-t', pane, 'y']);
+          await vi.waitFor(() => expect(screen()).toContain('Could not copy'), {
+            timeout: 10_000,
+            interval: 50,
+          });
+          expect(screen()).toContain('+ Quote in chat');
+          capture('clipboard-failed');
+          tmux(['send-keys', '-t', pane, 'Enter']);
+          await vi.waitFor(() => expect(screen()).toContain('> "漢字 é **raw** second line"'), {
+            timeout: 10_000,
+            interval: 50,
+          });
+          capture('quoted-draft');
+          const listing = await runCli(sandbox, ['api'], {
+            stdin: JSON.stringify({
+              version: 1,
+              operation: 'requests.list',
+              input: { recipientId: worker, limit: 50 },
+            }),
+          });
+          expect(JSON.parse(listing.stdout).items).toHaveLength(1);
+          expect(
+            JSON.parse((await runCli(sandbox, ['result', request, '--json'])).stdout).response
+          ).toBe(raw);
+          if (process.env.TMT_SELECTION_CAPTURES)
+            writeFileSync(
+              path.join(process.env.TMT_SELECTION_CAPTURES, `${theme}-${width}.json`),
+              JSON.stringify({ theme, width, captures })
+            );
+        } finally {
+          spawnSync(executable, ['-S', socket, 'kill-server'], { env: sandbox.env, timeout: 5000 });
+          await vi.waitFor(() => expect(() => process.kill(server, 0)).toThrow(), {
+            timeout: 10_000,
+            interval: 25,
+          });
+        }
+      });
+    },
+    90_000
+  );
+
   const budgetMs = {
     placeholderStart: 100,
     firstFrame: 1500,

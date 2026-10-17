@@ -305,6 +305,9 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                     ),
                 )
             };
+            let task_start = line
+                .width()
+                .saturating_sub(line.spans.last().map_or(0, Span::width));
             line = crate::board::search_field::highlight_line(line, &app.workspace.query);
             let remaining = usize::from(slot.width).saturating_sub(line.width());
             line.spans.push(Span::raw(" ".repeat(remaining)));
@@ -328,6 +331,21 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 }
             }
             strip::paint_left(frame.buffer_mut(), slot, line);
+            if agents
+                && snapshot
+                    .rows
+                    .get(&row.target)
+                    .and_then(monitor::task_source)
+                    .is_some()
+            {
+                let start = task_start.min(usize::from(slot.width)) as u16;
+                crate::board::conversation::task::publish(
+                    app,
+                    &row.target,
+                    crate::board::conversation::task::Field::OverviewTask,
+                    Rect::new(slot.x + start, slot.y, slot.width - start, 1),
+                );
+            }
             app.workspace_state_cells.borrow_mut().push(
                 Rect::new(
                     slot.x

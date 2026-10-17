@@ -8,17 +8,17 @@ use tmt_tui::components::Editor;
 mod tests;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct Quote {
-    pub key: MessageKey,
+pub(super) struct Quote<K = MessageKey> {
+    pub key: K,
     pub range: Range<usize>,
     pub text: String,
 }
-pub(super) struct Selection {
-    pub key: MessageKey,
+pub(super) struct Selection<K = MessageKey> {
+    pub key: K,
     pub source: Editor,
 }
-impl Selection {
-    pub fn new(key: MessageKey, source: String) -> Self {
+impl<K: Clone> Selection<K> {
+    pub fn new(key: K, source: String) -> Self {
         let mut source = Editor::from(source);
         source.key(
             ratatui::crossterm::event::KeyEvent::new(
@@ -30,7 +30,7 @@ impl Selection {
         );
         Self { key, source }
     }
-    pub fn quote(&self) -> Option<Quote> {
+    pub fn quote(&self) -> Option<Quote<K>> {
         let range = self.source.selection();
         (!range.is_empty()).then(|| Quote {
             key: self.key.clone(),
@@ -65,19 +65,80 @@ impl Attachment {
     }
 }
 
+/// Both raw source surfaces place the same whole chip beside the selected end.
+/// Text geometry is presentation only; callers still validate source authority.
+pub(super) fn quote_control(
+    app: &super::app::App,
+    buffer: &mut ratatui::buffer::Buffer,
+    layout: &tmt_tui::components::EditorLayout,
+    end: usize,
+    viewport: ratatui::layout::Rect,
+    offset: usize,
+    owner: Option<super::app::Overlay>,
+) -> Option<ratatui::layout::Rect> {
+    let row = layout.lines.iter().rposition(|line| line.start <= end)?;
+    let column = layout.lines[row]
+        .cells
+        .iter()
+        .take_while(|cell| cell.source.end <= end)
+        .last()
+        .map_or(0, |cell| cell.column + cell.width);
+    if row < offset
+        || row - offset >= usize::from(viewport.height)
+        || column >= usize::from(viewport.width)
+    {
+        return None;
+    }
+    let beside = ratatui::layout::Rect::new(
+        viewport.x + column as u16,
+        viewport.y + (row - offset) as u16,
+        viewport.width - column as u16,
+        1,
+    );
+    super::buttons::paint(
+        app,
+        buffer,
+        beside,
+        &[super::buttons::Button::secondary("+ Quote in chat")],
+        tmt_cli_style::grid::Align::Left,
+        owner,
+    )[0]
+}
+
 impl super::app::App {
+    pub(super) fn selected_note_quote(&self) -> Option<(super::row_detail::Target, Quote)> {
+        if let Some(reader) = &self.row_details.reader {
+            return reader
+                .selection
+                .as_ref()?
+                .quote()
+                .map(|quote| (reader.target.clone(), quote));
+        }
+        self.selected_response_quote()
+    }
+
     pub(super) fn response_quote_current(
         &self,
         target: &super::row_detail::Target,
         quote: &Quote,
     ) -> bool {
-        let reply = if quote.key.kind == super::home_leads::Kind::Question {
+        self.response_source_current(target, &quote.key, &quote.range, &quote.text)
+    }
+
+    pub(super) fn response_source_current(
+        &self,
+        target: &super::row_detail::Target,
+        key: &MessageKey,
+        range: &Range<usize>,
+        text: &str,
+    ) -> bool {
+        let reply = if key.kind == super::home_leads::Kind::Question {
             let super::row_detail::Target::Row(target) = target else {
                 return false;
             };
             // Compact placement can move the composer to Agents. The held
             // request, not that tab's displayed response, owns this source.
-            self.pending_question(target, Some(&quote.key.request))
+            self.pending_question(target, Some(&key.request))
         } else {
             self.detail(target).and_then(|detail| detail.reply)
         };
@@ -87,9 +148,93 @@ impl super::app::App {
                 && reply
                     .key
                     .as_ref()
-                    .is_some_and(|key| key.same_source(&quote.key))
-                && reply.body.get(quote.range.clone()) == Some(quote.text.as_str())
+                    .is_some_and(|current| current.same_source(key))
+                && reply.body.get(range.clone()) == Some(text)
         })
+    }
+
+    /// The selection gesture inserts plain text into the admitted chat draft.
+    /// Row-note attachments keep their independent exact multiline projection.
+    pub(super) fn insert_response_quote(
+        &mut self,
+        target: super::row_detail::Target,
+        quote: Quote,
+    ) -> Attachment {
+        if !self.response_quote_current(&target, &quote) {
+            return Attachment::Refused("The response source changed; quote not inserted.");
+        }
+        let super::row_detail::Target::Row(target) = target else {
+            return Attachment::Unavailable;
+        };
+        self.insert_chat_quote(&target, &quote.text)
+    }
+
+    /// Callers validate their held source first; this common insertion path
+    /// owns recipient/draft admission and an all-or-nothing bounded append.
+    pub(super) fn insert_chat_quote(
+        &mut self,
+        target: &super::app::RowTarget,
+        passage: &str,
+    ) -> Attachment {
+        use super::app::RowTarget;
+        if self.conversation_target().as_ref() != Some(target)
+            || matches!(target, RowTarget::Workspace(expected)
+                if self.workspace_message_target().as_ref() != Some(expected))
+        {
+            return Attachment::Refused(
+                "The selected agent is hidden or changed; quote not inserted.",
+            );
+        }
+        let Some(projection) = self.composer_projection() else {
+            return Attachment::Unavailable;
+        };
+        let text = projection.text.map_or("", |text| text.as_str());
+        let quote = crate::requests::message::inline_quote(passage);
+        let addition = format!(
+            "{}{quote}\n",
+            if text.is_empty() || text.ends_with('\n') {
+                ""
+            } else {
+                "\n"
+            }
+        );
+        if text.len().saturating_add(addition.len()) > super::app::MESSAGE_LIMIT {
+            return Attachment::Refused("Quote exceeds the 1 MiB draft limit; draft unchanged.");
+        }
+        let effect = if let Some(input) = &self.input {
+            if input.target() != Some(target)
+                || input
+                    .row_send
+                    .as_ref()
+                    .is_none_or(|send| !send.valid(self, input))
+            {
+                return Attachment::Refused("The sender or recipient changed; quote not inserted.");
+            }
+            self.workspace_focus_conversation();
+            super::app::Effect::None
+        } else {
+            let squad = match target {
+                RowTarget::Workspace(_) => self.target_squad(target).unwrap_or_default(),
+                RowTarget::Member { squad, .. } | RowTarget::Lead { squad, .. } => squad.clone(),
+            };
+            let Some(send) = self.send_target(target.clone(), false) else {
+                return Attachment::Refused("The agent is unavailable; quote not inserted.");
+            };
+            self.compose_row(send, crate::action::Verb::Talk, squad)
+        };
+        let Some(input) = &mut self.input else {
+            return Attachment::Unavailable;
+        };
+        // Append at the end, independent of a retained selection or caret.
+        let end = input.text.len();
+        if !input
+            .text
+            .replace_range(end..end, &addition, super::app::MESSAGE_LIMIT)
+        {
+            return Attachment::Refused("Quote exceeds the 1 MiB draft limit; draft unchanged.");
+        }
+        self.update_mentions();
+        Attachment::Composer(effect)
     }
 
     pub(super) fn attach_response_quote(
@@ -161,11 +306,30 @@ impl super::app::App {
         Attachment::Composer(effect)
     }
 
+    fn copy_reader_selection(&mut self, require_current: bool) -> super::app::Effect {
+        let Some(reader) = &self.row_details.reader else {
+            return super::app::Effect::None;
+        };
+        let Some(quote) = reader
+            .selection
+            .as_ref()
+            .and_then(Selection::quote)
+            .filter(|quote| !require_current || self.response_quote_current(&reader.target, quote))
+        else {
+            return super::app::Effect::None;
+        };
+        super::app::Effect::Act(super::app::Request::Copy {
+            text: quote.text,
+            program: self.view.as_ref().and_then(|view| view.clipboard.clone()),
+            feedback: super::app::CopyFeedback::Selection,
+        })
+    }
+
     pub(super) fn reader_event(
         &mut self,
         event: &ratatui::crossterm::event::Event,
     ) -> super::app::Effect {
-        use super::app::{Effect, Request};
+        use super::app::Effect;
         use ratatui::crossterm::event::{Event, KeyCode, MouseButton, MouseEventKind};
         if matches!(event, Event::Key(key) if matches!(key.code, KeyCode::Esc | KeyCode::Char('q' | 'v')))
         {
@@ -209,27 +373,35 @@ impl super::app::App {
             .and_then(Selection::quote);
         if matches!(event, Event::Key(key) if key.code == KeyCode::Char('y') && key.modifiers.is_empty())
         {
-            return quote.map_or(Effect::None, |quote| {
-                Effect::Act(Request::Copy {
-                    text: quote.text,
-                    program: self.view.as_ref().and_then(|view| view.clipboard.clone()),
-                })
-            });
+            return self.copy_reader_selection(false);
         }
-        if matches!(event, Event::Key(key) if key.code == KeyCode::Char('a') && key.modifiers.is_empty())
+        if let Event::Key(key) = event
+            && key.kind == ratatui::crossterm::event::KeyEventKind::Press
+            && let Some(action) =
+                super::app::event_name(*key).and_then(|name| self.bindings().remove(&name))
+            && action.verb == crate::action::Verb::Annotate
+        {
+            return self.perform(&action);
+        }
+        let clicked_quote = matches!(event, Event::Mouse(mouse) if mouse.kind == MouseEventKind::Down(MouseButton::Left) && self.row_details.reader.as_ref().and_then(|reader| reader.quote_button.get()).is_some_and(|area| area.contains((mouse.column, mouse.row).into())));
+        if clicked_quote
+            || matches!(event, Event::Key(key) if key.code == KeyCode::Enter && key.modifiers.is_empty() && key.kind == ratatui::crossterm::event::KeyEventKind::Press)
         {
             let Some(quote) = quote else {
-                self.set_notice(Some("Select a response range first.".into()), false);
                 return Effect::None;
             };
-            let attached = self.attach_response_quote(target, quote);
-            if matches!(
-                attached,
-                Attachment::Composer(_) | Attachment::Opened { .. }
-            ) {
+            let inserted = self.insert_response_quote(target, quote);
+            if matches!(inserted, Attachment::Composer(_)) {
                 self.row_details.reader = None;
             }
-            return attached.finish(self);
+            return inserted.finish(self);
+        }
+        if matches!(event, Event::Mouse(mouse) if mouse.kind == MouseEventKind::Up(MouseButton::Left))
+        {
+            let reader = self.row_details.reader.as_mut().unwrap();
+            if reader.copy_pending.replace(false) && reader.source_area.get().is_some() {
+                return self.copy_reader_selection(true);
+            }
         }
         let reader = self.row_details.reader.as_mut().unwrap();
         if let Some(selection) = &mut reader.selection {
@@ -244,15 +416,21 @@ impl super::app::App {
                             | KeyCode::Down
                             | KeyCode::Home
                             | KeyCode::End
-                            | KeyCode::Char('a')
-                    ) =>
+                    ) || key.code == KeyCode::Char('a')
+                        && key.modifiers == ratatui::crossterm::event::KeyModifiers::CONTROL =>
                 {
-                    // Plain a is handled above; Ctrl-A selects all. No character
+                    // Configured note actions are handled above; Ctrl-A selects all. No character
                     // insertion or deletion reaches a read-only response.
+                    let before = selection.source.selection();
                     selection.source.key(*key, area.width, usize::MAX);
+                    let changed = before != selection.source.selection();
                     let row = selection.source.layout(area.width).cursor.0;
                     reader.scroll.borrow_mut().reveal(row..row + 1);
-                    return Effect::None;
+                    return if changed {
+                        self.copy_reader_selection(true)
+                    } else {
+                        Effect::None
+                    };
                 }
                 Event::Mouse(mouse)
                     if area.contains((mouse.column, mouse.row).into())
@@ -271,6 +449,13 @@ impl super::app::App {
                                 .modifiers
                                 .contains(ratatui::crossterm::event::KeyModifiers::SHIFT),
                     );
+                    reader.copy_pending.set(selection.quote().is_some());
+                    return Effect::None;
+                }
+                Event::Mouse(mouse) if mouse.kind == MouseEventKind::Down(MouseButton::Left) => {
+                    selection.source.place(area.width, 0, 0, false);
+                    reader.copy_pending.set(false);
+                    reader.quote_button.set(None);
                     return Effect::None;
                 }
                 _ => {}

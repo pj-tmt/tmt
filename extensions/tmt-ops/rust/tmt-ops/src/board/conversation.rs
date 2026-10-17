@@ -23,6 +23,7 @@ pub(in crate::board) mod exchange;
 pub(super) mod layout;
 pub(super) mod outgoing;
 mod source;
+pub(in crate::board) use source::task;
 mod transcript;
 
 #[derive(Clone)]
@@ -42,6 +43,8 @@ pub(super) struct State {
     pub header_hits: Vec<HeaderHit>,
     reply_hits: Vec<source::ReplyHit>,
     source_drag: Option<source::ReplyHit>,
+    task_hits: Vec<task::Hit>,
+    task_drag: Option<task::Drag>,
     response_area: Option<Rect>,
     pub area: Rect,
     pub pane: Option<Rect>,
@@ -814,11 +817,12 @@ fn render_target(
         "reading · End resumes follow"
     };
     header.push(rule(
-        if session.exact_source.is_some() {
+        if let Some(source) = &session.exact_source {
+            let label = source.label();
             if interactive {
-                format!("Exact response source · {name} · Esc back")
+                format!("{label} · {name} · Esc back")
             } else {
-                format!("Exact response source · {name}")
+                format!("{label} · {name}")
             }
         } else {
             format!("Response · {flow}")
@@ -1005,7 +1009,7 @@ fn render_target(
             position,
             Line::styled(
                 format!(
-                    "{}–{} / {}  ·  select text to annotate",
+                    "{}–{} / {}  ·  select text to copy",
                     if visible == 0 { 0 } else { offset + 1 },
                     offset + visible,
                     mapped.lines.len()

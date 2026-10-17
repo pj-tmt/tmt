@@ -155,6 +155,36 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
     state.active = Some(identity.clone());
     let session = state.sessions.entry(identity).or_default();
     session.observe_context(app, &target, row);
+    if let Some(source) = &mut session.exact_source {
+        let header = Rect {
+            height: area.height.min(1),
+            ..area
+        };
+        strip::paint_left(
+            frame.buffer_mut(),
+            header,
+            Line::styled(
+                format!(
+                    "{} · {}",
+                    source.label(),
+                    super::super::notes::single_line(name)
+                ),
+                look.role(tmt_cli_style::Role::Muted),
+            ),
+        );
+        let body = Rect::new(
+            area.x,
+            area.y + header.height,
+            area.width,
+            area.height.saturating_sub(header.height),
+        );
+        if !body.is_empty() {
+            source::paint_with_interactivity(
+                frame, app, source, &target, body, look, surface.interactive(),
+            );
+        }
+        return;
+    }
     if !surface.is_agents() && session.reply.is_none() && session.outgoing.is_empty() {
         empty_state::paint(
             frame.buffer_mut(),
@@ -229,18 +259,6 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
         area.height.saturating_sub(header.height + footer_rows),
     );
     if body.is_empty() {
-        return;
-    }
-    if let Some(source) = &mut session.exact_source {
-        source::paint_with_interactivity(
-            frame,
-            app,
-            source,
-            &target,
-            body,
-            look,
-            surface.interactive(),
-        );
         return;
     }
     let mapped = &session.rendered.as_ref().unwrap().mapped;
