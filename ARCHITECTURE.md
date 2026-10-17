@@ -546,12 +546,12 @@ registry, release catalog, process runner, archive parser or memory/MCP layer.
 
 ## Shared extension state layout
 
-`rust/crates/tmt-extension-state` is an unpublished, library-only state leaf owned
-by Remote. Store, Document and Guard own SQLite transactions, atomic current-byte
-updates and fail-fast ownership. Only Remote, Colab and Ops consume it, using existing
-`nix`/`rusqlite` pins; no TMT or crypto dependency. Core, adapters and the Colab
-model do not consume it. The architecture guard checks reviewed manifest/source
-edges across all dependency kinds, aliases and targets.
+`rust/crates/tmt-extension-state` is Remote's unpublished state library.
+Store, Document and Guard own SQLite transactions, atomic current-byte updates and fail-fast ownership.
+Existing Store files use lstat to preserve live connection locks.
+Only Remote, Colab and Ops consume it; `nix`/`rusqlite` pins, no TMT/crypto.
+Core, adapters and Colab's model cannot consume it. The guard checks reviewed
+manifest/source edges, every dependency kind, aliases and targets.
 
 [Crate docs](rust/crates/tmt-extension-state/src/lib.rs) own admission and publication.
 Schemas, identity derivation and Remote's serve-lock proof remain extension-owned;

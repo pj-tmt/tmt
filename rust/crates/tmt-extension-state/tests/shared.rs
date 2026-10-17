@@ -102,6 +102,34 @@ fn document_changes_current_bytes_and_preserves_them_on_rejection() {
 }
 
 #[test]
+fn opening_a_second_store_preserves_the_first_stores_main_file_lock() {
+    let world = World::new();
+    let layout = world.layout();
+    let probe = |held| {
+        Worker::spawn(
+            &world.0,
+            i64::from(std::process::id()),
+            "process_worker",
+            if held {
+                "main-file-lock"
+            } else {
+                "main-file-unlocked"
+            },
+        )
+        .finish();
+    };
+    let first = Store::open(&layout, "state.db", MIGRATIONS, RETRY).unwrap();
+    probe(true);
+    eprintln!("main-file lock verified before opening the second Store");
+    let second = Store::open(&layout, "state.db", MIGRATIONS, RETRY).unwrap();
+    probe(true);
+    drop(second);
+    probe(true);
+    drop(first);
+    probe(false);
+}
+
+#[test]
 fn guard_collision_names_the_holder_and_exact_retry() {
     let world = World::new();
     let layout = world.layout();
@@ -131,6 +159,33 @@ fn process_worker() {
         .unwrap();
     let root = PathBuf::from(root);
     let layout = Layout::open(&root, "owned", FILES).unwrap();
+    let mode = std::env::var("TMT_STATE_WORKER_MODE").unwrap();
+    if matches!(mode.as_str(), "main-file-lock" | "main-file-unlocked") {
+        // Probe only in a different process: closing a main-file descriptor in
+        // the Store process would itself release that process's POSIX locks.
+        let file = fs::File::open(layout.directory.join("state.db")).unwrap();
+        let mut lock = nix::libc::flock {
+            l_start: 0,
+            l_len: 0,
+            l_pid: 0,
+            l_type: nix::libc::F_WRLCK as _,
+            l_whence: nix::libc::SEEK_SET as _,
+        };
+        nix::fcntl::fcntl(&file, nix::fcntl::FcntlArg::F_GETLK(&mut lock)).unwrap();
+        assert_eq!(
+            lock.l_type != nix::libc::F_UNLCK as _,
+            mode == "main-file-lock",
+            "the live Stores' main-file lock must remain held until both close"
+        );
+        if mode == "main-file-lock" {
+            assert_eq!(
+                i64::from(lock.l_pid),
+                id,
+                "the Store process holds the lock"
+            );
+        }
+        return;
+    }
     if std::env::var("TMT_STATE_WORKER_MODE").unwrap() == "wal-index-lock" {
         // SQLite's "dead man switch" (byte 128 of the WAL index): a connection holds a
         // shared lock on it for as long as it lives, and a process that finds it free
@@ -555,6 +610,66 @@ fn store_database_and_sidecars_are_private_and_unsafe_inputs_are_not_repaired() 
     assert_eq!(operation, "admit SQLite sidecar");
     assert_eq!(source.raw_os_error(), Some(nix::errno::Errno::ELOOP as i32));
     assert_eq!(fs::read(foreign).unwrap(), b"unchanged");
+}
+
+#[test]
+fn existing_store_admission_refuses_links_directories_and_fifos_without_repair() {
+    use std::os::unix::fs::{MetadataExt, symlink};
+    use tmt_extension_state::StateError;
+    let world = World::new();
+    let layout = world.layout();
+    let path = layout.directory.join("state.db");
+    let foreign = world.0.join("foreign");
+    fs::write(&foreign, b"unchanged").unwrap();
+    for kind in ["link", "directory", "fifo"] {
+        match kind {
+            "link" => symlink(&foreign, &path).unwrap(),
+            "directory" => fs::create_dir(&path).unwrap(),
+            "fifo" => nix::unistd::mkfifo(
+                &path,
+                nix::sys::stat::Mode::S_IRUSR | nix::sys::stat::Mode::S_IWUSR,
+            )
+            .unwrap(),
+            _ => unreachable!(),
+        }
+        let before = fs::symlink_metadata(&path).unwrap();
+        let error = Store::open(&layout, "state.db", MIGRATIONS, RETRY)
+            .err()
+            .unwrap();
+        if kind == "link" {
+            let StateError::Io {
+                path: refused,
+                operation,
+                source,
+            } = error
+            else {
+                panic!("a link must retain the no-follow refusal");
+            };
+            assert_eq!(refused, path);
+            assert_eq!(operation, "admit state path");
+            assert_eq!(source.raw_os_error(), Some(nix::errno::Errno::ELOOP as i32));
+            assert!(
+                fs::symlink_metadata(&path)
+                    .unwrap()
+                    .file_type()
+                    .is_symlink()
+            );
+        } else {
+            assert!(matches!(error, StateError::Unsafe { path: refused, .. } if refused == path));
+        }
+        let after = fs::symlink_metadata(&path).unwrap();
+        assert_eq!(
+            (after.ino(), after.mode(), after.uid()),
+            (before.ino(), before.mode(), before.uid())
+        );
+        assert_eq!(fs::read(&foreign).unwrap(), b"unchanged");
+        assert_eq!(fs::read_dir(&layout.directory).unwrap().count(), 1);
+        if kind == "directory" {
+            fs::remove_dir(&path).unwrap();
+        } else {
+            fs::remove_file(&path).unwrap();
+        }
+    }
 }
 
 #[test]

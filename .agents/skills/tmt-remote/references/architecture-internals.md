@@ -115,7 +115,7 @@ Rules that are easy to get wrong:
 ## Shared extension state
 
 [The state leaf](../../../../ARCHITECTURE.md#shared-extension-state-layout) is
-library-only and shared with Colab:
+library-only and consumed by Remote, Colab and Ops:
 
 ```bash
 (cd rust && CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-extension-state -p tmt-extension-serve)
