@@ -17,7 +17,7 @@
 //! identity derivation and Remote's serve-lock proof remain extension-owned; this
 //! leaf discovers no roots and interprets no Core or provider state.
 //!
-//! ## Planned shared mutation entries
+//! ## Shared mutation entries
 //!
 //! The caller supplies paths, schemas, codecs, byte bounds and the exact retry
 //! command. The shared entries own admission, locking and durable publication;
@@ -35,20 +35,26 @@
 //!
 //! `Document` updates current bytes under an exclusive lock: admit, read, validate,
 //! change once, stage, write, fsync, rename, then fsync the destination directory.
-//! The lock for an external document lives under the caller's private TMT state
-//! root, keyed by the canonical destination path; no persistent sibling lock is
-//! created in a project directory. Existing document permissions are preserved;
-//! new documents are 0600. Missing reads create nothing. Unsafe or oversized
+//! One writer lock per destination directory lives under the caller's private
+//! TMT state root, keyed by the device and inode of the opened directory, whose
+//! handle stays alive through the lock. Distinct documents in that directory
+//! deliberately serialize within the same five-second admission. This also
+//! serializes path/case aliases without a filesystem-collation rule; no persistent
+//! sibling lock is created in a project directory. Existing document permissions
+//! are preserved; new documents are 0600. Missing reads create nothing. Unsafe or oversized
 //! inputs refuse before the callback or publication. Write-lock admission waits
 //! at most five seconds and does not renew its budget.
 //!
 //! Every destination reserves one sibling staging name, `.<name>.tmt-staging`.
-//! Under the same document lock, remove a previous entry at that exact name only
+//! Destination names matching that reserved pattern case-insensitively are refused,
+//! so a document can never name another document's staging file.
+//! Under the same directory lock, remove a previous entry at that exact name only
 //! when it is a regular file owned by this user; otherwise refuse with the named
 //! cause. Create staging exclusively, never follow a link, and remove it on each
 //! normal or error return. No directory sweep or intent registry is introduced.
 //! After an uncatchable process death the destination is immediately old or new;
-//! the next update or recovery under the same lock removes owned staging and
+//! the next update or recovery under the same directory lock removes owned staging
+//! (including a different case alias on a case-insensitive volume) and
 //! leaves the project directory clean. There is no instant-cleanup promise after
 //! SIGKILL and no daemon. A failure after rename is reported as uncertain, never
 //! as a successful rollback; the original failure keeps precedence over cleanup.
@@ -67,7 +73,7 @@
 //! tests prove old/new state; they do not simulate power loss.
 use nix::{
     errno::Errno,
-    fcntl::{Flock, FlockArg, OFlag},
+    fcntl::{Flock, OFlag},
     unistd::Uid,
 };
 use std::{
@@ -76,6 +82,16 @@ use std::{
     os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt},
     path::{Component, Path, PathBuf},
 };
+
+mod document;
+mod guard;
+mod locking;
+mod shared_error;
+mod store;
+pub use document::Document;
+pub use guard::Guard;
+pub use shared_error::{Holder, StateError, UpdateError};
+pub use store::{Migration, Store};
 
 /// Operation distinctions retain each consumer's existing error interpretation.
 #[derive(Debug)]
@@ -276,7 +292,7 @@ fn read_file(path: &Path) -> Result<File, Error> {
     Ok(file)
 }
 fn lock(file: File) -> Result<Flock<File>, Error> {
-    Flock::lock(file, FlockArg::LockExclusiveNonblock).map_err(|(_, error)| {
+    locking::try_file(file).map_err(|(_, error)| {
         if error == Errno::EWOULDBLOCK {
             Error::Busy
         } else {

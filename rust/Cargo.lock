@@ -2637,6 +2637,7 @@ name = "tmt-extension-state"
 version = "5.0.0-dev"
 dependencies = [
  "nix",
+ "rusqlite",
 ]
 
 [[package]]

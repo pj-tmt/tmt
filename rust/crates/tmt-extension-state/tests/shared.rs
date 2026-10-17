@@ -1,11 +1,13 @@
 //! Shared mutation entries on disposable state, without a consumer migration.
 use std::{
-    fs,
-    io,
+    fs, io,
     path::PathBuf,
     sync::atomic::{AtomicUsize, Ordering},
 };
 use tmt_extension_state::{Document, Guard, Layout, Migration, Store};
+
+mod support;
+use support::Worker;
 
 const RETRY: &str = "fixture-write --retry";
 const FILES: &[&str] = &["state.db"];
@@ -48,7 +50,9 @@ fn store_commits_once_and_rolls_back_a_rejected_change() {
         })
         .unwrap();
     let rejected = store.write(|transaction| {
-        transaction.execute("INSERT INTO records VALUES(2,'rolled back')", [])?;
+        transaction
+            .execute("INSERT INTO records VALUES(2,'rolled back')", [])
+            .map_err(io::Error::other)?;
         Err::<(), _>(io::Error::other("consumer refused the change"))
     });
     assert!(rejected.is_err());
@@ -104,7 +108,9 @@ fn guard_collision_names_the_holder_and_exact_retry() {
     let path = layout.directory.join("runner.lock");
     let held = Guard::acquire(&path, RETRY).unwrap();
     let collision = Guard::acquire(&path, RETRY).err().unwrap();
-    let holder = collision.holder().expect("held guard published its identity");
+    let holder = collision
+        .holder()
+        .expect("held guard published its identity");
     assert_eq!(holder.pid, std::process::id());
     assert!(holder.acquired_at_ms > 0);
     let message = collision.to_string();
@@ -113,4 +119,450 @@ fn guard_collision_names_the_holder_and_exact_retry() {
     assert!(message.contains(RETRY));
     drop(held);
     assert!(Guard::acquire(&path, RETRY).is_ok());
+}
+#[test]
+fn process_worker() {
+    let Some(root) = std::env::var_os("TMT_STATE_WORKER_ROOT") else {
+        return;
+    };
+    let id: i64 = std::env::var("TMT_STATE_WORKER_ID")
+        .unwrap()
+        .parse()
+        .unwrap();
+    let root = PathBuf::from(root);
+    let layout = Layout::open(&root, "owned", FILES).unwrap();
+    let mut store = Store::open(&layout, "state.db", MIGRATIONS, RETRY).unwrap();
+    println!("STATE_READY");
+    std::io::Write::flush(&mut std::io::stdout()).unwrap();
+    let mut line = String::new();
+    std::io::stdin().read_line(&mut line).unwrap();
+    assert_eq!(line.trim(), "go");
+    if std::env::var("TMT_STATE_WORKER_MODE").unwrap() == "held-transaction" {
+        store
+            .write(|tx| {
+                tx.execute("INSERT INTO records VALUES(999,'uncommitted')", [])?;
+                println!("STATE_HELD");
+                std::io::Write::flush(&mut std::io::stdout()).unwrap();
+                let mut wait = String::new();
+                std::io::stdin().read_line(&mut wait).unwrap();
+                Ok::<_, rusqlite::Error>(())
+            })
+            .unwrap();
+        return;
+    }
+    store
+        .write(|tx| {
+            tx.execute(
+                "INSERT INTO records VALUES(?1,?2)",
+                rusqlite::params![id, format!("writer-{id}")],
+            )
+        })
+        .unwrap();
+    if std::env::var("TMT_STATE_WORKER_MODE").unwrap() == "committed" {
+        println!("STATE_COMMITTED");
+        std::io::Write::flush(&mut std::io::stdout()).unwrap();
+        let mut wait = String::new();
+        std::io::stdin().read_line(&mut wait).unwrap();
+        return;
+    }
+    let document = Document::new(
+        &layout.directory,
+        &root.join(
+            if std::env::var("TMT_STATE_WORKER_MODE").unwrap() == "case-alias" && id % 2 == 1 {
+                "project/SETTINGS.JSON"
+            } else {
+                "project/settings.json"
+            },
+        ),
+        8192,
+        RETRY,
+    )
+    .unwrap();
+    document
+        .update(|current| {
+            let mut next = current.unwrap_or_default().to_vec();
+            next.extend_from_slice(format!("writer-{id}\n").as_bytes());
+            Ok::<_, io::Error>(next)
+        })
+        .unwrap();
+}
+
+#[test]
+fn eight_processes_preserve_every_store_and_document_mutation_once() {
+    concurrent_mutations("mutate");
+}
+
+#[test]
+fn eight_case_alias_writers_share_one_document_admission() {
+    concurrent_mutations("case-alias");
+}
+
+fn concurrent_mutations(mode: &str) {
+    let world = World::new();
+    let project = world.0.join("project");
+    fs::create_dir(&project).unwrap();
+    if mode == "case-alias" {
+        fs::write(project.join("probe"), b"case probe").unwrap();
+        match fs::metadata(project.join("PROBE")) {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                eprintln!(
+                    "case-alias concurrency test skipped: this test volume is case-sensitive"
+                );
+                return;
+            }
+            result => {
+                result.unwrap();
+            }
+        }
+        fs::remove_file(project.join("probe")).unwrap();
+    }
+    let mut children = Vec::new();
+    for id in 0..8 {
+        let mut child = Worker::spawn(&world.0, id, "process_worker", mode);
+        child.ready();
+        children.push(child);
+    }
+    for child in &mut children {
+        child.release();
+    }
+    for child in children {
+        child.finish();
+    }
+    let mut store = Store::open(&world.layout(), "state.db", MIGRATIONS, RETRY).unwrap();
+    let rows = store
+        .read(|tx| {
+            tx.prepare("SELECT id,value FROM records ORDER BY id")?
+                .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?
+                .collect::<rusqlite::Result<Vec<_>>>()
+        })
+        .unwrap();
+    assert_eq!(
+        rows,
+        (0..8)
+            .map(|id| (id, format!("writer-{id}")))
+            .collect::<Vec<_>>()
+    );
+    let bytes = fs::read_to_string(world.0.join("project/settings.json")).unwrap();
+    let mut lines = bytes.lines().collect::<Vec<_>>();
+    lines.sort_unstable();
+    assert_eq!(
+        lines,
+        (0..8).map(|id| format!("writer-{id}")).collect::<Vec<_>>()
+    );
+    assert_eq!(fs::read_dir(world.0.join("project")).unwrap().count(), 1);
+}
+
+#[test]
+fn killed_store_writer_rolls_back_and_waiter_gets_one_bounded_timeout() {
+    let world = World::new();
+    let mut store = Store::open(&world.layout(), "state.db", MIGRATIONS, RETRY).unwrap();
+    let mut holder = Worker::spawn(&world.0, 0, "process_worker", "held-transaction");
+    holder.ready();
+    holder.release();
+    holder.until("STATE_HELD");
+    let started = std::time::Instant::now();
+    let mut invoked = false;
+    let error = store
+        .write(|_| {
+            invoked = true;
+            Ok::<_, io::Error>(())
+        })
+        .unwrap_err();
+    let tmt_extension_state::UpdateError::State(error) = error else {
+        panic!("state timeout expected")
+    };
+    assert!(error.is_timeout());
+    assert!(!error.may_not_be_saved());
+    assert!(!invoked);
+    assert!(started.elapsed() >= std::time::Duration::from_secs(4));
+    assert!(started.elapsed() < std::time::Duration::from_secs(10));
+    let message = error.to_string();
+    assert!(message.contains("state.db") && message.contains(RETRY));
+    assert!(std::error::Error::source(&error).is_some());
+    holder.kill_and_reap();
+    assert_eq!(
+        store
+            .read(|tx| tx.query_row("SELECT count(*) FROM records", [], |r| r.get::<_, i64>(0)))
+            .unwrap(),
+        0
+    );
+    store
+        .write(|tx| tx.execute("INSERT INTO records VALUES(1,'survives reopen')", []))
+        .unwrap();
+    drop(store);
+    let mut reopened = Store::open(&world.layout(), "state.db", MIGRATIONS, RETRY).unwrap();
+    assert_eq!(
+        reopened
+            .read(|tx| tx.query_row("SELECT value FROM records", [], |r| r.get::<_, String>(0)))
+            .unwrap(),
+        "survives reopen"
+    );
+}
+
+#[test]
+fn migrations_are_forward_only_atomic_and_queries_are_read_only() {
+    let world = World::new();
+    let layout = world.layout();
+    let mut store = Store::open(&layout, "state.db", MIGRATIONS, RETRY).unwrap();
+    assert!(
+        store
+            .read(|tx| tx.execute("INSERT INTO records VALUES(1,'forbidden')", []))
+            .is_err()
+    );
+    store
+        .write(|tx| tx.execute("INSERT INTO records VALUES(2,'allowed')", []))
+        .unwrap();
+    assert_eq!(
+        store
+            .read(|tx| tx.query_row("PRAGMA foreign_keys", [], |r| r.get::<_, i64>(0)))
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        store
+            .read(|tx| tx.query_row("PRAGMA journal_mode", [], |r| r.get::<_, String>(0)))
+            .unwrap(),
+        "wal"
+    );
+    drop(store);
+    assert!(Store::open(&layout, "state.db", &[], RETRY).is_err());
+    assert!(
+        Store::open(
+            &layout,
+            "state.db",
+            &[Migration {
+                name: "changed",
+                sql: MIGRATIONS[0].sql
+            }],
+            RETRY
+        )
+        .is_err()
+    );
+    let failed = [
+        Migration {
+            name: "records",
+            sql: MIGRATIONS[0].sql,
+        },
+        Migration {
+            name: "failed",
+            sql: "CREATE TABLE leaked(id); THIS IS INVALID;",
+        },
+    ];
+    assert!(Store::open(&layout, "state.db", &failed, RETRY).is_err());
+    let mut restored = Store::open(&layout, "state.db", MIGRATIONS, RETRY).unwrap();
+    assert_eq!(
+        restored
+            .read(|tx| tx.query_row(
+                "SELECT count(*) FROM sqlite_schema WHERE name='leaked'",
+                [],
+                |r| r.get::<_, i64>(0)
+            ))
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        restored
+            .read(
+                |tx| tx.query_row("SELECT count(*) FROM _tmt_state_migrations", [], |r| r
+                    .get::<_, i64>(0))
+            )
+            .unwrap(),
+        1
+    );
+}
+
+#[test]
+fn document_preserves_modes_bounds_and_foreign_entries() {
+    use std::os::unix::fs::{PermissionsExt, symlink};
+    let world = World::new();
+    let project = world.0.join("project");
+    fs::create_dir(&project).unwrap();
+    let target = project.join("settings");
+    let document = Document::new(&world.0.join("state"), &target, 8, RETRY).unwrap();
+    assert!(document.read().unwrap().is_none());
+    assert!(!world.0.join("state").exists());
+    document
+        .update(|_| Ok::<_, io::Error>(b"initial".to_vec()))
+        .unwrap();
+    assert_eq!(
+        fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    fs::set_permissions(&target, fs::Permissions::from_mode(0o640)).unwrap();
+    document
+        .update(|_| Ok::<_, io::Error>(b"changed".to_vec()))
+        .unwrap();
+    assert_eq!(
+        fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+        0o640
+    );
+    assert!(document.update(|_| Ok::<_, io::Error>(vec![0; 9])).is_err());
+    assert_eq!(fs::read(&target).unwrap(), b"changed");
+    fs::write(&target, b"too large for this bound").unwrap();
+    let mut oversized_called = false;
+    assert!(
+        document
+            .update(|_| {
+                oversized_called = true;
+                Ok::<_, io::Error>(vec![])
+            })
+            .is_err()
+    );
+    assert!(!oversized_called);
+    assert!(document.read().is_err());
+    fs::write(&target, b"changed").unwrap();
+    fs::set_permissions(&target, fs::Permissions::from_mode(0o666)).unwrap();
+    assert!(document.update(|_| Ok::<_, io::Error>(vec![])).is_err());
+    assert_eq!(
+        fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+        0o666
+    );
+    fs::set_permissions(&target, fs::Permissions::from_mode(0o640)).unwrap();
+    let stage = project.join(".settings.tmt-staging");
+    symlink(&target, &stage).unwrap();
+    let mut invoked = false;
+    assert!(
+        document
+            .update(|_| {
+                invoked = true;
+                Ok::<_, io::Error>(vec![])
+            })
+            .is_err()
+    );
+    assert!(!invoked);
+    assert!(
+        fs::symlink_metadata(&stage)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    fs::remove_file(&stage).unwrap();
+    fs::remove_file(&target).unwrap();
+    symlink(project.join("missing"), &target).unwrap();
+    assert!(document.read().is_err());
+    assert!(document.update(|_| Ok::<_, io::Error>(vec![])).is_err());
+    assert_eq!(fs::read_dir(&project).unwrap().count(), 1);
+}
+
+#[test]
+fn an_unpublished_legacy_guard_holder_is_honestly_unknown() {
+    let world = World::new();
+    let layout = Layout::open(&world.0, "owned", &["legacy.lock"]).unwrap();
+    let _held = layout.lock("legacy.lock").unwrap();
+    let path = layout.directory.join("legacy.lock");
+    let collision = Guard::acquire(&path, RETRY).err().unwrap();
+    assert!(collision.holder().is_none());
+    assert!(collision.to_string().contains("holder unknown"));
+    assert!(path.exists());
+}
+
+#[test]
+fn a_failed_commit_rolls_back_without_replaying_the_consumer() {
+    let world = World::new();
+    let migrations = [Migration {
+        name: "references",
+        sql: "CREATE TABLE parent(id INTEGER PRIMARY KEY); CREATE TABLE child(parent_id INTEGER REFERENCES parent(id) DEFERRABLE INITIALLY DEFERRED);",
+    }];
+    let mut store = Store::open(&world.layout(), "state.db", &migrations, RETRY).unwrap();
+    let mut calls = 0;
+    let failed = store.write(|tx| {
+        calls += 1;
+        assert_eq!(
+            tx.query_row("PRAGMA busy_timeout", [], |r| r.get::<_, i64>(0))?,
+            0
+        );
+        tx.execute("INSERT INTO child VALUES(1)", [])
+    });
+    assert!(matches!(
+        failed,
+        Err(tmt_extension_state::UpdateError::State(
+            tmt_extension_state::StateError::Sqlite { .. }
+        ))
+    ));
+    assert_eq!(calls, 1);
+    assert_eq!(
+        store
+            .read(|tx| tx.query_row("SELECT count(*) FROM child", [], |r| r.get::<_, i64>(0)))
+            .unwrap(),
+        0
+    );
+    store
+        .write(|tx| tx.execute("INSERT INTO parent VALUES(1)", []))
+        .unwrap();
+    store
+        .write(|tx| tx.execute("INSERT INTO child VALUES(1)", []))
+        .unwrap();
+}
+
+#[test]
+fn store_database_and_sidecars_are_private_and_unsafe_inputs_are_not_repaired() {
+    use std::os::unix::fs::{PermissionsExt, symlink};
+    let world = World::new();
+    let layout = world.layout();
+    let store = Store::open(&layout, "state.db", MIGRATIONS, RETRY).unwrap();
+    let database = layout.directory.join("state.db");
+    for suffix in ["", "-wal", "-shm"] {
+        let path = layout.directory.join(format!("state.db{suffix}"));
+        assert_eq!(
+            fs::metadata(path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+    drop(store);
+    fs::set_permissions(&database, fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(Store::open(&layout, "state.db", MIGRATIONS, RETRY).is_err());
+    assert_eq!(
+        fs::metadata(&database).unwrap().permissions().mode() & 0o777,
+        0o644
+    );
+    fs::set_permissions(&database, fs::Permissions::from_mode(0o600)).unwrap();
+    let foreign = world.0.join("foreign");
+    fs::write(&foreign, b"unchanged").unwrap();
+    symlink(&foreign, layout.directory.join("state.db-wal")).unwrap();
+    assert!(Store::open(&layout, "state.db", MIGRATIONS, RETRY).is_err());
+    assert_eq!(fs::read(foreign).unwrap(), b"unchanged");
+}
+
+#[test]
+fn a_kill_after_store_commit_keeps_the_complete_record() {
+    let world = World::new();
+    let mut child = Worker::spawn(&world.0, 7, "process_worker", "committed");
+    child.ready();
+    child.release();
+    child.until("STATE_COMMITTED");
+    child.kill_and_reap();
+    let mut store = Store::open(&world.layout(), "state.db", MIGRATIONS, RETRY).unwrap();
+    let rows = store
+        .read(|tx| {
+            tx.query_row("SELECT id,value FROM records", [], |r| {
+                Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?))
+            })
+        })
+        .unwrap();
+    assert_eq!(rows, (7, "writer-7".to_owned()));
+}
+
+#[test]
+fn an_unrecognized_database_is_refused_before_journal_or_schema_changes() {
+    let world = World::new();
+    let layout = world.layout();
+    drop(layout.file("state.db").unwrap());
+    let path = layout.directory.join("state.db");
+    let foreign = rusqlite::Connection::open(&path).unwrap();
+    foreign
+        .execute_batch(
+            "CREATE TABLE foreign_data(value TEXT); INSERT INTO foreign_data VALUES('keep');",
+        )
+        .unwrap();
+    drop(foreign);
+    let before = fs::read(&path).unwrap();
+    let error = Store::open(&layout, "state.db", MIGRATIONS, RETRY)
+        .err()
+        .unwrap();
+    assert!(matches!(
+        error,
+        tmt_extension_state::StateError::Migration { .. }
+    ));
+    assert_eq!(fs::read(&path).unwrap(), before);
+    assert_eq!(fs::read_dir(layout.directory).unwrap().count(), 1);
 }
