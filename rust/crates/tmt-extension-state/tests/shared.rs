@@ -613,6 +613,66 @@ fn store_database_and_sidecars_are_private_and_unsafe_inputs_are_not_repaired() 
 }
 
 #[test]
+fn existing_store_admission_refuses_links_directories_and_fifos_without_repair() {
+    use std::os::unix::fs::{MetadataExt, symlink};
+    use tmt_extension_state::StateError;
+    let world = World::new();
+    let layout = world.layout();
+    let path = layout.directory.join("state.db");
+    let foreign = world.0.join("foreign");
+    fs::write(&foreign, b"unchanged").unwrap();
+    for kind in ["link", "directory", "fifo"] {
+        match kind {
+            "link" => symlink(&foreign, &path).unwrap(),
+            "directory" => fs::create_dir(&path).unwrap(),
+            "fifo" => nix::unistd::mkfifo(
+                &path,
+                nix::sys::stat::Mode::S_IRUSR | nix::sys::stat::Mode::S_IWUSR,
+            )
+            .unwrap(),
+            _ => unreachable!(),
+        }
+        let before = fs::symlink_metadata(&path).unwrap();
+        let error = Store::open(&layout, "state.db", MIGRATIONS, RETRY)
+            .err()
+            .unwrap();
+        if kind == "link" {
+            let StateError::Io {
+                path: refused,
+                operation,
+                source,
+            } = error
+            else {
+                panic!("a link must retain the no-follow refusal");
+            };
+            assert_eq!(refused, path);
+            assert_eq!(operation, "admit state path");
+            assert_eq!(source.raw_os_error(), Some(nix::errno::Errno::ELOOP as i32));
+            assert!(
+                fs::symlink_metadata(&path)
+                    .unwrap()
+                    .file_type()
+                    .is_symlink()
+            );
+        } else {
+            assert!(matches!(error, StateError::Unsafe { path: refused, .. } if refused == path));
+        }
+        let after = fs::symlink_metadata(&path).unwrap();
+        assert_eq!(
+            (after.ino(), after.mode(), after.uid()),
+            (before.ino(), before.mode(), before.uid())
+        );
+        assert_eq!(fs::read(&foreign).unwrap(), b"unchanged");
+        assert_eq!(fs::read_dir(&layout.directory).unwrap().count(), 1);
+        if kind == "directory" {
+            fs::remove_dir(&path).unwrap();
+        } else {
+            fs::remove_file(&path).unwrap();
+        }
+    }
+}
+
+#[test]
 fn a_kill_after_store_commit_keeps_the_complete_record() {
     let world = World::new();
     let mut child = Worker::spawn(&world.0, 7, "process_worker", "committed");

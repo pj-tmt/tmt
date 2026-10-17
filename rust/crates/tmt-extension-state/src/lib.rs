@@ -4,8 +4,8 @@
 //! `Layout` admits an extension-selected private subtree beneath the injected
 //! absolute core-reported data root. It preserves existing root permissions and
 //! canonicalizes aliases only in that trusted root. Private directories must be
-//! owned 0700 directories; allowlisted files must be owned regular 0600 files,
-//! opened with no-follow and nonblocking flags. Read-only lookup and lock probes
+//! owned 0700 directories; allowlisted files must be owned regular 0600 files.
+//! File opens use no-follow and nonblocking flags. Read-only lookup and lock probes
 //! create nothing. Reads retain the caller's byte bound.
 //!
 //! `Publication` holds a nonblocking lock through stale temporary admission,
@@ -32,6 +32,8 @@
 //! admission and is never replayed. Busy at COMMIT is the same typed timeout,
 //! with an explicit "may not be saved" consequence and the caller's exact retry;
 //! there is no silent commit retry. Other SQLite/I/O causes remain distinguishable.
+//! Existing database and sidecar files are admitted by lstat without opening extra
+//! descriptors whose close could release another live connection's POSIX locks.
 //! Concurrent first creation of one store by threads in the same process can still
 //! release a sibling connection's POSIX locks through descriptor close. Create the
 //! store in one place before sharing it, or serialize first creation in the consumer.
