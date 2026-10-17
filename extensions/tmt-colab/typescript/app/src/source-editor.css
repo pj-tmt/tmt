@@ -18,6 +18,10 @@
   background: var(--c-sheet);
   border-bottom: 1px solid var(--c-rule);
 }
+/* Toolbar actions are body text; the Source label remains compact metadata. */
+.source > span button {
+  font: 400 13px/1.5 var(--tmt-ui-font-body);
+}
 .source > span button:disabled {
   color: var(--tmt-ui-color-disabled-text);
   cursor: default;
