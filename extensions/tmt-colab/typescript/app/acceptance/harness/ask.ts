@@ -3,7 +3,8 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { expect, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
+import { text } from '../../src/strings.js';
 import type { Door, PairedBrowser } from './browser.js';
 import type { AcceptanceWorld, Agent } from './world.js';
 
@@ -77,6 +78,51 @@ export async function openPage(
   const page = await browser.context.newPage();
   await page.goto(`${door.address}/${created.path}`);
   return page;
+}
+
+/** The closed states a page header can stay in; the label is mapped to one, never copied. */
+const liveLabels: ReadonlyArray<readonly [string, string]> = [
+  ['live', text.live],
+  ['opening', text.loading],
+  ['stopped', text.blocked],
+  ['reconnecting', text.reconnecting],
+  ['archived', text.archiveReadOnly],
+];
+
+/**
+ * Wait for the page header to say Live. A failure attaches `colab-live-state`: which state the
+ * header stayed in, whether the renderer frame exists and the tab's visibility. It reads the
+ * parent's status label only, never authored frame text, and rethrows the original failure.
+ */
+export async function expectLive(page: Page, timeout?: number): Promise<void> {
+  const label = page.locator('.page-sharing .status-label');
+  try {
+    await expect(label).toHaveText(text.live, { timeout });
+  } catch (error) {
+    try {
+      const seen = await page.locator('body').evaluate(
+        () => ({
+          label: document.querySelector('.page-sharing .status-label')?.textContent ?? null,
+          frame: document.querySelector('iframe') !== null,
+          visible: document.visibilityState === 'visible',
+        }),
+        undefined,
+        { timeout: 1_000 },
+      );
+      const known = liveLabels.find(([, value]) => value === seen.label);
+      await test.info().attach('colab-live-state', {
+        body: JSON.stringify({
+          state: seen.label === null ? 'none' : (known?.[0] ?? 'other'),
+          frame: seen.frame,
+          visibility: seen.visible ? 'visible' : 'hidden',
+        }),
+        contentType: 'application/json',
+      });
+    } catch {
+      // A missing diagnostic never replaces the original failure.
+    }
+    throw error;
+  }
 }
 
 /** Select the text of one element inside the sandboxed renderer frame. */

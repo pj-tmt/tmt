@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import { expect, test } from '@playwright/test';
+import { expectLive } from './harness/ask.js';
 import { openColab, pairBrowser, startDoor } from './harness/browser.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
@@ -499,4 +500,35 @@ test('harness: child timeouts join teardown and leave no worlds', async () => {
       fs.rmSync(directory, { recursive: true, force: true });
     }
   });
+});
+
+// The soak tests' Live check names the state a page stayed in. The attachment is a closed set,
+// read from the parent's status label only; the CI report keeps nothing else (#3083).
+test('harness: a failed Live check attaches the closed header state and keeps its failure', async ({
+  page,
+}) => {
+  const attached = () =>
+    test
+      .info()
+      .attachments.filter((attachment) => attachment.name === 'colab-live-state')
+      .map((attachment) => JSON.parse(attachment.body!.toString('utf8')));
+  const header = (label: string) =>
+    `<span class="chip page-sharing status"><span class="status-label">${label}</span></span>`;
+  await page.setContent(`${header('Live')}<iframe></iframe>`);
+  await expectLive(page, 300);
+  expect(attached()).toEqual([]);
+  await page.setContent(`${header('Opening page…')}<iframe></iframe>`);
+  await expect(expectLive(page, 300)).rejects.toThrow(/Opening page…/);
+  await page.setContent(`${header('Preview stopped')}`);
+  await expect(expectLive(page, 300)).rejects.toThrow();
+  await page.setContent('<main>Not a page</main>');
+  await expect(expectLive(page, 300)).rejects.toThrow();
+  await page.setContent(`${header('Secret label')}`);
+  await expect(expectLive(page, 300)).rejects.toThrow();
+  expect(attached()).toEqual([
+    { state: 'opening', frame: true, visibility: 'visible' },
+    { state: 'stopped', frame: false, visibility: 'visible' },
+    { state: 'none', frame: false, visibility: 'visible' },
+    { state: 'other', frame: false, visibility: 'visible' },
+  ]);
 });

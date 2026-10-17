@@ -13,13 +13,12 @@ const sources = new Set(
 );
 const tests = [];
 
-// This is an independent boundary check of the app's closed own-publication diagnostic.
-// Never retain an attachment path, generic error text, record key/value or unknown field.
-function ownPublication(attachment) {
+// An attachment's JSON row by exact name, or nothing. Never follows an attachment path.
+function attachedRow(attachment, name) {
   if (
     !attachment ||
     typeof attachment !== 'object' ||
-    attachment.name !== 'colab-own-publication' ||
+    attachment.name !== name ||
     attachment.contentType !== 'application/json' ||
     typeof attachment.body !== 'string' ||
     attachment.body.length > 1024
@@ -28,7 +27,36 @@ function ownPublication(attachment) {
   try {
     const bytes = Buffer.from(attachment.body, 'base64');
     if (bytes.length > 512 || bytes.toString('base64') !== attachment.body) return;
-    const row = JSON.parse(bytes.toString('utf8'));
+    return JSON.parse(bytes.toString('utf8'));
+  } catch {
+    return;
+  }
+}
+
+// An independent boundary check of the harness's closed Live-status diagnostic: which state a page
+// stayed in, whether its renderer frame existed and the tab's visibility. Never page text.
+function liveState(attachment) {
+  const row = attachedRow(attachment, 'colab-live-state');
+  const states = ['live', 'opening', 'stopped', 'reconnecting', 'archived', 'none', 'other'];
+  if (
+    !row ||
+    typeof row !== 'object' ||
+    Array.isArray(row) ||
+    Object.keys(row).length !== 3 ||
+    !states.includes(row.state) ||
+    typeof row.frame !== 'boolean' ||
+    !['visible', 'hidden'].includes(row.visibility)
+  )
+    return;
+  return { state: row.state, frame: row.frame, visibility: row.visibility };
+}
+
+// This is an independent boundary check of the app's closed own-publication diagnostic.
+// Never retain an attachment path, generic error text, record key/value or unknown field.
+function ownPublication(attachment) {
+  const row = attachedRow(attachment, 'colab-own-publication');
+  if (!row) return;
+  try {
     const fields = ['root', 'kind', 'streamId', 'submittedSeq', 'admittedSeq', 'leaderReceipt'];
     const kinds = {
       threads: ['thread'],
@@ -89,6 +117,14 @@ function outcome(spec, result) {
       })
       .slice(0, 8);
     if (diagnostics.length) value.ownPublications = diagnostics;
+    const states = attachments
+      .slice(0, 64)
+      .flatMap((attachment) => {
+        const state = liveState(attachment);
+        return state ? [state] : [];
+      })
+      .slice(0, 4);
+    if (states.length) value.liveStates = states;
   }
   const name = path.basename(spec.file ?? '');
   const location = result.errorLocation;
