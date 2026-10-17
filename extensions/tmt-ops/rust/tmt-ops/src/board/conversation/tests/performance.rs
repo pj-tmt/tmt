@@ -130,7 +130,7 @@ fn conversation_frame_timing() {
                     .map(|_| {
                         measure(&mut app, &mut terminal, |app, _| {
                             assert_eq!(
-                                app.key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE)),
+                                app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)),
                                 app::Effect::None
                             );
                         })
@@ -138,6 +138,11 @@ fn conversation_frame_timing() {
                     .collect(),
             );
             assert_eq!(app.workspace.selected.as_ref(), Some(&target));
+            assert!(
+                app.input.is_none(),
+                "Reader scrolling never opens an editor"
+            );
+            assert!(app.scrolls.offset(Pane::Replies) > 0);
             report(
                 rows,
                 "resize",
@@ -413,10 +418,7 @@ fn workspace_ansi_phase_timing() {
                                 }
                                 "reader-key-scroll" => {
                                     assert_eq!(
-                                        app.key(KeyEvent::new(
-                                            KeyCode::Char('j'),
-                                            KeyModifiers::NONE
-                                        )),
+                                        app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)),
                                         app::Effect::None
                                     );
                                 }
@@ -441,6 +443,13 @@ fn workspace_ansi_phase_timing() {
                     );
                 }
                 assert_eq!(app.workspace.selected.as_ref(), Some(&target));
+                if action == "reader-key-scroll" {
+                    assert!(
+                        app.input.is_none(),
+                        "Reader scrolling never opens an editor"
+                    );
+                    assert!(app.scrolls.offset(Pane::Replies) > 0);
+                }
                 reports.push(ansi_report(rows, action, &samples));
             }
         }
