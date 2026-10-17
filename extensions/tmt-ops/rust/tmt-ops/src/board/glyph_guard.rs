@@ -21,7 +21,6 @@ const STRUCTURAL_GLYPHS: &[(&str, &str)] = &[
     ("▪", "saved agent or squad pin in the fixed name-cell slot"),
     ("·", "separates adjacent labels without implying a state"),
     ("…", "shared text fitter's truncation indicator"),
-    ("≈", "estimated list-price savings in the Digest matrix"),
     ("–", "unavailable evidence; distinct from measured zero"),
     (
         "—",
@@ -221,6 +220,10 @@ fn digest_matrix_estimate_caption_registers_only_the_approximation_operator() {
         .expect("actual matrix estimate caption");
     assert!(row.contains("CTX 24h") && row.contains("≈ $"), "{row}");
     assert_eq!(glyph_error(&row), None);
+    assert!(
+        registered_marks().contains(&'≈'),
+        "the design registry owns the estimate marker"
+    );
     assert!(glyph_error("≈\u{fe0f}").is_some());
     assert!(glyph_error("≒").is_some());
 }
