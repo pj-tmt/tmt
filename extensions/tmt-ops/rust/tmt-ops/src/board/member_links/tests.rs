@@ -717,6 +717,7 @@ mod named_surface_tests {
     fn plain_fields_cache_hits_and_never_link_a_name_created_by_clipping() {
         let app = app();
         let mut terminal = Terminal::new(TestBackend::new(60, 12)).unwrap();
+        let mut builds = None;
         for _ in 0..3 {
             terminal
                 .draw(|frame| {
@@ -729,8 +730,17 @@ mod named_surface_tests {
                     crate::board::key_value::paint(frame, &app, area, &row);
                 })
                 .unwrap();
+            let current = app.member_links.borrow().builds;
+            if let Some(previous) = builds {
+                assert_eq!(
+                    current, previous,
+                    "unchanged fields reuse their projections"
+                );
+            } else {
+                assert!(current > 0);
+                builds = Some(current);
+            }
         }
-        assert_eq!(app.member_links.borrow().builds, 1);
         let hit = app.member_links.borrow().hits[0].clone();
         assert_eq!(hit.area.width, 7);
         assert!(!hit.reader);
@@ -764,6 +774,44 @@ mod named_surface_tests {
             app.member_link_binding(&test_target(), Verb::Copy)
                 .is_none()
         );
+    }
+    #[test]
+    fn plain_fields_use_the_resolved_occurrence_not_an_earlier_prefix() {
+        let app = app();
+        let mut terminal = Terminal::new(TestBackend::new(60, 12)).unwrap();
+        for (source, displayed, expected) in [
+            (
+                "night-20 before night-2",
+                "night-20 before night-2",
+                Some(16),
+            ),
+            ("xnight-2 then night-2", "xnight-2 then night-2", Some(14)),
+            ("night-20 before night-2", "night-2…", None),
+        ] {
+            terminal
+                .draw(|frame| {
+                    app.member_links.borrow_mut().begin_frame(frame.area());
+                    let area = Rect::new(3, 2, 50, 1);
+                    tmt_tui::components::strip::paint_left(
+                        frame.buffer_mut(),
+                        area,
+                        ratatui::text::Line::raw(displayed),
+                    );
+                    paint_plain_hits(frame, &app, area, source, displayed, false);
+                })
+                .unwrap();
+            let links = app.member_links.borrow();
+            match expected {
+                Some(column) => {
+                    assert_eq!(links.hits.len(), 1, "{source}");
+                    assert_eq!(links.hits[0].area.x, 3 + column, "{source}");
+                }
+                None => assert!(
+                    links.hits.is_empty(),
+                    "clipping must not borrow a later source occurrence"
+                ),
+            }
+        }
     }
     fn paint_row(app: &App, source: &str) {
         let index = app

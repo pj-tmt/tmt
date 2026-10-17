@@ -66,7 +66,29 @@ pub(in crate::board) fn line(row: &Row<'_>, width: usize, look: Look) -> Line<'s
 pub(in crate::board) fn paint(frame: &mut Frame, app: &super::app::App, area: Rect, row: &Row<'_>) {
     let look = app.look();
     let shown = line(row, usize::from(area.width), look);
-    let displayed = shown.to_string();
+    let mut fields = Vec::with_capacity(2);
+    let mut column = 0;
+    for (index, span) in shown.spans.iter().enumerate() {
+        let source = match index {
+            1 => Some(row.key),
+            3 => Some(row.value.text()),
+            _ => None,
+        };
+        if let Some(source) = source {
+            let start = column.min(usize::from(area.width)) as u16;
+            fields.push((
+                Rect::new(
+                    area.x + start,
+                    area.y,
+                    (span.width().min(usize::from(area.width - start))) as u16,
+                    area.height.min(1),
+                ),
+                super::notes::sanitize(source),
+                span.content.to_string(),
+            ));
+        }
+        column += span.width();
+    }
     strip::paint_left(
         frame.buffer_mut(),
         Rect {
@@ -75,12 +97,9 @@ pub(in crate::board) fn paint(frame: &mut Frame, app: &super::app::App, area: Re
         },
         shown,
     );
-    let source = format!(
-        "{} {}",
-        super::notes::sanitize(row.key),
-        super::notes::sanitize(row.value.text())
-    );
-    super::member_links::paint_plain_hits(frame, app, area, &source, &displayed, false);
+    for (field, source, displayed) in fields {
+        super::member_links::paint_plain_hits(frame, app, field, &source, &displayed, false);
+    }
 }
 
 #[cfg(test)]
