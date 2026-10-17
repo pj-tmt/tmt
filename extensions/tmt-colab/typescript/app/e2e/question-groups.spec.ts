@@ -390,6 +390,28 @@ for (const width of [1440, 390])
             });
           }
         };
+        const selected = group.getByRole('tab').first();
+        const neutral = await selected.evaluate((tab) => {
+          const probe = document.createElement('span');
+          probe.style.color = 'var(--tmt-ui-color-text)';
+          tab.append(probe);
+          const color = getComputedStyle(probe).color;
+          probe.remove();
+          return color;
+        });
+        await expect(selected).toHaveCSS('color', neutral);
+        await expect(selected).toHaveCSS('border-top-color', neutral);
+        const waiting = group.locator('.tmt-ui-tab-mark[data-tone="waiting"]').first();
+        await expect(waiting).toBeVisible();
+        const waitingRole = await waiting.evaluate((mark) => {
+          const probe = document.createElement('span');
+          probe.style.color = 'var(--tmt-ui-color-waiting)';
+          mark.append(probe);
+          const color = getComputedStyle(probe).color;
+          probe.remove();
+          return color;
+        });
+        await expect(waiting).toHaveCSS('color', waitingRole);
         await capture('waiting');
         await activeCard(page).getByLabel('Keep it', { exact: true }).check();
         // Send is an inline text action, like the other needs-you actions.

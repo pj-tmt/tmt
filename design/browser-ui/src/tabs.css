@@ -47,9 +47,9 @@
   cursor: pointer;
 }
 .tmt-ui-tab[aria-selected='true'] {
-  color: var(--tmt-ui-color-link);
+  color: var(--tmt-ui-color-text);
   background: var(--tmt-ui-surface-sheet);
-  border-top-color: var(--tmt-ui-color-link);
+  border-top-color: var(--tmt-ui-color-text);
   border-bottom-color: var(--tmt-ui-surface-sheet);
 }
 .tmt-ui-tab:hover {
