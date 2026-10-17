@@ -261,10 +261,11 @@ copy are owned by the [status-layer contract](../../../../contracts/remote-chann
 run before Rules preserves its old binding; an incomplete Rules attempt reports partial
 Rules and withdraws it; an incomplete possible Hosting release does the same. This describes recorded outcomes, not live provider currentness.
 
-Plan tier and quota remain unknown because the machine cannot observe either, and layer-1
-traffic goes browser to Firestore. Sharing therefore stays unknown after a complete recorded
-run. A later Core readiness decision must define tier treatment for layers requiring no paid
-plan and a quota evidence source before sharing can read enabled.
+The [status-layer contract](../../../../contracts/remote-channel-v1.md#local-cli-discovery) defines
+sharing's tier/quota requirement satisfaction by no-paid-plan policy and its required browser/native
+usage guard. A Complete run with verified factual prerequisites reads enabled with the limits note;
+no billing/headroom observation is invented, and missing facts remain unknown. The projection adds no
+provider call, runtime guard check or quota source; exhausted/unavailable guards refuse at use time.
 
 The default-off `test-emulator` Cargo feature is private proof support: from the isolated checkout, build `CARGO_BUILD_JOBS=2 cargo build --offline --locked --manifest-path rust/Cargo.toml -p tmt-remote --bin tmt-remote --features test-emulator` into that checkout's `rust/target`. The shared `firebase_auth` HTTP constructor routes only with both `FIREBASE_AUTH_EMULATOR_HOST` and `FIRESTORE_EMULATOR_HOST` set to loopback `host:port` and a `demo-` project; partial/unsafe inputs or unknown URLs refuse typed, with no redirects, ambient proxy or official-host fallback. Serve prints one fixed activation line on stderr. Default builds ignore the variables; feature builds without them stay production. The never-ships guard pins default/dependency/release-command exclusion; Colab owns the integrated emulator proof. Its sign-in command is `tmt-remote --remote <name> sync sign-in --project demo-<id> --json`; sign-in/revoke reject `--no-open` by design because neither opens a browser.
 

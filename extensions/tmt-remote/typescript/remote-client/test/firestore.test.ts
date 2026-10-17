@@ -230,6 +230,25 @@ test('every visible sharing prerequisite has exact state, fixed sentence and onl
     vi.unstubAllGlobals();
   }
 });
+test('ready sharing names guarded usage without claiming observed quota or changing the wire', () => {
+  const layers = enabledFixture();
+  const before = JSON.stringify(layers);
+  const view = render(layers);
+  const sharing = view.find('section').find((s) => s.dataset.layer === 'sharing')!;
+  assert.ok(
+    sharing
+      .text()
+      .includes(
+        "Usage is limited by each client's guard. Project-wide remaining quota is not checked; Firebase may refuse requests.",
+      ),
+  );
+  assert.equal(JSON.stringify(layers), before);
+  const unknown = enabledFixture();
+  unknown[0]!.state = 'unknown';
+  Object.assign(unknown[0]!.prerequisites[0]!, { state: 'unknown', reason: 'not-checked' });
+  assert.equal(render(unknown).text().includes("Usage is limited by each client's guard."), false);
+  vi.unstubAllGlobals();
+});
 test('strict readiness rejects arbitrary copy, extra keys, wrong order, illegal reasons and inconsistent aggregates', () => {
   assert.deepEqual(parseFirestoreLayers([]), []);
   for (const mutate of [

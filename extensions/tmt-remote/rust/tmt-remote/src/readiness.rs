@@ -1,6 +1,6 @@
 //! Layered Firestore readiness: which Firebase item is not enabled for each layer, and why
 //! (contract: Backends and deploy, `status --layers --json`). Pure: no I/O, clock or
-//! network. The projection is derived from recorded evidence behind an injected source and
+//! network. The projection combines injected recorded facts with shipped layer requirements and
 //! never asks Google; before a Firestore deployment exists there is no evidence, so the list
 //! is empty. One table owns every item, reason, sentence and next command; the validator
 //! accepts only what the table derives, and no provider text, secret or path can appear.
@@ -327,7 +327,8 @@ impl FirestoreEvidence {
 }
 
 /// Recorded outcomes only, never a live provider check. A draft has no evidence. Tier and
-/// quota are absent from the record: browser-to-Firestore traffic cannot be observed here.
+/// quota observations are absent: requirement satisfaction belongs to the layer policy,
+/// not fabricated billing or project-wide headroom evidence.
 pub fn from_record(record: &DeployRecord) -> Option<FirestoreEvidence> {
     let run = record.run.as_ref()?;
     let finished = |state: &StepState| matches!(state, StepState::Done | StepState::Adopted);
@@ -460,7 +461,17 @@ fn verdict(item: FirestoreItem, spec: &LayerSpec, evidence: &FirestoreEvidence) 
         I::SignIn => observed(evidence.sign_in),
         I::Rules => observed(evidence.rules),
         I::Indexes => observed(evidence.indexes),
+        // Sharing's production browser/native paths require the shipped usage guard.
+        // This satisfies a requirement, never an observation of remaining project quota.
+        I::Quota
+            if spec.layer == FirestoreLayer::Sharing
+                && !spec.requires_paid_plan
+                && evidence.quota == Observed::Unknown =>
+        {
+            Verdict::Enabled
+        }
         I::Quota => observed(evidence.quota),
+        I::PlanTier if !spec.requires_paid_plan => Verdict::Enabled,
         I::PlanTier => match evidence.tier {
             FirestoreTier::Unknown => Verdict::Unknown,
             FirestoreTier::Free if spec.requires_paid_plan => Verdict::Off(R::PaidPlanRequired),
@@ -619,7 +630,11 @@ pub fn human_lines(value: &Value, layers: &[LayerSpec]) -> Vec<HumanLine> {
             if entry["state"] == "enabled" {
                 return HumanLine {
                     enabled: true,
-                    what: format!("{title} is enabled."),
+                    what: if spec.layer == FirestoreLayer::Sharing {
+                        format!("{title} is enabled. Usage is limited by each client's guard. Project-wide remaining quota is not checked; Firebase may refuse requests.")
+                    } else {
+                        format!("{title} is enabled.")
+                    },
                     hint: None,
                 };
             }
