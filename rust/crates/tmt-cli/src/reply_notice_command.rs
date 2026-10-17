@@ -366,6 +366,7 @@ mod tests {
                 service
                     .prepare(
                         PrepareRequest {
+                            origin: tmt_core::request::RequestOrigin::Person,
                             room_id: None,
                             kind: RequestKind::Request,
                             request_id: id.into(),

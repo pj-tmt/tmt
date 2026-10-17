@@ -53,6 +53,7 @@ fn item<T>(
         recipient_identity_id: record.attempt.recipient_identity_id,
         originator: record.attempt.originator,
         kind: record.attempt.kind,
+        origin: record.attempt.origin,
         prepared_at_ms: record.attempt.prepared_at_ms,
         delivery: record.attempt.status,
         recipient_acknowledged: acknowledged,

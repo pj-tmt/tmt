@@ -106,6 +106,7 @@ fn run(operation: RoomOperation) -> Result<DispatchReceipt, Failure> {
                 DispatchInput {
                     originator,
                     kind,
+                    origin: tmt_core::request::RequestOrigin::Person,
                     operation_id: operation_id.clone(),
                     recipient_ids: room.member_ids,
                     message,

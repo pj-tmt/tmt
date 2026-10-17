@@ -120,6 +120,7 @@ fn check_preparation_after_room_change(retire: bool) {
 
 fn input(sender: &str, receiver: &str, id: &str, room: Option<&str>) -> PrepareRequest {
     PrepareRequest {
+        origin: tmt_core::request::RequestOrigin::Person,
         kind: RequestKind::Request,
         room_id: room.map(str::to_owned),
         request_id: id.into(),

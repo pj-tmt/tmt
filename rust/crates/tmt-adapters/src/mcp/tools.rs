@@ -134,6 +134,7 @@ pub(super) fn decode(params: &RawValue) -> Option<ToolCall> {
                 message: input.message,
                 originator: tmt_core::request::Originator::Unknown,
                 kind: tmt_core::request::RequestKind::Request,
+                origin: tmt_core::request::RequestOrigin::Person,
                 room: None,
             }
             .normalize()?;

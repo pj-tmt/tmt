@@ -204,6 +204,7 @@ fn concurrent_prepare_connections_serialize_cadence_and_preserve_both_attempts()
             let identity_id = fixture.identity_id.clone();
             Box::new(move |storage: &mut Storage| {
                 let input = PrepareRequest {
+                    origin: tmt_core::request::RequestOrigin::Person,
                     room_id: None,
                     kind: tmt_core::request::RequestKind::Request,
                     request_id: format!("request-{suffix}"),

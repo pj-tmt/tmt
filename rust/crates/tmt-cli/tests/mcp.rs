@@ -608,6 +608,7 @@ fn mcp_send_never_reclaims_an_uncertain_wake() {
     let receipt = storage
         .dispatch_request(
             tmt_core::dispatch::DispatchInput {
+                origin: tmt_core::request::RequestOrigin::Person,
                 operation_id: operation.into(),
                 originator: tmt_core::request::Originator::Explicit(sender.clone()),
                 recipient_ids: vec![receiver.clone()],

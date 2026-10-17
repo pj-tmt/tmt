@@ -143,6 +143,7 @@ impl Storage {
                     PrepareRequest {
                         room_id: input.room.as_ref().map(|room| room.room_id().to_owned()),
                         kind: input.kind,
+                        origin: input.origin,
                         request_id: request_id.clone(),
                         message: input.message.clone(),
                         route: RequestRoute::Inbox {

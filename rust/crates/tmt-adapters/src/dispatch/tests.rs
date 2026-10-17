@@ -114,6 +114,39 @@ fn announcement_kind_is_explicit_and_request_default_preserves_old_replay() {
 }
 
 #[test]
+fn origin_is_automation_only_and_a_person_default_preserves_old_replay() {
+    let mut wire = valid();
+    let original = decode_input(&serde_json::to_vec(&wire).unwrap()).unwrap();
+    assert_eq!(original.origin, RequestOrigin::Person);
+    // The default is not serialized, so every historical intent digest is unchanged.
+    assert_eq!(
+        intent_digest(&original),
+        tmt_core::content_digest::framed_sha256(
+            b"tmt:office:dispatch:v1\0",
+            br#"{"operationId":"11111111-1111-4111-8111-111111111111","recipientIds":["22222222-2222-4222-8222-222222222222"],"message":"Review this."}"#
+        )
+    );
+    wire["origin"] = json!("automation");
+    let automation = decode_input(&serde_json::to_vec(&wire).unwrap()).unwrap();
+    assert_eq!(automation.origin, RequestOrigin::Automation);
+    // Replaying one operation id with the other origin is a different intent.
+    assert_ne!(intent_digest(&original), intent_digest(&automation));
+    // A person cannot be declared, and nothing but "automation" is admitted.
+    for value in [
+        json!("person"),
+        json!("unknown"),
+        json!("robot"),
+        json!(""),
+        json!(true),
+    ] {
+        wire["origin"] = value;
+        assert!(decode_input(&serde_json::to_vec(&wire).unwrap()).is_none());
+    }
+    let duplicated = r#"{"operationId":"11111111-1111-4111-8111-111111111111","recipientIds":["22222222-2222-4222-8222-222222222222"],"message":"x","origin":"automation","origin":"automation"}"#;
+    assert!(decode_input(duplicated.as_bytes()).is_none());
+}
+
+#[test]
 fn dispatch_preserves_exact_text_and_normalizes_only_recipient_selection() {
     let mut wire = valid();
     wire["message"] = json!("  hello\r\n!\0");

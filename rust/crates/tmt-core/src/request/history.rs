@@ -77,6 +77,7 @@ pub struct HistoryItem<T = ()> {
     pub recipient_identity_id: Option<String>,
     pub originator: Originator,
     pub kind: RequestKind,
+    pub origin: super::RequestOrigin,
     pub prepared_at_ms: u64,
     pub delivery: AttemptStatus,
     /// Inbox acknowledgment only. Pane transport cannot prove agent read state.

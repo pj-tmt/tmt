@@ -236,6 +236,7 @@ fn identity(storage: &mut Storage, name: &str) -> String {
 }
 fn dispatch(room: &MeetingRoom) -> DispatchInput {
     DispatchInput {
+        origin: tmt_core::request::RequestOrigin::Person,
         originator: tmt_core::request::Originator::Unknown,
         kind: tmt_core::request::RequestKind::Request,
         operation_id: OPERATION.into(),
