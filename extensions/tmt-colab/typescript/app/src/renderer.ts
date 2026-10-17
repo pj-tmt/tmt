@@ -105,6 +105,14 @@ export interface ReviewRenderBlock {
 export type ReviewAnchor = QuestionAnchor;
 export type ReadingRenderBlock = ReviewRenderBlock;
 export type RenderState = 'ready' | 'navigation' | 'failed';
+/** Cosmetic crop only. Admitted parent layers retain every control and write capability. */
+export type ChapterPassage =
+  | { kind: 'opening' }
+  | { kind: 'review' | 'answer' | 'reading'; id: string };
+export interface PassageBounds {
+  top: number;
+  height: number;
+}
 export interface RenderSnapshot {
   readonly renderId: string;
   readonly sourceDigest: string;
@@ -152,6 +160,7 @@ export async function mountRenderer(
     onSlots?(slots: AnchorPosition[]): void;
     onQuestions?(questions: QuestionAnchor[], reviews: ReviewAnchor[], checked?: boolean): void;
     onReadings?(readings: QuestionAnchor[], checked?: boolean): void;
+    onPassage?(bounds: PassageBounds | null): void;
     images?: DocumentImageInput;
   },
 ): Promise<{
@@ -171,6 +180,7 @@ export async function mountRenderer(
   ): void;
   scrollAnchor(id: string): void;
   scrollReading(id: string): void;
+  passage(target: ChapterPassage): void;
   selectionMode(enabled: boolean): void;
   images(input: DocumentImageInput): void;
   /** Cosmetic position already admitted from this render; never discussion authority. */
@@ -222,6 +232,7 @@ export async function mountRenderer(
   let requestId = '';
   let anchors: { id: string; selector: QuoteSelector; ordinal?: number }[] = [];
   const positions = new Map<string, { top: number; rect: SelectionRect }>();
+  let passageRequestId = '';
   let questionRequestId = '';
   let questionBlocks: { id: string; title: string }[] = [];
   let reviewBlocks: ReviewRenderBlock[] = [];
@@ -503,6 +514,40 @@ export async function mountRenderer(
             ...image,
           });
       });
+      return;
+    }
+    if (value?.type === 'colab.render.passage') {
+      if (
+        Object.keys(value).length !== 4 ||
+        value.renderId !== snapshot.renderId ||
+        !passageRequestId ||
+        value.requestId !== passageRequestId
+      )
+        return;
+      const bounds = value.bounds;
+      if (bounds === null) {
+        options.onPassage?.(null);
+        return;
+      }
+      if (
+        !bounds ||
+        typeof bounds !== 'object' ||
+        Array.isArray(bounds) ||
+        Object.keys(bounds).length !== 2
+      )
+        return;
+      const { top, height } = bounds as Record<string, unknown>;
+      if (
+        typeof top !== 'number' ||
+        typeof height !== 'number' ||
+        !Number.isFinite(top) ||
+        !Number.isFinite(height) ||
+        top < 0 ||
+        height <= 0 ||
+        top + height > MAX_RENDER_HEIGHT
+      )
+        return;
+      options.onPassage?.({ top, height });
       return;
     }
     if (value?.type === 'colab.render.questions') {
@@ -1046,6 +1091,18 @@ export async function mountRenderer(
         renderId: snapshot.renderId,
         requestId: questionRequestId,
         id,
+      });
+    },
+    passage: (target: ChapterPassage) => {
+      if (stopped || !ready) return;
+      if (target.kind !== 'opening' && !/^[0-9a-f-]{36}$/.test(target.id)) return;
+      passageRequestId = crypto.randomUUID();
+      options.onPassage?.(null);
+      channel.port1.postMessage({
+        type: 'colab.render.passage',
+        renderId: snapshot.renderId,
+        requestId: passageRequestId,
+        target,
       });
     },
     selectionMode,

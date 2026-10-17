@@ -61,6 +61,7 @@
             questionGroups = [],
             questionThreads = [],
             questionRequestId = '';
+          let passageRequest = null;
           let slots = [],
             slotRequestId = '';
           const spacers = new Map();
@@ -976,9 +977,53 @@
               readings,
             });
           }
+          function resolvePassage() {
+            if (stopped || !passageRequest) return;
+            const { target, requestId } = passageRequest;
+            let bounds = null;
+            if (target.kind === 'opening') {
+              bounds = {
+                top: 0,
+                height: Math.min(1000000, Math.max(1, document.body.scrollHeight)),
+              };
+            } else {
+              const admitted =
+                target.kind === 'review'
+                  ? reviewBlocks
+                  : target.kind === 'reading'
+                    ? readingBlocks
+                    : questionGroups;
+              const tag =
+                target.kind === 'review'
+                  ? 'tmt-review'
+                  : target.kind === 'reading'
+                    ? 'tmt-read'
+                    : 'tmt-questions';
+              const selector =
+                target.kind === 'answer'
+                  ? `tmt-questions[data-id="${target.id}"],tmt-question[data-id="${target.id}"]`
+                  : `${tag}[data-id="${target.id}"]`;
+              const matches = document.querySelectorAll(selector);
+              if (admitted.some((item) => item.id === target.id) && matches.length === 1) {
+                const box = matches[0].getBoundingClientRect();
+                const top = box.top + scrollY;
+                if (
+                  box.width > 0 &&
+                  box.height > 0 &&
+                  Number.isFinite(top) &&
+                  Number.isFinite(box.height) &&
+                  top >= 0 &&
+                  top + box.height <= 1000000
+                )
+                  bounds = { top, height: box.height };
+              }
+            }
+            port.postMessage({ type: 'colab.render.passage', renderId, requestId, bounds });
+          }
           function resolve() {
             resolveSlots();
             resolveQuestions();
+            resolvePassage();
             if (stopped || !requestId) return;
             clear();
             const resolved = [],
@@ -1135,6 +1180,25 @@
           };
           port.onmessage = (event) => {
             const v = event.data;
+            if (
+              v?.type === 'colab.render.passage' &&
+              Object.keys(v).length === 4 &&
+              v.renderId === renderId &&
+              typeof v.requestId === 'string' &&
+              /^[0-9a-f-]{36}$/.test(v.requestId) &&
+              v.target &&
+              typeof v.target === 'object' &&
+              !Array.isArray(v.target) &&
+              ((v.target.kind === 'opening' && Object.keys(v.target).length === 1) ||
+                (['review', 'answer', 'reading'].includes(v.target.kind) &&
+                  Object.keys(v.target).length === 2 &&
+                  typeof v.target.id === 'string' &&
+                  /^[0-9a-f-]{36}$/.test(v.target.id)))
+            ) {
+              passageRequest = { target: v.target, requestId: v.requestId };
+              resolvePassage();
+              return;
+            }
             if (
               v?.type === 'colab.render.images' &&
               Object.keys(v).length === 3 &&
