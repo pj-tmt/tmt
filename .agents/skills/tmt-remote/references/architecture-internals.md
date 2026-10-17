@@ -35,6 +35,11 @@ Module owners (put a change in the existing owner; `canonical`, `crypto`, `wire`
 | `object_service`                                 | Lease-bound `ObjectService`: initial/demand single-flight Local setup, readiness, origins, admitted observation/upload; v3 bindings/awaiters share setup and dispatch; serve injects the shared native project factory; production Colab-only Local |
 | `tmt-extension-objects` (leaf)                   | Remote-owned protocol leaf, consumed by Remote `object_service` and Colab `object_channel`: canonical IDs/encodings, object and v3 sync DTOs/bounds, strict JSON and the Unix carrier; no backend, policy or Remote/Colab types, and grants nothing |
 
+`operations` projects permitted `agents.list` rows from one public Core list read. It forwards
+only validated `session.activity` state/sinceMs and samples one owner `observedAtMs` for the read;
+the SDK tolerates absent or malformed optional evidence. The [channel contract](../../../../contracts/remote-channel-v1.md)
+owns the shape and advisory semantics; no Core state, extra read, scope or bound is added.
+
 Rules that are easy to get wrong:
 
 - **One message receiver.** Foreground `serve` constructs one `message::MessageService`

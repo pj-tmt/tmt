@@ -551,11 +551,101 @@ fn agents_list_forwards_only_bounded_runtime_evidence_with_one_scoped_core_read(
     let session = owner.open();
     let before = journal_snapshot(&owner);
     let query = owner.wire(&session, "1", "agents.list", b"{}");
-    assert_eq!(
-        append(&owner, core.operations(), &query),
-        json!({"identities":expected})
-    );
+    let reply = append(&owner, core.operations(), &query);
+    for row in &mut expected {
+        row["observedAtMs"] = reply["identities"][0]["observedAtMs"].clone();
+    }
+    assert_eq!(reply, json!({"identities":expected}));
     assert_eq!(journal_snapshot(&owner), before);
+    assert_eq!(
+        core.calls(),
+        vec![json!({"operation":"list","argv":["list","--json"]})]
+    );
+    assert_eq!(core.sends(), 0);
+}
+
+#[test]
+fn agents_list_forwards_only_valid_activity_and_one_owner_clock_sample() {
+    let mut cases = Vec::new();
+    for state in ["working", "idle", "unknown", "ended"] {
+        for since in [Value::Null, json!(0), json!(9_007_199_254_740_991_u64)] {
+            cases.push((Some(json!({"activity":{"state":state,"sinceMs":since,
+                "lastActivityMs":17,"providers":{"secret":"not disclosed"}},"id":"private-session"})),
+                Some(json!({"state":state,"sinceMs":since}))));
+        }
+    }
+    for activity in [
+        Value::Null,
+        json!({}),
+        json!({"state":"future","sinceMs":1}),
+        json!({"state":"working"}),
+        json!({"state":"idle","sinceMs":-1}),
+        json!({"state":"ended","sinceMs":1.5}),
+        json!({"state":"unknown","sinceMs":"1"}),
+        json!({"state":"working","sinceMs":9_007_199_254_740_992_u64}),
+        json!({"state":"idle","sinceMs":true}),
+    ] {
+        cases.push((Some(json!({"activity":activity})), None));
+    }
+    cases.extend([
+        (None, None),
+        (Some(Value::Null), None),
+        (Some(json!({})), None),
+    ]);
+    let mut allowed = Vec::new();
+    let mut rows = Vec::new();
+    let mut expected = Vec::new();
+    for (session, activity) in cases {
+        let id = uuid_v4().unwrap();
+        allowed.push(id.clone());
+        let mut row = json!({"id":id,"name":"Allowed","presence":"active",
+            "activity":{"state":"working","sinceMs":1},"observedAtMs":1,
+            "pane":"private","profile":{"secret":true}});
+        if let Some(session) = session {
+            row["session"] = session;
+        }
+        rows.push(row);
+        let mut row = json!({"id":id,"name":"Allowed","presence":"active"});
+        if let Some(activity) = activity {
+            row["activity"] = activity;
+        }
+        expected.push(row);
+    }
+    rows.push(
+        json!({"id":uuid_v4().unwrap(),"name":"Denied","presence":"active",
+        "session":{"activity":{"state":"working","sinceMs":1}}}),
+    );
+    allowed.sort();
+    let owner = OwnerDoor::with_limits(
+        vec!["agents.read".into()],
+        "direct",
+        json!(allowed).to_string(),
+        None,
+    );
+    let core = Core::new();
+    fs::write(
+        core.root.join("agents"),
+        json!({"identities":rows}).to_string(),
+    )
+    .unwrap();
+    let session = owner.open();
+    let journal = journal_snapshot(&owner);
+    let before = tmt_remote::pairing::now_ms().unwrap();
+    let query = owner.wire(&session, "1", "agents.list", b"{}");
+    let mut reply = append(&owner, core.operations(), &query);
+    let after = tmt_remote::pairing::now_ms().unwrap();
+    let observed = reply["identities"][0]["observedAtMs"]
+        .as_u64()
+        .expect("owner clock");
+    assert!((before..=after).contains(&observed));
+    for row in reply["identities"].as_array_mut().unwrap() {
+        assert_eq!(
+            row.as_object_mut().unwrap().remove("observedAtMs"),
+            Some(json!(observed))
+        );
+    }
+    assert_eq!(reply, json!({"identities":expected}));
+    assert_eq!(journal_snapshot(&owner), journal);
     assert_eq!(
         core.calls(),
         vec![json!({"operation":"list","argv":["list","--json"]})]
@@ -598,9 +688,10 @@ fn named_reads_project_authority_and_preserve_empty_final_without_dispatch() {
             ),
         )
     };
+    let agents = read("agents.list", json!({}));
     assert_eq!(
-        read("agents.list", json!({})),
-        json!({"identities":[{"id":permitted,"name":"Allowed","presence":"active","delivery":{"state":"channel"}}]})
+        agents,
+        json!({"identities":[{"id":permitted,"name":"Allowed","presence":"active","delivery":{"state":"channel"},"observedAtMs":agents["identities"][0]["observedAtMs"]}]})
     );
     assert_eq!(
         read(

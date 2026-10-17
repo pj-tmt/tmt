@@ -1037,7 +1037,7 @@ Remote narrows supported operations/authority before core calls.
 | Logical operation                                                                               | Scope and public core mapping                                                                                                                                                                                                      |
 | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `capabilities`                                                                                  | Signed paired discovery of supported subset, fixed suite and core bounds.                                                                                                                                                          |
-| `agents.list`                                                                                   | `agents.read`; `tmt ls --json` projected to permitted UUID/name/presence, delivery status and optional `runningDriver`, without pane address/cwd/process/profile.                                                                  |
+| `agents.list`                                                                                   | `agents.read`; `tmt ls --json` projected to permitted UUID/name/presence, delivery status and optional runtime/activity evidence below, without pane address/cwd/process/profile.                                                  |
 | `identities.status`                                                                             | `status.read`; input restricted to permitted UUIDs. Self-report is not readiness or completion.                                                                                                                                    |
 | `check`                                                                                         | `check.read`; one permitted agent, the bounded capture `tmt check --json` returns locally. Read-only; it never writes to a pane.                                                                                                   |
 | `dispatch.create`                                                                               | `talk`; one permitted direct request recipient, anonymous core originator plus remote provenance (below). `direct` grants dispatch after admission; `hold` grants hold for local approval. No fan-out, room or announcement in v1. |
@@ -1068,6 +1068,17 @@ it omits the key, never null. The SDK recognizes exactly `claude` and `codex`; u
 become an absent property without failing the list. Recognizing a new driver requires an additive
 SDK release. Remembered `driver` is never a fallback; this field grants no dispatch authority.
 
+Optional row `activity` forwards only Core's public [`ls --json` session.activity](extension-api.md):
+`{state:"working"|"idle"|"unknown"|"ended",sinceMs:number|null}`. Omit the key, never null,
+when absent or malformed: the state must be one of those four and `sinceMs` must be null or a
+non-negative JavaScript-safe integer. Neither `lastActivityMs`, `providers` nor other session data
+is disclosed; top-level Core `activity` is not a fallback. Each row also carries `observedAtMs`,
+the owner's integer-millisecond wall clock sampled once at the start of the existing Core list
+read. Compare `sinceMs` with that owner time, never the viewer's clock. SDK `RemoteAgent` keeps both
+fields optional for older owners and independently omits malformed values without failing the
+list. The same `agents.read` grant filters rows before projection; there is no extra Core call,
+admission rule or limit increase. Activity grants no delivery, readiness, completion or dispatch authority.
+
 Helper payloads are `agents.list:{}`, `check:{agentId,lines?}`, `operation.show:{operationId}` and
 `result:{requestId}`. `dispatch.create` payload is exactly
 `{version:1,operation:"dispatch.create",originator:"anonymous", input:{operationId,recipientIds:[agentId],message,kind:"request"}}`.
@@ -1097,7 +1108,7 @@ Its `RemoteOperations` interface has `listAgents():Promise<RemoteAgent[]>`,
 `send({operationId,agentId,message}):Promise<SendState>`, read-only
 `operation(operationId):Promise<SendState>` and `result(requestId):Promise<ResultState>`.
 `RemoteAgent` contains `id`, `name`, `presence`, optional core-owned `delivery` forwarded unchanged,
-and optional `runningDriver` (`claude` | `codex`; see above for provenance/decoding).
+optional `runningDriver` (`claude` | `codex`), `activity` and `observedAtMs` (see above for provenance/decoding).
 Send/operation use SendState; result uses ResultState as defined below. No
 selection/URL/title/note fields are reformatted: they are already inside the caller's frozen
 message. The caller owns durable operation IDs and intent; the SDK stores no dispatch bytes in
