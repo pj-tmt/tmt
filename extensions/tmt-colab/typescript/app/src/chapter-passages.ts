@@ -2,7 +2,7 @@ import { MAX_RENDER_SOURCE_BYTES } from './renderer.js';
 import type { PageLease, PageSnapshot } from './transport.js';
 
 export const CHAPTER_SURFACE_LIMIT = 3;
-export type ChapterPassageView = { id: string; visible: boolean } & (
+export type ChapterPassageView = { id: string; visible: boolean; busy?: true; detached?: true } & (
   | { state: 'loading' | 'unavailable' }
   | { state: 'ready'; snapshot: PageSnapshot }
 );
@@ -13,7 +13,8 @@ interface Entry {
   lease?: PageLease;
   working: Set<string>;
   idle: Set<() => void>;
-  retireFrame?: () => void;
+  detached?: boolean;
+  retireFrame?: (detached?: boolean) => void;
 }
 
 /** One visible-chapter acquisition/fold queue. Parent actions already begun keep their admitted
@@ -45,6 +46,8 @@ export class ChapterPassages {
     this.#view = [...this.#entries.values()].map((entry) => ({
       ...entry.view,
       visible: this.#visible(entry.id),
+      ...(entry.working.size ? { busy: true as const } : {}),
+      ...(entry.detached ? { detached: true as const } : {}),
     }));
     if (this.#cleanupFailure && !this.#stopped) {
       for (const id of this.#wanted)
@@ -59,9 +62,14 @@ export class ChapterPassages {
         ? [...new Set(order)].filter((id) => intersecting.has(id)).slice(0, CHAPTER_SURFACE_LIMIT)
         : [];
     for (const entry of this.#entries.values()) {
-      if (this.#visible(entry.id)) continue;
-      entry.retireFrame?.();
-      if (!entry.working.size) entry.controller.abort();
+      if (this.#visible(entry.id)) {
+        entry.detached = false;
+        continue;
+      }
+      if (!entry.working.size) {
+        entry.retireFrame?.();
+        entry.controller.abort();
+      }
     }
     this.#publish();
     this.#request();
@@ -75,18 +83,30 @@ export class ChapterPassages {
     if (!entry.working.size) {
       entry.idle.forEach((resolve) => resolve());
       entry.idle.clear();
-      if (!this.#visible(id)) entry.controller.abort();
+      if (!this.#visible(id)) {
+        entry.retireFrame?.();
+        entry.controller.abort();
+      }
     }
+    this.#publish();
     this.#request();
   }
-  frame(id: string, retire: () => void) {
+  /** A removed slot cannot retain its frame. The binding still joins any trusted Send. */
+  detach(id: string) {
+    const entry = this.#entries.get(id);
+    if (!entry) return;
+    entry.detached = true;
+    entry.retireFrame?.(true);
+    this.#publish();
+  }
+  frame(id: string, retire: (detached?: boolean) => void) {
     const entry = this.#entries.get(id);
     if (!entry) {
       retire();
       return () => {};
     }
     entry.retireFrame = retire;
-    if (!this.#visible(id)) retire();
+    if (!this.#visible(id) && !entry.working.size) retire();
     return () => {
       if (entry.retireFrame === retire) entry.retireFrame = undefined;
     };

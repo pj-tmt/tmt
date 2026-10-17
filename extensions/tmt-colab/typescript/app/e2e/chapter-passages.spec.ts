@@ -122,32 +122,43 @@ test('a chapter review draft follows its shared page owner into the foreground a
   expect((await run(page, 'proof')).actions).toEqual([]);
 });
 
-test('answers to a review finish its existing close after the chapter frame retires', async ({
-  page,
-}) => {
-  await page.goto('/');
-  await run(page, 'mount', {
-    todayPassages: true,
-    statusAgents: true,
-    holdQuestionView: true,
+for (const returnToToday of [false, true])
+  test(`a retired chapter sends its answer once and keeps the review open${returnToToday ? ' after opening and closing the full page' : ''}`, async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await run(page, 'mount', {
+      todayPassages: true,
+      statusAgents: true,
+      holdQuestionView: true,
+    });
+    await run(page, 'review', { question: true });
+    const passage = page.locator('[data-chapter-passage]');
+    await passage
+      .getByRole('textbox', { name: 'Your answer', exact: true })
+      .fill('A clearer heading.');
+    await run(page, 'pausePrepare');
+    await passage.getByRole('button', { name: /^Send answer/ }).click();
+    await expect.poll(async () => (await run(page, 'discussionProof')).length).toBe(1);
+    await page.locator('#ask-page-fixture .today-title a').click();
+    await expect(passage.locator('iframe')).toHaveCount(0);
+    if (returnToToday) {
+      await page.evaluate(() => {
+        location.hash = '/';
+      });
+      await expect(passage).toBeVisible();
+    }
+    await run(page, 'releaseQuestionView');
+    await run(page, 'resumePrepare');
+    await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
+    const review = page.locator('#ask-page-fixture .review-card').first();
+    await expect(review).toHaveAttribute('data-review-state', 'waiting');
+    await expect(review.getByRole('button', { name: /Confirm and close/ })).toBeEnabled();
+    await expect(review.getByRole('alert')).toHaveCount(0);
+    expect((await run(page, 'proof')).actions).toEqual([]);
+    expect(await run(page, 'discussionProof')).toHaveLength(1);
+    if (!returnToToday) await expect(passage).toHaveCount(0);
   });
-  await run(page, 'review', { question: true });
-  const passage = page.locator('[data-chapter-passage]');
-  await passage
-    .getByRole('textbox', { name: 'Your answer', exact: true })
-    .fill('A clearer heading.');
-  await run(page, 'pausePrepare');
-  await passage.getByRole('button', { name: /^Send answer/ }).click();
-  await expect.poll(async () => (await run(page, 'discussionProof')).length).toBe(1);
-  await page.locator('#ask-page-fixture .today-title a').click();
-  await expect(passage.locator('iframe')).toHaveCount(0);
-  await run(page, 'releaseQuestionView');
-  await run(page, 'resumePrepare');
-  await expect.poll(async () => (await run(page, 'proof')).actions).toEqual(['status:resolve']);
-  expect((await run(page, 'proof')).sends).toHaveLength(1);
-  expect(await run(page, 'discussionProof')).toHaveLength(2);
-  await expect(passage).toHaveCount(0);
-});
 
 test('a page opening retires the chapter frame while its existing notification finishes once', async ({
   page,
@@ -169,6 +180,38 @@ test('a page opening retires the chapter frame while its existing notification f
   expect(await run(page, 'discussionProof')).toHaveLength(1);
   expect((await run(page, 'proof')).actions).toEqual(['status:resolve', 'notify:Agent 1']);
 });
+
+for (const hide of ['scroll', 'visibility'] as const)
+  test(`a busy chapter keeps its inert frame while its slot remains after ${hide}`, async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await run(page, 'mount', { todayPassages: true, statusAgents: true, holdStatusNotice: true });
+    await run(page, 'reading', { count: 2 });
+    const passage = page.locator('[data-chapter-passage]');
+    await passage.getByRole('button', { name: 'Mark read', exact: true }).click();
+    await expect
+      .poll(async () => (await run(page, 'proof')).actions)
+      .toEqual(['status:resolve', 'notify:Agent 1']);
+    await page.evaluate((hide) => {
+      if (hide === 'visibility') {
+        Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+        document.dispatchEvent(new Event('visibilitychange'));
+      } else {
+        const spacer = document.createElement('div');
+        spacer.style.height = '2000px';
+        document.body.append(spacer);
+        spacer.scrollIntoView({ block: 'start' });
+      }
+    }, hide);
+    await expect(passage).toBeHidden();
+    await expect(passage).toHaveAttribute('inert', '');
+    await expect(passage.locator('iframe')).toHaveCount(1);
+    await run(page, 'finishStatusNotice');
+    await expect(passage).toHaveCount(0);
+    expect(await run(page, 'discussionProof')).toHaveLength(1);
+    expect((await run(page, 'proof')).actions).toEqual(['status:resolve', 'notify:Agent 1']);
+  });
 
 test('an answer already recorded in a chapter finishes its one Send after opening the page', async ({
   page,
@@ -279,6 +322,13 @@ for (const width of [1440, 390])
         );
         await expect(passage.locator('.chapter-passage-controls')).toBeVisible();
         await capture(kind);
+        if (kind === 'review') {
+          await run(page, 'review', { question: true, darkPage: theme === 'dark' });
+          await expect(
+            passage.getByRole('textbox', { name: 'Your answer', exact: true }),
+          ).toBeVisible();
+          await capture('review-answer');
+        }
         if (kind === 'reading') {
           await run(page, 'reading', { count: 2, tall: true, darkPage: theme === 'dark' });
           await expect(

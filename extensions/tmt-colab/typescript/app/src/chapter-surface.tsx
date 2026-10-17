@@ -21,6 +21,8 @@ export function ChapterSurface({
   transport,
   passages,
   visible,
+  busy,
+  detached,
   open,
   url,
   onCount,
@@ -29,6 +31,8 @@ export function ChapterSurface({
   transport: PageTransport;
   passages: ChapterPassages;
   visible: boolean;
+  busy: boolean;
+  detached: boolean;
   open(): void;
   url: string;
   onCount(count: number): void;
@@ -52,8 +56,17 @@ export function ChapterSurface({
   }, []);
   const [clipped, setClipped] = useState(false);
   const [selected, setSelected] = useState<ChapterTargetRef>();
+  const markup = useMemo(() => inspectQuestions(view.source), [view.source]);
+  const answering = useRef(new Set<string>());
+  const retiredAnswers = useRef(new Set<string>());
   const onWorking = useCallback(
     (kind: string, id: string, working: boolean) => {
+      if (kind === 'answer') {
+        if (working) {
+          answering.current.add(id);
+          retiredAnswers.current.delete(id);
+        } else answering.current.delete(id);
+      }
       passages.working(snapshot.id, `${kind}:${id}`, working);
     },
     [passages, snapshot.id],
@@ -69,9 +82,18 @@ export function ChapterSurface({
     // Visibility never invalidates an action which already published its ordinary record.
     discussionBlocked: failed || !!view.archived,
     statusCoordinator: snapshot.binding?.status,
-    chapter: { selected, onWorking, controls, url },
+    chapter: {
+      selected,
+      onWorking,
+      controls,
+      url,
+      mayCloseAnswered: (ids) =>
+        !markup.groups.some(
+          (group) =>
+            retiredAnswers.current.has(group.id) && group.questions.some((id) => ids.includes(id)),
+        ),
+    },
   });
-  const markup = useMemo(() => inspectQuestions(view.source), [view.source]);
   const candidates = [
     ...layers.reviewLayer.navigation,
     ...layers.questionLayer.navigation,
@@ -133,10 +155,12 @@ export function ChapterSurface({
   }, [imageDescriptors]);
   const { onQuestionAnchors, onReadingAnchors } = layers;
   const onSlots = layers.inlineSlots.onSlots;
+  const rendering = !detached && (visible || busy);
   useLayoutEffect(() => {
-    if (!visible || failed || passageUnavailable) return;
+    if (!rendering || failed || passageUnavailable) return;
     const controller = new AbortController();
-    const retire = () => {
+    const retire = (slotRemoved = false) => {
+      if (slotRemoved) for (const id of answering.current) retiredAnswers.current.add(id);
       controller.abort();
       renderer.current?.destroy();
       renderer.current = null;
@@ -167,7 +191,7 @@ export function ChapterSurface({
       unframe();
     };
   }, [
-    visible,
+    rendering,
     failed,
     passageUnavailable,
     onPassage,
@@ -205,7 +229,14 @@ export function ChapterSurface({
   const [now, setNow] = useState(0);
   useEffect(() => setNow(Date.now()), [view.asks]);
   return (
-    <section className="chapter-passage" hidden={!visible} data-chapter-passage={snapshot.id}>
+    <section
+      className="chapter-passage"
+      hidden={!visible && (!busy || detached)}
+      inert={!visible}
+      aria-hidden={!visible || undefined}
+      style={!visible ? { visibility: 'hidden' } : undefined}
+      data-chapter-passage={snapshot.id}
+    >
       {unavailable ? (
         <p className="chapter-passage-unavailable">
           {copy.unavailable} ·{' '}

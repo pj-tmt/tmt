@@ -4389,11 +4389,15 @@ the normal foreground Subscribe. No protocol flag or new Remote operation is add
 
 At most three intersecting chapters retain a source, each within the renderer's
 existing 2 MiB source bound. Acquisition/fold is serial. Leaving view, hiding the
-tab or replacing Home retires the frame immediately and cancels acquisition;
+tab or replacing Home cancels acquisition and retires an idle frame immediately;
 replacement joins the previous release before acquiring a successor. An admitted
 parent action already in flight keeps its binding and admitted view until it
-settles. Draft text and selections remain parent-local when the frame retires.
-A failed or unconfirmed release prevents successor acquisition.
+settles, counting toward the three-surface bound. While its slot exists, its
+hidden, inert surface also retains its frame. Removing the slot retires that
+frame; an in-flight answer still records and notifies once, but does not attempt
+the follow-on review close. The full page keeps the review open for explicit
+Confirm, without an error. Draft text and selections remain parent-local when
+the frame retires. A failed or unconfirmed release prevents successor acquisition.
 
 Each chapter selects a waiting review first, then an unanswered question group
 (or standalone question), then an unread reading. Authored order within a kind

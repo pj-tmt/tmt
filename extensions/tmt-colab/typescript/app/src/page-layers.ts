@@ -30,6 +30,7 @@ export function usePageLayers({
     controls: RefObject<HTMLDivElement | null>;
     selected?: { kind: 'review' | 'answer' | 'reading'; id: string };
     onWorking(kind: 'review' | 'answer' | 'reading', id: string, working: boolean): void;
+    mayCloseAnswered(ids: readonly string[]): boolean;
   };
   transport: PageTransport;
   snapshot: PageSnapshot;
@@ -104,7 +105,9 @@ export function usePageLayers({
     groups,
     reviews: reviewLayer.blocks,
     readings: readingLayer.blocks,
-    onRecorded: reviewLayer.answered,
+    onRecorded: (ids, contexts) => {
+      if (!chapter || chapter.mayCloseAnswered(ids)) reviewLayer.answered(ids, contexts);
+    },
     pageUrl: chapter?.url,
     passage: chapter && {
       ids: groups

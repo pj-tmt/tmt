@@ -65,13 +65,18 @@ it('keeps a busy parent action admitted while hidden and releases it only after 
   const passages = new ChapterPassages(acquire);
   passages.update(['a', 'b'], new Set(['a']));
   await passages.settled();
+  const retire = vi.fn();
+  passages.frame('a', retire);
   passages.working('a', 'review:section', true);
   passages.update(['a', 'b'], new Set(['b']));
   await Promise.resolve();
   expect(first.release).not.toHaveBeenCalled();
+  expect(retire).not.toHaveBeenCalled();
   expect(acquire).toHaveBeenCalledTimes(1);
   expect(passages.snapshot.find((item) => item.id === 'a')?.visible).toBe(false);
+  expect(passages.snapshot.find((item) => item.id === 'a')?.busy).toBe(true);
   passages.working('a', 'review:section', false);
+  expect(retire).toHaveBeenCalledOnce();
   await passages.settled();
   expect(first.release).toHaveBeenCalledOnce();
   expect(acquire).toHaveBeenCalledTimes(2);

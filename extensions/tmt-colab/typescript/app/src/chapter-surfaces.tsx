@@ -93,6 +93,7 @@ export function ChapterSurfaces({
           // Retire the frame before moving its container: reparenting an iframe navigates it.
           intersecting.current.delete(id);
           refresh();
+          if (!node) passages.detach(id);
           slot.node = node ?? undefined;
           if (node) {
             node.append(slot.container);
@@ -103,7 +104,7 @@ export function ChapterSurfaces({
         slot.url = url;
       },
     }),
-    [refresh],
+    [refresh, passages],
   );
   useEffect(() => {
     observer.current = new IntersectionObserver((entries) => {
@@ -147,6 +148,8 @@ export function ChapterSurfaces({
                 transport={transport}
                 passages={passages}
                 visible={view.visible}
+                busy={!!view.busy}
+                detached={!!view.detached}
                 open={slot.open}
                 url={slot.url}
                 onCount={(count) =>
