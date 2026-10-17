@@ -8,12 +8,16 @@ use crate::{
 };
 use ratatui::{Frame, layout::Rect, text::Line};
 
+fn lower_minimum_height(timers_height: u16, digest_shown: bool) -> u16 {
+    timers_height + if digest_shown { 9 } else { 0 }
+}
+
 pub(super) fn minimum_height(app: &App) -> u16 {
     // Title, one exchange, reply block and its breathing rows precede observations.
     let digest = app
         .overview_panels()
         .shown(crate::config::OverviewPanel::Digest);
-    10 + super::lower::Band::timers(app).height as u16 + if digest { 9 } else { 0 }
+    10 + lower_minimum_height(super::lower::Band::timers(app).height as u16, digest)
 }
 
 pub(in crate::board) fn render(frame: &mut Frame, app: &App, left: Option<Rect>, area: Rect) {
@@ -98,7 +102,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, left: Option<Rect>,
     let digest_shown = app
         .overview_panels()
         .shown(crate::config::OverviewPanel::Digest);
-    let lower_min = timers.height as u16 + if digest_shown { 9 } else { 0 };
+    let lower_min = lower_minimum_height(timers.height as u16, digest_shown);
     let exchange = remaining
         .saturating_sub(input + gap)
         .min(conversation::exchange::desired_height(app, area.width));

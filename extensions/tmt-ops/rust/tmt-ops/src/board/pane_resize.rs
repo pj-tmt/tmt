@@ -34,14 +34,18 @@ pub(super) fn ratios_decode(value: Option<&Value>) -> Option<Ratios> {
     let Some(value) = value else {
         return Some(Ratios::new());
     };
-    value
-        .as_object()?
-        .iter()
-        .map(|(name, value)| {
-            let ratio = u16::try_from(value.as_u64()?).ok()?;
-            (u32::from(ratio) <= SCALE).then_some((Id::parse(name)?, ratio))
-        })
-        .collect()
+    let mut ratios = Ratios::new();
+    for (name, value) in value.as_object()? {
+        let Some(id) = Id::parse(name) else {
+            continue;
+        };
+        let ratio = u16::try_from(value.as_u64()?).ok()?;
+        if u32::from(ratio) > SCALE {
+            return None;
+        }
+        ratios.insert(id, ratio);
+    }
+    Some(ratios)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
