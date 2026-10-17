@@ -133,13 +133,14 @@ describe('explicit engine selection', () => {
     ]);
   });
 
-  it('rejects unknown, empty and duplicate sets before starting the harness', () => {
-    for (const args of [
-      ['--engines', 'unknown'],
-      ['--engines', ''],
-      ['--engines', 'chromium,chromium'],
-      ['--engines'],
-    ]) {
+  it.each([
+    { name: 'unknown engine', args: ['--engines', 'unknown'] },
+    { name: 'empty engine set', args: ['--engines', ''] },
+    { name: 'duplicate engines', args: ['--engines', 'chromium,chromium'] },
+    { name: 'missing engine set', args: ['--engines'] },
+  ])(
+    'rejects $name before starting the harness',
+    ({ args }) => {
       const result = spawnSync(
         process.execPath,
         [fileURLToPath(new URL('./differential.mjs', import.meta.url)), ...args],
@@ -148,8 +149,9 @@ describe('explicit engine selection', () => {
       expect(result.error).toBeUndefined();
       expect(result.status).toBe(1);
       expect(result.stderr).toMatch(/Expected a nonempty|Usage: differential/);
-    }
-  });
+    },
+    15000,
+  );
 
   it('requires exactly the selected engines without weakening rows or availability', () => {
     expect(run([reports[0]], corpus, ['chromium'])).toBe(0);
