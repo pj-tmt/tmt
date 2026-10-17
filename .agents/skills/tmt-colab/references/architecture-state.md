@@ -136,7 +136,8 @@ Review sections ride the same renderer handshake and slot batch: `review-layer.t
 parent bands and `review-actions.ts` publishes the explicit actions through the existing thread,
 Ask and status owners; see [Review sections](../../../../extensions/tmt-colab/contracts/colab-v1.md#review-sections).
 Recommended-reading metadata uses the same inert parser and shared check vectors. `reading.ts`
-projects person read state from ordinary verified thread records; `reading-actions.ts` records
+projects person read state from ordinary verified thread records; `reading-layer.tsx` reuses the shared NeedsYouBar and exposes its ordered read projection and
+cosmetic navigation; `reading-actions.ts` records
 and resolves through the existing binding/coordinator. Its named-agent restriction excludes
 other prose mentions. `reading-link.ts` owns cosmetic owner/paired navigation hints; Ask capture
 accepts only that exact hint and removes it from the canonical admitted URL. Reader capabilities

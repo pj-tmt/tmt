@@ -84,6 +84,19 @@ export const text = {
   proposalNotifyFailed:
     'Decision saved. The proposer could not be notified. Use Follow up to send a message.',
   proposalDecisionUnconfirmed: 'Could not confirm the decision. Check again before continuing.',
+  readingSection: (title: string) => `Reading: ${title}`,
+  readingWord: 'Read',
+  readingMark: 'Mark read',
+  readingNext: 'Next ↓',
+  readingNotified: (agent: string) => `${agent} notified`,
+  readingNotNotified: (agent: string, reason: string) =>
+    `Read, but ${agent} was not notified: ${reason}.`,
+  readingUnconfirmed: (agent: string) =>
+    `Read; notification to ${agent} is unconfirmed. Check Comments before asking again.`,
+  readingHeld: 'held',
+  readingRefused: 'refused',
+  readingUnavailable: 'unavailable',
+  readingTimeUnknown: 'time unknown',
   reviewSection: (title: string) => `Review: ${title}`,
   reviewAsk: 'Please confirm',
   reviewChanges: 'Changes requested',

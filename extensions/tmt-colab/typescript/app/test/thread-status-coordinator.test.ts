@@ -162,6 +162,12 @@ it('a reading close freezes only its named current agent, never title, reason or
   const b = agent('beta', '2');
   const captured = thread('Read “@beta”\nReading: reading-id\nPage: @beta\n@alpha\nProse @missing');
   const frozen = freezeThreadRecipients(captured, [ask()], [a, b], 'alpha');
+  expect(Object.keys(frozen.recipients[0]).sort()).toEqual([
+    'agent',
+    'agentName',
+    'machine',
+    'operationId',
+  ]);
   expect(
     frozen.recipients.map(({ machine, agent, agentName }) => ({ machine, agent, agentName })),
   ).toEqual([{ machine: a.machine, agent: a.agent, agentName: 'alpha' }]);

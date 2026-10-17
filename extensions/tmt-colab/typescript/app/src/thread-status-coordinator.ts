@@ -57,7 +57,14 @@ export function freezeThreadRecipients(
       };
     const value = [...matches.values()][0];
     return {
-      recipients: [{ ...value, operationId: crypto.randomUUID() }],
+      recipients: [
+        {
+          machine: value.machine,
+          agent: value.agent,
+          agentName: onlyAgentName,
+          operationId: crypto.randomUUID(),
+        },
+      ],
       warnings: [] as MentionWarning[],
     };
   }

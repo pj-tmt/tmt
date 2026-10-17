@@ -1,7 +1,11 @@
+import { BrowserAction } from '@tmt/browser-ui/react';
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { NeedsYouBar } from './components/needs-you-bar.js';
+import { compactRelativeTime } from './display-time.js';
+import { text } from './strings.js';
 import type { Reading } from './questions.js';
 import { ReadingActions, type ReadingOutcome } from './reading-actions.js';
-import { canonicalReadingThread, readingState } from './reading.js';
+import { canonicalReadingThread, readingState, readingNotification } from './reading.js';
 import { AdmittedView } from './review-actions.js';
 import type { QuestionAnchor, ReadingRenderBlock, mountRenderer } from './renderer.js';
 import type { PageBinding, PageSnapshot, PageView } from './transport.js';
@@ -23,6 +27,8 @@ export function useReadingLayer({
   status,
   renderer,
   hint,
+  slotPositions,
+  readingIds,
 }: {
   readings: readonly Reading[];
   snapshot: PageSnapshot;
@@ -32,7 +38,11 @@ export function useReadingLayer({
   status: PageBinding['status'];
   renderer: RefObject<Awaited<ReturnType<typeof mountRenderer>> | null>;
   hint?: string;
+  slotPositions: readonly { id: string; top: number }[];
+  readingIds: ReadonlySet<string>;
 }) {
+  const [now, setNow] = useState(0);
+  useEffect(() => setNow(Date.now()), [view.threads]);
   const [anchors, setAnchors] = useState<QuestionAnchor[] | null>(null);
   const [outcomes, setOutcomes] = useState(new Map<string, ReadingOutcome>());
   const onAnchors = useCallback(
@@ -129,5 +139,96 @@ export function useReadingLayer({
             title: reading.title,
             state: state.kind,
           }));
-  return { onAnchors, blocks, rows, outcomes, actions, items, jump, next, ready: anchors !== null };
+  const writable = !blocked && !view.archived && !!snapshot.binding?.discussion && !!status;
+  const inline = rows.map(({ reading, anchor, thread, state }) => {
+    const slot = slotPositions.find((value) => value.id === reading.id);
+    const attached = !!slot && !!anchor && readingIds.has(reading.id);
+    const outcome = outcomes.get(reading.id);
+    const notification = readingNotification(thread, view.asks ?? []);
+    const read = state.kind === 'read';
+    const notified = notification?.state === 'accepted';
+    const unavailable = outcome?.warnings?.length || notification?.state === 'unavailable';
+    const reason =
+      notification?.state === 'held'
+        ? text.readingHeld
+        : notification?.state === 'refused'
+          ? text.readingRefused
+          : text.readingUnavailable;
+    const warning =
+      read && !notified
+        ? unavailable || notification?.state === 'held' || notification?.state === 'refused'
+          ? text.readingNotNotified(reading.agent, reason)
+          : text.readingUnconfirmed(reading.agent)
+        : undefined;
+    const at = read && state.at ? Number(state.at) : NaN;
+    const time = Number.isFinite(at) ? compactRelativeTime(at, now) : text.readingTimeUnknown;
+    const busy = !writable || !attached || outcome?.state === 'working';
+    const activate = (label: string, action: () => void, disabled = busy) => (
+      <BrowserAction
+        key={label}
+        type="button"
+        variant="text"
+        label={label}
+        disabled={disabled}
+        onActivate={(event) => {
+          if (event.isTrusted) action();
+        }}
+      />
+    );
+    const hasNext = rows.some(
+      (row) => row.reading.id !== reading.id && row.anchor && row.state.kind === 'unread',
+    );
+    return (
+      <section
+        key={reading.id}
+        data-inline-reading={reading.id}
+        data-inline-slot={reading.id}
+        className="proposal-inline reading-inline"
+        data-detached={!attached || undefined}
+        data-reading-state={state.kind}
+        aria-label={text.readingSection(reading.title)}
+        style={{ top: slot?.top ?? 0 }}
+      >
+        <NeedsYouBar
+          tone={read ? 'done' : 'needs'}
+          word={text.readingWord}
+          who={read ? time : reading.agent}
+          why={read ? (notified ? text.readingNotified(reading.agent) : undefined) : reading.why}
+          detail={warning}
+          role={read ? 'status' : undefined}
+          actions={
+            view.archived || !snapshot.binding?.discussion ? undefined : (
+              <>
+                {!read && activate(text.readingMark, () => void actions.mark(reading))}
+                {activate(
+                  text.readingNext,
+                  () => next(reading.id),
+                  !attached || !hasNext || outcome?.state === 'working',
+                )}
+              </>
+            )
+          }
+        />
+        {!read && outcome?.state === 'working' && <p role="status">{text.reviewSaving}</p>}
+        {!read && outcome?.state === 'failed' && (
+          <p role="alert">
+            {outcome.step === 'closing' ? text.reviewCommentKept : text.reviewFailed}
+          </p>
+        )}
+        {!read && outcome?.state === 'uncertain' && <p role="status">{text.reviewUncertain}</p>}
+      </section>
+    );
+  });
+  return {
+    onAnchors,
+    blocks,
+    rows,
+    outcomes,
+    actions,
+    items,
+    jump,
+    next,
+    inline,
+    ready: anchors !== null,
+  };
 }

@@ -2349,6 +2349,14 @@ notification warning rather than guessing a recipient. A retry reuses an already
 comment; reload and reconnect never resend a notification. No separate request store is added.
 Removing the markup removes its controls while its ordinary thread record remains.
 
+The shared parent band uses `Read · <agent>: <why>` and trusted `Mark read` / `Next ↓`
+actions. After a person read it becomes the neutral done band, with the recorded time. Only an
+accepted notification (including an admitted reply) says `<agent> notified`. Held, refused or
+unavailable delivery says `Read, but <agent> was not notified: <reason>.`; uncertain or missing
+outcomes say `Read; notification to <agent> is unconfirmed. Check Comments before asking again.`
+Those outcomes come from the existing status-notification projection, not from Resolve or Send
+adoption. Archived/read-only pages keep the bands without actions. No display path retries.
+
 The parent exposes an ordered `{id,title,state}` projection (`unread` or `read`) for navigation.
 Jump and `Next ↓` only scroll and highlight a currently resolved heading; they never open a
 thread or publish. `read=<canonical UUID>` is an optional navigation hint on the existing owner

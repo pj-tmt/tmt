@@ -1334,6 +1334,8 @@ function Page() {
     status: statusCoordinator,
     renderer,
     hint: space ? readingHint : undefined,
+    slotPositions: inlineSlots.positions,
+    readingIds: inlineSlots.readingIds,
   });
   const questionLayer = useQuestionLayer({
     questions,
@@ -1655,6 +1657,7 @@ function Page() {
           <div className="frame-host" ref={host} />
           {proposalLayer.inline}
           {reviewLayer.inline}
+          {readingLayer.inline}
           {questionLayer.inline}
           {(state === 'navigation' || state === 'failed') && (
             <NoticeCard
