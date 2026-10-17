@@ -984,7 +984,7 @@ for (const surface of ['chat', 'thread'] as const)
         page,
       }) => {
         await page.setViewportSize({ width, height: 900 });
-        await page.emulateMedia({ colorScheme: theme });
+        await page.emulateMedia({ colorScheme: theme, reducedMotion: 'no-preference' });
         await mount(page, surface);
         await page.evaluate((theme) => {
           document.documentElement.dataset.theme = theme;
@@ -1011,11 +1011,6 @@ for (const surface of ['chat', 'thread'] as const)
               'animation-name',
               'agent-working',
             );
-            const captures = process.env.COLAB_ACTIVITY_CAPTURE_DIR;
-            if (captures) {
-              mkdirSync(captures, { recursive: true });
-              await page.screenshot({ path: `${captures}/${surface}-${width}-${theme}.png` });
-            }
             await page.emulateMedia({ reducedMotion: 'reduce' });
             await expect(status.locator('.agent-activity-spinner')).toHaveCSS(
               'animation-name',
@@ -1027,6 +1022,11 @@ for (const surface of ['chat', 'thread'] as const)
             await expect(status.locator('.agent-activity-spinner')).toBeVisible();
             await expect(status.locator('.agent-activity')).toContainText('Atlas is working');
             await page.emulateMedia({ forcedColors: 'none' });
+          }
+          const captures = process.env.COLAB_ACTIVITY_CAPTURE_DIR;
+          if (captures) {
+            mkdirSync(captures, { recursive: true });
+            await page.screenshot({ path: `${captures}/${surface}-${width}-${theme}-${kind}.png` });
           }
         }
         await run(page, 'conversationActivity', { kind: 'working', ageMs: 6000 });

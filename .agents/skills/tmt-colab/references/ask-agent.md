@@ -24,8 +24,9 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
   the session (that would end Live's tunnels); the SDK owns sequence resync and same-ID
   reads. `context()` combines `api/session` (device, name, grant revision) with
   `/sdk/mount` (machine). A failed `send` or `operation` becomes `uncertain`, never a
-  retry. `listAgents` keeps id, name, presence and whitelisted `runningDriver` (`claude`/`codex`) only; the port has no delivery field and
-  no `check`. Optional validated activity and owner observation time are cosmetic only. A Session fault (SDK `RefusalError` `REMOTE_SESSION_ENDED`, `ClientError`
+  retry. `listAgents` keeps id, name, presence, whitelisted `runningDriver` (`claude`/`codex`)
+  and optional validated activity and owner observation time; the last two are cosmetic only.
+  The port has no delivery field and no `check`. A Session fault (SDK `RefusalError` `REMOTE_SESSION_ENDED`, `ClientError`
   `sequence_unavailable`, an expired Session or a changed grant revision) is normalized to
   `SessionEndedError` or an `uncertain` state with that reason. A verified send that Remote
   refused with `REMOTE_SESSION_ENDED` before admission stays `refused`. The SDK also
