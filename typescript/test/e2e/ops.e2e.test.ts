@@ -7,6 +7,7 @@ import { resolveCliExecutables } from '../support/cli-executable.mjs';
 import { expectJsonResult } from './cli-assertions.js';
 import { durableIdentity, durableState } from './identity-state-oracle.js';
 import { requestAttempts } from './request-state-oracle.js';
+import { storedDocument } from '../support/ops-state.js';
 import { withE2EFixture, type E2EFixture, type MockEvent } from './harness.js';
 
 /** Puts the built squad extension and a `tmt` launcher on the fixture PATH. */
@@ -68,24 +69,6 @@ async function squadWithMember(fixture: E2EFixture): Promise<string> {
   expectJsonResult(await squadCli(fixture, ['init', 'product', '--me', 'Ben']));
   expectJsonResult(await squadCli(fixture, ['add', 'auth-fix']));
   return member;
-}
-
-/** A stored document of the Ops state database (`cron`, or one room's `checklist`), if any. */
-function storedDocument(
-  database: string,
-  kind: 'cron' | 'checklist',
-  key = ''
-): Buffer | undefined {
-  if (!fs.existsSync(database)) return undefined;
-  const db = new Database(database, { readonly: true });
-  try {
-    const row = db
-      .prepare('SELECT body FROM documents WHERE kind = ? AND key = ?')
-      .get(kind, key) as { body: Buffer } | undefined;
-    return row?.body;
-  } finally {
-    db.close();
-  }
 }
 
 describe('squad on a private tmux server', { concurrent: false }, () => {
