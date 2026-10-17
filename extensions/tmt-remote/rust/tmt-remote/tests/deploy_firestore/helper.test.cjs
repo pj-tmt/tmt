@@ -728,11 +728,17 @@ function hostedFixture() {
         return ok(null);
       }
       if (route === `/v1beta1/sites/${PROJECT}/channels/live`)
-        return ok(state.live ? { release: state.live } : {});
+        return ok(state.live ? { release: {
+          ...state.live,
+          ...(Object.hasOwn(state, 'channelReleaseName') ? { name: state.channelReleaseName } : {}),
+        } } : {});
       if (route === `/v1beta1/sites/${PROJECT}/releases`) {
         assert.equal(new URL(url).searchParams.get('versionName'), state.versions[0].name);
         state.live = { name: `sites/${PROJECT}/releases/one`, version: state.versions[0] };
-        return ok(state.live);
+        return ok({
+          ...state.live,
+          ...(Object.hasOwn(state, 'postReleaseName') ? { name: state.postReleaseName } : {}),
+        });
       }
       if (route === `/v1/${release}`)
         return ok({ rulesetName: `projects/${PROJECT}/rulesets/current` });
@@ -782,6 +788,71 @@ function hostedFixture() {
   }
   return { f, state, calls, input, call };
 }
+async function finalizedHostingFixture() {
+  const x = hostedFixture();
+  for (const action of ['web-app', 'site', 'configure', 'create', 'populate'])
+    await x.call('apply-hosting', action);
+  await x.call('apply-hosting', 'upload', {
+    hash: hash('gzip-fixture'),
+    bytesBase64: Buffer.from('gzip-fixture').toString('base64'),
+  });
+  await x.call('apply-hosting', 'finalize');
+  return x;
+}
+
+test('Hosting admits either same-site live release name without rewriting it', async () => {
+  const names = [`sites/${PROJECT}/releases/one`, `sites/${PROJECT}/channels/live/releases/one`];
+  for (const post of names) for (const channel of names) {
+    const x = await finalizedHostingFixture();
+    x.state.postReleaseName = post;
+    x.state.channelReleaseName = channel;
+    assert.equal((await x.call('apply-hosting', 'release')).state, 'done');
+    assert.equal((await x.call('verify-hosting', 'verify')).release, channel);
+    assert.equal((await x.call('observe-hosting', 'release')).state, 'satisfied');
+    assert.equal(x.calls.filter((c) => c.method === 'POST' && c.url.includes('/releases?')).length, 1);
+  }
+});
+
+test('Hosting refuses hostile release answers and mismatched live release identities without a second POST', async () => {
+  const hostile = [
+    `sites/other-site/releases/one`, `sites/${PROJECT}/channels/preview/releases/one`,
+    `sites/${PROJECT}/releases/`, `sites/${PROJECT}/channels/live/releases/`,
+    `sites/${PROJECT}/releases/one/extra`, `sites/${PROJECT}/channels/live/releases/one/extra`,
+    `sites/${PROJECT}/releases/one?extra`, `sites/${PROJECT}/releases/${'a'.repeat(257)}`, null, undefined,
+  ];
+  for (const field of ['postReleaseName', 'channelReleaseName']) for (const name of hostile) {
+    const x = await finalizedHostingFixture();
+    x.state[field] = name;
+    await failure(() => x.call('apply-hosting', 'release'), 'unknown');
+    assert.equal(x.calls.filter((c) => c.method === 'POST' && c.url.includes('/releases?')).length, 1);
+  }
+  const x = await finalizedHostingFixture();
+  x.state.postReleaseName = `sites/${PROJECT}/releases/one`;
+  x.state.channelReleaseName = `sites/${PROJECT}/channels/live/releases/two`;
+  await failure(() => x.call('apply-hosting', 'release'), 'unknown');
+  assert.equal(x.calls.filter((c) => c.method === 'POST' && c.url.includes('/releases?')).length, 1);
+});
+
+test('Hosting verification compares release identity across aliases and refuses changed IDs', async () => {
+  const alias = await finalizedHostingFixture();
+  await alias.call('apply-hosting', 'release');
+  const names = [`sites/${PROJECT}/releases/one`, `sites/${PROJECT}/channels/live/releases/one`];
+  let aliasReads = 0;
+  Object.defineProperty(alias.state, 'channelReleaseName', { get() {
+    return names[aliasReads++ % names.length];
+  } });
+  assert.ok(names.includes((await alias.call('verify-hosting', 'verify')).release));
+  const x = await finalizedHostingFixture();
+  await x.call('apply-hosting', 'release');
+  let reads = 0;
+  Object.defineProperty(x.state, 'channelReleaseName', { get() {
+    return ++reads === 1 ? `sites/${PROJECT}/releases/one`
+      : `sites/${PROJECT}/channels/live/releases/two`;
+  } });
+  await failure(() => x.call('verify-hosting', 'verify'), 'unknown');
+  assert.equal(x.calls.filter((c) => c.method === 'POST' && c.url.includes('/releases?')).length, 1);
+});
+
 test('Hosting requires the supplied Rust content digest before any provider read', async () => {
   const valid = hostedFixture();
   assert.equal((await valid.call('observe-hosting', 'web-app')).state, 'absent');

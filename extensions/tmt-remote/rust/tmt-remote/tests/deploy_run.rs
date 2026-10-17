@@ -1238,6 +1238,72 @@ fn hosted_order_is_executable_and_only_joint_verification_publishes() {
     }
 }
 #[test]
+fn hosting_release_names_round_trip_as_received_without_changing_the_frozen_record() {
+    use tmt_remote::deploy_record::{DeployRecordStore, read_project};
+    let plan = hosted_plan();
+    let mut fake = HostedFake::new();
+    let mut sink = Mem::default();
+    let record = run(
+        &plan,
+        &authorized(&plan),
+        DeployRecord::new(DEPLOYMENT),
+        &mut fake,
+        &mut sink,
+        1000,
+    )
+    .unwrap();
+    assert_eq!(record.run.as_ref().unwrap().state, RunState::Complete);
+    let root = deploy_fixture_root::Root::new();
+    let layout = root.layout();
+    let mut writer = DeployRecordStore::open(&layout, PROJECT).unwrap();
+    writer.bind_target(PROJECT, LOCATION).unwrap();
+    let path = root
+        .remote()
+        .join(format!("deployments/{PROJECT}/deploy.json"));
+    for release in [
+        format!("sites/{PROJECT}/releases/one"),
+        format!("sites/{PROJECT}/channels/live/releases/one"),
+    ] {
+        let mut value = serde_json::to_value(&record).unwrap();
+        value["run"]["hosting"]["publication"]["release"] = serde_json::json!(release);
+        let changed: DeployRecord = serde_json::from_value(value.clone()).unwrap();
+        writer
+            .persist(&changed)
+            .expect("documented same-site live release name");
+        let before = fs::read(&path).unwrap();
+        let reread = read_project(&layout, PROJECT).unwrap().unwrap();
+        assert_eq!(serde_json::to_value(&reread).unwrap(), value);
+        assert_eq!(reread.run.as_ref().unwrap().plan_digest, plan.digest());
+        assert_eq!(
+            serde_json::to_value(reread.verified_publication().unwrap()).unwrap()["release"],
+            release
+        );
+        writer.persist(&reread).unwrap();
+        assert_eq!(
+            fs::read(&path).unwrap(),
+            before,
+            "old and new forms are not rewritten"
+        );
+    }
+    for release in [
+        "sites/other-site/releases/one".to_owned(),
+        format!("sites/{PROJECT}/channels/preview/releases/one"),
+        format!("sites/{PROJECT}/releases/"),
+        format!("sites/{PROJECT}/channels/live/releases/"),
+        format!("sites/{PROJECT}/releases/one/extra"),
+        format!("sites/{PROJECT}/channels/live/releases/one/extra"),
+        format!("sites/{PROJECT}/releases/{}", "a".repeat(257)),
+    ] {
+        let before = fs::read(&path).unwrap();
+        let mut value = serde_json::to_value(&record).unwrap();
+        value["run"]["hosting"]["publication"]["release"] = serde_json::json!(release);
+        let changed: DeployRecord = serde_json::from_value(value).unwrap();
+        assert!(writer.persist(&changed).is_err(), "refuse {release}");
+        assert_eq!(fs::read(&path).unwrap(), before);
+    }
+}
+
+#[test]
 fn every_hosted_effect_loss_stops_dependents_and_recovery_observes_original_without_resending() {
     let plan = hosted_plan();
     for step in plan
