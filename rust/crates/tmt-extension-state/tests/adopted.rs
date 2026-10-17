@@ -128,6 +128,7 @@ fn adoption_preserves_legacy_schema_policy_and_once_only_callbacks() {
         assert_eq!(callbacks, 3);
         store
             .read(|tx| {
+                assert_eq!(pragma(tx, "busy_timeout"), 5000);
                 assert_eq!(
                     tx.query_row("SELECT sum(id) FROM records", [], |r| r.get::<_, i64>(0))?,
                     3
@@ -379,7 +380,7 @@ fn process_worker() {
         if journal == "wal" {
             store
                 .read(|tx| {
-                    assert_eq!(pragma(tx, "busy_timeout"), 0);
+                    assert_eq!(pragma(tx, "busy_timeout"), 5000);
                     Ok::<_, rusqlite::Error>(())
                 })
                 .unwrap();
@@ -415,7 +416,7 @@ fn process_worker() {
         if mode == "commit-timeout" {
             store
                 .read(|tx| {
-                    assert!(pragma(tx, "busy_timeout") <= 3100);
+                    assert_eq!(pragma(tx, "busy_timeout"), 5000);
                     Ok::<_, rusqlite::Error>(())
                 })
                 .unwrap();
