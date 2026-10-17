@@ -84,6 +84,10 @@ fn the_frozen_vector_joins_to_the_documented_report_and_csv() {
         case["csv"]["usage"].as_str().unwrap()
     );
     assert_eq!(
+        csv::table(&document, Table::Credits).unwrap(),
+        case["csv"]["credits"].as_str().unwrap()
+    );
+    assert_eq!(
         csv::table(&document, Table::Exchange).unwrap(),
         case["csv"]["exchange"].as_str().unwrap()
     );
@@ -217,6 +221,84 @@ fn coverage_starts_where_core_first_recorded_the_seat_but_never_before_the_windo
     assert_eq!(start(T - DAY / 4), json!(T - DAY / 4));
     // A start that is not a number is a contradiction, not a guess.
     assert!(report_with_available(json!("yesterday")).is_err());
+}
+
+/// `one_seat` after its series bucket gains `fields`.
+fn credited(fields: Value) -> Result<Value, crate::core::Error> {
+    let (totals, mut series, ids, labels) = one_seat(None);
+    let bucket = &mut series["identities"][0]["windows"][0]["buckets"][0];
+    for (key, value) in fields.as_object().unwrap() {
+        bucket[key] = value.clone();
+    }
+    let report = Report {
+        as_of_ms: AS_OF,
+        since: "24h",
+        usage: model::usage(&totals, &series, &ids, &labels)?,
+        exchange: None,
+        warnings: vec![],
+    };
+    model::document(&report)
+}
+
+fn credit_fields(observed: u64, balance: &str) -> Value {
+    json!({"observedAtMs": observed, "balance": balance, "hasCredits": true, "unlimited": false})
+}
+
+#[test]
+fn credits_are_one_series_by_newest_observation_and_absent_where_nothing_was_seen() {
+    // No seat observed credits: nothing is reported, not a zero balance.
+    let none = credited(json!({})).unwrap();
+    assert_eq!(none["credits"], Value::Null);
+    assert!(
+        none["usage"]["seats"][0]["series"][0]
+            .get("serviceTier")
+            .is_none()
+    );
+    assert_eq!(
+        csv::table(&none, Table::Credits).unwrap().lines().count(),
+        1
+    );
+
+    let one =
+        credited(json!({"credits": credit_fields(T - 1000, "7.50"), "serviceTier": "priority"}))
+            .unwrap();
+    assert_eq!(
+        one["credits"],
+        json!({"points": [{"fromMs": T - DAY, "toMs": T, "balance": "7.50",
+            "observedAtMs": T - 1000, "hasCredits": true, "unlimited": false,
+            "serviceTiers": ["priority"]}]})
+    );
+    assert_eq!(
+        one["usage"]["seats"][0]["series"][0]["serviceTier"],
+        "priority"
+    );
+    // A tier without a balance names no point, and a balance without a tier names no tier.
+    let tier_only = credited(json!({"serviceTier": "default"})).unwrap();
+    assert_eq!(tier_only["credits"], Value::Null);
+    let credit_only = credited(json!({"credits": credit_fields(T - 1000, "7")})).unwrap();
+    assert_eq!(
+        credit_only["credits"]["points"][0]["serviceTiers"],
+        json!([])
+    );
+}
+
+#[test]
+fn malformed_credits_or_tier_make_the_read_fail_rather_than_guess() {
+    for fields in [
+        json!({"credits": credit_fields(T, "1e3")}),
+        json!({"credits": credit_fields(T, "")}),
+        json!({"credits": credit_fields(T, ".5")}),
+        json!({"credits": credit_fields(T, "1.2.3")}),
+        json!({"credits": {"observedAtMs": 0, "balance": "1", "hasCredits": true, "unlimited": false}}),
+        json!({"credits": {"observedAtMs": T, "balance": 1, "hasCredits": true, "unlimited": false}}),
+        json!({"credits": {"observedAtMs": T, "balance": "1", "hasCredits": "yes", "unlimited": false}}),
+        json!({"credits": {"observedAtMs": T, "balance": "1", "unlimited": false}}),
+        json!({"serviceTier": "Priority"}),
+        json!({"serviceTier": 7}),
+        json!({"serviceTier": ""}),
+    ] {
+        assert!(credited(fields.clone()).is_err(), "{fields}");
+    }
 }
 
 #[test]

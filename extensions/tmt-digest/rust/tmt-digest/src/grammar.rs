@@ -114,8 +114,8 @@ pub fn command() -> Command {
                             Arg::new("csv")
                                 .long("csv")
                                 .value_name("TABLE")
-                                .value_parser(["usage", "exchange"])
-                                .help("Output one CSV table: usage or exchange"),
+                                .value_parser(["usage", "credits", "exchange"])
+                                .help("Output one CSV table: usage, credits or exchange"),
                         )
                         .group(ArgGroup::new("format").args(["json", "csv"]).required(true)),
                 ),
