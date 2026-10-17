@@ -84,7 +84,7 @@ team default; its frames use the current UUID workspace and tree expansion at
 120×30, 80×30 and 120×30 again, including every cell's style and state, hits, row
 starts and list text/JSON. Presets affect CLI projection, not an alternate UI.
 A board PR that intentionally changes captured output
-sends the decoded cell/style/hit diff to the Squad lead and gets approval **before**
+sends the decoded cell/style/hit diff to the owning UX lead and gets approval **before**
 regenerating the baseline. The regeneration is its own commit in that PR.
 
 The read-only inspector decodes cell runs and styles, reports hit/tab/row-start changes,

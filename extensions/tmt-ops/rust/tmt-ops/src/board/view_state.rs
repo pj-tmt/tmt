@@ -73,6 +73,7 @@ pub(super) struct Controls {
     query: String,
     agents_filter: super::workspace::AgentsFilter,
     overview_view: super::overview::monitor::View,
+    quota_window: super::limits::QuotaWindow,
     order: Order,
 }
 impl Controls {
@@ -82,6 +83,7 @@ impl Controls {
             query: app.search.clone(),
             agents_filter: app.workspace.filter,
             overview_view: app.overview_view,
+            quota_window: app.usage_chart.borrow().quota_window(),
             order: app.workspace_order(),
         }
     }
@@ -91,6 +93,9 @@ impl Controls {
         app.workspace.query = self.query.clone();
         app.workspace.filter = self.agents_filter;
         app.overview_view = self.overview_view;
+        app.usage_chart
+            .borrow_mut()
+            .restore_quota_window(self.quota_window);
         app.workspace.order = Some(self.order);
         app.overview_rows.borrow_mut().clear();
     }
@@ -100,6 +105,7 @@ impl Controls {
         json!({ "paneRatios": super::pane_resize::ratios_json(&self.ratios), "query": self.query,
             "agentsFilter": match self.agents_filter { AgentsFilter::All => "all", AgentsFilter::Pinned => "pinned" },
             "overviewView": match self.overview_view { super::overview::monitor::View::Squads => "squads", super::overview::monitor::View::Agents => "agents" },
+            "quotaWindow": self.quota_window.key(),
             "sort": match self.order.agents { OpsSort::Name => "name", OpsSort::Attention => "attention", OpsSort::Members => "members" },
             "reversed": self.order.reversed,
             "overviewSort": self.order.overview.map(|order| json!({"column":order.column.key(), "descending":order.direction == OverviewDirection::Descending})) })
@@ -125,6 +131,11 @@ impl Controls {
                 None | Some(Some("agents")) => super::overview::monitor::View::Agents,
                 _ => return None,
             },
+            quota_window: value
+                .get("quotaWindow")
+                .and_then(Value::as_str)
+                .and_then(super::limits::QuotaWindow::parse)
+                .unwrap_or_default(),
             order: Order {
                 agents: match value["sort"].as_str()? {
                     "name" => OpsSort::Name,

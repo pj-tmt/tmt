@@ -45,6 +45,10 @@ fn range_changes_keep_each_range_and_bucket_cursors_on_their_current_choice() {
                             Some(&state.selection.each_minutes)
                         ),
                         Focus::Range => assert_eq!(Selection::RANGE.get(state.draft), Some(&next)),
+                        Focus::Quota => assert_eq!(
+                            crate::board::limits::QuotaWindow::ALL[state.draft],
+                            state.quota_window
+                        ),
                         Focus::Bars => assert_eq!(state.draft, state.bar),
                     }
                     let area = Rect::new(0, 0, 60, controls::height(60, state.selection));
@@ -420,6 +424,8 @@ fn bucket_click_keyboard_and_hover_share_exact_unknown_evidence_with_no_close_re
         paint(&mut app, 100, 36);
         press(&mut app, KeyCode::Tab);
         press(&mut app, KeyCode::Tab);
+        assert_eq!(app.usage_chart.borrow().focus, Some(Focus::Quota));
+        press(&mut app, KeyCode::Tab);
         press(&mut app, KeyCode::Enter);
         assert_eq!(app.usage_details.as_ref().unwrap().borrow().lines, captured);
     });
@@ -559,6 +565,8 @@ fn chart_shortcuts_do_not_escape_search_composers_or_modal_input() {
         paint(&mut app, 100, 36);
         press(&mut app, KeyCode::Tab);
         press(&mut app, KeyCode::Tab);
+        assert_eq!(app.usage_chart.borrow().focus, Some(Focus::Quota));
+        press(&mut app, KeyCode::Tab);
         press(&mut app, KeyCode::Enter);
         press(&mut app, KeyCode::Char('u'));
         paint(&mut app, 100, 36);
@@ -696,8 +704,11 @@ fn no_positive_reading_uses_one_summary_without_false_bar_authority() {
             );
             assert!(!state.hits.is_empty());
             assert!(
-                state.hits.iter().all(|hit| hit.target == Target::Controls),
-                "no-positive data must not expose bars: {shown}"
+                state
+                    .hits
+                    .iter()
+                    .all(|hit| matches!(hit.target, Target::Controls | Target::Quota(_))),
+                "no-positive data exposes quota selectors and modal entry, never bars: {shown}"
             );
             assert!(
                 shown.contains("Usage · last 1h")
@@ -862,6 +873,10 @@ fn chart_budget_and_painter_share_the_captured_existing_clock_across_a_rollover(
 #[ignore = "writes task-owned current Overview evidence; never frozen fixtures"]
 fn capture_overview_usage_packet() {
     use tmt_cli_style::{Depth, Theme, theme::Base};
+    if let Ok(path) = std::env::var("TMT_QUOTA_CAPTURE") {
+        capture_quota_packet(&path);
+        return;
+    }
     if let Ok(path) = std::env::var("TMT_USAGE_LONG_CAPTURE") {
         capture_long_usage_packet(&path);
         return;
@@ -954,4 +969,213 @@ fn capture_long_usage_packet(path: &str) {
     });
     assert_eq!(captures.len(), 60);
     std::fs::write(path, serde_json::to_vec(&captures).unwrap()).unwrap();
+}
+
+#[test]
+fn quota_chips_are_shared_keyboard_reachable_and_preserve_token_demand_and_pane_tab() {
+    use crate::board::limits::QuotaWindow;
+    crate::status::with_now_ms(fixtures::NOW, || {
+        let _no_commands = crate::runner::forbid_commands();
+        for width in [103, 148] {
+            let mut app = board();
+            crate::board::app::workspace::tests::observe_waiting_member(&mut app);
+            fixtures::populate(&mut app);
+            let before = app.history_demand();
+            paint(&mut app, width, 51);
+            let source = Rc::clone(app.usage_chart.borrow().observed.as_ref().unwrap());
+            let short = app
+                .usage_chart
+                .borrow()
+                .hits
+                .iter()
+                .find(|hit| hit.target == Target::Quota(QuotaWindow::Short))
+                .unwrap()
+                .area;
+            click(&mut app, short);
+            assert_eq!(app.usage_chart.borrow().quota_window, QuotaWindow::Short);
+            assert_eq!(app.history_demand(), before);
+            assert!(Rc::ptr_eq(
+                &source,
+                app.usage_chart.borrow().observed.as_ref().unwrap()
+            ));
+            assert!(app.usage_chart.borrow().hits.is_empty());
+            paint(&mut app, width, 51);
+            press(&mut app, KeyCode::Char('u'));
+            paint(&mut app, width, 51);
+            press(&mut app, KeyCode::Tab);
+            press(&mut app, KeyCode::Tab);
+            assert_eq!(app.usage_chart.borrow().focus, Some(Focus::Quota));
+            press(&mut app, KeyCode::Left);
+            press(&mut app, KeyCode::Enter);
+            assert_eq!(app.usage_chart.borrow().quota_window, QuotaWindow::Weekly);
+            press(&mut app, KeyCode::Esc);
+            paint(&mut app, width, 51);
+            assert!(!app.usage_chart.borrow().focused());
+            paint(&mut app, 160, 51); // Admit the waiting agent conversation for the pane positive control.
+            let focus = app.focus;
+            press(&mut app, KeyCode::Tab);
+            assert_ne!(
+                app.focus, focus,
+                "Tab retains pane ownership after leaving controls"
+            );
+        }
+    });
+}
+
+fn capture_quota_packet(path: &str) {
+    use crate::board::limits::QuotaWindow;
+    use tmt_cli_style::{Depth, Theme, theme::Base};
+    let mut captures = Vec::new();
+    crate::status::with_now_ms(fixtures::NOW, || {
+        let _no_commands = crate::runner::forbid_commands();
+        for scenario in ["rising", "falling", "steady", "unknown", "early"] {
+            for width in [103, 148] {
+                for (base, depth) in [
+                    (Base::Tmt, Depth::TrueColor),
+                    (Base::TmtLight, Depth::TrueColor),
+                    (Base::Tmt, Depth::None),
+                ] {
+                    for kind in QuotaWindow::ALL {
+                        let mut app = board();
+                        fixtures::quota(&mut app, scenario);
+                        app.usage_chart.borrow_mut().restore_quota_window(kind);
+                        app.view.as_mut().unwrap().look = crate::look::Look {
+                            theme: Theme::new(base),
+                            depth,
+                        };
+                        app.local_zone = Some(jiff::tz::TimeZone::UTC);
+                        let buffer = paint(&mut app, width, 51);
+                        let cells=buffer.content.iter().map(|cell|serde_json::json!({"symbol":cell.symbol(),"fg":format!("{:?}",cell.fg),"bg":format!("{:?}",cell.bg),"modifier":format!("{:?}",cell.modifier)})).collect::<Vec<_>>();
+                        let lines = buffer
+                            .content
+                            .chunks(usize::from(width))
+                            .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+                            .collect::<Vec<_>>();
+                        captures.push(serde_json::json!({"scene":scenario,"width":width,"height":51,"base":base.name(),"depth":format!("{depth:?}"),"quotaWindow":kind.key(),"cells":cells,"lines":lines}));
+                    }
+                }
+            }
+        }
+    });
+    assert_eq!(captures.len(), 60);
+    std::fs::write(path, serde_json::to_vec(&captures).unwrap()).unwrap();
+}
+
+#[test]
+fn quota_bucket_arithmetic_and_actual_frames_are_independent_of_every_token_selection() {
+    use crate::board::limits::{QuotaWindow, Trend};
+    crate::status::with_now_ms(fixtures::NOW, || {
+        let _no_commands = crate::runner::forbid_commands();
+        for (scenario, expected, trend) in [
+            ("rising", Some(0.6), Some(Trend::Up)),
+            ("falling", Some(0.3), Some(Trend::Down)),
+            ("steady", Some(0.6), Some(Trend::Same)),
+            ("early", Some(6.0), Some(Trend::Up)),
+            ("unknown", None, None),
+        ] {
+            let mut app = board();
+            fixtures::quota(&mut app, scenario);
+            for kind in QuotaWindow::ALL {
+                let before =
+                    crate::board::overview::quota::projection(&app, "codex", kind, fixtures::NOW);
+                match (before.pace.per_hour, expected) {
+                    (Some(rate), Some(expected)) => assert!(
+                        (rate - expected).abs() < 1e-10,
+                        "{scenario}/{kind:?}: {rate}"
+                    ),
+                    (None, None) => (),
+                    other => panic!("{scenario}/{kind:?}: {other:?}"),
+                };
+                assert_eq!(before.pace.trend, trend, "{scenario}/{kind:?}");
+                for range in Selection::RANGE {
+                    app.usage_chart
+                        .borrow_mut()
+                        .apply(Target::Range(range))
+                        .unwrap();
+                    for &each in Selection::each_choices(range) {
+                        app.usage_chart
+                            .borrow_mut()
+                            .apply(Target::Each(each))
+                            .unwrap();
+                        let after = crate::board::overview::quota::projection(
+                            &app,
+                            "codex",
+                            kind,
+                            fixtures::NOW,
+                        );
+                        assert_eq!(after.pace, before.pace);
+                        assert_eq!(after.balance, before.balance);
+                        assert!(app.history_demand().unwrap().quota);
+                    }
+                }
+            }
+            app.usage_chart
+                .borrow_mut()
+                .apply(Target::Range(60))
+                .unwrap();
+            app.usage_chart.borrow_mut().apply(Target::Each(5)).unwrap();
+            for width in [103, 148] {
+                let buffer = paint(&mut app, width, 51);
+                let left = if width == 103 { 65 } else { 98 };
+                let state = app.usage_chart.borrow();
+                let weekly = state
+                    .hits
+                    .iter()
+                    .find(|hit| hit.target == Target::Quota(QuotaWindow::Weekly))
+                    .unwrap()
+                    .area;
+                let short = state
+                    .hits
+                    .iter()
+                    .find(|hit| hit.target == Target::Quota(QuotaWindow::Short))
+                    .unwrap()
+                    .area;
+                assert_eq!((weekly.x, short.x), (left + 6, left + 11));
+                assert_eq!(buffer[(left, weekly.y)].symbol(), "q");
+                assert_eq!(weekly.width, 4);
+                assert_eq!(short.width, 4);
+            }
+        }
+    });
+}
+
+#[test]
+fn quota_group_admits_both_whole_choices_or_none_and_authored_navigation_wins() {
+    use crate::board::limits::QuotaWindow;
+    for width in [14, 15, 37] {
+        let app = board();
+        let area = Rect::new(0, 0, width, 1);
+        let mut buffer = Buffer::empty(area);
+        let hits = controls::quota(
+            &mut buffer,
+            area,
+            QuotaWindow::Weekly,
+            Some(Focus::Quota),
+            1,
+            &app,
+        );
+        if width < 15 {
+            assert!(hits.is_empty());
+            assert!(buffer.content.iter().all(|cell| cell.symbol() == " "));
+        } else {
+            assert_eq!(hits.len(), 2);
+            for hit in hits {
+                assert_eq!(hit.area.intersection(area), hit.area);
+                assert_eq!(hit.area.width, 4);
+            }
+        }
+    }
+    crate::status::with_now_ms(fixtures::NOW, || {
+        let _no_commands = crate::runner::forbid_commands();
+        let mut app = board();
+        fixtures::populate(&mut app);
+        crate::board::app::tests::configure_workspace(&mut app, "[bind]\nright='menu'\n");
+        paint(&mut app, 160, 51);
+        app.usage_chart.borrow_mut().set_focus(Focus::Quota);
+        let before = app.usage_chart.borrow().quota_window;
+        press(&mut app, KeyCode::Right);
+        assert!(app.menu.is_some());
+        assert!(!app.usage_chart.borrow().focused());
+        assert_eq!(app.usage_chart.borrow().quota_window, before);
+    });
 }

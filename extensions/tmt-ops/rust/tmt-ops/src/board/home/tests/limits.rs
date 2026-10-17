@@ -101,7 +101,8 @@ fn provider_quota_shares_its_usage_row_and_the_body_follows() {
     app.set_limits(standings());
     let rows = rows(&app, 100);
     let quota = &rows[index_of(&rows, "78%")];
-    assert!(quota.contains("Codex") && quota.contains("7d"), "{quota}");
+    assert!(quota.contains("Codex"), "{quota}");
+    assert!(rows[index_of(&rows, "quota")].contains(" 7d "));
     assert!(rows.iter().all(|row| !row.contains("Subscriptions")));
     assert_eq!(index_of(&rows, "78%"), index_of(&rows, "Usage · last") + 2);
     crate::status::with_now_ms(NOW, || {
@@ -121,7 +122,11 @@ fn provider_quota_shares_its_usage_row_and_the_body_follows() {
             details.contains("7d: 78% remaining · reset 2d10h"),
             "{details}"
         );
-        assert!(details.contains("Weekly pace: ~0.4%/h"), "{details}");
+        assert!(details.contains("2h pace: unknown"), "{details}");
+        assert!(
+            !details.contains("0.4%/h"),
+            "a held six-hour estimate is not the API-backed two-hour rate"
+        );
     });
     assert!(index_of(&rows, "worker") > index_of(&rows, "78%"));
 }

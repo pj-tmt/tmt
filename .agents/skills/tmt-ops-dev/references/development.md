@@ -120,9 +120,9 @@ CARGO_BUILD_JOBS=2 cargo test --release --locked -p tmt-ops workspace_ansi_phase
   task-owned `TMT_WORKSPACE_CAPTURE` path, never a golden fixture. Real private-tmux
   captures corroborate runtime behavior. The glyph guard uses the shared registered
   marks; untrusted names/tasks/notebooks remain inert text.
-  Frozen HOME and row parity retain their provenance until UX and Core approve a
-  decoded cell/style/hit/oracle comparison plus byte-identical public list proof.
-  Approved regeneration has its own attributed commit.
+  Frozen HOME and row parity follow the owning
+  [board parity gate](../../tmt-tui/references/development.md#board-parity-baseline),
+  including decoded evidence and approval before the separate attributed recorder commit.
 - Settings editor changes: cover live preview, focus and age-evidence restoration on cancel,
   invalid input, read-only command entries and stale-file refusal (native edits verify shared
   staleness after reload, including the disabled no-publication path); capture normal and

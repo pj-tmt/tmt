@@ -131,8 +131,8 @@ fn read_slices(
 pub(in crate::board) struct Cache {
     key: Option<(u64, u64, u64)>,
     seeds: Seeds,
-    retained_key: Option<(u64, u64, rollup::Request)>,
-    retained: rollup::Seeds,
+    chart: RetainedCache,
+    quota: RetainedCache,
 }
 
 impl Cache {
@@ -144,40 +144,27 @@ impl Cache {
         cursor: Option<u64>,
         now: u64,
     ) -> rollup::Seeds {
-        let through = now / rollup::RESOLUTION_MS * rollup::RESOLUTION_MS;
-        let key = cursor.map(|cursor| (cursor, through, request));
-        if key.is_none() || self.retained_key != key {
-            self.retained.clear();
-            self.retained_key = key;
+        self.chart.load(core, ids, request, cursor, now)
+    }
+
+    pub fn quota(
+        &mut self,
+        core: &Core,
+        ids: BTreeSet<String>,
+        cursor: Option<u64>,
+        now: u64,
+    ) -> rollup::Seeds {
+        self.quota.load(core, ids, quota_request(), cursor, now)
+    }
+
+    /// Only the active token selection and the fixed quota horizon are cached.
+    pub fn retain_demand(&mut self, demand: Option<Demand>) {
+        if demand.and_then(|d| d.chart).is_none() {
+            self.chart = RetainedCache::default();
         }
-        let missing = ids
-            .iter()
-            .filter(|id| !self.retained.contains_key(*id))
-            .cloned()
-            .collect();
-        let loaded = read_window(
-            core,
-            missing,
-            request.range_ms(),
-            request.buckets(),
-            |response, row| rollup::Seed::read(response, row, request),
-        );
-        for (id, seed) in &loaded {
-            if key.is_some() && seed.as_ref().is_some_and(|seed| seed.through == through) {
-                self.retained.insert(id.clone(), seed.clone());
-            }
+        if !demand.is_some_and(|d| d.quota) {
+            self.quota = RetainedCache::default();
         }
-        ids.into_iter()
-            .map(|id| {
-                let seed = self
-                    .retained
-                    .get(&id)
-                    .or_else(|| loaded.get(&id))
-                    .cloned()
-                    .flatten();
-                (id, seed)
-            })
-            .collect()
     }
 
     pub fn load(
@@ -194,12 +181,78 @@ impl Cache {
             self.seeds.clear();
             self.key = key;
         }
+        self.seeds.retain(|id, _| ids.contains(id));
         let missing = ids
             .iter()
             .filter(|id| !self.seeds.contains_key(*id))
             .cloned()
             .collect();
         let loaded = load(core, missing, longest);
+        for (id, seed) in &loaded {
+            if key.is_some() && seed.as_ref().is_some_and(|seed| seed.through == through) {
+                self.seeds.insert(id.clone(), seed.clone());
+            }
+        }
+        ids.into_iter()
+            .map(|id| {
+                let seed = self
+                    .seeds
+                    .get(&id)
+                    .or_else(|| loaded.get(&id))
+                    .cloned()
+                    .flatten();
+                (id, seed)
+            })
+            .collect()
+    }
+}
+
+/// One token selection and one fixed four-hour quota read share the existing worker.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::board) struct Demand {
+    pub chart: Option<rollup::Request>,
+    pub quota: bool,
+}
+pub(in crate::board) fn quota_request() -> rollup::Request {
+    rollup::Request::new(
+        rollup::RESOLUTION_MS,
+        2 * crate::board::limits::pace::HORIZON_MS,
+    )
+    .expect("four hours in 48 closed five-minute intervals")
+}
+#[derive(Default)]
+struct RetainedCache {
+    key: Option<(u64, u64, rollup::Request)>,
+    seeds: rollup::Seeds,
+}
+impl RetainedCache {
+    fn load(
+        &mut self,
+        core: &Core,
+        ids: BTreeSet<String>,
+        request: rollup::Request,
+        cursor: Option<u64>,
+        now: u64,
+    ) -> rollup::Seeds {
+        let through = now / rollup::RESOLUTION_MS * rollup::RESOLUTION_MS;
+        let key = cursor.map(|cursor| (cursor, through, request));
+        if key.is_none() || self.key != key {
+            self.seeds.clear();
+            self.key = key;
+        }
+        self.seeds.retain(|id, _| ids.contains(id));
+        let missing = ids
+            .iter()
+            .filter(|id| !self.seeds.contains_key(*id))
+            .cloned()
+            .collect();
+        let loaded = read_window(
+            core,
+            missing,
+            request.range_ms(),
+            request.buckets(),
+            |response, row| rollup::Seed::read(response, row, request),
+        );
         for (id, seed) in &loaded {
             if key.is_some() && seed.as_ref().is_some_and(|seed| seed.through == through) {
                 self.seeds.insert(id.clone(), seed.clone());
@@ -269,6 +322,7 @@ mod tests {
         let other_each = rollup::Request::new(1_800_000, 21_600_000).unwrap();
         let other_range = rollup::Request::new(3_600_000, 86_400_000).unwrap();
         let seed = rollup::Seed {
+            limits: Vec::new(),
             request,
             through: 30_000_000,
             fine_through: 30_020_000,
@@ -287,8 +341,10 @@ mod tests {
             (Some(7), 30_299_999, other_range, false),
         ] {
             let mut cache = Cache {
-                retained_key: Some((7, seed.through, request)),
-                retained: [("known".into(), Some(seed.clone()))].into(),
+                chart: RetainedCache {
+                    key: Some((7, seed.through, request)),
+                    seeds: [("known".into(), Some(seed.clone()))].into(),
+                },
                 ..Default::default()
             };
             let result = cache.retained(
@@ -301,7 +357,7 @@ mod tests {
             assert_eq!(result["known"].is_some(), reused);
             assert!(result["new"].is_none());
             assert!(
-                !cache.retained.contains_key("new"),
+                !cache.chart.seeds.contains_key("new"),
                 "failed reads are retryable"
             );
             assert!(
@@ -309,6 +365,47 @@ mod tests {
                 "coarse reuse cannot populate fine evidence"
             );
         }
+    }
+
+    #[test]
+    fn chart_rebucketing_cannot_replace_the_fixed_quota_cache_and_hidden_demand_releases_it() {
+        let request = quota_request();
+        assert_eq!(
+            (request.range_ms(), request.each_ms(), request.buckets()),
+            (14_400_000, 300_000, 48)
+        );
+        let seed = rollup::Seed {
+            request,
+            through: 30_000_000,
+            fine_through: 30_000_000,
+            sampled: None,
+            latest: Value::Null,
+            buckets: Vec::new(),
+            limits: Vec::new(),
+        };
+        let mut cache = Cache {
+            quota: RetainedCache {
+                key: Some((7, seed.through, request)),
+                seeds: [("known".into(), Some(seed))].into(),
+            },
+            ..Default::default()
+        };
+        let core = Core::at("/nonexistent-squad-independent-quota-cache-test".into());
+        for chart in [
+            rollup::Request::new(900_000, 21_600_000),
+            rollup::Request::new(3_600_000, 86_400_000),
+            None,
+        ] {
+            cache.retain_demand(Some(Demand { chart, quota: true }));
+            if let Some(request) = chart {
+                cache.retained(&core, ["known".into()].into(), request, Some(7), 30_200_000);
+            }
+            assert!(
+                cache.quota(&core, ["known".into()].into(), Some(7), 30_200_000)["known"].is_some()
+            );
+        }
+        cache.retain_demand(None);
+        assert!(cache.chart.seeds.is_empty() && cache.quota.seeds.is_empty());
     }
 
     #[test]
@@ -420,7 +517,7 @@ mod tests {
         );
         assert_eq!(retained.keys().cloned().collect::<BTreeSet<_>>(), ids);
         assert!(retained.values().all(Option::is_none));
-        assert!(cache.retained.is_empty());
+        assert!(cache.chart.seeds.is_empty());
         let requests: Vec<Value> = std::fs::read_to_string(&calls)
             .unwrap()
             .lines()

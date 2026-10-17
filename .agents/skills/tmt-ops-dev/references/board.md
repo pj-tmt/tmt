@@ -238,7 +238,9 @@ per-user Ops cache after the opening frame. The default keeps `board/view.json`;
 `ui --view <name>` selects `board/views/<name>.json` (1–32 lowercase ASCII letters,
 digits or hyphens). Each bounded 64 KiB file retains destination, expanded squad
 UUIDs, pool expansion, exact UUID selection, committed search, Overview/Agents
-filters and sort, and pane scroll offsets clamped by the next draw. Old v1 hints
+filters and sort, the shared quota-window choice, and pane scroll offsets clamped
+by the next draw. Missing or unknown quota choices restore the default 7d without
+discarding other valid controls. Old v1 hints
 without the additive controls/scroll fields still restore without a migration.
 Reads create nothing; first publication creates the layer. Same-name boards use
 last-writer-wins publication; different layer files never affect one another.

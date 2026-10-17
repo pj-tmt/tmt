@@ -216,14 +216,18 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   separate cache key includes cursor, closed boundary and interval/range. Range
   changes and each new closed boundary preempt through the existing generation
   while the Overview or Digest Usage surface is enabled. Leaving it cancels the
-  demand; no additional reader thread or persistent history store is created.
+  demand. Overview's visible quota requests a separate fixed four-hour window
+  at five-minute resolution (48 buckets), independent of chart Each/Range. The
+  same cache holds at most these two retained requests, keyed independently;
+  inactive demand releases its entry. Quota choice changes require no source
+  read. No additional reader thread or persistent history store is created.
   A new generation reacquires history even when queued tab switches coalesce
   back to the previous name; ordinary same-generation reloads do not acquire it.
 - Publication: the same worker serializes roster, history and a fresh public
   usage observation. History never replays the opening snapshot's older counters.
   One global `ls` supplies the post-history observation, replacing the first
   scheduled usage poll. Delivery checks cancellation, displayed owner, room UUID,
-  settings, exact member UUIDs and current chart request before seeding Rate. A failed
+  settings, exact member UUIDs and current token/quota demand before seeding Rate. A failed
   observation preserves historical evidence with a gap; it cannot imply zero or
   continuous coverage. The usable roster remains interactive while usage updates.
 - Seeding: closed deltas replace the authoritative recent region on re-entry,
@@ -324,10 +328,16 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   30 minutes, starts a new cycle) and needs 1 h of samples. A reading older than 2
   h, or whose week has already reset, is shown only as `no reading for <age>`.
   Only windows of about 7 days and 5 hours are shown, so the labels are exact.
-  While usage sampling is enabled, Overview and Digest show one row for each
-  reported weekly/short window, with a remaining-share fill, remaining percent
-  and labelled reset countdown. Weekly measured pace and its existing warning
-  fit when space permits; a short window never borrows weekly pace. Positive
+  These held estimates continue to serve Digest. Overview uses one selected
+  window and the fixed two-hour API-backed projection described in
+  [board-home.md](board-home.md#usage-and-verification); its four-hour quota tier
+  shares Rate's verified suffix/bridge admission without replacing token history.
+  Retained buckets carry optional limits; fine buckets never do. The shared typed
+  parser rejects an invalid optional limit object without discarding token deltas.
+  All admitted quota observations remain available for reset/drop guards, and
+  repeated account evidence is deduplicated, never summed. Digest shows each
+  reported weekly/short window with remaining-share fill, percent and reset;
+  weekly held pace never supplies short-window pace. Positive
   balances below one percent retain one filled cell; known zero has none.
   `Updating limits…` precedes the first sample; no reported providers gives the
   rows back. Unknown/stale readings remain explicit rather than becoming zero.

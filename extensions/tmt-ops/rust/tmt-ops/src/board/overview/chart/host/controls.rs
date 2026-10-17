@@ -8,6 +8,9 @@ use crate::{
 use ratatui::{buffer::Buffer, layout::Rect};
 fn target(id: &str) -> Option<Target> {
     let (prefix, value) = id.split_once('-')?;
+    if prefix == "quota" {
+        return crate::board::limits::QuotaWindow::parse(value).map(Target::Quota);
+    }
     let value = value.parse().ok()?;
     match prefix {
         "each" => Some(Target::Each(value)),
@@ -216,4 +219,51 @@ pub(super) fn header(
         }
     }
     hits
+}
+
+/// Uses the same padded, clipped choice geometry as Each and Range.
+pub(super) fn quota(
+    buffer: &mut Buffer,
+    area: Rect,
+    selected: crate::board::limits::QuotaWindow,
+    focus: Option<Focus>,
+    draft: usize,
+    app: &App,
+) -> Vec<Hit> {
+    use crate::board::limits::QuotaWindow;
+    // Neither a clipped choice nor an invisible keyboard draft is admitted.
+    if area.width < 15 || area.height == 0 {
+        return Vec::new();
+    }
+    let group = ChipGroup {
+        label: "quota ".into(),
+        choices: QuotaWindow::ALL
+            .iter()
+            .enumerate()
+            .map(|(index, window)| Choice {
+                id: format!("quota-{}", window.key()),
+                actionable: true,
+                text: format!(" {} ", window.key()),
+                gap: " ".into(),
+                selected: *window == selected,
+                disabled: false,
+                cursor: focus == Some(Focus::Quota) && draft == index,
+            })
+            .collect(),
+    };
+    chips::paint(
+        buffer,
+        area,
+        &[group],
+        app,
+        app.usage_controls.then_some(Overlay::UsageControls),
+    )
+    .into_iter()
+    .filter_map(|hit| {
+        Some(Hit {
+            area: hit.area,
+            target: target(&hit.id)?,
+        })
+    })
+    .collect()
 }

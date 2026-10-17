@@ -3,17 +3,12 @@
 //! observation; a driver whose sessions report usage but no windows can only
 //! show them in a pane's statusline footer, so the listing supplies the panes
 //! worth reading. Providers are the driver IDs the listing names.
-use super::{Provider, Reading, Window};
+use super::{Provider, QuotaWindow, Reading};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Panes tried per footer read, freshest first.
 const MAX_CANDIDATES: usize = 3;
-/// The header labels the windows `7d` and `5h`, so only windows of about those
-/// lengths are shown; any other limit is left out rather than mislabelled.
-const WEEKLY_MINUTES: std::ops::RangeInclusive<u64> = 6 * 24 * 60..=8 * 24 * 60;
-const SHORT_MINUTES: std::ops::RangeInclusive<u64> = 4 * 60..=6 * 60;
-
 /// A listed session whose pane may show the account's limits.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::board) struct Candidate {
@@ -89,35 +84,12 @@ pub(in crate::board) fn footer_candidates(listed: &Value) -> BTreeMap<Provider, 
 /// The public `rateLimits` document as a reading, in percent left: the window
 /// of about a week and, when present, the one of about five hours.
 fn reading(limits: &Value) -> Option<Reading> {
-    let observed_at_ms = limits["observedAtMs"].as_u64().filter(|ms| *ms > 0)?;
-    let windows = limits["windows"]
-        .as_array()?
-        .iter()
-        .map(|window| {
-            let minutes = window["windowMinutes"].as_u64().filter(|m| *m > 0)?;
-            let used = window["usedPercent"]
-                .as_f64()
-                .filter(|p| (0.0..=100.0).contains(p))?;
-            let resets_at_ms = window["resetsAtMs"].as_u64().filter(|ms| *ms > 0)?;
-            Some((
-                minutes,
-                Window {
-                    left: 100.0 - used,
-                    resets_at_ms,
-                },
-            ))
-        })
-        .collect::<Option<Vec<_>>>()?;
-    let window_of = |range: &std::ops::RangeInclusive<u64>| {
-        windows
-            .iter()
-            .find(|(minutes, _)| range.contains(minutes))
-            .map(|(_, window)| *window)
-    };
-    let weekly = window_of(&WEEKLY_MINUTES)?;
-    let short = window_of(&SHORT_MINUTES);
+    let report = super::observation::Report::read(limits)?;
+    let window_of = |kind: QuotaWindow| report.window(kind).map(|point| point.balance());
+    let weekly = window_of(QuotaWindow::Weekly)?;
+    let short = window_of(QuotaWindow::Short);
     let reading = Reading {
-        observed_at_ms,
+        observed_at_ms: report.observed_at_ms,
         weekly,
         short,
     };

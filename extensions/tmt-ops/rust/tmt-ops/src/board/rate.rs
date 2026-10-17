@@ -5,6 +5,7 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 
 pub(super) mod history;
+mod quota;
 pub(super) mod series;
 
 const SAFE: u64 = 9_007_199_254_740_991;
@@ -142,6 +143,7 @@ struct Member {
     /// A bounded coarse resolution of the same source history. A projection
     /// chooses this or the recent ring; overlapping tiers are never added.
     retained: Option<Retained>,
+    quota: Option<quota::History>,
     /// Only mixed-provenance cells need a split. Keys are the owning ring slot,
     /// removed on replacement; this never carries independent history or totals.
     provider_splits: BTreeMap<u64, BTreeMap<u16, u128>>,
@@ -599,6 +601,7 @@ impl Rate {
                 );
                 continue;
             }
+            quota::observe(state, resume, &next, now);
             if !next.usable {
                 state.previous = Some(next);
                 state.blocked = true;

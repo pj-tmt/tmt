@@ -47,6 +47,7 @@ pub(in crate::board) struct Seed {
     pub sampled: Option<u64>,
     pub latest: Value,
     pub buckets: Vec<Slice>,
+    pub limits: Vec<(usize, crate::board::limits::observation::Report)>,
 }
 
 impl Seed {
@@ -100,13 +101,27 @@ impl Seed {
                     (fine_through.saturating_sub(7_200_000)..fine_through).contains(at)
                 })?)
             };
+        let buckets = read_slices(window, from, through, request.each_ms, request.buckets())?;
+        let limits = window["buckets"]
+            .as_array()?
+            .iter()
+            .enumerate()
+            .filter_map(|(index, raw)| {
+                let report = crate::board::limits::observation::Report::read(&raw["rateLimits"])?;
+                let bucket = &buckets[index];
+                (bucket.from_ms..bucket.to_ms)
+                    .contains(&report.observed_at_ms)
+                    .then_some((index, report))
+            })
+            .collect();
         Some(Self {
             request,
             through,
             fine_through,
             sampled,
             latest: row["latest"].clone(),
-            buckets: read_slices(window, from, through, request.each_ms, request.buckets())?,
+            buckets,
+            limits,
         })
     }
 }
@@ -186,6 +201,29 @@ mod tests {
         assert!(!seed.buckets[0].complete && seed.buckets[0].covered_ms == 0);
         assert_eq!(seed.buckets[1].input_tokens, 9);
         assert_eq!(seed.buckets[1].covered_ms, 300_000);
+    }
+
+    #[test]
+    fn optional_quota_keeps_source_time_inside_its_bucket_and_cannot_destroy_tokens() {
+        let request = crate::board::rate::history::quota_request();
+        let mut value = response(request);
+        let from = value["identities"][0]["windows"][0]["buckets"][0]["fromMs"]
+            .as_u64()
+            .unwrap();
+        let raw = json!({"observedAtMs":from+60_000,"windows":[{"windowMinutes":300,"usedPercent":40,"resetsAtMs":from+86_400_000}]});
+        value["identities"][0]["windows"][0]["buckets"][0]["rateLimits"] = raw;
+        for (at, count) in [(from + 60_000, 1), (from - 1, 0), (from + 300_000, 0)] {
+            value["identities"][0]["windows"][0]["buckets"][0]["rateLimits"]["observedAtMs"] =
+                json!(at);
+            let seed = Seed::read(&value, &value["identities"][0], request).unwrap();
+            assert_eq!(seed.limits.len(), count);
+            assert_eq!(seed.buckets.len(), 48);
+        }
+        value["identities"][0]["windows"][0]["buckets"][0]["rateLimits"]["windows"][0]["usedPercent"] =
+            json!(101);
+        let seed = Seed::read(&value, &value["identities"][0], request).unwrap();
+        assert!(seed.limits.is_empty());
+        assert!(seed.buckets[0].complete);
     }
 
     #[test]
