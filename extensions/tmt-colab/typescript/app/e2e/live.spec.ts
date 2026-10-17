@@ -2295,7 +2295,10 @@ test('paired checkpoints precede an authenticated interleaved tail, preserve edi
   const f = await wire(context, undefined, {});
   await page.goto(mount);
   await page.locator(`[data-page-id="${v.page}"] a`).click();
-  await expect(page.getByRole('heading', { name: 'Checkpoint', exact: true })).toBeVisible();
+  // The chapter's panel header repeats the title: read the page header's.
+  await expect(
+    page.locator('.tmt-ui-header').getByRole('heading', { name: 'Checkpoint', exact: true }),
+  ).toBeVisible();
   await expect(page.getByTestId('comments-panel')).toContainText('No comments yet.');
   await expect(page.getByTestId('comment-entry')).toHaveCount(0);
   await (await pageAction(page, 'Source')).click();
