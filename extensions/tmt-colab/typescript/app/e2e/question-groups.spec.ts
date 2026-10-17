@@ -412,6 +412,9 @@ for (const width of [1440, 390])
           return color;
         });
         await expect(waiting).toHaveCSS('color', waitingRole);
+        await selected.hover();
+        await expect(selected).toHaveCSS('color', neutral);
+        await page.mouse.move(0, 0);
         await capture('waiting');
         await activeCard(page).getByLabel('Keep it', { exact: true }).check();
         // Send is an inline text action, like the other needs-you actions.
@@ -470,6 +473,7 @@ for (const width of [1440, 390])
             return !!box && !!below && below.y >= box.y + box.height - 1;
           })
           .toBe(true);
+        await expect(selected).toHaveCSS('color', neutral);
         await capture('answered');
         await run(page, 'questionGroup', { count: 12, darkPage, longLabels: true, lone: true });
         await expect(group.getByRole('tab')).toHaveCount(12);
