@@ -13,11 +13,14 @@ static NEXT: AtomicU64 = AtomicU64::new(0);
 pub(super) struct Fixture(pub(super) PathBuf);
 impl Fixture {
     pub(super) fn new() -> Self {
-        let path = std::env::temp_dir().join(format!(
-            "digest-history-{}-{}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
+        // The store refuses a symlinked path, and macOS's temp dir is under the `/var` symlink.
+        let path = fs::canonicalize(std::env::temp_dir())
+            .unwrap()
+            .join(format!(
+                "digest-history-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
         fs::create_dir(&path).unwrap();
         Self(path)
     }
