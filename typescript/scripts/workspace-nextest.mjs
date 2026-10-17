@@ -41,10 +41,18 @@ export function compareInventories(cargo, nextest) {
     const original = binaries.get(suite['binary-path']);
     assert.ok(original, `nextest binary absent from Cargo: ${suite['binary-path']}`);
     binaries.delete(suite['binary-path']);
-    const names = Object.keys(suite.testcases).sort();
-    assert.deepEqual(names, original.tests, `${suite['binary-id']}: case identities differ`);
+    const names = Object.keys(suite.testcases);
+    assert.deepEqual(
+      [...names].sort(),
+      original.tests,
+      `${suite['binary-id']}: case identities differ`
+    );
     const ignored = names.filter((name) => suite.testcases[name].ignored);
-    assert.deepEqual(ignored, original.ignored, `${suite['binary-id']}: ignored set differs`);
+    assert.deepEqual(
+      [...ignored].sort(),
+      original.ignored,
+      `${suite['binary-id']}: ignored set differs`
+    );
     for (const name of names) {
       const match = suite.testcases[name]['filter-match'];
       assert.ok(
@@ -103,24 +111,13 @@ function admittedCases(cases) {
   return cases;
 }
 
-/** Slice the independent active inventory, rather than trusting a matching count. */
+/** Preserve pinned nextest suite/test order after independently admitting every identity. */
 export function partitionCases(cases, index, total) {
   admittedCases(cases);
   assert.ok(Number.isInteger(total) && total >= 2 && total <= 3, 'partition count');
   assert.ok(Number.isInteger(index) && index >= 1 && index <= total, 'partition index');
   return cases
     .filter((test) => !test.ignored)
-    .sort((a, b) =>
-      a.binary < b.binary
-        ? -1
-        : a.binary > b.binary
-          ? 1
-          : a.name < b.name
-            ? -1
-            : a.name > b.name
-              ? 1
-              : 0
-    )
     .filter((_, position) => position % total === index - 1);
 }
 

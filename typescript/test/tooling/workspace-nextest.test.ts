@@ -176,7 +176,7 @@ describe('compiled workspace partitions', () => {
   const success = { producer: 'success', consumers: 'success' };
 
   it('uses a stable case slice and refuses invalid or duplicate independent identities', () => {
-    expect(partitionCases([...cases].reverse(), 1, 2).map((test) => test.name)).toEqual(['a', 'c']);
+    expect(partitionCases([...cases].reverse(), 1, 2).map((test) => test.name)).toEqual(['d', 'b']);
     expect(partitionCases(cases, 2, 2).map((test) => test.name)).toEqual(['b', 'd']);
     expect(partitionCases(cases, 3, 3).map((test) => test.name)).toEqual(['c']);
     for (const [index, total] of [
@@ -420,4 +420,124 @@ it('gives the isolated consumer a real Cargo executable without changing its par
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+// Contiguous six-active-case excerpt from producer artifact 12084071416, run 38987924215.
+// Original active offset 1930 is even. Pinned nextest orders bin/tmt before tmt-cli-style;
+// raw string sorting reverses those suites and changes every selected identity here.
+it('preserves the real nextest 0.9.148 slice order across binary-id punctuation', () => {
+  const listing = {
+    'rust-suites': {
+      'tmt-cli::bin/tmt': {
+        'binary-id': 'tmt-cli::bin/tmt',
+        'binary-path': '/home/runner/work/tmt/tmt/rust/target/debug/deps/tmt-b07081d2529c7f72',
+        testcases: {
+          'workspace_restore_command::tests::recorded_board_arguments_remain_literal_and_use_this_executable':
+            {
+              kind: 'test',
+              ignored: false,
+              'filter-match': {
+                status: 'matches',
+              },
+            },
+          'workspace_restore_command::tests::revival_uses_ordinary_resume_without_replaying_snapshot_coordinates_or_retry':
+            {
+              kind: 'test',
+              ignored: false,
+              'filter-match': {
+                status: 'mismatch',
+                reason: 'partition',
+              },
+            },
+          'workspace_restore_command::tests::stale_missing_renamed_and_replaced_identities_never_get_a_launch_command':
+            {
+              kind: 'test',
+              ignored: false,
+              'filter-match': {
+                status: 'matches',
+              },
+            },
+        },
+      },
+      'tmt-cli-style': {
+        'binary-id': 'tmt-cli-style',
+        'binary-path':
+          '/home/runner/work/tmt/tmt/rust/target/debug/deps/tmt_cli_style-cc027419151f5401',
+        testcases: {
+          'audit::hidden_tests::a_child_of_a_hidden_command_is_hidden_too': {
+            kind: 'test',
+            ignored: false,
+            'filter-match': {
+              status: 'mismatch',
+              reason: 'partition',
+            },
+          },
+          'audit::hidden_tests::a_double_underscore_command_must_be_hidden': {
+            kind: 'test',
+            ignored: false,
+            'filter-match': {
+              status: 'matches',
+            },
+          },
+          'audit::hidden_tests::a_grammar_whose_hidden_commands_are_all_listed_is_clean': {
+            kind: 'test',
+            ignored: false,
+            'filter-match': {
+              status: 'mismatch',
+              reason: 'partition',
+            },
+          },
+        },
+      },
+    },
+  };
+  const cargo = [
+    {
+      executable: '/home/runner/work/tmt/tmt/rust/target/debug/deps/tmt-b07081d2529c7f72',
+      tests: [
+        'workspace_restore_command::tests::recorded_board_arguments_remain_literal_and_use_this_executable',
+        'workspace_restore_command::tests::revival_uses_ordinary_resume_without_replaying_snapshot_coordinates_or_retry',
+        'workspace_restore_command::tests::stale_missing_renamed_and_replaced_identities_never_get_a_launch_command',
+      ],
+      ignored: [],
+    },
+    {
+      executable: '/home/runner/work/tmt/tmt/rust/target/debug/deps/tmt_cli_style-cc027419151f5401',
+      tests: [
+        'audit::hidden_tests::a_child_of_a_hidden_command_is_hidden_too',
+        'audit::hidden_tests::a_double_underscore_command_must_be_hidden',
+        'audit::hidden_tests::a_grammar_whose_hidden_commands_are_all_listed_is_clean',
+      ],
+      ignored: [],
+    },
+  ];
+  const full = structuredClone(listing);
+  for (const suite of Object.values(full['rust-suites']))
+    for (const test of Object.values(suite.testcases)) test['filter-match'] = { status: 'matches' };
+  const cases = compareInventories(cargo, full);
+  const selected = admitPartition(cases, listing, 1, 2);
+  expect(selected.map((test) => [test.binary, test.name])).toEqual([
+    [
+      'tmt-cli::bin/tmt',
+      'workspace_restore_command::tests::recorded_board_arguments_remain_literal_and_use_this_executable',
+    ],
+    [
+      'tmt-cli::bin/tmt',
+      'workspace_restore_command::tests::stale_missing_renamed_and_replaced_identities_never_get_a_launch_command',
+    ],
+    ['tmt-cli-style', 'audit::hidden_tests::a_double_underscore_command_must_be_hidden'],
+  ]);
+  expect(partitionCases(cases, 2, 2)).toEqual(cases.filter((_, i) => i % 2 === 1));
+  const sorted = [...cases].sort((a, b) =>
+    a.binary < b.binary
+      ? -1
+      : a.binary > b.binary
+        ? 1
+        : a.name < b.name
+          ? -1
+          : a.name > b.name
+            ? 1
+            : 0
+  );
+  expect(() => admitPartition(sorted, listing, 1, 2)).toThrow('slice assignment differs');
 });
