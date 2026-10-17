@@ -271,6 +271,7 @@ const MIGRATIONS: &[Migration] = &[
         "keep a 30-day five-minute consumption rollup",
         "schema/054.sql"
     ),
+    migration!("retain recent provider-final responses", "schema/055.sql"),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

@@ -726,6 +726,7 @@ fn empty_wide_exchange_can_resize_without_borrowing_a_recipient() {
     use crate::board::shell::OpsTab;
     let mut app = crate::board::home::tests::oracle::metered(crate::look::Look::default());
     app.shell.tab = OpsTab::Overview;
+    app.overview_view = crate::board::overview::monitor::View::Squads;
     paint(&mut app, 148, 51);
     assert!(app.conversation_target().is_none());
     assert!(

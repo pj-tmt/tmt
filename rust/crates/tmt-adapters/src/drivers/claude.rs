@@ -192,6 +192,7 @@ pub fn decode_turn(bytes: &[u8]) -> Option<crate::runtime::lifecycle::TurnEnd> {
     Some(crate::runtime::lifecycle::TurnEnd {
         session: ProviderSessionId::new(&payload.session_id).ok()?,
         transcript: payload.transcript_path.map(Into::into),
+        final_text: None,
     })
 }
 
@@ -223,6 +224,44 @@ pub fn transcript_usage(line: &str) -> Option<u64> {
         .as_u64()?
         .checked_add(cache("cache_read_input_tokens")?)?
         .checked_add(cache("cache_creation_input_tokens")?)
+}
+
+/// Outer Some marks the newest main assistant record even when it has no text:
+/// tool-only/thinking turns must not resurrect an older final response.
+fn transcript_final_text(
+    line: &str,
+    session: &str,
+) -> Option<Option<tmt_core::responses::FinalText>> {
+    let entry: serde_json::Value = serde_json::from_str(line).ok()?;
+    if entry.get("type")?.as_str()? != "assistant"
+        || entry
+            .get("isSidechain")
+            .and_then(serde_json::Value::as_bool)
+            == Some(true)
+    {
+        return None;
+    }
+    let message = entry.get("message")?;
+    if message.get("model").and_then(serde_json::Value::as_str) == Some("<synthetic>") {
+        return None;
+    }
+    if entry
+        .get("sessionId")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|id| id != session)
+    {
+        return Some(None);
+    }
+    let text = || {
+        let blocks = message.get("content")?.as_array()?;
+        let parts = blocks
+            .iter()
+            .filter(|block| block.get("type").and_then(serde_json::Value::as_str) == Some("text"))
+            .map(|block| block.get("text")?.as_str())
+            .collect::<Option<Vec<_>>>()?;
+        tmt_core::responses::FinalText::new(&parts.join("\n"))
+    };
+    Some(text())
 }
 
 /// The launcher is selected and validated by setup, retaining its stable symlink
@@ -482,10 +521,28 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
         now_ms: u64,
         deadline: std::time::Instant,
     ) -> Option<tmt_core::binding::session::DriverState> {
+        self.turn_observation(turn, environment, previous, now_ms, deadline)
+            .state
+    }
+
+    fn turn_observation(
+        &self,
+        turn: &crate::runtime::lifecycle::TurnEnd,
+        environment: &crate::skill_installation::ProviderEnvironment,
+        previous: Option<&tmt_core::binding::session::DriverState>,
+        now_ms: u64,
+        deadline: std::time::Instant,
+    ) -> crate::runtime::lifecycle::TurnObservation {
         let root = config_root(environment).join("projects");
-        let path = turn.transcript.as_deref()?;
-        let usage = crate::runtime::transcript::latest(&root, path, transcript_usage)
-            .and_then(|tokens| crate::runtime::driver_state::Usage::new(tokens, None, now_ms));
+        let Some(path) = turn.transcript.as_deref() else {
+            return Default::default();
+        };
+        let (usage, final_text) =
+            crate::runtime::transcript::latest_pair(&root, path, transcript_usage, |line| {
+                transcript_final_text(line, turn.session.as_str())
+            });
+        let usage =
+            usage.and_then(|tokens| crate::runtime::driver_state::Usage::new(tokens, None, now_ms));
         let previous_consumption =
             previous.and_then(crate::runtime::driver_state::state_consumption);
         let start = std::time::Instant::now();
@@ -497,7 +554,10 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
             now_ms,
             scan_deadline,
         );
-        crate::runtime::driver_state::after_observation(usage, consumption, previous)
+        crate::runtime::lifecycle::TurnObservation {
+            state: crate::runtime::driver_state::after_observation(usage, consumption, previous),
+            final_text: final_text.flatten(),
+        }
     }
 
     fn observe_replacement(

@@ -121,8 +121,8 @@ impl Controls {
                 _ => return None,
             },
             overview_view: match value.get("overviewView").map(Value::as_str) {
-                None | Some(Some("squads")) => super::overview::monitor::View::Squads,
-                Some(Some("agents")) => super::overview::monitor::View::Agents,
+                Some(Some("squads")) => super::overview::monitor::View::Squads,
+                None | Some(Some("agents")) => super::overview::monitor::View::Agents,
                 _ => return None,
             },
             order: Order {

@@ -18,6 +18,7 @@ const STRUCTURAL_GLYPHS: &[(&str, &str)] = &[
     ("↩", "Recent exchanges reply direction"),
     ("↔↕", "pane divider resize axes"),
     ("▶", "NO_COLOR receiving-pane marker"),
+    ("▪", "saved agent or squad pin in the fixed name-cell slot"),
     ("·", "separates adjacent labels without implying a state"),
     ("…", "shared text fitter's truncation indicator"),
     ("≈", "estimated list-price savings in the Digest matrix"),
@@ -98,6 +99,7 @@ fn glyph_guard_rejects_unregistered_ambiguous_and_emoji_decorations_and_unspaced
         "1️⃣ cron",
         "▶\u{fe0f} Agents",
         "■\u{fe0f} Claude",
+        "▪\u{fe0f} worker",
         "↩\u{fe0f} reply",
         "◐0",
         "◆✗",
@@ -111,6 +113,7 @@ fn glyph_guard_rejects_unregistered_ambiguous_and_emoji_decorations_and_unspaced
     }
     for good in [
         "── squads · 0 ──",
+        "▪ worker",
         "↑ move ↓ · next… –",
         "Est. ctx avoided 24h: —",
         "◆ 0 ✗ 1 ◐ 2 ● 3 ◌ 4",
@@ -188,7 +191,7 @@ fn unavailable_table_cell_uses_the_registered_em_dash_without_broadening_decorat
         .content
         .chunks(60)
         .map(|row| row.iter().map(|c| c.symbol()).collect::<String>())
-        .find(|row| row.contains("▸ Common pool"))
+        .find(|row| row.contains("▸   Common pool"))
         .unwrap();
     assert!(row.contains('—'));
     assert_eq!(glyph_error(&row), None);

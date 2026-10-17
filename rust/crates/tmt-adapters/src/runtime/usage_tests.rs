@@ -281,6 +281,8 @@ fn only_a_turn_end_is_decoded_as_one() {
             Some(TurnEnd {
                 session: tmt_core::binding::session::ProviderSessionId::new(SESSION).unwrap(),
                 transcript: Some("/t.jsonl".into()),
+                final_text: (driver.tree.starts_with(".codex"))
+                    .then(|| tmt_core::responses::FinalText::new("<redacted>").unwrap()),
             })
         );
         // A null path is still a turn end, with nothing to read.
@@ -347,4 +349,105 @@ fn empty_claude_source_baselines_without_inventing_context_usage() {
     assert_eq!(consumption.input_tokens, 0);
     assert_eq!(consumption.output_tokens, 0);
     assert!(consumption.complete && !consumption.gap);
+}
+
+#[test]
+fn recent_final_text_uses_the_existing_provider_turn_observation() {
+    let directory = TestDirectory::new();
+    let environment =
+        ProviderEnvironment::from_parts(&directory.path, &directory.path, Vec::new(), []);
+    let root = directory.path.join(".claude/projects/-workspace");
+    fs::create_dir_all(&root).unwrap();
+    let transcript = root.join("session.jsonl");
+    let main = json!({"type":"assistant","sessionId":SESSION,"message":{"model":"claude","usage":{"input_tokens":1},"content":[{"type":"text","text":"first\r\nline"},{"type":"thinking","thinking":"not output"},{"type":"tool_use","name":"private tool"},{"type":"text","text":"last"}]}});
+    let mut sidechain = main.clone();
+    sidechain["isSidechain"] = json!(true);
+    sidechain["message"]["content"][0]["text"] = json!("not main");
+    fs::write(&transcript, format!("{main}\n{sidechain}\n")).unwrap();
+    let turn = claude::ClaudeLifecycle
+        .decode_turn(&stop(Some(&transcript)))
+        .unwrap();
+    let read = |turn: &TurnEnd| {
+        claude::ClaudeLifecycle.turn_observation(
+            turn,
+            &environment,
+            None,
+            NOW,
+            std::time::Instant::now() + std::time::Duration::from_secs(1),
+        )
+    };
+    let observation = read(&turn);
+    assert_eq!(
+        observation.final_text.unwrap().text(),
+        "first\r\nline\nlast"
+    );
+    let state = format!("{:?}", observation.state);
+    assert!(!state.contains("first"));
+    assert!(!state.contains("private tool"));
+    let mut tool_only = main.clone();
+    tool_only["message"]["content"] = json!([{"type":"tool_use","name":"private tool"}]);
+    fs::write(&transcript, format!("{main}\n{tool_only}\n")).unwrap();
+    assert!(
+        read(&turn).final_text.is_none(),
+        "a tool-only latest assistant does not resurrect the older text"
+    );
+    let mut foreign = main.clone();
+    foreign["sessionId"] = json!("another-session");
+    fs::write(&transcript, format!("{foreign}\n")).unwrap();
+    assert!(read(&turn).final_text.is_none());
+    fs::write(&transcript, format!("{main}\n")).unwrap();
+    let outside = directory.path.join("outside.jsonl");
+    fs::copy(&transcript, &outside).unwrap();
+    let outside_turn = claude::ClaudeLifecycle
+        .decode_turn(&stop(Some(&outside)))
+        .unwrap();
+    assert!(
+        read(&outside_turn).final_text.is_none(),
+        "same provider-tree admission as usage"
+    );
+
+    let codex_turn = codex::CodexLifecycle.decode_turn(&stop(None)).unwrap();
+    let observation = codex::CodexLifecycle.turn_observation(
+        &codex_turn,
+        &environment,
+        None,
+        NOW,
+        std::time::Instant::now() + std::time::Duration::from_secs(1),
+    );
+    assert_eq!(observation.final_text.unwrap().text(), "<redacted>");
+    assert!(!format!("{codex_turn:?}").contains("<redacted>"));
+    assert!(
+        codex_turn.transcript.is_none(),
+        "Codex final text requires no transcript read"
+    );
+    let mut no_text: Value = serde_json::from_slice(&stop(None)).unwrap();
+    no_text
+        .as_object_mut()
+        .unwrap()
+        .remove("last_assistant_message");
+    assert!(
+        codex::CodexLifecycle
+            .decode_turn(no_text.to_string().as_bytes())
+            .unwrap()
+            .final_text
+            .is_none()
+    );
+    no_text["hook_event_name"] = json!("SubagentStop");
+    assert!(
+        codex::CodexLifecycle
+            .decode_turn(no_text.to_string().as_bytes())
+            .is_none()
+    );
+}
+
+#[test]
+fn malformed_final_text_does_not_discard_other_codex_lifecycle_evidence() {
+    let mut input: Value = serde_json::from_slice(&stop(None)).unwrap();
+    input["last_assistant_message"] = json!({"unexpected": "shape"});
+    let turn = codex::decode_turn(input.to_string().as_bytes())
+        .expect("Stop still admits lifecycle evidence");
+    assert!(turn.final_text.is_none());
+    input["hook_event_name"] = json!("SessionStart");
+    input["source"] = json!("startup");
+    assert!(codex::decode_hook(input.to_string().as_bytes()).is_some());
 }

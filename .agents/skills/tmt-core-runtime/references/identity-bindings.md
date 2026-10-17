@@ -184,7 +184,7 @@ delivery. They install and launch nothing.
 
 ## Consumption and context usage
 
-- Usage and consumption share the consented `tmt setup` plan; `--no-usage` removes the TMT
+- Usage, consumption and [recent final responses](../../../../contracts/extension-api.md#recent-agent-responses) share the consented `tmt setup` plan; `--no-usage` removes the TMT
   `Stop` entry and records the choice, legacy records keep the installed state, new installs
   default on.
 - Drivers read only their own provider's transcript (`runtime::transcript`): a regular `.jsonl`

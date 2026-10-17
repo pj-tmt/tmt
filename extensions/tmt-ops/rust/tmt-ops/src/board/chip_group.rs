@@ -119,7 +119,8 @@ pub(in crate::board) fn paint(
                 .and_then(|value| value.strip_suffix(' '))
                 .unwrap_or(value);
             let button = super::buttons::Button::secondary(label)
-                .focused(choice.selected || choice.cursor)
+                .selected(choice.selected)
+                .focused(choice.cursor)
                 .enabled(!choice.disabled)
                 .idle(look.role(Role::Muted));
             if let Some(rect) =

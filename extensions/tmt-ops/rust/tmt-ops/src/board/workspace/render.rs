@@ -8,13 +8,31 @@ use crate::{
     },
     config::Pane,
 };
-use ratatui::{Frame, layout::Rect, text::Line};
+use ratatui::{
+    Frame,
+    layout::Rect,
+    text::{Line, Span},
+};
 use tmt_cli_style::Role;
 use tmt_tui::components::{Modal, Placement, strip};
 
 pub(in crate::board) fn safe(text: &str) -> String {
     tmt_cli_style::table::escape(&crate::board::notes::sanitize(text))
 }
+/// Fixed name-cell slot: pin state never changes table column geometry.
+pub(in crate::board) fn pin_mark(
+    target: &OpsTarget,
+    preferences: &super::OpsPreferences,
+    look: crate::look::Look,
+) -> Span<'static> {
+    let pinned = match target {
+        OpsTarget::Squad(room) => preferences.pinned.contains(room),
+        OpsTarget::Member { identity_id, .. } => preferences.agent_pins.contains(identity_id),
+        OpsTarget::Pool => false,
+    };
+    Span::styled(if pinned { "▪ " } else { "  " }, look.role(Role::Muted))
+}
+
 fn member_noun(count: Option<usize>) -> &'static str {
     if count == Some(1) {
         "member"
@@ -352,9 +370,12 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                 let style = columns::table_style(app, selected, look.role(Role::Text));
                 let text = match field {
                     Field::Agent => {
+                        let children_shown = rows
+                            .get(index + 1)
+                            .is_some_and(|next| next.depth > row.depth);
                         let prefix = match &row.target {
                             OpsTarget::Pool => {
-                                if app.workspace.pool_expanded {
+                                if app.workspace.pool_expanded || children_shown {
                                     "▾ "
                                 } else {
                                     "▸ "
@@ -363,6 +384,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                             OpsTarget::Squad(room) => {
                                 if app.workspace.expanded.contains(room)
                                     || !app.workspace.query.is_empty()
+                                    || children_shown
                                 {
                                     "▾ "
                                 } else {
@@ -377,13 +399,25 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                                 }
                             }
                         };
-                        let pin = if matches!(&row.target, OpsTarget::Squad(room) if snapshot.preferences.pinned.contains(room))
-                        {
-                            "✱ "
-                        } else {
-                            ""
-                        };
-                        format!("{prefix}{pin}{}", safe(&row.title))
+                        let mut pin = pin_mark(&row.target, &snapshot.preferences, look);
+                        let name_width = usize::from(cell.width)
+                            .saturating_sub(unicode_width::UnicodeWidthStr::width(prefix))
+                            .saturating_sub(pin.width());
+                        pin.style = columns::table_style(app, selected, pin.style);
+                        let line = Line::from(vec![
+                            Span::styled(prefix, style),
+                            pin,
+                            Span::styled(
+                                crate::board::view::fit(&safe(&row.title), name_width),
+                                style,
+                            ),
+                        ]);
+                        strip::paint_left(
+                            frame.buffer_mut(),
+                            cell,
+                            crate::board::search_field::highlight_line(line, &app.workspace.query),
+                        );
+                        continue;
                     }
                     Field::Lead => match &row.target {
                         OpsTarget::Squad(room) => snapshot

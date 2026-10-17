@@ -83,6 +83,14 @@ pub trait LifecycleObservation {
 pub struct TurnEnd {
     pub session: ProviderSessionId,
     pub transcript: Option<PathBuf>,
+    pub final_text: Option<tmt_core::responses::FinalText>,
+}
+
+/// One bounded turn observation; final text never enters opaque driver state.
+#[derive(Default)]
+pub struct TurnObservation {
+    pub state: Option<DriverState>,
+    pub final_text: Option<tmt_core::responses::FinalText>,
 }
 
 /// Invocation-owned correlation locators. Native admission remains mandatory.
@@ -298,6 +306,21 @@ pub trait RuntimeLifecycle {
         _deadline: Instant,
     ) -> Option<DriverState> {
         None
+    }
+
+    /// Usage and optional final text from the same bounded turn-end read.
+    fn turn_observation(
+        &self,
+        turn: &TurnEnd,
+        environment: &ProviderEnvironment,
+        previous: Option<&DriverState>,
+        now_ms: u64,
+        deadline: Instant,
+    ) -> TurnObservation {
+        TurnObservation {
+            state: self.turn_state(turn, environment, previous, now_ms, deadline),
+            final_text: turn.final_text.clone(),
+        }
     }
 
     /// Driver-private provider-relative locator from an already admitted hook.

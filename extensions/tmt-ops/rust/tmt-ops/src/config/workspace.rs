@@ -184,6 +184,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("D", "digest"),
             ("c", "timers"),
             ("v", "view-reply"),
+            ("p", "pin"),
         ]
     } else {
         vec![
@@ -216,7 +217,11 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
     };
     match scope {
         OpsKeyScope::Reader => {}
-        OpsKeyScope::OverviewReader => entries.extend([("enter", "reply"), ("c", "all-timers")]),
+        OpsKeyScope::OverviewReader => entries.extend([
+            ("enter", "reply"),
+            ("c", "all-timers"),
+            ("v", "overview-view"),
+        ]),
         OpsKeyScope::Overview => entries.extend([
             ("c", "all-timers"),
             ("enter", "reply"),
@@ -238,6 +243,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
         ]),
         OpsKeyScope::Member => entries.extend([
             ("v", "view-reply"),
+            ("p", "pin"),
             ("e", "monitor-details"),
             ("enter", "talk"),
             ("j", "jump"),
@@ -826,31 +832,30 @@ mod tests {
                 assert_eq!(defaults(scope)["f"].text, "agents-filter");
             }
         }
-        assert_eq!(
-            config
-                .workspace_keys(OpsKeyScope::Overview, None, None)
-                .unwrap()
-                .bindings["v"]
-                .text,
-            "search"
-        );
-        assert_eq!(
-            config
-                .workspace_keys(OpsKeyScope::Overview, Some("tmux"), None)
-                .unwrap()
-                .bindings["v"]
-                .text,
-            "talk"
-        );
-        let section: Bindings = [("v".into(), Action::parse("run /usr/bin/true").unwrap())].into();
-        assert_eq!(
-            config
-                .workspace_keys(OpsKeyScope::Overview, Some("tmux"), Some(&section))
-                .unwrap()
-                .bindings["v"]
-                .verb,
-            Verb::Run
-        );
+        for scope in [OpsKeyScope::Overview, OpsKeyScope::OverviewReader] {
+            assert_eq!(
+                config.workspace_keys(scope, None, None).unwrap().bindings["v"].text,
+                "search"
+            );
+            assert_eq!(
+                config
+                    .workspace_keys(scope, Some("tmux"), None)
+                    .unwrap()
+                    .bindings["v"]
+                    .text,
+                "talk"
+            );
+            let section: Bindings =
+                [("v".into(), Action::parse("run /usr/bin/true").unwrap())].into();
+            assert_eq!(
+                config
+                    .workspace_keys(scope, Some("tmux"), Some(&section))
+                    .unwrap()
+                    .bindings["v"]
+                    .verb,
+                Verb::Run
+            );
+        }
     }
 
     #[test]
@@ -912,7 +917,8 @@ mod tests {
         ] {
             assert_eq!(plain.bindings[event].text, name);
         }
-        for key in ["left", "right", "t", "s", "p", "x"] {
+        assert_eq!(plain.bindings["p"].text, "pin");
+        for key in ["left", "right", "t", "s", "x"] {
             assert!(!plain.bindings.contains_key(key), "{key}");
         }
         let config = config("[bind]\nj='copy'\n[bind.tmux]\nj='open'\n");
@@ -1620,6 +1626,15 @@ mod tests {
             "SQUAD_CONFIG_CHANGED"
         );
         assert_eq!(fs::read_to_string(first.path()).unwrap(), edited);
+    }
+
+    #[test]
+    fn pin_view_overview_list_and_reader_share_the_view_toggle_default() {
+        for scope in [OpsKeyScope::Overview, OpsKeyScope::OverviewReader] {
+            assert_eq!(defaults(scope)["v"].text, "overview-view");
+        }
+        assert_eq!(defaults(OpsKeyScope::Member)["v"].text, "view-reply");
+        assert_eq!(defaults(OpsKeyScope::Member)["p"].text, "pin");
     }
 
     #[test]

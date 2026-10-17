@@ -753,3 +753,52 @@ fn hidden_attention_reuses_shell_evidence_and_deduplicates_room_memberships() {
     roster.observation = OpsObservation::Partial;
     assert!(!roster.hidden_counts(&hidden).complete);
 }
+
+#[test]
+fn pinned_agents_keep_their_groups_without_revealing_unpinned_children() {
+    let roster = roster();
+    let mut preferences = OpsPreferences {
+        agent_pins: ["one".into(), "free".into()].into(),
+        ..Default::default()
+    };
+    let mut workspace = OpsWorkspace {
+        filter: AgentsFilter::Pinned,
+        ..Default::default()
+    };
+    let rows = workspace.rows(&roster, &preferences);
+    assert_eq!(
+        rows.iter()
+            .map(|row| row.target.clone())
+            .collect::<Vec<_>>(),
+        [
+            OpsTarget::Pool,
+            OpsTarget::Member {
+                room_id: None,
+                identity_id: "free".into()
+            },
+            OpsTarget::Squad("room".into()),
+            OpsTarget::Member {
+                room_id: Some("room".into()),
+                identity_id: "one".into()
+            },
+        ]
+    );
+    assert!(workspace.expanded.is_empty() && !workspace.pool_expanded);
+    workspace.query = "Lead".into();
+    assert!(
+        workspace.rows(&roster, &preferences).is_empty(),
+        "an unpinned match cannot reveal its group"
+    );
+    workspace.query = "Alice".into();
+    assert_eq!(workspace.search_counts(&roster, &preferences), (1, 2));
+    workspace.query.clear();
+    preferences.hidden.insert("room".into());
+    assert_eq!(workspace.rows(&roster, &preferences).len(), 2);
+    workspace.visibility.scope = vec!["other".into()];
+    assert!(workspace.rows(&roster, &preferences).is_empty());
+    workspace.visibility.scope.clear();
+    preferences.hidden.clear();
+    preferences.pinned.insert("room".into());
+    let rows = workspace.rows(&roster, &preferences);
+    assert!(rows.iter().any(|row| matches!(&row.target, OpsTarget::Member { identity_id, .. } if identity_id == "lead")), "a pinned squad retains its full membership");
+}

@@ -180,6 +180,7 @@ fn sample(deadline: Instant) -> Result<(), ()> {
             locator: source.as_deref(),
             sampled: true,
             consumption,
+            response: None,
             now_ms: tmt_adapters::request_runtime::wall_time_ms(),
             deadline,
         })

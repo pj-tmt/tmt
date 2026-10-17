@@ -296,7 +296,7 @@ The effective destination keys work from any non-typing pane or overlay; an
 overlay closes through its own back path before switching. Active text, search
 and completion keep `1`/`2`/`3` as input.
 
-Overview has one Squads/Agents list. Its shared filter bar shows the two mode
+Overview has one Agents/Squads list, starting in Agents unless a saved choice exists. Its shared filter bar shows the two mode
 chips and idle search field; the section rule below owns counts. `v` switches
 views unless an authored binding replaces it. Squads show a lead-first TEAM strip,
 TOK 1h from existing HOUR readings, and NOW from pending questions before tasks.
@@ -365,7 +365,10 @@ TOK 1h, DIGEST and ◷ CRON. LEAD and room token totals appear at 100 inner list
 narrower tables drop whole optional columns. Only state glyphs/words carry state
 colour, and selection uses a background or the existing NO_COLOR reverse cue.
 All keeps Common pool first, then pinned squads and the selected sort order.
-`f` cycles the layer-local All / Needs you / Pinned filter; explicit bindings win.
+`f` cycles the layer-local All / Pinned filter; explicit bindings win. Pinned shows
+pinned squads and individually pinned agents with their containing group. `p`
+pins or unpins a visible agent or squad in Overview or Agents. Overview's default
+`v` toggles Agents/Squads from either pane; Agents keeps `v` for the reply reader.
 Search reveals matching children of visible squads temporarily without changing
 saved expansion. Select a squad and use `H` Hide squad (or its Actions entry) to
 hide it from Agents and Overview. The `Hidden: N` header's show control (`h` by

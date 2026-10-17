@@ -5047,15 +5047,19 @@ describe('verified former-board switching', () => {
             await vi.waitFor(
               () => {
                 const screen = tmux(['capture-pane', '-p', '-t', board.pane]);
-                expect(screen).toMatch(/^ SQUAD[ \t]+TEAM[ \t]+TOK 1h[ \t]+NOW[ \t]*$/m);
-                expect(screen).toMatch(/^ product[ \t]+\?[ \t]+—[ \t]+—[ \t]*$/m);
-                expect(screen).toMatch(/Squads[ \t]+Agents[ \t]+\/ Search/);
+                expect(screen).toMatch(
+                  /^ AGENT[ \t]+SQUAD[ \t]+STATE[ \t]+TOK 1h[ \t]+NOW[ \t]*$/m
+                );
+                expect(screen).toMatch(
+                  /^   Ben[ \t]+product[ \t]+\? unreported[ \t]+—[ \t]+—[ \t]*$/m
+                );
+                expect(screen).toMatch(/Agents[ \t]+Squads[ \t]+\/ Search/);
                 expect(screen).not.toContain('Needs you');
               },
               { timeout: 5000, interval: 50 }
             );
             expect(tmux(['capture-pane', '-p', '-t', board.pane])).toContain('Former --tabs');
-            // Overview shows squads; inspect the migrated member in its Agents owner.
+            // Overview shows agents; inspect the migrated member in its Agents tree owner.
             tmux(['send-keys', '-t', board.pane, '2']);
             await vi.waitFor(
               () => {
@@ -5071,7 +5075,7 @@ describe('verified former-board switching', () => {
             await vi.waitFor(
               () =>
                 expect(tmux(['capture-pane', '-p', '-t', board.pane])).toMatch(
-                  /^[ \t]+└ Ben[ \t]+— unreported · lead[ \t]+—[ \t]+0\/0[ \t]*$/m
+                  /^[ \t]+└   Ben[ \t]+— unreported · lead[ \t]+—[ \t]+0\/0[ \t]*$/m
                 ),
               { timeout: 5000, interval: 50 }
             );
@@ -5426,7 +5430,7 @@ describe('large board responsiveness', () => {
             { timeout: 30_000, interval: 50 }
           );
           tmux(['send-keys', '-t', pane, 'Right']);
-          await vi.waitFor(() => expect(screen()).toContain('▾ product'), {
+          await vi.waitFor(() => expect(screen()).toContain('▾   product'), {
             timeout: 10_000,
             interval: 25,
           });
@@ -5660,7 +5664,7 @@ describe('large board responsiveness', () => {
           sort: 'name',
           reversed: false,
           agentsFilter: 'all',
-          overviewView: 'squads',
+          overviewView: 'agents',
         });
         expect(retained.controls).not.toHaveProperty('overviewFilter');
         expect(retained).not.toHaveProperty('scope');

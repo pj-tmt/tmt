@@ -1,5 +1,5 @@
 //! The one place a driver reads its own provider's transcript, and only for
-//! usage numbers (#519), plus Codex's exact-ID metadata header admission. A path is trusted only
+//! usage numbers and admitted final text, plus Codex's exact-ID metadata header admission. A path is trusted only
 //! as a regular `.jsonl` file under the driver's own tree, opened without
 //! following a final symlink or blocking on a FIFO. Tail and incremental reads
 //! share this trust boundary. Tails have a byte bound; Claude incremental
@@ -23,6 +23,25 @@ pub fn latest<T>(root: &Path, path: &Path, parse: impl Fn(&str) -> Option<T>) ->
     let mut file = open(root, path)?;
     let end = file.metadata().ok()?.len();
     latest_at(&mut file, end, parse)
+}
+
+/// Two projections of one captured tail, without a second transcript read.
+/// Each parser independently selects its newest admissible record.
+pub(crate) fn latest_pair<A, B>(
+    root: &Path,
+    path: &Path,
+    first: impl Fn(&str) -> Option<A>,
+    second: impl Fn(&str) -> Option<B>,
+) -> (Option<A>, Option<B>) {
+    let read = || {
+        let mut file = open(root, path)?;
+        let end = file.metadata().ok()?.len();
+        read_tail(&mut file, end)
+    };
+    let Some(tail) = read() else {
+        return (None, None);
+    };
+    (parse_latest(&tail, first), parse_latest(&tail, second))
 }
 
 /// Read the captured file/end together, so later appends or path replacement

@@ -113,6 +113,18 @@ impl ConfigFiles {
         .notes_compaction_reminder)
     }
 
+    /// Retention for a newly captured local response, independent of project cwd.
+    pub fn global_retention_days(&self) -> Result<u64, ConfigError> {
+        let path = &self.paths.global_config;
+        let value = document::read(path, Scope::Global)?;
+        Ok(ResolvedSettings::from_layers(
+            document::project(&value, path, Scope::Global)?,
+            Vec::new(),
+        )
+        .settings
+        .retention_days)
+    }
+
     pub fn notification_settings(&self) -> Result<(u64, u64), ConfigError> {
         document::notification_settings(&self.paths.global_config)
     }

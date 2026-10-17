@@ -186,7 +186,7 @@ fn filtered_counts_keep_the_admitted_denominator_in_both_views() {
                 .collect();
             let filter = lines
                 .iter()
-                .position(|line| line.starts_with("  Squads   Agents"))
+                .position(|line| line.starts_with("  Agents   Squads"))
                 .unwrap();
             assert!(!lines[filter].contains(expected));
             assert!(
@@ -294,13 +294,10 @@ fn waiting_is_request_attention_not_a_state_word_or_blocked_status() {
 #[test]
 fn waiting_order_uses_known_oldest_evidence_then_unknown_without_a_duration_label() {
     let mut app = board();
-    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
-    snapshot.preferences.agent_pins.insert(MEMBER.into());
-    app.overview_rows.borrow_mut().clear();
     assert_eq!(
         app.workspace_rows()[0].title,
         "waiting-other",
-        "pins do not replace the waiting-order rule"
+        "unpinned waiting rows use their oldest known evidence"
     );
     let raw = app
         .view
@@ -827,4 +824,36 @@ fn filtered_section_counts_follow_the_current_squads_or_agents_mode() {
     app.select_overview_view(View::Agents);
     let agents = text(&paint(&mut app, 103, 51));
     assert!(agents.contains("1 of 28 agents"), "{agents}");
+}
+
+#[test]
+fn explicit_agent_pins_sort_before_attention_without_duplicating_memberships() {
+    let mut app = board();
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .preferences
+        .agent_pins
+        .insert(BLOCKED.into());
+    let snapshot = app.workspace_snapshot().unwrap();
+    let scene = scene(&app, snapshot);
+    assert!(
+        matches!(&scene.rows[0].target, crate::board::workspace::OpsTarget::Member { identity_id, .. } if identity_id == BLOCKED)
+    );
+    let ids = scene
+        .rows
+        .iter()
+        .filter_map(|row| match &row.target {
+            crate::board::workspace::OpsTarget::Member { identity_id, .. } => Some(identity_id),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        ids.len(),
+        ids.iter().collect::<std::collections::BTreeSet<_>>().len()
+    );
 }
