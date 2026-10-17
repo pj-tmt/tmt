@@ -64,13 +64,21 @@ fn token_label(reading: Option<super::rate::Reading>) -> String {
         },
     )
 }
-fn member_state(row: &serde_json::Value, look: Look) -> Line<'static> {
-    Line::from(vec![
-        state_cell::mark(row["state"].as_str(), look),
-        Span::raw(" "),
-        state_cell::word(row["state"].as_str(), look),
-    ])
+fn member_state(app: &App, target: &OpsTarget, width: usize) -> Line<'static> {
+    let Some(row) = app
+        .workspace_snapshot()
+        .and_then(|snapshot| super::workspace::member_target_row(&snapshot.roster, target))
+    else {
+        return neutral("—", app.look());
+    };
+    let Some(label) = app.activity_label(&row) else {
+        return neutral("?", app.look());
+    };
+    let (primary, task) =
+        super::workspace::columns::activity_spans(app, &row, &label, width, false);
+    Line::from_iter(primary.into_iter().chain(task))
 }
+
 fn share(reading: Option<super::rate::Reading>, total: Option<(u128, bool)>) -> String {
     reading
         .zip(total)
@@ -197,7 +205,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             },
         )
     } else {
-        raw.map_or_else(Line::default, |row| member_state(row, app.look()))
+        member_state(app, selected, usize::from(area.width.saturating_sub(8)))
     };
     section_rule::paint(
         frame.buffer_mut(),

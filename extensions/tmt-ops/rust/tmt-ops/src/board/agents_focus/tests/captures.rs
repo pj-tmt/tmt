@@ -131,6 +131,17 @@ fn fixture(selected_name: &str, look: Look) -> App {
                     waiting: *state == "waiting",
                     presence: Some(next <= 24),
                     usage: None,
+                    // Provider observations are independent from the task-state seeds.
+                    activity: crate::board::activity::ObservedActivity {
+                        phase: match *name {
+                            "colab-1" | "colab-2" | "core-1" | "mkt-2" | "ux-1" => {
+                                crate::board::activity::Phase::Idle
+                            }
+                            "night-muse" => crate::board::activity::Phase::Unknown,
+                            _ => crate::board::activity::Phase::Working,
+                        },
+                        ..Default::default()
+                    },
                 },
             );
             rows.insert(target, json!({"id":id,"name":name,"state":state,"presence":"active","pane":{"location":{"host":"tmux"}},
@@ -222,6 +233,7 @@ fn fixture(selected_name: &str, look: Look) -> App {
                 waiting: false,
                 presence: Some(false),
                 usage: None,
+                activity: Default::default(),
             },
         );
     }

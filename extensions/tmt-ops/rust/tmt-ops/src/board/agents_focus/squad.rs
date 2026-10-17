@@ -28,7 +28,19 @@ pub(super) fn render(
         y,
         identity_line::squad(
             lead.and_then(|row| row["name"].as_str()),
-            lead.map_or_else(|| neutral("—", look), |row| member_state(row, look)),
+            squad.lead.as_ref().map_or_else(
+                || neutral("—", look),
+                |id| {
+                    member_state(
+                        app,
+                        &OpsTarget::Member {
+                            room_id: Some(squad.room_id.clone()),
+                            identity_id: id.clone(),
+                        },
+                        usize::from(area.width.saturating_sub(20)),
+                    )
+                },
+            ),
             &squad.name,
             look,
         ),

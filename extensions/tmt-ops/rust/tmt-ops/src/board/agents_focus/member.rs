@@ -148,7 +148,13 @@ pub(super) fn render(
             },
             Tile {
                 label: "STATE",
-                value: member_state(row, look),
+                value: member_state(
+                    app,
+                    target,
+                    tracks
+                        .get(1)
+                        .map_or(0, |rect| usize::from(rect.width.saturating_sub(2))),
+                ),
                 detail: Line::default(),
             },
             Tile {

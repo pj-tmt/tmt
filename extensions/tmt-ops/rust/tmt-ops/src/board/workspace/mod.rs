@@ -663,6 +663,37 @@ impl OpsWorkspace {
     }
 }
 
+/// Projects one held member without constructing or sorting the display tree.
+/// A room target requires observed membership and keeps that room's task/attention.
+pub(in crate::board) fn member_target_row(
+    roster: &OpsRoster,
+    target: &OpsTarget,
+) -> Option<OpsTreeRow> {
+    let OpsTarget::Member {
+        room_id,
+        identity_id,
+    } = target
+    else {
+        return None;
+    };
+    let member = roster.members.get(identity_id)?;
+    let Some(room) = room_id else {
+        return Some(member_row(member, None, false, roster.observation, None));
+    };
+    let squad = roster
+        .squads
+        .iter()
+        .find(|squad| &squad.room_id == room && squad.members.contains(identity_id))?;
+    let unknown = OpsMembershipState::default();
+    Some(member_row(
+        member,
+        Some(room),
+        squad.lead.as_deref() == Some(identity_id),
+        squad.observation,
+        Some(squad.member_states.get(identity_id).unwrap_or(&unknown)),
+    ))
+}
+
 fn member_row(
     member: &OpsMember,
     room: Option<&str>,

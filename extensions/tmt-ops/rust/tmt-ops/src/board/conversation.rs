@@ -215,13 +215,36 @@ impl Session {
     }
 
     /// The one acquired-context update used by legacy and grouped placements.
-    fn observe_context(&mut self, app: &App, target: &RowTarget, row: &serde_json::Value) {
+    fn observe_context(
+        &mut self,
+        app: &App,
+        target: &RowTarget,
+        row: &serde_json::Value,
+    ) -> String {
         self.update(
             app.detail(&Target::Row(target.clone()))
                 .and_then(|detail| detail.reply),
         );
+        let projected = match target {
+            RowTarget::Workspace(target) => app
+                .workspace_snapshot()
+                .and_then(|snapshot| super::workspace::member_target_row(&snapshot.roster, target)),
+            _ => None,
+        };
+        let label = projected.as_ref().and_then(|row| app.activity_label(row));
+        let state = label.as_ref().map_or_else(
+            || row["state"].as_str().unwrap_or("unknown"),
+            |label| label.state,
+        );
+        let words = label.as_ref().map_or_else(
+            || sanitize(state),
+            |label| {
+                let (head, task) = label.fit(usize::MAX);
+                head + task.as_deref().unwrap_or("")
+            },
+        );
         self.agent_observed(row["name"].as_str().unwrap_or("unknown agent"),
-            row["state"].as_str().unwrap_or("unknown"),
+            state, &words,
             app.loading() || app.error.is_some() || app.workspace_snapshot().is_some_and(|snapshot| {
                 use super::workspace::{OpsObservation, OpsTarget};
                 snapshot.roster.observation != OpsObservation::Complete || !snapshot.roster.membership_complete
@@ -234,6 +257,7 @@ impl Session {
             &sanitize(row["name"].as_str().unwrap_or("unknown agent")),
         );
         self.transcript_context(app, row);
+        words
     }
 
     fn prepare(
@@ -571,23 +595,11 @@ fn render_target(
     let tree_row = tree
         .get(app.selected)
         .filter(|row| RowTarget::Workspace(row.target.clone()) == target);
-    let (status_state, state_words) = tree_row
-        .and_then(|row| app.activity_label(row))
-        .map_or_else(
-            || {
-                let task = sanitize(row["state"].as_str().unwrap_or("unknown"));
-                (task.clone(), task)
-            },
-            |label| {
-                let (head, task) = label.fit(usize::MAX);
-                (label.state.to_owned(), head + task.as_deref().unwrap_or(""))
-            },
-        );
     let mut state = app.conversation.borrow_mut();
     let switched = state.active.as_ref() != Some(&identity);
     state.active = Some(identity.clone());
     let session = state.sessions.entry(identity).or_default();
-    session.observe_context(app, &target, row);
+    let state_words = session.observe_context(app, &target, row);
     let name = sanitize(row["name"].as_str().unwrap_or("unknown agent"));
     let values = tree_row
         .zip(app.workspace_snapshot())

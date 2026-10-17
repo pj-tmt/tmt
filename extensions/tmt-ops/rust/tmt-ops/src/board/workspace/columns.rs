@@ -545,12 +545,13 @@ pub fn table_style(
     selected: bool,
     style: ratatui::style::Style,
 ) -> ratatui::style::Style {
-    if selected && app.focused() == crate::config::Pane::Rows {
+    if selected {
         app.look()
             .selection()
             .patch(app.look().row_span(true, style, false))
+            .remove_modifier(ratatui::style::Modifier::BOLD)
     } else {
-        crate::board::pane_chrome::row_style(app, selected, style)
+        style
     }
 }
 

@@ -368,8 +368,9 @@ Shared board modules own visual elements once. `section_rule` owns neutral rules
 and right-side counts; `team_strip` owns lead-first glyphs; `state_cell` owns
 attention glyph roles; `activity` owns the one typed projection of core's
 `session.activity`, the STATE words (`Label`) and the agent `Tally`, and
-`workspace::columns::activity_spans`/`paint_activity` own every member STATE
-cell's spans, task colour and state-cell areas; `filter_bar` composes `chip_group` selectors and the idle
+`workspace::columns::activity_spans` owns every member STATE cell's words and
+colours; `paint_activity` and `tree_row` report the separate activity/task areas
+for their layouts; `filter_bar` composes `chip_group` selectors and the idle
 search field; `key_hints` owns fitted effective-key hints. `spark_row` owns admitted
 trends, numeric headings, totals, shares, optional quota tracks and drawn-width
 time axes. `chip_group` owns option padding, selection and clipped option hits;

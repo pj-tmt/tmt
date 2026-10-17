@@ -890,3 +890,60 @@ fn pinned_agents_keep_their_groups_without_revealing_unpinned_children() {
     let rows = workspace.rows(&roster, &preferences);
     assert!(rows.iter().any(|row| matches!(&row.target, OpsTarget::Member { identity_id, .. } if identity_id == "lead")), "a pinned squad retains its full membership");
 }
+
+#[test]
+fn direct_member_projection_matches_expanded_rows_without_leaking_global_waiting() {
+    let mut roster = roster();
+    let lead = roster.members.get_mut("lead").unwrap();
+    lead.waiting = true;
+    lead.state = Some("blocked".into());
+    lead.activity = crate::board::activity::ObservedActivity {
+        phase: crate::board::activity::Phase::Working,
+        since_ms: Some(10),
+        last_ms: Some(20),
+    };
+    roster.squads[0].member_states.insert(
+        "lead".into(),
+        OpsMembershipState {
+            state: Some("review".into()),
+            waiting: false,
+            rank: None,
+        },
+    );
+    let workspace = OpsWorkspace {
+        expanded: ["room".into()].into(),
+        pool_expanded: true,
+        ..Default::default()
+    };
+    for row in workspace
+        .rows(&roster, &OpsPreferences::default())
+        .iter()
+        .filter(|row| matches!(row.target, OpsTarget::Member { .. }))
+    {
+        assert_eq!(member_target_row(&roster, &row.target).as_ref(), Some(row));
+    }
+    let target = OpsTarget::Member {
+        room_id: Some("room".into()),
+        identity_id: "lead".into(),
+    };
+    let row = member_target_row(&roster, &target).unwrap();
+    assert!(row.lead);
+    assert_eq!(
+        row.activity.unwrap().label(false, 30).fit(80).0,
+        "working 0s"
+    );
+    assert_eq!(row.state.as_deref(), Some("review"));
+    let unrelated = OpsTarget::Member {
+        room_id: Some("room".into()),
+        identity_id: "free".into(),
+    };
+    assert!(member_target_row(&roster, &unrelated).is_none());
+    assert!(member_target_row(&roster, &OpsTarget::Squad("room".into())).is_none());
+    roster.squads[0].member_states.clear();
+    let row = member_target_row(&roster, &target).unwrap();
+    assert_eq!(
+        row.state, None,
+        "unreported membership never inherits global task/attention"
+    );
+    assert!(!row.activity.unwrap().waiting);
+}

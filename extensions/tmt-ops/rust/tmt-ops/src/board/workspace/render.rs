@@ -356,15 +356,13 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                 .iter()
                 .find(|(field, _)| *field == Field::State)
                 .map_or(0, |(_, rect)| usize::from(rect.width));
-            let state = if matches!(row.target, OpsTarget::Member { .. }) {
-                crate::board::state_cell::unread(app.unread_target(&row.target), look)
-                    .unwrap_or_else(|| {
-                        Line::from(vec![
-                            crate::board::state_cell::mark(row.state.as_deref(), look),
-                            Span::raw(" "),
-                            crate::board::state_cell::word(row.state.as_deref(), look),
-                        ])
-                    })
+            let (state, state_primary_width) = if let Some(label) = app.activity_label(row) {
+                let (primary, task) = columns::activity_spans(app, row, &label, state_width, false);
+                let width = primary.iter().map(Span::width).sum();
+                (
+                    Line::from_iter(primary.into_iter().chain(task)),
+                    Some(width),
+                )
             } else {
                 let squad = if let OpsTarget::Squad(room) = &row.target {
                     snapshot
@@ -385,25 +383,34 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                     },
                     |squad| squad.members.iter().map(String::as_str).collect(),
                 );
+                let stale = app.activity_stale(std::time::Instant::now());
+                app.admit_activity_clock(None);
+                let now = crate::status::now_ms();
                 let members: Vec<_> = ids
                     .iter()
                     .map(|id| crate::board::team_strip::Member {
                         id,
-                        state: match squad {
-                            Some(squad) => squad
-                                .member_states
-                                .get(*id)
-                                .and_then(|member| member.state.as_deref()),
-                            None => snapshot
-                                .roster
-                                .members
-                                .get(*id)
-                                .and_then(|member| member.state.as_deref()),
-                        },
+                        // TEAM needs only the activity glyph, not a cloned display row/task.
+                        state: snapshot.roster.members.get(*id).map(|member| {
+                            crate::board::activity::Member {
+                                activity: member.activity,
+                                waiting: squad.map_or(member.waiting, |squad| {
+                                    squad
+                                        .member_states
+                                        .get(*id)
+                                        .is_some_and(|state| state.waiting)
+                                }),
+                                task: None,
+                            }
+                            .label(stale, now)
+                            .state
+                        }),
                         unread: app.unread_count(id),
                     })
                     .collect();
-                if members.is_empty() && snapshot.roster.observation != OpsObservation::Complete {
+                let state = if members.is_empty()
+                    && snapshot.roster.observation != OpsObservation::Complete
+                {
                     Line::styled("—", look.role(Role::Muted))
                 } else {
                     crate::board::team_strip::line(
@@ -412,7 +419,8 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                         state_width,
                         look,
                     )
-                }
+                };
+                (state, None)
             };
             let expanded = rows
                 .get(index + 1)
@@ -439,6 +447,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                     last: !rows.get(index + 1).is_some_and(|next| next.depth == 1),
                     pinned,
                     state,
+                    state_primary_width,
                     tokens,
                     timers: timers.map(|count| count.total),
                     selected,
@@ -446,9 +455,9 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                 },
                 look,
             );
-            if let Some(state) = painted.state {
-                app.workspace_state_cells.borrow_mut().push(state);
-            }
+            app.workspace_state_cells
+                .borrow_mut()
+                .extend(painted.state.into_iter().chain(painted.task));
             if let Some(area) = painted.timers {
                 let (room, owner) = match &row.target {
                     OpsTarget::Squad(room) => (Some(room.clone()), None),
@@ -485,38 +494,6 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
     };
     app.scrolls
         .show_table(frame, Pane::Rows, body, rows.len(), look, paint_rows);
-}
-
-/// A member's STATE cell: the activity words, then the task state, then the role.
-fn paint_member_state(
-    frame: &mut Frame,
-    app: &App,
-    row: &super::OpsTreeRow,
-    label: &crate::board::activity::Label,
-    cell: Rect,
-    selected: bool,
-    style: ratatui::style::Style,
-) {
-    let used = super::columns::paint_activity(frame.buffer_mut(), app, row, label, cell, selected);
-    let role = if row.lead {
-        "lead"
-    } else if matches!(row.target, OpsTarget::Member { room_id: None, .. }) {
-        "agent"
-    } else {
-        "member"
-    };
-    // The role is the least important part: it shows only when it fits whole.
-    // After a bare unknown `?` it follows like a task state, with no separator.
-    let bare = label.state == "unknown" && used == 1;
-    let role = format!("{}{role}", if bare { " " } else { " · " });
-    let role_width = unicode_width::UnicodeWidthStr::width(role.as_str()) as u16;
-    if used + role_width <= cell.width {
-        strip::paint_left(
-            frame.buffer_mut(),
-            Rect::new(cell.x + used, cell.y, role_width, 1),
-            Line::styled(role, style),
-        );
-    }
 }
 
 fn agents_controls(

@@ -560,7 +560,7 @@ fn workspace_presence_is_observed_separately_from_member_state_and_missing_data(
             snapshot.shell_counts = snapshot.roster.shell_counts();
             let row = painted_member_row(&app, 100, 24);
             assert!(
-                row.contains("worker") && row.contains(state.unwrap_or("? member")),
+                row.contains("worker") && row.contains(state.unwrap_or("?")),
                 "{row}"
             );
             let counts = &app.workspace_snapshot().unwrap().shell_counts;
@@ -3244,14 +3244,21 @@ fn only_a_blocked_task_is_red_while_activity_words_are_neutral() {
                     .collect::<String>();
                 assert!(painted_row.contains("worker"));
                 // A narrow cell cuts the task first; it is never painted for "working".
-                let shown = painted_row.contains(&format!("● working · {state}"));
-                assert!(role.is_some() || !shown, "{painted_row}");
-                shown_tasks += usize::from(shown);
-                let task = if shown {
-                    format!(" · {state}").chars().count() as u16
-                } else {
-                    0
+                let tail = match state {
+                    "working" => "",
+                    "idle" => " · idle",
+                    "offline" => " · off…",
+                    "waiting" => " · wai…",
+                    "blocked" => " · blo…",
+                    _ => unreachable!(),
                 };
+                assert!(
+                    painted_row.contains(&format!("● working{tail}")),
+                    "{painted_row}"
+                );
+                assert!(!painted_row.contains("· working"));
+                shown_tasks += usize::from(!tail.is_empty());
+                let task = tail.chars().count() as u16;
                 for x in hit.x..hit.x + hit.width {
                     if terminal.backend().buffer()[(x, hit.y)]
                         .symbol()
@@ -4864,7 +4871,16 @@ fn every_surface_agrees_when_the_task_disagrees_with_core_activity() {
         let look = crate::look::Look::default();
         let mut app = disagreeing_board(waiting, look);
         let tree = painted_member_row(&app, 160, 36);
-        assert!(tree.contains(words), "tree: {tree}");
+        let clipped = if waiting {
+            "◆ waiting · blo…"
+        } else {
+            "● working · blo…"
+        };
+        assert!(tree.contains(clipped), "tree: {tree}");
+        assert!(
+            paint(&app, 160, 36).join("\n").contains(words),
+            "focus keeps the full state"
+        );
         app.shell.tab = OpsTab::Overview;
         app.overview_view = monitor::View::Agents;
         let overview = paint(&app, 160, 36).join("\n");
@@ -5095,14 +5111,17 @@ fn unread_replies_replace_the_activity_words_and_keep_the_task() {
             depth,
         };
         let mut app = disagreeing_board(false, look);
-        assert!(painted_member_row(&app, 160, 36).contains("● working · blocked"));
+        assert!(painted_member_row(&app, 160, 36).contains("● working · blo…"));
         with_unread_replies(&mut app);
         let tree = painted_member_row(&app, 160, 36);
-        assert!(
-            tree.contains("● 2 unread · blocked"),
-            "{depth:?} tree: {tree}"
-        );
+        assert!(tree.contains("● 2 unread · bl…"), "{depth:?} tree: {tree}");
         assert!(!tree.contains("working"), "{depth:?} tree: {tree}");
+        assert!(
+            paint(&app, 160, 36)
+                .join("\n")
+                .contains("● 2 unread · blocked"),
+            "focus keeps full unread/task words"
+        );
         app.shell.tab = OpsTab::Overview;
         app.overview_view = monitor::View::Agents;
         for (width, words) in [
@@ -5148,7 +5167,7 @@ fn unread_replies_replace_the_activity_words_and_keep_the_task() {
 
 /// The activity form leaves out a task that repeats its activity word. Unread
 /// replies replace that word, so the same task follows `● N unread`, wide and
-/// clipped, in the tree, the roster preview and Overview.
+/// clipped, in the tree, selected member/squad-lead focus and Overview.
 #[test]
 fn unread_replies_keep_a_task_that_repeats_the_replaced_activity_word() {
     use crate::board::activity::Phase;
@@ -5189,7 +5208,25 @@ fn unread_replies_keep_a_task_that_repeats_the_replaced_activity_word() {
         with_unread_replies(&mut app);
         let unread = format!("● 2 unread · {word}");
         let tree = painted_member_row(&app, 160, 36);
-        assert!(tree.contains(&unread), "{word} tree: {tree}");
+        assert!(
+            tree.contains(&format!("● 2 unread · {}…", &word[..2])),
+            "{word} tree: {tree}"
+        );
+        assert!(
+            paint(&app, 160, 36).join("\n").contains(&unread),
+            "{word} member focus"
+        );
+        // The final squad focus shows its observed lead instead of a roster STATE column.
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .roster
+            .squads[0]
+            .lead = Some(MEMBER.into());
         app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
         app.workspace_reconcile();
         let roster = paint(&app, 160, 44).join("\n");
@@ -5204,5 +5241,67 @@ fn unread_replies_keep_a_task_that_repeats_the_replaced_activity_word() {
             let screen = paint(&app, width, 36).join("\n");
             assert!(screen.contains(&words), "{word} {width}: {screen}");
         }
+    }
+}
+
+#[test]
+fn collapsed_squad_lead_focus_and_status_share_stale_activity_without_global_waiting() {
+    use std::time::{Duration, Instant};
+    let mut app = board();
+    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    snapshot.roster.squads[0].lead = Some(MEMBER.into());
+    snapshot.roster.members.get_mut(MEMBER).unwrap().waiting = true;
+    snapshot.read_at = Some(Instant::now() - Duration::from_secs(60));
+    app.workspace.expanded.clear();
+    app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
+    app.workspace_reconcile();
+    assert!(
+        !app.workspace_rows()
+            .iter()
+            .any(|row| matches!(row.target, OpsTarget::Member { .. }))
+    );
+    let screen = paint(&app, 160, 44).join("\n");
+    assert!(screen.contains("stale"), "{screen}");
+    assert!(
+        !screen.contains("◆ waiting"),
+        "global waiting cannot become room attention: {screen}"
+    );
+    let state = app.conversation.borrow();
+    let mark = state
+        .active_agent_mark()
+        .expect("lead conversation is active");
+    assert!(mark.contains("worker stale"), "{mark}");
+}
+
+#[test]
+fn agents_group_glyphs_use_core_activity_and_room_attention_instead_of_task_state() {
+    use crate::board::activity::Phase;
+    use std::time::{Duration, Instant};
+    for (phase, waiting, stale, glyph) in [
+        (Phase::Working, false, false, '●'),
+        (Phase::Idle, false, false, '◌'),
+        (Phase::Unknown, false, false, '?'),
+        (Phase::Working, true, false, '◆'),
+        (Phase::Working, false, true, '?'),
+    ] {
+        let mut app = disagreeing_board(waiting, crate::look::Look::default());
+        let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+        let member = snapshot.roster.members.get_mut(MEMBER).unwrap();
+        member.activity.phase = phase;
+        member.waiting = true; // This global request is not room waiting evidence.
+        snapshot.read_at = stale.then(|| Instant::now() - Duration::from_secs(60));
+        app.workspace.expanded.clear();
+        app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
+        app.workspace_reconcile();
+        let screen = paint(&app, 160, 36);
+        let group = screen
+            .iter()
+            .find(|line| line.starts_with(" ▸ product"))
+            .unwrap();
+        assert_eq!(
+            group.chars().nth(26),
+            Some(glyph),
+            "{phase:?}/{waiting}/{stale}: {group}"
+        );
     }
 }

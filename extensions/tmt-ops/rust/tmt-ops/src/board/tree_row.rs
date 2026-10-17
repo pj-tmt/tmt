@@ -19,6 +19,7 @@ pub(in crate::board) struct Row<'a> {
     pub last: bool,
     pub pinned: bool,
     pub state: Line<'static>,
+    pub state_primary_width: Option<usize>,
     pub tokens: String,
     pub timers: Option<u32>,
     pub selected: bool,
@@ -27,6 +28,7 @@ pub(in crate::board) struct Row<'a> {
 #[derive(Default)]
 pub(in crate::board) struct Painted {
     pub state: Option<Rect>,
+    pub task: Option<Rect>,
     pub timers: Option<Rect>,
 }
 
@@ -88,7 +90,13 @@ pub(in crate::board) fn paint(
                 ])
             }
             AgentsField::State => {
-                painted.state = Some(cell);
+                let primary = row
+                    .state_primary_width
+                    .unwrap_or(row.state.width())
+                    .min(usize::from(cell.width)) as u16;
+                painted.state = (primary > 0).then_some(Rect::new(cell.x, cell.y, primary, 1));
+                let task = row.state.width().min(usize::from(cell.width)) as u16 - primary;
+                painted.task = (task > 0).then_some(Rect::new(cell.x + primary, cell.y, task, 1));
                 let mut state = row.state.clone();
                 if state.width() > usize::from(cell.width) {
                     let prefix = state
@@ -187,6 +195,7 @@ mod tests {
                         look,
                     )
                     .unwrap(),
+                    state_primary_width: Some(10),
                     tokens: "12.3K".into(),
                     timers: Some(0),
                     selected: true,
