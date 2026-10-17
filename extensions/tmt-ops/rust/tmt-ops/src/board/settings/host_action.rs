@@ -239,9 +239,7 @@ impl HostAction {
             .recipient
             .as_ref()
             .ok_or("Select an agent.")?;
-        row["name"]
-            .as_str()
-            .ok_or("This row has no agent.")?;
+        row["name"].as_str().ok_or("This row has no agent.")?;
         match action.verb {
             Verb::Run => Ok(format!(
                 "argv {:?}",
@@ -249,14 +247,12 @@ impl HostAction {
             )),
             Verb::Swap => Ok(format!(
                 "tmt focus {} --into {} --json",
-                row["id"]
-                    .as_str()
-                    .ok_or("No identity UUID.")?,
+                row["id"].as_str().ok_or("No identity UUID.")?,
                 action.args[0].literal().expect("validated direction")
             )),
-            Verb::Jump if !action.args.is_empty() => {
-                Err("This binding targets the squad lead; Focus agent is a different preset.".into())
-            }
+            Verb::Jump if !action.args.is_empty() => Err(
+                "This binding targets the squad lead; Focus agent is a different preset.".into(),
+            ),
             Verb::Jump if !self.selection.invoker_tmux => {
                 Ok("UI: open conversation (no shell command)".into())
             }
