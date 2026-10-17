@@ -4435,6 +4435,40 @@ reading heading. Missing or stale headings are inert; no record, Ask or notifica
 is created. These are display-only owner metadata, not signed page statements or
 new authority. The existing fold, cache and static-source limitations above apply.
 
+### Home summary (#3539)
+
+The owner-served `GET /api/pages` reply may carry one display-only `homeSummary` that Today
+shows under its greeting: `{lines:[first, second], author?, atMs}`. Like labels and the page
+summary it is **not signed**, is never an owner-log statement, enters no page stream and carries
+no authority, so page HTML cannot write it. It lives in the owner store (`home_summary`, schema
+13: one row per space) and reaches browsers only in this owner list: not in a reader link's or
+a member's views, and not in the CLI's `ls`/`show`. The key is absent when no summary is stored.
+A client treats every field as untrusted text.
+
+`lines` is exactly two strings: the first of 1 to 24 code points (`HOME_SUMMARY_FIRST_POINTS`),
+the second of 1 to 60 (`HOME_SUMMARY_SECOND_POINTS`), counted as code points and never as bytes.
+A line is not blank and holds no control character, so it cannot break the two-line layout;
+whitespace inside it is kept as written. A longer, blank, missing or extra line is refused whole
+(`COLAB_INPUT_INVALID`): nothing is truncated and nothing is stored. The constants live in
+`limits.rs`; the app's `bootstrap.ts` and its test hold the same numbers, and the browser refuses a
+reply that breaks them. `author` is the writer's display name (the bounded label `page create`
+records as `publisherAgent`), omitted when the writer had no agent identity; it is never proof of
+who wrote. `atMs` is the owner's clock at the write, a safe integer, and a request names neither.
+
+The one write is root-local, not a management operation, because the summary belongs to no page:
+`tmt colab home summary set --line FIRST --line SECOND`, `show` and `clear`. Like
+`page compact`, a write goes to the running serve over its owner-only socket
+(`/.tmt/colab/local/home-summary`, `POST`, body `{version:1, lines?, author?}`, no lines clears),
+and otherwise runs under the serve lifecycle lock in one store transaction. A write replaces the
+whole summary; the last writer wins. `clear` reports whether a row existed. Neither changes the
+membership head, writes a receipt or reaches any peer. `show` reads the store without a serve.
+At most about 700 bytes are added to the list reply (84 four-byte points and the longest author),
+so the 1 MiB discovery cap is unchanged.
+
+Today shows no block when there is none. When any active page changed after `atMs`
+(`lastUpdateAtMs`), the browser keeps the summary visible with its attribution and adds a muted
+note that pages changed since; it never states that nothing changed.
+
 ## Root-local page creation
 
 `tmt colab page create --title <title> [--file <path|->] [--json]` creates a private

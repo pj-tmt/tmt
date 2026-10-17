@@ -496,7 +496,7 @@ fn schema_two_authority_rows_survive_registration_migration() {
         CREATE TABLE owner_operations(id TEXT PRIMARY KEY, digest BLOB NOT NULL, outcome BLOB NOT NULL);
         INSERT INTO owner_operations(id,digest,outcome) SELECT id,digest,outcome FROM current_owner_operations;
         DROP TABLE current_owner_operations;
-        DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_labels;
+        DROP TABLE home_summary; DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_labels;
         ALTER TABLE pages DROP COLUMN last_update_at_ms; DROP TABLE baselines; DROP TABLE device_registrations; PRAGMA user_version=2;",
     )
     .unwrap();

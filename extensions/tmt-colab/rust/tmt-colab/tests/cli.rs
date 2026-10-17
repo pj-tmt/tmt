@@ -1336,7 +1336,7 @@ fn serve_migrates_an_older_store_and_preserves_the_page() {
         CREATE TABLE owner_operations(id TEXT PRIMARY KEY, digest BLOB NOT NULL, outcome BLOB NOT NULL);
         INSERT INTO owner_operations(id,digest,outcome) SELECT id,digest,outcome FROM current_owner_operations;
         DROP TABLE current_owner_operations;
-        DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_labels;
+        DROP TABLE home_summary; DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_labels;
         ALTER TABLE pages DROP COLUMN last_update_at_ms; PRAGMA user_version=4")
         .unwrap();
     drop(conn);
@@ -4624,7 +4624,7 @@ fn release_preflight_reads_an_older_store_without_migration_and_refuses_a_future
     let connection = rusqlite::Connection::open(&db).unwrap();
     connection
         .execute_batch(
-            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_labels; PRAGMA user_version=6",
+            "DROP TABLE home_summary; DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_labels; PRAGMA user_version=6",
         )
         .unwrap();
     drop(connection);
@@ -4717,7 +4717,7 @@ fn a_release_replacement_migrates_for_the_new_cli_and_restarts_its_owned_door() 
     let connection = rusqlite::Connection::open(&db).unwrap();
     connection
         .execute_batch(
-            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_labels; PRAGMA user_version=6",
+            "DROP TABLE home_summary; DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_labels; PRAGMA user_version=6",
         )
         .unwrap();
     drop(connection);
@@ -7538,6 +7538,102 @@ fn page_labels_add_remove_and_list_without_touching_the_owner_log_offline_and_se
         );
         assert_eq!(label_rows(&pilot, &one), 8);
         assert_eq!(pilot.call(&["ls", "--json"])["membershipHead"], head);
+        if serving {
+            pilot.stop();
+        }
+    }
+}
+fn home_summary_rows(pilot: &Pilot) -> i64 {
+    let layout = tmt_colab::keyring::Layout::existing(&pilot.root.join("selected"))
+        .unwrap()
+        .unwrap();
+    rusqlite::Connection::open(layout.directory.join("space.db"))
+        .unwrap()
+        .query_row("SELECT COUNT(*) FROM home_summary", [], |r| r.get(0))
+        .unwrap()
+}
+#[test]
+fn the_home_summary_is_two_bounded_lines_written_offline_and_while_serving_outside_the_owner_log() {
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        if serving {
+            pilot.start();
+        }
+        titled_page(&pilot, "One");
+        let head = pilot.call(&["ls", "--json"])["membershipHead"].clone();
+        assert_eq!(
+            pilot.call(&["home", "summary", "show", "--json"]),
+            json!({"summary": null})
+        );
+        let set = |first: &str, second: &str| {
+            pilot.call(&[
+                "home", "summary", "set", "--line", first, "--line", second, "--json",
+            ])
+        };
+        let written = set("Two pages changed", "Pricing moved to the review stage");
+        assert_eq!(
+            written["summary"]["lines"],
+            json!(["Two pages changed", "Pricing moved to the review stage"])
+        );
+        assert!(written["summary"]["atMs"].as_u64().unwrap() > 0);
+        assert_eq!(
+            pilot.call(&["home", "summary", "show", "--json"]),
+            written,
+            "show reports what set stored"
+        );
+        // A second write replaces the whole summary; the store keeps one row.
+        let replaced = set("Nothing new", "Reviews are quiet today");
+        assert_eq!(
+            replaced["summary"]["lines"],
+            json!(["Nothing new", "Reviews are quiet today"])
+        );
+        assert_eq!(home_summary_rows(&pilot), 1);
+        // Limits count code points: 24 and 60 fit, one more is refused, and a refusal changes nothing.
+        let first_max = "字".repeat(24);
+        let second_max = "é".repeat(60);
+        let at_limit = set(&first_max, &second_max);
+        assert_eq!(at_limit["summary"]["lines"], json!([first_max, second_max]));
+        for (first, second) in [
+            ("字".repeat(25), "ok".to_owned()),
+            ("ok".to_owned(), "é".repeat(61)),
+        ] {
+            failure(
+                &pilot,
+                &[
+                    "home", "summary", "set", "--line", &first, "--line", &second, "--json",
+                ],
+                "COLAB_INPUT_INVALID",
+            );
+        }
+        // Exactly two lines, no blank or control-character line.
+        for args in [
+            vec!["home", "summary", "set", "--line", "only one", "--json"],
+            vec![
+                "home", "summary", "set", "--line", "a", "--line", "b", "--line", "c", "--json",
+            ],
+            vec![
+                "home", "summary", "set", "--line", "a", "--line", "  ", "--json",
+            ],
+            vec![
+                "home", "summary", "set", "--line", "a\nb", "--line", "c", "--json",
+            ],
+        ] {
+            failure(&pilot, &args, "COLAB_INPUT_INVALID");
+        }
+        assert_eq!(
+            pilot.call(&["home", "summary", "show", "--json"])["summary"]["lines"],
+            json!([first_max, second_max]),
+            "a refused write leaves the summary as it was"
+        );
+        // Not a log statement: the membership head is the one from before.
+        assert_eq!(pilot.call(&["ls", "--json"])["membershipHead"], head);
+        let cleared = pilot.call(&["home", "summary", "clear", "--json"]);
+        assert_eq!(cleared, json!({"summary": null, "changed": true}));
+        assert_eq!(home_summary_rows(&pilot), 0);
+        assert_eq!(
+            pilot.call(&["home", "summary", "clear", "--json"]),
+            json!({"summary": null, "changed": false})
+        );
         if serving {
             pilot.stop();
         }

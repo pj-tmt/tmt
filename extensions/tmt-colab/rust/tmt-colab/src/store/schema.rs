@@ -104,6 +104,14 @@ const MIGRATIONS: &[&str] = &[
         operation TEXT NOT NULL, state TEXT NOT NULL CHECK(state IN ('applied','conflict','refused')),
         PRIMARY KEY(page,epoch,writer,operation), FOREIGN KEY(page) REFERENCES pages(page)) WITHOUT ROWID;
     "#,
+    // Schema 13: the home summary, two display-only lines under Today's greeting (contract: Home
+    // summary). One row per space; `author` is the writing agent's display name when it had one and
+    // `at_ms` the owner's clock at the write. Not signed, not in the owner log, in no page stream.
+    r#"
+    CREATE TABLE home_summary(id INTEGER PRIMARY KEY CHECK(id=1),
+        line1 TEXT NOT NULL, line2 TEXT NOT NULL, author TEXT,
+        at_ms INTEGER NOT NULL CHECK(at_ms>=0 AND at_ms<=9007199254740991));
+    "#,
 ];
 pub(super) const CURRENT_VERSION: u32 = MIGRATIONS.len() as u32;
 

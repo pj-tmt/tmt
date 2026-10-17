@@ -601,6 +601,11 @@ export const text = {
     },
     olderLabel: 'Older pages',
     byAuthor: (name: string) => `by ${name}`,
+    /** The maintainer agent's two lines under the greeting. */
+    summaryLabel: 'Since the last update',
+    summaryChanged: 'Pages have changed since this was written.',
+    summaryMeta: (author: string | undefined, when: string) =>
+      author ? `${author} · ${when}` : when,
   },
   /** A chapter opened from Today: a panel beside it, or the full page. */
   chapter: {

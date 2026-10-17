@@ -194,6 +194,8 @@ for (const width of [1440, 390])
       'many',
       'checking',
       'partial',
+      'summary',
+      'summary-stale',
     ] as const)
       test(`Today look ${kind} ${width} ${theme}: one column of chapters, no overflow`, async ({
         page,
@@ -338,3 +340,55 @@ for (const kind of ['readings', 'reading-one', 'reading-unknown'] as const) {
     await expect(first.getByRole('button', { name: 'Mark read' })).toHaveCount(0);
   });
 }
+
+const summary = (page: Page) => app(page).locator('.today-summary');
+
+test('the maintainer summary sits under the greeting with who wrote it and when', async ({
+  page,
+}) => {
+  await mount(page, 'summary');
+  await expect(summary(page)).toBeVisible();
+  await expect(summary(page).locator('.today-summary-line')).toHaveText([
+    'Two pages changed',
+    'Budget review waits on you',
+  ]);
+  await expect(summary(page).locator('.today-summary-meta')).toHaveText(
+    'Studio agent · 1 hour ago',
+  );
+  await expect(summary(page).locator('.today-summary-note')).toHaveCount(0);
+  await expect(summary(page)).toHaveAccessibleName('Since the last update');
+  // Under the greeting, above the counts.
+  const box = async (locator: ReturnType<typeof summary>) => (await locator.boundingBox())!;
+  const above = await box(greeting(page));
+  const mid = await box(summary(page));
+  const below = await box(app(page).locator('.today-count'));
+  expect(mid.y).toBeGreaterThanOrEqual(above.y + above.height - 1);
+  expect(below.y).toBeGreaterThanOrEqual(mid.y + mid.height - 1);
+});
+
+test('a summary older than the newest page change stays, with a muted note and never "no changes"', async ({
+  page,
+}) => {
+  await mount(page, 'summary-stale');
+  await expect(summary(page).locator('.today-summary-line')).toHaveText([
+    'Two pages changed',
+    'Budget review waits on you',
+  ]);
+  await expect(summary(page).locator('.today-summary-meta')).toHaveText(
+    'Studio agent · 5 hours ago',
+  );
+  await expect(summary(page).locator('.today-summary-note')).toHaveText(
+    'Pages have changed since this was written.',
+  );
+  await expect(app(page).getByText(/no changes/i)).toHaveCount(0);
+});
+
+test('a summary without a writer shows only when it was written; none shows no block', async ({
+  page,
+}) => {
+  await mount(page, 'summary-anonymous');
+  await expect(summary(page).locator('.today-summary-meta')).toHaveText('1 hour ago');
+  await mount(page, 'few');
+  await expect(chapters(page).first()).toBeVisible();
+  await expect(summary(page)).toHaveCount(0);
+});

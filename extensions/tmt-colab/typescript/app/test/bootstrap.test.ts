@@ -1,6 +1,12 @@
 import { afterEach, expect, it, vi } from 'vite-plus/test';
 import { deriveSpaceId, encodeBinary } from '@tmt/colab-client';
-import { AUTHOR_BYTES, DISCOVERY_BYTES, discover } from '../src/bootstrap.js';
+import {
+  AUTHOR_BYTES,
+  DISCOVERY_BYTES,
+  HOME_SUMMARY_FIRST_POINTS,
+  HOME_SUMMARY_SECOND_POINTS,
+  discover,
+} from '../src/bootstrap.js';
 vi.mock('../src/storage.js', () => ({ record: async () => undefined }));
 afterEach(() => vi.unstubAllGlobals());
 const mount = new URL('https://example.test/r/abcd/x/colab/');
@@ -16,7 +22,7 @@ const metadata = {
   warnings: ['not-in-cloud'],
   labels: [] as string[],
 };
-async function response(pages: unknown[]) {
+async function response(pages: unknown[], extra: Record<string, unknown> = {}) {
   const owner = new Uint8Array(32).fill(9),
     space = await deriveSpaceId(owner);
   vi.stubGlobal('location', { hash: `#space=${space}` });
@@ -26,6 +32,7 @@ async function response(pages: unknown[]) {
     revision: '1',
     pages,
     pageIds: pages.map((page) => ({ pageId: (page as { pageId: string }).pageId, deleted: false })),
+    ...extra,
   });
   vi.stubGlobal('fetch', async () => new Response(body));
   return body;
@@ -151,6 +158,78 @@ it('refuses summaries outside the bounds the owner derives', async () => {
     },
   ]);
   expect((await discover(mount)).pages[0].summary?.author).toHaveLength(AUTHOR_BYTES);
+});
+it('keeps the home summary the owner derives, with or without a writer, and leaves an absent one absent', async () => {
+  vi.stubGlobal('navigator', {
+    locks: { request: async (_key: string, run: () => unknown) => run() },
+  });
+  await response([metadata]);
+  expect('homeSummary' in (await discover(mount))).toBe(false);
+  const lines = ['Two pages changed', 'Pricing moved to the review stage'];
+  await response([metadata], {
+    homeSummary: { lines, author: 'Ada \u{1F680}', atMs: 1_790_000_000_000 },
+  });
+  expect((await discover(mount)).homeSummary).toEqual({
+    lines,
+    author: 'Ada \u{1F680}',
+    atMs: 1_790_000_000_000,
+  });
+  await response([metadata], { homeSummary: { lines, atMs: 0 } });
+  expect((await discover(mount)).homeSummary).toEqual({ lines, atMs: 0 });
+});
+it('counts the home summary lines in code points at the limits the owner writes', async () => {
+  vi.stubGlobal('navigator', {
+    locks: { request: async (_key: string, run: () => unknown) => run() },
+  });
+  expect([HOME_SUMMARY_FIRST_POINTS, HOME_SUMMARY_SECOND_POINTS]).toEqual([24, 60]);
+  // The longest lines, in four-byte characters, and the longest writer fit the bounded reply.
+  const lines = ['\u{1F680}'.repeat(24), '\u{1F680}'.repeat(60)];
+  const author = '\u{1F680}'.repeat(32);
+  const body = await response([metadata], {
+    homeSummary: { lines, author, atMs: Number.MAX_SAFE_INTEGER },
+  });
+  expect(new TextEncoder().encode(body).length).toBeLessThan(DISCOVERY_BYTES);
+  expect((await discover(mount)).homeSummary?.lines).toEqual(lines);
+  for (const bad of [
+    ['\u{1F680}'.repeat(25), 'ok'],
+    ['ok', '\u{1F680}'.repeat(61)],
+    ['x'.repeat(60), 'ok'],
+  ]) {
+    await response([metadata], { homeSummary: { lines: bad, atMs: 1 } });
+    await expect(discover(mount)).rejects.toThrow();
+  }
+});
+it('refuses a home summary the owner never writes', async () => {
+  vi.stubGlobal('navigator', {
+    locks: { request: async (_key: string, run: () => unknown) => run() },
+  });
+  const ok = { lines: ['a', 'b'], atMs: 1 };
+  for (const homeSummary of [
+    null,
+    [],
+    'x',
+    {},
+    { lines: ['a', 'b'] },
+    { atMs: 1 },
+    { ...ok, extra: 1 },
+    { ...ok, lines: ['a'] },
+    { ...ok, lines: ['a', 'b', 'c'] },
+    { ...ok, lines: 'ab' },
+    { ...ok, lines: ['', 'b'] },
+    { ...ok, lines: ['a', 'line\nbreak'] },
+    { ...ok, lines: ['a', 7] },
+    { ...ok, atMs: -1 },
+    { ...ok, atMs: 1.5 },
+    { ...ok, atMs: Number.MAX_SAFE_INTEGER + 1 },
+    { ...ok, atMs: '1' },
+    { ...ok, author: '' },
+    { ...ok, author: 7 },
+    { ...ok, author: 'a'.repeat(AUTHOR_BYTES + 1) },
+    { ...ok, author: 'tab\there' },
+  ]) {
+    await response([metadata], { homeSummary });
+    await expect(discover(mount)).rejects.toThrow();
+  }
 });
 it('accepts sorted display-only labels and refuses what the owner store never writes', async () => {
   vi.stubGlobal('navigator', {

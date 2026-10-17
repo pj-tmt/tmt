@@ -14,6 +14,7 @@ import { NeedsYouBar } from './components/needs-you-bar.js';
 import { useHomeSpace, useSpaceTitle } from './home-space.js';
 import { HomeTitleLink, type HomeTitleHints } from './home-titles.js';
 import { TodayReadingLinks, useTodayReadings } from './today-readings.js';
+import { TodaySummary } from './today-summary.js';
 import type { ReadingDetails } from './reading-details.js';
 import { pageUpdate } from './page-index.js';
 import { text } from './strings.js';
@@ -258,6 +259,7 @@ export function TodayView({
       <header className="today-hero">
         <p className="today-date">{dateLine(now)}</p>
         <h1>{t.greeting[greetingPart(now)]}</h1>
+        {space.homeSummary && <TodaySummary summary={space.homeSummary} pages={pages} now={now} />}
         {counts.pages > 0 && (
           <p className="today-count" data-waiting={counts.waiting > 0 || undefined}>
             {counts.waiting > 0 ? (

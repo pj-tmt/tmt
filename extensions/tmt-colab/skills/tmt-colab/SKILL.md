@@ -35,8 +35,7 @@ tmt extension install remote --yes
 tmt extension install colab --yes --skills
 ```
 
-`--skills` installs this managed skill. Inspect unmanaged conflicts; never force silently. Reload provider skills, or run `tmt colab skill`, which needs no server or
-checkout.
+`--skills` installs this managed skill. Inspect unmanaged conflicts; never force silently. Reload provider skills, or run `tmt colab skill` (no server needed).
 
 Start in the background so it outlives your task:
 
@@ -118,6 +117,10 @@ fresh one (see the editing reference); never delete the original to clear a limi
 ## Page look
 
 Read [references/page-style.md](references/page-style.md) or `tmt colab skill page-style` before styling a page.
+
+## Home summary
+
+To tell the person what changed, see [references/home-summary.md](references/home-summary.md).
 
 ## HTML that renders
 
