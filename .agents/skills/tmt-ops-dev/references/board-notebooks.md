@@ -93,6 +93,17 @@ and 4 MiB. Reading older text pauses follow;
 a replacement result is indicated without replacing the displayed request until
 End or intentional downward scrolling to the bottom resumes follow. Resize and
 new output alone do not resume it; Send enables follow.
+Until an exact acquired reply replaces its feedback, a sent turn projects only
+held provider activity: current working time, an earlier turn, an observed
+current-working-to-idle completion, or honest unknown evidence. Task state and
+request attention never establish this progress. Missing/stale evidence clears
+unfinished progress; a later idle read alone cannot prove completion. Typed
+queued/offline/held/uncertain outcomes keep their own delivery meaning.
+Only painted status rows admit the existing frame clock; spinner frames decorate
+one glyph without rebuilding the body. The existing token-rate reduced-motion
+preference applies even with sampling disabled (selected room override, otherwise
+global), and NO_COLOR keeps a static glyph with elapsed text. These clocks acquire
+nothing and persist no transcript or provider history.
 `Scrolls` remains the sole viewport owner. Rendering and reading acknowledge
 nothing. Layout uses terminal cells and degrades side/stack preferences to one
 focused pane when dimensions cannot support a split.

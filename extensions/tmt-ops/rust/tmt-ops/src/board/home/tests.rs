@@ -354,7 +354,7 @@ fn roster(name: &str) -> Value {
 
 #[test]
 fn home_acquisition_reuses_public_reads_and_preserves_all_json_and_text() {
-    let f = Fixture::new("[board.token_rate]\nenabled = false\n");
+    let f = Fixture::new("[board.token_rate]\nenabled = false\nreduced_motion = true\n");
     fs::write(
         f.root.join("inbox"),
         json!({"items":[{
@@ -422,6 +422,8 @@ fn home_acquisition_reuses_public_reads_and_preserves_all_json_and_text() {
     }
     assert_eq!(rates["a"].input.resumes["id-a"]["model"], "known-model");
     assert!(!rates["a"].settings.enabled);
+    assert!(home.reduced_motion);
+    assert!(rates["a"].settings.reduced_motion);
     assert!(rates["b"].input.resumes["id-b"].is_null());
     assert!(
         rates
