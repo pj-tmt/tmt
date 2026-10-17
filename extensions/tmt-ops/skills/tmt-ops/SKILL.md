@@ -963,8 +963,8 @@ Talk, reply and annotation use a multiline editor. Left/Right and Home/End move 
 caret; Shift with movement selects; Backspace/Delete remove selected text or a
 grapheme. Click places the caret and drag selects. Enter submits. Shift+Enter inserts
 a newline when enhanced keyboard reporting is active; Alt+Enter and Ctrl+J work
-without it, and Ctrl+N remains available. The composer names Shift+Enter only after
-the terminal confirms support; otherwise it names Alt+Enter. For Shift+Enter through
+without it, and Ctrl+N remains available. The composer shows `Shift+Enter new line` only after
+the terminal confirms support; otherwise it shows `Alt+Enter new line`. For Shift+Enter through
 tmux, enable `set -g extended-keys on`; tmux 3.5 or later also supports
 `set -g extended-keys-format csi-u`. Ops does not change tmux settings.
 Esc leaves input without sending. Direct-message drafts and their quote/paste

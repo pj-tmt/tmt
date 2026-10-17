@@ -237,7 +237,7 @@ sys.exit(0)
     wait_for(lambda: fresh_text("Message", mark), "selected member composer")
     mark = len(output)
     os.write(master, b"\r")
-    caption = "⇧⏎ new line" if spec["enhanced"] else "⌥⏎ new line"
+    caption = "Shift+Enter new line" if spec["enhanced"] else "Alt+Enter new line"
     wait_for(lambda: fresh_text(caption, mark), "capability-derived newline hint")
     os.write(master, b"first")
     if spec["lifecycle"] == "suspend":

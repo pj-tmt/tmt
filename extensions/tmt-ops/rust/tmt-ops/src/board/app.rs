@@ -799,9 +799,9 @@ pub fn event_name(key: KeyEvent) -> Option<String> {
 impl App {
     pub(in crate::board) fn newline_hint(&self) -> &'static str {
         if self.keyboard_enhanced {
-            "⇧⏎ new line"
+            "Shift+Enter new line"
         } else {
-            "⌥⏎ new line"
+            "Alt+Enter new line"
         }
     }
 
@@ -4515,19 +4515,19 @@ pub(crate) mod tests {
     #[test]
     fn newline_caption_uses_only_the_observed_terminal_capability() {
         let mut app = App::new(None);
-        assert_eq!(app.newline_hint(), "⌥⏎ new line");
+        assert_eq!(app.newline_hint(), "Alt+Enter new line");
         assert_eq!(
             super::super::glyph_guard::glyph_error(app.newline_hint()),
             None
         );
         app.keyboard_enhanced = true;
-        assert_eq!(app.newline_hint(), "⇧⏎ new line");
+        assert_eq!(app.newline_hint(), "Shift+Enter new line");
         assert_eq!(
             super::super::glyph_guard::glyph_error(app.newline_hint()),
             None
         );
         app.keyboard_enhanced = false;
-        assert_eq!(app.newline_hint(), "⌥⏎ new line");
+        assert_eq!(app.newline_hint(), "Alt+Enter new line");
     }
 
     #[test]

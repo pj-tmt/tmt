@@ -302,7 +302,8 @@ See [member references and source](board-notebooks.md#inert-text-and-independent
 - Message fields use `tmt_tui::components::Editor` for grapheme-safe multiline
   editing, source-preserving bracketed paste and cached cell geometry. Enter
   submits; distinct Shift+Enter, Alt+Enter, Ctrl+J or retained Ctrl+N inserts a newline, and Escape
-  retains the draft. Terminals own IME preedit; committed Unicode enters the same
+  retains the draft. The hint is `Shift+Enter new line` only with confirmed keyboard
+  enhancement, otherwise `Alt+Enter new line`. Terminals own IME preedit; committed Unicode enters the same
   editor. Large paste folds retain exact text and can be previewed or removed.
   `mentions` supplies the shared completion component with acquired agent UUIDs
   and squad IDs. Inserting a reference never changes recipients or broadcasts;

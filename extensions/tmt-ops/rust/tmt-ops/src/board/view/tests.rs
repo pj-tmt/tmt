@@ -1003,7 +1003,7 @@ fn help_lines(app: &App) -> Vec<String> {
 #[test]
 fn editor_help_distinguishes_portable_newlines_from_enhanced_shift_enter() {
     let help = help_lines(&workspace_board());
-    assert!(help.iter().any(|line| line == "Shift-Enter / Ctrl-N  Ctrl-N always inserts a newline; Alt-Enter and Ctrl-J do too; Shift-Enter needs enhanced terminal key reporting"));
+    assert!(help.iter().any(|line| line == "Shift+Enter / Ctrl+N  Ctrl+N always inserts a new line; Alt+Enter and Ctrl+J do too; Shift+Enter needs enhanced terminal key reporting"));
 }
 
 #[test]
