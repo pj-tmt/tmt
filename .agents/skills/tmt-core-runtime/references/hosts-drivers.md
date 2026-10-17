@@ -133,10 +133,17 @@ channels and the driver protocol. The owner map is in
   called. A removed or changed driver answers `Unavailable`, never proof of loss.
 - A driver's `caller` pane counts only when that pane's shell is an ancestor of the caller
   (`process::ancestry`); the nearest verified pane wins, otherwise the host is tmux.
-  Hooks and the caller-session worker use `Host::for_verified_caller` instead: with the
-  approved drivers, an external caller's server must already have a `host_servers` row
-  (`RecordedHostServers` reads it and never records one), and an approved driver's caller
-  variables with no verified pane and no tmux pane refuse rather than fall back to tmux.
+  Hooks and the caller-session worker use `Host::for_verified_caller` instead, which uses a
+  host only when the caller's locators name exactly that host. No locator keeps tmux
+  (outside any host), and tmux variables alone keep the tmux caller check. One named external
+  host must answer conclusively with the caller's pane (`Callers::conclusive`: a driver
+  error, a changed or unopenable approved executable or a non-text variable is not); anything
+  less refuses and never tries another host. Locators that name more than one host (tmux
+  variables beside a driver's, or two drivers' variables) refuse whatever the pane checks
+  say: mixed and nested host environments are unsupported for hooks. Launch the agent with
+  the other host's variables cleared; the hook never clears them itself. Supporting nesting
+  needs its own coherent proof of the hosts' order. An external caller's server must
+  already have a `host_servers` row (`RecordedHostServers` reads it and never records one).
   `Host::for_target` picks the host whose grammar reads the text. Only a definite answer is
   "not found"; a failing or late driver is `RECONCILIATION_FAILED`.
 - Prompt-first `send` maps `no_agent`/`unsupported` to raw input, `blocked` to

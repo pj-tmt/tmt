@@ -240,8 +240,10 @@ delivery. They install and launch nothing.
   never migrate, and on failure emit no context and at most one fixed stderr line. A hook
   supplies observation only: the binding must match fresh server/pane/marker evidence and
   payload session IDs never create bindings or move identities. `verified_caller` gets the
-  caller's host from `Host::for_verified_caller` (approved drivers, recorded server IDs only),
-  so an external caller it cannot verify is that failure line, not a silent success. Hook
+  caller's host from `Host::for_verified_caller` (only the one host its locators name, with
+  approved drivers and recorded server IDs; mixed or nested hosts refuse), so an external
+  caller it cannot verify is that failure line, not a silent success; a turn end stays
+  silent. Hook
   storage writer admission waits at most 500 ms within the supplied remaining worker deadline,
   reserving 100 ms for commit and context completion; budget exhaustion keeps the
   unavailable-context behavior.
