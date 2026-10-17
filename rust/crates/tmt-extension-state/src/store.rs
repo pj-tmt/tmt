@@ -19,8 +19,52 @@ pub struct Store {
     path: PathBuf,
     retry: String,
     connection: Connection,
+    wal: bool,
 }
 impl Store {
+    /// Adopt a file connection whose path and schema the caller already admitted.
+    /// Keeps the consumer's journal, durability, foreign-key and size policies.
+    pub fn from_admitted_connection(
+        connection: Connection,
+        retry: &str,
+    ) -> Result<Self, StateError> {
+        let path: String = connection
+            .query_row(
+                "SELECT file FROM pragma_database_list WHERE name='main'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|e| StateError::sqlite(Path::new(""), "read admitted database path", e))?;
+        let path = PathBuf::from(path);
+        if !path.is_absolute() || retry.is_empty() {
+            return Err(StateError::Invalid {
+                path,
+                reason: "a file connection and the exact retry must be supplied",
+            });
+        }
+        if connection
+            .is_readonly("main")
+            .map_err(|e| StateError::sqlite(&path, "read connection policy", e))?
+        {
+            return Err(StateError::Invalid {
+                path,
+                reason: "a writable file connection is required",
+            });
+        }
+        connection
+            .busy_timeout(WRITE_WAIT)
+            .map_err(|e| StateError::sqlite(&path, "configure write wait", e))?;
+        let journal: String = connection
+            .pragma_query_value(None, "journal_mode", |row| row.get(0))
+            .map_err(|e| StateError::sqlite(&path, "read journal policy", e))?;
+        Ok(Self {
+            path,
+            retry: retry.into(),
+            connection,
+            wal: journal.eq_ignore_ascii_case("wal"),
+        })
+    }
+
     pub fn open(
         layout: &Layout,
         name: &str,
@@ -81,6 +125,7 @@ impl Store {
             path,
             retry: retry.into(),
             connection,
+            wal: true,
         };
         store.migrate(migrations)?;
         secure_sidecars(&store.path)?;
@@ -127,6 +172,7 @@ impl Store {
         &mut self,
         change: impl FnOnce(&Transaction<'_>) -> Result<T, E>,
     ) -> Result<T, UpdateError<E>> {
+        let start = Instant::now();
         self.connection
             .busy_timeout(WRITE_WAIT)
             .map_err(|e| StateError::sqlite(&self.path, "configure write wait", e))?;
@@ -138,6 +184,17 @@ impl Store {
             .busy_timeout(Duration::ZERO)
             .map_err(|e| StateError::sqlite(&self.path, "finish write admission", e))?;
         let value = change(&transaction).map_err(UpdateError::Change)?;
+        // Rollback readers can hold SHARED locks through our BEGIN IMMEDIATE.
+        // Give COMMIT only the remainder of this write's original window, never
+        // a fresh admission budget or a replay of the consumer callback.
+        let wait = if self.wal {
+            Duration::ZERO
+        } else {
+            WRITE_WAIT.saturating_sub(start.elapsed())
+        };
+        transaction
+            .busy_timeout(wait)
+            .map_err(|e| StateError::sqlite(&self.path, "configure commit wait", e))?;
         transaction
             .commit()
             .map_err(|e| lock_error(&self.path, &self.retry, "commit write", true, e))?;
@@ -149,6 +206,10 @@ impl Store {
         &mut self,
         read: impl FnOnce(&Transaction<'_>) -> Result<T, E>,
     ) -> Result<T, UpdateError<E>> {
+        let query_only: bool = self
+            .connection
+            .pragma_query_value(None, "query_only", |row| row.get(0))
+            .map_err(|e| StateError::sqlite(&self.path, "read connection policy", e))?;
         self.connection
             .pragma_update(None, "query_only", true)
             .map_err(|e| StateError::sqlite(&self.path, "begin query-only snapshot", e))?;
@@ -165,7 +226,7 @@ impl Store {
         })();
         let restored = self
             .connection
-            .pragma_update(None, "query_only", false)
+            .pragma_update(None, "query_only", query_only)
             .map_err(|e| StateError::sqlite(&self.path, "restore connection policy", e));
         match result {
             Err(error) => Err(error),

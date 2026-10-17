@@ -24,7 +24,7 @@
 //! they never execute a retry or discover application roots. Existing `Layout`
 //! and `Publication` callers keep their present behavior until migrated.
 //!
-//! `Store` opens a caller-owned private SQLite file and private sidecars, enables
+//! `Store::open` opens a caller-owned private SQLite file and private sidecars, enables
 //! foreign keys, verifies WAL and uses Core's synchronous NORMAL policy without
 //! importing Core's schema. Consumer-supplied ordered migrations run forward-only
 //! in an immediate transaction; future or non-prefix history is refused. A write
@@ -39,6 +39,17 @@
 //! Concurrent first creation of one store by threads in the same process can still
 //! release a sibling connection's POSIX locks through descriptor close. Create the
 //! store in one place before sharing it, or serialize first creation in the consumer.
+//!
+//! `Store::from_admitted_connection` instead takes an already-admitted writable
+//! file connection, without migrations or changes to its journal, synchronous,
+//! foreign-key or page-limit policy. WAL retains zero-wait COMMIT; other journal
+//! modes let COMMIT wait within the same five-second window from the BEGIN
+//! attempt, including callback time. Callbacks are never replayed. Query-only
+//! read snapshots restore the connection policy and, in rollback journals, delay
+//! writers' COMMIT, so keep reads short.
+//! Admit the main file before connecting. While a connection lives, never open
+//! and close that file or its journal/WAL/shared-memory sidecars: closing any
+//! descriptor releases the process's POSIX locks on that file.
 //!
 //! `Document` updates current bytes under an exclusive lock: admit, read, validate,
 //! change once, stage, write, fsync, rename, then fsync the destination directory.
