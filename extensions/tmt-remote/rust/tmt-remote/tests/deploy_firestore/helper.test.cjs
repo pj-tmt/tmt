@@ -266,6 +266,61 @@ for (const operation of ['index-budget', 'apply-index']) {
     assert.equal(mutations(f).length, operation === 'index-budget' ? 0 : 1);
   });
 }
+test('omitted empty field indexes match an explicit empty list without changing TTL', async () => {
+  for (const indexConfig of [{}, { indexes: [] }]) {
+    const f = fixture((url, options) => ({
+      status: 200,
+      body:
+        options.method !== 'GET'
+          ? {}
+          : url.includes('/-/fields')
+            ? { fields: [] }
+            : { name: field, indexConfig, ttlConfig: { state: 'ACTIVE' } },
+    }));
+    assert.equal(await execute(request('observe-index', indexInput), f), 'absent');
+    assert.equal(mutations(f).length, 0);
+    assert.equal(await execute(request('apply-index', indexInput), f), 'done');
+    const writes = mutations(f);
+    assert.equal(writes.length, 1);
+    assert.equal(writes[0].method, 'PATCH');
+    assert.equal(writes[0].url, `https://firestore.googleapis.com/v1/${field}?updateMask=indexConfig`);
+    assert.deepEqual(writes[0].body, {
+      name: field,
+      indexConfig: {
+        indexes: [
+          {
+            queryScope: 'COLLECTION',
+            fields: [{ fieldPath: indexInput.field, order: 'ASCENDING' }],
+          },
+        ],
+      },
+    });
+  }
+});
+
+test('field default omission refuses malformed configs and mismatched identity without effects', async () => {
+  for (const config of [
+    undefined,
+    null,
+    [],
+    'bad',
+    0,
+    false,
+    { indexes: null },
+    { indexes: {} },
+    { indexes: false },
+  ]) {
+    const f = fixture(() => ({ status: 200, body: { name: field, indexConfig: config } }));
+    for (const operation of ['observe-index', 'apply-index']) {
+      await failure(() => execute(request(operation, indexInput), f), 'unknown');
+    }
+    assert.equal(mutations(f).length, 0);
+  }
+  const f = fixture(() => ({ status: 200, body: { name: `${field}-other`, indexConfig: {} } }));
+  await failure(() => execute(request('apply-index', indexInput), f), 'unknown');
+  assert.equal(mutations(f).length, 0);
+});
+
 test('200 unrelated live field configs stop a new allocation at the shared ceiling', async () => {
   const f = fixture((url) => ({
     status: 200,

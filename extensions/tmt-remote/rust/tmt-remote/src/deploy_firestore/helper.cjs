@@ -1149,11 +1149,14 @@ async function execute(request, deps) {
       if (
         existing.name !== name ||
         !existing.indexConfig ||
-        !Array.isArray(existing.indexConfig.indexes)
+        typeof existing.indexConfig !== 'object' ||
+        Array.isArray(existing.indexConfig) ||
+        (existing.indexConfig.indexes !== undefined && !Array.isArray(existing.indexConfig.indexes))
       )
         fail('unknown');
+      const existingIndexes = existing.indexConfig.indexes ?? [];
       const order = i.direction === 'asc' ? 'ASCENDING' : 'DESCENDING';
-      const matched = existing.indexConfig.indexes.find(
+      const matched = existingIndexes.find(
         (x) =>
           x.queryScope === 'COLLECTION' &&
           x.fields?.length === 1 &&
@@ -1177,7 +1180,7 @@ async function execute(request, deps) {
         fail('unknown');
       if (!unique.has(name) && unique.size >= 200) fail('quota-exceeded');
       // Preserve every existing index and TTL policy. updateMask excludes TTL.
-      const indexes = existing.indexConfig.indexes.map((x) =>
+      const indexes = existingIndexes.map((x) =>
         Object.fromEntries(
           Object.entries(x).filter(([key]) =>
             ['queryScope', 'fields', 'apiScope', 'density', 'multikey', 'unique'].includes(key)

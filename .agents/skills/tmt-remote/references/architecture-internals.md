@@ -245,6 +245,7 @@ layout, then resolves Node from that launcher's absolute or env-node shebang, ex
 relative PATH entries. The embedded helper's compatibility gate still precedes credentials.
 No-declaration output touches neither provider nor deployment record. Plan-only inventory
 checks live plus planned field configurations and composites separately; allocation rechecks each ceiling.
+An admitted Field indexConfig with omitted indexes has an empty list; malformed configurations refuse.
 Installed Colab acceptance and real-project proof still require separate owner authorization;
 running `status --layers` now reads recorded deployment evidence without a provider call.
 `DeployRecordEvidence` takes one bounded lock-free snapshot per request; missing/draft is
