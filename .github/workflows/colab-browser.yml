@@ -258,7 +258,7 @@ jobs:
           retention-days: 7
 
   colab-hosted:
-    name: Colab hosted bundle spec (Chromium)
+    name: Colab hosted and native served specs (Chromium)
     needs: changes
     # The pin manifest, the hosted build and this spec select it for a PR; the label, weekly and
     # manual runs include the same spec in full acceptance, so the label never runs it twice.
@@ -329,6 +329,29 @@ jobs:
       - name: Prove the real producer and hosted reader through the emulators
         if: needs.changes.outputs.colab_hosted_emulator == 'true'
         uses: ./.github/actions/hosted-reader-emulator
+      # Last: the embedded proof temporarily hides checkout dist, always restoring it on exit.
+      - name: Run native served specs without skips
+        env:
+          TMT_AGENT: '1'
+          BROWSER: /usr/bin/true
+          COLAB_SERVE_REQUIRED: '1'
+          COLAB_SERVE_EMBEDDED: '1'
+          COLAB_SERVE_EXECUTABLE: ${{ github.workspace }}/rust/target/debug/tmt-colab
+          COLAB_SERVE_APP_DIR: ${{ runner.temp }}/colab-served-app
+          COLAB_CAPTURE_DIR: ${{ runner.temp }}/colab-served-results/captures
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/colab-served-results/results.json
+        working-directory: typescript
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/colab-served-results"
+          cp -R ../extensions/tmt-colab/typescript/app/dist "$COLAB_SERVE_APP_DIR"
+          mv ../extensions/tmt-colab/typescript/app/dist "$RUNNER_TEMP/colab-served-checkout"
+          trap 'mv "$RUNNER_TEMP/colab-served-checkout" ../extensions/tmt-colab/typescript/app/dist' EXIT
+          PLAYWRIGHT_JSON_OUTPUT_FILE="$RUNNER_TEMP/colab-served-results/list.json" \
+            pnpm --filter @tmt/colab-app --fail-if-no-match test:browser e2e/served.spec.ts --list --reporter=json
+          pnpm --filter @tmt/colab-app --fail-if-no-match test:browser e2e/served.spec.ts --workers=1 --reporter=list,json --output "$RUNNER_TEMP/colab-served-results/traces"
+          node scripts/colab-served-report.mjs "$RUNNER_TEMP/colab-served-results/list.json" "$PLAYWRIGHT_JSON_OUTPUT_FILE"
 
   colab-acceptance:
     name: Colab real-binary acceptance (Chromium, shard ${{ matrix.shard }}/2)

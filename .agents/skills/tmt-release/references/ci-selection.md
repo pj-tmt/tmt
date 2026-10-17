@@ -164,7 +164,7 @@ no retries and 30-second test limit remain. Dot and JSON reporters share the exi
 artifact (`results.json` holds per-test durations) for refitting weights; record source runs,
 method and variance, and verify full test-ID equality before changing the split.
 
-The advisory `colab-hosted` PR job runs the hosted bundle spec when `colab_hosted` or
+The advisory `colab-hosted` PR job runs the hosted bundle and native served specs when `colab_hosted` or
 `colab_hosted_emulator` selects it. `selectHostedReaderEmulator` in `ci-scope.mjs` owns the
 latter: hosted-reader inputs (including Objects, Catchup and reader keys), Colab's signed-proof
 client source, native producer/composer inputs and Remote's production Rust, assets and SDK
@@ -177,6 +177,15 @@ same action once, on shard 1 after ordinary acceptance, whatever its result, unl
 cancelled; build-hash recording stays before it. It stays advisory,
 never runs on main pushes or merge groups, and adds no permission or required aggregate.
 On failure the action retains proof test-results and the two demo-emulator logs for three days; the wrapper copies only those logs before removing its private world.
+
+The same job also selects the exact serve/door/assets/reader entry inputs in
+`selectColabHosted`, without changing native selection or required checks. Its final step
+runs `e2e/served.spec.ts` against the embedded binary and a private expected-byte copy of
+`dist`; checkout `dist` is temporarily hidden and restored by an exit trap. In this lane
+`COLAB_SERVE_REQUIRED=1` fails on a missing binary, and the JSON report guard requires
+all listed cases to pass exactly once with zero skips. Component-only runs keep their
+named missing-native skip. Record the first three real job timings on #3126; stop and
+report if the served step exceeds 90 seconds or the job exceeds 15 minutes.
 
 The same workflow runs advisory real-binary Colab acceptance weekly, manually,
 or on a PR carrying `colab-acceptance`. Only adding that exact label can start
