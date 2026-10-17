@@ -377,7 +377,12 @@ fn details(frame: &mut Frame, app: &App, area: Rect) {
             row["name"].as_str().unwrap_or("Agent"),
         ));
         if let Some(id) = row["id"].as_str() {
-            text.extend(model::details(&app.labels, id));
+            text.extend(model::details(
+                &app.labels,
+                id,
+                crate::status::now_ms(),
+                app.local_zone.as_ref().unwrap_or(&jiff::tz::TimeZone::UTC),
+            ));
         }
     } else {
         text.push("Select a visible agent to inspect its Digest status".into());

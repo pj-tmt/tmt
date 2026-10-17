@@ -29,7 +29,7 @@ fn null_stats_keep_the_inherited_idle_setting_without_a_zero_count() {
     let supplied = supplied(serde_json::Value::Null, false);
     assert!(model::summary(&supplied, None).contains("held unavailable"));
     assert!(!model::summary(&supplied, None).contains("0 held"));
-    let details = model::details(&supplied, MEMBER);
+    let details = model::details(&supplied, MEMBER, 121_000, &jiff::tz::TimeZone::UTC);
     assert!(details.iter().any(|s| s.contains("inherited default")));
     assert!(details.iter().any(|s| s == "Auto: when idle"));
     assert!(!details.iter().any(|s| s.starts_with("Next send")));
@@ -42,7 +42,7 @@ fn known_zero_and_retained_stale_statistics_stay_distinct() {
     let stale = supplied(serde_json::json!(3), true);
     assert!(model::summary(&stale, None).contains("3 held · stale observation"));
     assert!(
-        model::details(&stale, MEMBER)
+        model::details(&stale, MEMBER, 121_000, &jiff::tz::TimeZone::UTC)
             .iter()
             .any(|s| s.contains("Stale observation"))
     );
@@ -55,9 +55,14 @@ fn unavailable_statistics_never_become_zero() {
         "Digest status unavailable"
     );
     assert!(
-        model::details(&Default::default(), "missing")
-            .iter()
-            .any(|line| line.contains("unavailable"))
+        model::details(
+            &Default::default(),
+            "missing",
+            121_000,
+            &jiff::tz::TimeZone::UTC
+        )
+        .iter()
+        .any(|line| line.contains("unavailable"))
     );
 }
 
@@ -1648,4 +1653,63 @@ fn workspace_status_is_a_body_panel_and_keeps_the_shared_shell_unchanged() {
             assert!(lines[2].contains("Overview") && lines[2].contains("Digest"));
         }
     }
+}
+
+#[test]
+fn observation_times_use_shared_relative_age_and_the_supplied_local_zone() {
+    let mut document = serde_json::json!({
+        "version": 1, "observedAtMs": 1_791_600_000_000u64,
+        "members": [{"identityId": MEMBER, "name": "Agent", "mode": "auto",
+            "intervalMs": null, "settingSource": "default", "settingValue": "default",
+            "heldCount": 0, "statsObservedAtMs": 1_791_599_940_000u64,
+            "nextSendAtMs": null, "timeToSendMs": null, "labels": []}]
+    });
+    let now = 1_791_600_120_000;
+    let zone = jiff::tz::TimeZone::get("Asia/Tokyo").unwrap();
+    let status_clock = "11:40";
+    let stats_clock = "11:39";
+    let read = |document: &serde_json::Value, now| {
+        model::details(
+            &crate::labels::Supplied::from_document("digest", document, false),
+            MEMBER,
+            now,
+            &zone,
+        )
+    };
+    let fields = read(&document, now);
+    assert!(fields.contains(&format!("Status observed: 2m ago ({status_clock})")));
+    assert!(fields.contains(&format!("Stats observed: 3m ago ({stats_clock})")));
+    assert!(
+        read(&document, now + 60_000)
+            .contains(&format!("Status observed: 3m ago ({status_clock})"))
+    );
+    for missing in [
+        serde_json::Value::Null,
+        serde_json::json!(0),
+        serde_json::json!(now + 1),
+        serde_json::json!(9_007_199_254_740_991u64),
+    ] {
+        document["members"][0]["statsObservedAtMs"] = missing;
+        assert!(read(&document, now).contains(&"Stats observed: unknown".into()));
+    }
+    document["observedAtMs"] = serde_json::json!(0);
+    assert!(read(&document, now).contains(&"Status observed: unknown".into()));
+}
+
+#[test]
+fn digest_details_paints_observation_age_with_the_apps_local_clock() {
+    let _no_commands = crate::runner::forbid_commands();
+    let mut app = savings_board();
+    let mut document = savings_document();
+    document["observedAtMs"] = serde_json::json!(1_791_600_000_000u64);
+    document["members"][0]["statsObservedAtMs"] = serde_json::json!(1_791_599_940_000u64);
+    app.labels = crate::labels::Supplied::from_document("digest", &document, false);
+    app.local_zone = Some(jiff::tz::TimeZone::get("Asia/Tokyo").unwrap());
+    press(&mut app, '3');
+    crate::status::with_now_ms(1_791_600_120_000, || {
+        let shown = paint(&mut app, 160, 44);
+        assert!(shown.contains("Status observed: 2m ago (11:40)"), "{shown}");
+        assert!(shown.contains("Stats observed: 3m ago (11:39)"), "{shown}");
+        assert!(!shown.contains("1791600000000 ms"));
+    });
 }
