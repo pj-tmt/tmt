@@ -68,6 +68,18 @@ export function resolveBinaries(env = process.env): Binaries {
   return binaries;
 }
 
+/** Core's native interpreted-provider fixture (the adapters example), built next to the binaries.
+ * A missing one fails with the build command, never a skip. */
+export function resolveProviderFixture(env = process.env): string {
+  const directory = env.TMT_ACCEPTANCE_BIN_DIR ?? path.join(repository, 'rust/target/debug');
+  const file = path.join(directory, 'examples', 'provider-script-fixture');
+  if (!path.isAbsolute(file) || !fs.existsSync(file))
+    throw new Error(
+      `Missing ${file}. Build with: cargo build --locked --manifest-path rust/Cargo.toml -p tmt-adapters --example provider-script-fixture (it is read from examples/ of the binaries directory).`,
+    );
+  return file;
+}
+
 export interface CliResult {
   code: number | null;
   stdout: string;
@@ -359,16 +371,20 @@ export class AcceptanceWorld {
         throw new Error(`Provider setup failed: ${setup.stdout}${setup.stderr}`);
       const executable = path.join(this.root, options.driver);
       // Explicit exec makes the pane leader the owned tmt run wrapper on every shell.
-      // Native ancestry uses the executable basename, so keep the fixture's
-      // provider process alive as claude/codex rather than execing a shell wrapper.
-      fs.copyFileSync(process.execPath, executable, fs.constants.COPYFILE_FICLONE);
+      // Native ancestry uses the executable basename, so the provider process stays a native
+      // executable named claude/codex rather than a shell wrapper. Core's fixture accepts the
+      // managed launch options, then runs the recipient script under the absolute Node named
+      // by TMT_TEST_PROVIDER_INTERPRETER; the remaining argv is literal. The parent forwards
+      // TERM/INT/HUP and reaps its child; this world still owns the process-group and tmux
+      // cleanup after an uncatchable parent death, and the no-leftovers assertion.
+      fs.copyFileSync(resolveProviderFixture(), executable, fs.constants.COPYFILE_FICLONE);
       fs.chmodSync(executable, 0o700);
       this.tmux([
         'respawn-pane',
         '-k',
         '-t',
         pane,
-        `exec ${[this.binaries.tmt, 'run', name, executable, path.join(harness, 'recipient.mjs'), this.binaries.tmt, log, options.gated ? gate : '-', options.driver, options.stopGated ? gate : '-'].map(quote).join(' ')} >${quote(path.join(this.root, `${name}.launch.log`))} 2>&1`,
+        `TMT_TEST_PROVIDER_INTERPRETER=${quote(process.execPath)} exec ${[this.binaries.tmt, 'run', name, executable, path.join(harness, 'recipient.mjs'), this.binaries.tmt, log, options.gated ? gate : '-', options.driver, options.stopGated ? gate : '-'].map(quote).join(' ')} >${quote(path.join(this.root, `${name}.launch.log`))} 2>&1`,
       ]);
       try {
         await until(

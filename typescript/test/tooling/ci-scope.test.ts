@@ -3305,17 +3305,26 @@ describe('required CI gate', () => {
     const nativeBuild = acceptance.indexOf('cargo build --locked --manifest-path rust/Cargo.toml');
     expect(appBuild).toBeGreaterThan(0);
     expect(nativeBuild).toBeGreaterThan(appBuild);
-    // One compile of the three executables; Remote's offline composer (#3048) is its own
-    // invocation, because an example selected next to tmt-cli enables tmt-adapters'
-    // `test-isolation` dev-dependency feature and the resulting `tmt` refuses to run in a world.
-    expect(acceptance.match(/cargo build /g)).toHaveLength(2);
+    // One compile of the three executables; Remote's offline composer (#3048) and Core's
+    // interpreted provider fixture (#3306) are each their own invocation, because an example
+    // selected next to tmt-cli enables tmt-adapters' `test-isolation` dev-dependency feature
+    // and the resulting `tmt` refuses to run in a world.
+    expect(acceptance.match(/cargo build /g)).toHaveLength(3);
     expect(acceptance).toContain(
       'cargo build --locked --manifest-path rust/Cargo.toml -j 2 -p tmt-cli -p tmt-remote -p tmt-colab --bins\n'
     );
     expect(acceptance).toContain(
       'cargo build --locked --manifest-path rust/Cargo.toml -j 2 -p tmt-remote --example compose_hosting\n'
     );
+    expect(acceptance).toContain(
+      'cargo build --locked --manifest-path rust/Cargo.toml -j 2 -p tmt-adapters --example provider-script-fixture\n'
+    );
     expect(acceptance).not.toMatch(/-p tmt-cli[^\n]*--example/);
+    // The fixture is built before the shard runs and recorded with the other tested binaries.
+    expect(acceptance.indexOf('--example provider-script-fixture')).toBeLessThan(
+      acceptance.indexOf('test:acceptance --workers=1 --reporter=list,json')
+    );
+    expect(acceptance).toContain('rust/target/debug/examples/provider-script-fixture >');
     expect(acceptance).toContain('test:acceptance --workers=1 --reporter=list,json');
     // Two shards run the one single-worker suite (#2827): each builds its own binaries and world,
     // keeps its own concurrency group and evidence, and neither cancels the other.
