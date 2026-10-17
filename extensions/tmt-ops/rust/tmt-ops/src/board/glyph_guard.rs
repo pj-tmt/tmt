@@ -17,6 +17,10 @@ const STRUCTURAL_GLYPHS: &[(&str, &str)] = &[
     ),
     ("↩", "Recent exchanges reply direction"),
     ("↔↕", "pane divider resize axes"),
+    (
+        "⇧",
+        "confirmed enhanced-keyboard Shift modifier in the newline hint",
+    ),
     ("▶", "NO_COLOR receiving-pane marker"),
     ("▪", "saved agent or squad pin in the fixed name-cell slot"),
     ("·", "separates adjacent labels without implying a state"),
@@ -101,6 +105,7 @@ fn glyph_guard_rejects_unregistered_ambiguous_and_emoji_decorations_and_unspaced
         "■\u{fe0f} Claude",
         "▪\u{fe0f} worker",
         "↩\u{fe0f} reply",
+        "⇧\u{fe0f} newline",
         "◐0",
         "◆✗",
         "↻lead",
@@ -114,6 +119,8 @@ fn glyph_guard_rejects_unregistered_ambiguous_and_emoji_decorations_and_unspaced
     for good in [
         "── squads · 0 ──",
         "▪ worker",
+        "⇧⏎ new line",
+        "⌥⏎ new line",
         "↑ move ↓ · next… –",
         "Est. ctx avoided 24h: —",
         "◆ 0 ✗ 1 ◐ 2 ● 3 ◌ 4",
