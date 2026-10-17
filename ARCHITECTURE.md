@@ -560,30 +560,28 @@ leaf neither discovers roots nor accesses core state or provider configuration.
 ## Remote extension pilot
 
 `extensions/tmt-remote` builds `tmt remote`. Fixed public Core JSON calls use absolute
-`TMT_EXECUTABLE` via `tmt-invoke` (reference below). Remote owns
-`<dataRoot>/remote/` through the [state leaf](#shared-extension-state-layout).
-Core delegates restart for replaced Remote observed running; Remote owns
-[lifecycle admission](contracts/remote-channel-v1.md#local-cli-discovery), listener and state.
-Its archive embeds pages, CSS, SDK and wordlist, no companions/skills; [release gates](.agents/skills/tmt-release/SKILL.md).
+`TMT_EXECUTABLE` via `tmt-invoke`. Remote owns `<dataRoot>/remote/` via
+[state leaf](#shared-extension-state-layout). Core delegates restart when replaced Remote was running;
+Remote owns listener, state and [lifecycle admission](contracts/remote-channel-v1.md#local-cli-discovery).
+Archive: pages, CSS, SDK, wordlist; no companions/skills; [release gates](.agents/skills/tmt-release/SKILL.md).
 
-[`contracts/remote-channel-v1.md`](contracts/remote-channel-v1.md) owns the wire, pairing,
-sessions (reattach, caps, held work), operations, settings authority, mounts, serve lifecycle,
-discovery shapes, and the [hard lines and standing guarantees](contracts/remote-channel-v1.md#user-path)
-that open it. Remote owns authority; shared components supply presentation only. The door serves
-`remote-client`'s `remote-v1.js` (README: re-admission, hosted sync, registry)
-and mounts owner-installed extensions. [Colab](#colab-extension) is mounted at
-`/r/<prefix>/x/colab/` and otherwise reaches Remote only through the public CLI, that SDK and
-the extension object channel (`tmt-extension-objects`), never through Remote state files.
+[Contract](contracts/remote-channel-v1.md) owns wire, pairing, sessions, operations, settings authority,
+mounts, serve lifecycle, discovery shapes and [hard lines](contracts/remote-channel-v1.md#user-path).
+Remote owns authority; shared components supply presentation only. One message layer: signed envelopes, grants, scope, allowlist, hold, uncertainty and audit.
+Target design (proposed, #3290): `talk` → common Remote interface → resolve target host → backend driver.
+Receive: same-ID dispatch/recovery via Core's public API (`operations`).
+Door: `remote-v1.js` ([SDK README](extensions/tmt-remote/typescript/remote-client/README.md))
+and owner-installed extensions. [Colab](#colab-extension) mounts at `/r/<prefix>/x/colab/`;
+otherwise public CLI/SDK/`tmt-extension-objects`, never Remote state files.
 
-`object_service`: leased object/v3 carrier; `firebase_auth` credentials/HTTP.
+`object_service`: leased object/v3 carrier; `firebase_auth`: credentials/HTTP.
 Serve: Auth/runtime/factory/tick/joins/flush; v3 opt-in.
-`native_sync` COUNT/read limits; Colab cursors; no Core state/carrier.
-Emulation never ships.
-[object-backends](.agents/skills/tmt-remote/references/object-backends.md) owns channels,
-backends/quotas. Deploy: frozen consent/history, Rules/Hosting fences; records feed readiness.
-[Remote internals](.agents/skills/tmt-remote/references/architecture-internals.md) owns module rules;
-[door and discovery](.agents/skills/tmt-remote/references/door-and-discovery.md) owns lifecycle,
-status and management. Shared background start is [extension-serve-v1](contracts/extension-serve-v1.md).
+`native_sync`: COUNT/read limits; Colab cursors; no Core state/carrier. Emulation never ships.
+[object-backends](.agents/skills/tmt-remote/references/object-backends.md): channels/backends/quotas.
+Deploy: frozen consent/history, Rules/Hosting fences; records feed readiness.
+[Internals](.agents/skills/tmt-remote/references/architecture-internals.md): module rules;
+[door/discovery](.agents/skills/tmt-remote/references/door-and-discovery.md): lifecycle/status/management.
+Background: [extension-serve-v1](contracts/extension-serve-v1.md).
 
 ## Colab extension
 

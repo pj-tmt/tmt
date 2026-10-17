@@ -1,8 +1,11 @@
 # Remote channel protocol v1
 
-**Status: proposed, not implemented.** This document owns the remote channel: device identity,
-trust grants, wire values, the operations remote admits, the extension channel API and backend
-bindings. Remote owns this contract; tmt-lead reviews changed core contracts and cross-squad
+**Implementation status:** the local door and its signed agent operations are shipped; Colab page
+sharing over Firestore (native sync and the hosted browser client) is shipped. Cloud agent operations
+through Firestore or Cloudflare, including their operation encryption profile, remain proposals.
+Shipped means published code with fixture/emulator proof; real-account acceptance remains open.
+This document owns device identity, trust grants, wire values, admitted operations, the extension
+channel API and backend bindings. Remote owns this contract; tmt-lead reviews changed core contracts and cross-squad
 seams before runtime/SDK code. The
 [security design](https://github.com/wkh237/tmt/issues/478#issuecomment-5910827518),
 [M1 ruling](https://github.com/wkh237/tmt/issues/478#issuecomment-5911118171) and
@@ -1348,9 +1351,10 @@ ID and exact bytes. Comments, sync, replay and rendered content never dispatch. 
 maps onto the operation receipts and `operation.show` found/not-found recovery; results are
 readable only for operations its device owns. Agent delivery status comes from `agents.list`.
 
-**Backends (Proposal).** Extensions use the single
-[backend declaration contract](#proposal-extension-backend-declarations). Remote composes those
-resources with its own through [authorized deploy](#proposal-authorized-deploy).
+**Extension backends.** Declaration admission, Firestore extension deployment and Colab sealed-document
+sync are implemented. Extensions use the single [backend declaration contract](#extension-backend-declarations)
+and [authorized deploy](#authorized-deploy). The proposed cloud agent operation resources are separate;
+page sharing does not activate them.
 
 Principals stay separate. Owner devices are paired through remote and are the only principals that
 can call operations. People an extension shares with (page members, link holders) are never paired
@@ -1597,17 +1601,18 @@ an origin is `established` or `closed`.
 
 ## Backends and deploy
 
-The same message, relay and admission owners serve every backend: `local` (the door plus extension
-stores under the data root), then Firestore, then Cloudflare. The following cloud bindings,
-encryption profile, backend declarations and deploy behavior are **Proposal, not implemented**.
-Specifying them does not enable a cloud backend; implementation and the proposed
-[cloud conformance gates](#proposal-cloud-conformance) are required before use.
+The message, relay and admission owners are shared across the backend model. The `local` door and extension
+stores are implemented, as are Firestore extension declarations, deployment and sealed-document
+sync for Colab page sharing. The cloud **agent operation** bindings, admission service, operation
+encryption and conformance profile below remain **proposals, not implemented**. Their specification
+never enables agent access; the [cloud operation gates](#proposal-cloud-conformance) must pass first.
+Cloudflare remains proposed. Extension/page authority never substitutes for a paired operation grant.
 
-| Backend      | Mapping                                                                                                                                                          |
-| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `local`      | [Loopback HTTP](#transport-binding-loopback-http), mounted extension routes and WebSocket relay; state under the data root.                                      |
-| `firestore`  | **Proposal:** authenticated, bounded encrypted inbox documents; owner-machine responses; snapshot listeners and device-scoped checkpoints.                       |
-| `cloudflare` | **Proposal:** Worker admission before per-machine Durable Object storage; per-namespace relay objects; bounded WebSocket delivery and device-scoped checkpoints. |
+| Backend      | Mapping                                                                                                                                                                             |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `local`      | [Loopback HTTP](#transport-binding-loopback-http), mounted extension routes and WebSocket relay; state under the data root.                                                         |
+| `firestore`  | **Shipped:** extension-scoped sealed-document sync for Colab page sharing. **Proposed agent operations:** encrypted inboxes, owner-machine responses and device-scoped checkpoints. |
+| `cloudflare` | **Proposal:** Worker admission before per-machine Durable Object storage; per-namespace relay objects; bounded WebSocket delivery and device-scoped checkpoints.                    |
 
 ### Proposal: shared cloud admission
 
@@ -1819,7 +1824,10 @@ Batch responses retain the existing bounded subscription policy. Ciphertext chun
 this total cap. IDs, operation names, origin, sizes, timing, key revisions and traffic remain
 visible; content secrecy is not metadata secrecy or protection from a compromised app host.
 
-### Proposal: extension backend declarations
+### Extension backend declarations
+
+**Implemented:** strict declaration parsing and Firestore extension plan composition. Accepting a
+backend name does not implement its binding; Cloudflare transport and provisioning remain proposed.
 
 An enabled owner-installed extension supplies a strict version-1 declaration per backend:
 `{version,extension,backend,resources,admission}` with optional `hosting` for Firestore. Extension
@@ -2413,7 +2421,11 @@ the device derivation and that Rules clause. Publication confirmation is not own
 the owner applies edit requests while Colab is running. Page change/close cancels and joins
 sender, reader and guard work before releasing keys or opening a successor.
 
-### Proposal: authorized deploy
+### Authorized deploy
+
+**Shipped:** the Firestore extension-sharing deployment described under **Current implementation**
+below. The operation-root/admission-service and Cloudflare provisioning in the following profile
+remain **proposed**; the shipped deploy does not enable cloud agent operations.
 
 `tmt remote deploy <backend>` composes Remote's resources and all enabled extension declarations
 into one deployment in the owner's account. Before effects it shows the exact account/project,
@@ -2615,7 +2627,7 @@ new confirmation and retains its superseded outcomes. That explicit terminal dec
 a known or possibly created unreleased Hosting Version untouched and unreleased, with the
 corresponding warning before confirmation; it never bypasses an unknown web-app/site/config
 creation. This exception requires a pending release; an attempted or completed release retains
-the ordinary supersession fences. This exception
+the ordinary supersession fences. It
 does not change non-interactive exact-digest authorization, the plan grammar, cause codes or
 same-digest create no-repeat/upload-origin fences. A private deployment record preserves the
 draft identity and saves run outcomes under a separate writer lock, publishing complete files
@@ -2681,7 +2693,7 @@ answer to a request that cannot have changed anything is a refusal with the rese
 
 ### Proposal: cloud conformance
 
-Before cloud implementation acceptance, independent HPKE and application byte vectors plus
+Before cloud agent operation implementation acceptance, independent HPKE and application byte vectors plus
 browser/native interoperability must cover key descriptors, header/AAD/digest binding, strict
 point/base64/signature refusal, response-key derivation and nonce reuse prevention. Mutating one
 condition from a valid control must refuse before journal/core effects. No test may infer
@@ -2694,7 +2706,7 @@ subscription/checkpoint isolation and lost-response recovery without new effects
 edge that admits a locally revoked device: the machine still performs no effect. Backend migration
 retains the same operation ID and exact intent. Declaration collisions/privilege expansion and
 unapproved or partly failed deploy plans publish no new usable binding. These are proposed gates,
-not evidence of implemented cloud support.
+not evidence of implemented cloud agent operations; shipped extension page sync does not satisfy them.
 
 ## Provisioning on start and pair
 
