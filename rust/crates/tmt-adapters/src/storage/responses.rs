@@ -1,4 +1,4 @@
-//! Recent pane output shares the admitted runtime observation transaction.
+//! Recent provider-final text shares the admitted runtime observation transaction.
 use super::{Storage, StorageError, StorageErrorCode, classify};
 use rusqlite::{Connection, params};
 use serde_json::{Value, json};
