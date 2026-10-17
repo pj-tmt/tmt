@@ -5315,9 +5315,11 @@ describe('large board responsiveness', () => {
             tmux(['send-keys', '-t', pane, 'Tab', 'Right', 'Enter']);
             await vi.waitFor(
               () => {
-                expect(screen()).toContain('Show in Agents');
-                expect(screen()).toContain('Jump to host');
-                expect(screen()).toContain('offline');
+                const menu = screen();
+                expect(menu).toContain('Message');
+                expect(menu).toContain('Show in Agents');
+                // This identity has no host binding: unavailable actions are hidden.
+                expect(menu).not.toContain('Jump to host');
               },
               { timeout: 10_000, interval: 25 }
             );
@@ -5327,7 +5329,9 @@ describe('large board responsiveness', () => {
               text: screen(),
               ansi: tmux(['capture-pane', '-p', '-e', '-t', pane]),
             });
-            tmux(['send-keys', '-t', pane, 'Enter']);
+            // Message is first; keep testing explicit Show in Agents navigation
+            // without sending the retained draft.
+            tmux(['send-keys', '-t', pane, 'Down', 'Enter']);
             await vi.waitFor(() => expect(screen()).not.toContain('Show in Agents'), {
               timeout: 10_000,
               interval: 25,
