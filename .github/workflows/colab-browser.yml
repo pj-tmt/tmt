@@ -203,7 +203,7 @@ jobs:
           key: ${{ steps.browsers.outputs.cache-primary-key }}
 
   colab-app:
-    name: Colab app component specs (Chromium, shard ${{ matrix.shard }}/4)
+    name: Colab app component specs (Chromium, shard ${{ matrix.shard }}/5)
     needs: changes
     concurrency:
       group: colab-browser-app-${{ github.event.pull_request.number || github.ref }}-${{ matrix.shard }}
@@ -211,12 +211,12 @@ jobs:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.colab_app == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # Four contiguous shards measure per-file durations before the balanced split (#3618).
-    # Every test remains selected; each shard owns its concurrency group and evidence.
+    # Whole files are balanced by measured duration (#3618), using the acceptance helper.
+    # Every file runs once; each shard owns its concurrency group and evidence.
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5]
     permissions:
       contents: read
     steps:
@@ -239,7 +239,15 @@ jobs:
           PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/colab-app-results/results.json
         working-directory: typescript
         shell: bash
-        run: pnpm --filter @tmt/colab-app --fail-if-no-match test:browser --shard=${{ matrix.shard }}/4 --reporter=dot,json --output "$RUNNER_TEMP/colab-app-results/traces" 2>&1 | tee "$RUNNER_TEMP/colab-app-results/run.log"
+        run: |
+          set -euo pipefail
+          shard_files="$(node scripts/colab-acceptance-shards.mjs ${{ matrix.shard }} 5 component)"
+          read -r -a files <<< "$shard_files"
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo 'No component spec files selected for this shard.' >&2
+            exit 1
+          fi
+          pnpm --filter @tmt/colab-app --fail-if-no-match test:browser "${files[@]}" --reporter=dot,json --output "$RUNNER_TEMP/colab-app-results/traces" 2>&1 | tee "$RUNNER_TEMP/colab-app-results/run.log"
       - name: Upload run log and failure traces
         if: always()
         uses: actions/upload-artifact@v4

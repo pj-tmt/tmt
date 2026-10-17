@@ -13,9 +13,20 @@ const ACCEPTANCE = {
   specPattern: ACCEPTANCE_PATTERN,
   prefix: 'acceptance',
 };
+const COMPONENT_DIRECTORY = new URL(
+  '../../extensions/tmt-colab/typescript/app/e2e/',
+  import.meta.url
+);
+const COMPONENT = {
+  directory: COMPONENT_DIRECTORY,
+  weightsFile: new URL('shard-weights.json', COMPONENT_DIRECTORY),
+  specPattern: ACCEPTANCE_PATTERN,
+  prefix: 'e2e',
+};
 
 /** Shards of the real-binary acceptance run. The workflow declares one job per shard, so this is fixed. */
 export const ACCEPTANCE_SHARDS = 2;
+export const COMPONENT_SHARDS = 5;
 
 export function loadShardWeights(text = readFileSync(WEIGHTS, 'utf8')) {
   const weights = JSON.parse(text);
@@ -93,9 +104,27 @@ export function acceptanceShardFiles(index, count, files = listAcceptanceFiles()
   return specShardFiles(index, count, ACCEPTANCE, files);
 }
 
-// `node scripts/colab-acceptance-shards.mjs INDEX COUNT` prints the filters on one line for the workflow;
-// the file names are limited to [a-z0-9-] by `listAcceptanceFiles`, so splitting on spaces is exact.
+export function listComponentFiles() {
+  return listSpecFiles(COMPONENT.directory, COMPONENT.specPattern);
+}
+
+export function loadComponentWeights(text = readFileSync(COMPONENT.weightsFile, 'utf8')) {
+  const weights = loadShardWeights(text);
+  if (!Number.isFinite(weights.jobOverheadSeconds) || weights.jobOverheadSeconds < 0)
+    throw new Error('Component job overhead must be a nonnegative number.');
+  return weights;
+}
+
+export function componentShardFiles(index, count, files = listComponentFiles()) {
+  return specShardFiles(index, count, COMPONENT, files);
+}
+
+// The optional third argument selects component specs; the existing acceptance command is unchanged.
+// Only plain suite/spec names reach the filters, so splitting this line on spaces is exact.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const [index, count] = process.argv.slice(2).map(Number);
-  process.stdout.write(acceptanceShardFiles(index, count).join(' ') + '\n');
+  const [index, count, suite] = process.argv.slice(2);
+  if (suite !== undefined && suite !== 'component')
+    throw new Error('The suite must be component or omitted for acceptance.');
+  const shardFiles = suite === 'component' ? componentShardFiles : acceptanceShardFiles;
+  process.stdout.write(shardFiles(Number(index), Number(count)).join(' ') + '\n');
 }

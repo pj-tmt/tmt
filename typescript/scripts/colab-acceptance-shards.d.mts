@@ -29,6 +29,17 @@ export function specShardFiles(
 ): string[];
 
 export const ACCEPTANCE_SHARDS: number;
+export const COMPONENT_SHARDS: number;
+export interface ComponentShardWeights extends ShardWeights {
+  readonly jobOverheadSeconds: number;
+}
+export function listComponentFiles(): string[];
+export function loadComponentWeights(text?: string): ComponentShardWeights;
+export function componentShardFiles(
+  index: number,
+  count: number,
+  files?: readonly string[]
+): string[];
 export function loadShardWeights(text?: string): ShardWeights;
 export function listAcceptanceFiles(directory?: URL): string[];
 export function splitAcceptanceFiles(
