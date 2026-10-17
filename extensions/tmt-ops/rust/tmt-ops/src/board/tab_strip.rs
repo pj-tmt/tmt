@@ -9,6 +9,7 @@ use tmt_cli_style::Role;
 
 pub(in crate::board) fn line(
     labels: &[&str],
+    keys: &[Option<String>],
     selected: usize,
     area: Rect,
     look: Look,
@@ -17,8 +18,9 @@ pub(in crate::board) fn line(
     let mut hits = Vec::new();
     let mut x = area.x.saturating_add(1).min(area.right());
     for (index, label) in labels.iter().enumerate() {
-        let label = format!(" {} ", super::notes::single_line(label));
-        let width = Line::raw(label.clone()).width();
+        let key = keys.get(index).and_then(Option::as_deref);
+        let label = super::keycap::label(key, label, selected == index, look);
+        let width = label.width() + 2;
         let painted = width.min(usize::from(area.right().saturating_sub(x))) as u16;
         if painted > 0 && usize::from(painted) == width && area.height > 0 {
             hits.push((index, Rect::new(x, area.y, painted, 1)));
@@ -31,7 +33,12 @@ pub(in crate::board) fn line(
         } else {
             look.role(Role::Muted)
         };
-        spans.push(Span::styled(label, style));
+        spans.push(Span::styled(" ", style));
+        spans.extend(label.spans.into_iter().map(|span| {
+            let span_style = style.patch(span.style);
+            span.style(span_style)
+        }));
+        spans.push(Span::styled(" ", style));
         spans.push(Span::raw(" "));
     }
     (Line::from(spans), hits)
@@ -45,6 +52,7 @@ mod tests {
         let look = Look::default();
         let (line, hits) = line(
             &["1 Overview", "2 Agents", "3 Digest"],
+            &[None, None, None],
             0,
             Rect::new(0, 0, 25, 1),
             look,

@@ -54,7 +54,14 @@ pub(super) fn paste(query: &mut Editor, text: &str) -> bool {
     query.insert(&text, MAX_BYTES)
 }
 
-pub(super) fn paint(buffer: &mut Buffer, area: Rect, query: &Editor, editing: bool, look: Look) {
+pub(super) fn paint(
+    buffer: &mut Buffer,
+    area: Rect,
+    query: &Editor,
+    editing: bool,
+    key: Option<&str>,
+    look: Look,
+) {
     let value = if query.is_empty() && !editing {
         "Search"
     } else {
@@ -62,10 +69,19 @@ pub(super) fn paint(buffer: &mut Buffer, area: Rect, query: &Editor, editing: bo
     };
     let value = crate::board::notes::sanitize(value);
     let style = look.role(Role::Text).patch(look.role(Role::Track));
-    let mut spans = Vec::new();
-    if editing && area.width >= 4 {
+    let cap = key
+        .map(|key| super::keycap::span(key, false, look))
+        .filter(|cap| cap.width() + 2 <= usize::from(area.width));
+    let prefix = 1 + cap.as_ref().map_or(0, |cap| cap.width() + 1);
+    let available = usize::from(area.width).saturating_sub(prefix);
+    let mut spans = vec![Span::styled(" ", style)];
+    if let Some(cap) = cap {
+        spans.push(cap);
+        spans.push(Span::styled(" ", style));
+    }
+    if editing && available > 0 {
         let editor = query;
-        let available = usize::from(area.width - 4);
+        let available = available.saturating_sub(1); // Caret.
         let layout = editor.layout(u16::MAX);
         let cells = &layout.lines[0].cells;
         let before: Vec<_> = cells
@@ -84,14 +100,9 @@ pub(super) fn paint(buffer: &mut Buffer, area: Rect, query: &Editor, editing: bo
             })
             .collect();
         tail.reverse();
-        spans.push(Span::styled(
-            if clipped && available > 0 {
-                " / …"
-            } else {
-                " / "
-            },
-            style,
-        ));
+        if clipped && available > 0 {
+            spans.push(Span::styled("…", style));
+        }
         let selected = editor.selection();
         let cell_span = |cell: &tmt_tui::components::EditorCell| {
             Span::styled(
@@ -119,13 +130,7 @@ pub(super) fn paint(buffer: &mut Buffer, area: Rect, query: &Editor, editing: bo
         }
     } else {
         spans.push(Span::styled(
-            format!(
-                " {}",
-                crate::board::view::fit(
-                    &format!("/ {value}"),
-                    usize::from(area.width.saturating_sub(1))
-                )
-            ),
+            crate::board::view::fit(&value, available),
             style,
         ));
     }
@@ -137,7 +142,7 @@ pub(super) fn paint(buffer: &mut Buffer, area: Rect, query: &Editor, editing: bo
         " ".repeat(usize::from(area.width).saturating_sub(used)),
         style,
     ));
-    strip::paint_left(buffer, area, Line::from(spans));
+    strip::paint_left(buffer, area, Line::from(spans).style(style));
 }
 
 /// Highlight original characters, including Unicode case-fold expansions, with
@@ -257,10 +262,11 @@ mod tests {
             area,
             &Editor::from(query),
             true,
+            Some("/"),
             Look::new(tmt_cli_style::Theme::default()),
         );
         let text: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
-        assert!(text.starts_with(" / …"), "{text}");
+        assert!(text.starts_with("  /  …"), "{text}");
         assert!(text.contains("e\u{301}▏"), "{text}");
         assert!(!text.contains('�'));
         assert_eq!(text.matches('▏').count(), 1);
@@ -310,10 +316,11 @@ mod tests {
             area,
             &query,
             true,
+            Some("/"),
             Look::new(tmt_cli_style::Theme::default()),
         );
         let text: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
-        assert!(text.starts_with(" / ▏replacement"), "{text}");
+        assert!(text.starts_with("  /  ▏replacement"), "{text}");
     }
 
     #[test]
@@ -334,19 +341,20 @@ mod tests {
             area,
             &query,
             true,
+            Some("/"),
             Look::new(tmt_cli_style::Theme::default()),
         );
-        assert_eq!(buffer[(4, 0)].symbol(), "▏");
-        assert_eq!(buffer[(5, 0)].symbol(), "你");
-        assert_eq!(buffer[(7, 0)].symbol(), "b");
-        for x in [5, 7] {
+        assert_eq!(buffer[(6, 0)].symbol(), "▏");
+        assert_eq!(buffer[(7, 0)].symbol(), "你");
+        assert_eq!(buffer[(9, 0)].symbol(), "b");
+        for x in [7, 9] {
             assert!(
                 buffer[(x, 0)]
                     .modifier
                     .contains(ratatui::style::Modifier::REVERSED)
             );
         }
-        for x in [3, 4, 8, 13] {
+        for x in [5, 6, 10, 13] {
             assert!(
                 !buffer[(x, 0)]
                     .modifier

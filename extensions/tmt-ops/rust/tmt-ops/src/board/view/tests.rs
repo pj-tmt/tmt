@@ -901,7 +901,7 @@ fn startup_spinner_is_delayed_and_animated_without_squad_switch_state() {
     );
     let screen = draw(&app, 80, 8);
     let tab_y = usize::from(app.tab_hits.borrow()[0].y);
-    assert!(screen[tab_y].contains("1 Overview") && screen[tab_y].contains("2 Agents"));
+    assert!(screen[tab_y].contains("1  Overview") && screen[tab_y].contains("2  Agents"));
     assert!(screen.iter().any(|line| line.contains("Opening")));
     let settled = workspace_board();
     assert!(!settled.loading());

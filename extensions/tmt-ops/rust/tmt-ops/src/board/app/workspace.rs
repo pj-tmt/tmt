@@ -491,8 +491,7 @@ impl App {
                 !matches!(
                     action.verb,
                     Verb::Ui(
-                        OpsUiAction::WorkspaceSnapshots
-                            | OpsUiAction::AgentsFilter
+                        OpsUiAction::AgentsFilter
                             | OpsUiAction::DiscoverAgents
                             | OpsUiAction::RenameMember
                     )

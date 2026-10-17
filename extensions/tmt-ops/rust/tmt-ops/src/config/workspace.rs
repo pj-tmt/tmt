@@ -220,7 +220,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
         OpsKeyScope::OverviewReader => entries.extend([
             ("enter", "reply"),
             ("c", "all-timers"),
-            ("v", "overview-view"),
+            ("f", "overview-view"),
         ]),
         OpsKeyScope::Overview => entries.extend([
             ("c", "all-timers"),
@@ -228,7 +228,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("j", "jump"),
             ("o", "open"),
             ("e", "monitor-details"),
-            ("v", "overview-view"),
+            ("f", "overview-view"),
             ("p", "pin"),
             ("m", "manage"),
             ("x", "remove-membership"),
@@ -262,11 +262,14 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
         scope,
         OpsKeyScope::Squad | OpsKeyScope::Member | OpsKeyScope::Pool
     ) {
-        entries.push(("w", "workspace-snapshots"));
         entries.push(("s", "discover-agents"));
         entries.push(("f", "agents-filter"));
     }
-    entries.extend([("y", "copy"), ("a", "annotate lead")]);
+    entries.extend([
+        ("w", "workspace-snapshots"),
+        ("y", "copy"),
+        ("a", "annotate lead"),
+    ]);
     entries
         .into_iter()
         .map(|(key, action)| {
@@ -721,7 +724,10 @@ impl Config {
         for (key, action) in configured {
             if let Err(error) = admit_action(&action, &format!("bind.{key}")) {
                 notices.push(error.message);
-                if action.verb == Verb::Ui(OpsUiAction::AgentsFilter) {
+                if matches!(
+                    action.verb,
+                    Verb::OverviewFilter | Verb::Ui(OpsUiAction::AgentsFilter)
+                ) {
                     effective.remove(&key);
                     sources.remove(&key);
                 }
@@ -888,7 +894,7 @@ mod tests {
     #[test]
     fn overview_view_default_yields_to_all_explicit_binding_scopes() {
         let config = config("[bind]\nv='search'\n[bind.tmux]\nv='talk'\n");
-        assert_eq!(defaults(OpsKeyScope::Overview)["v"].text, "overview-view");
+        assert_eq!(defaults(OpsKeyScope::Overview)["f"].text, "overview-view");
         for scope in [
             OpsKeyScope::Reader,
             OpsKeyScope::Member,
@@ -1154,8 +1160,14 @@ mod tests {
                 Verb::Copy
             );
         }
-        assert!(!defaults(OpsKeyScope::Overview).contains_key("w"));
-        assert!(!defaults(OpsKeyScope::Reader).contains_key("w"));
+        assert_eq!(
+            defaults(OpsKeyScope::Overview)["w"].text,
+            "workspace-snapshots"
+        );
+        assert_eq!(
+            defaults(OpsKeyScope::Reader)["w"].text,
+            "workspace-snapshots"
+        );
     }
     #[test]
     fn rename_default_yields_to_explicit_global_host_and_section_bindings() {
@@ -1234,7 +1246,12 @@ mod tests {
             ));
             assert!(!keys.bindings.contains_key("f"));
             assert_eq!(config.document.to_string(), before);
-            assert_eq!(keys.bindings["v"].text, "overview-view");
+            assert!(
+                !keys
+                    .bindings
+                    .values()
+                    .any(|action| action.text == "overview-view")
+            );
         }
     }
     #[test]
@@ -1700,7 +1717,7 @@ mod tests {
     #[test]
     fn pin_view_overview_list_and_reader_share_the_view_toggle_default() {
         for scope in [OpsKeyScope::Overview, OpsKeyScope::OverviewReader] {
-            assert_eq!(defaults(scope)["v"].text, "overview-view");
+            assert_eq!(defaults(scope)["f"].text, "overview-view");
         }
         assert_eq!(defaults(OpsKeyScope::Member)["v"].text, "view-reply");
         assert_eq!(defaults(OpsKeyScope::Member)["p"].text, "pin");

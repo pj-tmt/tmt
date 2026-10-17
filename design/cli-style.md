@@ -44,8 +44,9 @@ architecture test enforces it for the CLIs and the Rust extensions.
 
 `theme` owns what the design tokens (`design/tokens/tokens.json`) look like in
 a terminal. Its roles are the tokens: `text`, `muted`, `dim`, `accent`,
-`waiting`, `working`, `review`, `blocked`, `link`, `unread`, `selection` and `track`
-(the last two backgrounds; `track` is the empty part of a meter and sits one step
+`waiting`, `working`, `review`, `blocked`, `link`, `unread`, `selection`, `track`,
+`keycap` and `keycap-selected`
+(the last four backgrounds; `track` is the empty part of a meter and sits one step
 above the terminal background, so it is weaker than `selection`). Truecolor
 neutral roles (`text`, `muted`, `dim`, `selection` and `track`) use grayscale
 values from that single token source; semantic colors remain saturated. On
@@ -55,6 +56,7 @@ The `unread` role marks an unopened submitted reply; only its glyph is blue, and
 count/word stay neutral. Terminal16, `mono`, `NO_COLOR` and explicit overrides keep
 their existing behavior.
 Chips resolve through `screen::chip`: neutral Track/Selection surfaces or primary Accent solid/lighter, Dim-on-Track when disabled, always Bold for Ansi16 Hot, and explicit reverse/bold/underline states without color; they add no role or token.
+Keycaps resolve through `screen::keycap`: a neutral mid-grey background, bold contrast-tested label and one padding cell on each side. A selected control uses the brighter `keycap-selected` surface. Without color, keycaps use bold reverse video. Hosts show the effective configured key before its label and omit the cap when the action is unbound.
 
 A `Theme` is a built-in base plus per-role overrides:
 

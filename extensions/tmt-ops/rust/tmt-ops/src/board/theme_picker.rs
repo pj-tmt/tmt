@@ -476,7 +476,7 @@ mod tests {
                 .expect("painted Agents tab")
                 .y;
             assert_eq!(
-                buffer[(find(tabs_y, "2 Agents"), tabs_y)].fg,
+                buffer[(find(tabs_y, "Agents"), tabs_y)].fg,
                 app.look().role(Role::Muted).fg.unwrap_or_default(),
                 "plain shell tabs use the preview without attention badges"
             );
