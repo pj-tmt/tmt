@@ -212,6 +212,9 @@ impl Store {
         &mut self,
         read: impl FnOnce(&Transaction<'_>) -> Result<T, E>,
     ) -> Result<T, UpdateError<E>> {
+        self.connection
+            .busy_timeout(WRITE_WAIT)
+            .map_err(|e| StateError::sqlite(&self.path, "configure read wait", e))?;
         let query_only: bool = self
             .connection
             .pragma_query_value(None, "query_only", |row| row.get(0))

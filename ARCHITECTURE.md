@@ -549,7 +549,7 @@ registry, release catalog, process runner, archive parser or memory/MCP layer.
 `rust/crates/tmt-extension-state` is Remote's unpublished leaf.
 Store owns managed/adopted SQLite transactions and typed newer refusals.
 Document/Guard own atomic byte updates/fail-fast ownership.
-Store files use lstat to preserve locks.
+Existing Store files use lstat to preserve locks.
 Only Remote, Colab and Ops consume it; `nix`/`rusqlite` pins, no TMT/crypto.
 Core, adapters and Colab's model cannot consume it. Guards check reviewed
 manifest/source edges across dependency kinds, aliases and targets.

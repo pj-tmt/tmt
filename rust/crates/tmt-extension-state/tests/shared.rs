@@ -69,6 +69,29 @@ fn store_commits_once_and_rolls_back_a_rejected_change() {
 }
 
 #[test]
+fn reads_set_their_own_wait_after_managed_writes() {
+    let world = World::new();
+    let mut store = Store::open(&world.layout(), "state.db", MIGRATIONS, RETRY).unwrap();
+    store
+        .write(|tx| tx.execute("INSERT INTO records VALUES(1,'kept')", []))
+        .unwrap();
+    store
+        .read(|tx| {
+            assert_eq!(
+                tx.query_row("PRAGMA busy_timeout", [], |row| row.get::<_, i64>(0))?,
+                5000
+            );
+            assert_eq!(
+                tx.query_row("SELECT value FROM records WHERE id=1", [], |row| row
+                    .get::<_, String>(0))?,
+                "kept"
+            );
+            Ok::<_, rusqlite::Error>(())
+        })
+        .unwrap();
+}
+
+#[test]
 fn document_changes_current_bytes_and_preserves_them_on_rejection() {
     let world = World::new();
     let state = world.layout();
