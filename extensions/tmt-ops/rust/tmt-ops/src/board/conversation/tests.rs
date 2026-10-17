@@ -724,7 +724,7 @@ fn switching_shell_keeps_uuid_and_link_while_overview_discusses_only_an_observed
                 "Digest shows status details"
             );
         } else if tab == OpsTab::Overview {
-            assert!(text.contains("Exchange history unavailable"), "{text}");
+            assert!(text.contains("No question observed."), "{text}");
             assert!(!text.contains("Loading recent pane output"), "{text}");
             assert!(
                 !text.contains("worker line 089"),
@@ -1105,7 +1105,7 @@ fn pane_output_is_neutral_bounded_and_never_a_request_source() {
         );
         assert!(header > 0);
         for (index, source) in rendered.mapped.sources.iter().enumerate() {
-            if rendered.pane_rows.contains(&index) {
+            if index >= header {
                 assert!(
                     session.response_key_at(*source).is_none(),
                     "pane line {index} has no request authority"
@@ -1163,10 +1163,6 @@ fn pane_output_pending_unavailable_and_observed_empty_are_distinct() {
         },
         ..Default::default()
     };
-    assert!(
-        !session.has_pane_output(),
-        "pending adds no visible pane state"
-    );
     session.update(Some(reply("known", "known exchange")));
     session.prepare(60, Look::default(), &Default::default());
     let pending_lines: Vec<_> = session
@@ -1236,7 +1232,6 @@ fn pane_output_pending_unavailable_and_observed_empty_are_distinct() {
         ..Default::default()
     };
     session.pane_output = Observation::Unavailable;
-    assert!(session.has_pane_output());
     session.prepare(60, Look::default(), &Default::default());
     assert_eq!(
         session
@@ -1252,13 +1247,8 @@ fn pane_output_pending_unavailable_and_observed_empty_are_distinct() {
     );
     assert!(session.response_key_at(0).is_none());
     session.pane_output = Observation::Observed(vec![]);
-    assert!(!session.has_pane_output());
     session.transcript_context.exchanges_observed = false;
     session.rendered = None;
-    assert!(
-        session.has_pane_output(),
-        "an empty pane source cannot establish empty exchanges"
-    );
     session.prepare(60, Look::default(), &Default::default());
     assert_eq!(
         session.rendered.as_ref().unwrap().mapped.lines[0].to_string(),
@@ -1313,7 +1303,63 @@ fn ten_long_pane_outputs_share_scroll_follow_and_leave_real_exchange_reachable()
 fn digest_details_do_not_admit_recent_output_even_with_the_shared_scroll_pane() {
     let mut app = workspace_fixture();
     workspace(&mut app, 160, 36);
-    assert!(app.pane_output_read().is_some());
+    let key = app
+        .pane_output_read()
+        .expect("Agents admits the selected UUID");
+    app.apply_pane_output(
+        key,
+        crate::board::recent_responses::Observation::Observed(vec![
+            crate::board::recent_responses::Item {
+                text: "Agents-only pane capture".into(),
+                ended_ms: 1000,
+                truncated: false,
+            },
+        ]),
+    );
+    workspace(&mut app, 160, 36);
+    assert!(draw(&app, 160, 36).contains("Agents-only pane capture"));
+    let selected = app.workspace.selected.clone().unwrap();
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .rows
+        .get_mut(&selected)
+        .unwrap()["waitingOnYou"] = json!([{"requestId":"req_55555555-5555-4555-8555-555555555555","preparedAtMs":1000,"preview":"A real waiting question keeps Overview's response viewport visible."}]);
+    app.shell.tab = crate::board::shell::OpsTab::Overview;
+    workspace(&mut app, 160, 36);
+    assert!(
+        app.scrolls.visible(Pane::Replies),
+        "a waiting Overview question really paints the shared viewport"
+    );
+    assert!(
+        app.pane_output_read().is_none(),
+        "Overview keeps its existing question-only owner"
+    );
+    assert!(
+        !draw(&app, 160, 36).contains("Agents-only pane capture"),
+        "cached Agents captures never leak into Overview"
+    );
+    assert!(
+        !app.conversation
+            .borrow()
+            .sessions
+            .values()
+            .any(|session| session.transcript_context.enabled)
+    );
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .rows
+        .get_mut(&selected)
+        .unwrap()["waitingOnYou"] = json!([]);
     app.shell.tab = crate::board::shell::OpsTab::Digest;
     workspace(&mut app, 160, 36);
     assert!(
@@ -1325,50 +1371,6 @@ fn digest_details_do_not_admit_recent_output_even_with_the_shared_scroll_pane() 
         "Details is not a conversation read owner"
     );
     assert!(app.selected_read().is_none());
-}
-
-#[test]
-fn overview_pane_bodies_use_the_same_single_gutter_width_as_exchanges() {
-    use crate::board::recent_responses::{Item, Observation};
-    let text = "Same words wrap against exactly one shared body gutter.";
-    let mut session = Session::default();
-    session.update(Some(reply("real-request", text)));
-    session.transcript_context = transcript::Context {
-        enabled: true,
-        name: "alpha".into(),
-        times: vec![1000],
-        exchanges_observed: true,
-        output_ages: vec!["now".into()],
-    };
-    session.pane_output = Observation::Observed(vec![Item {
-        text: text.into(),
-        ended_ms: 1000,
-        truncated: false,
-    }]);
-    session.prepare_exchange(30, Look::default(), &Default::default());
-    let mapped = &session.rendered.as_ref().unwrap().mapped;
-    let header = mapped
-        .lines
-        .iter()
-        .position(|line| line.to_string().contains("pane output"))
-        .unwrap();
-    let exchange: Vec<_> = mapped.lines[..header]
-        .iter()
-        .map(ToString::to_string)
-        .collect();
-    let pane: Vec<_> = mapped.lines[header + 1..]
-        .iter()
-        .map(|line| line.to_string().strip_prefix(" │ ").unwrap().to_owned())
-        .collect();
-    assert_eq!(
-        exchange, pane,
-        "no second gutter is subtracted from pane bodies"
-    );
-    assert!(mapped.lines.iter().all(|line| line.width() <= 30));
-    assert!(
-        !session.prepare_exchange(30, Look::default(), &Default::default()),
-        "unchanged mixed content uses its render cache"
-    );
 }
 
 #[test]

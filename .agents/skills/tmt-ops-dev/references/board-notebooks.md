@@ -70,7 +70,7 @@ new output alone do not resume it; Send enables follow.
 `Scrolls` remains the sole viewport owner. Rendering and reading acknowledge
 nothing. Layout uses terminal cells and degrades side/stack preferences to one
 focused pane when dimensions cannot support a split.
-The same selected worker reads [recent pane output](../../../../contracts/extension-api.md#recent-agent-responses)
+In Agents member focus, the same selected worker reads [recent pane output](../../../../contracts/extension-api.md#recent-agent-responses)
 after capability discovery, by exact identity UUID. Each session projects at most
 ten provider-final captures, oldest capture first without a timestamp sort. It
 stably merges the exchange and capture heads by their literal times, exchange
@@ -80,7 +80,8 @@ separate these observations from replies. Pending and observed-empty pane reads 
 an empty conversation requires both sources observed empty. Pane text creates no
 request-source, reply, acknowledgment or annotation authority. The existing
 UUID/revision/cancellation fences reject obsolete reads, and the shared viewport
-keeps long captures scrollable without displacing the composer.
+keeps long captures scrollable without displacing the composer. Overview keeps its
+question-only presentation and does not acquire or paint these captures.
 
 The selected agent's composer stays visible at the conversation bottom, including
 while unfocused and after Send. Default Enter focuses its retained editor; active
