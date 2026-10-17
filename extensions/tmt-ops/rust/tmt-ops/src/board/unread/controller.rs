@@ -4,7 +4,7 @@ use crate::board::{app::App, home_leads::Kind, workspace::OpsTarget};
 
 impl App {
     fn read_marker(&self, actor: &str, member: &str) -> u64 {
-        self.unread.confirmed.get(actor, member).max(
+        self.unread.writer.confirmed(actor, member).max(
             self.workspace_snapshot()
                 .map_or(0, |snapshot| snapshot.read_markers.get(actor, member)),
         )
@@ -119,7 +119,7 @@ impl App {
     ) {
         match result {
             Ok(markers) => {
-                self.unread.confirmed.merge(&markers);
+                self.unread.writer.observed(&markers);
                 self.overview_rows.borrow_mut().clear();
                 self.workspace_reconcile();
                 self.invalidate_frame_geometry();

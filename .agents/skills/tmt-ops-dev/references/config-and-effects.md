@@ -58,7 +58,9 @@ leave it intact. The existing ordered action lane owns these writes and their
 visible failure/retry outcome. Failed saves remain pending without an automatic
 retry; quitting or exec reload reports an unresolved save after restoring the
 terminal, even if its lane event was not consumed. A popup stays open after a
-successful jump whose marker save failed. No Core acknowledgment is changed.
+successful jump whose marker save failed. Fresh shared Config observations also
+resolve a pending failure when another layout already saved that exact watermark.
+No Core acknowledgment is changed.
 
 ## Ops path migration
 
@@ -70,16 +72,16 @@ The stable `.ops-paths.lock` beside the config serializes first runs and unfinis
 `.ops-paths-v1` marker makes later decisions check only completion/legacy-name metadata, with no lock or legacy content reads. The marker is read only when the old config name exists, to distinguish an unchanged ignored file from a reappeared one.
 Help, completion, embedded skills and offline layout checks never migrate.
 
-| Path                                                                                                                      | Owner and migration                                                            |
-| ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `ops.toml`, `ops.toml.lock`, `.ops.toml.<pid>`                                                                                             | Config/CAS writer and stable writer lock; exact `squad.toml` migrates, staging is disposable.         |
-| `<dataRoot>/ops/cron/{jobs.json,jobs.lock,jobs.tmp}`                                                                      | Cron document, stable writer lock and staging.                                 |
-| `<dataRoot>/ops/cron/{clock.json,clock.lock,clock.tmp}`                                                                   | Clock lease, stable lock and staging.                                          |
-| `<dataRoot>/ops/checklist/<room-uuid>/{items.json,items.lock,items.tmp}`                                                  | Checklist document, stable lock and staging.                                   |
-| `.ops-paths-pending.json`, `.ops-paths-cutover-v1`, `.ops-paths-v1`, `.ops-paths*.tmp`, `.ops-migrate-<name>-<timestamp>` | Migration journal, durable cutover/completion markers and unpublished staging. |
-| `squad.toml.migrated-<timestamp>`, `<dataRoot>/squad.migrated-<timestamp>`                                                | Retained original backups; no reader enumerates them.                          |
-| `$XDG_CACHE_HOME/tmt-ops/{fields,staleness,back}`                                                                         | Disposable observations and navigation.                                        |
-| `ops.tmux.conf`, tmux-config `.tmt-ops-backup-*` / staging                                                                | Consented hotkey owner; former `squad.tmux.conf` is retained.                  |
+| Path                                                                                                                      | Owner and migration                                                                           |
+| ------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `ops.toml`, `ops.toml.lock`, `.ops.toml.<pid>`                                                                            | Config/CAS writer and stable writer lock; exact `squad.toml` migrates, staging is disposable. |
+| `<dataRoot>/ops/cron/{jobs.json,jobs.lock,jobs.tmp}`                                                                      | Cron document, stable writer lock and staging.                                                |
+| `<dataRoot>/ops/cron/{clock.json,clock.lock,clock.tmp}`                                                                   | Clock lease, stable lock and staging.                                                         |
+| `<dataRoot>/ops/checklist/<room-uuid>/{items.json,items.lock,items.tmp}`                                                  | Checklist document, stable lock and staging.                                                  |
+| `.ops-paths-pending.json`, `.ops-paths-cutover-v1`, `.ops-paths-v1`, `.ops-paths*.tmp`, `.ops-migrate-<name>-<timestamp>` | Migration journal, durable cutover/completion markers and unpublished staging.                |
+| `squad.toml.migrated-<timestamp>`, `<dataRoot>/squad.migrated-<timestamp>`                                                | Retained original backups; no reader enumerates them.                                         |
+| `$XDG_CACHE_HOME/tmt-ops/{fields,staleness,back}`                                                                         | Disposable observations and navigation.                                                       |
+| `ops.tmux.conf`, tmux-config `.tmt-ops-backup-*` / staging                                                                | Consented hotkey owner; former `squad.tmux.conf` is retained.                                 |
 
 Old-only files are copied and synced, checked for byte/tree equality (config is also
 parsed), then all new targets are atomically published and reverified. Only after

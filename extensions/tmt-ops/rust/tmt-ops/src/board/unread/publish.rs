@@ -43,22 +43,41 @@ impl Seen {
 #[derive(Debug, Default)]
 struct Pending {
     updates: ReadMarkers,
+    confirmed: ReadMarkers,
     ready: bool,
     queued: bool,
     failure: Option<String>,
 }
 impl Pending {
-    fn recorded(&mut self, updates: &ReadMarkers, result: &Result<ReadMarkers, String>) {
+    fn observed(&mut self, saved: &ReadMarkers) {
+        self.confirmed.merge(saved);
+        self.updates.remove_confirmed(&self.confirmed);
+        if self.updates.is_empty() {
+            self.failure = None;
+        }
+    }
+
+    fn recorded(
+        &mut self,
+        updates: &ReadMarkers,
+        result: Result<ReadMarkers, String>,
+    ) -> Result<ReadMarkers, String> {
         match result {
             Ok(saved) => {
-                self.updates.remove_confirmed(saved);
-                if self.updates.is_empty() {
-                    self.failure = None;
-                }
+                self.observed(&saved);
+                Ok(self.confirmed.clone())
             }
             Err(error) => {
-                self.updates.merge(updates);
+                let mut remaining = updates.clone();
+                remaining.remove_confirmed(&self.confirmed);
+                // Another layout may have durably published this exact pair
+                // while the attempted write was in flight.
+                if remaining.is_empty() {
+                    return Ok(self.confirmed.clone());
+                }
+                self.updates.merge(&remaining);
                 self.failure = Some(error.clone());
+                Err(error)
             }
         }
     }
@@ -67,6 +86,23 @@ impl Pending {
 #[derive(Clone, Debug, Default)]
 pub(in crate::board) struct Writer(Arc<Mutex<Pending>>);
 impl Writer {
+    pub fn confirmed(&self, actor: &str, member: &str) -> u64 {
+        self.0
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .confirmed
+            .get(actor, member)
+    }
+
+    /// Fresh Config observations and successful publications share one
+    /// monotonic confirmed map, including writes made by another layout.
+    pub fn observed(&self, saved: &ReadMarkers) {
+        self.0
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .observed(saved);
+    }
+
     pub fn failure(&self) -> Option<String> {
         self.0
             .lock()
@@ -82,8 +118,7 @@ impl Writer {
         self.0
             .lock()
             .unwrap_or_else(|error| error.into_inner())
-            .recorded(&seen.markers(), &result);
-        result
+            .recorded(&seen.markers(), result)
     }
 
     /// Called after the lane has joined. A result event need not have reached
@@ -105,8 +140,12 @@ impl Writer {
 
     pub fn seen(&self, seen: &Seen) {
         let mut pending = self.0.lock().unwrap_or_else(|error| error.into_inner());
-        pending.updates.merge(&seen.markers());
-        pending.ready = true;
+        let mut updates = seen.markers();
+        updates.remove_confirmed(&pending.confirmed);
+        if !updates.is_empty() {
+            pending.updates.merge(&updates);
+            pending.ready = true;
+        }
     }
     pub fn offer(&self) -> Option<Self> {
         let mut pending = self.0.lock().unwrap_or_else(|error| error.into_inner());
@@ -130,13 +169,13 @@ impl Writer {
         let updates = {
             let mut pending = self.0.lock().unwrap_or_else(|error| error.into_inner());
             pending.ready = false;
-            std::mem::take(&mut pending.updates)
+            pending.updates.clone()
         };
         let result = save(&updates);
         let mut pending = self.0.lock().unwrap_or_else(|error| error.into_inner());
         // A failure remains idle until a new explicit opening. An opening
         // admitted during this write may already have made the next batch ready.
-        pending.recorded(&updates, &result);
+        let result = pending.recorded(&updates, result);
         pending.queued = false;
         result
     }
@@ -144,7 +183,6 @@ impl Writer {
 
 #[derive(Default)]
 pub(in crate::board) struct Session {
-    pub confirmed: ReadMarkers,
     pub writer: Writer,
     pub displayed: Option<Seen>,
 }
@@ -183,14 +221,14 @@ mod tests {
             "a failed save is not an automatic retry"
         );
         assert_eq!(writer.failure().as_deref(), Some("disk full"));
-        writer.seen(&seen(A, 15));
+        writer.seen(&seen(B, 15));
         let result = writer
             .offer()
             .unwrap()
             .complete(|updates| Ok(updates.clone()))
             .unwrap();
         assert_eq!(result.get(&seen(A, 0).actor, B), 30);
-        assert_eq!(result.get(&seen(A, 0).actor, A), 15);
+        assert_eq!(result.get(&seen(A, 0).actor, A), 20);
         assert!(writer.offer().is_none());
         assert!(writer.failure().is_none());
     }
@@ -207,7 +245,9 @@ mod tests {
         let mut saved = seen(B, 30).markers();
         {
             let mut pending = writer.0.lock().unwrap();
-            pending.recorded(&seen(B, 30).markers(), &Ok(saved.clone()));
+            pending
+                .recorded(&seen(B, 30).markers(), Ok(saved.clone()))
+                .unwrap();
         }
         assert_eq!(writer.failure().as_deref(), Some("disk full"));
         assert!(
@@ -220,7 +260,8 @@ mod tests {
             .0
             .lock()
             .unwrap()
-            .recorded(&seen(A, 20).markers(), &Ok(saved));
+            .recorded(&seen(A, 20).markers(), Ok(saved))
+            .unwrap();
         assert!(writer.failure().is_some(), "a newer unsaved marker remains");
         let saved = writer
             .offer()
@@ -229,5 +270,39 @@ mod tests {
             .unwrap();
         assert_eq!(saved.get(&seen(A, 0).actor, A), 40);
         assert!(writer.failure().is_none());
+    }
+    #[test]
+    fn a_fresh_shared_marker_resolves_failure_including_a_late_failed_write() {
+        let writer = Writer::default();
+        writer.seen(&seen(A, 20));
+        writer
+            .offer()
+            .unwrap()
+            .complete(|_| Err("disk full".into()))
+            .unwrap_err();
+        writer.observed(&seen(B, 30).markers());
+        assert!(
+            writer.failure().is_some(),
+            "an unrelated marker cannot resolve A"
+        );
+        writer.observed(&seen(A, 20).markers());
+        assert!(writer.failure().is_none());
+        assert!(
+            writer.offer().is_none(),
+            "observation resolves without another write"
+        );
+        writer.seen(&seen(A, 40));
+        let saved = writer
+            .offer()
+            .unwrap()
+            .complete(|_| {
+                writer.observed(&seen(A, 40).markers());
+                Err("late failed local write".into())
+            })
+            .unwrap();
+        assert_eq!(saved.get(&seen(A, 0).actor, A), 40);
+        assert_eq!(writer.confirmed(&seen(A, 0).actor, A), 40);
+        assert!(writer.failure().is_none());
+        assert!(writer.offer().is_none());
     }
 }
