@@ -47,6 +47,7 @@
 //! attempt, including callback time. Callbacks are never replayed. Query-only
 //! read snapshots restore the connection policy and, in rollback journals, delay
 //! writers' COMMIT, so keep reads short.
+//! The supplied connection must be in autocommit (no transaction or savepoint).
 //! Admit the main file before connecting. While a connection lives, never open
 //! and close that file or its journal/WAL/shared-memory sidecars: closing any
 //! descriptor releases the process's POSIX locks on that file.

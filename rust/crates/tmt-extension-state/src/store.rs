@@ -36,6 +36,12 @@ impl Store {
             )
             .map_err(|e| StateError::sqlite(Path::new(""), "read admitted database path", e))?;
         let path = PathBuf::from(path);
+        if !connection.is_autocommit() {
+            return Err(StateError::Invalid {
+                path,
+                reason: "an autocommit connection is required",
+            });
+        }
         if !path.is_absolute() || retry.is_empty() {
             return Err(StateError::Invalid {
                 path,
