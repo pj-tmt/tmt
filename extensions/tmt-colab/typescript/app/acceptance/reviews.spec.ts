@@ -5,8 +5,8 @@ import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
 test.afterEach(disposeActiveWorlds);
 
-const progress = (page: import('@playwright/test').Page, closed: number, total: number) =>
-  page.getByRole('status', { name: `${closed} of ${total} review sections closed` });
+const pending = (page: import('@playwright/test').Page, count: number) =>
+  page.getByRole('button', { name: `Needs you: ${count}`, exact: true });
 
 test('a section confirmed in the browser is a resolved thread to the CLI, and an agent resolve never closes one', async () => {
   await withWorld(async (world) => {
@@ -40,12 +40,12 @@ test('a section confirmed in the browser is a resolved thread to the CLI, and an
     const first = await openPage(door, author, created);
     const bands = first.locator('.review-card');
     await expect(bands).toHaveCount(2);
-    await expect(progress(first, 0, 2)).toBeVisible();
+    await expect(pending(first, 2)).toBeVisible();
     expect(listing()).toHaveLength(0);
 
     // Confirm and close: one comment and a person Resolve, which tells the agent once.
     await bands.nth(0).getByRole('button', { name: 'Confirm and close', exact: true }).click();
-    await expect(progress(first, 1, 2)).toBeVisible();
+    await expect(pending(first, 1)).toBeVisible();
     await expect.poll(() => thread('Section one')?.resolved).toBe(true);
     expect(thread('Section one')!.comments).toHaveLength(1);
     expect(thread('Section one')!.comments[0].body).toContain('Confirmed “Section one”');
@@ -53,7 +53,7 @@ test('a section confirmed in the browser is a resolved thread to the CLI, and an
 
     // Another device reads the same state and sees the section faded but expanded.
     const second = await openPage(door, viewer, created);
-    await expect(progress(second, 1, 2)).toBeVisible();
+    await expect(pending(second, 1)).toBeVisible();
     const faded = second.frameLocator('iframe').locator('tmt-review').first();
     await expect(faded).toHaveAttribute('data-colab-review-closed', 'true');
     await expect(faded.getByText('First content.')).toBeVisible();
@@ -64,8 +64,8 @@ test('a section confirmed in the browser is a resolved thread to the CLI, and an
       colab(['threads', 'reopen', created.pageId, threadId, '--json'], agent.pane),
     ) as { changed: boolean };
     expect(reopened.changed).toBe(true);
-    await expect(progress(first, 0, 2)).toBeVisible();
-    await expect(progress(second, 0, 2)).toBeVisible();
+    await expect(pending(first, 2)).toBeVisible();
+    await expect(pending(second, 2)).toBeVisible();
     await expect(
       bands.nth(0).getByRole('button', { name: 'Confirm and close', exact: true }),
     ).toBeEnabled();
@@ -75,6 +75,7 @@ test('a section confirmed in the browser is a resolved thread to the CLI, and an
     await bands.nth(1).getByLabel('What needs to change', { exact: true }).fill('Say more here.');
     await bands.nth(1).getByRole('button', { name: 'Send', exact: true }).click();
     await expect(bands.nth(1)).toHaveAttribute('data-review-state', 'changes');
+    await expect(pending(first, 1)).toBeVisible();
     await expect.poll(() => thread('Section two')?.comments.length).toBe(1);
     expect(thread('Section two')!.resolved).toBe(false);
     expect(thread('Section two')!.comments[0].body).toContain(
@@ -92,13 +93,20 @@ test('a section confirmed in the browser is a resolved thread to the CLI, and an
     expect(resolved.changed).toBe(true);
     expect(resolved.action.actor).toBe('agent');
     await expect.poll(() => thread('Section two')?.resolved).toBe(true);
-    await expect(progress(first, 0, 2)).toBeVisible();
+    // The fixture replies to the change Ask, returning it to the reader's pending list.
+    await expect(bands.nth(1)).toHaveAttribute('data-review-state', 'waiting');
+    await expect(pending(first, 2)).toBeVisible();
     await expect(bands.nth(1)).not.toHaveAttribute('data-review-state', 'closed');
 
     // Only the reader's confirmation closes it: reopen first, then a person Resolve.
     await bands.nth(1).getByRole('button', { name: 'Confirm and close', exact: true }).click();
-    await expect(progress(first, 1, 2)).toBeVisible();
-    await expect(progress(second, 1, 2)).toBeVisible();
+    await expect(pending(first, 1)).toBeVisible();
+    await expect(pending(second, 1)).toBeVisible();
+    await expect(bands.nth(1)).toHaveAttribute('data-review-state', 'closed');
+    await expect(second.locator('.review-card').nth(1)).toHaveAttribute(
+      'data-review-state',
+      'closed',
+    );
     await expect.poll(() => thread('Section two')?.resolved).toBe(true);
   });
 });
