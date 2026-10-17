@@ -112,10 +112,14 @@ pub(super) fn model(app: &App) -> KeyHelp {
         .map(|(key, action)| {
             let description =
                 if action.verb == crate::action::Verb::Ui(crate::action::OpsUiAction::Pin) {
-                    if app.shell.tab == crate::board::shell::OpsTab::Overview {
-                        "pin or unpin the selected agent".into()
-                    } else {
-                        "pin or unpin the selected squad".into()
+                    match app.workspace.selected {
+                        Some(crate::board::workspace::OpsTarget::Member { .. }) => {
+                            "pin or unpin the selected agent".into()
+                        }
+                        Some(crate::board::workspace::OpsTarget::Squad(_)) => {
+                            "pin or unpin the selected squad".into()
+                        }
+                        _ => "pin or unpin the selected agent or squad".into(),
                     }
                 } else {
                     action.description()

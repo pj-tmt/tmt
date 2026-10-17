@@ -74,8 +74,8 @@ pub(in crate::board) struct Cache {
 }
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(in crate::board) enum View {
-    #[default]
     Squads,
+    #[default]
     Agents,
 }
 impl View {
@@ -328,9 +328,14 @@ pub(in crate::board) fn scene(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<
             (row, v)
         })
         .collect();
+    let pinned = |row: &OpsTreeRow| {
+        matches!(&row.target,
+        OpsTarget::Member { identity_id, .. } if key.pins.contains(identity_id))
+    };
     projected.sort_by(|(a, av), (b, bv)| {
-        waits(snapshot, b)
-            .cmp(&waits(snapshot, a))
+        pinned(b)
+            .cmp(&pinned(a))
+            .then_with(|| waits(snapshot, b).cmp(&waits(snapshot, a)))
             .then_with(|| match key.order {
                 Some(order) => sort::compare(&av.order(a), &bv.order(b), order),
                 None => match (

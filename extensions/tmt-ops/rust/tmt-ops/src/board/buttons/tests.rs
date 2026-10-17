@@ -337,3 +337,49 @@ fn capture_chip_controls() {
         }
     });
 }
+
+#[test]
+fn pin_view_selected_group_chip_keeps_its_fill_while_search_owns_input() {
+    use crate::board::chip_group::{self, ChipGroup, Choice};
+    for depth in [
+        tmt_cli_style::Depth::TrueColor,
+        tmt_cli_style::Depth::Ansi16,
+        tmt_cli_style::Depth::None,
+    ] {
+        let mut app = App::default();
+        app.initial_look = Some(crate::look::Look {
+            theme: tmt_cli_style::Theme::default(),
+            depth,
+        });
+        let area = Rect::new(0, 0, 20, 1);
+        let group = [ChipGroup {
+            label: "".into(),
+            choices: vec![Choice {
+                id: "all".into(),
+                text: " All ".into(),
+                gap: " ".into(),
+                actionable: true,
+                selected: true,
+                disabled: false,
+                cursor: false,
+            }],
+        }];
+        let mut idle = Buffer::empty(area);
+        chip_group::paint(&mut idle, area, &group, &app, None);
+        app.buttons.begin_frame();
+        app.searching = true;
+        let mut editing = Buffer::empty(area);
+        chip_group::paint(&mut editing, area, &group, &app, None);
+        for x in 0..5 {
+            assert_eq!(
+                editing[(x, 0)],
+                idle[(x, 0)],
+                "selected state stays filled at cell {x}"
+            );
+        }
+        assert!(
+            app.buttons.regions.borrow().is_empty(),
+            "search keeps hover input inactive"
+        );
+    }
+}

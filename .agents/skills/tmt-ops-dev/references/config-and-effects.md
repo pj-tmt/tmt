@@ -173,7 +173,8 @@ live hidden count. Pins remain independent. Session launch scope/reveal belongs
 to App and ephemeral reload carry, never Config or retained view hints.
 `workspace.overview_sort` names an existing identity sort field;
 `workspace.overview_reverse` reverses its initial direction; optional
-`workspace.agent_pins` retains up to 1,024 canonical identity UUIDs; it does not replace the waiting-first Overview ordering.
+`workspace.agent_pins` retains up to 1,024 canonical identity UUIDs. Pinned agents
+precede the regular Overview Agents order and appear in the Agents Pinned tree.
 `workspace.digest_window` selects 24h (default), 7d or lifetime (shown as all time)
 for every Digest estimate surface, through the same format-preserving Config CAS;
 `workspace.savings_unit` (`tokens` default, `percent`, `cost`) is the sibling key on the
@@ -381,6 +382,7 @@ unavailable acceptance without claiming delivery or processing.
 
 The per-layer view-state controls store the Overview list choice as `overviewView`
 (`squads` or `agents`). A file written before the list redesign keeps its committed
-query, Agents filter, sort and scroll controls and defaults the new choice to Squads;
+query, Agents filter, sort and scroll controls and defaults the new choice to Agents;
+an explicit saved Squads or Agents choice remains unchanged;
 the removed `overviewFilter` is not reinterpreted as a list choice. A present invalid
 new choice is refused by the existing control decoder. Config remains unchanged.

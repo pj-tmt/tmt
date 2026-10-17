@@ -391,7 +391,7 @@ pub(in crate::board) fn identity_rows_matching(
 }
 
 impl OpsWorkspace {
-    /// Pin is a Config preference; virtual pool and member rows cannot be pinned.
+    /// Toggle a squad pin; member UUID pins use the same Config preferences lane.
     pub fn toggle_pin(&self, preferences: &mut OpsPreferences) -> bool {
         let Some(OpsTarget::Squad(id)) = &self.selected else {
             return false;
@@ -462,13 +462,18 @@ impl OpsWorkspace {
     ) -> Vec<OpsTreeRow> {
         let query = query.to_lowercase();
         let matches = |name: &str| name.to_lowercase().contains(&query);
-        let pool: Vec<_> = roster.pool().collect();
+        let pool: Vec<_> = roster
+            .pool()
+            .filter(|member| {
+                self.filter != AgentsFilter::Pinned || preferences.agent_pins.contains(&member.id)
+            })
+            .collect();
         // Keep an unfiltered unknown/empty pool, but search only shows matching
         // identities and their containing group.
         let show_pool = self.visibility.scope.is_empty()
             && match self.filter {
                 AgentsFilter::All => true,
-                AgentsFilter::Pinned => false,
+                AgentsFilter::Pinned => !pool.is_empty(),
             }
             && (query.is_empty()
                 || matches("Common pool")
@@ -493,7 +498,12 @@ impl OpsWorkspace {
                 },
             });
         }
-        if show_pool && (expand || self.pool_expanded || !query.is_empty()) {
+        if show_pool
+            && (expand
+                || self.pool_expanded
+                || !query.is_empty()
+                || self.filter == AgentsFilter::Pinned)
+        {
             let mut pool = pool;
             pool.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.id.cmp(&b.id)));
             for member in pool
@@ -537,16 +547,21 @@ impl OpsWorkspace {
             order.then_with(|| a.room_id.cmp(&b.room_id))
         });
         for squad in squads {
-            if match self.filter {
-                AgentsFilter::All => false,
-                AgentsFilter::Pinned => !preferences.pinned.contains(&squad.room_id),
-            } {
-                continue;
-            }
-            let squad_matches = matches(&squad.name);
+            let squad_pinned = preferences.pinned.contains(&squad.room_id);
             let mut members: Vec<_> = roster.members(squad).collect();
             let mut seen = BTreeSet::new();
             members.retain(|member| seen.insert(&member.id));
+            let agent_pinned = members
+                .iter()
+                .any(|member| preferences.agent_pins.contains(&member.id));
+            if self.filter == AgentsFilter::Pinned {
+                if !squad_pinned && !agent_pinned {
+                    continue;
+                }
+                members
+                    .retain(|member| squad_pinned || preferences.agent_pins.contains(&member.id));
+            }
+            let squad_matches = matches(&squad.name);
             if !squad_matches && !members.iter().any(|member| matches(&member.name)) {
                 continue;
             }
@@ -572,7 +587,11 @@ impl OpsWorkspace {
                     .then(|| squad.members.iter().collect::<BTreeSet<_>>().len()),
                 observation: squad.observation,
             });
-            if expand || self.expanded.contains(&squad.room_id) || !query.is_empty() {
+            if expand
+                || self.expanded.contains(&squad.room_id)
+                || !query.is_empty()
+                || self.filter == AgentsFilter::Pinned && agent_pinned
+            {
                 let unknown = OpsMembershipState::default();
                 members.sort_by(|a, b| {
                     (squad.lead.as_deref() != Some(&a.id))

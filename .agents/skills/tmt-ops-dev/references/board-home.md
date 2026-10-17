@@ -37,7 +37,10 @@ anchor disables actions rather than selecting its neighbour. A confirmed explici
 Hide of the currently visible squad intentionally selects the next visible row;
 a failed save or unrelated preference change cannot transfer that authority. The session-local
 Agents filter selects All or Pinned without saving preferences. All keeps Common
-pool first; Pinned selects real pinned squads. Retained `needs-you` view state
+pool first; Pinned shows pinned squads with their members, plus individually pinned
+agents under their squad or Common pool. Individually pinned children are shown
+without changing saved expansion. UUID agent pins and squad pins share the existing
+Config preference save lane; hidden/scope and search fences still apply. Retained `needs-you` view state
 loads as All; an authored `agents-filter needs-you` binding gets a located
 retirement notice without rewriting its text or falling through to a default key.
 Waiting agents remain visible through their state marks. Search keeps matching
@@ -46,6 +49,14 @@ expansion. Group totals remain unfiltered room totals. Empty filtered results ar
 non-interactive; retained hidden targets grant no action authority.
 
 Overview and Agents share the always-visible search field after FilterBar chips.
+Overview orders its chips Agents then Squads and starts in Agents unless a saved
+choice exists. Its default `v` toggles that view from either pane for any selected
+row; authored bindings retain precedence. `p` pins or unpins the selected visible
+agent or squad in either tab, and the effective footer reflects its saved state.
+Pinned names carry a Muted `▪` mark in both lists; the same two-cell name slot is
+reserved when unpinned, and NO_COLOR keeps the glyph. Other columns do not move.
+Selected chips keep their fill while search owns input; hover and activation
+eligibility remain independent.
 `/` edits the retained query; typing filters live, with bold-only matches. Up/Down
 move through filtered rows while typing; Enter keeps the filter and returns list
 keys; Escape clears from typing or applied state; empty Backspace ends typing.
