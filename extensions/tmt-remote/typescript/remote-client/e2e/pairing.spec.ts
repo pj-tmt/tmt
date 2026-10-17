@@ -794,7 +794,17 @@ test('a browser pairs, gets a door session and certifies only its own extension'
       ).remoteTest;
       return state.remote.listAgents();
     });
-  expect(await list(app)).toEqual(await list(otherTab));
+  // Separate reads have distinct owner-clock samples; identity/activity must agree.
+  const withoutObservationTime = (rows: import('../src/operations.js').RemoteAgent[]) =>
+    rows.map(({ observedAtMs, ...row }) => {
+      expect(Number.isSafeInteger(observedAtMs)).toBe(true);
+      expect(observedAtMs).toBeGreaterThan(0);
+      expect(observedAtMs).toBeLessThanOrEqual(Date.now());
+      return row;
+    });
+  expect(withoutObservationTime(await list(app))).toEqual(
+    withoutObservationTime(await list(otherTab)),
+  );
   // Last-close keeps the same session usable inside the inactivity grace.
   const closeTransport = async () =>
     app.evaluate(async () => {
@@ -837,7 +847,7 @@ test('a browser pairs, gets a door session and certifies only its own extension'
     const result = await remote.result(sent.requestId);
     return { agents, input, sent, observed, result };
   });
-  expect(asked.agents).toEqual([
+  expect(withoutObservationTime(asked.agents)).toEqual([
     { id: '00000000-0000-0000-0000-000000000001', name: 'Browser agent', presence: 'active' },
   ]);
   expect(asked.sent).toMatchObject({ state: 'accepted', operationId: asked.input.operationId });
@@ -894,7 +904,7 @@ test('a browser pairs, gets a door session and certifies only its own extension'
       };
     }, asked.input.operationId);
     expect(continued.differentSession).toBe(true);
-    expect(continued.agents).toEqual(asked.agents);
+    expect(withoutObservationTime(continued.agents)).toEqual(withoutObservationTime(asked.agents));
     expect(continued.original).toEqual(asked.sent);
     expect(continuityOpens).toBe(2);
     const calls = (await readFile(join(root, 'core-calls.jsonl'), 'utf8'))
