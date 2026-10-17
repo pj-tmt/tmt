@@ -99,8 +99,25 @@ fn index_readiness_reads_the_snapshot_under_the_writer_lock_without_changing_byt
     assert_eq!(fs::read(&path).unwrap(), before);
     assert_eq!(
         deploy_record::read_project(&layout, "demo-remote-1").unwrap(),
-        Some(record)
+        Some(record.clone())
     );
+    // A complete snapshot meets guard requirements without altering observed billing/usage.
+    record.run.as_mut().unwrap().state = RunState::Complete;
+    for step in &mut record.run.as_mut().unwrap().steps {
+        step.state = StepState::Done;
+    }
+    record.binding = Some(tmt_remote::deploy_run::DeployBinding {
+        plan_digest: "a".repeat(64),
+        project: "demo-remote-1".into(),
+        completed_at_ms: 2,
+    });
+    writer.persist(&record).unwrap();
+    let complete = fs::read(&path).unwrap();
+    let evidence = DeployRecordEvidence::new(&layout).evidence().unwrap();
+    assert_eq!(evidence.quota, tmt_remote::readiness::Observed::Unknown);
+    assert_eq!(evidence.tier, tmt_remote::readiness::FirestoreTier::Unknown);
+    assert_eq!(project(Some(&evidence), &LAYERS)[0]["state"], "enabled");
+    assert_eq!(fs::read(&path).unwrap(), complete);
     assert!(!root.remote().join("remote.db").exists());
     assert!(
         matches!(DeployRecordStore::open(&layout, "demo-remote-1"), Err(e) if e.code == "REMOTE_DEPLOY_BUSY")

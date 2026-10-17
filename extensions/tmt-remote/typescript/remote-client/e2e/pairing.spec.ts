@@ -3039,7 +3039,7 @@ test('Firestore settings show recorded prerequisites and the approved fixture ca
   await captureFirestore(page, 'not-configured', 390, 'light', 'real binary; no deployment record');
 
   // Visual fixture only: the native signed/control matrix and SDK validator tests own policy proof.
-  // Production records cannot establish tier/quota; never label this as provider evidence.
+  // This injects the projection; real Complete-record guard policy is covered below.
   const enabled = [
     {
       layer: 'sharing',
@@ -3206,6 +3206,34 @@ test('Firestore settings show recorded prerequisites and the approved fixture ca
     'legacy Complete without composite evidence; unknown index; record bytes unchanged',
   );
 
+  const complete = structuredClone(legacyComplete);
+  complete.record.run.steps.splice(2, 0, {
+    id: `composite-index:log:${'b'.repeat(64)}`,
+    state: 'done',
+  });
+  const completeBytes = JSON.stringify(complete);
+  await writeFile(recordPath, completeBytes, { mode: 0o600 });
+  await page.goto(`${origin}/settings`);
+  const sharing = page.locator('[data-layer="sharing"]');
+  await expect(sharing.locator('h3')).toContainText('Enabled');
+  await expect(sharing).toContainText(
+    "Usage is limited by each client's guard. Project-wide remaining quota is not checked; Firebase may refuse requests.",
+  );
+  for (const item of ['plan-tier', 'quota'])
+    await expect(page.locator(`[data-item="${item}"]`)).toContainText('Enabled');
+  expect(await readFile(recordPath, 'utf8')).toBe(completeBytes);
+  expect(((await recorded()).firestoreLayers as { state: string }[])[0]!.state).toBe('enabled');
+  for (const width of [1440, 390]) {
+    for (const theme of ['light', 'dark'] as const)
+      await captureFirestore(
+        page,
+        'guarded-ready-record',
+        width,
+        theme,
+        'real binary + signed SDK; private Complete/index fixture; guarded requirement, no observed headroom',
+      );
+  }
+
   for (const [state, mark, sentence, next] of [
     ['done', 'Enabled', undefined, undefined],
     [
@@ -3268,8 +3296,10 @@ test('Firestore settings show recorded prerequisites and the approved fixture ca
     expect.arrayContaining([expect.objectContaining({ layer: 'sharing', state: 'unknown' })]),
   );
   expect(await page.locator('[data-layer="sharing"] li').count()).toBe(6);
-  for (const item of ['project', 'sign-in', 'rules', 'indexes', 'plan-tier', 'quota'])
+  for (const item of ['project', 'sign-in', 'rules', 'indexes'])
     await expect(page.locator(`[data-item="${item}"]`)).toContainText('Not checked');
+  for (const item of ['plan-tier', 'quota'])
+    await expect(page.locator(`[data-item="${item}"]`)).toContainText('Enabled');
   await captureFirestore(
     page,
     'unknown-record',

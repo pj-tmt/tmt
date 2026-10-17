@@ -1231,6 +1231,7 @@ function renderFirestore(target, access, view) {
 				list.append(row);
 			}
 			group.append(list);
+			if (layer.layer === "sharing" && layer.state === "enabled") group.append(node("p", "Usage is limited by each client's guard. Project-wide remaining quota is not checked; Firebase may refuse requests."));
 		}
 		target.append(group);
 	}
