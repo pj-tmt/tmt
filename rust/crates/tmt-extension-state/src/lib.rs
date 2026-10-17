@@ -32,6 +32,9 @@
 //! admission and is never replayed. Busy at COMMIT is the same typed timeout,
 //! with an explicit "may not be saved" consequence and the caller's exact retry;
 //! there is no silent commit retry. Other SQLite/I/O causes remain distinguishable.
+//! Concurrent first creation of one store by threads in the same process can still
+//! release a sibling connection's POSIX locks through descriptor close. Create the
+//! store in one place before sharing it, or serialize first creation in the consumer.
 //!
 //! `Document` updates current bytes under an exclusive lock: admit, read, validate,
 //! change once, stage, write, fsync, rename, then fsync the destination directory.
