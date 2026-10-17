@@ -12,14 +12,22 @@ use crate::{
 };
 use ratatui::{
     Frame,
-    crossterm::event::{MouseButton, MouseEvent, MouseEventKind},
+    crossterm::event::{
+        KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    },
     layout::Rect,
     text::Line,
 };
 use tmt_cli_style::Role;
 use tmt_tui::components::strip;
 
-const ANNOTATE: &str = "Annotate selection";
+pub(in crate::board) mod task;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum Origin {
+    Response(MessageKey),
+    Task(task::Key),
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Anchor {
@@ -38,22 +46,31 @@ pub(super) struct ReplyHit {
 
 pub(super) struct Source {
     target: Target,
-    selection: Selection,
+    selection: Selection<Origin>,
     anchor: Anchor,
     // Text wrapping context, never pointer authority. Relative key bursts can
     // advance before another paint while painted hit geometry is already gone.
     layout_width: Option<u16>,
     painted: Option<(Rect, usize)>,
-    annotate: Option<(Rect, Quote)>,
+    quote_button: Option<(Rect, Quote<Origin>)>,
+    copy_pending: bool,
 }
 impl Source {
     pub(super) fn desired_height(&self, width: u16) -> usize {
+        // Raw text plus its existing selection footer; caller owns the header.
         self.selection
             .source
             .layout(width)
             .lines
             .len()
             .saturating_add(1)
+    }
+
+    pub(super) fn label(&self) -> &'static str {
+        match self.selection.key {
+            Origin::Response(_) => "Exact response source",
+            Origin::Task(_) => "Exact task field",
+        }
     }
 
     pub(super) fn scroll(&mut self, offset: usize, step: super::Step, visible: bool) {
@@ -82,7 +99,7 @@ impl Source {
 
     pub(super) fn invalidate(&mut self) {
         self.painted = None;
-        self.annotate = None;
+        self.quote_button = None;
     }
 }
 
@@ -91,8 +108,11 @@ impl State {
         self.reply_hits.clear();
         self.response_area = None;
         self.source_drag = None;
+        self.task_hits.clear();
+        self.task_drag = None;
         for session in self.sessions.values_mut() {
             if let Some(source) = &mut session.exact_source {
+                source.copy_pending = false;
                 source.invalidate();
             }
         }
@@ -127,6 +147,33 @@ impl Session {
 }
 
 impl App {
+    pub(in crate::board) fn selected_response_quote(&self) -> Option<(Target, Quote)> {
+        let (key, _) = self.receiving_conversation()?;
+        let state = self.conversation.borrow();
+        let source = state.sessions.get(&key)?.exact_source.as_ref()?;
+        let quote = source.selection.quote()?;
+        let Origin::Response(key) = quote.key else {
+            return None;
+        };
+        Some((
+            source.target.clone(),
+            Quote {
+                key,
+                range: quote.range,
+                text: quote.text,
+            },
+        ))
+    }
+
+    fn source_quote_current(&self, target: &Target, quote: &Quote<Origin>) -> bool {
+        match &quote.key {
+            Origin::Response(key) => {
+                self.response_source_current(target, key, &quote.range, &quote.text)
+            }
+            Origin::Task(_) => self.task_quote_current(target, quote),
+        }
+    }
+
     fn receiving_conversation(&self) -> Option<(ConversationKey, RowTarget)> {
         let target = self.conversation_target()?;
         let id = self.target_row(&target)?["id"].as_str()?.to_owned();
@@ -155,6 +202,161 @@ impl App {
         true
     }
 
+    fn insert_selected_source(
+        &mut self,
+        key: ConversationKey,
+        target: Target,
+        quote: Quote<Origin>,
+    ) -> Effect {
+        let result = match quote.key {
+            Origin::Response(key) => self.insert_response_quote(
+                target,
+                Quote {
+                    key,
+                    range: quote.range,
+                    text: quote.text,
+                },
+            ),
+            Origin::Task(_) => {
+                if !self.task_quote_current(&target, &quote) {
+                    Attachment::Refused("The task field changed; quote not inserted.")
+                } else if let Target::Row(target) = &target {
+                    self.insert_chat_quote(target, &quote.text)
+                } else {
+                    Attachment::Unavailable
+                }
+            }
+        };
+        if matches!(result, Attachment::Composer(_))
+            && let Some(session) = self.conversation.borrow_mut().sessions.get_mut(&key)
+        {
+            session.exact_source = None;
+            session.rendered = None;
+        }
+        self.invalidate_frame_geometry();
+        result.finish(self)
+    }
+
+    /// Read-only source keys run after editor/menu/member-link owners. Relative
+    /// keys reuse text layout; they grant no authority to stale pointer cells.
+    pub(in crate::board) fn conversation_source_key(&mut self, event: KeyEvent) -> Option<Effect> {
+        if self.focused() != Pane::Replies
+            || self.searching
+            || self.workspace_snapshot().is_some() && !self.workspace_selection_visible()
+        {
+            return None;
+        }
+        let receiving = self.receiving_conversation();
+        let mut state = self.conversation.borrow_mut();
+        // An actor/target change invalidates the old surface. Do not replay its
+        // Enter as the new actor's ordinary Talk action before a fresh paint.
+        let retained_source = state
+            .active
+            .as_ref()
+            .and_then(|key| state.sessions.get(key))
+            .is_some_and(|session| session.exact_source.is_some());
+        let Some((key, target)) = receiving else {
+            return retained_source.then_some(Effect::None);
+        };
+        if state.active.as_ref() != Some(&key) {
+            return retained_source.then_some(Effect::None);
+        }
+        let height = state.pane.map_or(1, |area| area.height);
+        let source = state.sessions.get_mut(&key)?.exact_source.as_mut()?;
+        if source.target != Target::Row(target) {
+            return None;
+        }
+        if event.code == KeyCode::Enter && event.modifiers.is_empty() {
+            let quote = source.selection.quote()?;
+            if event.kind != KeyEventKind::Press {
+                return Some(Effect::None);
+            }
+            let target = source.target.clone();
+            drop(state);
+            return Some(self.insert_selected_source(key, target, quote));
+        }
+        let navigation = matches!(
+            event.code,
+            KeyCode::Left
+                | KeyCode::Right
+                | KeyCode::Up
+                | KeyCode::Down
+                | KeyCode::Home
+                | KeyCode::End
+        ) || event.code == KeyCode::Char('a')
+            && event.modifiers == KeyModifiers::CONTROL;
+        if !navigation {
+            return None;
+        }
+        if event.kind == KeyEventKind::Release {
+            return Some(Effect::None);
+        }
+        let width = source.layout_width?;
+        let before = source.selection.source.selection();
+        source.selection.source.key(event, width, usize::MAX);
+        let after = source.selection.source.selection();
+        let quote = (before != after)
+            .then(|| source.selection.quote())
+            .flatten();
+        let target = source.target.clone();
+        let layout = source.selection.source.layout(width);
+        let offset = layout.reveal(self.scrolls.offset(Pane::Replies), height);
+        source.anchor = Anchor::Byte(layout.lines[offset].start);
+        source.copy_pending = false;
+        source.invalidate();
+        drop(state);
+        Some(
+            quote
+                .filter(|quote| self.source_quote_current(&target, quote))
+                .map_or(Effect::None, |quote| {
+                    Effect::Act(crate::board::app::Request::Copy {
+                        text: quote.text,
+                        program: self.view.as_ref().and_then(|view| view.clipboard.clone()),
+                        feedback: crate::board::app::CopyFeedback::Selection,
+                    })
+                }),
+        )
+    }
+
+    /// Dismiss selection without discarding the clicked outside control's own
+    /// still-current hit map. Higher modal/menu owners have already consumed.
+    pub(in crate::board) fn conversation_source_outside_press(&mut self, event: MouseEvent) {
+        if event.kind != MouseEventKind::Down(MouseButton::Left) {
+            return;
+        }
+        // A new press cancels any earlier pending field drag, even when the
+        // new control consumes it before the field owner runs again.
+        self.conversation.borrow_mut().task_drag = None;
+        let Some((key, target)) = self.receiving_conversation() else {
+            return;
+        };
+        let mut state = self.conversation.borrow_mut();
+        if state.active.as_ref() != Some(&key) {
+            return;
+        }
+        let Some(session) = state.sessions.get_mut(&key) else {
+            return;
+        };
+        let Some(source) = &session.exact_source else {
+            return;
+        };
+        let Some((area, offset)) = source.painted else {
+            return;
+        };
+        let point = (event.column, event.row).into();
+        if offset == self.scrolls.offset(Pane::Replies)
+            && source.target == Target::Row(target)
+            && !area.contains(point)
+            && !source
+                .quote_button
+                .as_ref()
+                .is_some_and(|(area, _)| area.contains(point))
+        {
+            session.exact_source = None;
+            session.rendered = None;
+        }
+    }
+
     pub(in crate::board) fn conversation_source_mouse(
         &mut self,
         event: MouseEvent,
@@ -180,22 +382,28 @@ impl App {
                 return None;
             }
             if event.kind == MouseEventKind::Down(MouseButton::Left)
-                && let Some((button, quote)) = &source.annotate
+                && let Some((button, quote)) = &source.quote_button
                 && button.contains(point)
                 && source.selection.quote().as_ref() == Some(quote)
             {
                 let quote = quote.clone();
                 let target = source.target.clone();
                 drop(state);
-                let result = self.attach_response_quote(target, quote);
-                if matches!(result, Attachment::Composer(_) | Attachment::Opened { .. })
-                    && let Some(session) = self.conversation.borrow_mut().sessions.get_mut(&key)
-                {
-                    session.exact_source = None;
-                    session.rendered = None;
+                return Some(self.insert_selected_source(key, target, quote));
+            }
+            if event.kind == MouseEventKind::Up(MouseButton::Left) && source.copy_pending {
+                source.copy_pending = false;
+                let quote = source.selection.quote()?;
+                let target = source.target.clone();
+                drop(state);
+                if !self.source_quote_current(&target, &quote) {
+                    return Some(Effect::None);
                 }
-                self.invalidate_frame_geometry();
-                return Some(result.finish(self));
+                return Some(Effect::Act(crate::board::app::Request::Copy {
+                    text: quote.text,
+                    program: self.view.as_ref().and_then(|view| view.clipboard.clone()),
+                    feedback: crate::board::app::CopyFeedback::Selection,
+                }));
             }
             if area.contains(point)
                 && matches!(
@@ -213,7 +421,8 @@ impl App {
                             .modifiers
                             .contains(ratatui::crossterm::event::KeyModifiers::SHIFT),
                 );
-                source.annotate = None;
+                source.quote_button = None;
+                source.copy_pending = source.selection.quote().is_some();
                 return Some(Effect::None);
             }
             return None;
@@ -241,11 +450,12 @@ impl App {
                 let reply = session.retained_response(&hit.key, hit.sequence)?;
                 session.exact_source = Some(Source {
                     target: Target::Row(target),
-                    selection: Selection::new(hit.key, reply.body.clone()),
+                    selection: Selection::new(Origin::Response(hit.key), reply.body.clone()),
                     anchor: Anchor::Byte(0),
                     layout_width: None,
                     painted: None,
-                    annotate: None,
+                    quote_button: None,
+                    copy_pending: false,
                 });
                 session.follow = false;
                 drop(state);
@@ -298,47 +508,43 @@ pub(super) fn paint_with_interactivity(
                 offset,
                 source.selection.source.selection(),
                 look.role(Role::Text),
-                look.role(Role::Text)
-                    .add_modifier(ratatui::style::Modifier::REVERSED),
+                look.selection(),
             );
             if interactive {
                 source.painted = Some((viewport, offset));
             }
         },
     );
+    if let Some(quote) = source.selection.quote().filter(|quote| {
+        interactive
+            && source.target == Target::Row(target.clone())
+            && app.source_quote_current(&source.target, quote)
+    }) && let Some((viewport, offset)) = source.painted
+        && let Some(control) = super::super::response::quote_control(
+            app,
+            frame.buffer_mut(),
+            &layout,
+            quote.range.end,
+            viewport,
+            offset,
+            None,
+        )
+    {
+        source.quote_button = Some((control, quote));
+    }
     if let Some(footer) = footer {
-        let quote = source.selection.quote().filter(|quote| {
-            source.target == Target::Row(target.clone())
-                && app.response_quote_current(&source.target, quote)
-        });
-        let control = if interactive && quote.is_some() {
-            super::super::buttons::paint(
-                app,
-                frame.buffer_mut(),
-                footer,
-                &[super::super::buttons::Button::secondary(ANNOTATE)],
-                tmt_cli_style::grid::Align::Left,
-                None,
-            )[0]
-        } else {
-            None
-        };
-        if let Some(control) = control.zip(quote) {
-            source.annotate = Some(control);
-        } else {
-            strip::paint_left(
-                frame.buffer_mut(),
-                footer,
-                Line::styled(
-                    if interactive {
-                        "Drag exact source · View reply for keyboard selection"
-                    } else {
-                        "Clear the filter to annotate this source."
-                    },
-                    look.role(Role::Dim),
-                ),
-            );
-        }
+        strip::paint_left(
+            frame.buffer_mut(),
+            footer,
+            Line::styled(
+                if interactive {
+                    "Select text to copy · Enter quotes in chat · Esc clears"
+                } else {
+                    "Clear the filter to quote this source."
+                },
+                look.role(Role::Dim),
+            ),
+        );
     }
 }
 

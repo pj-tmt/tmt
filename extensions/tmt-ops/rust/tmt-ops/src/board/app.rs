@@ -128,6 +128,13 @@ pub struct Snapshot {
     pub view: Result<View, String>,
 }
 
+/// Clipboard presentation belongs to the gesture, not to the clipboard process.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CopyFeedback {
+    Destination,
+    Selection,
+}
+
 /// An action with every value already taken from the row.
 /// Message variants carry the complete frozen body, including any row context
 /// and source quotes. Workers and outgoing matching must not reformat it.
@@ -144,6 +151,7 @@ pub enum Request {
     Copy {
         text: String,
         program: Option<Vec<String>>,
+        feedback: CopyFeedback,
     },
     Run(Vec<String>),
     Talk {
@@ -2168,6 +2176,7 @@ impl App {
             Verb::Copy => action.args[0].fill(&row).map(|text| Request::Copy {
                 text,
                 program: view.clipboard.clone(),
+                feedback: CopyFeedback::Destination,
             }),
             Verb::Run => action.argv(&row).map(Request::Run),
             _ => unreachable!("handled above"),
@@ -2657,7 +2666,33 @@ impl App {
         let Some(squad) = self.target_squad(&send.target) else {
             return self.say("The retained membership is unavailable.");
         };
-        self.compose_row(send, action.verb, squad)
+        let selected = (action.verb == Verb::Annotate)
+            .then(|| self.selected_note_quote())
+            .flatten()
+            .filter(|(source, _)| *source == super::row_detail::Target::Row(send.target.clone()));
+        if let Some((target, quote)) = &selected
+            && !self.response_quote_current(target, quote)
+        {
+            return self.say("The response source changed; reopen it before annotating.");
+        }
+        let effect = self.compose_row(send, action.verb, squad);
+        if let Some((target, quote)) = selected
+            && self.input.is_some()
+        {
+            let attached = self.attach_response_quote(target, quote);
+            if matches!(
+                attached,
+                super::response::Attachment::Composer(_)
+                    | super::response::Attachment::Opened { .. }
+            ) {
+                self.row_details.reader = None;
+            }
+            let attachment_effect = attached.finish(self);
+            if attachment_effect != Effect::None {
+                return attachment_effect;
+            }
+        }
+        effect
     }
 
     pub(super) fn choose(&mut self, choice: Choice) -> Effect {
@@ -3717,6 +3752,9 @@ impl App {
         if let Some(effect) = super::overview::chart::host::key(self, key) {
             return effect;
         }
+        if let Some(effect) = self.conversation_source_key(key) {
+            return effect;
+        }
         if key.code == KeyCode::Esc
             && key.kind != ratatui::crossterm::event::KeyEventKind::Release
             && self.conversation_source_escape()
@@ -3778,6 +3816,8 @@ impl App {
         self.mentions.invalidate();
         if let Some(reader) = &self.row_details.reader {
             reader.source_area.set(None);
+            reader.quote_button.set(None);
+            reader.copy_pending.set(false);
         }
         if let Some(checklist) = &self.checklist {
             checklist.invalidate();
@@ -3950,6 +3990,7 @@ impl App {
         if self.menu.is_some() {
             return self.menu_mouse(event);
         }
+        self.conversation_source_outside_press(event);
         if self.resize_mouse(event, now) {
             if event.kind == MouseEventKind::Down(MouseButton::Left) {
                 self.focus_at(event.column, event.row);
@@ -4041,6 +4082,9 @@ impl App {
             }
         }
         if let Some(effect) = self.conversation_source_mouse(event) {
+            return effect;
+        }
+        if let Some(effect) = self.task_source_mouse(event) {
             return effect;
         }
         if self.input.is_some() {

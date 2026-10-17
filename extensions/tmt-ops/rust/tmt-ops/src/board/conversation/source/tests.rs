@@ -93,7 +93,7 @@ fn area(app: &App) -> Rect {
 }
 fn quote(app: &App) -> Quote {
     let state = app.conversation.borrow();
-    state
+    let selected = state
         .sessions
         .get(state.active.as_ref().unwrap())
         .unwrap()
@@ -102,8 +102,17 @@ fn quote(app: &App) -> Quote {
         .unwrap()
         .selection
         .quote()
-        .unwrap()
+        .unwrap();
+    let Origin::Response(key) = selected.key else {
+        panic!("response fixture source");
+    };
+    Quote {
+        key,
+        range: selected.range,
+        text: selected.text,
+    }
 }
+
 fn select(app: &mut App, column: u16) {
     let area = area(app);
     mouse(app, MouseEventKind::Down(MouseButton::Left), area.x, area.y);
@@ -123,13 +132,13 @@ fn button(app: &App) -> Option<Rect> {
         .exact_source
         .as_ref()
         .unwrap()
-        .annotate
+        .quote_button
         .as_ref()
         .map(|(area, _)| *area)
 }
 
 #[test]
-fn styled_drag_requires_a_new_exact_paint_and_annotation_keeps_unicode_raw_bytes() {
+fn styled_drag_requires_a_new_exact_paint_and_chat_quote_keeps_unicode_text() {
     let raw = "漢字 e\u{301} **literal**\n\x1b[31m controls";
     let mut app = fixture(raw);
     enter(&mut app);
@@ -160,21 +169,25 @@ fn styled_drag_requires_a_new_exact_paint_and_annotation_keeps_unicode_raw_bytes
         ),
         Effect::None
     );
-    assert_eq!(
-        app.input.as_ref().unwrap().response_quotes.as_slice(),
-        std::slice::from_ref(&quote)
+    let draft = app.input.as_ref().unwrap();
+    assert!(
+        draft.response_quotes.is_empty(),
+        "chat insertion is not a row-note attachment"
     );
+    assert_eq!(draft.text.as_str(), "> \"漢字 e\u{301}\"\n");
+    assert_eq!(draft.text.cursor(), draft.text.len());
+    assert!(draft.text.selection().is_empty());
     assert_eq!(
         app.input.as_ref().unwrap().draft_key.as_ref().unwrap().1,
         MEMBER
     );
-    let Effect::Act(crate::board::app::Request::Annotate { text, to, .. }) =
+    let Effect::Act(crate::board::app::Request::Talk { text, to, .. }) =
         app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
     else {
-        panic!("explicit annotation effect");
+        panic!("only explicit Send delivers the chat quote");
     };
     assert_eq!(to, "worker");
-    assert_eq!(text, "[product · worker]\n> 漢字 e\u{301}");
+    assert_eq!(text, "[product · worker] > \"漢字 e\u{301}\"\n");
 }
 
 #[test]
@@ -261,15 +274,23 @@ fn inline_quote_tracks_renamed_uuid_and_escape_dismisses_one_owner_per_press() {
         hit.x,
         hit.y,
     );
-    assert_eq!(app.input.as_ref().unwrap().response_quotes, [quote]);
+    assert!(app.input.as_ref().unwrap().response_quotes.is_empty());
+    assert_eq!(
+        app.input.as_ref().unwrap().text.as_str(),
+        format!("> \"{}\"\n", quote.text)
+    );
     assert!(
-        matches!(&app.input.as_ref().unwrap().compose, crate::board::app::Compose::Annotate { to, .. } if to == "renamed")
+        matches!(&app.input.as_ref().unwrap().compose, crate::board::app::Compose::Talk { to } if to == "renamed")
     );
     app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
     assert!(app.input.is_none());
     assert_eq!(app.focused(), Pane::Rows);
     app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    assert_eq!(app.input.as_ref().unwrap().response_quotes.len(), 1);
+    assert!(app.input.as_ref().unwrap().response_quotes.is_empty());
+    assert_eq!(
+        app.input.as_ref().unwrap().text.as_str(),
+        format!("> \"{}\"\n", quote.text)
+    );
 
     app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
     enter(&mut app);
@@ -343,7 +364,11 @@ fn wrapped_scrolled_control_source_keeps_exact_combining_bytes_after_resize() {
         hit.x,
         hit.y,
     );
-    assert_eq!(app.input.as_ref().unwrap().response_quotes, [selected]);
+    assert!(app.input.as_ref().unwrap().response_quotes.is_empty());
+    assert_eq!(
+        app.input.as_ref().unwrap().text.as_str(),
+        format!("> \"{}\"\n", selected.text)
+    );
 }
 
 #[test]
@@ -454,7 +479,7 @@ fn common_pool_inline_quote_opens_pinned_talk_and_never_a_squad_note() {
     );
     assert!(app.input.as_ref().unwrap().squad.is_empty());
     assert!(
-        matches!(app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)), Effect::Act(crate::board::app::Request::DirectTalk { recipient, text, .. }) if recipient == MEMBER && text == "[Common pool · worker]\n> literal")
+        matches!(app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)), Effect::Act(crate::board::app::Request::DirectTalk { recipient, text, .. }) if recipient == MEMBER && text == "[Common pool · worker] > \"literal\"\n")
     );
 }
 
@@ -509,8 +534,11 @@ fn inline_selection_and_drafts_never_move_between_recipient_uuids() {
         hit.x,
         hit.y,
     );
-    assert_eq!(app.input.as_ref().unwrap().text.as_str(), "alpha draft");
-    assert_eq!(app.input.as_ref().unwrap().response_quotes, [selected]);
+    assert_eq!(
+        app.input.as_ref().unwrap().text.as_str(),
+        format!("alpha draft\n> \"{}\"\n", selected.text)
+    );
+    assert!(app.input.as_ref().unwrap().response_quotes.is_empty());
     assert_eq!(
         app.input.as_ref().unwrap().draft_key.as_ref().unwrap().1,
         MEMBER
@@ -573,4 +601,751 @@ fn outgoing_text_and_status_have_no_response_selection_authority() {
     select(&mut app, 6);
     assert_eq!(quote(&app).text, "actual");
     assert_eq!(quote(&app).key.request, "sent-request");
+}
+
+#[test]
+fn committed_exact_selection_copies_the_raw_text_without_sending() {
+    let mut app = fixture("漢字 e\u{301} **literal**");
+    enter(&mut app);
+    draw(&mut app, 100, 36);
+    select(&mut app, 6);
+    let selected = quote(&app);
+    let area = area(&app);
+    let effect = mouse(
+        &mut app,
+        MouseEventKind::Up(MouseButton::Left),
+        area.x + 6,
+        area.y,
+    );
+    let Effect::Act(crate::board::app::Request::Copy {
+        text,
+        feedback: crate::board::app::CopyFeedback::Selection,
+        ..
+    }) = effect
+    else {
+        panic!("committing a nonempty exact-source selection must copy, never send: {effect:?}");
+    };
+    assert_eq!(text, selected.text);
+    assert_eq!(text, "漢字 e\u{301}");
+    assert_eq!(text.chars().count(), 5);
+    assert!(
+        app.input.is_none(),
+        "selection alone never creates a draft or sends"
+    );
+    assert_eq!(
+        quote(&app),
+        selected,
+        "copy leaves the exact selection available"
+    );
+}
+
+// Make forbidden Core invocation observable, with a positive control proving
+// the marker is live before exercising the clipboard-only worker.
+fn core_recorder(root: &std::path::Path) -> (crate::core::Core, std::path::PathBuf) {
+    let program = root.join("core-recorder");
+    let called = program.with_extension("invoked");
+    crate::test_support::write_ready_executable(
+        &program,
+        "#!/bin/sh\nprintf called > \"$0.invoked\"\nexit 9\n",
+    );
+    assert_eq!(
+        std::process::Command::new(&program)
+            .status()
+            .unwrap()
+            .code(),
+        Some(9)
+    );
+    assert_eq!(std::fs::read_to_string(&called).unwrap(), "called");
+    std::fs::remove_file(&called).unwrap();
+    (crate::core::Core::at(program), called)
+}
+
+#[test]
+fn selection_clipboard_feedback_counts_scalars_and_failure_keeps_quote_available() {
+    let root = std::env::temp_dir().join(format!("ops-selection-clipboard-{}", std::process::id()));
+    std::fs::create_dir(&root).unwrap();
+    let program = root.join("clipboard");
+    crate::test_support::write_ready_executable(&program, "#!/bin/sh\ncat > \"$1\"\nexit \"$2\"\n");
+    let (core, core_called) = core_recorder(&root);
+    for status in [0, 7] {
+        let copied = root.join(format!("observed-{status}"));
+        let mut app = fixture("漢字 e\u{301} **literal**");
+        app.view.as_mut().unwrap().clipboard = Some(vec![
+            program.display().to_string(),
+            copied.display().to_string(),
+            status.to_string(),
+        ]);
+        enter(&mut app);
+        draw(&mut app, 100, 36);
+        select(&mut app, 6);
+        let selected = quote(&app);
+        let area = area(&app);
+        let Effect::Act(request) = mouse(
+            &mut app,
+            MouseEventKind::Up(MouseButton::Left),
+            area.x + 6,
+            area.y,
+        ) else {
+            panic!("selection commits through the existing worker effect");
+        };
+        let outcome = crate::board::execute(&core, request).map(|outcome| match outcome {
+            crate::board::ActionOutcome::Message(message) => message,
+            _ => panic!("clipboard cannot produce a message-delivery outcome"),
+        });
+        assert_eq!(std::fs::read_to_string(&copied).unwrap(), selected.text);
+        if status == 0 {
+            assert_eq!(outcome.as_deref(), Ok("⧉ Copied 5 characters"));
+            assert_eq!(
+                crate::board::glyph_guard::glyph_error("⧉ Copied 5 characters"),
+                None
+            );
+        } else {
+            assert!(outcome.as_ref().unwrap_err().starts_with("Could not copy:"));
+        }
+        app.finished(outcome);
+        assert_eq!(app.notice_clock.failed, status != 0);
+        assert!(
+            app.input.is_none(),
+            "copy success or failure never sends or opens a draft"
+        );
+        assert_eq!(quote(&app), selected);
+        draw(&mut app, 100, 36);
+        assert!(
+            button(&app).is_some(),
+            "clipboard failure leaves Quote available"
+        );
+    }
+    assert!(
+        !core_called.exists(),
+        "the clipboard worker must not invoke Core"
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn keyboard_selection_copies_and_enter_appends_to_the_retained_draft_without_sending() {
+    let mut app = fixture("first\nsecond");
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    app.paste("existing draft");
+    app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL));
+    app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    enter(&mut app);
+    draw(&mut app, 100, 36);
+    assert!(
+        matches!(app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL)),
+        Effect::Act(crate::board::app::Request::Copy { text, feedback: crate::board::app::CopyFeedback::Selection, .. })
+            if text == "first\nsecond")
+    );
+    draw(&mut app, 100, 36);
+    assert_eq!(
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+        Effect::None
+    );
+    let input = app.input.as_ref().unwrap();
+    assert_eq!(input.text.as_str(), "existing draft\n> \"first second\"\n");
+    assert_eq!(input.text.cursor(), input.text.len());
+    assert!(input.text.selection().is_empty());
+    assert!(input.response_quotes.is_empty());
+    assert_eq!(input.draft_key.as_ref().unwrap().1, MEMBER);
+    assert_eq!(app.focused(), Pane::Replies);
+    let repeat = KeyEvent::new_with_kind(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        ratatui::crossterm::event::KeyEventKind::Repeat,
+    );
+    assert_eq!(
+        app.key(repeat),
+        Effect::None,
+        "opening Quote never replays Enter as Send"
+    );
+    assert_eq!(
+        app.input.as_ref().unwrap().text.as_str(),
+        "existing draft\n> \"first second\"\n"
+    );
+}
+
+#[test]
+fn quote_chip_follows_the_selected_end_and_clipping_never_publishes_a_hit() {
+    let mut app = fixture(&"x".repeat(55));
+    enter(&mut app);
+    draw(&mut app, 100, 36);
+    select(&mut app, 50);
+    let selected_area = area(&app);
+    let painted = draw(&mut app, 100, 36);
+    let hit = button(&app).unwrap();
+    assert_eq!((hit.x, hit.y), (selected_area.x + 50, selected_area.y));
+    assert_eq!(
+        painted[(selected_area.x, selected_area.y)].bg,
+        app.look()
+            .selection()
+            .bg
+            .unwrap_or(ratatui::style::Color::Reset)
+    );
+    draw(&mut app, 60, 36);
+    assert!(
+        button(&app).is_none(),
+        "a chip that cannot fit whole has no hit"
+    );
+    assert_eq!(
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+        Effect::None
+    );
+    assert_eq!(
+        app.input.as_ref().unwrap().text.as_str(),
+        format!("> \"{}\"\n", "x".repeat(50))
+    );
+}
+
+#[test]
+fn an_outside_press_clears_the_selection_and_chip_without_inserting_a_quote() {
+    let mut app = fixture("selected source");
+    enter(&mut app);
+    draw(&mut app, 100, 36);
+    select(&mut app, 4);
+    draw(&mut app, 100, 36);
+    assert!(button(&app).is_some());
+    mouse(&mut app, MouseEventKind::Down(MouseButton::Left), 0, 35);
+    assert!(app.input.is_none());
+    assert!(
+        app.conversation
+            .borrow()
+            .sessions
+            .values()
+            .all(|session| session.exact_source.is_none())
+    );
+}
+
+#[test]
+fn a_filtered_out_recipient_cannot_receive_a_keyboard_or_direct_quote() {
+    let mut app = fixture("selected source");
+    enter(&mut app);
+    draw(&mut app, 100, 36);
+    select(&mut app, 4);
+    let selected = quote(&app);
+    let target = Target::Row(RowTarget::Workspace(
+        app.workspace.selected.clone().unwrap(),
+    ));
+    app.search = "does-not-match-any-agent".into();
+    app.workspace_reconcile();
+    assert!(!app.workspace_selection_visible());
+    assert_eq!(
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+        Effect::None
+    );
+    assert!(app.input.is_none());
+    let result = app.insert_response_quote(target, selected);
+    assert!(matches!(result, Attachment::Refused(_)));
+    assert_eq!(result.finish(&mut app), Effect::None);
+    assert!(app.input.is_none());
+}
+
+#[test]
+fn an_outside_tab_press_clears_selection_and_still_opens_its_control() {
+    let mut app = fixture("selected source");
+    enter(&mut app);
+    draw(&mut app, 160, 36);
+    select(&mut app, 4);
+    draw(&mut app, 160, 36);
+    let tab = app
+        .tab_hits
+        .borrow()
+        .iter()
+        .find(|hit| hit.tab == 0)
+        .copied()
+        .unwrap();
+    mouse(
+        &mut app,
+        MouseEventKind::Down(MouseButton::Left),
+        tab.x,
+        tab.y,
+    );
+    assert!(
+        app.shell.tab == crate::board::shell::OpsTab::Overview,
+        "clearing selection must not steal the tab's valid hit"
+    );
+    assert!(
+        app.conversation
+            .borrow()
+            .sessions
+            .values()
+            .all(|session| session.exact_source.is_none())
+    );
+    assert!(app.input.is_none());
+}
+
+fn task_fixture() -> App {
+    use crate::board::workspace::OpsTarget;
+    let mut app = fixture("unrelated response");
+    app.view.as_mut().unwrap().replies.clear();
+    let target = app.workspace.selected.clone().unwrap();
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .rows
+        .get_mut(&target)
+        .unwrap()["fields"] = json!({"task":"Review **literal**\n漢字", "next":"Ship the fix"});
+    app.workspace.selected = Some(OpsTarget::Squad(
+        crate::board::app::workspace::tests::ROOM.into(),
+    ));
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .roster
+        .squads[0]
+        .lead = Some(MEMBER.into());
+    app.workspace_reconcile();
+    app
+}
+
+#[test]
+fn task_fields_open_the_same_exact_selector_and_insert_compact_chat_text_without_request_authority()
+{
+    let mut app = task_fixture();
+    draw(&mut app, 160, 44);
+    let field = app.conversation.borrow().task_hits.first().unwrap().area;
+    assert_eq!(
+        mouse(
+            &mut app,
+            MouseEventKind::Down(MouseButton::Left),
+            field.x,
+            field.y
+        ),
+        Effect::None
+    );
+    assert!(app.input.is_none());
+    assert_eq!(
+        mouse(
+            &mut app,
+            MouseEventKind::Drag(MouseButton::Left),
+            field.x + 2,
+            field.y
+        ),
+        Effect::None
+    );
+    let shown = draw(&mut app, 160, 44);
+    assert!(
+        shown
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>()
+            .contains("Exact task field")
+    );
+    assert!(app.input.is_none());
+    let Effect::Act(crate::board::app::Request::Copy { text, .. }) =
+        app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL))
+    else {
+        panic!("exact task selection copies through the same worker");
+    };
+    assert_eq!(text, "Review **literal**\n漢字");
+    assert_eq!(
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+        Effect::None
+    );
+    let input = app.input.as_ref().unwrap();
+    assert_eq!(input.text.as_str(), "> \"Review **literal** 漢字\"\n");
+    assert_eq!(input.draft_key.as_ref().unwrap().1, MEMBER);
+    assert!(
+        input.response_quotes.is_empty(),
+        "a task field never becomes an exchange source attachment"
+    );
+    assert!(matches!(&input.compose, crate::board::app::Compose::Talk {to} if to == "worker"));
+    assert!(
+        app.view.as_ref().unwrap().replies.is_empty(),
+        "selection acquires or acknowledges no request"
+    );
+}
+
+#[test]
+fn task_selection_refuses_a_changed_field_sender_or_frame_before_opening() {
+    for change in ["field", "sender", "frame"] {
+        let mut app = task_fixture();
+        draw(&mut app, 160, 44);
+        let field = app.conversation.borrow().task_hits.first().unwrap().area;
+        mouse(
+            &mut app,
+            MouseEventKind::Down(MouseButton::Left),
+            field.x,
+            field.y,
+        );
+        match change {
+            "field" => {
+                let target = crate::board::workspace::OpsTarget::Member {
+                    room_id: Some(crate::board::app::workspace::tests::ROOM.into()),
+                    identity_id: MEMBER.into(),
+                };
+                app.view
+                    .as_mut()
+                    .unwrap()
+                    .home
+                    .as_mut()
+                    .unwrap()
+                    .workspace
+                    .rows
+                    .get_mut(&target)
+                    .unwrap()["fields"]["task"] = json!("changed");
+            }
+            "sender" => {
+                app.view.as_mut().unwrap().me_id =
+                    Some("44444444-4444-4444-8444-444444444444".into())
+            }
+            _ => app.invalidate_frame_geometry(),
+        }
+        assert_eq!(
+            mouse(
+                &mut app,
+                MouseEventKind::Drag(MouseButton::Left),
+                field.x + 2,
+                field.y
+            ),
+            Effect::None
+        );
+        assert!(app.input.is_none(), "{change}");
+        assert!(
+            app.conversation
+                .borrow()
+                .sessions
+                .values()
+                .all(|session| session.exact_source.is_none()),
+            "{change}: no stale field source"
+        );
+    }
+}
+
+#[test]
+fn a_task_selection_cannot_supply_an_exact_row_note_attachment() {
+    let mut app = task_fixture();
+    draw(&mut app, 160, 44);
+    let field = app.conversation.borrow().task_hits.first().unwrap().area;
+    mouse(
+        &mut app,
+        MouseEventKind::Down(MouseButton::Left),
+        field.x,
+        field.y,
+    );
+    mouse(
+        &mut app,
+        MouseEventKind::Drag(MouseButton::Left),
+        field.x + 2,
+        field.y,
+    );
+    draw(&mut app, 160, 44);
+    app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL));
+    app.perform(&crate::action::Action::parse("annotate member").unwrap());
+    let input = app
+        .input
+        .as_ref()
+        .expect("ordinary configured note still opens");
+    assert!(input.text.as_str().is_empty());
+    assert!(
+        input.response_quotes.is_empty(),
+        "plain note never autoquotes a task"
+    );
+}
+
+#[test]
+fn a_changed_task_body_actor_or_membership_cannot_copy_or_quote_a_retained_range() {
+    for change in ["body", "actor", "membership"] {
+        let mut app = task_fixture();
+        draw(&mut app, 160, 44);
+        let field = app.conversation.borrow().task_hits.first().unwrap().area;
+        mouse(
+            &mut app,
+            MouseEventKind::Down(MouseButton::Left),
+            field.x,
+            field.y,
+        );
+        mouse(
+            &mut app,
+            MouseEventKind::Drag(MouseButton::Left),
+            field.x + 2,
+            field.y,
+        );
+        draw(&mut app, 160, 44);
+        let target = app.workspace.selected.clone().unwrap();
+        app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL));
+        match change {
+            "body" => {
+                app.view
+                    .as_mut()
+                    .unwrap()
+                    .home
+                    .as_mut()
+                    .unwrap()
+                    .workspace
+                    .rows
+                    .get_mut(&target)
+                    .unwrap()["fields"]["task"] = json!("replacement")
+            }
+            "actor" => {
+                app.view.as_mut().unwrap().me_id =
+                    Some("44444444-4444-4444-8444-444444444444".into())
+            }
+            _ => app
+                .view
+                .as_mut()
+                .unwrap()
+                .home
+                .as_mut()
+                .unwrap()
+                .workspace
+                .roster
+                .squads
+                .clear(),
+        }
+        app.key(KeyEvent::new(KeyCode::Home, KeyModifiers::CONTROL));
+        assert_eq!(
+            app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL)),
+            Effect::None,
+            "{change}: stale source cannot copy"
+        );
+        assert_eq!(
+            app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            Effect::None
+        );
+        assert!(app.input.is_none(), "{change}: stale source cannot insert");
+    }
+}
+
+#[test]
+#[ignore = "exports exact-selection renderer evidence without changing frozen fixtures"]
+fn capture_copy_quote_packet() {
+    use tmt_cli_style::{Base, Depth, Theme};
+    let path = std::env::var_os("TMT_SELECTION_PACKET").expect("task-owned packet path");
+    let root = std::env::temp_dir().join(format!("ops-selection-packet-{}", std::process::id()));
+    std::fs::create_dir(&root).unwrap();
+    let clipboard = root.join("clipboard");
+    crate::test_support::write_ready_executable(
+        &clipboard,
+        "#!/bin/sh\ncat > /dev/null\nexit \"$1\"\n",
+    );
+    let (core, core_called) = core_recorder(&root);
+    let mut frames = Vec::new();
+    for (base, depth) in [
+        ("tmt", Depth::TrueColor),
+        ("tmt-light", Depth::TrueColor),
+        ("tmt", Depth::None),
+    ] {
+        for width in [160, 100, 60] {
+            for scene in [
+                "response-selected",
+                "copy-failed",
+                "quoted-draft",
+                "task-selected",
+                "overview-task-selected",
+                "reader-selected",
+            ] {
+                let task = matches!(scene, "task-selected" | "overview-task-selected");
+                let mut app = if task {
+                    task_fixture()
+                } else {
+                    fixture("Review **literal** source\nSecond line 漢字 e\u{301}")
+                };
+                if scene == "overview-task-selected" {
+                    app.shell.tab = crate::board::shell::OpsTab::Overview;
+                    app.overview_view = crate::board::overview::monitor::View::Agents;
+                    app.workspace.selected = Some(crate::board::workspace::OpsTarget::Member {
+                        room_id: Some(crate::board::app::workspace::tests::ROOM.into()),
+                        identity_id: MEMBER.into(),
+                    });
+                    app.workspace_reconcile();
+                }
+                let look = crate::look::Look {
+                    theme: Theme::new(Base::parse(base).unwrap()),
+                    depth,
+                };
+                let view = app.view.as_mut().unwrap();
+                view.look = look;
+                for scoped in view
+                    .home
+                    .as_mut()
+                    .unwrap()
+                    .workspace
+                    .squad_looks
+                    .values_mut()
+                {
+                    *scoped = look;
+                }
+                app.view.as_mut().unwrap().clipboard = Some(vec![
+                    clipboard.display().to_string(),
+                    if scene == "copy-failed" { "7" } else { "0" }.into(),
+                ]);
+                if scene == "reader-selected" {
+                    app.perform(&crate::action::Action::parse("view-reply").unwrap());
+                    app.key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+                } else if task {
+                    draw(&mut app, 160, 44);
+                    let field = app.conversation.borrow().task_hits.first().unwrap().area;
+                    mouse(
+                        &mut app,
+                        MouseEventKind::Down(MouseButton::Left),
+                        field.x,
+                        field.y,
+                    );
+                    mouse(
+                        &mut app,
+                        MouseEventKind::Drag(MouseButton::Left),
+                        field.x + 2,
+                        field.y,
+                    );
+                } else {
+                    enter(&mut app);
+                }
+                draw(&mut app, width, 36);
+                let Effect::Act(request) =
+                    app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL))
+                else {
+                    panic!("fresh keyboard selection copies");
+                };
+                let outcome = crate::board::execute(&core, request).map(|outcome| match outcome {
+                    crate::board::ActionOutcome::Message(message) => message,
+                    _ => panic!("copy cannot send"),
+                });
+                app.finished(outcome);
+                if scene == "quoted-draft" {
+                    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+                    app.paste("My comment stays unsent.");
+                }
+                let buffer = draw(&mut app, width, 36);
+                frames.push(json!({"scene":scene,"width":width,"height":36,"base":base,"depth":format!("{depth:?}"),
+                    "lines":buffer.content.chunks(usize::from(width)).map(|row|row.iter().map(|cell|cell.symbol()).collect::<String>()).collect::<Vec<_>>(),
+                    "cells":buffer.content.iter().map(|cell|json!({"symbol":cell.symbol(),"fg":format!("{:?}",cell.fg),"bg":format!("{:?}",cell.bg),"modifier":format!("{:?}",cell.modifier)})).collect::<Vec<_>>() }));
+            }
+        }
+    }
+    std::fs::write(path, serde_json::to_vec_pretty(&frames).unwrap()).unwrap();
+    assert!(
+        !core_called.exists(),
+        "the clipboard worker must not invoke Core"
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn a_second_press_outside_cancels_a_pending_task_drag() {
+    let mut app = task_fixture();
+    draw(&mut app, 160, 44);
+    let field = app.conversation.borrow().task_hits.first().unwrap().area;
+    mouse(
+        &mut app,
+        MouseEventKind::Down(MouseButton::Left),
+        field.x,
+        field.y,
+    );
+    assert!(app.conversation.borrow().task_drag.is_some());
+    mouse(&mut app, MouseEventKind::Down(MouseButton::Left), 0, 0);
+    assert!(app.conversation.borrow().task_drag.is_none());
+    mouse(
+        &mut app,
+        MouseEventKind::Drag(MouseButton::Left),
+        field.x + 2,
+        field.y,
+    );
+    assert!(
+        app.conversation
+            .borrow()
+            .sessions
+            .values()
+            .all(|session| session.exact_source.is_none())
+    );
+    assert!(app.input.is_none());
+}
+
+#[test]
+fn overview_now_grants_only_the_task_it_actually_paints_not_a_question_preview() {
+    use crate::board::{shell::OpsTab, workspace::OpsTarget};
+    for preview in [false, true] {
+        let mut app = task_fixture();
+        app.shell.tab = OpsTab::Overview;
+        app.overview_view = crate::board::overview::monitor::View::Agents;
+        let target = OpsTarget::Member {
+            room_id: Some(crate::board::app::workspace::tests::ROOM.into()),
+            identity_id: MEMBER.into(),
+        };
+        app.workspace.selected = Some(target.clone());
+        if preview {
+            app.view
+                .as_mut()
+                .unwrap()
+                .home
+                .as_mut()
+                .unwrap()
+                .workspace
+                .rows
+                .get_mut(&target)
+                .unwrap()["waitingOnYou"] =
+                json!([{"requestId":"unacquired", "preview":"A question is not a task source"}]);
+        }
+        app.workspace_reconcile();
+        draw(&mut app, 160, 44);
+        let field = app
+            .conversation
+            .borrow()
+            .task_hits
+            .first()
+            .map(|hit| hit.area);
+        if preview {
+            assert!(
+                field.is_none(),
+                "Now paints a question preview, so it grants no task selector"
+            );
+            continue;
+        }
+        let field = field.expect("visible agent Now task grants field geometry");
+        mouse(
+            &mut app,
+            MouseEventKind::Down(MouseButton::Left),
+            field.x,
+            field.y,
+        );
+        assert!(
+            app.conversation.borrow().task_drag.is_some(),
+            "actual Now down registers a task gesture; selected={:?}; notice={:?}",
+            app.workspace.selected,
+            app.notice
+        );
+        mouse(
+            &mut app,
+            MouseEventKind::Drag(MouseButton::Left),
+            field.x + 1,
+            field.y,
+        );
+        assert!(
+            app.conversation
+                .borrow()
+                .sessions
+                .values()
+                .any(|session| session.exact_source.is_some()),
+            "Now drag opens raw source; selected={:?}; receiving={:?}; notice={:?}",
+            app.workspace.selected,
+            app.conversation_target(),
+            app.notice
+        );
+        draw(&mut app, 160, 44);
+        let Effect::Act(crate::board::app::Request::Copy { text, .. }) =
+            app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL))
+        else {
+            panic!(
+                "the displayed task uses the shared exact selector; focus={:?}; selected={:?}; receiving={:?}; active={:?}; notice={:?}",
+                app.focused(),
+                app.workspace.selected,
+                app.conversation_target(),
+                app.conversation.borrow().active,
+                app.notice
+            );
+        };
+        assert_eq!(
+            text, "Review **literal**\n漢字",
+            "Now omits Next, so it cannot lend those bytes"
+        );
+        assert!(app.input.is_none());
+    }
 }

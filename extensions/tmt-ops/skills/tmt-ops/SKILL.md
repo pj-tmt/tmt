@@ -1034,20 +1034,23 @@ and later renames do not rewrite it. Colab addressing has its own semantics; a p
 link in the conversation does not authorize native page/thread writes.
 
 Dragging rendered response text opens a labelled exact source view; it does not
-guess raw byte ranges from styled text. Select on the freshly painted raw view,
-then use its annotation control to attach the exact source without sending. Esc
-leaves that source view first, then follows the normal return path. In the full
-response reader, `s` opens exact source selection. Shift with movement or mouse
-drag selects a range; `y` copies and `a` attaches it to a draft without sending.
-Common pool quotations use Talk to the same UUID; squad notes keep their actual
-recipient. The quote carries the response/request identity and source byte
-range. Selecting text never acknowledges a request. If the source changes or the
-agent disappears, the retained text can still be read/copied but cannot be attached
-to another response. The composer shows a readable author/excerpt quote caption;
-its remove control or Alt-Backspace removes the most recent quote while keeping
-message text. Details shows bounded, frozen provenance only for quotes matching
-both the selected source UUID and the draft's actual recipient UUID, including
-full request/identity and exact byte range.
+guess raw byte ranges from styled text. Task/Next fields and the squad Board task use the same exact-source
+view. In the full response reader, `s` opens exact source. Shift with movement or
+mouse drag selects a range; committing a nonempty selection copies its exact text.
+The notice reports the character count; a clipboard failure leaves Quote available.
+Enter or `+ Quote in chat` beside the selection appends a single-line blockquote to
+the existing chat draft, limited to 200 characters, followed by a blank line for
+writing. It keeps the admitted recipient and sends nothing. Esc or an outside
+press clears the selection.
+
+The configured `a note` action still writes to its configured lead or member. A
+current response selection attaches as an exact multiline blockquote with its
+request identity and byte range; a task selection never attaches automatically.
+Without a response selection it is the ordinary row note. Frozen Reader text remains readable and explicitly copyable after its source disappears. Selecting, copying or
+quoting acknowledges no request. Changed sources or vanished agents cannot
+supply an attachment. Its author/excerpt caption has a remove control;
+Alt-Backspace removes the latest attachment without changing message text. Details
+shows frozen provenance only when source and actual recipient UUID both match.
 For terminal-native selection, use the terminal's mouse-capture bypass modifier
 (commonly Shift); the exact modifier belongs to the terminal.
 

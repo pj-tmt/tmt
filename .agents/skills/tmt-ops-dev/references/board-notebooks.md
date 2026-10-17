@@ -120,20 +120,29 @@ Retained row text alone grants no authority after its membership disappears.
 sanitized Markdown display. Dragging a rendered response opens a labelled exact
 source view without guessing a byte range; selection on its freshly painted raw
 editor provides the exact range. The full response Reader remains a keyboard
-fallback. Source selection/copy and annotations preserve raw byte ranges. Pending
-questions use the same source view only after their full body is acquired;
-previews and failed reads are never selectable sources.
-Attachment and submission revalidation refuse changed requests, changed passages
-or vanished recipients. Row messages carry `[squad · row]`; selected raw lines
-follow it as Markdown blockquotes before the exact comment. Without a selection,
-the inline tag precedes the comment; task previews are not quoted automatically.
-One body projection supplies delivery and outgoing matching; attaching a source
-keeps an already admitted composer's recipient. The composer shows
-a bounded author/excerpt caption with a whole
-remove control; Alt-Backspace removes the last quote. Details freezes bounded
-quote provenance from the draft only when both recipient and source UUID match,
-including the full request/identity and exact byte range. Common pool quotations
-open a Talk follow-up to the same UUID rather than inventing squad membership.
+fallback (`s` opens exact source). Held Task/Next cells, the squad Board task and the Overview task field
+use the same raw editor, never a byte range inferred from sanitized cells. Pending
+questions are selectable only after the full body is acquired; previews and failed
+reads are not sources.
+A committed nonempty selection copies its exact bytes through the configured
+clipboard worker. The notice counts Unicode scalar characters; clipboard failure
+leaves the selection available. Enter or the selection-end `+ Quote in chat` chip
+appends one compact blockquote to the admitted chat draft, focuses its new blank
+line and sends nothing. `requests::message::inline_quote` flattens line breaks and
+limits the passage to 200 characters including an ellipsis. Esc or an outside
+press clears the selection; stale source or frame geometry grants no action.
+
+The configured Annotate lead/member row action remains a separate exact-note
+operation. It attaches a current admitted response selection (including acquired
+questions) to its existing recipient, never a task selection. Row messages carry
+`[squad · row]`; selected raw lines follow as exact multiline Markdown blockquotes
+before the comment. Without a response selection the inline tag precedes the
+comment. One body projection supplies delivery and outgoing matching. Attachment
+and submission revalidation refuse changed requests, passages or recipients.
+The composer shows a bounded author/excerpt caption with a whole remove control;
+Alt-Backspace removes the last attachment. Details freezes bounded quote provenance
+only when both recipient and source UUID match, including the full request identity
+and byte range. Compact chat insertion does not create a request attachment. Already frozen Reader text remains readable and explicitly copyable after its source disappears; it grants no insertion or attachment authority.
 Native terminal selection remains available with the
 terminal's mouse-reporting override. Colab URLs use existing link effects;
 native Colab page/thread writes are not implemented.

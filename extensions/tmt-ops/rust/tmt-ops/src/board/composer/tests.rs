@@ -993,7 +993,7 @@ fn colab_link_and_exact_source_context_survive_composer_reader_and_tab_transitio
     draw(&mut app, 160, 44);
     app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL));
     assert_eq!(
-        app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)),
+        app.perform(&crate::action::Action::parse("annotate member").unwrap()),
         Effect::None
     );
     let input = app.input.as_ref().unwrap();

@@ -123,6 +123,15 @@ fn pending(row: &serde_json::Value) -> Option<&str> {
             })
         })
 }
+/// A task field is selectable only when Now actually paints task evidence,
+/// never a pending-question preview without its admitted request source.
+pub(in crate::board) fn task_source(row: &serde_json::Value) -> Option<&str> {
+    pending(row)
+        .is_none()
+        .then(|| row["fields"]["task"].as_str())
+        .flatten()
+}
+
 pub(super) fn summary_text(row: Option<&serde_json::Value>) -> String {
     row.and_then(|row| pending(row).or_else(|| row["fields"]["task"].as_str()))
         .and_then(|text| text.lines().next())
