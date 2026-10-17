@@ -156,8 +156,7 @@ state only, no squad data or durable preference policy.
   accept effective destination actions after the overlay's own back path closes it.
   Esc closes one level and stays at the base list; it is not bindable. Default `q`
   quits the board body, backs out of an overlay and types in an active editor.
-  The footer keeps a whole prefix of ranked hints and the effective Help/quit tail;
-  when that tail cannot fit, the effective Help hint remains if it fits alone.
+  Footer fitting follows `view::footer::hints` below.
   Opaque modals hide the base hints;
   notices/error precedence remains with the existing frame owner. Theme and Token
   window actions reuse their existing Config writers, while Auto/Side/Stack writes
@@ -277,8 +276,10 @@ See [member references and source](board-notebooks.md#inert-text-and-independent
   frame registry above, not unpainted request ages or retired continuation rows.
 - `view::footer::hints` uses the effective scoped Config table and typed action
   ranks, independently of menu ordering. `row_allows` rejects unavailable member
-  actions; `hint_word` names compatible custom actions. Whole hints drop from the
+  actions; `hint_word` names compatible custom actions. Core hints drop from the
   end, retaining the effective Help/quit tail or Help alone at narrow widths.
+  The optional note hint stays beside Chat only when it fits without evicting a
+  core hint; Help always lists the action.
   Active input and modals use their own legend; an idle persistent composer keeps
   the effective list/reader hints.
   `board::glyph_guard` checks authored HOME/cron typography.

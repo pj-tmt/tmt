@@ -126,8 +126,8 @@ pub(in crate::board) fn row_allows(app: &App, action: &crate::action::Action) ->
 }
 
 /// The footer names what the most used keys do for the selected row, highest
-/// priority first. Whole hints drop from the end; `q quit` and the effective Help hint always
-/// stay (Help alone when only it fits), as the guideline requires.
+/// priority first. Core hints drop from the end; the optional note is dropped first.
+/// `q quit` and effective Help stay (Help alone when only it fits).
 pub(super) fn hints(app: &App, width: usize) -> String {
     workspace_hints(app, width)
 }
@@ -172,6 +172,11 @@ struct Hints {
     tail: Vec<Hint>,
 }
 fn fit_hints(mut hints: Vec<Hint>, tail: Vec<Hint>, width: usize) -> Vec<Hint> {
+    // The note stays beside Chat when it fits, but never evicts a core hint.
+    let note = hints
+        .iter()
+        .position(|(_, word)| word == "note")
+        .map(|at| (at, hints.remove(at)));
     while hint_text(&hints.iter().chain(&tail).cloned().collect::<Vec<_>>()).width() > width {
         if hints.pop().is_none() {
             return tail
@@ -180,6 +185,12 @@ fn fit_hints(mut hints: Vec<Hint>, tail: Vec<Hint>, width: usize) -> Vec<Hint> {
                 .cloned()
                 .into_iter()
                 .collect();
+        }
+    }
+    if let Some((at, note)) = note.filter(|(at, _)| *at <= hints.len()) {
+        hints.insert(at, note);
+        if hint_text(&hints.iter().chain(&tail).cloned().collect::<Vec<_>>()).width() > width {
+            hints.remove(at);
         }
     }
     hints.extend(tail);
@@ -469,10 +480,10 @@ fn workspace_hints(app: &App, width: usize) -> String {
     let mut hints = Vec::new();
     let mut tail = Vec::new();
     if app.focused_pane() == Some(crate::config::Pane::Replies) {
-        tail.push("Esc back".into());
+        tail.push(("Esc".into(), "back".into()));
     }
     if !app.search.is_empty() {
-        tail.push("Esc clear filter".into());
+        tail.push(("Esc".into(), "clear filter".into()));
     }
     let mut help_hint = None;
     for (key, action) in entries {
@@ -483,7 +494,7 @@ fn workspace_hints(app: &App, width: usize) -> String {
             )
         {
             if seen.insert("reader-scroll") {
-                hints.push("↑↓/jk scroll".into());
+                hints.push(("↑↓/jk".into(), "scroll".into()));
             }
             continue;
         }
@@ -491,7 +502,7 @@ fn workspace_hints(app: &App, width: usize) -> String {
             continue;
         }
         let word = hint_word(app, action);
-        let hint = format!("{} {word}", key_label(key));
+        let hint = (key_label(key).to_owned(), word.to_owned());
         if matches!(action.verb, Verb::Ui(OpsUiAction::Help | OpsUiAction::Quit)) {
             if action.verb == Verb::Ui(OpsUiAction::Help) {
                 help_hint = Some(hint.clone());
@@ -505,34 +516,15 @@ fn workspace_hints(app: &App, width: usize) -> String {
         .values()
         .any(|action| action.verb == Verb::Ui(OpsUiAction::Quit))
     {
-        tail.push("Ctrl-C quit".into());
+        tail.push(("Ctrl-C".into(), "quit".into()));
     }
-    let mut shown = tail.join("  ");
-    if shown.width() > width {
+    if hint_text(&tail).width() > width {
         return help_hint
+            .map(|hint| hint_text(&[hint]))
             .filter(|hint| hint.width() <= width)
             .unwrap_or_default();
     }
-    let mut chosen: Vec<String> = Vec::new();
-    for hint in hints {
-        let next = chosen
-            .iter()
-            .map(String::as_str)
-            .chain(std::iter::once(hint.as_str()))
-            .chain(tail.iter().map(String::as_str))
-            .collect::<Vec<_>>()
-            .join("  ");
-        if next.width() <= width {
-            chosen.push(hint);
-        } else {
-            break;
-        }
-    }
-    if !chosen.is_empty() {
-        chosen.extend(tail);
-        shown = chosen.join("  ");
-    }
-    shown
+    hint_text(&fit_hints(hints, tail, width))
 }
 
 /// Style the fitted hint list shared by board, HOME, read and jobs footers.
@@ -736,4 +728,43 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
         );
     }
     strip::paint_left(frame.buffer_mut(), hint_area, footer_line);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn optional_note_never_drops_an_existing_hint() {
+        let core: Vec<Hint> = [
+            ("↑↓", "select"),
+            ("⏎", "chat"),
+            ("p", "pin"),
+            ("v", "squads/agents"),
+            ("/", "search"),
+            ("f", "filter"),
+            ("e", "details"),
+        ]
+        .into_iter()
+        .map(|(key, word)| (key.into(), word.into()))
+        .collect();
+        let tail = vec![("?".into(), "help".into()), ("q".into(), "quit".into())];
+        let mut with_note = core.clone();
+        with_note.insert(2, ("a".into(), "note".into()));
+        let mut shown = 0;
+        let mut omitted = 0;
+        for width in 0..=160 {
+            let baseline = fit_hints(core.clone(), tail.clone(), width);
+            let mut actual = fit_hints(with_note.clone(), tail.clone(), width);
+            if let Some(at) = actual.iter().position(|hint| hint.0 == "a") {
+                assert_eq!(at, 2, "the note stays after Chat");
+                actual.remove(at);
+                shown += 1;
+            } else {
+                omitted += 1;
+            }
+            assert_eq!(actual, baseline, "width={width}");
+        }
+        assert!(shown > 0 && omitted > 0);
+    }
 }
