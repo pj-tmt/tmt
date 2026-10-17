@@ -385,8 +385,9 @@ for (const [width, theme] of [
         });
         expect(box, `band ${index + 1}`).toEqual({ inside: true, clipped: false });
       }
-      // The shared needs-you look: no frame, a light fill band while the section needs a person or an
-      // agent, only the waiting ◆ in the attention colour, and a settled line without its fill.
+      // The shared needs-you look: no frame, a light fill band only while the section needs the
+      // reader, only the waiting ◆ in the attention colour, and neutral lines without a fill for a
+      // section that waits for the agent or is settled.
       const look = await page.evaluate(() => {
         const probe = document.createElement('i');
         document.body.append(probe);
@@ -436,7 +437,7 @@ for (const [width, theme] of [
       expect(look.map((band) => band.mark)).toEqual(['◆', '◇', '✓']);
       expect(look[0].fill).toBe(look[0].band);
       expect(look[0].markColor).toBe(look[0].waiting);
-      expect(look[1].fill).toBe(look[1].band);
+      expect(look[1].fill).toBe('rgba(0, 0, 0, 0)');
       expect(look[1].markColor).toBe(look[1].secondary);
       expect(look[1].color).toBe(look[1].secondary);
       expect(look[2].fill).toBe('rgba(0, 0, 0, 0)');

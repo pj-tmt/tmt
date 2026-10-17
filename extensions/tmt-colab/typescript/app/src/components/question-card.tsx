@@ -124,6 +124,13 @@ export function QuestionCard({
               : 'time unknown'
             : undefined
         }
+        detail={
+          answer ? (
+            <span className="question-answer">
+              {pageLine >= 0 ? answerText?.slice(0, pageLine) : answerText}
+            </span>
+          ) : undefined
+        }
         actions={
           answer && !readOnly && !changing ? (
             <BrowserAction
@@ -149,11 +156,6 @@ export function QuestionCard({
         aria-hidden="true"
       />
       <div className="question-controls">
-        {answer && (
-          <p className="question-answer">
-            {pageLine >= 0 ? answerText?.slice(0, pageLine) : answerText}
-          </p>
-        )}
         {readOnly && compose && body && <ArchivedDraft value={body} />}
         {!readOnly && compose && (
           <>

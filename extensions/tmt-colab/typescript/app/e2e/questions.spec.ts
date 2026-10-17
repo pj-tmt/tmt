@@ -161,6 +161,27 @@ test('answered canonical threads resist empty siblings and agent provenance pres
   await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(2);
 });
 
+test('an answered question folds to one line, focus moves to Change answer, and Send returns with it', async ({
+  page,
+}) => {
+  const card = await mount(page);
+  await card.getByLabel('Keep it', { exact: true }).check();
+  await card.getByRole('button', { name: /^Send answer/ }).press('Enter');
+  const bar = card.locator('.needs-you-bar');
+  await expect(bar).toContainText('Answered · You');
+  await expect(bar.locator('.question-answer')).toHaveText('Keep it');
+  const change = bar.getByRole('button', { name: 'Change answer', exact: true });
+  await expect(change).toBeFocused();
+  // Nothing of the answer being written stays next to the folded line.
+  await expect(card.getByRole('button', { name: /^Send answer/ })).toHaveCount(0);
+  await expect(card.getByRole('group', { name: 'Choose one' })).toHaveCount(0);
+  await expect(card.getByRole('button', { name: 'Remove @Agent 1' })).toHaveCount(0);
+  await change.click();
+  await expect(card.getByRole('group', { name: 'Choose one' })).toBeVisible();
+  await expect(card.getByRole('button', { name: /^Send answer/ })).toBeVisible();
+  await expect(card.getByRole('button', { name: 'Remove @Agent 1' })).toBeVisible();
+});
+
 for (const change of [false, true]) {
   test(`a verified answer before Ask completion releases its recorded draft (Change answer ${change})`, async ({
     page,
@@ -184,7 +205,7 @@ for (const change of [false, true]) {
     await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(change ? 2 : 1);
     await expect(card.getByRole('button', { name: 'Change answer', exact: true })).toBeEnabled();
     expect(await run(page, 'discussionProof')).toEqual(recorded);
-    await expect(card.getByRole('button', { name: /^Send answer/ })).toBeDisabled();
+    await expect(card.getByRole('button', { name: /^Send answer/ })).toHaveCount(0);
   });
 }
 
@@ -198,7 +219,7 @@ test('ordinary answer history growth keeps the inline card in window scrolling',
   for (let index = 0; index < 6; index++) {
     const oldHeight = await frame.evaluate((node) => node.getBoundingClientRect().height);
     await run(page, 'questionSibling', {
-      body: `Ordinary follow-up ${index}:\n` + 'Details about the requested revision.\n'.repeat(4),
+      body: `Ordinary follow-up ${index}:\n` + 'Details about the requested revision.\n'.repeat(12),
       sequence: String(index + 1),
       device: false,
       index,
@@ -454,7 +475,11 @@ for (const width of [1440, 390])
           'background-color',
           theme === 'dark' ? 'rgb(16, 16, 16)' : 'rgb(255, 255, 255)',
         );
-        await expect(card.getByRole('button', { name: 'Change answer', exact: true })).toHaveCSS(
+        // Focus moved to the folded line's action; its resting colour is the text role.
+        const change = card.getByRole('button', { name: 'Change answer', exact: true });
+        await expect(change).toBeFocused();
+        await change.blur();
+        await expect(change).toHaveCSS(
           'color',
           theme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)',
         );

@@ -1359,6 +1359,10 @@ footer {
   border-radius: 0;
   box-shadow: none;
 }
+/* The group is only a focus anchor after a Send; its actions carry the visible focus. */
+.question-group-card:focus-visible {
+  outline: none;
+}
 .question-inline .tmt-ui-tab-panel {
   padding: 0;
 }
@@ -1384,6 +1388,9 @@ footer {
 }
 .question-description-space {
   pointer-events: none;
+}
+.question-group-footer:empty {
+  display: none;
 }
 .question-group-footer {
   background: var(--tmt-ui-surface-sheet);

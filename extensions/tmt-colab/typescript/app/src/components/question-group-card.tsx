@@ -86,6 +86,7 @@ export function QuestionGroupCard({
   const [error, setError] = useState<string>();
   const [failures, setFailures] = useState<MessageSendFailure[]>([]);
   const [focusReply, setFocusReply] = useState<{ id: string; placement?: AnchorPosition }>();
+  const [focusChange, setFocusChange] = useState(false);
   const section = useRef<HTMLDivElement>(null);
   const modalPresence = useNotificationModalPresence();
   const { directory, retry } = useAgentDirectory(ask);
@@ -163,7 +164,33 @@ export function QuestionGroupCard({
     const eligible = !!body && (!answer || draft.changing || draft.failed) && !draft.pending;
     return { question, draft, threads, thread, answer, body, eligible };
   });
+  // The Send row and its recipients belong to an answer being written; a folded answered line
+  // never shows them and Change answer brings them back. A tabbed group's row also stays while
+  // another tab still has drafts to send or a Send is in flight.
+  const active = rows.find(
+    (row) => row.question.id === (members.length > 1 ? selected : members[0].id),
+  );
+  const composing = !!active && (!active.answer || active.draft.changing);
+  const activeAnswered = !!active && !composing;
   const pending = rows.filter((row) => row.eligible);
+  const sendable = composing || (members.length > 1 && (pending.length > 0 || sending.length > 0));
+
+  // After a Send, focus rests on the group until the answer is verified; then it moves to the folded
+  // line's Change answer action, unless the reader has already moved on.
+  useEffect(() => {
+    if (!focusChange || !activeAnswered) return;
+    const root =
+      members.length > 1
+        ? section.current?.querySelector(`[id="question-panel-${selected}"]`)
+        : section.current;
+    const target = root?.querySelector<HTMLElement>('.needs-you-actions button:not(:disabled)');
+    // Change answer stays disabled until the verified answer replaces the recorded draft.
+    if (!target) return;
+    const focused = section.current?.ownerDocument.activeElement;
+    if (!focused || focused === section.current || focused.tagName === 'BODY')
+      target.focus({ preventScroll: true });
+    setFocusChange(false);
+  }, [focusChange, activeAnswered, members.length, selected, drafts, sending, blocked, discussion]);
   const complete = rows.filter((row) => row.answer || row.body).length;
   const sendingCount = sending.length || pending.length;
   const sendLabel =
@@ -195,6 +222,7 @@ export function QuestionGroupCard({
       });
     }
     setFocusReply(undefined);
+    setFocusChange(false);
     busy.current = true;
     setSending(answers.map((answer) => answer.question.id));
     setError(undefined);
@@ -234,6 +262,7 @@ export function QuestionGroupCard({
           recorded.map((outcome) => outcome.question),
           recorded.map((outcome) => outcome.context!),
         );
+      if (recorded.length) setFocusChange(true);
       section.current?.focus({ preventScroll: true });
     } catch {
       setError('Could not confirm these answers. Your drafts are kept.');
@@ -394,6 +423,7 @@ export function QuestionGroupCard({
           onSelect={(id, _reason, event) => {
             if (event.isTrusted) {
               setFocusReply(undefined);
+              setFocusChange(false);
               onSelect(id);
             }
           }}
@@ -405,100 +435,111 @@ export function QuestionGroupCard({
       )}
       {!readOnly && (
         <div className="question-group-footer">
-          <div className="question-group-send">
-            <BrowserChips
-              onOpenChange={modalPresence}
-              label="Answer recipients"
-              items={recipients.map((agent) => ({
-                id: recipientId(agent),
-                label: `@${agent.agentName}`,
-                removeLabel: `Remove @${agent.agentName}`,
-              }))}
-              options={options}
-              query={query}
-              onQueryChange={setQuery}
-              addLabel="Add recipient"
-              searchLabel="Find an agent"
-              emptyText={resolvingDefaults ? '' : 'No agents match.'}
-              maxItems={MESSAGE_RECIPIENT_LIMIT}
-              limitText="At most 8"
-              statusText={
-                directory.state === 'failed'
-                  ? text.messageAgentsUnavailable
-                  : directory.state === 'loading' && ask && !resolvingDefaults
+          {sendable && (
+            <>
+              <div className="question-group-send">
+                <BrowserChips
+                  onOpenChange={modalPresence}
+                  label="Answer recipients"
+                  items={recipients.map((agent) => ({
+                    id: recipientId(agent),
+                    label: `@${agent.agentName}`,
+                    removeLabel: `Remove @${agent.agentName}`,
+                  }))}
+                  options={options}
+                  query={query}
+                  onQueryChange={setQuery}
+                  addLabel="Add recipient"
+                  searchLabel="Find an agent"
+                  emptyText={resolvingDefaults ? '' : 'No agents match.'}
+                  maxItems={MESSAGE_RECIPIENT_LIMIT}
+                  limitText="At most 8"
+                  statusText={
+                    directory.state === 'failed'
+                      ? text.messageAgentsUnavailable
+                      : directory.state === 'loading' && ask && !resolvingDefaults
+                        ? text.messageAgentsChecking
+                        : undefined
+                  }
+                  disabled={disabled}
+                  addDisabled={directory.state !== 'ready'}
+                  focusFallback={() => section.current}
+                  onAdd={(id, event) => {
+                    if (
+                      !event.isTrusted ||
+                      disabled ||
+                      recipients.length >= MESSAGE_RECIPIENT_LIMIT
+                    )
+                      return;
+                    const matches =
+                      agents?.filter(
+                        (agent) => recipientId(agent) === id && agent.online === 'online',
+                      ) ?? [];
+                    if (
+                      matches.length !== 1 ||
+                      recipients.some((agent) => recipientId(agent) === id)
+                    )
+                      return;
+                    setRecipientState((previous) => ({
+                      recipients: [...previous.recipients, matches[0]],
+                      initialized: true,
+                    }));
+                    setQuery('');
+                  }}
+                  onRemove={(id, event) => {
+                    if (!event.isTrusted || disabled) return;
+                    setRecipientState((previous) => ({
+                      recipients: previous.recipients.filter((agent) => recipientId(agent) !== id),
+                      initialized: true,
+                    }));
+                  }}
+                />
+                <BrowserAction
+                  label={`${sendLabel} · to ${audience || 'thread only'}`}
+                  visibleLabel={sendLabel}
+                  type="button"
+                  variant="text"
+                  busy={!!sending.length || resolvingDefaults}
+                  disabled={
+                    disabled ||
+                    resolvingDefaults ||
+                    !attached ||
+                    !pending.length ||
+                    !decision.allowed ||
+                    pending.some((row) => !selectors.has(row.question.id))
+                  }
+                  onActivate={(event) => {
+                    if (event.isTrusted) void send();
+                  }}
+                />
+              </div>
+              {connectionPresentation ? (
+                <p className="annotation-hint" role="status">
+                  {connectionPresentation.body}
+                </p>
+              ) : (
+                <p className="annotation-hint" role="status">
+                  {resolvingDefaults
                     ? text.messageAgentsChecking
-                    : undefined
-              }
-              disabled={disabled}
-              addDisabled={directory.state !== 'ready'}
-              focusFallback={() => section.current}
-              onAdd={(id, event) => {
-                if (!event.isTrusted || disabled || recipients.length >= MESSAGE_RECIPIENT_LIMIT)
-                  return;
-                const matches =
-                  agents?.filter(
-                    (agent) => recipientId(agent) === id && agent.online === 'online',
-                  ) ?? [];
-                if (matches.length !== 1 || recipients.some((agent) => recipientId(agent) === id))
-                  return;
-                setRecipientState((previous) => ({
-                  recipients: [...previous.recipients, matches[0]],
-                  initialized: true,
-                }));
-                setQuery('');
-              }}
-              onRemove={(id, event) => {
-                if (!event.isTrusted || disabled) return;
-                setRecipientState((previous) => ({
-                  recipients: previous.recipients.filter((agent) => recipientId(agent) !== id),
-                  initialized: true,
-                }));
-              }}
-            />
-            <BrowserAction
-              label={`${sendLabel} · to ${audience || 'thread only'}`}
-              visibleLabel={sendLabel}
-              type="button"
-              variant="text"
-              busy={!!sending.length || resolvingDefaults}
-              disabled={
-                disabled ||
-                resolvingDefaults ||
-                !attached ||
-                !pending.length ||
-                !decision.allowed ||
-                pending.some((row) => !selectors.has(row.question.id))
-              }
-              onActivate={(event) => {
-                if (event.isTrusted) void send();
-              }}
-            />
-          </div>
-          {connectionPresentation ? (
-            <p className="annotation-hint" role="status">
-              {connectionPresentation.body}
-            </p>
-          ) : (
-            <p className="annotation-hint" role="status">
-              {resolvingDefaults
-                ? text.messageAgentsChecking
-                : decision.unavailable.length
-                  ? text.messageRecipientUnavailable(decision.unavailable[0])
-                  : !recipients.length
-                    ? 'Stays on the page, no one is asked'
-                    : undefined}
-            </p>
-          )}
-          {!connectionPresentation && directory.state === 'failed' && (
-            <BrowserAction
-              label={text.messageAgentsRetry}
-              variant="text"
-              type="button"
-              disabled={!!sending.length}
-              onActivate={(event) => {
-                if (event.isTrusted) retry();
-              }}
-            />
+                    : decision.unavailable.length
+                      ? text.messageRecipientUnavailable(decision.unavailable[0])
+                      : !recipients.length
+                        ? 'Stays on the page, no one is asked'
+                        : undefined}
+                </p>
+              )}
+              {!connectionPresentation && directory.state === 'failed' && (
+                <BrowserAction
+                  label={text.messageAgentsRetry}
+                  variant="text"
+                  type="button"
+                  disabled={!!sending.length}
+                  onActivate={(event) => {
+                    if (event.isTrusted) retry();
+                  }}
+                />
+              )}
+            </>
           )}
           {error && <p role="alert">{error}</p>}
           <CommentSendFailures

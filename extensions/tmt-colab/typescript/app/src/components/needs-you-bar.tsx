@@ -14,6 +14,7 @@ export function NeedsYouBar({
   word,
   who,
   why,
+  detail,
   actions,
   role,
 }: {
@@ -21,6 +22,8 @@ export function NeedsYouBar({
   word: string;
   who?: string;
   why?: string;
+  /** The settled line's own content, such as the answer, after the facts. */
+  detail?: ReactNode;
   actions?: ReactNode;
   role?: 'status';
 }) {
@@ -38,6 +41,12 @@ export function NeedsYouBar({
           </>
         )}
         {why && (tone === 'done' || !who ? ` · ${why}` : `: ${why}`)}
+        {detail && (
+          <>
+            {' · '}
+            {detail}
+          </>
+        )}
       </span>
       {actions && <span className="needs-you-actions">{actions}</span>}
     </div>

@@ -2206,7 +2206,9 @@ unsent drafts enter Send. A local callback or frame claim cannot provide a verif
 current answer. The group heading inherits authored ink; its `Q:` prefix uses
 currentColor at 45%. The whole question card, including frame text, tabs and parent
 controls, follows Colab's effective theme even on a fixed-look author page;
-selected controls use that theme's existing link color role, and the card's actions are inline text actions.
+selected controls use that theme's existing link color role, and the card's actions are inline text actions. An answered
+question folds to one neutral line (`✓ Answered`, who, when, the answer) with Change answer; its choices and the recipients and
+Send row show only while an answer is being written, and a tabbed group keeps that row while another tab has drafts to send.
 Sibling in-page Proposal cards also follow the effective Colab theme throughout their
 bodies, Approve/Decline/Follow up/Resolve controls and follow-up composers, even when
 the author fixes a different page palette.
@@ -2350,7 +2352,7 @@ publish nothing.
 **Presentation.** The parent draws one band below the section in the shared needs-you look: a
 light band with no frame, the mark plus a state word, who and why in neutral text, and inline text
 actions on the right. `◆ Please confirm` names the asking agent and the section, a requested change
-shows a neutral `◇ Changes requested`, and a closed section folds to one neutral line (who closed it,
+shows a neutral `◇ Changes requested` without the fill (it waits for the agent), and a closed section folds to one neutral line (who closed it,
 when, the note) with Reopen. The note, the fields and `Goes to @<agent>` or `Stays on the page, no
 one is asked` follow. It follows Colab's effective theme and takes its position from the inline slot channel (`{id,height}`, no
 answer geometry). A closed section fades but stays expanded: the frame sets a renderer-managed
