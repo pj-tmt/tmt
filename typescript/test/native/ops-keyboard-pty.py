@@ -263,6 +263,7 @@ sys.exit(0)
         return bool(requests)
 
     wait_for(submitted, "plain Enter submitted the multiline message")
+    expected = "[product · worker] " + expected
     if len(requests) != 1 or requests[0]["prompt"].get("message") != expected:
         raise AssertionError(f"wrong durable message: {requests!r}")
     if spec["lifecycle"] == "reload":
@@ -319,7 +320,7 @@ sys.exit(0)
     print(
         json.dumps(
             {
-                "message": expected,
+                "message": requests[0]["prompt"]["message"],
                 "queries": queries,
                 "pushes": pushes,
                 "pops": pops,

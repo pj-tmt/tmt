@@ -122,14 +122,17 @@ fn row_context_reaches_the_worker_and_outgoing_ticket_exactly_once() {
         };
         assert!(completed.outcome.is_ok());
         let args = fake.arguments();
-        let recipient = if action == "annotate lead" { "Lead" } else { "auth-fix" };
-        assert!(args.windows(2).any(|pair| pair == [recipient, expected]),
-            "{action}: the frozen body reaches only the admitted recipient");
+        let recipient = if action == "annotate lead" {
+            "Lead"
+        } else {
+            "auth-fix"
+        };
+        assert!(
+            args.windows(2).any(|pair| pair == [recipient, expected]),
+            "{action}: the frozen body reaches only the admitted recipient"
+        );
         assert_eq!(
-            args
-                .iter()
-                .filter(|arg| *arg == expected)
-                .count(),
+            args.iter().filter(|arg| *arg == expected).count(),
             1,
             "{action}: exact Core message operand"
         );
@@ -192,14 +195,17 @@ fn exact_passage_precedes_the_comment_in_the_delivered_row_message() {
         };
         assert!(completed.outcome.is_ok());
         let args = fake.arguments();
-        let recipient = if action == "annotate lead" { "Lead" } else { "auth-fix" };
-        assert!(args.windows(2).any(|pair| pair == [recipient, EXPECTED]),
-            "{action}: the frozen body reaches only the admitted recipient");
+        let recipient = if action == "annotate lead" {
+            "Lead"
+        } else {
+            "auth-fix"
+        };
+        assert!(
+            args.windows(2).any(|pair| pair == [recipient, EXPECTED]),
+            "{action}: the frozen body reaches only the admitted recipient"
+        );
         assert_eq!(
-            args
-                .iter()
-                .filter(|arg| *arg == EXPECTED)
-                .count(),
+            args.iter().filter(|arg| *arg == EXPECTED).count(),
             1,
             "{action}: literal delivered body"
         );
