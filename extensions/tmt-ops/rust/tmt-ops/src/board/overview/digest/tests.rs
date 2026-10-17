@@ -59,3 +59,47 @@ fn missing_stale_and_partial_counts_do_not_turn_into_measured_zero() {
             .contains_key(MEMBER)
     );
 }
+
+#[test]
+fn narrow_cost_rows_keep_the_full_window_before_the_price_basis_note() {
+    use tmt_cli_style::{Depth, Theme, theme::Base};
+    for base in [Base::Tmt, Base::TmtLight] {
+        for depth in [Depth::TrueColor, Depth::None] {
+            let look = Look {
+                theme: Theme::new(base),
+                depth,
+            };
+            for (amount, coverage, expected) in [
+                (Some("≈ $37.20 at list price"), "", "≈ $37.20"),
+                (Some("~≈ $37.20 at list price"), " · 1/2", "~≈ $37.20"),
+                (Some("≈ $12,400.00 at list price"), "", "≈ $12,400.00"),
+                (None, "", "—"),
+            ] {
+                let metric = Metric {
+                    key: "cost avoided 24h".into(),
+                    amount: amount.map(str::to_owned),
+                    coverage: coverage.into(),
+                    note: None,
+                };
+                for width in [32, 38, 60] {
+                    let mut buffer = Buffer::empty(Rect::new(0, 0, width, 1));
+                    metric.paint(&mut buffer, Rect::new(0, 0, width, 1), look);
+                    let line = buffer
+                        .content
+                        .iter()
+                        .map(|cell| cell.symbol())
+                        .collect::<String>();
+                    assert!(line.contains("cost avoided 24h"), "{line}");
+                    assert!(line.contains(expected), "{line}");
+                    assert!(!line.contains("cost avoided 2…"));
+                    assert_eq!(
+                        buffer[(1, 0)].fg,
+                        look.role(tmt_cli_style::Role::Muted)
+                            .fg
+                            .unwrap_or(ratatui::style::Color::Reset)
+                    );
+                }
+            }
+        }
+    }
+}
