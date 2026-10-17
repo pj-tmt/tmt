@@ -105,7 +105,14 @@ fn absent_setup_installs_one_observation_per_event_without_usage_consent() {
         &["--resume", "session", "--model", "model"].map(std::ffi::OsString::from)
     );
     let settings = settings(&command);
-    for event in ["SessionStart", "SessionEnd", "UserPromptSubmit"] {
+    for event in [
+        "SessionStart",
+        "SessionEnd",
+        "UserPromptSubmit",
+        "Notification",
+        "PostToolUse",
+        "PostToolUseFailure",
+    ] {
         assert_eq!(settings["hooks"][event].as_array().unwrap().len(), 1);
     }
     let stops = settings["hooks"]["Stop"].as_array().unwrap();
@@ -124,14 +131,21 @@ fn absent_setup_installs_one_observation_per_event_without_usage_consent() {
 #[test]
 fn existing_setup_hooks_are_the_only_observers_and_user_hooks_remain() {
     let observer = crate::runtime::hook_protocol::command_entry("claude", "/stable/tmt");
-    let global = json!({"hooks":{"SessionStart":[observer], "SessionEnd":[observer], "UserPromptSubmit":[observer], "Stop":[observer]}}).to_string();
+    let global = json!({"hooks":{"SessionStart":[observer], "SessionEnd":[observer], "UserPromptSubmit":[observer], "Notification":[observer], "PostToolUse":[observer], "PostToolUseFailure":[observer], "Stop":[observer]}}).to_string();
     let inline = r#"{"permissions":{"allow":["Read"]},"unknown":123456789012345678901234567890,"hooks":{"Stop":[{"hooks":[{"type":"command","command":"user-hook"}]}]}}"#;
     let (_directory, command) = fixture(&["--settings", inline], Some(&global));
     let raw = command.args[1].to_str().unwrap();
     assert!(raw.contains("123456789012345678901234567890"));
     let settings: Value = serde_json::from_str(raw).unwrap();
     assert_eq!(settings["permissions"]["allow"][0], "Read");
-    assert!(settings["hooks"].get("SessionStart").is_none());
+    for event in [
+        "SessionStart",
+        "Notification",
+        "PostToolUse",
+        "PostToolUseFailure",
+    ] {
+        assert!(settings["hooks"].get(event).is_none(), "{event}");
+    }
     let stops = settings["hooks"]["Stop"].as_array().unwrap();
     assert_eq!(stops.len(), 2);
     assert_eq!(stops[0]["hooks"][0]["command"], "user-hook");
@@ -146,7 +160,7 @@ fn existing_setup_hooks_are_the_only_observers_and_user_hooks_remain() {
 #[test]
 fn inline_owned_hooks_are_not_added_twice() {
     let observer = crate::runtime::hook_protocol::command_entry("claude", "/stable/tmt");
-    let inline = json!({"hooks":{"SessionStart":[observer], "SessionEnd":[observer], "UserPromptSubmit":[observer], "Stop":[observer]}}).to_string();
+    let inline = json!({"hooks":{"SessionStart":[observer], "SessionEnd":[observer], "UserPromptSubmit":[observer], "Notification":[observer], "PostToolUse":[observer], "PostToolUseFailure":[observer], "Stop":[observer]}}).to_string();
     let (_directory, command) = fixture(&["--settings", &inline], None);
     let settings = settings(&command);
     assert_eq!(
@@ -227,7 +241,7 @@ fn only_unrecursive_documented_main_stop_claims_and_output_uses_block_reason() {
 #[test]
 fn ignored_global_setup_cannot_suppress_launch_observers() {
     let observer = crate::runtime::hook_protocol::command_entry("claude", "/stable/tmt");
-    let global = json!({"hooks":{"SessionStart":[observer], "SessionEnd":[observer], "UserPromptSubmit":[observer], "Stop":[observer]}}).to_string();
+    let global = json!({"hooks":{"SessionStart":[observer], "SessionEnd":[observer], "UserPromptSubmit":[observer], "Notification":[observer], "PostToolUse":[observer], "PostToolUseFailure":[observer], "Stop":[observer]}}).to_string();
     for args in [
         &["--setting-sources", "project,local"][..],
         &["--setting-sources="][..],

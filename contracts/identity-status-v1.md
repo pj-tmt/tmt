@@ -73,7 +73,7 @@ undisclosed or mismatched sessions, and historical, offline or unknown rows.
 
 This projection reuses the command's existing observations; it adds no probe,
 subprocess, PID, session ID or address disclosure. It does not depend on optional
-working/idle telemetry in `session.activity` and grants no dispatch authority.
+activity telemetry in `session.activity` and grants no dispatch authority.
 The existing `address`, `driver`, `resume`, `session.activity` and human output
 retain their semantics; `resume.observedModel` is defined in
 [the extension API](extension-api.md#last-observed-model). In particular, `driver` follows the existing address

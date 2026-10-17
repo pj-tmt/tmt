@@ -346,10 +346,7 @@ fn cursor_data_is_private_and_consumption_documents_are_validated() {
 fn consumption_round_trips_with_activity_and_never_expands_the_one_kib_cap() {
     use crate::runtime::driver_state;
     use tmt_core::{
-        binding::session::{
-            DriverState, ProviderSessionId,
-            activity::{ActivityPhase, Event},
-        },
+        binding::session::{DriverState, ProviderSessionId, activity::Event},
         endpoint::ProcessIncarnation,
     };
     for wide in [false, true] {
@@ -358,7 +355,7 @@ fn consumption_round_trips_with_activity_and_never_expands_the_one_kib_cap() {
         let session = ProviderSessionId::new(&"s".repeat(width)).unwrap();
         let process = ProcessIncarnation::new(42, &"p".repeat(width)).unwrap();
         let event = Event {
-            phase: ActivityPhase::Working,
+            kind: tmt_core::binding::session::activity::EventKind::TurnStarted,
             turn: Some(ProviderSessionId::new(&"t".repeat(width)).unwrap()),
         };
         let usage = driver_state::Usage::new(100, None, NOW).unwrap();
@@ -393,7 +390,7 @@ fn consumption_round_trips_with_activity_and_never_expands_the_one_kib_cap() {
             );
             assert_eq!(driver_state::state_consumption(&next), Some(consumption));
             let stop = Event {
-                phase: ActivityPhase::Idle,
+                kind: tmt_core::binding::session::activity::EventKind::TurnEnded,
                 turn: event.turn.clone(),
             };
             let ended =

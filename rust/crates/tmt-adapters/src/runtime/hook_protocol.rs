@@ -91,13 +91,14 @@ pub struct ActivityObservation {
 pub fn decode_activity(bytes: &[u8], correlated: bool) -> Option<ActivityObservation> {
     use tmt_core::binding::session::{
         ProviderSessionId,
-        activity::{ActivityPhase, Event},
+        activity::{Event, EventKind},
     };
     #[derive(serde::Deserialize)]
     struct Turn {
         hook_event_name: String,
         session_id: String,
         turn_id: Option<String>,
+        notification_type: Option<String>,
         #[serde(default, rename = "agent_id", deserialize_with = "present")]
         subagent_id: bool,
         #[serde(default, rename = "agent_type", deserialize_with = "present")]
@@ -111,15 +112,28 @@ pub fn decode_activity(bytes: &[u8], correlated: bool) -> Option<ActivityObserva
     }
     let payload: Turn = serde_json::from_slice(bytes).ok()?;
     ProviderSessionId::new(&payload.session_id).ok()?;
-    let phase = match payload.hook_event_name.as_str() {
-        "UserPromptSubmit" => ActivityPhase::Working,
-        "Stop" => ActivityPhase::Idle,
+    let kind = match payload.hook_event_name.as_str() {
+        "UserPromptSubmit" => EventKind::TurnStarted,
+        "Stop" => EventKind::TurnEnded,
+        "Notification"
+            if !correlated
+                && !payload.subagent_id
+                && !payload.subagent_type
+                && payload.notification_type.as_deref() == Some("permission_prompt") =>
+        {
+            EventKind::ApprovalPrompt
+        }
+        "PostToolUse" | "PostToolUseFailure"
+            if !correlated && !payload.subagent_id && !payload.subagent_type =>
+        {
+            EventKind::ToolFinished
+        }
         // An interrupted main turn ends without Stop. Only a provider that names
         // the turn may end it this way: the turn ID is what fences a late or
         // repeated interrupt. A subagent field rejects it here, whatever the
         // provider's own emission guard does.
         "Interrupt" if correlated && !payload.subagent_id && !payload.subagent_type => {
-            ActivityPhase::Idle
+            EventKind::TurnEnded
         }
         _ => return None,
     };
@@ -142,9 +156,23 @@ pub fn decode_activity(bytes: &[u8], correlated: bool) -> Option<ActivityObserva
         })
         .map(str::to_owned);
     Some(ActivityObservation {
-        event: Event { phase, turn },
+        event: Event { kind, turn },
         model,
     })
+}
+
+/// Session routing for an activity-only event, after the same driver decoder admits it.
+pub fn decode_activity_session(
+    bytes: &[u8],
+    correlated: bool,
+) -> Option<tmt_core::binding::session::ProviderSessionId> {
+    decode_activity(bytes, correlated)?;
+    #[derive(serde::Deserialize)]
+    struct Session {
+        session_id: String,
+    }
+    let session: Session = serde_json::from_slice(bytes).ok()?;
+    tmt_core::binding::session::ProviderSessionId::new(&session.session_id).ok()
 }
 
 /// Whether a payload field is present, an explicit null included.

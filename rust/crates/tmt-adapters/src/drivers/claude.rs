@@ -15,6 +15,8 @@ use tmt_core::binding::session::{
 };
 use tmt_core::endpoint::ProcessIncarnation;
 
+const ACTIVITY_EVENTS: &[&str] = &["Notification", "PostToolUse", "PostToolUseFailure"];
+
 pub fn observe_in_pane(
     runner: &impl crate::process::CommandRunner,
     caller_pid: u64,
@@ -464,6 +466,14 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
         bytes: &[u8],
     ) -> Option<crate::runtime::hook_protocol::ActivityObservation> {
         crate::runtime::hook_protocol::decode_activity(bytes, false)
+    }
+
+    fn activity_events(&self) -> &'static [&'static str] {
+        ACTIVITY_EVENTS
+    }
+
+    fn decode_activity_session(&self, payload: &[u8]) -> Option<ProviderSessionId> {
+        crate::runtime::hook_protocol::decode_activity_session(payload, false)
     }
 
     fn activity_state(

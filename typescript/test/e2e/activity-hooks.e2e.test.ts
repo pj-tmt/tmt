@@ -18,6 +18,7 @@ it.each(['claude', 'codex'] as const)(
             turn_id: turn,
             source: 'startup',
             reason: 'other',
+            notification_type: 'permission_prompt',
           },
         });
         const list = { args: ['ls', '--json'] };
@@ -53,6 +54,39 @@ it.each(['claude', 'codex'] as const)(
                 list,
               ]
             : []),
+          // Manual denial emits no clearing hook. An unrelated notification
+          // must leave the last waiting observation unchanged.
+          ...(provider === 'claude'
+            ? [
+                hook('Notification', 'b'),
+                list,
+                hook('Notification', 'b'),
+                list,
+                {
+                  ...hook('Notification', 'b'),
+                  input: { ...hook('Notification', 'b').input, notification_type: 'idle_prompt' },
+                },
+                list,
+                hook('PostToolUseFailure', 'b'),
+                list,
+                hook('Notification', 'b'),
+                list,
+                { ...hook('PostToolUse', 'b'), measure: true },
+                list,
+                { ...hook('PostToolUse', 'b'), measure: true },
+                list,
+                hook('Notification', 'b'),
+                list,
+                hook('UserPromptSubmit', 'b'),
+                list,
+                hook('Notification', 'b'),
+                list,
+                hook('Stop', 'b'),
+                list,
+                hook('PostToolUse', 'b'),
+                list,
+              ]
+            : []),
         ];
         const scenario = path.join(fixture.root, 'activity-scenario.json');
         const report = path.join(fixture.root, 'activity-report.json');
@@ -76,6 +110,7 @@ it.each(['claude', 'codex'] as const)(
           code: number;
           stdout: string;
           stderr: string;
+          elapsedMs?: number;
         }>;
         expect(results).toHaveLength(steps.length);
         expect(results.every((result) => result.code === 0 && result.stderr === '')).toBe(true);
@@ -112,7 +147,37 @@ it.each(['claude', 'codex'] as const)(
           expect(activity(22)).toEqual(activity(20));
           expect(activity(24)).toEqual(activity(20));
         }
-        const last = provider === 'codex' ? 20 : 12;
+        if (provider === 'claude') {
+          expect(activity(16)).toEqual({
+            state: 'waiting',
+            sinceMs: expect.any(Number),
+            lastActivityMs: expect.any(Number),
+            providers: {},
+          });
+          expect(activity(18)).toEqual(activity(16));
+          expect(activity(20)).toEqual(activity(16));
+          expect(activity(22).state).toBe('working');
+          expect(activity(24).state).toBe('waiting');
+          expect(activity(26).state).toBe('working');
+          expect(activity(28)).toEqual(activity(26));
+          expect(activity(30).state).toBe('waiting');
+          expect(activity(32).state).toBe('working');
+          expect(activity(34).state).toBe('waiting');
+          expect(activity(36).state).toBe('idle');
+          expect(activity(38)).toEqual(activity(36));
+          expect(results[25].elapsedMs).toEqual(expect.any(Number));
+          expect(results[27].elapsedMs).toEqual(expect.any(Number));
+          // Observations, not a timing assertion: the fixture measures the
+          // actual CLI child from spawn through reap, before its badge read.
+          console.info(
+            'Claude ToolFinished wall time (ms):',
+            JSON.stringify({
+              full: results[25].elapsedMs,
+              noOp: results[27].elapsedMs,
+            })
+          );
+        }
+        const last = provider === 'codex' ? 20 : 36;
         // The fixture runtime has exited, while its shell pane remains. A process
         // observation overrides the last provider working event without renewing it.
         await fixture.waitFor(

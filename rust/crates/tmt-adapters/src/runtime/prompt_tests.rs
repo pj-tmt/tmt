@@ -79,7 +79,7 @@ fn activity_uses_only_main_turn_events_and_codex_requires_a_turn_id() {
             let decoded = driver
                 .decode_activity(payload.to_string().as_bytes())
                 .unwrap();
-            assert_eq!(decoded.event.phase, phase);
+            assert_eq!(decoded.event.kind.phase(), phase);
             assert_eq!(decoded.event.turn.is_some(), name == "codex");
             payload.as_object_mut().unwrap().remove("turn_id");
             assert_eq!(
@@ -129,7 +129,7 @@ fn only_a_codex_main_turn_interrupt_with_its_turn_id_is_an_idle_end() {
         .unwrap();
     let fixture = include_bytes!("fixtures/codex-interrupt.json").as_slice();
     let decoded = codex.decode_activity(fixture).unwrap();
-    assert_eq!(decoded.event.phase, ActivityPhase::Idle);
+    assert_eq!(decoded.event.kind.phase(), ActivityPhase::Idle);
     assert_eq!(
         decoded.event.turn,
         Some(ProviderSessionId::new("fixture-turn").unwrap())
@@ -160,7 +160,8 @@ fn only_a_codex_main_turn_interrupt_with_its_turn_id_is_an_idle_end() {
             .decode_activity(prompt.to_string().as_bytes())
             .unwrap()
             .event
-            .phase,
+            .kind
+            .phase(),
         ActivityPhase::Working
     );
 }
@@ -195,7 +196,7 @@ fn a_codex_turn_event_reports_its_main_session_model_only() {
         let payload: Value = serde_json::from_slice(fixture).unwrap();
         let event = payload["hook_event_name"].as_str().unwrap();
         let decoded = codex.decode_activity(fixture).unwrap();
-        assert_eq!(decoded.event.phase, phase, "{event}");
+        assert_eq!(decoded.event.kind.phase(), phase, "{event}");
         assert_eq!(decoded.model.as_deref(), Some("gpt-5.2-codex"), "{event}");
         // Claude names no turn, so its events never report an observed model.
         assert!(
@@ -223,7 +224,7 @@ fn a_codex_turn_event_reports_its_main_session_model_only() {
             let decoded = codex
                 .decode_activity(malformed.to_string().as_bytes())
                 .unwrap();
-            assert_eq!(decoded.event.phase, phase, "{event} {model}");
+            assert_eq!(decoded.event.kind.phase(), phase, "{event} {model}");
             assert_eq!(decoded.model, None, "{event} {model}");
         }
         let mut missing = payload.clone();
@@ -235,5 +236,113 @@ fn a_codex_turn_event_reports_its_main_session_model_only() {
                 .model,
             None
         );
+    }
+}
+#[test]
+fn claude_permission_notifications_report_waiting_without_matching_message_text() {
+    let registry = RuntimeRegistry::first_party();
+    let driver = registry
+        .lifecycle(&HarnessId::new("claude").unwrap())
+        .unwrap();
+    let permission = json!({
+        "hook_event_name": "Notification",
+        "session_id": "session",
+        "notification_type": "permission_prompt",
+        "message": "Arbitrary provider presentation text"
+    });
+    let observed = driver.decode_activity(permission.to_string().as_bytes());
+    assert_eq!(
+        observed
+            .as_ref()
+            .map(|event| event.event.kind.phase().as_str()),
+        Some("waiting")
+    );
+    assert!(observed.unwrap().event.turn.is_none());
+    for kind in [
+        "idle_prompt",
+        "elicitation_dialog",
+        "auth_success",
+        "future",
+    ] {
+        let mut other = permission.clone();
+        other["notification_type"] = kind.into();
+        other["message"] = "Permission needed".into();
+        assert!(
+            driver
+                .decode_activity(other.to_string().as_bytes())
+                .is_none(),
+            "{kind}"
+        );
+    }
+    for field in ["agent_id", "agent_type"] {
+        let mut auxiliary = permission.clone();
+        auxiliary[field] = "auxiliary".into();
+        assert!(
+            driver
+                .decode_activity(auxiliary.to_string().as_bytes())
+                .is_none(),
+            "{field}"
+        );
+    }
+}
+
+#[test]
+fn only_claude_main_tool_completion_clears_a_reported_approval_prompt() {
+    use tmt_core::binding::session::activity::EventKind;
+    let registry = RuntimeRegistry::first_party();
+    for provider in ["claude", "codex"] {
+        let driver = registry
+            .lifecycle(&HarnessId::new(provider).unwrap())
+            .unwrap();
+        for event in [
+            "Notification",
+            "PostToolUse",
+            "PostToolUseFailure",
+            "PermissionRequest",
+            "PermissionDenied",
+        ] {
+            let payload = json!({"hook_event_name": event, "session_id": "s", "turn_id": "t", "notification_type": "permission_prompt"});
+            let decoded = driver.decode_activity(payload.to_string().as_bytes());
+            if provider == "claude"
+                && matches!(event, "Notification" | "PostToolUse" | "PostToolUseFailure")
+            {
+                assert_eq!(
+                    decoded.unwrap().event.kind,
+                    if event == "Notification" {
+                        EventKind::ApprovalPrompt
+                    } else {
+                        EventKind::ToolFinished
+                    }
+                );
+                assert_eq!(
+                    driver
+                        .decode_activity_session(payload.to_string().as_bytes())
+                        .unwrap()
+                        .as_str(),
+                    "s"
+                );
+                for field in ["agent_id", "agent_type"] {
+                    let mut auxiliary = payload.clone();
+                    auxiliary[field] = Value::Null;
+                    assert!(
+                        driver
+                            .decode_activity(auxiliary.to_string().as_bytes())
+                            .is_none()
+                    );
+                    assert!(
+                        driver
+                            .decode_activity_session(auxiliary.to_string().as_bytes())
+                            .is_none()
+                    );
+                }
+            } else {
+                assert!(decoded.is_none(), "{provider} {event}");
+                assert!(
+                    driver
+                        .decode_activity_session(payload.to_string().as_bytes())
+                        .is_none()
+                );
+            }
+        }
     }
 }
