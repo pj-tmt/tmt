@@ -57,7 +57,9 @@ export function QuestionGroupCard({
   chip = false,
   connectionPresentation,
   onRecorded,
+  onWorking,
 }: {
+  onWorking?(id: string, working: boolean): void;
   group: QuestionGroup;
   members: readonly Question[];
   selected: string;
@@ -237,6 +239,7 @@ export function QuestionGroupCard({
     setFocusReply(undefined);
     setFocusChange(false);
     busy.current = true;
+    onWorking?.(group.id, true);
     setSending(answers.map((answer) => answer.question.id));
     setError(undefined);
     // Keep the chosen tab even when the verified answer arrives; Send never advances it.
@@ -281,6 +284,7 @@ export function QuestionGroupCard({
       setError('Could not confirm these answers. Your drafts are kept.');
     } finally {
       busy.current = false;
+      onWorking?.(group.id, false);
       setSending([]);
     }
   }

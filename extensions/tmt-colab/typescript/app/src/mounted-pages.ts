@@ -3,6 +3,7 @@ import type { PageBinding, PageSnapshot, PageLease } from './transport.js';
 /** Live remains the only connection, writer and admitted-view owner for a mounted page. */
 export interface MountedPage extends PageBinding {
   readonly closed: boolean;
+  readonly blocked: boolean;
   readonly registration?: unknown;
   readonly epoch?: string;
   close(reason?: Error): void;
@@ -70,7 +71,8 @@ export class MountedPages {
       ![...entry.consumers].some((consumer) => consumer.purpose === 'chapter');
     if (
       entry &&
-      (replacingForeground || (entry.live && (entry.live.closed || !current(entry.live))))
+      (replacingForeground ||
+        (entry.live && (entry.live.closed || entry.live.blocked || !current(entry.live))))
     ) {
       if (this.#entries.get(id) === entry) this.#entries.delete(id);
       await this.#retire(

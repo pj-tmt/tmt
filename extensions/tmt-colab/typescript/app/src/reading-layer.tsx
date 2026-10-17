@@ -30,7 +30,12 @@ export function useReadingLayer({
   hint,
   slotPositions,
   readingIds,
+  onWorking,
+  autoAdvance = true,
 }: {
+  onWorking?(id: string, working: boolean): void;
+  /** Chapter passages keep the completed reading until an explicit Next. */
+  autoAdvance?: boolean;
   readings: readonly Reading[];
   snapshot: PageSnapshot;
   view: PageView;
@@ -64,8 +69,28 @@ export function useReadingLayer({
     );
     return { reading, anchor, thread, state: readingState(reading, thread) };
   });
-  const context = useRef({ snapshot, view, binding, blocked, status, renderer, rows });
-  context.current = { snapshot, view, binding, blocked, status, renderer, rows };
+  const context = useRef({
+    snapshot,
+    view,
+    binding,
+    blocked,
+    status,
+    renderer,
+    rows,
+    onWorking,
+    autoAdvance,
+  });
+  context.current = {
+    snapshot,
+    view,
+    binding,
+    blocked,
+    status,
+    renderer,
+    rows,
+    onWorking,
+    autoAdvance,
+  };
   const jump = useCallback((id: string, focus = false) => {
     if (context.current.rows.some((row) => row.reading.id === id && row.anchor)) {
       context.current.renderer.current?.scrollReading(id);
@@ -108,8 +133,9 @@ export function useReadingLayer({
       title: () => context.current.view.title || context.current.snapshot.title,
       admitted: admitted.current,
       changed: (id, outcome) => {
+        context.current.onWorking?.(id, outcome.state === 'working');
         setOutcomes((previous) => new Map(previous).set(id, outcome));
-        if (outcome.state === 'settled') next(id);
+        if (outcome.state === 'settled' && context.current.autoAdvance) next(id);
       },
     });
   }, [snapshot.id, next]);

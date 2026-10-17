@@ -24,7 +24,9 @@ export function useReviewLayer({
   statusCoordinator,
   slotPositions,
   questionThreads,
+  onWorking,
 }: {
+  onWorking?(id: string, working: boolean): void;
   reviews: readonly Review[];
   questions: readonly Question[];
   snapshot: PageSnapshot;
@@ -81,6 +83,7 @@ export function useReviewLayer({
     rows,
     resolving,
     questions,
+    onWorking,
   });
   context.current = {
     view,
@@ -91,6 +94,7 @@ export function useReviewLayer({
     rows,
     resolving,
     questions,
+    onWorking,
   };
   const admitted = useRef(new AdmittedView());
   const actions = useMemo(() => {
@@ -128,7 +132,10 @@ export function useReviewLayer({
       admitted: admitted.current,
       title: () => context.current.view.title || context.current.snapshot.title,
       url: () => location.href,
-      changed: (id, outcome) => setOutcomes((previous) => new Map(previous).set(id, outcome)),
+      changed: (id, outcome) => {
+        context.current.onWorking?.(id, outcome.state === 'working');
+        setOutcomes((previous) => new Map(previous).set(id, outcome));
+      },
     });
   }, [snapshot.id, questionThreads]);
   useEffect(() => admitted.current.update(), [view.threads]);

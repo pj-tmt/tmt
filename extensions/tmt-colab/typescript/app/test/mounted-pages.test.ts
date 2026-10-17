@@ -6,6 +6,7 @@ function page(id: string) {
   const subscriptions = new Set<(view: PageView) => void>();
   const binding = {
     closed: false as boolean,
+    blocked: false as boolean,
     foreground: vi.fn((_active: boolean) => {}),
     snapshot: vi.fn(async () => ({
       id,
@@ -175,4 +176,21 @@ it('a Session replaced during the final snapshot cannot publish a stale borrowed
   );
   await expect(pages.acquire('page', 'chapter')).rejects.toThrow('Page released');
   expect(live.closeAndJoin).toHaveBeenCalledOnce();
+});
+
+it('a blocked passive binding is joined before a new foreground open can borrow its page', async () => {
+  const stale = page('page');
+  const fresh = page('page');
+  const create = vi.fn().mockResolvedValueOnce(stale).mockResolvedValueOnce(fresh);
+  const pages = new MountedPages(create);
+  const chapter = await pages.acquire('page', 'chapter');
+  stale.blocked = true;
+  const foreground = await pages.acquire('page', 'page');
+  expect(stale.closeAndJoin).toHaveBeenCalledOnce();
+  expect(create).toHaveBeenCalledTimes(2);
+  expect(foreground.snapshot.binding?.edit).not.toBe(chapter.snapshot.binding?.edit);
+  await chapter.release();
+  expect(fresh.closeAndJoin).not.toHaveBeenCalled();
+  await foreground.release();
+  expect(fresh.closeAndJoin).toHaveBeenCalledOnce();
 });

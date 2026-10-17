@@ -42,7 +42,9 @@ export function useQuestionLayer({
   reviews,
   readings = [],
   onRecorded,
+  onWorking,
 }: {
+  onWorking?(id: string, working: boolean): void;
   questions: readonly Question[];
   groups: readonly QuestionGroup[];
   /** Review sections ride the same handshake: their quotes come back with the questions'. */
@@ -356,6 +358,7 @@ export function useQuestionLayer({
                 chip={chip}
                 connectionPresentation={connectionPresentation}
                 onRecorded={onRecorded}
+                onWorking={onWorking}
               />
             </div>
           );

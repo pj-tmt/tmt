@@ -513,6 +513,9 @@ export class Live implements PageBinding {
   get closed() {
     return this.#closed;
   }
+  get blocked() {
+    return this.#error !== null;
+  }
   /** The mounted owner calls this when foreground borrowing starts or ends. A cosmetic frame
    * cannot select the active cloud page, and repeated borrowing sends no duplicate Subscribe. */
   foreground(active: boolean) {

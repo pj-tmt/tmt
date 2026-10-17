@@ -139,6 +139,7 @@ vi.mock('../src/live.js', () => ({
       setup.owner = owner;
     }
     closed = false;
+    blocked = false;
     get epoch() {
       return this.page.epoch;
     }

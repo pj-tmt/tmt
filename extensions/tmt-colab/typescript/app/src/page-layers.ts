@@ -23,7 +23,11 @@ export function usePageLayers({
   statusCoordinator,
   connectionPresentation,
   readingHint,
+  chapter,
 }: {
+  chapter?: {
+    onWorking(kind: 'review' | 'answer' | 'reading', id: string, working: boolean): void;
+  };
   transport: PageTransport;
   snapshot: PageSnapshot;
   view: PageView;
@@ -63,6 +67,7 @@ export function usePageLayers({
     statusCoordinator,
     slotPositions: inlineSlots.positions,
     questionThreads: associatedQuestionThreads,
+    onWorking: chapter && ((id, working) => chapter.onWorking('review', id, working)),
   });
   const readingLayer = useReadingLayer({
     readings,
@@ -75,6 +80,8 @@ export function usePageLayers({
     hint: readingHint,
     slotPositions: inlineSlots.positions,
     readingIds: inlineSlots.readingIds,
+    autoAdvance: !chapter,
+    onWorking: chapter && ((id, working) => chapter.onWorking('reading', id, working)),
   });
   const questionLayer = useQuestionLayer({
     questions,
@@ -82,6 +89,7 @@ export function usePageLayers({
     reviews: reviewLayer.blocks,
     readings: readingLayer.blocks,
     onRecorded: reviewLayer.answered,
+    onWorking: chapter && ((id, working) => chapter.onWorking('answer', id, working)),
     snapshot,
     view,
     renderer,
