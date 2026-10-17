@@ -112,6 +112,17 @@ const MIGRATIONS: &[&str] = &[
         line1 TEXT NOT NULL, line2 TEXT NOT NULL, author TEXT,
         at_ms INTEGER NOT NULL CHECK(at_ms>=0 AND at_ms<=9007199254740991));
     "#,
+    // Schema 14: display-only owner collections and person Seen marks. References never own
+    // the source pages; deleting a page deliberately leaves its collection item unavailable.
+    r#"
+    CREATE TABLE collections(id TEXT PRIMARY KEY, value BLOB NOT NULL) WITHOUT ROWID;
+    CREATE TABLE collection_items(collection TEXT NOT NULL, item TEXT NOT NULL,
+        position INTEGER NOT NULL CHECK(position>=0), value BLOB NOT NULL,
+        PRIMARY KEY(collection,item), FOREIGN KEY(collection) REFERENCES collections(id)) WITHOUT ROWID;
+    CREATE TABLE collection_seen(collection TEXT NOT NULL, target TEXT NOT NULL,
+        at_ms INTEGER NOT NULL CHECK(typeof(at_ms)='integer' AND at_ms>=0 AND at_ms<=9007199254740991),
+        PRIMARY KEY(collection,target), FOREIGN KEY(collection) REFERENCES collections(id)) WITHOUT ROWID;
+    "#,
 ];
 pub(super) const CURRENT_VERSION: u32 = MIGRATIONS.len() as u32;
 

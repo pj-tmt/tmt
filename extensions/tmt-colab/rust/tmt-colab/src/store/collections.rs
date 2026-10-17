@@ -1,6 +1,5 @@
 //! Collection persistence. Caller-admitted writes use the existing owner writer transaction;
 //! references and person Seen marks never modify pages, membership, originals or receipts.
-use super::Store;
 use crate::{
     Result,
     collections::{
@@ -117,7 +116,7 @@ pub(super) fn apply(
         });
     }
     let id = match command {
-        Command::List | Command::Show { .. } | Command::Create { .. } => {
+        Command::List {} | Command::Show { .. } | Command::Create { .. } => {
             return Err(Fault::Invalid.into());
         }
         Command::Add { id, .. }
@@ -251,26 +250,14 @@ pub(super) fn apply(
     })
 }
 
-impl Store {
-    pub fn collection_directory(&self) -> Result<Vec<Collection>> {
-        let mut rows = self
-            .connection
-            .prepare("SELECT value FROM collections ORDER BY id")?;
-        let values = rows
-            .query_map([], |row| row.get::<_, Vec<u8>>(0))?
-            .map(|value| Ok(serde_json::from_slice::<Collection>(&value?)?))
-            .collect::<Result<Vec<_>>>()?;
-        if values.len() > collections::COLLECTIONS || values.iter().any(|value| !value.valid()) {
-            return Err(Fault::Invalid.into());
-        }
-        Ok(values)
+pub(super) fn directory(connection: &Connection) -> Result<Vec<Collection>> {
+    let mut rows = connection.prepare("SELECT value FROM collections ORDER BY id")?;
+    let values = rows
+        .query_map([], |row| row.get::<_, Vec<u8>>(0))?
+        .map(|value| Ok(serde_json::from_slice::<Collection>(&value?)?))
+        .collect::<Result<Vec<_>>>()?;
+    if values.len() > collections::COLLECTIONS || values.iter().any(|value| !value.valid()) {
+        return Err(Fault::Invalid.into());
     }
-    /// Keep the definition, item positions and Seen marks in one read snapshot.
-    pub fn collection_detail(&self, id: &str) -> Result<Detail> {
-        tmt_colab_model::values::generated_id(id).map_err(|_| Fault::Invalid)?;
-        let tx = self.connection.unchecked_transaction()?;
-        let detail = detail(&tx, id)?;
-        tx.commit()?;
-        Ok(detail)
-    }
+    Ok(values)
 }

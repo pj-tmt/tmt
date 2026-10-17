@@ -115,7 +115,7 @@ fn the_schema_adds_the_home_summary_and_keeps_what_was_there() {
     f.write(Some(&lines("a", "b")), None).unwrap();
     // A store from before the summary (schema 12) gains the empty table on the next open.
     f.oracle()
-        .execute_batch("DROP TABLE home_summary; PRAGMA user_version=12;")
+        .execute_batch("DROP TABLE collection_seen; DROP TABLE collection_items; DROP TABLE collections; DROP TABLE home_summary; PRAGMA user_version=12;")
         .unwrap();
     f.store = Fixture::open(&f.layout, &f.clock);
     let version: u32 = f

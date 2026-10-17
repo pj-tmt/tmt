@@ -189,6 +189,17 @@ pub const DATA_IMAGE_BYTES: usize = 32 * 1024;
 pub const DATA_IMAGES_TOTAL_BYTES: usize = 256 * 1024;
 /// Unique `colab-attachment:` references one render resolves (`IMAGE_REFERENCES` in the app).
 pub const ATTACHMENT_REFS: usize = 128;
+/// Display-only owner collections and their references; never additional page or carrier quotas.
+pub const COLLECTIONS: usize = 64;
+pub const COLLECTION_ITEMS: usize = 256;
+pub const COLLECTION_SPACE_ITEMS: usize = 1_000;
+pub const COLLECTION_NAME_POINTS: usize = 64;
+pub const COLLECTION_NOTE_BYTES: usize = 512;
+pub const COLLECTION_PERSON_BYTES: usize = 128;
+
+/// One complete owner directory/detail reply, matching the mounted discovery byte ceiling.
+pub const COLLECTION_REPLY_BYTES: usize = 1024 * 1024;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -201,11 +212,3 @@ mod tests {
         assert_eq!(ACQUISITION + PUBLISH_COMBINE, PUBLISH_REPLY - RESPONSE);
     }
 }
-
-/// Display-only owner collections and their references; never additional page or carrier quotas.
-pub const COLLECTIONS: usize = 64;
-pub const COLLECTION_ITEMS: usize = 256;
-pub const COLLECTION_SPACE_ITEMS: usize = 1_000;
-pub const COLLECTION_NAME_POINTS: usize = 64;
-pub const COLLECTION_NOTE_BYTES: usize = 512;
-pub const COLLECTION_PERSON_BYTES: usize = 128;

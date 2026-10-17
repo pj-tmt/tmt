@@ -210,7 +210,7 @@ exec {core} "$@"
     }
     fn call(&self, args: &[&str]) -> Value {
         let output = self.command().args(args).output().unwrap();
-        assert!(output.status.success(), "{:?}", output);
+        assert!(output.status.success(), "{args:?}: {output:?}");
         assert!(output.stderr.is_empty());
         assert!(!output.stdout.contains(&0x1b));
         serde_json::from_slice(&output.stdout).unwrap()
@@ -1336,7 +1336,7 @@ fn serve_migrates_an_older_store_and_preserves_the_page() {
         CREATE TABLE owner_operations(id TEXT PRIMARY KEY, digest BLOB NOT NULL, outcome BLOB NOT NULL);
         INSERT INTO owner_operations(id,digest,outcome) SELECT id,digest,outcome FROM current_owner_operations;
         DROP TABLE current_owner_operations;
-        DROP TABLE home_summary; DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_labels;
+        DROP TABLE collection_seen; DROP TABLE collection_items; DROP TABLE collections; DROP TABLE home_summary; DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_labels;
         ALTER TABLE pages DROP COLUMN last_update_at_ms; PRAGMA user_version=4")
         .unwrap();
     drop(conn);
@@ -4624,7 +4624,7 @@ fn release_preflight_reads_an_older_store_without_migration_and_refuses_a_future
     let connection = rusqlite::Connection::open(&db).unwrap();
     connection
         .execute_batch(
-            "DROP TABLE home_summary; DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_labels; PRAGMA user_version=6",
+            "DROP TABLE collection_seen; DROP TABLE collection_items; DROP TABLE collections; DROP TABLE home_summary; DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_labels; PRAGMA user_version=6",
         )
         .unwrap();
     drop(connection);
@@ -4717,7 +4717,7 @@ fn a_release_replacement_migrates_for_the_new_cli_and_restarts_its_owned_door() 
     let connection = rusqlite::Connection::open(&db).unwrap();
     connection
         .execute_batch(
-            "DROP TABLE home_summary; DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_labels; PRAGMA user_version=6",
+            "DROP TABLE collection_seen; DROP TABLE collection_items; DROP TABLE collections; DROP TABLE home_summary; DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_labels; PRAGMA user_version=6",
         )
         .unwrap();
     drop(connection);
@@ -7916,6 +7916,122 @@ fn page_read_empty_and_huge_single_line_sources_have_exact_anchors() {
             &pilot,
             &["page", "read", &id, "--lines", "2:2", "--json"],
             "COLAB_READ_RANGE",
+        );
+    }
+}
+
+#[test]
+fn collections_keep_the_same_owner_data_offline_and_through_the_running_serve() {
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        if serving {
+            pilot.start();
+        }
+        let page = titled_page(&pilot, "Collection source");
+        let head = pilot.call(&["ls", "--json"])["membershipHead"].clone();
+        assert_eq!(
+            pilot.call(&["collection", "ls", "--json"]),
+            json!({"kind":"directory","collections":[]})
+        );
+        let created = pilot.call(&[
+            "collection",
+            "create",
+            "Reports",
+            "--maintainer",
+            "PM",
+            "--json",
+        ]);
+        let id = created["detail"]["collection"]["id"].as_str().unwrap();
+        assert_eq!(
+            created["detail"]["collection"]["definition"],
+            json!({"kind":"manual","sort":"manual"})
+        );
+        let reference = format!("{}#part:2", &page[..8]);
+        let added = pilot.call(&[
+            "collection",
+            "add",
+            id,
+            &reference,
+            "--note",
+            "Read the figures",
+            "--audience",
+            "Ben",
+            "--json",
+        ]);
+        let item = added["detail"]["items"][0]["id"].as_str().unwrap();
+        assert_eq!(added["detail"]["items"][0]["pageId"], page);
+        assert_eq!(added["detail"]["items"][0]["anchor"], "part:2");
+        assert_eq!(added["detail"]["seen"], json!([]));
+        let shown = pilot.call(&["collection", "show", id, "--json"]);
+        assert_eq!(shown["detail"], added["detail"]);
+        failure(
+            &pilot,
+            &["collection", "rename", id, "  ", "--json"],
+            "COLAB_INPUT_INVALID",
+        );
+        assert_eq!(
+            pilot.call(&["collection", "show", id, "--json"])["detail"],
+            added["detail"]
+        );
+        assert_eq!(
+            pilot.call(&["collection", "sort", id, "title", "--json"])["detail"]["collection"]["definition"]
+                ["sort"],
+            "title"
+        );
+        assert_eq!(
+            pilot.call(&["collection", "archive", id, "--json"])["detail"]["collection"]["archived"],
+            true
+        );
+        assert_eq!(
+            pilot.call(&["collection", "archive", id, "--restore", "--json"])["detail"]["collection"]
+                ["archived"],
+            false
+        );
+        assert_eq!(
+            pilot.call(&["collection", "remove", id, item, "--json"])["detail"]["items"],
+            json!([])
+        );
+        let smart = pilot.call(&[
+            "collection",
+            "create",
+            "Urgent",
+            "--smart",
+            "--label",
+            "urgent",
+            "--needs-you",
+            "--json",
+        ]);
+        let smart_id = smart["detail"]["collection"]["id"].as_str().unwrap();
+        assert_eq!(
+            smart["detail"]["collection"]["definition"],
+            json!({"kind":"smart","search":{"label":["urgent"]},"needsYou":true})
+        );
+        let query = pilot.call(&[
+            "collection",
+            "query",
+            smart_id,
+            "--q",
+            "plan",
+            "--sort",
+            "title",
+            "--json",
+        ]);
+        assert_eq!(
+            query["detail"]["collection"]["definition"],
+            json!({"kind":"smart","search":{"q":"plan","sort":"title"}})
+        );
+        assert_eq!(
+            pilot.call(&["ls", "--json"])["membershipHead"],
+            head,
+            "display metadata never advances authority"
+        );
+        if serving {
+            pilot.stop();
+        }
+        assert_eq!(
+            pilot.call(&["collection", "show", smart_id, "--json"])["detail"],
+            query["detail"],
+            "the definition survives serve shutdown"
         );
     }
 }

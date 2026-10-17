@@ -683,6 +683,56 @@ fn serve(
         }
         return;
     }
+    if request.path == crate::collections::ipc::LOCAL_PATH
+        || request.path == crate::collections::ipc::PATH
+        || collection_detail_id(&request.path).is_some()
+    {
+        use crate::collections::{Command, Fault, ipc};
+        let result = (|| -> Result<Vec<u8>> {
+            let local = request.path == ipc::LOCAL_PATH;
+            if request.upgrade || (local && local_denied(&request)) {
+                return Err(registration::Code::Denied.into());
+            }
+            let command = if request.method == "GET" && !local {
+                if !request.body.is_empty() {
+                    return Err(Fault::Invalid.into());
+                }
+                if let Some(id) = collection_detail_id(&request.path) {
+                    Command::Show { id: id.into() }
+                } else {
+                    Command::List {}
+                }
+            } else if request.method == "POST" && collection_detail_id(&request.path).is_none() {
+                let command = ipc::parse(&request.body, !local)?;
+                if !local && ipc::read_only(&command) {
+                    return Err(Fault::Invalid.into());
+                }
+                command
+            } else {
+                return Err(Fault::Invalid.into());
+            };
+            let mut service = registration
+                .ok_or(registration::Code::Unavailable)?
+                .lock()
+                .map_err(|_| registration::Code::Unavailable)?;
+            let reply = if local {
+                service.collections_local(&command)?
+            } else {
+                service.collections_browser(
+                    request.context.as_deref(),
+                    &command,
+                    registration::now_ms()?,
+                )?
+            };
+            ipc::encode(&reply)
+        })();
+        let (status, body) = match result {
+            Ok(body) => (200, body),
+            Err(error) => ipc::error(error.as_ref()),
+        };
+        let _ = response_as(&mut socket, status, &body, "application/json");
+        return;
+    }
     if request.path == management::PATH || request.path == management::LOCAL_PATH {
         let result = if request.path == management::LOCAL_PATH && local_denied(&request) {
             Err(management::Code::Denied)
@@ -1672,6 +1722,8 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
             | "/api/session"
             | "/api/serve-release"
             | "/api/pages"
+            | crate::collections::ipc::PATH
+            | crate::collections::ipc::LOCAL_PATH
             | management::PATH
             | management::LOCAL_PATH
             | crate::page::ipc::PATH
@@ -1682,6 +1734,7 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
             | crate::readers::CHALLENGE_PATH
             | crate::readers::SESSION_PATH
     ) && summary_details_page(&request.path).is_none()
+        && collection_detail_id(&request.path).is_none()
     {
         request.owner = request.context.as_deref().map(owner_name).transpose()?;
     }
@@ -1693,6 +1746,10 @@ fn summary_details_page(path: &str) -> Option<&str> {
         .strip_prefix("/api/pages/")?
         .strip_suffix("/summary-details")?;
     (!page.is_empty() && !page.contains('/')).then_some(page)
+}
+fn collection_detail_id(path: &str) -> Option<&str> {
+    let id = path.strip_prefix("/api/collections/")?;
+    (!id.is_empty() && !id.contains('/')).then_some(id)
 }
 /// The owner device name from the remote door's context; anything other than
 /// an owner context with a device ID and name is malformed.

@@ -4,6 +4,8 @@
 use serde::{Deserialize, Serialize};
 use tmt_colab_model::values;
 
+pub mod ipc;
+
 pub use crate::limits::{
     COLLECTION_ITEMS as ITEMS, COLLECTION_NAME_POINTS as NAME_POINTS,
     COLLECTION_NOTE_BYTES as NOTE_BYTES, COLLECTION_PERSON_BYTES as PERSON_BYTES,
@@ -184,6 +186,35 @@ pub struct Detail {
     pub items: Vec<Item>,
     pub seen: Vec<Seen>,
 }
+impl Detail {
+    pub fn valid(&self) -> bool {
+        let manual = self.collection.definition.manual();
+        self.collection.valid()
+            && self.items.len() <= ITEMS
+            && (manual || self.items.is_empty())
+            && self.items.iter().all(Item::valid)
+            && self
+                .items
+                .iter()
+                .map(|item| &item.id)
+                .collect::<std::collections::BTreeSet<_>>()
+                .len()
+                == self.items.len()
+            && self.seen.len() <= if manual { ITEMS } else { crate::limits::PAGES }
+            && self.seen.iter().all(|mark| {
+                values::generated_id(&mark.id).is_ok()
+                    && values::time(mark.at_ms).is_ok()
+                    && (!manual || self.items.iter().any(|item| item.id == mark.id))
+            })
+            && self
+                .seen
+                .iter()
+                .map(|mark| &mark.id)
+                .collect::<std::collections::BTreeSet<_>>()
+                .len()
+                == self.seen.len()
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -198,6 +229,9 @@ pub enum Fault {
     Capacity,
     Conflict,
     NotFound,
+    Unavailable,
+    Unknown,
+    ServerMismatch,
 }
 impl Fault {
     pub fn code(self) -> &'static str {
@@ -206,6 +240,9 @@ impl Fault {
             Self::Capacity => "COLAB_CAPACITY",
             Self::Conflict => "COLAB_CONFLICT",
             Self::NotFound => "COLAB_COLLECTION_NOT_FOUND",
+            Self::Unavailable => "COLAB_UNAVAILABLE",
+            Self::Unknown => "COLAB_OUTCOME_UNKNOWN",
+            Self::ServerMismatch => "COLAB_SERVER_MISMATCH",
         }
     }
 }
@@ -220,17 +257,51 @@ impl std::fmt::Display for Fault {
             Self::NotFound => {
                 "Collection not found. List the collections and choose an existing ID."
             }
+            Self::Unavailable => "Collections are unavailable. Open the collection again.",
+            Self::Unknown => "The collection change is unconfirmed. Use collection ls and show to inspect it before changing it again. No retry was attempted.",
+            Self::ServerMismatch => "This CLI and the running Colab service use different collection protocols. Restart the service with the installed build before changing collections.",
         })
     }
 }
 impl std::error::Error for Fault {}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
+pub enum Reply {
+    Directory { collections: Vec<Collection> },
+    Detail { detail: Detail, changed: bool },
+}
+impl Reply {
+    pub fn matches(&self, command: &Command) -> bool {
+        match (self, command.collection_id()) {
+            (Self::Directory { .. }, None) => matches!(command, Command::List {}),
+            (Self::Detail { detail, .. }, Some(id)) => detail.collection.id == id,
+            _ => false,
+        }
+    }
+    pub fn valid(&self) -> bool {
+        match self {
+            Self::Directory { collections } => {
+                collections.len() <= COLLECTIONS
+                    && collections.iter().all(Collection::valid)
+                    && collections
+                        .iter()
+                        .map(|collection| &collection.id)
+                        .collect::<std::collections::BTreeSet<_>>()
+                        .len()
+                        == collections.len()
+            }
+            Self::Detail { detail, .. } => detail.valid(),
+        }
+    }
+}
 
 /// A root-local request may inspect or maintain collections, but it never marks a person's Seen.
 /// The browser admission owner explicitly enables only the last two person actions.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(tag = "op", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum Command {
-    List,
+    List {},
     Show {
         id: String,
     },
@@ -260,7 +331,12 @@ pub enum Command {
     Query {
         id: String,
         search: Search,
-        #[serde(default, rename = "needsYou", deserialize_with = "present")]
+        #[serde(
+            default,
+            rename = "needsYou",
+            deserialize_with = "present",
+            skip_serializing_if = "Option::is_none"
+        )]
         needs_you: Option<bool>,
     },
     Archive {
@@ -276,9 +352,25 @@ pub enum Command {
     },
 }
 impl Command {
+    pub fn collection_id(&self) -> Option<&str> {
+        match self {
+            Self::List {} => None,
+            Self::Create { collection } => Some(&collection.id),
+            Self::Show { id }
+            | Self::Add { id, .. }
+            | Self::Remove { id, .. }
+            | Self::Rename { id, .. }
+            | Self::Maintainer { id, .. }
+            | Self::Sort { id, .. }
+            | Self::Query { id, .. }
+            | Self::Archive { id, .. }
+            | Self::Seen { id, .. }
+            | Self::ClearSeen { id } => Some(id),
+        }
+    }
     pub fn valid(&self, person: bool) -> bool {
         let id = match self {
-            Self::List => return true,
+            Self::List {} => return true,
             Self::Create { collection } => return collection.valid(),
             Self::Show { id }
             | Self::Add { id, .. }

@@ -418,6 +418,69 @@ impl Registration {
         )?;
         Ok(crate::home_summary::ipc::Outcome { summary, changed })
     }
+    /// Root-local collection commands are admitted only by the private socket or lifecycle lock.
+    /// This entry point never enables the browser's person Seen actions.
+    pub fn collections_local(
+        &mut self,
+        command: &crate::collections::Command,
+    ) -> Result<crate::collections::Reply> {
+        self.collections(command, false)
+    }
+
+    /// The existing active-device admission owns revocation, expiry and the forwarded context.
+    /// A CLI device is not a person browser and cannot mark or clear Seen through this route.
+    pub fn collections_browser(
+        &mut self,
+        context: Option<&str>,
+        command: &crate::collections::Command,
+        now: u64,
+    ) -> Result<crate::collections::Reply> {
+        let parsed = Context::parse(context)?;
+        if matches!(
+            command,
+            crate::collections::Command::Seen { .. }
+                | crate::collections::Command::ClearSeen { .. }
+        ) && parsed.kind != "browser"
+        {
+            return Err(Code::Denied.into());
+        }
+        self.active_device(context, now)?;
+        self.collections(command, true)
+    }
+
+    fn collections(
+        &mut self,
+        command: &crate::collections::Command,
+        person: bool,
+    ) -> Result<crate::collections::Reply> {
+        use crate::collections::{Command, Fault, Reply};
+        if !command.valid(person) {
+            return Err(Fault::Invalid.into());
+        }
+        let space = &self.keyring.space_id;
+        let root = self.keyring.owner_public();
+        match command {
+            Command::List {} => self.store.owner_read(space, &root, |tx| {
+                Ok(Reply::Directory {
+                    collections: tx.collection_directory()?,
+                })
+            }),
+            Command::Show { id } => self.store.owner_read(space, &root, |tx| {
+                Ok(Reply::Detail {
+                    detail: tx.collection_detail(id)?,
+                    changed: false,
+                })
+            }),
+            _ => self.store.label_transaction(space, &root, |tx| {
+                let outcome = tx.apply_collection(command, person)?;
+                Ok(Reply::Detail {
+                    detail: outcome.detail,
+                    changed: outcome.changed,
+                })
+            }),
+        }
+    }
+
     /// The public key that must have signed a root-local batch; never request-selected.
     pub(crate) fn author_key(&self) -> crate::Result<[u8; 32]> {
         Ok(self.keyring.local_writer()?.1)

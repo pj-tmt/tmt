@@ -47,6 +47,18 @@ impl Fixture {
                 tx.apply_collection(&command, person)
             })
     }
+    fn detail(&mut self, id: &str) -> tmt_colab::Result<tmt_colab::collections::Detail> {
+        self.store
+            .label_transaction(&self.key.space_id, &self.key.owner_public(), |tx| {
+                tx.collection_detail(id)
+            })
+    }
+    fn directory(&mut self) -> tmt_colab::Result<Vec<Collection>> {
+        self.store
+            .label_transaction(&self.key.space_id, &self.key.owner_public(), |tx| {
+                tx.collection_directory()
+            })
+    }
     fn page(&self, n: usize) {
         self.oracle()
             .execute("INSERT INTO pages(page,epoch) VALUES (?,'1')", [id(n)])
@@ -123,7 +135,7 @@ fn references_and_seen_survive_reopen_without_page_or_owner_records() {
         .unwrap();
     assert_eq!(seen.detail.seen[0].at_ms, 1234);
     f.store = Store::open(&f.layout).unwrap();
-    let detail = f.store.collection_detail(&collection.id).unwrap();
+    let detail = f.detail(&collection.id).unwrap();
     assert_eq!(
         detail
             .items
@@ -146,7 +158,7 @@ fn references_and_seen_survive_reopen_without_page_or_owner_records() {
             .unwrap();
         assert_eq!(count, 0, "{table}");
     }
-    assert_eq!(f.store.collection_directory().unwrap(), [collection]);
+    assert_eq!(f.directory().unwrap(), [collection]);
 }
 
 #[test]
@@ -175,7 +187,7 @@ fn only_person_actions_mark_seen_and_repeating_them_keeps_the_first_time() {
         ),
         Some(Fault::Invalid)
     );
-    assert!(f.store.collection_detail(&id(10)).unwrap().seen.is_empty());
+    assert!(f.detail(&id(10)).unwrap().seen.is_empty());
     assert!(
         f.apply(
             Command::Seen {
@@ -258,7 +270,7 @@ fn frozen_create_and_add_ids_are_idempotent_and_conflicts_leave_everything_uncha
     );
     let mut changed = item;
     changed.note = "Different".into();
-    let before = f.store.collection_detail(&id(10)).unwrap();
+    let before = f.detail(&id(10)).unwrap();
     assert_eq!(
         fault(
             f.apply(
@@ -272,7 +284,7 @@ fn frozen_create_and_add_ids_are_idempotent_and_conflicts_leave_everything_uncha
         ),
         Some(Fault::Conflict)
     );
-    assert_eq!(f.store.collection_detail(&id(10)).unwrap(), before);
+    assert_eq!(f.detail(&id(10)).unwrap(), before);
     assert_eq!(
         fault(
             f.apply(
@@ -286,7 +298,7 @@ fn frozen_create_and_add_ids_are_idempotent_and_conflicts_leave_everything_uncha
         ),
         Some(Fault::Invalid)
     );
-    assert_eq!(f.store.collection_detail(&id(10)).unwrap(), before);
+    assert_eq!(f.detail(&id(10)).unwrap(), before);
 }
 
 #[test]
@@ -447,7 +459,7 @@ fn a_refused_capacity_write_does_not_evict_a_reference_or_its_seen_state() {
         true,
     )
     .unwrap();
-    let before = f.store.collection_detail(&id(10)).unwrap();
+    let before = f.detail(&id(10)).unwrap();
     assert_eq!(
         fault(
             f.apply(
@@ -461,5 +473,29 @@ fn a_refused_capacity_write_does_not_evict_a_reference_or_its_seen_state() {
         ),
         Some(Fault::Capacity)
     );
-    assert_eq!(f.store.collection_detail(&id(10)).unwrap(), before);
+    assert_eq!(f.detail(&id(10)).unwrap(), before);
+}
+
+#[test]
+fn migration_thirteen_keeps_home_summary_and_page_rows_while_adding_empty_collections() {
+    let mut f = Fixture::new();
+    f.page(1);
+    f.oracle().execute_batch("DROP TABLE collection_seen; DROP TABLE collection_items; DROP TABLE collections; PRAGMA user_version=13; INSERT INTO home_summary VALUES (1,'Ready','Two pages changed','PM',100);").unwrap();
+    f.store = Store::open(&f.layout).unwrap();
+    assert!(f.directory().unwrap().is_empty());
+    let oracle = f.oracle();
+    let version: u32 = oracle
+        .pragma_query_value(None, "user_version", |r| r.get(0))
+        .unwrap();
+    assert_eq!(version, 14);
+    let first: String = oracle
+        .query_row("SELECT line1 FROM home_summary WHERE id=1", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(first, "Ready");
+    let pages: i64 = oracle
+        .query_row("SELECT COUNT(*) FROM epoch_secrets", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(pages, 1);
 }

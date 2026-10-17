@@ -496,7 +496,7 @@ fn schema_two_authority_rows_survive_registration_migration() {
         CREATE TABLE owner_operations(id TEXT PRIMARY KEY, digest BLOB NOT NULL, outcome BLOB NOT NULL);
         INSERT INTO owner_operations(id,digest,outcome) SELECT id,digest,outcome FROM current_owner_operations;
         DROP TABLE current_owner_operations;
-        DROP TABLE home_summary; DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_labels;
+        DROP TABLE collection_seen; DROP TABLE collection_items; DROP TABLE collections; DROP TABLE home_summary; DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_labels;
         ALTER TABLE pages DROP COLUMN last_update_at_ms; DROP TABLE baselines; DROP TABLE device_registrations; PRAGMA user_version=2;",
     )
     .unwrap();
@@ -2019,6 +2019,206 @@ fn mounted_chapter_details_use_owner_context_and_never_turn_unavailable_into_zer
     for reply in [body, query, malformed] {
         assert!(reply.starts_with("HTTP/1.1 400"), "{reply}");
     }
+    assert!(!path.exists());
+    f.service = Some(Arc::try_unwrap(service).ok().unwrap().into_inner().unwrap());
+}
+
+#[test]
+fn collections_use_current_owner_admission_and_only_browser_devices_mark_seen() {
+    use tmt_colab::collections::{Collection, Command, Definition, Item, Reply, Sort};
+    let mut f = Fixture::new();
+    let c = context(DEVICE, 1);
+    register(&mut f, Some(&c), &request(DEVICE, NOW), NOW).unwrap();
+    let id = "30000000-0000-4000-8000-000000000001".to_owned();
+    let item = "30000000-0000-4000-8000-000000000002".to_owned();
+    f.oracle()
+        .execute("INSERT INTO pages(page,epoch) VALUES (?,'1')", [OTHER])
+        .unwrap();
+    f.oracle()
+        .execute(
+            "INSERT INTO epoch_secrets(page,epoch,secret) VALUES (?,'1',zeroblob(32))",
+            [OTHER],
+        )
+        .unwrap();
+    f.service()
+        .collections_local(&Command::Create {
+            collection: Collection {
+                id: id.clone(),
+                name: "Reports".into(),
+                maintainer: "PM".into(),
+                archived: false,
+                definition: Definition::Manual { sort: Sort::Manual },
+            },
+        })
+        .unwrap();
+    f.service()
+        .collections_local(&Command::Add {
+            id: id.clone(),
+            item: Item {
+                id: item.clone(),
+                page_id: OTHER.into(),
+                anchor: Some("hosting".into()),
+                note: "Read this".into(),
+                audience: "Ben".into(),
+            },
+        })
+        .unwrap();
+    let before = f.rows("membership_log");
+    let seen = Command::Seen {
+        id: id.clone(),
+        target: item,
+    };
+    assert_eq!(
+        f.service()
+            .collections_local(&seen)
+            .unwrap_err()
+            .downcast_ref::<tmt_colab::collections::Fault>(),
+        Some(&tmt_colab::collections::Fault::Invalid)
+    );
+    let mut cli: Value = serde_json::from_str(&c).unwrap();
+    cli["kind"] = json!("cli");
+    assert_eq!(
+        f.service()
+            .collections_browser(Some(&cli.to_string()), &seen, NOW)
+            .unwrap_err()
+            .downcast_ref::<Code>(),
+        Some(&Code::Denied)
+    );
+    assert_eq!(
+        f.service()
+            .collections_browser(None, &Command::List {}, NOW)
+            .unwrap_err()
+            .downcast_ref::<Code>(),
+        Some(&Code::Denied)
+    );
+    let mut member: Value = serde_json::from_str(&c).unwrap();
+    member["owner"] = json!(false);
+    assert_eq!(
+        f.service()
+            .collections_browser(Some(&member.to_string()), &Command::List {}, NOW)
+            .unwrap_err()
+            .downcast_ref::<Code>(),
+        Some(&Code::Denied)
+    );
+    let Reply::Detail { detail, changed } = f
+        .service()
+        .collections_browser(Some(&c), &seen, NOW)
+        .unwrap()
+    else {
+        panic!("detail")
+    };
+    assert!(changed);
+    assert_eq!(detail.seen.len(), 1);
+    assert_eq!(f.rows("membership_log"), before);
+    assert_eq!(f.rows("receipts"), 0);
+    // Change just the durable admission bit after the positive control. This synthetic page
+    // fixture does not carry the policy records needed by the independent revocation engine.
+    f.oracle()
+        .execute(
+            "UPDATE device_registrations SET revoked=1 WHERE device_id=?",
+            [DEVICE],
+        )
+        .unwrap();
+    let error = f
+        .service()
+        .collections_browser(Some(&c), &Command::Show { id }, NOW)
+        .unwrap_err();
+    assert_eq!(error.downcast_ref::<Code>(), Some(&Code::Denied));
+}
+
+#[test]
+fn mounted_collections_separate_owner_context_from_the_private_cli_route() {
+    use tmt_colab::collections::{Collection, Command, Definition, Sort};
+    let mut f = Fixture::new();
+    register(
+        &mut f,
+        Some(&context(DEVICE, 1)),
+        &request(DEVICE, NOW),
+        NOW,
+    )
+    .unwrap();
+    let collection = "30000000-0000-4000-8000-000000000001";
+    f.service()
+        .collections_local(&Command::Create {
+            collection: Collection {
+                id: collection.into(),
+                name: "Reports".into(),
+                maintainer: "PM".into(),
+                archived: false,
+                definition: Definition::Manual { sort: Sort::Manual },
+            },
+        })
+        .unwrap();
+    let service = Arc::new(Mutex::new(f.service.take().unwrap()));
+    let key = Keyring::read(&f.layout).unwrap();
+    let socket = MountSocket::bind(&f.layout, &key.space_id, Tunnels::PRODUCT)
+        .unwrap()
+        .with_registration(&f.layout, Arc::clone(&service))
+        .unwrap();
+    let path = socket.path.clone();
+    struct Running(Arc<AtomicBool>, Option<std::thread::JoinHandle<()>>);
+    impl Drop for Running {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::Release);
+            if let Some(worker) = self.1.take() {
+                worker.join().unwrap();
+            }
+        }
+    }
+    let stop = Arc::new(AtomicBool::new(false));
+    let flag = Arc::clone(&stop);
+    let mut running = Running(
+        stop,
+        Some(thread::spawn(move || socket.run(&flag).unwrap())),
+    );
+    let call = |method: &str, route: &str, headers: &str, body: &str| {
+        let mut peer = UnixStream::connect(&path).unwrap();
+        peer.set_read_timeout(Some(std::time::Duration::from_secs(3)))
+            .unwrap();
+        write!(
+            peer,
+            "{method} {route} HTTP/1.1\r\nContent-Length: {}\r\n{headers}\r\n{body}",
+            body.len()
+        )
+        .unwrap();
+        peer.shutdown(std::net::Shutdown::Write).unwrap();
+        let mut reply = String::new();
+        peer.read_to_string(&mut reply).unwrap();
+        reply
+    };
+    let owner = format!("tmt-device-context: {}\r\n", context(DEVICE, 1));
+    let denied = call("GET", "/api/collections", "Cookie: tmt_door=forged\r\n", "");
+    assert!(denied.starts_with("HTTP/1.1 403"), "{denied}");
+    let listed = call("GET", "/api/collections", &owner, "");
+    assert!(listed.starts_with("HTTP/1.1 200"), "{listed}");
+    let shown = call("GET", &format!("/api/collections/{collection}"), &owner, "");
+    assert!(shown.starts_with("HTTP/1.1 200"), "{shown}");
+    let body =
+        json!({"version":1,"command":{"op":"rename","id":collection,"name":"Current"}}).to_string();
+    let changed = call("POST", "/api/collections", &owner, &body);
+    assert!(changed.starts_with("HTTP/1.1 200"), "{changed}");
+    let root = call(
+        "POST",
+        "/.tmt/colab/local/collections",
+        "",
+        &json!({"version":1,"command":{"op":"show","id":collection}}).to_string(),
+    );
+    assert!(root.starts_with("HTTP/1.1 200"), "{root}");
+    assert!(root.contains("Current"));
+    let forwarded = call("POST", "/.tmt/colab/local/collections", &owner, &body);
+    assert!(forwarded.starts_with("HTTP/1.1 403"), "{forwarded}");
+    let person = json!({"version":1,"command":{"op":"clear-seen","id":collection}}).to_string();
+    let denied = call("POST", "/.tmt/colab/local/collections", "", &person);
+    assert!(denied.starts_with("HTTP/1.1 400"), "{denied}");
+    let malformed = call(
+        "POST",
+        "/api/collections",
+        &owner,
+        "{\"version\":1,\"command\":{\"op\":\"notify\"}}",
+    );
+    assert!(malformed.starts_with("HTTP/1.1 400"), "{malformed}");
+    running.0.store(true, Ordering::Release);
+    running.1.take().unwrap().join().unwrap();
     assert!(!path.exists());
     f.service = Some(Arc::try_unwrap(service).ok().unwrap().into_inner().unwrap());
 }

@@ -347,6 +347,15 @@ impl Store {
     }
 }
 impl OwnerTransaction<'_> {
+    /// Collection reads stay in the same owner-verified snapshot as every owner projection.
+    pub fn collection_directory(&self) -> Result<Vec<crate::collections::Collection>> {
+        super::collections::directory(self.tx)
+    }
+    pub fn collection_detail(&self, id: &str) -> Result<crate::collections::Detail> {
+        values::generated_id(id).map_err(|_| crate::collections::Fault::Invalid)?;
+        super::collections::detail(self.tx, id)
+    }
+
     /// Collection edits use this owner transaction, not a page mutation or publication receipt.
     pub fn apply_collection(
         &mut self,

@@ -1,4 +1,5 @@
 mod cli_attachments;
+mod cli_collections;
 mod cli_compact;
 mod cli_grammar;
 mod cli_home;
@@ -344,6 +345,7 @@ fn grammar() -> Command {
             .subcommand(cli_attachments::command())
             .subcommand(cli_labels::command())
             .subcommand(cli_home::command())
+            .subcommand(cli_collections::command())
             .subcommand(
                 tmt_cli_style::command(&PAGE)
                     .subcommand_required(true)
@@ -459,6 +461,9 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
     }
     if command == "label" {
         return cli_labels::run(&root, args);
+    }
+    if command == "collection" {
+        return cli_collections::run(&root, args);
     }
     if command == "home" {
         return cli_home::run(&root, args);
@@ -1097,6 +1102,9 @@ fn spaces(root: &std::path::Path, json_output: bool) -> Result<()> {
     Ok(())
 }
 fn error_code(error: &(dyn std::error::Error + Send + Sync + 'static)) -> &'static str {
+    if let Some(fault) = error.downcast_ref::<tmt_colab::collections::Fault>() {
+        return fault.code();
+    }
     if error.is::<supervisor::CleanupUnconfirmed>() {
         return "COLAB_OUTCOME_UNKNOWN";
     }

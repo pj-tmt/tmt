@@ -39,6 +39,25 @@ pub fn home_summary(
     store.owner_read(&key.space_id, &key.owner_public(), |tx| tx.home_summary())
 }
 
+/// Collection metadata shares the owner snapshot; this view never mutates it.
+pub fn collections(
+    store: &Store,
+    key: &Keyring,
+    command: &crate::collections::Command,
+) -> Result<crate::collections::Reply> {
+    use crate::collections::{Command, Fault, Reply};
+    store.owner_read(&key.space_id, &key.owner_public(), |tx| match command {
+        Command::List {} => Ok(Reply::Directory {
+            collections: tx.collection_directory()?,
+        }),
+        Command::Show { id } => Ok(Reply::Detail {
+            detail: tx.collection_detail(id)?,
+            changed: false,
+        }),
+        _ => Err(Fault::Invalid.into()),
+    })
+}
+
 pub fn detail(store: &Store, key: &Keyring, page: &Value) -> Result<Value> {
     let id = page["pageId"].as_str().ok_or(OwnerFault::Invalid)?;
     store.owner_read(&key.space_id, &key.owner_public(), |tx| {
