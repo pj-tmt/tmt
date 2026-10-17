@@ -79,11 +79,11 @@ text without a caret or action; compact headers retain the check and accessible 
 The slot keeps its width across that transition. The shared DropdownMenu supplies grouped
 labels, dismissal and keyboard handling; its modal scroll lock retains Colab's fixed-header
 and safe-area padding, so opening it does not shift the authored page. Menu rows contain a one-line target title and muted
-agent. Groups are `Please read`, `Please answer`, then `Please confirm`, each with its count.
+agent. Groups are `Please decide` (proposals), `Please read`, `Please answer`, then `Please confirm`, each with its count.
 Picking a row finishes menu dismissal before scrolling/opening the existing target and
 focusing its first action. Read-only targets retain content focus and navigation, never writes.
-The [contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#review-sections) owns
-pending-state and count rules; header state is not another read or publication owner.
+The [contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#page-summary-2588) owns
+the shared pending-state and count rules; header state is not another read or publication owner.
 The page index uses leaf List/Row presentation with newest-update-first ordering,
 then displayed title and page ID for ties. Active titles are links; archived titles
 remain plain text with their actions menu. Tab order is title then actions for

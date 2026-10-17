@@ -1,3 +1,4 @@
+import { pendingVectorData, type PendingVector } from './pending-vector.js';
 /** Deterministic app data/Remote double. Never imported by production. */
 import '@tmt/browser-ui/static.css';
 import '../src/style.css';
@@ -1798,5 +1799,11 @@ export function renameReadingRequester() {
     ...current,
     source: current.source.replaceAll('data-agent="Agent 1"', 'data-agent="Agent 2"'),
   };
+  emit();
+}
+
+/** Full source/provenance vector through the real layers and opaque renderer. */
+export function pendingVector(vector: PendingVector) {
+  current = { ...current, ...pendingVectorData(vector) };
   emit();
 }

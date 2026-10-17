@@ -4,10 +4,13 @@
 //! The rules are the ones `readQuestions` applies in the browser (`inspectQuestions` in the app's
 //! `questions.ts`), over the same tree: both run the shared vectors in
 //! `contracts/vectors/page-markup-v1.json`, so they cannot drift. The code table lives in the
-//! colab-v1 contract (page markup check). This module is pure: no files, no state, no clock.
+//! colab-v1 contract (page markup check). Markup validation is pure: it reads no files or state
+//! and uses no clock. Owner-summary quote projection is separately bounded by a deadline.
 
+mod anchors;
 mod group;
 mod image;
+pub(crate) use anchors::SummaryAnchors;
 mod question;
 mod reading;
 mod review;
@@ -192,6 +195,24 @@ pub fn check(source: &str) -> Result<Report, SourceTooLarge> {
             });
         }
     };
+    Ok(inspect(&tree))
+}
+
+/// One static source parse for the owner summary's markup and normal quote associations.
+pub(crate) fn summary(
+    source: &str,
+    threads: &[crate::export::conversations::Thread],
+) -> Result<(Report, SummaryAnchors), &'static str> {
+    if source.len() > BASELINE_BYTES {
+        return Err("summary source budget");
+    }
+    let tree = tree::Tree::parse(source).map_err(|_| "summary source depth")?;
+    let report = inspect(&tree);
+    let anchors = anchors::project(&tree, &report, threads)?;
+    Ok((report, anchors))
+}
+
+fn inspect(tree: &tree::Tree) -> Report {
     let elements = tree.elements();
     // The 1-based index of each element among those with its tag, in document order.
     let mut counts = std::collections::HashMap::new();
@@ -204,15 +225,15 @@ pub fn check(source: &str) -> Result<Report, SourceTooLarge> {
         })
         .collect();
     let mut report = Report::default();
-    question::check(&tree, &ordinals, &mut report);
+    question::check(tree, &ordinals, &mut report);
     let images: Vec<(tree::Id, usize)> = ordinals
         .iter()
         .copied()
         .filter(|(id, _)| tree.name(*id) == "img")
         .collect();
-    image::check(&tree, &images, &mut report);
+    image::check(tree, &images, &mut report);
     report.sort();
-    Ok(report)
+    report
 }
 
 /// Every reason code the checker can report, for the vector coverage test.

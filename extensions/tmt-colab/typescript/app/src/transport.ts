@@ -31,7 +31,7 @@ export interface PageSummary extends Partial<ExpiryInfo> {
   readonly archived?: boolean;
   /** Display-only labels from the owner store; absent where a source has none (fixtures, a reader). */
   readonly labels?: readonly string[];
-  /** The owner's display-only summary (comment count, a proposal awaiting you, the creator); absent until derived. */
+  /** The owner's display-only summary (comment count, pending-item count, the creator); absent until derived. */
   readonly summary?: PageActivity;
 }
 export interface PageSnapshot extends PageSummary {

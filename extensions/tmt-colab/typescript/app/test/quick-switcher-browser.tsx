@@ -36,7 +36,7 @@ export async function mount(
             sharing: 'private',
             labels: ['design'],
             lastUpdateAtMs: 30,
-            summary: { comments: 0, waiting: false, author: 'Ada' },
+            summary: { comments: 0, waiting: false, needsYou: 0, author: 'Ada' },
           },
           {
             id: id(2),
@@ -44,7 +44,7 @@ export async function mount(
             sharing: 'private',
             labels: ['ops'],
             lastUpdateAtMs: 20,
-            summary: { comments: 1, waiting: true, author: 'Pat' },
+            summary: { comments: 1, waiting: true, needsYou: 1, author: 'Pat' },
           },
           {
             id: id(3),
@@ -52,7 +52,7 @@ export async function mount(
             sharing: 'private',
             labels: ['design', 'a long label to wrap at narrow widths'],
             lastUpdateAtMs: 10,
-            summary: { comments: 0, waiting: false, author: 'Ada' },
+            summary: { comments: 0, waiting: false, needsYou: 0, author: 'Ada' },
           },
           {
             id: id(4),

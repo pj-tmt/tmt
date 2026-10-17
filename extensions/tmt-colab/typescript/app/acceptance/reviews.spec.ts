@@ -38,15 +38,34 @@ test('a section confirmed in the browser is a resolved thread to the CLI, and an
     const thread = (title: string) => listing().find((value) => value.anchor?.exact === title);
 
     const first = await openPage(door, author, created);
+    const ownerCount = async (count: number) => {
+      // A list read schedules the existing background refresh; only a fresh summary is known.
+      await expect
+        .poll(async () => {
+          const response = await first
+            .context()
+            .request.get(new URL('api/pages', first.url()).href);
+          expect(response.status()).toBe(200);
+          const body = (await response.json()) as {
+            pages: { pageId: string; summary?: { needsYou: number; waiting: boolean } }[];
+          };
+          const summary = body.pages.find((page) => page.pageId === created.pageId)?.summary;
+          if (summary) expect(summary.waiting).toBe(summary.needsYou > 0);
+          return summary?.needsYou;
+        })
+        .toBe(count);
+    };
     const bands = first.locator('.review-card');
     await expect(bands).toHaveCount(2);
     await expect(pending(first, 2)).toBeVisible();
+    await ownerCount(2);
     expect(listing()).toHaveLength(0);
 
     // Confirm and close: one comment and a person Resolve, which tells the agent once.
     await bands.nth(0).getByRole('button', { name: 'Confirm and close', exact: true }).click();
     await expect(pending(first, 1)).toBeVisible();
     await expect.poll(() => thread('Section one')?.resolved).toBe(true);
+    await ownerCount(1);
     expect(thread('Section one')!.comments).toHaveLength(1);
     expect(thread('Section one')!.comments[0].body).toContain('Confirmed “Section one”');
     await expect.poll(() => agent.received().length).toBe(1);
@@ -66,6 +85,7 @@ test('a section confirmed in the browser is a resolved thread to the CLI, and an
     expect(reopened.changed).toBe(true);
     await expect(pending(first, 2)).toBeVisible();
     await expect(pending(second, 2)).toBeVisible();
+    await ownerCount(2);
     await expect(
       bands.nth(0).getByRole('button', { name: 'Confirm and close', exact: true }),
     ).toBeEnabled();
@@ -108,6 +128,7 @@ test('a section confirmed in the browser is a resolved thread to the CLI, and an
       'closed',
     );
     await expect.poll(() => thread('Section two')?.resolved).toBe(true);
+    await ownerCount(1);
   });
 });
 

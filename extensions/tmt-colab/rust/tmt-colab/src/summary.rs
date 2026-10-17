@@ -1,5 +1,5 @@
-//! The owner list's display-only page summary: how many comments a page holds, whether a
-//! proposal awaits the owner, and who created it. The values come from the owner fold, which is
+//! The owner list's display-only page summary: how many comments a page holds, how many
+//! items await the owner, and who created it. The values come from the owner fold, which is
 //! too slow for a list read, so a serve-process cache holds them: a read replies with what is
 //! fresh and schedules a small background refresh of what is not (contract: Page summary).
 //! Nothing here is signed, stored or part of the owner log; a restart refills the cache lazily.
@@ -26,14 +26,17 @@ pub struct Summary {
     /// Non-deleted comments in the page's annotation threads, open and resolved, agent replies
     /// included; Chat messages, status actions, proposal decisions and question answers excluded.
     pub comments: u32,
-    /// At least one proposal is neither decided, resolved nor deleted.
+    /// At least one proposal, reading, answer block or review needs the reader.
     pub waiting: bool,
+    /// Pending proposals, readings, answer groups and reviews, deduplicated by target ID.
+    pub needs_you: u32,
     /// The page's creation label (`meta.originalAuthor`), when it has one.
     pub author: Option<String>,
 }
 impl Summary {
     pub fn json(&self) -> Value {
-        let mut summary = json!({"comments": self.comments, "waiting": self.waiting});
+        let mut summary =
+            json!({"comments": self.comments, "waiting": self.waiting, "needsYou": self.needs_you});
         if let Some(author) = &self.author {
             summary["author"] = json!(author);
         }
@@ -41,19 +44,17 @@ impl Summary {
     }
 }
 
-/// The counting rules, pure over the owner's projected conversations. An annotation thread is
+/// Comment counting, pure over projected conversations; pending state has one owner in
+/// `summary_pending`. An annotation thread is
 /// one that is not deleted, carries no proposal and is anchored; the Chat thread has no anchor.
-pub fn count(conversations: &Conversations, author: Option<&str>) -> Summary {
+fn count(conversations: &Conversations, author: Option<&str>, needs_you: u32) -> Summary {
     let mut comments = 0u32;
-    let mut waiting = false;
     for thread in conversations
         .threads
         .iter()
         .filter(|thread| !thread.deleted)
     {
-        if thread.proposal.is_some() {
-            waiting |= !thread.resolved && thread.decision.as_ref().is_none_or(|d| d.deleted);
-        } else if thread.anchor.is_some() {
+        if thread.proposal.is_none() && thread.anchor.is_some() {
             let own = thread
                 .comments
                 .iter()
@@ -64,7 +65,8 @@ pub fn count(conversations: &Conversations, author: Option<&str>) -> Summary {
     }
     Summary {
         comments,
-        waiting,
+        needs_you,
+        waiting: needs_you > 0,
         author: author
             .filter(|label| decoder::valid_publisher_agent(label))
             .map(str::to_owned),
@@ -76,7 +78,18 @@ pub fn summarize(source: &mut Source, page: &str) -> Result<Summary> {
     let snapshot = page::snapshot(&source.store, &source.keyring, page, false)?;
     let folded = snapshot.materialize(&source.keyring, page, &mut source.decoder)?;
     let conversations = discussion::project(&source.keyring, page, &snapshot, &folded);
-    Ok(count(&conversations, folded.original_author.as_deref()))
+    let (report, anchors) = crate::page_check::summary(&folded.source, &conversations.threads)
+        .map_err(std::io::Error::other)?;
+    let pending =
+        crate::summary_pending::items(&report, &anchors, &conversations, &folded.status_writers);
+    if pending.len() > crate::limits::NEEDS_YOU_ITEMS {
+        return Err(std::io::Error::other("summary item budget").into());
+    }
+    Ok(count(
+        &conversations,
+        folded.original_author.as_deref(),
+        u32::try_from(pending.len())?,
+    ))
 }
 
 #[derive(Default)]
@@ -204,6 +217,12 @@ mod tests {
     use super::*;
     use crate::export::conversations::{Anchor, Comment, Conversations, Head, Thread};
 
+    fn count(view: &Conversations, author: Option<&str>) -> Summary {
+        let (report, anchors) = crate::page_check::summary("", &view.threads).unwrap();
+        let pending = crate::summary_pending::items(&report, &anchors, view, &Default::default());
+        super::count(view, author, pending.len() as u32)
+    }
+
     fn comment(id: &str, deleted: bool, body: &str) -> Comment {
         Comment {
             writer: "w".into(),
@@ -329,6 +348,7 @@ mod tests {
         assert!(json.get("author").is_none());
         assert_eq!(json["comments"], 0);
         assert_eq!(json["waiting"], false);
+        assert_eq!(json["needsYou"], 0);
     }
 
     fn fingerprints(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
@@ -341,6 +361,7 @@ mod tests {
         Summary {
             comments,
             waiting: false,
+            needs_you: 0,
             author: None,
         }
     }

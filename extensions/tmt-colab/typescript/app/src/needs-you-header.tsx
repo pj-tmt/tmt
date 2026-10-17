@@ -103,7 +103,7 @@ export function NeedsYouHeader({
               }
             }}
           >
-            {(['reading', 'answer', 'review'] as const).map((kind) => {
+            {(['proposal', 'reading', 'answer', 'review'] as const).map((kind) => {
               const rows = items.filter((item) => item.kind === kind);
               if (!rows.length) return null;
               const label = text.needsYouGroup(kind, rows.length);
@@ -114,6 +114,8 @@ export function NeedsYouHeader({
                     {rows.map((item) => (
                       <DropdownMenuItem
                         key={item.id}
+                        data-needs-you-id={item.id}
+                        data-needs-you-kind={item.kind}
                         onSelect={(event) => {
                           event.preventDefault();
                           pending.current = item.id;

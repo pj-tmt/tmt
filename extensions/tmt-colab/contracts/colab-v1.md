@@ -2453,16 +2453,16 @@ one is asked` follow. It follows Colab's effective theme and takes its position 
 answer geometry). A closed section fades but stays expanded: the frame sets a renderer-managed
 attribute from the parent's closed set, so its content stays in the DOM, selectable and in the
 text map, and annotations inside it keep resolving. The page head's `Needs you N` menu counts
-each waiting review section once, alongside unread reading anchors and unanswered question
+each waiting review section once, alongside undecided/unresolved proposals, unread reading anchors and unanswered question
 blocks. A question group with any unanswered questions counts once; a standalone question is
 one block. Changes requested from an agent and closed sections do not count. IDs are never
 counted twice. These are projections of the admitted layer state after anchor resolution, not
 stored counters. They are separate from `openThreadCount`: an open section thread also counts
 in Comments like any open annotation, while a waiting section with no thread still counts in
-Needs you. Archived pages retain cosmetic navigation without publication controls. The page-list and collection
-counts do not include sections, as for unanswered questions, until a recorded state exists to read.
+Needs you. Archived pages retain cosmetic navigation without publication controls. The owner-list
+count uses the same definition over its verified static-source fold (see [Page summary](#page-summary-2588)); collection per-item details are separate.
 
-The header menu groups targets in reading, answer and review order, omitting empty groups.
+The header menu groups targets in proposal, reading, answer and review order, omitting empty groups.
 Picking a target only scrolls and focuses its first available action (or its retained content
 when read-only); a compact question group opens on its first unanswered question. It never
 marks read, answers, confirms or sends. At zero the header shows neutral `✓ Nothing waits`,
@@ -4260,7 +4260,7 @@ a full page or space is `COLAB_CAPACITY`. `label ls` lists each name with its pa
 ### Page summary (#2588)
 
 Each page in the owner-served `GET /api/pages` list may carry a display-only `summary` the
-Today home and the All pages list show with its title: `{comments, waiting, author?}`. Like labels it is **not signed**,
+Today home and the All pages list show with its title: `{comments, waiting, needsYou, author?}`. Like labels it is **not signed**,
 is never an owner-log statement and never enters a page's content or any stream, and it
 appears only in this owner list: not in a reader link's or a member's views, and not in the
 CLI's `ls`/`show`. A client treats it as untrusted text.
@@ -4270,14 +4270,34 @@ CLI's `ls`/`show`. A client treats it as untrusted text.
   deleted, carries no proposal and is anchored. Chat messages, status actions, proposal
   decisions and question answers are not counted; a question answer is the plain-text comment
   that starts `Answer to “`.
-- `waiting` is true when at least one proposal thread is not deleted, not resolved and has no
-  decision (a deleted decision does not decide it). In v1 it means exactly "a proposal awaits
-  you"; the owner is the only reader of this list, so there is no per-device state.
-  Unanswered questions do not count until the owner has a recorded answered state to read: the
-  renderer's selector resolution decides Answered, and a second rule here would drift from it.
+- `needsYou` is the number of pending targets, at most 350 (200 proposals, 50 readings,
+  50 answer blocks and 50 reviews), with a target ID counted once. The order for deduplication
+  and the page-header menu is proposals, readings, answers, reviews. A proposal waits while
+  not deleted, not resolved and without a live decision. A reading is unread until its canonical
+  exact fixed-form device comment and a person's Resolve exist. An unanswered group counts once
+  while any admitted member lacks its canonical device answer; a standalone question counts once.
+  A review waits unless person-closed or its latest device change request is still waiting for an
+  agent reply. Agent prose, device labels and publisher clocks cannot substitute for provenance.
+- `waiting` is exactly `needsYou > 0`, not a separate proposal-only definition.
 - `author` is the page's creation label, `meta.originalAuthor` (the bounded display label
   derived from `publisherAgent` at creation; never identity proof), and is omitted when the
   page has none. Never the last editor.
+
+The owner's static-source projection uses the same admitted markup, normalized quote context,
+unique-match and containment rules, canonical thread order and verified device provenance as the
+browser. `vectors/needs-you-v1.json` pins both owners' pending IDs. The owner never executes authored
+scripts; later author-script DOM mutations remain cosmetic browser claims and can change which
+anchors the renderer can display, not any saved record or admission. An unresolved quote never
+adopts another heading's answer or read; a text/match-budget failure or the 200 ms projection
+deadline leaves the summary unavailable, never a false zero. The decoder keeps its existing 2 s bound.
+
+Today sums pending items across active pages, not the number of waiting pages. Every chapter
+with a fresh, nonzero summary displays its page's count. Missing summaries are unknown: the hero/metric
+show a lower bound (`N+`) when known items exist, or neutral `Checking pages…` and a disabled dash
+when none are known. Only a complete active-page summary set can say `Nothing waits for you`.
+Navigation back to Home or a browser reload makes the existing owner-list read again; there is no
+new polling or refresh loop. Per-item chapter descriptors and reading links remain a separate
+bounded owner-details read, not part of discovery in this slice (#3578).
 
 The values come from the owner fold, which is too slow for a list read, so the serving process
 keeps them in memory (no schema, no table), each valid for the page's _fingerprint_: its epoch,
@@ -4289,9 +4309,9 @@ run by one background worker, one page at a time, through the same materialize p
 deadline as `threads`; a read that finds a worker running schedules nothing. A page whose fold
 fails or times out stays without a summary and is tried again on a later read after every page
 that has not failed at its fingerprint, never in a loop. A restart refills the cache lazily.
-`summary` is at most `{comments:4294967295, waiting, author:128 bytes}` per page (the author
+`summary` is at most `{comments:4294967295, waiting, needsYou:350, author:128 bytes}` per page (the author
 escapes to at most 256 bytes on the wire), so a full space of 1,000 pages with the longest
-labels stays under 800 KB, within the 1 MiB discovery cap.
+labels stays within the unchanged 1 MiB discovery cap (the browser boundary test pins the complete encoded reply).
 
 ## Root-local page creation
 

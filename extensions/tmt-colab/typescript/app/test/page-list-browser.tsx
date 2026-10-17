@@ -59,14 +59,16 @@ export async function mountPageList(
           ? []
           : [
               page(1, 'Alpha plan', ['design', 'q4 plan'], {
-                summary: { comments: 3, waiting: true, author: 'Studio agent' },
+                summary: { comments: 3, waiting: true, needsYou: 1, author: 'Studio agent' },
               }),
               page(2, 'Beta review', ['design'], {
-                summary: { comments: 1, waiting: false, author: 'Ada' },
+                summary: { comments: 1, waiting: false, needsYou: 0, author: 'Ada' },
               }),
               // No summary yet: the row shows only what the list already knows.
               page(3, 'Gamma notes', []),
-              page(4, 'Delta ops', ['ops'], { summary: { comments: 0, waiting: false } }),
+              page(4, 'Delta ops', ['ops'], {
+                summary: { comments: 0, waiting: false, needsYou: 0 },
+              }),
               page(5, 'Archived spec', ['design'], { archived: true }),
             ],
   };

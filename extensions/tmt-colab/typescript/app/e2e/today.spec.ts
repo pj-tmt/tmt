@@ -46,7 +46,7 @@ test('waiting pages come first, then the rest by update time, each with its chap
   ]);
   // Waiting chapters name what they wait for, in the shared needs-you band; others only count comments.
   const budget = chapters(page).nth(0);
-  await expect(budget.locator('.needs-you-bar')).toContainText('Waiting for you');
+  await expect(budget.locator('.needs-you-bar')).toContainText('Needs you 1');
   await expect(budget.locator('.today-comments')).toHaveText('3 comments');
   await expect(budget.locator('.today-meta')).toContainText('by Studio agent');
   await expect(budget.locator('.today-label')).toHaveText(['finance', 'q4 plan']);
@@ -68,8 +68,8 @@ test('the hero reads the clock and the counts; a metric jumps to its first chapt
   await mount(page, 'many');
   await expect(greeting(page)).toHaveText('Good morning');
   await expect(app(page).locator('.today-date')).toHaveText('Saturday, October 17');
-  await expect(app(page).locator('.today-count')).toHaveText('◆ 1 proposal waits for you');
-  await expect(metric(page, 'Proposals')).toHaveText('1Proposals');
+  await expect(app(page).locator('.today-count')).toHaveText('◆ 1 thing waits for you');
+  await expect(metric(page, 'Needs you')).toHaveText('1Needs you');
   await expect(metric(page, 'Updated today')).toHaveText('1Updated today');
   await expect(metric(page, 'All pages')).toHaveText('15All pages');
   // The last of the recent chapters sits far below the first screen.
@@ -80,7 +80,7 @@ test('the hero reads the clock and the counts; a metric jumps to its first chapt
   await expect(app(page).locator('[data-today-updated-today] a')).toBeInViewport();
   await expect(chapters(page).and(app(page).locator('[data-updated-today]'))).toHaveCount(1);
   await page.evaluate(() => scrollTo(0, document.body.scrollHeight));
-  await metric(page, 'Proposals').getByRole('button').click();
+  await metric(page, 'Needs you').getByRole('button').click();
   await expect(app(page).locator('[data-today-waiting] a')).toBeFocused();
   await expect(app(page).locator('[data-today-waiting] a')).toBeInViewport();
   // The location hash holds the mounted route: a jump never writes to it.
@@ -114,8 +114,8 @@ test('more recent pages than chapters fold into one-line rows, newest first', as
 
 test('nothing waiting reads as settled; no pages names the create command', async ({ page }) => {
   await mount(page, 'quiet');
-  await expect(app(page).locator('.today-count')).toHaveText('✓ No open proposals');
-  await expect(metric(page, 'Proposals').getByRole('button')).toBeDisabled();
+  await expect(app(page).locator('.today-count')).toHaveText('✓ Nothing waits for you');
+  await expect(metric(page, 'Needs you').getByRole('button')).toBeDisabled();
   await expect(nav(page).getByRole('button', { name: 'Waiting' })).toBeDisabled();
   await expect(chapters(page).locator('.needs-you-bar')).toHaveCount(0);
   await mount(page, 'none');
@@ -182,7 +182,16 @@ test('a chapter title opens its page; the search control works from Today', asyn
 
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'] as const)
-    for (const kind of ['few', 'long', 'quiet', 'none'] as const)
+    for (const kind of [
+      'few',
+      'long',
+      'quiet',
+      'none',
+      'mixed',
+      'many',
+      'checking',
+      'partial',
+    ] as const)
       test(`Today look ${kind} ${width} ${theme}: one column of chapters, no overflow`, async ({
         page,
       }) => {
@@ -246,3 +255,41 @@ for (const width of [1440, 390])
           fullPage: true,
         });
       });
+
+test('known pending items are a lower bound until every active page summary is known', async ({
+  page,
+}) => {
+  await mount(page, 'partial');
+  await expect(app(page).locator('.today-count')).toHaveText('◆ 3+ things wait for you');
+  await expect(metric(page, 'Needs you')).toHaveText('3+Needs you');
+  await expect(metric(page, 'Needs you').getByRole('button')).toBeEnabled();
+  await expect(chapters(page).first().locator('.needs-you-bar')).toContainText('Needs you 3');
+  await expect(chapters(page).nth(1).locator('.needs-you-bar')).toHaveCount(0);
+  await mount(page, 'checking');
+  await expect(app(page).locator('.today-count')).toHaveText('Checking pages…');
+  await expect(app(page).locator('.today-count .today-mark')).toHaveCount(0);
+  await expect(metric(page, 'Needs you')).toHaveText('—Needs you');
+  await expect(metric(page, 'Needs you').getByRole('button')).toBeDisabled();
+  await expect(chapters(page).locator('.needs-you-bar')).toHaveCount(0);
+  // Existing route navigation reads again, without remounting the router or adding a poll.
+  const before = await page.evaluate(async () => {
+    const fixture = '/test/today-browser.tsx';
+    const app = await import(/* @vite-ignore */ fixture);
+    app.nextHome('mixed');
+    return app.homeReadCount();
+  });
+  await openAllPages(page, app(page));
+  await nav(page).getByRole('link', { name: 'Today', exact: true }).click();
+  expect(
+    await page.evaluate(async () => {
+      const fixture = '/test/today-browser.tsx';
+      return (await import(/* @vite-ignore */ fixture)).homeReadCount();
+    }),
+  ).toBeGreaterThan(before);
+  await expect(app(page).locator('.today-count')).toHaveText('◆ 5 things wait for you');
+  await expect(metric(page, 'Needs you')).toHaveText('5Needs you');
+  await expect(chapters(page).locator('.needs-you-bar')).toHaveText([
+    '◆ Needs you 4',
+    '◆ Needs you 1',
+  ]);
+});
