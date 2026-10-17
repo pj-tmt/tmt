@@ -30,7 +30,10 @@ export function useInlineSlots({
     const nodes = [...(scope?.querySelectorAll<HTMLElement>('[data-inline-slot]') ?? [])];
     // A chip-form group keeps its separate measured chip and panel.
     const chips = new Map(
-      [...(scope?.querySelectorAll<HTMLElement>('[data-inline-chip]') ?? [])].map(node => [node.dataset.inlineChip!,node]),
+      [...(scope?.querySelectorAll<HTMLElement>('[data-inline-chip]') ?? [])].map((node) => [
+        node.dataset.inlineChip!,
+        node,
+      ]),
     );
     // Preserve every existing control and its order. New reading bands can use only the
     // remaining budget, never a colliding ID or a slot belonging to a sibling layer.
@@ -68,11 +71,12 @@ export function useInlineSlots({
       const heights = admitted.map((node) => {
         const box = node.getBoundingClientRect();
         const chip = chips.get(node.dataset.inlineSlot!)?.getBoundingClientRect();
-        if (chip) return {
-          id:node.dataset.inlineSlot!,
-          height:Math.min(2000,Math.ceil(box.height)),
-          chip:{width:Math.ceil(chip.width),height:Math.ceil(chip.height)},
-        };
+        if (chip)
+          return {
+            id: node.dataset.inlineSlot!,
+            height: Math.min(2000, Math.ceil(box.height)),
+            chip: { width: Math.ceil(chip.width), height: Math.ceil(chip.height) },
+          };
         const gap = [...node.querySelectorAll<HTMLElement>('.question-description-space')].find(
           (gap) => !gap.closest('[hidden]'),
         );

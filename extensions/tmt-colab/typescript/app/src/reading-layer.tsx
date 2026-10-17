@@ -146,6 +146,7 @@ export function useReadingLayer({
     const outcome = outcomes.get(reading.id);
     const notification = readingNotification(thread, view.asks ?? []);
     const read = state.kind === 'read';
+    const notifiedAgent = notification?.recipient.agentName ?? reading.agent;
     const notified = notification?.state === 'accepted';
     const unavailable = outcome?.warnings?.length || notification?.state === 'unavailable';
     const reason =
@@ -157,8 +158,8 @@ export function useReadingLayer({
     const warning =
       read && !notified
         ? unavailable || notification?.state === 'held' || notification?.state === 'refused'
-          ? text.readingNotNotified(reading.agent, reason)
-          : text.readingUnconfirmed(reading.agent)
+          ? text.readingNotNotified(notifiedAgent, reason)
+          : text.readingUnconfirmed(notifiedAgent)
         : undefined;
     const at = read && state.at ? Number(state.at) : NaN;
     const time = Number.isFinite(at) ? compactRelativeTime(at, now) : text.readingTimeUnknown;
@@ -193,7 +194,7 @@ export function useReadingLayer({
           tone={read ? 'done' : 'needs'}
           word={text.readingWord}
           who={read ? time : reading.agent}
-          why={read ? (notified ? text.readingNotified(reading.agent) : undefined) : reading.why}
+          why={read ? (notified ? text.readingNotified(notifiedAgent) : undefined) : reading.why}
           detail={warning}
           role={read ? 'status' : undefined}
           actions={
@@ -212,10 +213,10 @@ export function useReadingLayer({
         {!read && outcome?.state === 'working' && <p role="status">{text.reviewSaving}</p>}
         {!read && outcome?.state === 'failed' && (
           <p role="alert">
-            {outcome.step === 'closing' ? text.reviewCommentKept : text.reviewFailed}
+            {outcome.step === 'closing' ? text.readingCommentKept : text.readingFailed}
           </p>
         )}
-        {!read && outcome?.state === 'uncertain' && <p role="status">{text.reviewUncertain}</p>}
+        {!read && outcome?.state === 'uncertain' && <p role="status">{text.readingUncertain}</p>}
       </section>
     );
   });

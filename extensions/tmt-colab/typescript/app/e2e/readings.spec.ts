@@ -50,6 +50,10 @@ test('only admitted accepted delivery says notified; refusals keep the read and 
   await expect(band).toHaveAttribute('data-reading-state', 'read');
   await run(page, 'readingDelivery', 'accepted');
   await expect(band).toContainText('Agent 1 notified');
+  await run(page, 'renameReadingRequester');
+  await expect(page.locator('[data-inline-reading]').nth(1)).toContainText('Agent 2');
+  await expect(band).toContainText('Agent 1 notified');
+  await expect(band).not.toContainText('Agent 2 notified');
   for (const state of ['held', 'refused', 'unavailable']) {
     await run(page, 'readingDelivery', state);
     await expect(band).toContainText(`Read, but Agent 1 was not notified: ${state}.`);

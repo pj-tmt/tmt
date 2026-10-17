@@ -1785,3 +1785,12 @@ export function readingDelivery(state: PageAsk['state'] | 'unavailable') {
   }
   emit();
 }
+
+/** A later authored requester rename cannot rewrite an admitted notification recipient. */
+export function renameReadingRequester() {
+  current = {
+    ...current,
+    source: current.source.replaceAll('data-agent="Agent 1"', 'data-agent="Agent 2"'),
+  };
+  emit();
+}

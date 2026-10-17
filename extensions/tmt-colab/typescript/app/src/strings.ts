@@ -97,6 +97,10 @@ export const text = {
   readingRefused: 'refused',
   readingUnavailable: 'unavailable',
   readingTimeUnknown: 'time unknown',
+  readingCommentKept:
+    'Your comment is saved, but this passage is not marked read. Choose Mark read again.',
+  readingFailed: 'Could not mark this passage read. Try Mark read again.',
+  readingUncertain: 'Could not confirm this read. Check Comments before choosing Mark read again.',
   reviewSection: (title: string) => `Review: ${title}`,
   reviewAsk: 'Please confirm',
   reviewChanges: 'Changes requested',
