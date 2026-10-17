@@ -150,6 +150,55 @@ fn every_range_control_fits_with_complete_padding_and_exact_hit_bounds() {
 }
 
 #[test]
+fn header_preserves_full_caption_and_publishes_all_chips_or_the_modal_target() {
+    let app = board();
+    for range_minutes in Selection::RANGE {
+        for &each_minutes in Selection::each_choices(range_minutes) {
+            let selection = Selection {
+                each_minutes,
+                range_minutes,
+            };
+            let title = format!(
+                "Usage · last {} · ~123.4k tok",
+                super::super::format::range(range_minutes)
+            );
+            for width in [60, 79, 80, 81, 84, 85, 103, 148] {
+                let area = Rect::new(0, 0, width, 1);
+                let mut buffer = Buffer::empty(area);
+                let hits =
+                    controls::header(&mut buffer, area, selection, &title, &app, (None, 0), true);
+                assert!(
+                    text(&buffer).contains(&title),
+                    "full caption at {selection:?}/{width}: {}",
+                    text(&buffer)
+                );
+                if hits.len() == 1 {
+                    assert_eq!(hits[0].target, Target::Controls);
+                } else {
+                    assert_eq!(hits.len(), Selection::each_choices(range_minutes).len() + 5);
+                    let last = hits
+                        .iter()
+                        .find(|hit| hit.target == Target::Range(43_200))
+                        .unwrap();
+                    assert_eq!(
+                        last.area.right(),
+                        area.right() - 1,
+                        "the final gap is one cell; the dot is one display cell"
+                    );
+                }
+                assert_eq!(
+                    controls::header_fits(width, selection, &title),
+                    hits.len() > 1
+                );
+                if width >= 103 {
+                    assert!(hits.len() > 1);
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn long_ranges_render_exact_buckets_and_reject_old_or_inactive_demand() {
     crate::status::with_now_ms(fixtures::NOW, || {
         let _no_commands = crate::runner::forbid_commands();

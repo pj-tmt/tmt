@@ -91,20 +91,33 @@ fn groups(
     groups
 }
 fn joined_width(groups: &[ChipGroup]) -> u16 {
+    use unicode_width::UnicodeWidthStr;
     groups
         .iter()
         .map(|group| {
-            group.label.len()
+            group.label.width()
                 + group
                     .choices
                     .iter()
-                    .map(|choice| choice.text.len() + choice.gap.len())
+                    .map(|choice| choice.text.width() + choice.gap.width())
                     .sum::<usize>()
         })
         .sum::<usize>() as u16
 }
 pub(super) fn height(width: u16, selection: Selection) -> u16 {
     groups(selection, None, 0, false, width).len() as u16
+}
+fn fits_inline(width: u16, title: &str, track: u16) -> bool {
+    use unicode_width::UnicodeWidthStr;
+    width >= 80 && title.width() + usize::from(track) < usize::from(width)
+}
+pub(super) fn header_fits(width: u16, selection: Selection, title: &str) -> bool {
+    width >= 80
+        && fits_inline(
+            width,
+            title,
+            joined_width(&groups(selection, None, 0, true, width)),
+        )
 }
 pub(super) fn paint(
     buffer: &mut Buffer,
@@ -145,8 +158,10 @@ pub(super) fn header(
     use tmt_cli_style::Role;
     use tmt_tui::components::strip;
     let look = app.look();
-    // Match the approved roomy chip spacing when the header can afford it.
-    if area.width < 80 {
+    let options = groups(selection, cursor.0, cursor.1, true, area.width);
+    let width = joined_width(&options);
+    // The full token/range caption wins when the expanded choices need a modal.
+    if !fits_inline(area.width, title, width) {
         strip::paint_left(
             buffer,
             Rect { height: 1, ..area },
@@ -164,8 +179,6 @@ pub(super) fn header(
             }]
         };
     }
-    let options = groups(selection, cursor.0, cursor.1, true, area.width);
-    let width = joined_width(&options);
     let controls = Rect::new(area.right() - width, area.y, width, 1);
     let title_area = Rect::new(area.x, area.y, area.width.saturating_sub(width + 1), 1);
     let title = crate::board::view::fit(title, usize::from(title_area.width));

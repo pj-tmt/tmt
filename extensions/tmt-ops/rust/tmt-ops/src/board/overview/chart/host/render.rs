@@ -185,6 +185,11 @@ pub(in crate::board) fn render_controls(frame: &mut Frame, app: &App, body: Rect
             state.set_focus(Focus::Each);
         }
         if areas.content.width >= 80
+            && controls::header_fits(
+                areas.content.width,
+                state.selection,
+                &title(app, state.observed.as_ref().unwrap(), state.selection),
+            )
             && fits_chart(
                 app,
                 state.observed.as_ref().unwrap(),
