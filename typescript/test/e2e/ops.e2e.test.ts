@@ -95,6 +95,17 @@ function hostPaneSlots(fixture: E2EFixture): Record<string, string> {
   );
 }
 
+/** Select only after the committed filter has produced its current row geometry. */
+async function selectHostWorker(fixture: E2EFixture, board: string) {
+  fixture.tmux(['send-keys', '-t', board, '/', 'C-u', 'worker', 'Enter']);
+  await fixture.waitForCapture(
+    (screen) => screen.includes('/ worker') && screen.includes('1 of 2 agents'),
+    board
+  );
+  fixture.tmux(['send-keys', '-t', board, 'End']);
+  await fixture.waitForCapture((screen) => screen.includes('⏎ to message worker'), board);
+}
+
 /** Two consumers share the same real board/caller/lead/member setup. */
 async function hostActionBoard(fixture: E2EFixture, action: string, task: string) {
   installSquad(fixture);
@@ -132,19 +143,13 @@ async function hostActionBoard(fixture: E2EFixture, action: string, task: string
     (screen) => screen.includes('OPS / UI') && screen.includes('2 Agents'),
     board.pane
   );
-  fixture.tmux([
-    'send-keys',
-    '-t',
-    board.pane,
-    '2',
-    'Home',
-    'Right',
-    '/',
-    'C-u',
-    'worker',
-    'Enter',
-    'End',
-  ]);
+  fixture.tmux(['send-keys', '-t', board.pane, '2']);
+  await fixture.waitForCapture(
+    (screen) => screen.includes('lead left-agent') && screen.includes('2 members'),
+    board.pane
+  );
+  fixture.tmux(['send-keys', '-t', board.pane, 'Home', 'Right']);
+  await selectHostWorker(fixture, board.pane);
   return { board: board.pane, left: left.pane, worker: worker.pane };
 }
 
@@ -176,14 +181,25 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
         panes.board
       );
       // The same authored key still wins while the member conversation owns focus.
-      fixture.tmux(['send-keys', '-t', panes.board, 'Tab', 'j']);
+      fixture.tmux(['send-keys', '-t', panes.board, 'Tab']);
+      await fixture.waitForCapture((screen) => screen.includes('Esc back'), panes.board);
+      fixture.tmux(['send-keys', '-t', panes.board, 'j']);
       await fixture.waitForCapture(
         (screen) => screen.includes('worker is already beside the board.'),
         panes.board
       );
       expect(clientPlace(fixture)).toBe(caller);
       // Selecting the squad targets its lead and reverses the exact exchange.
-      fixture.tmux(['send-keys', '-t', panes.board, 'Escape', '/', 'C-u', 'Enter', 'Home', 'j']);
+      fixture.tmux(['send-keys', '-t', panes.board, 'Tab']);
+      await fixture.waitForCapture((screen) => screen.includes('↑↓ select'), panes.board);
+      fixture.tmux(['send-keys', '-t', panes.board, '/', 'C-u', 'Enter']);
+      await fixture.waitForCapture((screen) => screen.includes('/ Search'), panes.board);
+      fixture.tmux(['send-keys', '-t', panes.board, 'Home']);
+      await fixture.waitForCapture(
+        (screen) => screen.includes('── product') && screen.includes('2 members'),
+        panes.board
+      );
+      fixture.tmux(['send-keys', '-t', panes.board, 'j']);
       await fixture.waitFor(
         () => hostPaneSlots(fixture)[panes.left] === initial[panes.left],
         2_000,
@@ -201,7 +217,7 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
         panes.board
       );
       expect(hostPaneSlots(fixture)).toEqual(initial);
-      fixture.tmux(['send-keys', '-t', panes.board, '/', 'C-u', 'worker', 'Enter', 'End']);
+      await selectHostWorker(fixture, panes.board);
       fixture.tmux(['kill-pane', '-t', panes.left]);
       const noNeighbour = hostPaneSlots(fixture);
       fixture.tmux(['send-keys', '-t', panes.board, 'j']);
