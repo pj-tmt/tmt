@@ -19,6 +19,7 @@ import {
   clientId,
   composeChat,
   createPage,
+  expectLive,
   freePort,
   openPage,
   run,
@@ -356,12 +357,12 @@ test('connection soak: detached eviction and a refused new tab leave the attache
     // Make the attached peer current before exercising its next update.
     await second.bringToFront();
     await expect.poll(() => second.evaluate(() => document.visibilityState)).toBe('visible');
-    await expect(second.locator('.status.live .status-label')).toHaveText('Live');
+    await expectLive(second);
     await readSendReceive(s, 'new-tab capacity refusal');
     // The Send/reply exercise targets the first page; return to the peer being checked.
     await second.bringToFront();
     await expect.poll(() => second.evaluate(() => document.visibilityState)).toBe('visible');
-    await expect(second.locator('.status.live .status-label')).toHaveText('Live');
+    await expectLive(second);
     await expect(second.frameLocator('iframe').locator('#source')).toHaveText(
       'After new-tab capacity refusal',
     );

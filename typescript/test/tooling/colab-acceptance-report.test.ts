@@ -146,6 +146,54 @@ describe('public Colab acceptance evidence', () => {
     }
   );
 
+  describe('Live-status diagnostic', () => {
+    const live = { state: 'opening', frame: true, visibility: 'hidden' };
+    const liveAttachment = (value: unknown) => ({ ...attachment(value), name: 'colab-live-state' });
+
+    it('retains only a closed state, frame presence and visibility', () => {
+      const { report } = runReport((result) => {
+        result.attachments.push(liveAttachment(live));
+      });
+      expect(report.tests[0].results[0].liveStates).toEqual([live]);
+    });
+
+    it.each([
+      { state: secret },
+      { state: 'Opening page…' },
+      { frame: 'yes' },
+      { visibility: secret },
+      { text: secret },
+    ])('drops a diagnostic outside the closed schema: %j', (change) => {
+      const { report } = runReport((result) => {
+        result.attachments.push(liveAttachment({ ...live, ...change }));
+      });
+      expect(report.tests[0].results[0]).not.toHaveProperty('liveStates');
+    });
+
+    it('drops a row with a missing field and a diagnostic on a passing result', () => {
+      const { frame: _frame, ...partial } = live;
+      expect(
+        runReport((result) => {
+          result.attachments.push(liveAttachment(partial));
+        }).report.tests[0].results[0]
+      ).not.toHaveProperty('liveStates');
+      expect(
+        runReport((result) => {
+          result.status = 'passed';
+          result.attachments.push(liveAttachment(live));
+        }).report.tests[0].results[0]
+      ).not.toHaveProperty('liveStates');
+    });
+
+    it('does not accept the own-publication name for a live state or the reverse', () => {
+      const { report } = runReport((result) => {
+        result.attachments.push(attachment(live), liveAttachment(diagnostic));
+      });
+      expect(report.tests[0].results[0]).not.toHaveProperty('liveStates');
+      expect(report.tests[0].results[0]).not.toHaveProperty('ownPublications');
+    });
+  });
+
   it('does not turn a passing result into publication failure evidence', () => {
     const { report } = runReport((result) => {
       result.status = 'passed';
