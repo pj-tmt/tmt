@@ -90,6 +90,9 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
         'tmt ops ui; echo WORKSPACE_BOARD_EXIT=$?',
         'Enter',
       ]);
+      await fixture.waitForCapture((screen) => screen.includes('OPS / UI'), shell.pane);
+      // Select Overview explicitly; startup-tab preferences do not own this scenario.
+      fixture.tmux(['send-keys', '-t', shell.pane, '1']);
       await fixture.waitForCapture(
         (screen) =>
           screen.includes('OPS / UI') &&
@@ -103,18 +106,16 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
       fixture.tmux(['send-keys', '-t', shell.pane, '2', 'Home', 'Right']);
       await fixture.waitForCapture((screen) => {
         const header = screen.split('\n').find((line) => line.includes('SQUAD / AGENT'));
-        const rule = screen.split('\n').find((line) => line.startsWith(' ── Squads '));
+        const rule = screen.split('\n').find((line) => line.startsWith('── Squads '));
         // The 160-cell frame gives the list 75 cells. Its section rule shares
-        // the pane-title row; the column header remains one row below it.
+        // the focus title with a one-cell divider; columns stay one row below.
         return (
           header !== undefined &&
           rule !== undefined &&
-          /^ +SQUAD \/ AGENT[ \t]+MEMBERS \/ STATE[ \t]+DIGEST[ \t]+◷ CRON[ \t]*$/.test(
-            header.slice(0, 75)
-          ) &&
-          rule.slice(77).startsWith('── Common pool ') &&
-          /^[ \t]+├   Ben[ \t]+\? /m.test(screen) &&
-          /^[ \t]+└   worker[ \t]+\? /m.test(screen)
+          /^ +SQUAD \/ AGENT[ \t]+STATE[ \t]+TOK 1h[ \t]+◷[ \t]*$/.test(header.slice(0, 75)) &&
+          rule.slice(76).startsWith('── Common pool ') &&
+          /^[ \t]+├ Ben[ \t]+\?[ \t]/m.test(screen) &&
+          /^[ \t]+└ worker[ \t]+\?[ \t]/m.test(screen)
         );
       }, shell.pane);
       fixture.tmux(['send-keys', '-t', shell.pane, 'n']);
@@ -685,7 +686,8 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
           'Enter',
         ]);
         await fixture.waitForCapture(
-          (screen) => /^[ \t]*[▸▾]   product[ \t]+◌ 0 members\b/m.test(screen),
+          (screen) =>
+            /^[ \t]*[▸▾] product[ \t]+—[ \t]+0\b/m.test(screen) && screen.includes('0 members'),
           shell.pane
         );
         fixture.tmux(['send-keys', '-t', shell.pane, ',']);
@@ -758,7 +760,8 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
         await fixture.waitForCapture(
           (screen) =>
             !screen.includes('Checklist') &&
-            /^[ \t]*[▸▾]   product[ \t]+◌ 0 members\b/m.test(screen),
+            /^[ \t]*[▸▾] product[ \t]+—[ \t]+0\b/m.test(screen) &&
+            screen.includes('0 members'),
           shell.pane
         );
         fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
@@ -883,7 +886,10 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
       ]);
       await fixture.waitForCapture(
         (screen) =>
-          screen.includes('OPS / UI') && /^[ \t]*[▸▾]   product[ \t]+● 2 members\b/m.test(screen),
+          screen.includes('OPS / UI') &&
+          screen.includes('1 squad · 2 agents') &&
+          /^[ \t]*[▸▾] product[ \t]+● ●[ \t]/m.test(screen) &&
+          screen.includes('2 members'),
         shell.pane
       );
       fixture.tmux(['send-keys', '-t', shell.pane, 'Right']);
