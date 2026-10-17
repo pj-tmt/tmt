@@ -350,14 +350,10 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             // The agents list carries no free text (its columns are names, state,
             // tokens and model); only a squad's "now" line can name a member.
             if !agents {
-                let source = scene
-                    .squads
-                    .get(at - LIST_HEADER_ROWS)
-                    .map_or_else(String::new, |squad| squad.now.clone());
                 let task_start = task_start.min(usize::from(slot.width)) as u16;
                 let task_area = Rect::new(slot.x + task_start, slot.y, slot.width - task_start, 1);
                 crate::board::member_links::paint_plain_hits(
-                    frame, app, task_area, &source, &task_text, false,
+                    frame, app, task_area, &task_text, &task_text, false,
                 );
             }
             app.workspace_state_cells.borrow_mut().push(

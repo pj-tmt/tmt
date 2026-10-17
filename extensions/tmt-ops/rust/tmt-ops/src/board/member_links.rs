@@ -814,20 +814,20 @@ pub(super) fn paint_plain_hits(
         .borrow_mut()
         .plain(source, app.look(), &app.references);
     let mut links = Vec::new();
-    let mut at = 0;
     for (occurrence, link) in resolved.iter().enumerate() {
-        let raw = &source[link.range.clone()];
-        if let Some(offset) = displayed[at..].find(raw) {
-            let start = at + offset;
-            let column = unicode_width::UnicodeWidthStr::width(&displayed[..start]);
-            let width = unicode_width::UnicodeWidthStr::width(raw);
+        let source_column = unicode_width::UnicodeWidthStr::width(&source[..link.range.start]);
+        if source_column >= usize::from(area.width) {
+            break;
+        }
+        // Anchor the complete source prefix, not just the name: an earlier
+        // unknown name or its clipped prefix cannot borrow this occurrence.
+        if let Some(start) = displayed.find(&source[..link.range.end]) {
             links.push(Link {
-                column,
-                width,
+                column: unicode_width::UnicodeWidthStr::width(&displayed[..start]) + source_column,
+                width: unicode_width::UnicodeWidthStr::width(&source[link.range.clone()]),
                 identity: link.identity.clone(),
                 occurrence,
             });
-            at = start + raw.len();
         }
     }
     paint_hits(
