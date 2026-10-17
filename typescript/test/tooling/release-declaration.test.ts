@@ -19,6 +19,7 @@ import {
 } from '../../scripts/release-declaration.mjs';
 import { publishDraft } from '../../scripts/release-publish.mjs';
 import { writeReleaseWorkspace } from '../support/release-workspace-fixture.js';
+import { parseComponentMap } from '../../scripts/ci-scope.mjs';
 import type { DraftRelease } from '../../scripts/release-draft-assets.mjs';
 
 const roots: string[] = [];
@@ -93,9 +94,11 @@ function fixture() {
     assets: [],
   }));
   // The injected Git port maps the repository's fixed support commit into this minimal history.
-  const observeCli = gitDeclarationAncestry((args) =>
-    git(args.map((arg) => (arg === DECLARATION_SUPPORT ? registration : arg)))
-  );
+  const ancestry = () =>
+    gitDeclarationAncestry((args) =>
+      git(args.map((arg) => (arg === DECLARATION_SUPPORT ? registration : arg)))
+    );
+  const observeCli = ancestry();
   const context = { map: declarationSource(cut, root), product: 'ops', cut, releases, observeCli };
   const record = resolveDeclaration(context)!;
   const snapshot = {
@@ -103,10 +106,128 @@ function fixture() {
     declaration: record,
     hashes: { '.github/components.json': 'source' },
   };
-  return { root, git, before, registration, context, record, snapshot, mapText };
+  return { root, git, before, registration, context, record, snapshot, mapText, ancestry };
 }
 
 describe('generated minimum CLI declarations', () => {
+  it.each([2, 1000])(
+    'bounds declaration Git work for %i CLI releases, including rechecks',
+    (count) => {
+      const sha = (n: number) => n.toString(16).padStart(40, '0');
+      const tag = (n: number) => `v5.0.0-alpha.${n}`;
+      const map = parseComponentMap(
+        JSON.stringify({
+          components: {
+            cli: { owns: ['rust'], package: 'tmt-cli' },
+            ops: { owns: ['ops'], package: 'tmt-ops', requiresCliSha: sha(10) },
+          },
+        })
+      );
+      const releases = Array.from({ length: count }, (_, i) => ({
+        tag_name: tag(i + 1),
+        draft: i === 0,
+      }));
+      const calls: string[][] = [];
+      const observeCli = gitDeclarationAncestry((args) => {
+        calls.push(args);
+        if (args[0] === 'for-each-ref')
+          return Array.from(
+            { length: count + 1 },
+            (_, i) => `${tag(i)}\t${sha(i + 100)}\t\tcommit\t`
+          ).join('\n');
+        if (args[0] === 'tag' && args[1] === '--contains')
+          return [tag(0), tag(1), tag(count)].join('\n');
+        // Also model the old per-tag operations: the regression must fail the count, not its stub.
+        if (args[0] === 'rev-parse') return sha(Number(args[2].match(/alpha\.(\d+)/)![1]) + 100);
+        if (args[0] === 'merge-base') {
+          if ([sha(101), sha(count + 100)].includes(args[3])) return '';
+          throw new Error('not ancestor', { cause: { status: 1 } });
+        }
+        throw new Error(`Unexpected Git operation: ${args}`);
+      });
+      const context = { map, product: 'ops', cut: sha(20), releases, observeCli };
+      const record = resolveDeclaration(context)!;
+      expect(record.cli).toEqual({
+        tag: tag(count),
+        version: `5.0.0-alpha.${count}`,
+        sha: sha(count + 100),
+      });
+      expect(verifyDeclaration({ ...context, record })).toEqual(record);
+      expect(resolveDeclaration(context)).toEqual(record);
+      expect(calls).toHaveLength(3);
+      expect(calls.filter((args) => args[0] === 'for-each-ref')).toHaveLength(1);
+      expect(
+        calls
+          .filter((args) => args[0] === 'tag')
+          .map((args) => args[2])
+          .sort()
+      ).toEqual([DECLARATION_SUPPORT, sha(10)].sort());
+    }
+  );
+
+  it('peels annotated CLI tags while excluding a bare tag and a draft from selection', () => {
+    const f = fixture();
+    f.git(['tag', 'v5.0.0-alpha.0', f.registration]);
+    f.git([
+      '-c',
+      'user.name=Release fixture',
+      '-c',
+      'user.email=fixture@example.test',
+      '-c',
+      'tag.gpgsign=false',
+      'tag',
+      '-a',
+      'v5.0.0-alpha.2',
+      f.registration,
+      '-m',
+      'test: annotated release',
+    ]);
+    const releases = [
+      ...f.context.releases,
+      { ...f.context.releases[0], tag_name: 'v5.0.0-alpha.2' },
+    ];
+    const context = { ...f.context, releases, observeCli: f.ancestry() };
+    expect(resolveDeclaration(context)!.cli).toEqual({
+      tag: 'v5.0.0-alpha.2',
+      version: '5.0.0-alpha.2',
+      sha: f.registration,
+    });
+    const draftReleases = releases.map((release) =>
+      release.tag_name === 'v5.0.0-alpha.2' ? { ...release, draft: true } : release
+    );
+    expect(resolveDeclaration({ ...context, releases: draftReleases })!.cli.tag).toBe(
+      'v5.0.0-alpha.3'
+    );
+  });
+
+  it('rejects divergent published tags even when their version precedes a supporting release', () => {
+    const f = fixture();
+    f.git(['checkout', '--orphan', 'divergent']);
+    f.git([
+      '-c',
+      'user.name=Release fixture',
+      '-c',
+      'user.email=fixture@example.test',
+      '-c',
+      'commit.gpgsign=false',
+      'commit',
+      '-qm',
+      'test: divergent release\n\nCo-authored-by: Codex <codex@openai.com>',
+    ]);
+    f.git(['tag', 'v5.0.0-alpha.2']);
+    f.git(['checkout', 'main']);
+    const divergent = { ...f.context.releases[0], tag_name: 'v5.0.0-alpha.2' };
+    const context = {
+      ...f.context,
+      releases: [...f.context.releases, divergent],
+      observeCli: f.ancestry(),
+    };
+    expect(resolveDeclaration(context)!.cli.tag).toBe('v5.0.0-alpha.3');
+    expect(() => resolveDeclaration({ ...context, releases: [divergent] })).toThrow(
+      'minimum-cli-unpublished'
+    );
+  });
+
   it('uses the oldest containing publication and identical bytes on all preparation hosts', () => {
     const f = fixture();
     expect(f.record.cli).toEqual({
@@ -143,6 +264,8 @@ describe('generated minimum CLI declarations', () => {
     // A lower version published later cannot change an already captured cut.
     f.git(['tag', 'v5.0.0-alpha.2', f.registration]);
     f.context.releases.push({ ...f.context.releases[0], id: 99, tag_name: 'v5.0.0-alpha.2' });
+    // A new planner/catalogue takes a new tag snapshot; the captured record remains unchanged.
+    f.context.observeCli = f.ancestry();
     expect(resolveDeclaration(f.context)!.cli.version).toBe('5.0.0-alpha.2');
     expect(verifyDeclaration({ ...f.context, record: f.record })).toEqual(f.record);
     expect(declarationBytes({ ...f.context, record: f.record })).toEqual(expected);
@@ -153,7 +276,9 @@ describe('generated minimum CLI declarations', () => {
     f.git(['tag', 'v5.0.0-beta.1', f.registration]);
     const beta = { ...f.context.releases[0], tag_name: 'v5.0.0-beta.1' };
     const releases = [beta, f.context.releases.at(-1)!];
-    expect(resolveDeclaration({ ...f.context, releases })!.cli.version).toBe('5.0.0-beta.1');
+    expect(
+      resolveDeclaration({ ...f.context, releases, observeCli: f.ancestry() })!.cli.version
+    ).toBe('5.0.0-beta.1');
     expect(() =>
       resolveDeclaration({ ...f.context, releases: [{ ...beta, draft: true }] })
     ).toThrow('minimum-cli-unpublished');
