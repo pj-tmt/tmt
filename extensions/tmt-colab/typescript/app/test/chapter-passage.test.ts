@@ -21,7 +21,7 @@ const reading = (id: string): Extract<NeedsYouCandidate, { kind: 'reading' }> =>
   kind: 'reading',
   state: 'unread',
 });
-const positions = (...ids: string[]) => ids.map((id, top) => ({ id, top }));
+const positions = (...ids: string[]) => ids.map((id, order) => ({ id, order }));
 
 describe('Today chapter passage selection', () => {
   it('prefers a waiting review, then an unanswered group, then an unread reading', () => {
@@ -34,13 +34,13 @@ describe('Today chapter passage selection', () => {
     expect(targets.find((target) => target.id === 'group')?.targetId).toBe('group-question');
   });
 
-  it('uses authored geometry within a kind and an ID tie-break, not projection order', () => {
+  it('uses authored order within a kind and an ID tie-break, not projection order', () => {
     const targets = chapterTargets(
       [review('z'), review('b'), review('a')],
       [
-        { id: 'z', top: 200 },
-        { id: 'b', top: 10 },
-        { id: 'a', top: 10 },
+        { id: 'z', order: 200 },
+        { id: 'b', order: 10 },
+        { id: 'a', order: 10 },
       ],
     );
     expect(targets.map((target) => target.id)).toEqual(['a', 'b', 'z']);
@@ -69,7 +69,7 @@ describe('Today chapter passage selection', () => {
     expect(selectChapterTarget(onlyDone, current, true)?.id).toBe('reading');
   });
 
-  it('does not offer proposal actions, duplicate IDs, or targets without current render geometry', () => {
+  it('does not offer proposal actions, duplicate IDs, or targets absent from the admitted source order', () => {
     const proposal: NeedsYouCandidate = {
       id: 'proposal',
       kind: 'proposal',
@@ -79,7 +79,7 @@ describe('Today chapter passage selection', () => {
     };
     const targets = chapterTargets(
       [proposal, answer('group'), answer('group'), review('missing'), reading('invalid')],
-      [...positions('proposal', 'group'), { id: 'invalid', top: NaN }],
+      [...positions('proposal', 'group'), { id: 'invalid', order: NaN }],
     );
     expect(targets.map((target) => target.id)).toEqual(['group']);
   });

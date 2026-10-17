@@ -1,5 +1,6 @@
 import { beforeEach, expect, it, vi } from 'vite-plus/test';
 import type { LiveSessionOwner } from '../src/live.js';
+import type { PageView } from '../src/transport.js';
 import type { Pending } from '../src/management.js';
 import type { RemoteClient } from '../src/ask-remote.js';
 import { mountedTransport } from '../src/mounted.js';
@@ -125,22 +126,39 @@ vi.mock('../src/live.js', () => ({
     constructor(
       _mount: URL,
       _bootstrap: unknown,
-      _registration: unknown,
-      _page: unknown,
+      readonly registration: unknown,
+      readonly page: { epoch?: string },
       signal: AbortSignal,
       remote: RemoteClient,
       owner: LiveSessionOwner,
     ) {
       setup.events.push('connection');
-      setup.registrations.push(_registration);
+      setup.registrations.push(registration);
       setup.signals.push(signal);
       setup.ports.push(remote);
       setup.owner = owner;
     }
+    closed = false;
+    get epoch() {
+      return this.page.epoch;
+    }
+    foreground = vi.fn((_active: boolean) => {});
+    subscribe(_publish: (view: PageView) => void, _failed: (error: Error) => void) {
+      return () => {};
+    }
+    async edit() {
+      return { merged: false };
+    }
+    export = vi.fn();
     async snapshot() {
       return { id: 'page', source: '', title: '', sharing: 'private' };
     }
-    close() {}
+    close() {
+      this.closed = true;
+    }
+    async closeAndJoin() {
+      this.close();
+    }
   },
 }));
 
@@ -814,5 +832,23 @@ it('fences chapter metadata returned by a replaced Session and admits the succes
   } finally {
     mounted.close();
     vi.unstubAllGlobals();
+  }
+});
+
+it('mounted chapter acquisition and foreground opening use one page connection', async () => {
+  setup.events.length = 0;
+  setup.register.mockReset().mockResolvedValue(setup.first);
+  setup.remote.mockReset().mockResolvedValue(null);
+  const mounted = await mountedTransport();
+  try {
+    const chapter = await mounted.transport.chapter!('page', new AbortController().signal);
+    const foreground = await mounted.transport.page('page');
+    expect(setup.events.filter((event) => event === 'connection')).toHaveLength(1);
+    expect(chapter.snapshot.binding).toBeDefined();
+    expect(foreground.binding).toBeDefined();
+    await chapter.release();
+    foreground.binding!.close();
+  } finally {
+    mounted.close();
   }
 });

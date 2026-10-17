@@ -6,14 +6,16 @@ const priority = { review: 0, answer: 1, reading: 2 } as const;
 const pending = { review: 'waiting', answer: 'unanswered', reading: 'unread' } as const;
 
 /** The existing layers own admission and state. This selection owns only chapter presentation;
- * current render geometry orders a kind, and never grants an action or a recipient. */
+ * the parent supplies authored order, never an action or a recipient from frame geometry. */
 export function chapterTargets(
   candidates: readonly NeedsYouCandidate[],
-  positions: readonly { id: string; top: number }[],
+  positions: readonly { id: string; order: number }[],
 ): ChapterTarget[] {
   const seen = new Set<string>();
   const order = new Map(
-    positions.filter((slot) => Number.isFinite(slot.top)).map((slot) => [slot.id, slot.top]),
+    positions
+      .filter((slot) => Number.isSafeInteger(slot.order) && slot.order >= 0)
+      .map((slot) => [slot.id, slot.order]),
   );
   return candidates
     .filter((item): item is ChapterTarget => {
