@@ -225,6 +225,7 @@ pub(in crate::board) enum ClockSurface {
     },
     QuotaDetails,
     DigestDetails {
+        target: RowTarget,
         width: u16,
         height: u16,
     },
@@ -258,9 +259,13 @@ impl ClockSurface {
             Self::UsageChart => super::super::overview::chart::host::clock_mark(app, now),
             Self::ActivityStale(deadline) => (std::time::Instant::now() > *deadline).to_string(),
             Self::ActivityAge(at) => crate::requests::age(now, *at),
-            Self::DigestDetails { width, height } => {
-                super::super::digest_dashboard::details_clock_mark(app, *width, *height, now)
-            }
+            Self::DigestDetails {
+                target,
+                width,
+                height,
+            } => super::super::digest_dashboard::details_clock_mark(
+                app, target, *width, *height, now,
+            ),
             Self::QuotaDetails => app
                 .quota_details
                 .as_ref()

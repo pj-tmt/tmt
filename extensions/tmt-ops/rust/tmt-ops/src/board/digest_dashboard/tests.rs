@@ -1722,6 +1722,7 @@ fn digest_details_paints_observation_age_with_the_apps_local_clock() {
             1,
             "Details owns one visible clock surface"
         );
+        let selected = app.workspace.selected.take();
         let before = crate::board::view::time_marks(&app, 1_791_600_120_000);
         let after = crate::board::view::time_marks(&app, 1_791_600_180_000);
         assert_ne!(
@@ -1729,6 +1730,7 @@ fn digest_details_paints_observation_age_with_the_apps_local_clock() {
             "idle age changes invalidate the frame without a new read"
         );
         assert!(after[0].contains("Status observed: 3m ago (11:40)"));
+        app.workspace.selected = selected;
         let mut policy = app.digest_panels();
         policy.set_side_shown(false).unwrap();
         app.view

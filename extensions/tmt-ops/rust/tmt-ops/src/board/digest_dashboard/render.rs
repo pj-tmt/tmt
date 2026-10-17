@@ -371,24 +371,34 @@ fn members(frame: &mut Frame, app: &App, area: Rect) {
 fn details(frame: &mut Frame, app: &App, area: Rect) {
     let look = app.look();
     let inside = crate::board::pane_chrome::paint(frame, app, area, Pane::Replies, "Details");
-    let lines: Vec<_> = detail_lines(app, inside.width, crate::status::now_ms())
+    let row = app.selected_row();
+    let target = row.and_then(|_| app.row_target(app.selected));
+    let lines: Vec<_> = detail_lines(app, inside.width, crate::status::now_ms(), row)
         .into_iter()
         .map(|text| Line::styled(text, look.role(Role::Text)))
         .collect();
     app.scrolls.show(frame, Pane::Replies, inside, lines, look);
-    if !inside.is_empty() {
+    if !inside.is_empty()
+        && let Some(target) = target
+    {
         app.frame_clocks
             .borrow_mut()
             .push(crate::board::view::ClockSurface::DigestDetails {
+                target,
                 width: inside.width,
                 height: inside.height,
             });
     }
 }
 
-fn detail_lines(app: &App, width: u16, now_ms: u64) -> Vec<String> {
+fn detail_lines(
+    app: &App,
+    width: u16,
+    now_ms: u64,
+    row: Option<&serde_json::Value>,
+) -> Vec<String> {
     let mut text = Vec::new();
-    if let Some(row) = app.selected_row() {
+    if let Some(row) = row {
         text.push(crate::board::notes::sanitize(
             row["name"].as_str().unwrap_or("Agent"),
         ));
@@ -413,11 +423,12 @@ fn detail_lines(app: &App, width: u16, now_ms: u64) -> Vec<String> {
 /// The clock compares exactly the visible wrapped rows, through the painter's projection.
 pub(in crate::board) fn details_clock_mark(
     app: &App,
+    target: &crate::board::app::RowTarget,
     width: u16,
     height: u16,
     now_ms: u64,
 ) -> String {
-    let lines = detail_lines(app, width, now_ms);
+    let lines = detail_lines(app, width, now_ms, app.target_row(target));
     let viewport =
         crate::board::scroll::Scrolls::viewport(Rect::new(0, 0, width, height), lines.len());
     let offset = app
