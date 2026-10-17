@@ -2,8 +2,8 @@
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Selection {
-    pub each_minutes: u8,
-    pub range_minutes: u8,
+    pub each_minutes: u32,
+    pub range_minutes: u32,
 }
 
 impl Default for Selection {
@@ -16,14 +16,42 @@ impl Default for Selection {
 }
 
 impl Selection {
-    pub const EACH: [u8; 4] = [5, 15, 30, 60];
-    pub const RANGE: [u8; 3] = [15, 30, 60];
+    pub const EACH: [u32; 4] = [5, 15, 30, 60];
+    pub const RANGE: [u32; 5] = [60, 360, 1_440, 10_080, 43_200];
+
+    pub fn each_choices(range_minutes: u32) -> &'static [u32] {
+        match range_minutes {
+            60 => &Self::EACH,
+            360 => &[15, 30, 60],
+            1_440 => &[60, 120],
+            10_080 => &[360, 720, 1_440],
+            43_200 => &[1_440, 2_880],
+            _ => &[],
+        }
+    }
+
+    /// A range transition visibly selects its first interval when the old one
+    /// is not offered there. Direct invalid selections still leave state intact.
+    pub fn with_range(self, range_minutes: u32) -> Result<Self, &'static str> {
+        let choices = Self::each_choices(range_minutes);
+        let first = *choices.first().ok_or("Unsupported interval or range")?;
+        Ok(Self {
+            each_minutes: if choices.contains(&self.each_minutes) {
+                self.each_minutes
+            } else {
+                first
+            },
+            range_minutes,
+        })
+    }
 
     pub fn validate(self) -> Result<(), &'static str> {
-        if !Self::EACH.contains(&self.each_minutes) || !Self::RANGE.contains(&self.range_minutes) {
+        if !Self::RANGE.contains(&self.range_minutes) {
             Err("Unsupported interval or range")
         } else if self.each_minutes > self.range_minutes {
             Err("Interval is longer than the range")
+        } else if !Self::each_choices(self.range_minutes).contains(&self.each_minutes) {
+            Err("Unsupported interval or range")
         } else {
             Ok(())
         }
@@ -31,7 +59,7 @@ impl Selection {
 
     pub fn bars(self) -> Result<usize, &'static str> {
         self.validate()?;
-        Ok(usize::from(self.range_minutes / self.each_minutes))
+        Ok((self.range_minutes / self.each_minutes) as usize)
     }
 
     /// Refusal preserves both controls. It never silently changes aggregation.
@@ -143,27 +171,57 @@ mod tests {
     #[test]
     fn every_pair_is_explicit_and_invalid_change_is_inert() {
         let mut valid = 0;
-        for each_minutes in Selection::EACH {
-            for range_minutes in Selection::RANGE {
+        for range_minutes in Selection::RANGE {
+            for &each_minutes in Selection::each_choices(range_minutes) {
                 let selection = Selection {
                     each_minutes,
                     range_minutes,
                 };
-                if each_minutes <= range_minutes {
-                    valid += 1;
-                    assert!(Series::new(selection, buckets(selection)).is_ok());
-                } else {
-                    let mut current = Selection::default();
-                    assert_eq!(
-                        current.change(selection),
-                        Err("Interval is longer than the range")
-                    );
-                    assert_eq!(current, Selection::default());
-                }
+                valid += 1;
+                assert!(Series::new(selection, buckets(selection)).is_ok());
             }
         }
-        assert_eq!(valid, 9);
+        assert_eq!(valid, 14);
         assert_eq!(Selection::default().bars(), Ok(12));
+        let mut current = Selection::default();
+        assert_eq!(
+            current.change(Selection {
+                each_minutes: 120,
+                range_minutes: 60
+            }),
+            Err("Interval is longer than the range")
+        );
+        assert_eq!(current, Selection::default());
+        assert_eq!(
+            current.change(Selection {
+                each_minutes: 5,
+                range_minutes: 360
+            }),
+            Err("Unsupported interval or range")
+        );
+        assert_eq!(current, Selection::default());
+    }
+
+    #[test]
+    fn range_transition_keeps_a_compatible_interval_or_selects_its_visible_default() {
+        let mut selection = Selection::default();
+        for (range, each, bars) in [
+            (360, 15, 24),
+            (1_440, 60, 24),
+            (10_080, 360, 28),
+            (43_200, 1_440, 30),
+            (60, 5, 12),
+        ] {
+            selection = selection.with_range(range).unwrap();
+            assert_eq!(selection.each_minutes, each);
+            assert_eq!(selection.bars(), Ok(bars));
+        }
+        let hourly = Selection {
+            each_minutes: 60,
+            range_minutes: 60,
+        };
+        assert_eq!(hourly.with_range(360).unwrap().each_minutes, 60);
+        assert!(hourly.with_range(15).is_err());
     }
 
     #[test]

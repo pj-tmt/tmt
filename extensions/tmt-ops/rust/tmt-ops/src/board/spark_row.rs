@@ -18,7 +18,7 @@ pub(in crate::board) struct Data {
     pub name_width: u16,
     pub share_caption: String,
     pub show_axis: bool,
-    pub range_minutes: u64,
+    pub axis: [String; 3],
     pub buckets: usize,
     pub no_data: bool,
 }
@@ -76,13 +76,7 @@ fn template() -> &'static Template<()> {
     })
 }
 
-fn time_ticks(minutes: u64, width: usize) -> String {
-    let first = format!("−{minutes}m");
-    let middle = if minutes.is_multiple_of(2) {
-        format!("−{}m", minutes / 2)
-    } else {
-        format!("−{}.5m", minutes / 2)
-    };
+fn time_ticks([first, middle, last_label]: &[String; 3], width: usize) -> String {
     let mut cells = vec![' '; width];
     let mut put = |at: usize, label: &str| {
         for (index, ch) in label.chars().enumerate() {
@@ -92,15 +86,15 @@ fn time_ticks(minutes: u64, width: usize) -> String {
         }
     };
     let first_len = first.chars().count();
-    put(0, &first);
-    let last = width.saturating_sub(3);
+    put(0, first);
+    let last = width.saturating_sub(last_label.chars().count());
     if last > first_len {
-        put(last, "now");
+        put(last, last_label);
     }
     let middle_len = middle.chars().count();
     let center = width.saturating_sub(middle_len) / 2;
     if center > first_len && center + middle_len < last {
-        put(center, &middle);
+        put(center, middle);
     }
     cells.into_iter().collect()
 }
@@ -114,12 +108,15 @@ pub struct Scene {
     name_width: u16,
 }
 
-pub(in crate::board) fn quota_width(width: u16, data: &Data) -> u16 {
-    let needed = usize::from(data.name_width)
+pub(in crate::board) fn minimum_width(data: &Data) -> usize {
+    usize::from(data.name_width)
         + 1
         + NUMERIC_TRACK_WIDTH
         + unicode_width::UnicodeWidthStr::width(data.share_caption.as_str()).max(MIN_SHARE_WIDTH)
-        + data.buckets;
+        + data.buckets
+}
+pub(in crate::board) fn quota_width(width: u16, data: &Data) -> u16 {
+    let needed = minimum_width(data);
     if usize::from(width) >= needed + usize::from(BOTH_QUOTAS_WIDTH) + QUOTA_GAP_WIDTH {
         BOTH_QUOTAS_WIDTH
     } else if usize::from(width) >= needed + usize::from(COMPACT_QUOTA_WIDTH) + QUOTA_GAP_WIDTH {
@@ -210,7 +207,7 @@ impl Scene {
             rows.push(json!({"id":format!("provider-{provider}"),"pieces":pieces}));
         }
         if !data.no_data && data.show_axis {
-            rows.push(json!({"id":"time","pieces":[{"id":"axis-padding","text":" ".repeat(name_width+1)},{"id":"time-ticks","text":time_ticks(data.range_minutes,spark_width-padding)}]}));
+            rows.push(json!({"id":"time","pieces":[{"id":"axis-padding","text":" ".repeat(name_width+1)},{"id":"time-ticks","text":time_ticks(&data.axis,spark_width-padding)}]}));
         }
         let row_count = rows.len() as u16;
         let node = template()
@@ -350,7 +347,7 @@ mod tests {
             name_width: 8,
             share_caption: "% of all".into(),
             show_axis: true,
-            range_minutes: 60,
+            axis: ["−60m", "−30m", "now"].map(str::to_owned),
             buckets: 12,
             no_data: false,
         }

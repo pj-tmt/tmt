@@ -121,14 +121,14 @@ pub(in crate::board) fn spark_rows(series: &Series) -> crate::board::spark_row::
         name_width: 8,
         share_caption: "% of all".into(),
         show_axis: true,
-        range_minutes: u64::from(series.selection.range_minutes),
+        axis: super::format::axis(series.selection.range_minutes),
         buckets: series.buckets.len(),
         no_data: series.totals.is_none(),
     }
 }
 
 /// The total remains a lower bound whenever any roster/bucket evidence is partial.
-pub(in crate::board) fn summary(observed: &Observed, minutes: u8) -> String {
+pub(in crate::board) fn summary(observed: &Observed, minutes: u32) -> String {
     let total = observed
         .buckets
         .iter()
@@ -152,7 +152,10 @@ pub(in crate::board) fn summary(observed: &Observed, minutes: u8) -> String {
                 super::format::tokens(total)
             )
         });
-    format!("Usage · last {minutes}m · {reading} tok")
+    format!(
+        "Usage · last {} · {reading} tok",
+        super::format::range(minutes)
+    )
 }
 fn legend(total: u128, providers: &std::collections::BTreeMap<String, u128>) -> Vec<String> {
     let mut rows: Vec<_> = providers
@@ -355,7 +358,7 @@ mod tests {
         }
         source.buckets[0].tokens = Some(100);
         source.buckets[0].providers = [("claude".into(), 61), ("codex".into(), 30)].into();
-        assert_eq!(summary(&source, 60), "Usage · last 60m · 100 tok");
+        assert_eq!(summary(&source, 60), "Usage · last 1h · 100 tok");
         assert!(
             details(&source.buckets[0])
                 .iter()
@@ -365,11 +368,11 @@ mod tests {
         assert_eq!(legend(100, &source.buckets[0].providers).len(), 2);
         source.buckets[0].tokens = Some(0);
         source.buckets[0].providers.clear();
-        assert_eq!(summary(&source, 60), "Usage · last 60m · 0 tok");
+        assert_eq!(summary(&source, 60), "Usage · last 1h · 0 tok");
         for bucket in &mut source.buckets {
             bucket.tokens = None;
             bucket.providers.clear();
         }
-        assert_eq!(summary(&source, 60), "Usage · last 60m · — tok");
+        assert_eq!(summary(&source, 60), "Usage · last 1h · — tok");
     }
 }

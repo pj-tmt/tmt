@@ -7,6 +7,245 @@ use crate::board::rate::{history, tests::input};
 
 const HOUR: u64 = 3_600_000;
 
+fn retained_seed(request: rollup::Request, through: u64) -> rollup::Seed {
+    let from = through - request.range_ms();
+    rollup::Seed {
+        request,
+        through,
+        fine_through: through,
+        sampled: Some(through - SLOT_MS),
+        latest: input(100).resumes["a"].clone(),
+        buckets: (0..request.buckets())
+            .map(|index| history::Slice {
+                from_ms: from + index as u64 * request.each_ms(),
+                to_ms: from + (index as u64 + 1) * request.each_ms(),
+                input_tokens: index as u64 + 1,
+                output_tokens: 1,
+                cached_input_tokens: 0,
+                covered_ms: request.each_ms(),
+                complete: true,
+                gap: false,
+                discontinuous: false,
+            })
+            .collect(),
+    }
+}
+
+fn recent_at(through: u64, gap: bool) -> Rate {
+    let mut seed = history_seed(false, false);
+    let offset = through - HOUR;
+    seed.from += offset;
+    seed.through += offset;
+    seed.available = Some(offset);
+    seed.sampled = Some(through - SLOT_MS);
+    for slice in &mut seed.buckets {
+        slice.from_ms += offset;
+        slice.to_ms += offset;
+    }
+    if gap {
+        let last = seed.buckets.last_mut().unwrap();
+        last.complete = false;
+        last.gap = true;
+        last.covered_ms = 0;
+    }
+    let mut rate = Rate::default();
+    rate.seed(&input(100), &[("a".into(), Some(seed))].into(), through);
+    rate
+}
+
+#[test]
+fn retained_ranges_use_one_tier_and_leave_recent_readings_and_ring_size_unchanged() {
+    let through = 31 * 86_400_000;
+    for (range, each) in [(360, 15), (1_440, 60), (10_080, 360), (43_200, 1_440)] {
+        let request = rollup::Request::new(each * 60_000, range * 60_000).unwrap();
+        let mut rate = recent_at(through, false);
+        let before = rate.reading(through, TokenWindow::HOUR);
+        let ring = rate.members["a"].buckets.len();
+        rate.seed_retained(
+            &input(100),
+            &[("a".into(), Some(retained_seed(request, through)))].into(),
+            through,
+        );
+        assert_eq!(rate.reading(through, TokenWindow::HOUR), before);
+        assert_eq!(rate.members["a"].buckets.len(), ring);
+        assert_eq!(ring, 720);
+        let grid = Grid::new(request.each_ms(), request.range_ms(), through).unwrap();
+        let series = project([&rate], grid);
+        assert_eq!(series.buckets.len(), request.buckets());
+        let expected = (request.buckets() * (request.buckets() + 3) / 2) as u128;
+        assert_eq!(
+            series
+                .buckets
+                .iter()
+                .map(|b| b.tokens.unwrap())
+                .sum::<u128>(),
+            expected
+        );
+        assert!(series.buckets.iter().all(Interval::complete));
+        assert!(rate.members["a"].retained.as_ref().unwrap().buckets.len() <= 48);
+        assert_eq!(series.buckets.last().unwrap().to_ms, through as i64);
+    }
+}
+
+#[test]
+fn retained_provider_suffix_requires_the_matching_fine_bridge_and_stops_at_discontinuity() {
+    let through = 31 * 86_400_000;
+    let request = rollup::Request::new(21_600_000, 604_800_000).unwrap();
+    for (fine_gap, same_watermark) in [(false, true), (true, true), (false, false)] {
+        let fine_through = through + 20_000;
+        let mut rate = recent_at(fine_through, fine_gap);
+        let mut seed = retained_seed(request, through);
+        seed.fine_through = fine_through;
+        seed.sampled = Some(fine_through - SLOT_MS);
+        seed.buckets[10].discontinuous = true;
+        seed.buckets[10].complete = false;
+        seed.buckets[10].gap = true;
+        if !same_watermark {
+            seed.latest = input(101).resumes["a"].clone();
+        }
+        rate.seed_retained(
+            &input(100),
+            &[("a".into(), Some(seed))].into(),
+            fine_through,
+        );
+        let series = project(
+            [&rate],
+            Grid::new(request.each_ms(), request.range_ms(), fine_through).unwrap(),
+        );
+        for (index, bucket) in series.buckets.iter().enumerate() {
+            if !fine_gap && same_watermark && index > 10 {
+                assert_eq!(bucket.providers.get("claude"), bucket.tokens.as_ref());
+            } else {
+                assert!(bucket.providers.is_empty());
+            }
+        }
+    }
+}
+
+#[test]
+fn retained_zero_missing_stale_and_other_selections_do_not_borrow_fine_totals() {
+    let through = 31 * 86_400_000;
+    let request = rollup::Request::new(86_400_000, rollup::RETENTION_MS).unwrap();
+    let mut rate = recent_at(through, false);
+    let mut seed = retained_seed(request, through);
+    seed.latest = serde_json::Value::Null;
+    seed.sampled = None;
+    seed.buckets[0].input_tokens = 0;
+    seed.buckets[0].output_tokens = 0;
+    seed.buckets[1].input_tokens = 0;
+    seed.buckets[1].output_tokens = 0;
+    seed.buckets[1].covered_ms = 0;
+    seed.buckets[1].complete = false;
+    seed.buckets[1].gap = true;
+    rate.seed_retained(&input(100), &[("a".into(), Some(seed))].into(), through);
+    let grid = Grid::new(request.each_ms(), request.range_ms(), through).unwrap();
+    let known = project([&rate], grid);
+    assert_eq!(known.buckets[0].tokens, Some(0));
+    assert!(known.buckets[0].complete());
+    assert_eq!(known.buckets[1].tokens, None);
+    assert!(!known.buckets[1].complete());
+    assert!(
+        known
+            .buckets
+            .iter()
+            .all(|bucket| bucket.providers.is_empty())
+    );
+    for stale in [
+        Grid::new(
+            request.each_ms(),
+            request.range_ms(),
+            through + rollup::RESOLUTION_MS,
+        )
+        .unwrap(),
+        Grid::new(2 * request.each_ms(), request.range_ms(), through).unwrap(),
+    ] {
+        assert!(
+            project([&rate], stale)
+                .buckets
+                .iter()
+                .all(|bucket| bucket.tokens.is_none())
+        );
+    }
+    let before = rate.reading(through, TokenWindow::HOUR);
+    rate.seed_retained(&input(100), &[("a".into(), None)].into(), through);
+    assert!(
+        project([&rate], grid)
+            .buckets
+            .iter()
+            .all(|bucket| bucket.tokens.is_none())
+    );
+    assert_eq!(rate.reading(through, TokenWindow::HOUR), before);
+}
+
+#[test]
+fn retained_duplicates_choose_one_whole_uuid_and_scope_keeps_missing_pool_identity() {
+    let through = 31 * 86_400_000;
+    let request = rollup::Request::new(21_600_000, 604_800_000).unwrap();
+    let mut strong = recent_at(through, false);
+    strong.seed_retained(
+        &input(100),
+        &[("a".into(), Some(retained_seed(request, through)))].into(),
+        through,
+    );
+    let weak = recent_at(through, false);
+    let grid = Grid::new(request.each_ms(), request.range_ms(), through).unwrap();
+    let one = project([&strong], grid);
+    assert_eq!(project([&weak, &strong, &strong], grid), one);
+    let expected = BTreeSet::from(["a", "pool"]);
+    let scoped = super::project([&strong], grid, Some(&expected));
+    for (bucket, known) in scoped.buckets.iter().zip(one.buckets) {
+        assert_eq!(bucket.tokens, known.tokens);
+        assert_eq!(bucket.identities, 2);
+        assert_eq!(bucket.observed_identities, 1);
+        assert!(!bucket.complete());
+    }
+}
+
+#[test]
+fn retained_provider_names_survive_recent_ring_expiry_and_live_driver_changes() {
+    let through = 31 * 86_400_000;
+    let request = rollup::Request::new(21_600_000, 604_800_000).unwrap();
+    let mut rate = recent_at(through, false);
+    rate.seed_retained(
+        &input(100),
+        &[("a".into(), Some(retained_seed(request, through)))].into(),
+        through,
+    );
+    let grid = Grid::new(request.each_ms(), request.range_ms(), through).unwrap();
+    let before = project([&rate], grid);
+    assert!(
+        before
+            .buckets
+            .iter()
+            .all(|bucket| bucket.providers.contains_key("claude"))
+    );
+    // Reclaim every fine cell, then admit enough different verified drivers to
+    // exercise the compact ID allocator. Retained provenance must stay Claude.
+    for index in 0..20 {
+        let mut next = input(200 + index);
+        next.resumes.get_mut("a").unwrap()["driver"] = serde_json::json!(format!("driver{index}"));
+        rate.sample(&next, through + HOUR + (index + 1) * SLOT_MS);
+    }
+    let after = project([&rate], grid);
+    assert_eq!(after.buckets, before.buckets);
+    assert_eq!(after.grid, before.grid);
+    assert_eq!(
+        after.drivers,
+        BTreeSet::from(["claude".into(), "driver19".into()])
+    );
+    rate.seed_retained(
+        &input(300),
+        &[("a".into(), None)].into(),
+        through + 2 * HOUR,
+    );
+    assert!(
+        project([&rate], grid)
+            .buckets
+            .iter()
+            .all(|bucket| bucket.tokens.is_none())
+    );
+}
+
 fn history_seed(zero: bool, partial: bool) -> history::Seed {
     history::Seed {
         from: 0,

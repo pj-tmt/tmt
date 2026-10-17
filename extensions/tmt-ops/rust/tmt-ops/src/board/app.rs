@@ -1313,6 +1313,9 @@ impl App {
         read: super::refresh::HistoryRead,
         now: Instant,
     ) -> bool {
+        if read.retained.as_ref().map(|(request, _)| *request) != self.retained_history_request() {
+            return false;
+        }
         self.overview_rows.borrow_mut().clear();
         if self.loading()
             || self.current.as_deref() != Some(&read.owner)
@@ -1350,6 +1353,9 @@ impl App {
                 continue;
             };
             meter.seed(&current.input, &read.seeds, now, false);
+            if let Some((_, seeds)) = &read.retained {
+                meter.seed_retained(&current.input, seeds, now);
+            }
             let observed = read
                 .observed
                 .as_ref()
@@ -5365,6 +5371,7 @@ mod token_window_tests {
                 targets: [("product".into(), (settings, input))].into(),
                 seeds: BTreeMap::new(),
                 observed: Err(()),
+                retained: None,
             };
             assert_eq!(
                 app.apply_history(read, now),

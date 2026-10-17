@@ -31,8 +31,8 @@ enum Focus {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Target {
-    Each(u8),
-    Range(u8),
+    Each(u32),
+    Range(u32),
     Bar(usize),
     Controls,
 }
@@ -56,6 +56,14 @@ pub(in crate::board) struct State {
     scene: Option<(crate::board::spark_row::Data, u16, Scene)>,
 }
 impl State {
+    pub(in crate::board) fn retained_request(
+        &self,
+    ) -> Option<crate::board::rate::history::rollup::Request> {
+        crate::board::rate::history::rollup::Request::new(
+            u64::from(self.selection.each_minutes) * 60_000,
+            u64::from(self.selection.range_minutes) * 60_000,
+        )
+    }
     pub fn release_focus(&mut self) {
         self.focus = None;
         self.hover = None;
@@ -75,7 +83,7 @@ impl State {
     fn set_focus(&mut self, focus: Focus) {
         self.focus = Some(focus);
         self.draft = match focus {
-            Focus::Each => Selection::EACH
+            Focus::Each => Selection::each_choices(self.selection.range_minutes)
                 .iter()
                 .position(|v| *v == self.selection.each_minutes)
                 .unwrap(),
@@ -90,7 +98,7 @@ impl State {
         let mut next = self.selection;
         match target {
             Target::Each(v) => next.each_minutes = v,
-            Target::Range(v) => next.range_minutes = v,
+            Target::Range(v) => next = next.with_range(v)?,
             Target::Bar(_) | Target::Controls => return Ok(()),
         }
         self.selection.change(next)?;
@@ -99,10 +107,25 @@ impl State {
         self.scene = None;
         self.hover = None;
         self.hits.clear();
+        if let Some(focus) = self.focus {
+            self.set_focus(focus);
+        }
         Ok(())
     }
 }
 impl App {
+    pub(in crate::board) fn retained_history_request(
+        &self,
+    ) -> Option<crate::board::rate::history::rollup::Request> {
+        if !matches!(self.shell.tab, OpsTab::Overview | OpsTab::Digest)
+            || self.workspace_snapshot().is_none()
+            || self.usage_panel_hidden()
+        {
+            None
+        } else {
+            self.usage_chart.borrow().retained_request()
+        }
+    }
     pub(in crate::board) fn usage_chart_available(&self) -> bool {
         self.workspace_snapshot().is_some()
             && matches!(self.shell.tab, OpsTab::Overview | OpsTab::Digest)
@@ -158,7 +181,14 @@ pub(in crate::board) fn clock_mark(app: &App, now: u64) -> String {
             .as_ref()
             .is_some_and(|source| source.buckets.iter().any(|bucket| bucket.tokens.is_some()));
     if state.visible && changes_with_time && (!app.modal_open() || app.usage_controls_active()) {
-        format!("{}", now / crate::board::rate::SLOT_MS)
+        format!(
+            "{}",
+            now / if state.selection.range_minutes > 60 {
+                crate::board::rate::history::rollup::RESOLUTION_MS
+            } else {
+                crate::board::rate::SLOT_MS
+            }
+        )
     } else {
         String::new()
     }
@@ -220,7 +250,7 @@ pub(in crate::board) fn key(app: &mut App, key: KeyEvent) -> Option<Effect> {
     }
     let mut state = app.usage_chart.borrow_mut();
     let count = match focus {
-        Focus::Each => Selection::EACH.len(),
+        Focus::Each => Selection::each_choices(state.selection.range_minutes).len(),
         Focus::Range => Selection::RANGE.len(),
         Focus::Bars => state.selection.bars().unwrap(),
     };
@@ -245,7 +275,9 @@ pub(in crate::board) fn key(app: &mut App, key: KeyEvent) -> Option<Effect> {
         }
         KeyCode::Enter => {
             let target = match focus {
-                Focus::Each => Target::Each(Selection::EACH[state.draft]),
+                Focus::Each => Target::Each(
+                    Selection::each_choices(state.selection.range_minutes)[state.draft],
+                ),
                 Focus::Range => Target::Range(Selection::RANGE[state.draft]),
                 Focus::Bars => Target::Bar(state.bar),
             };

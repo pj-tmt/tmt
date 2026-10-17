@@ -28,6 +28,12 @@ fn display(app: &App, data: &Series, selection: Selection) -> super::super::mode
     }
     view
 }
+fn fits_chart(app: &App, data: &Series, selection: Selection, width: u16) -> bool {
+    usize::from(width)
+        >= crate::board::spark_row::minimum_width(&project::spark_rows(&display(
+            app, data, selection,
+        )))
+}
 fn chart_rows(app: &App, data: &Series, selection: Selection) -> u16 {
     1 + Scene::rows_for(&project::spark_rows(&display(app, data, selection)))
 }
@@ -60,7 +66,7 @@ pub(in crate::board) fn overview_demand(app: &App, width: u16, height: u16, now:
     let selection = state.selection;
     let source = Rc::clone(state.observed.as_ref().expect("refreshed source"));
     let rows = chart_rows(app, &source, selection) + 1; // header breathing row and trailing gap
-    if width >= 40 && height >= rows + 7 {
+    if width >= 40 && fits_chart(app, &source, selection, width) && height >= rows + 7 {
         rows
     } else {
         1
@@ -92,6 +98,7 @@ pub(in crate::board) fn demand(app: &App, width: u16, target_row_budget: u16, no
         .iter()
         .any(|bucket| bucket.tokens.is_some_and(|tokens| tokens > 0))
         && width >= 40
+        && fits_chart(app, &data, state.selection, width)
         && !app.usage_controls
         && target_row_budget >= used
         && list_capacity(app, Rect::new(0, used, width, target_row_budget - used)) >= 6
@@ -118,6 +125,7 @@ pub(in crate::board) fn render_panel(frame: &mut Frame, app: &App, area: Rect, n
         .any(|bucket| bucket.tokens.is_some_and(|tokens| tokens > 0));
     if (positive || app.shell.tab == OpsTab::Overview)
         && area.width >= 40
+        && fits_chart(app, &data, state.selection, area.width)
         && !app.usage_controls
         && area.height >= chart_rows(app, &data, state.selection)
     {
@@ -155,7 +163,7 @@ pub(in crate::board) fn render_controls(frame: &mut Frame, app: &App, body: Rect
     let mut areas = modal.areas(body, [body.width, body.height], true, false);
     // This modal has no position indicator. At short heights its reserved row
     // belongs to the controls before the optional keyboard reminder.
-    let control_rows = controls::height(areas.content.width);
+    let control_rows = controls::height(areas.content.width, app.usage_chart.borrow().selection);
     if areas.content.height < control_rows {
         areas.content.height += areas.position.height;
         areas.position.height = 0;
@@ -170,13 +178,19 @@ pub(in crate::board) fn render_controls(frame: &mut Frame, app: &App, body: Rect
     state.visible = false;
     let now = crate::status::now_ms();
     refresh(app, &mut state, now);
-    let control_rows = controls::height(areas.content.width);
+    let control_rows = controls::height(areas.content.width, state.selection);
     if areas.content.height >= control_rows {
         state.visible = true;
         if state.focus.is_none() {
             state.set_focus(Focus::Each);
         }
         if areas.content.width >= 80
+            && fits_chart(
+                app,
+                state.observed.as_ref().unwrap(),
+                state.selection,
+                areas.content.width,
+            )
             && areas.content.height
                 >= chart_rows(app, state.observed.as_ref().unwrap(), state.selection)
         {

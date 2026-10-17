@@ -1,5 +1,5 @@
 //! Interval totals over the existing UUID rings, never a second history store.
-use super::{BucketOrigin, Member, Rate, SLOT_MS};
+use super::{BucketOrigin, Member, Rate, SLOT_MS, history::rollup};
 use crate::config::TokenWindow;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -14,13 +14,18 @@ impl Grid {
     pub fn new(each_ms: u64, range_ms: u64, now_ms: u64) -> Result<Self, &'static str> {
         if each_ms < 300_000
             || !each_ms.is_multiple_of(60_000)
-            || range_ms > 3_600_000
             || each_ms > range_ms
             || !range_ms.is_multiple_of(each_ms)
+            || (range_ms > 3_600_000 && rollup::Request::new(each_ms, range_ms).is_none())
         {
-            return Err("The interval grid must use whole minutes and fit within one hour");
+            return Err("The interval grid must use bounded whole source intervals");
         }
-        let through_ms = i64::try_from(now_ms / SLOT_MS * SLOT_MS)
+        let resolution = if range_ms > 3_600_000 {
+            rollup::RESOLUTION_MS
+        } else {
+            SLOT_MS
+        };
+        let through_ms = i64::try_from(now_ms / resolution * resolution)
             .map_err(|_| "The observation time is outside the supported range")?;
         Ok(Self {
             each_ms,
@@ -34,6 +39,13 @@ impl Grid {
     }
     fn count(self) -> usize {
         (self.range_ms / self.each_ms) as usize
+    }
+    fn retained(self, member: &Member) -> Option<&super::Retained> {
+        member.retained.as_ref().filter(|retained| {
+            retained.request.each_ms() == self.each_ms
+                && retained.request.range_ms() == self.range_ms
+                && i64::try_from(retained.through).ok() == Some(self.through_ms)
+        })
     }
 }
 
@@ -86,7 +98,15 @@ struct Evidence {
 
 fn intervals(member: &Member, grid: Grid) -> Vec<Evidence> {
     let mut values = vec![Evidence::default(); grid.count()];
-    for bucket in &member.buckets {
+    let selected = if grid.range_ms > 3_600_000 {
+        let Some(retained) = grid.retained(member) else {
+            return values;
+        };
+        &retained.buckets
+    } else {
+        &member.buckets
+    };
+    for bucket in selected {
         if matches!(bucket.origin, BucketOrigin::History { .. }) && bucket.source_from.is_none() {
             // A rollup owns its whole token count and duration at its final slot;
             // intervening ring padding is not an independent measured zero.
@@ -148,6 +168,30 @@ fn intervals(member: &Member, grid: Grid) -> Vec<Evidence> {
 }
 
 fn rank(member: &Member, grid: Grid) -> (bool, u64, u64) {
+    if grid.range_ms > 3_600_000 {
+        let Some(retained) = grid.retained(member) else {
+            return (false, 0, 0);
+        };
+        let complete=retained.buckets.len()==grid.count() && retained.buckets.iter().all(|bucket| {
+            !bucket.gap && matches!(bucket.origin, BucketOrigin::History {covered_ms:Some(covered)} if u64::from(covered)==grid.each_ms)
+        });
+        let covered = retained
+            .buckets
+            .iter()
+            .filter_map(|bucket| match bucket.origin {
+                BucketOrigin::History {
+                    covered_ms: Some(covered),
+                } => Some(u64::from(covered)),
+                _ => None,
+            })
+            .sum();
+        let observed = retained
+            .buckets
+            .iter()
+            .filter(|bucket| bucket.evidence || bucket.tokens > 0)
+            .count() as u64;
+        return (complete, covered, observed);
+    }
     let window =
         TokenWindow::parse(&format!("{}m", grid.range_ms / 60_000)).expect("bounded minute grid");
     member

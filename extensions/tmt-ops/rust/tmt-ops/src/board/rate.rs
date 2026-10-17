@@ -139,11 +139,21 @@ struct Member {
     began: Option<u64>,
     sampled: Option<u64>,
     buckets: Vec<Bucket>,
+    /// A bounded coarse resolution of the same source history. A projection
+    /// chooses this or the recent ring; overlapping tiers are never added.
+    retained: Option<Retained>,
     /// Only mixed-provenance cells need a split. Keys are the owning ring slot,
     /// removed on replacement; this never carries independent history or totals.
     provider_splits: BTreeMap<u64, BTreeMap<u16, u128>>,
     drivers: Vec<String>,
     current_driver: Option<u16>,
+}
+
+#[derive(Debug)]
+struct Retained {
+    request: history::rollup::Request,
+    through: u64,
+    buckets: Vec<Bucket>,
 }
 
 /// Verified counted provenance belongs to each ring cell. Mixed cells retain
@@ -175,8 +185,8 @@ struct Bucket {
 enum BucketOrigin {
     #[default]
     Receipt,
-    // Closed history is bounded to one hour. Compact duration preserves the
-    // existing ring cell budget; unsupported duration remains unknown.
+    // Compact duration covers every admitted interval (within thirty days)
+    // without expanding the recent ring's cell budget.
     History {
         covered_ms: Option<u32>,
     },
@@ -226,6 +236,7 @@ impl Member {
                 && !self
                     .buckets
                     .iter()
+                    .chain(self.retained.iter().flat_map(|view| &view.buckets))
                     .any(|bucket| bucket.provider == Provider::Driver(id))
                 && !self
                     .provider_splits
@@ -241,6 +252,57 @@ impl Member {
         } else {
             Provider::Unknown
         }
+    }
+    fn history_providers(
+        &mut self,
+        slices: &[history::Slice],
+        latest: Option<&Counter>,
+        mut linked: bool,
+    ) -> Vec<Provider> {
+        let mut providers = vec![Provider::Unknown; slices.len()];
+        for (index, slice) in slices.iter().enumerate().rev() {
+            linked &= slice.complete && !slice.gap && !slice.discontinuous;
+            if linked && let Some(latest) = latest {
+                providers[index] = self.driver(&latest.key.0);
+            }
+        }
+        providers
+    }
+
+    /// A complete fine interval may witness continuity across a boundary;
+    /// this proof allocates no token fraction to either side of that boundary.
+    fn source_bridge(&self, from: u64, through: u64) -> bool {
+        if through < from {
+            return false;
+        }
+        let mut intervals: Vec<_> = self
+            .buckets
+            .iter()
+            .filter_map(|bucket| {
+                let start = bucket.source_from?;
+                let end = bucket.slot?.checked_add(1)?.checked_mul(SLOT_MS)?;
+                let BucketOrigin::History {
+                    covered_ms: Some(covered),
+                } = bucket.origin
+                else {
+                    return None;
+                };
+                (!bucket.gap
+                    && u64::from(covered) == end.checked_sub(start)?
+                    && end > from
+                    && start < through)
+                    .then_some((start, end))
+            })
+            .collect();
+        intervals.sort_unstable();
+        let mut cursor = from;
+        for (start, end) in intervals {
+            if start > cursor {
+                break;
+            }
+            cursor = cursor.max(end);
+        }
+        cursor >= through
     }
     fn provider_tokens<'a>(&'a self, bucket: &Bucket) -> impl Iterator<Item = (u16, u128)> + 'a {
         let single = match bucket.provider {
@@ -414,15 +476,9 @@ impl Rate {
                 }
             }
             let latest = Counter::read(&seed.latest);
-            let mut linked =
+            let linked =
                 latest.as_ref().is_some_and(|counter| counter.usable) && seed.sampled.is_some();
-            let mut providers = vec![Provider::Unknown; seed.buckets.len()];
-            for (index, slice) in seed.buckets.iter().enumerate().rev() {
-                linked &= slice.complete && !slice.gap && !slice.discontinuous;
-                if linked {
-                    providers[index] = state.driver(&latest.as_ref().unwrap().key.0);
-                }
-            }
+            let providers = state.history_providers(&seed.buckets, latest.as_ref(), linked);
             for (slice, provider) in seed.buckets.iter().zip(providers) {
                 let first = slice.from_ms / SLOT_MS;
                 let last = (slice.to_ms - 1) / SLOT_MS;
@@ -456,6 +512,51 @@ impl Rate {
                 .as_ref()
                 .is_none_or(|counter| !counter.usable);
             state.sampled = seed.sampled;
+        }
+    }
+
+    /// Retained evidence stays in this Rate owner, with at most 48 whole source
+    /// intervals per UUID. It never changes the recent ring or live baseline.
+    pub fn seed_retained(&mut self, input: &Input, seeds: &history::rollup::Seeds, now: u64) {
+        self.retain(input);
+        for id in input.resumes.keys() {
+            let state = self.members.entry(id.clone()).or_default();
+            state.retained = None;
+            let Some(seed) = seeds
+                .get(id)
+                .and_then(Option::as_ref)
+                .filter(|seed| seed.through <= now)
+            else {
+                continue;
+            };
+            let latest = Counter::read(&seed.latest);
+            let linked = latest
+                .as_ref()
+                .is_some_and(|latest| latest.usable && state.previous.as_ref() == Some(latest))
+                && seed.sampled.is_some()
+                && state.source_bridge(seed.through, seed.fine_through);
+            let providers = state.history_providers(&seed.buckets, latest.as_ref(), linked);
+            let buckets = seed
+                .buckets
+                .iter()
+                .zip(providers)
+                .map(|(slice, provider)| Bucket {
+                    slot: Some((slice.to_ms - 1) / SLOT_MS),
+                    tokens: u128::from(slice.input_tokens) + u128::from(slice.output_tokens),
+                    provider,
+                    evidence: slice.complete || slice.covered_ms > 0,
+                    gap: !slice.complete || slice.gap || slice.discontinuous,
+                    source_from: Some(slice.from_ms),
+                    origin: BucketOrigin::History {
+                        covered_ms: u32::try_from(slice.covered_ms).ok(),
+                    },
+                })
+                .collect();
+            state.retained = Some(Retained {
+                request: seed.request,
+                through: seed.through,
+                buckets,
+            });
         }
     }
 

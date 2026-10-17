@@ -225,3 +225,67 @@ pub(super) fn unreported(app: &mut App) {
     snapshot.view = Ok(view);
     app.apply(snapshot);
 }
+
+/// One worker-shaped response feeds both resolutions through normal admission.
+pub(super) fn retained(app: &App, selection: Selection) -> crate::board::refresh::HistoryRead {
+    use crate::board::rate::history::rollup;
+    let request = rollup::Request::new(
+        u64::from(selection.each_minutes) * 60_000,
+        u64::from(selection.range_minutes) * 60_000,
+    )
+    .unwrap();
+    let rates = &app.view.as_ref().unwrap().home_rate;
+    let mut seeds = BTreeMap::new();
+    let mut retained = BTreeMap::new();
+    let mut observed = BTreeMap::new();
+    for rate in rates.values() {
+        for (id, resume) in &rate.input.resumes {
+            seeds.insert(id.clone(), Some(seed(VALUES, resume.clone())));
+            observed.insert(id.clone(), resume.clone());
+            let from = NOW - request.range_ms();
+            retained.insert(
+                id.clone(),
+                Some(rollup::Seed {
+                    request,
+                    through: NOW,
+                    fine_through: NOW,
+                    sampled: Some(NOW - 5_000),
+                    latest: resume.clone(),
+                    buckets: (0..request.buckets())
+                        .map(|index| {
+                            let missing = index == 0;
+                            let partial = index == 1;
+                            Slice {
+                                from_ms: from + index as u64 * request.each_ms(),
+                                to_ms: from + (index as u64 + 1) * request.each_ms(),
+                                input_tokens: if missing { 0 } else { (index as u64 + 1) * 17 },
+                                output_tokens: 0,
+                                cached_input_tokens: 0,
+                                covered_ms: if missing {
+                                    0
+                                } else if partial {
+                                    300_000
+                                } else {
+                                    request.each_ms()
+                                },
+                                complete: !missing && !partial,
+                                gap: missing || partial,
+                                discontinuous: false,
+                            }
+                        })
+                        .collect(),
+                }),
+            );
+        }
+    }
+    crate::board::refresh::HistoryRead {
+        owner: crate::board::ALL.into(),
+        targets: rates
+            .iter()
+            .map(|(name, rate)| (name.clone(), (rate.settings, rate.input.clone())))
+            .collect(),
+        seeds,
+        retained: Some((request, retained)),
+        observed: Ok(observed),
+    }
+}

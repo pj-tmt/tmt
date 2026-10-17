@@ -281,7 +281,10 @@ no acquisition.
 and Digest. `u` resolves through effective bindings in their list scopes; Agents,
 Reader, search and composers retain their own input. Arrows draft a choice, Enter
 applies or inspects, Tab selects Each/Range/buckets and Esc returns to the list.
-Invalid pairs preserve both controls. Direct control and bucket hits come from
+Ranges are 1h, 6h, 24h, 7d and 30d. Each choices follow the range: 5/15/30/60m,
+15/30/60m, 1/2h, 6/12h or 1d, and 1/2d respectively. A range change keeps a valid
+interval or selects its first visible choice; invalid direct pairs preserve both
+controls. Direct control and bucket hits come from
 admitted, clipped nodes; resize and source replacement revoke their authority.
 Overview retains provider rows when counts are missing or measured zero. With no
 observed token bucket, EmptyState paints one muted status in the trend track;
@@ -310,14 +313,13 @@ observations and owns effects. These painters perform no acquisition or
 view-specific projection, and later Agents placements reuse the same modules.
 Only ◆ and ✗ carry attention color; state words and other marks remain neutral.
 
-One identity-total series uses the existing Rate rings. Its header reads
+One identity-total series uses the existing Rate owner. Its header reads
 `Usage · last <range> · <total> tok`; two right-aligned selector groups expose the
-shipped Each 5/15/30/60m and Range 15/30/60m choices, separated by a muted dot.
+range-dependent Each choices and the five ranges, separated by a muted dot.
 Each chip has one space of padding on both sides, with a one-cell gap between
-chips and `·` between groups. Selected, hover and disabled states use the
-[shared chip styles](../../../../design/cli-style.md#themes); disabled choices
-publish no hit. Invalid pairs retain the existing keyboard refusal. No longer
-window is implied. Each provider has one neutral-grey spark row, then its observed
+chips and `·` between groups. Selected and hover states use the
+[shared chip styles](../../../../design/cli-style.md#themes). Unsupported intervals
+are omitted. Each provider has one neutral-grey spark row, then its observed
 total and share. The fixed tracks are name (8), a one-cell gap, spark, two spaces,
 total (7, right-aligned), two spaces and share (8, right-aligned, muted). The unknown
 row is muted. There is no y-axis or vertical plot. The row below the heading labels TOK, % of all and the two quota percentage
@@ -337,16 +339,17 @@ identity metadata never relabels history. A mixed receipt slot keeps its proven
 portions beside that slot in the same bounded ring owner, removed on replacement.
 Driver IDs come from admitted counters, not a built-in name list. Compact local
 IDs keep each ring cell at 64 bytes; a driver name can be recycled only after its
-last owning cell expires. The interval projection merges keyed portions only after
+last owning fine or retained cell expires. The interval projection merges keyed portions only after
 its existing whole-member UUID de-duplication. Held account IDs add quota-only
 rows without claiming token provenance. Numeric totals and shares retain the full
 source denominator even when a bucket exceeds the spark quantizer's range.
-This adds no separate history ledger or acquisition. Details preserve exact
+Fine and retained resolutions share that owner and the refresh worker; their
+overlapping totals are never added. Details preserve exact
 half-open bounds, observed tokens, missing identities and source durations;
 click, keyboard and optional received hover share that formatter. Different
 identities' durations are agent-time, not inferred joint elapsed coverage. An
 unreported, disabled or absent common-pool source stays unknown in the canonical
-roster scope. The chart caches at most twelve interval totals and one admitted
+roster scope. The chart caches at most 48 interval totals and one admitted
 scene; the existing Frame retains the terminal diff. A read-only details modal
 captures the inspected evidence, scrolls through the shared component, blocks
 reload while open and closes without replaying input.
