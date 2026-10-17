@@ -1927,6 +1927,7 @@ fn unknown_hosting_persists_the_adapter_cause_and_keeps_the_create_fence() {
         code: CauseCode::Deadline,
         phase: CausePhase::Body,
         http_status_class: Some(HttpStatusClass::Success),
+        files: None,
     };
     let mut fake = HostedFake::new();
     fake.cause = Some(cause);
@@ -2242,5 +2243,93 @@ fn interactive_supersession_requires_one_new_consent_and_keeps_unknown_app_fence
         port.inner.effects_of("hosting:stage:create"),
         1,
         "the old uncertain call was not repeated"
+    );
+}
+
+#[test]
+fn hosting_file_count_detail_is_additive_outside_the_original_plan_digest() {
+    use tmt_remote::deploy_run::StepCause;
+    let old = serde_json::json!({"code":"files-mismatch","phase":"list","httpStatusClass":"2xx"});
+    let old_cause: StepCause = serde_json::from_value(old.clone()).unwrap();
+    assert_eq!(serde_json::to_value(old_cause).unwrap(), old);
+    let mut detail = old;
+    detail["files"] = serde_json::json!({"planned":15,"expected":10,"active":4,"listed":14,"missing":1,"extra":0});
+    let cause: StepCause = serde_json::from_value(detail.clone()).unwrap();
+    let plan = hosted_plan();
+    let original_digest = plan.digest().to_owned();
+    let mut fake = HostedFake::new();
+    fake.cause = Some(cause);
+    let record = run(
+        &plan,
+        &authorized(&plan),
+        DeployRecord::new(DEPLOYMENT),
+        &mut fake,
+        &mut Mem::default(),
+        1,
+    )
+    .unwrap();
+    assert_eq!(record.run.as_ref().unwrap().plan_digest, original_digest);
+    let bytes = serde_json::to_vec(&record).unwrap();
+    let restored: DeployRecord = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(serde_json::to_vec(&restored).unwrap(), bytes);
+    let step = restored
+        .run
+        .as_ref()
+        .unwrap()
+        .steps
+        .iter()
+        .find(|s| s.id == "hosting:stage:create")
+        .unwrap();
+    assert_eq!(serde_json::to_value(step.cause.unwrap()).unwrap(), detail);
+    assert_eq!(plan.digest(), original_digest);
+    let root = deploy_fixture_root::Root::new();
+    let layout = root.layout();
+    let mut writer = tmt_remote::deploy_record::DeployRecordStore::open(&layout, PROJECT).unwrap();
+    writer.bind_target(PROJECT, LOCATION).unwrap();
+    writer.persist(&record).unwrap();
+    assert_eq!(writer.load_or_draft().unwrap(), record);
+    let path = root
+        .remote()
+        .join(format!("deployments/{PROJECT}/deploy.json"));
+    let original = fs::read(&path).unwrap();
+    let document: serde_json::Value = serde_json::from_slice(&original).unwrap();
+    for key in [
+        "planned", "expected", "active", "listed", "missing", "extra",
+    ] {
+        let mut invalid = document.clone();
+        let step = invalid["record"]["run"]["steps"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|s| s["id"] == "hosting:stage:create")
+            .unwrap();
+        step["cause"]["files"][key] = serde_json::json!(tmt_remote::limits::HOSTING_FILES + 1);
+        fs::write(&path, serde_json::to_vec(&invalid).unwrap()).unwrap();
+        assert_eq!(
+            writer.load_or_draft().unwrap_err().code,
+            "REMOTE_STATE_UNSAFE"
+        );
+    }
+    fs::write(&path, original).unwrap();
+    fake.cause = None;
+    fake.inner.present.insert("hosting:stage:create".into());
+    let complete = run(
+        &plan,
+        &authorized(&plan),
+        writer.load_or_draft().unwrap(),
+        &mut fake,
+        &mut writer,
+        2,
+    )
+    .unwrap();
+    assert_eq!(complete.run.as_ref().unwrap().state, RunState::Complete);
+    assert!(
+        complete
+            .run
+            .as_ref()
+            .unwrap()
+            .steps
+            .iter()
+            .all(|s| s.cause.is_none())
     );
 }

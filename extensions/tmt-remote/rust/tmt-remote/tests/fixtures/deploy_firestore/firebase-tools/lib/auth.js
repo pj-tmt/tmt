@@ -130,10 +130,13 @@ global.fetch = async (url, options) => {
         uploadUrl: `https://upload-firebasehosting.googleapis.com/upload/sites/${value.project}/versions/one/files`,
       };
     } else if (url.startsWith('https://upload-firebasehosting.googleapis.com/')) {
-      h.files.forEach((f) => (f.status = 'ACTIVE'));
+      h.files.filter((f) => url.endsWith('/' + f.hash)).forEach((f) => (f.status = 'ACTIVE'));
       result = null;
-    } else if (route.endsWith('/versions/one/files')) result = { files: h.files };
-    else if (route.endsWith('/channels/live')) result = h.live ? { release: h.live } : {};
+    } else if (route.endsWith('/versions/one/files')) {
+      const status = parsed.searchParams.get('status') ?? 'EXPECTED';
+      if (!['EXPECTED', 'ACTIVE'].includes(status)) throw Error('TOKEN_CANARY_FILE_STATUS');
+      result = { files: h.files.filter((f) => f.status === status) };
+    } else if (route.endsWith('/channels/live')) result = h.live ? { release: h.live } : {};
     else if (route === `/v1beta1/sites/${value.project}/releases`) {
       h.live = { name: `sites/${value.project}/releases/one`, version: h.version };
       result = h.live;

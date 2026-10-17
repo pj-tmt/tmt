@@ -562,6 +562,32 @@ async function execute(request, deps) {
       fail('unknown');
     return { apiKey: config.apiKey, authDomain: config.authDomain, projectId: project, appId };
   }
+  async function hostingFiles(name) {
+    const union = new Map();
+    // Remaining uploads are not a complete inventory. Read both explicit states.
+    for (const status of ['EXPECTED', 'ACTIVE']) {
+      const listed = await pages('hosting', `${name}/files?status=${status}`, 'files');
+      if (
+        listed.length > 256 ||
+        new Set(listed.map((f) => f?.path)).size !== listed.length ||
+        listed.some(
+          (f) =>
+            !f || typeof f.path !== 'string' || !/^[0-9a-f]{64}$/.test(f.hash) || f.status !== status
+        )
+      )
+        fail('unknown', undefined, { code: 'inventory-incomplete', phase: 'list' });
+      for (const { path, hash, status } of listed) {
+        const earlier = union.get(path);
+        if (earlier && earlier.hash !== hash)
+          fail('unknown', undefined, { code: 'files-mismatch', phase: 'list' });
+        // An upload can become ACTIVE between the two reads; identical bytes are one file.
+        union.set(path, { path, hash, status });
+      }
+    }
+    if (union.size > 256) fail('unknown', undefined, { code: 'inventory-incomplete', phase: 'list' });
+    return [...union.values()].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  }
+
   async function liveHosting() {
     const site = await api(
       'hosting',
@@ -589,17 +615,8 @@ async function execute(request, deps) {
       const name = resource(channel.release.version?.name, `sites/${project}/versions/`);
       const version = await api('hosting', name);
       if (version.status !== 'FINALIZED') fail('unknown');
-      const files = await pages('hosting', `${name}/files`, 'files');
-      if (
-        files.length > 256 ||
-        files.some(
-          (f) =>
-            f.status !== 'ACTIVE' || !/^[0-9a-f]{64}$/.test(f.hash) || typeof f.path !== 'string'
-        )
-      )
-        fail('unknown');
-      files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-      if (new Set(files.map((f) => f.path)).size !== files.length) fail('unknown');
+      const files = await hostingFiles(name);
+      if (files.some((f) => f.status !== 'ACTIVE')) fail('unknown');
       const config = version.config;
       if (!config || Buffer.byteLength(stable(config)) > 65536) fail('unknown');
       live = {
@@ -699,19 +716,30 @@ async function execute(request, deps) {
       cp.versionCreatedMs = Date.parse(found.createTime);
       return stageVersion();
     }
-    async function versionFiles() {
-      const listed = await pages(
-        'hosting',
-        `${resource(cp.version, `sites/${project}/versions/`)}/files`,
-        'files'
-      );
-      if (listed.length > 256 || new Set(listed.map((f) => f.path)).size !== listed.length)
-        fail('unknown');
-      const sorted = listed
-        .map(({ path, hash, status }) => ({ path, hash, status }))
-        .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-      return sorted;
+    const sameFiles = (listed) =>
+      stable(listed.map(({ path, hash }) => ({ path, hash }))) ===
+      stable(files.map(({ path, hash }) => ({ path, hash })));
+    function fileMismatch(listed) {
+      const identity = (file) => stable([file.path, file.hash]);
+      const planned = new Set(files.map(identity));
+      const observed = new Set(listed.map(identity));
+      fail('unknown', undefined, {
+        code: 'files-mismatch',
+        phase: 'list',
+        files: {
+          planned: files.length,
+          expected: listed.filter((f) => f.status === 'EXPECTED').length,
+          active: listed.filter((f) => f.status === 'ACTIVE').length,
+          listed: listed.length,
+          missing: files.filter((f) => !observed.has(identity(f))).length,
+          extra: listed.filter((f) => !planned.has(identity(f))).length,
+        },
+      });
     }
+    async function versionFiles() {
+      return hostingFiles(resource(cp.version, `sites/${project}/versions/`));
+    }
+
     async function exactLive() {
       const live = (await liveHosting()).live;
       return (
@@ -806,9 +834,9 @@ async function execute(request, deps) {
     if (i.action === 'populate') {
       const listed = await versionFiles();
       const expected = files.map(({ path, hash }) => ({ path, hash }));
-      if (stable(listed.map(({ path, hash }) => ({ path, hash }))) === stable(expected))
+      if (sameFiles(listed))
         return reply(applying ? 'done' : 'satisfied');
-      if (listed.length) fail('unknown', undefined, { code: 'files-mismatch', phase: 'list' });
+      if (listed.length) fileMismatch(listed);
       if (!applying) return reply('absent');
       const result = await api('hosting', `${cp.version}:populateFiles`, 'POST', {
         files: Object.fromEntries(expected.map((f) => [f.path, f.hash])),
@@ -816,14 +844,15 @@ async function execute(request, deps) {
       const expectedUrl = `https://upload-firebasehosting.googleapis.com/upload/${cp.version}/files`;
       if (
         result.uploadUrl !== expectedUrl ||
-        !Array.isArray(result.uploadRequiredHashes) ||
-        result.uploadRequiredHashes.some((hash) => !files.some((f) => f.hash === hash))
+        (result.uploadRequiredHashes !== undefined && !Array.isArray(result.uploadRequiredHashes)) ||
+        (result.uploadRequiredHashes ?? []).some((hash) => !files.some((f) => f.hash === hash))
       )
         fail('unknown');
       return reply('done');
     }
     if (i.action === 'upload') {
       const listed = await versionFiles();
+      if (!sameFiles(listed)) fileMismatch(listed);
       const matching = listed.filter((f) => f.hash === i.hash);
       if (
         !matching.length ||
@@ -859,8 +888,10 @@ async function execute(request, deps) {
       return reply('done');
     }
     if (i.action === 'finalize') {
+      const listed = await versionFiles();
+      if (!sameFiles(listed)) fileMismatch(listed);
+      if (stable(listed) !== stable(files)) return reply('building');
       if (version.status === 'FINALIZED') return reply(applying ? 'done' : 'satisfied');
-      if (stable(await versionFiles()) !== stable(files)) return reply('building');
       if (!applying) return reply('absent');
       await api('hosting', `${cp.version}?updateMask=status`, 'PATCH', { status: 'FINALIZED' });
       return reply('done');
@@ -875,8 +906,9 @@ async function execute(request, deps) {
       if (h.replaces === 'none' && live !== null) fail('provider-rejected');
       if (h.replaces === 'own' && live?.deploymentId !== i.deployment) fail('provider-rejected');
       if (!applying) return reply('absent');
-      if (version.status !== 'FINALIZED' || stable(await versionFiles()) !== stable(files))
-        fail('unknown');
+      if (version.status !== 'FINALIZED') fail('unknown');
+      const listed = await versionFiles();
+      if (stable(listed) !== stable(files)) fileMismatch(listed);
       // Re-read immediately before the public switch; no cross-service CAS exists.
       if (stable((await liveHosting()).live) !== stable(live)) fail('unknown');
       await api(

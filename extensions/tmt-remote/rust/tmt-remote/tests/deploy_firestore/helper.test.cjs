@@ -699,15 +699,22 @@ function hostedFixture() {
         if (method === 'PATCH') state.versions[0].status = payload.status;
         return ok(state.versions[0]);
       }
-      if (route.endsWith('/versions/one/files')) return ok({ files: state.files });
+      if (route.endsWith('/versions/one/files')) {
+        // The default is the remaining upload inventory, not every Version file.
+        const status = new URL(url).searchParams.get('status') ?? 'EXPECTED';
+        assert.ok(['EXPECTED', 'ACTIVE'].includes(status));
+        return ok({ files: state.files.filter((file) => file.status === status) });
+      }
       if (route.endsWith('/versions/one:populateFiles')) {
         state.files = Object.entries(payload.files).map(([path, hash]) => ({
           path,
           hash,
-          status: 'EXPECTED',
+          status: state.activeHashes?.includes(hash) ? 'ACTIVE' : 'EXPECTED',
         }));
         return ok({
-          uploadRequiredHashes: state.files.map((f) => f.hash),
+          ...(state.omitRequired
+            ? {}
+            : { uploadRequiredHashes: state.files.filter((f) => f.status === 'EXPECTED').map((f) => f.hash) }),
           uploadUrl:
             state.uploadUrl ??
             `https://upload-firebasehosting.googleapis.com/upload/sites/${PROJECT}/versions/one/files`,
@@ -715,7 +722,9 @@ function hostedFixture() {
       }
       if (url.startsWith('https://upload-firebasehosting.googleapis.com/')) {
         assert.equal(payload.toString(), 'gzip-fixture');
-        state.files.forEach((f) => (f.status = 'ACTIVE'));
+        state.files
+          .filter((f) => url.endsWith('/' + f.hash))
+          .forEach((f) => (f.status = 'ACTIVE'));
         return ok(null);
       }
       if (route === `/v1beta1/sites/${PROJECT}/channels/live`)
@@ -1254,6 +1263,7 @@ test('partial Hosting inventory records a closed list cause before any populate 
         code: 'files-mismatch',
         phase: 'list',
         httpStatusClass: '2xx',
+        files: { planned: 1, expected: 1, active: 0, listed: 1, missing: 1, extra: 1 },
       });
       assert.ok(!JSON.stringify(error.cause).includes(PROJECT));
       return error.code === 'unknown';
@@ -1377,4 +1387,202 @@ test('a late successful mutation body gets one fresh-budget exact confirmation',
   assert.equal((await x.call('apply-hosting', 'create')).state, 'done');
   assert.equal(confirmations, 2); // One bounded run: list by identity, then exact version GET.
   assert.equal(x.calls.filter((c) => c.method === 'POST' && c.url.endsWith('/versions')).length, 1);
+});
+
+test('Hosting populate observes the union of partially ACTIVE and remaining files without another POST', async () => {
+  for (const allActive of [false, true]) {
+    const x = hostedFixture();
+    x.input.hosting.content.files.push({
+      ...x.input.hosting.content.files[0],
+      path: '/other.html',
+      gzipDigest: hash('other'),
+    });
+    await x.call('apply-hosting', 'create');
+    x.state.files = x.input.hosting.content.files.map((file, i) => ({
+      path: file.path,
+      hash: file.gzipDigest,
+      status: allActive || i === 0 ? 'ACTIVE' : 'EXPECTED',
+    }));
+    assert.equal((await x.call('observe-hosting', 'populate')).state, 'satisfied');
+    assert.equal((await x.call('apply-hosting', 'populate')).state, 'done');
+    assert.equal(x.calls.filter((c) => c.url.endsWith(':populateFiles')).length, 0);
+    const statuses = x.calls
+      .filter((c) => new URL(c.url).pathname.endsWith('/files'))
+      .map((c) => new URL(c.url).searchParams.get('status'));
+    assert.deepEqual(statuses, ['EXPECTED', 'ACTIVE', 'EXPECTED', 'ACTIVE']);
+  }
+});
+
+test('Hosting accepts omitted or empty uploadRequiredHashes without a reconciliation read or upload', async () => {
+  for (const omitRequired of [false, true]) {
+    const x = hostedFixture();
+    await x.call('apply-hosting', 'create');
+    x.state.activeHashes = x.input.hosting.content.files.map((file) => file.gzipDigest);
+    x.state.omitRequired = omitRequired;
+    const http = x.f.http;
+    let populated = false;
+    x.f.http = async (url, options, deadline) => {
+      assert.ok(!populated, 'a valid populate answer needs no reconciliation');
+      const result = await http(url, options, deadline);
+      if (url.endsWith(':populateFiles')) populated = true;
+      return result;
+    };
+    assert.equal((await x.call('apply-hosting', 'populate')).state, 'done');
+    assert.equal(x.calls.filter((c) => c.url.endsWith(':populateFiles')).length, 1);
+    assert.equal(
+      x.calls.filter((c) => c.url.startsWith('https://upload-firebasehosting.')).length,
+      0
+    );
+  }
+});
+
+test('Hosting all-ACTIVE files skip upload and complete finalize, release and verification', async () => {
+  const x = hostedFixture();
+  for (const action of ['web-app', 'site', 'configure', 'create'])
+    await x.call('apply-hosting', action);
+  x.state.activeHashes = x.input.hosting.content.files.map((file) => file.gzipDigest);
+  await x.call('apply-hosting', 'populate');
+  assert.equal(
+    (
+      await x.call('apply-hosting', 'upload', {
+        hash: hash('gzip-fixture'),
+        bytesBase64: Buffer.from('gzip-fixture').toString('base64'),
+      })
+    ).state,
+    'done'
+  );
+  assert.equal(
+    x.calls.filter((c) => c.url.startsWith('https://upload-firebasehosting.')).length,
+    0
+  );
+  assert.equal((await x.call('apply-hosting', 'finalize')).state, 'done');
+  assert.equal((await x.call('apply-hosting', 'release')).state, 'done');
+  assert.equal((await x.call('verify-hosting', 'verify')).siteAppId, x.state.site.appId);
+  const reads = x.calls.filter((c) => new URL(c.url).pathname.endsWith('/files'));
+  assert.ok(reads.length > 0);
+  assert.ok(
+    reads.every((c) => ['EXPECTED', 'ACTIVE'].includes(new URL(c.url).searchParams.get('status')))
+  );
+});
+
+test('Hosting file union handles a status transition and preserves each status on bounded pagination', async () => {
+  for (const mode of ['transition', 'pages']) {
+    const x = hostedFixture();
+    for (const path of ['/other.html', '/third.html', '/fourth.html'])
+      x.input.hosting.content.files.push({
+        ...x.input.hosting.content.files[0],
+        path,
+        gzipDigest: hash(path),
+      });
+    x.input.hosting.content.files.sort((a, b) => a.path.localeCompare(b.path));
+    await x.call('apply-hosting', 'create');
+    x.state.files = x.input.hosting.content.files.map((file, i) => ({
+      path: file.path,
+      hash: file.gzipDigest,
+      status: mode === 'pages' && i > 1 ? 'ACTIVE' : 'EXPECTED',
+    }));
+    const http = x.f.http;
+    x.f.http = async (url, options, deadline) => {
+      const response = await http(url, options, deadline);
+      if (new URL(url).pathname.endsWith('/files')) {
+        const query = new URL(url).searchParams;
+        assert.ok(['EXPECTED', 'ACTIVE'].includes(query.get('status')));
+        if (mode === 'transition' && query.get('status') === 'EXPECTED')
+          x.state.files[0] = { ...x.state.files[0], status: 'ACTIVE' };
+        if (mode === 'pages') {
+          const page = query.has('pageToken')
+            ? { files: response.body.files.slice(1) }
+            : { files: response.body.files.slice(0, 1), nextPageToken: 'second' };
+          return { status: 200, body: page };
+        }
+      }
+      return response;
+    };
+    assert.equal((await x.call('apply-hosting', 'populate')).state, 'done');
+    assert.equal(x.calls.filter((c) => c.url.endsWith(':populateFiles')).length, 0);
+    if (mode === 'pages') {
+      const continued = x.calls.filter(
+        (c) => new URL(c.url).searchParams.get('pageToken') === 'second'
+      );
+      assert.deepEqual(
+        continued.map((c) => new URL(c.url).searchParams.get('status')),
+        ['EXPECTED', 'ACTIVE']
+      );
+    }
+  }
+});
+
+test('Hosting union refuses conflicting hashes, duplicate paths, wrong statuses and repeated tokens without a mutation', async () => {
+  for (const mode of ['conflict', 'duplicate', 'status', 'token']) {
+    const x = hostedFixture();
+    await x.call('apply-hosting', 'create');
+    x.state.files = [{ path: '/index.html', hash: hash('gzip-fixture'), status: 'EXPECTED' }];
+    const http = x.f.http;
+    x.f.http = async (url, options, deadline) => {
+      const response = await http(url, options, deadline);
+      const query = new URL(url).searchParams;
+      if (!new URL(url).pathname.endsWith('/files')) return response;
+      if (mode === 'conflict' && query.get('status') === 'ACTIVE')
+        return {
+          status: 200,
+          body: { files: [{ ...x.state.files[0], hash: 'd'.repeat(64), status: 'ACTIVE' }] },
+        };
+      if (mode === 'duplicate' && response.body.files.length)
+        response.body.files.push(response.body.files[0]);
+      if (mode === 'status' && response.body.files.length)
+        response.body.files[0] = { ...response.body.files[0], status: 'BROKEN' };
+      if (mode === 'token') response.body.nextPageToken = 'repeated';
+      return response;
+    };
+    await failure(() => x.call('apply-hosting', 'populate'), 'unknown');
+    assert.equal(x.calls.filter((c) => c.url.endsWith(':populateFiles')).length, 0);
+    assert.ok(x.calls.filter((c) => new URL(c.url).pathname.endsWith('/files')).length <= 2);
+  }
+});
+
+test('Hosting finalize waits only for known remaining uploads, and refuses an incomplete union', async () => {
+  const x = hostedFixture();
+  await x.call('apply-hosting', 'create');
+  await x.call('apply-hosting', 'populate');
+  assert.equal((await x.call('apply-hosting', 'finalize')).state, 'building');
+  x.state.files = [];
+  await assert.rejects(
+    () => x.call('apply-hosting', 'finalize'),
+    (error) => {
+      assert.deepEqual(error.cause.files, {
+        planned: 1,
+        expected: 0,
+        active: 0,
+        listed: 0,
+        missing: 1,
+        extra: 0,
+      });
+      return error.code === 'unknown';
+    }
+  );
+  assert.equal(x.calls.filter((c) => c.method === 'PATCH').length, 0);
+});
+
+test('Hosting malformed populate hash requirements stay unknown without following an upload URL', async () => {
+  for (const invalid of [null, {}, ['d'.repeat(64)]]) {
+    const x = hostedFixture();
+    await x.call('apply-hosting', 'create');
+    const http = x.f.http;
+    let populated = false;
+    x.f.http = async (url, options, deadline) => {
+      if (populated) throw Error(CANARY);
+      const response = await http(url, options, deadline);
+      if (url.endsWith(':populateFiles')) {
+        populated = true;
+        response.body.uploadRequiredHashes = invalid;
+      }
+      return response;
+    };
+    await failure(() => x.call('apply-hosting', 'populate'), 'unknown');
+    assert.equal(x.calls.filter((c) => c.url.endsWith(':populateFiles')).length, 1);
+    assert.equal(
+      x.calls.filter((c) => c.url.startsWith('https://upload-firebasehosting.')).length,
+      0
+    );
+  }
 });

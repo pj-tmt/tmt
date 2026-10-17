@@ -440,6 +440,38 @@ fn completed_hosting_is_own_on_identical_and_changed_bundle_replans() {
         ],
     ));
     assert_eq!(complete["record"]["run"]["state"], "complete");
+    let calls: Vec<Value> = fs::read_to_string(package.join("calls.jsonl"))
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let urls: Vec<&str> = calls.iter().filter_map(|c| c["url"].as_str()).collect();
+    let listings: Vec<_> = urls
+        .iter()
+        .filter(|url| url.contains("/versions/one/files?"))
+        .collect();
+    assert!(!listings.is_empty());
+    assert!(
+        listings
+            .iter()
+            .all(|url| url.contains("status=EXPECTED") || url.contains("status=ACTIVE"))
+    );
+    let hashes: std::collections::BTreeSet<_> = planned["plan"]["hosting"]["content"]["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|file| file["gzipDigest"].as_str().unwrap())
+        .collect();
+    assert!(
+        hashes.len() > 1,
+        "the fixture must exercise per-hash uploads"
+    );
+    assert_eq!(
+        urls.iter()
+            .filter(|url| url.starts_with("https://upload-firebasehosting.googleapis.com/"))
+            .count(),
+        hashes.len()
+    );
     let provider = fs::read(package.join("state.json")).unwrap();
     let same = json_output(&invoke(&root, &["--json"]));
     assert_eq!(
