@@ -351,7 +351,8 @@ are never reset, repaired or converted on read.
 Declarations come from fixed public commands of enabled installed extensions, including
 Colab's release command. An absent/refusing command has no provider/record effect; fixture
 bytes are never a production fallback. Real-project acceptance still requires separate owner
-authorization. Tier/quota and sharing readiness stay unknown after a deployment.
+authorization. Sharing readiness after a Complete record follows the
+[status-layer contract](../../../../contracts/remote-channel-v1.md#local-cli-discovery).
 
 The settings page's explicit Firestore read shares `StatusViews.layers`' evidence owner with
 Operations. Its bounded record snapshot happens outside live/Store locks, then the signed
