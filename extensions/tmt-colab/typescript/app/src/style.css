@@ -1157,6 +1157,13 @@ footer {
   visibility: hidden;
   pointer-events: none;
 }
+.reading-reason {
+  margin: 0;
+  padding: 0 12px 8px;
+  color: var(--tmt-ui-color-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
 /* A review section's parent-drawn band sits below the section, like a proposal card. */
 .review-inline .review-card {
   background: transparent;

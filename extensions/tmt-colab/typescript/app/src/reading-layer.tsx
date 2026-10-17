@@ -1,5 +1,5 @@
 import { BrowserAction } from '@tmt/browser-ui/react';
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type RefObject } from 'react';
 import { NeedsYouBar } from './components/needs-you-bar.js';
 import { compactRelativeTime } from './display-time.js';
 import { text } from './strings.js';
@@ -41,6 +41,8 @@ export function useReadingLayer({
   slotPositions: readonly { id: string; top: number }[];
   readingIds: ReadonlySet<string>;
 }) {
+  const detailPrefix = useId();
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const [now, setNow] = useState(0);
   useEffect(() => setNow(Date.now()), [view.threads]);
   const [anchors, setAnchors] = useState<QuestionAnchor[] | null>(null);
@@ -111,6 +113,7 @@ export function useReadingLayer({
   useEffect(() => {
     setAnchors(null);
     setOutcomes(new Map());
+    setExpanded(new Set());
     followed.current = '';
   }, [snapshot.id]);
   useEffect(() => {
@@ -148,19 +151,27 @@ export function useReadingLayer({
     const read = state.kind === 'read';
     const notifiedAgent = notification?.recipient.agentName ?? reading.agent;
     const notified = notification?.state === 'accepted';
-    const unavailable = outcome?.warnings?.length || notification?.state === 'unavailable';
+    const notNotified =
+      !!outcome?.warnings?.length ||
+      notification?.state === 'unavailable' ||
+      notification?.state === 'held' ||
+      notification?.state === 'refused';
+    const warning =
+      read && !notified
+        ? notNotified
+          ? text.readingNotNotified(notifiedAgent)
+          : text.readingUnconfirmed(notifiedAgent)
+        : undefined;
     const reason =
       notification?.state === 'held'
         ? text.readingHeld
         : notification?.state === 'refused'
           ? text.readingRefused
-          : text.readingUnavailable;
-    const warning =
-      read && !notified
-        ? unavailable || notification?.state === 'held' || notification?.state === 'refused'
-          ? text.readingNotNotified(notifiedAgent, reason)
-          : text.readingUnconfirmed(notifiedAgent)
-        : undefined;
+          : notNotified
+            ? text.readingUnavailable
+            : text.readingNoticeUnconfirmed;
+    const detailId = `${detailPrefix}-${reading.id}`;
+    const readOnly = !!view.archived || !snapshot.binding?.discussion;
     const at = read && state.at ? Number(state.at) : NaN;
     const time = Number.isFinite(at) ? compactRelativeTime(at, now) : text.readingTimeUnknown;
     const busy = !writable || !attached || outcome?.state === 'working';
@@ -192,13 +203,12 @@ export function useReadingLayer({
       >
         <NeedsYouBar
           tone={read ? 'done' : 'needs'}
-          word={text.readingWord}
+          word={read ? text.readingWord : text.readingPleaseRead}
           who={read ? time : reading.agent}
-          why={read ? (notified ? text.readingNotified(notifiedAgent) : undefined) : reading.why}
-          detail={warning}
+          why={read ? (notified ? text.readingNotified(notifiedAgent) : warning) : reading.why}
           role={read ? 'status' : undefined}
           actions={
-            view.archived || !snapshot.binding?.discussion ? undefined : (
+            readOnly ? undefined : (
               <>
                 {!read && activate(text.readingMark, () => void actions.mark(reading))}
                 {activate(
@@ -206,10 +216,38 @@ export function useReadingLayer({
                   () => next(reading.id),
                   !attached || !hasNext || outcome?.state === 'working',
                 )}
+                {warning && (
+                  <button
+                    type="button"
+                    className="tmt-ui-action"
+                    data-variant="text"
+                    aria-expanded={expanded.has(reading.id)}
+                    aria-controls={detailId}
+                    onClick={() =>
+                      setExpanded((previous) => {
+                        const next = new Set(previous);
+                        if (next.has(reading.id)) next.delete(reading.id);
+                        else next.add(reading.id);
+                        return next;
+                      })
+                    }
+                  >
+                    {text.readingWhy}
+                  </button>
+                )}
               </>
             )
           }
         />
+        {warning && (
+          <p
+            id={detailId}
+            className="reading-reason"
+            hidden={!readOnly && !expanded.has(reading.id)}
+          >
+            {reason}
+          </p>
+        )}
         {!read && outcome?.state === 'working' && <p role="status">{text.reviewSaving}</p>}
         {!read && outcome?.state === 'failed' && (
           <p role="alert">

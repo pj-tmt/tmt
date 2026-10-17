@@ -86,16 +86,18 @@ export const text = {
   proposalDecisionUnconfirmed: 'Could not confirm the decision. Check again before continuing.',
   readingSection: (title: string) => `Reading: ${title}`,
   readingWord: 'Read',
+  readingPleaseRead: 'Please read',
   readingMark: 'Mark read',
   readingNext: 'Next ↓',
+  readingWhy: 'Why',
   readingNotified: (agent: string) => `${agent} notified`,
-  readingNotNotified: (agent: string, reason: string) =>
-    `Read, but ${agent} was not notified: ${reason}.`,
-  readingUnconfirmed: (agent: string) =>
-    `Read; notification to ${agent} is unconfirmed. Check Comments before asking again.`,
-  readingHeld: 'held',
-  readingRefused: 'refused',
-  readingUnavailable: 'unavailable',
+  readingNotNotified: (agent: string) => `${agent} not notified`,
+  readingUnconfirmed: (agent: string) => `${agent} notification unconfirmed`,
+  readingHeld: 'The notice is waiting for approval on this computer.',
+  readingRefused: "The agent's side refused the notice.",
+  readingUnavailable: 'The agent could not be reached.',
+  readingNoticeUnconfirmed:
+    'TMT could not confirm the notice arrived. Check with the agent before sending again.',
   readingTimeUnknown: 'time unknown',
   readingCommentKept:
     'Your comment is saved, but this passage is not marked read. Choose Mark read again.',

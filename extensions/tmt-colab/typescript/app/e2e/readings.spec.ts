@@ -18,7 +18,7 @@ test('reading bands record a person read once, keep content, and survive reload 
   page,
 }) => {
   const band = await mount(page, { forged: true });
-  await expect(band.getByText('Read', { exact: true })).toBeVisible();
+  await expect(band.getByText('Please read', { exact: true })).toBeVisible();
   await expect(band).toHaveAttribute('data-reading-state', 'unread');
   const mark = band.getByRole('button', { name: 'Mark read', exact: true });
   await mark.evaluate((node) => (node as HTMLButtonElement).click());
@@ -54,14 +54,39 @@ test('only admitted accepted delivery says notified; refusals keep the read and 
   await expect(page.locator('[data-inline-reading]').nth(1)).toContainText('Agent 2');
   await expect(band).toContainText('Agent 1 notified');
   await expect(band).not.toContainText('Agent 2 notified');
-  for (const state of ['held', 'refused', 'unavailable']) {
+  await expect(band.getByRole('button', { name: 'Why', exact: true })).toHaveCount(0);
+  for (const [state, reason] of [
+    ['held', 'The notice is waiting for approval on this computer.'],
+    ['refused', "The agent's side refused the notice."],
+    ['unavailable', 'The agent could not be reached.'],
+  ]) {
     await run(page, 'readingDelivery', state);
-    await expect(band).toContainText(`Read, but Agent 1 was not notified: ${state}.`);
+    await expect(band).toContainText('Agent 1 not notified');
+    const why = band.getByRole('button', { name: 'Why', exact: true });
+    const detail = band.locator('.reading-reason');
+    await expect(why).toHaveAttribute('aria-expanded', 'false');
+    await expect(detail).toBeHidden();
+    await expect(why).toHaveAttribute('aria-controls', (await detail.getAttribute('id'))!);
+    await why.click();
+    await expect(why).toHaveAttribute('aria-expanded', 'true');
+    await expect(detail).toHaveText(reason);
+    await expect(detail).toBeVisible();
+    await why.press('Enter');
+    await expect(why).toHaveAttribute('aria-expanded', 'false');
+    await expect(detail).toBeHidden();
     await expect(band).toHaveAttribute('data-reading-state', 'read');
     await expect(band.getByRole('button', { name: 'Mark read', exact: true })).toHaveCount(0);
   }
   await run(page, 'readingDelivery', 'uncertain');
-  await expect(band).toContainText('notification to Agent 1 is unconfirmed');
+  await expect(band).toContainText('Agent 1 notification unconfirmed');
+  await band.getByRole('button', { name: 'Why', exact: true }).press('Space');
+  await expect(band.locator('.reading-reason')).toHaveText(
+    'TMT could not confirm the notice arrived. Check with the agent before sending again.',
+  );
+  await expect(band.locator('.reading-reason')).toBeVisible();
+  await run(page, 'archive');
+  await expect(band.getByRole('button')).toHaveCount(0);
+  await expect(band.locator('.reading-reason')).toBeVisible();
   expect((await run(page, 'proof')).actions).toEqual(['status:resolve', 'notify:Agent 1']);
 });
 test('Next is cosmetic and an archived page has no reading actions', async ({ page }) => {
@@ -120,11 +145,43 @@ for (const width of [1440, 390])
           fullPage: true,
         });
       await run(page, 'readingDelivery', 'unavailable');
-      await expect(band).toContainText('was not notified: unavailable');
+      await expect(band).toContainText('Agent 1 not notified');
       if (process.env.COLAB_CAPTURE_DIR)
         await page.screenshot({
           path: capturePath(`reading-warning-${width}-${theme}.png`),
           fullPage: true,
         });
+      await band.getByRole('button', { name: 'Why', exact: true }).click();
+      await expect(band.locator('.reading-reason')).toBeVisible();
+      if (process.env.COLAB_CAPTURE_DIR)
+        await page.screenshot({
+          path: capturePath(`reading-why-${width}-${theme}.png`),
+          fullPage: true,
+        });
     });
   }
+
+test('the reading cue stays between its title and passage in unread and done states', async ({
+  page,
+}) => {
+  const band = await mount(page);
+  const content = page.frameLocator('#ask-page-fixture iframe').locator('tmt-read').first();
+  const beforePassage = async () => {
+    const [heading, cue, passage] = await Promise.all([
+      content.locator('[data-title]').boundingBox(),
+      band.boundingBox(),
+      content.locator('p').boundingBox(),
+    ]);
+    return (
+      !!heading &&
+      !!cue &&
+      !!passage &&
+      cue.y >= heading.y + heading.height - 1 &&
+      cue.y + cue.height <= passage.y + 1
+    );
+  };
+  await expect.poll(beforePassage).toBe(true);
+  await band.getByRole('button', { name: 'Mark read', exact: true }).click();
+  await expect(band).toHaveAttribute('data-reading-state', 'read');
+  await expect.poll(beforePassage).toBe(true);
+});

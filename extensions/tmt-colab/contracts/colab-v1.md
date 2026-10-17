@@ -2349,13 +2349,17 @@ notification warning rather than guessing a recipient. A retry reuses an already
 comment; reload and reconnect never resend a notification. No separate request store is added.
 Removing the markup removes its controls while its ordinary thread record remains.
 
-The shared parent band uses `Read · <agent>: <why>` and trusted `Mark read` / `Next ↓`
-actions. After a person read it becomes the neutral done band, with the recorded time. Only an
-accepted notification (including an admitted reply) says `<agent> notified`. Held, refused or
-unavailable delivery says `Read, but <agent> was not notified: <reason>.`; uncertain or missing
-outcomes say `Read; notification to <agent> is unconfirmed. Check Comments before asking again.`
-Those outcomes come from the existing status-notification projection, not from Resolve or Send
-adoption. Archived/read-only pages keep the bands without actions. No display path retries.
+The shared parent band sits immediately after the passage title, before its content. It uses
+`Please read · <agent>: <why>` and trusted `Mark read` / `Next ↓` actions. After a person read it
+becomes the neutral `Read` done band in the same spot, with the recorded time. Only an accepted
+notification (including an admitted reply) says `<agent> notified`. Held, refused or unavailable
+delivery says `<agent> not notified`; uncertain or missing outcomes say
+`<agent> notification unconfirmed`. The named recipient is the admitted notification recipient,
+not a later authored requester rename. A real `Why` button after `Next ↓` toggles the muted
+reason below, with `aria-expanded` and `aria-controls`; it never retries or publishes. There is
+no hover-only reason. Archived/read-only pages keep state without actions and expose any reason
+as static text. Outcomes come from the existing status-notification projection, not Resolve or
+Send adoption. No display path retries.
 
 The parent exposes an ordered `{id,title,state}` projection (`unread` or `read`) for navigation.
 Jump and `Next ↓` only scroll and highlight a currently resolved heading; they never open a

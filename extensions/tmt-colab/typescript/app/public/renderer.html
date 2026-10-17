@@ -676,7 +676,13 @@
               }
               const active =
                 group && document.querySelector(`tmt-question[data-id="${group.active}"]`);
-              const target = group ? active : matches[0];
+              const reading =
+                !ordinary.length && readingBlocks.some((block) => block.id === slot.id);
+              const title =
+                reading && matches.length === 1
+                  ? [...matches[0].children].find((child) => child.hasAttribute('data-title'))
+                  : undefined;
+              const target = group ? active : reading ? title : matches[0];
               let before = beforeSpacers.get(slot.id);
               let spacer = spacers.get(slot.id);
               if (
