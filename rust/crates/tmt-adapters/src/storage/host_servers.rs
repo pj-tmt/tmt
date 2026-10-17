@@ -2,7 +2,8 @@
 //! server-level store (Herdr, #479; schema 39). tmux keeps its ID in a server
 //! option instead. A restarted server is a new incarnation with a new ID.
 
-use rusqlite::{OptionalExtension, params};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
+use std::{path::Path, time::Duration};
 
 use super::{
     Storage, StorageError,
@@ -60,6 +61,53 @@ impl Storage {
                 .map_err(|error| classify(error, "Record host server"))?;
             Ok(id)
         })
+    }
+}
+
+/// Server IDs a bind already recorded, read without creating any: a hook
+/// observes state and never records a server. An unrecorded incarnation (a
+/// restarted or foreign server) is an error, so its caller refuses.
+pub struct RecordedHostServers<'a> {
+    database: &'a Path,
+}
+
+impl<'a> RecordedHostServers<'a> {
+    pub fn new(database: &'a Path) -> Self {
+        Self { database }
+    }
+}
+
+impl HostServerIds for RecordedHostServers<'_> {
+    type Error = StorageError;
+
+    fn server_id(&mut self, server: &HostServerIncarnation<'_>) -> Result<String, StorageError> {
+        let pid = i64::try_from(server.server_pid)
+            .map_err(|_| StorageError::new(StorageErrorCode::Unknown, "Invalid server PID"))?;
+        let mut connection =
+            Connection::open_with_flags(self.database, OpenFlags::SQLITE_OPEN_READ_ONLY)
+                .map_err(|error| classify(error, "Open recorded host servers read-only"))?;
+        connection
+            .busy_timeout(Duration::ZERO)
+            .map_err(|error| classify(error, "Disable recorded host server wait"))?;
+        let transaction = connection
+            .transaction()
+            .map_err(|error| classify(error, "Read recorded host servers"))?;
+        super::migrations::require_current(&transaction)?;
+        transaction
+            .query_row(
+                "SELECT server_id FROM host_servers WHERE host = ? AND socket_path = ?
+                 AND server_pid = ? AND server_start_time = ?",
+                params![
+                    server.host.as_str(),
+                    server.socket_path,
+                    pid,
+                    server.server_start_time
+                ],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| classify(error, "Read recorded host server"))?
+            .ok_or_else(|| StorageError::new(StorageErrorCode::Unknown, "Unrecorded host server"))
     }
 }
 
