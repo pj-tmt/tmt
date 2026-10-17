@@ -325,6 +325,12 @@ for (const kind of ['readings', 'reading-one', 'reading-unknown'] as const) {
     if (kind === 'readings') {
       const more = list.getByRole('link', { name: '+2 more', exact: true });
       await expect(more).toHaveAttribute('href', (await link.getAttribute('href')) as string);
+      const comments = first.locator('.today-comments');
+      const textStyle = (node: Element) => {
+        const style = getComputedStyle(node);
+        return { color: style.color, fontSize: style.fontSize };
+      };
+      expect(await more.evaluate(textStyle)).toEqual(await comments.evaluate(textStyle));
       const reason = list.locator('.today-reading-reason').nth(1);
       expect(await reason.evaluate((node) => getComputedStyle(node).textOverflow)).toBe('ellipsis');
     }

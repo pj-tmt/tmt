@@ -247,4 +247,5 @@
 }
 .today-readings .today-readings-more {
   color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
 }
