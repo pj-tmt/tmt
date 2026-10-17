@@ -1,0 +1,115 @@
+{
+  "format": "tmt-colab-reading-details",
+  "version": 1,
+  "description": "Hand-authored descriptor expectations over named admitted-projection inputs in needs-you-v1.json. No fixture data implies record signatures. Native cached details and actual browser reading controls must agree.",
+  "cases": [
+    {
+      "pendingCase": "all four pending kinds",
+      "expected": [
+        {
+          "id": "10000000-0000-4000-8000-000000000002",
+          "title": "Read plan",
+          "agent": "Agent 1",
+          "why": "Read first",
+          "state": "unread"
+        }
+      ]
+    },
+    {
+      "pendingCase": "person read closes reading",
+      "expected": [
+        {
+          "id": "10000000-0000-4000-8000-000000000002",
+          "title": "Read plan",
+          "agent": "Agent 1",
+          "why": "Read first",
+          "state": "read"
+        }
+      ]
+    },
+    {
+      "pendingCase": "agent-labelled resolve is not read",
+      "expected": [
+        {
+          "id": "10000000-0000-4000-8000-000000000002",
+          "title": "Read plan",
+          "agent": "Agent 1",
+          "why": "Read first",
+          "state": "unread"
+        }
+      ]
+    },
+    {
+      "pendingCase": "agent comment cannot impersonate a read",
+      "expected": [
+        {
+          "id": "10000000-0000-4000-8000-000000000002",
+          "title": "Read plan",
+          "agent": "Agent 1",
+          "why": "Read first",
+          "state": "unread"
+        }
+      ]
+    },
+    {
+      "pendingCase": "reopened reading",
+      "expected": [
+        {
+          "id": "10000000-0000-4000-8000-000000000002",
+          "title": "Read plan",
+          "agent": "Agent 1",
+          "why": "Read first",
+          "state": "unread"
+        }
+      ]
+    },
+    {
+      "pendingCase": "reading UUID prevents equal-title adoption",
+      "expected": [
+        {
+          "id": "10000000-0000-4000-8000-000000000002",
+          "title": "Read plan",
+          "agent": "Agent 1",
+          "why": "Read first",
+          "state": "unread"
+        }
+      ]
+    },
+    {
+      "pendingCase": "deleted block disappears",
+      "expected": []
+    },
+    {
+      "pendingCase": "hidden heading has no anchor",
+      "expected": []
+    },
+    {
+      "pendingCase": "unresolved duplicate quote does not adopt a read",
+      "expected": [
+        {
+          "id": "10000000-0000-4000-8000-000000000002",
+          "title": "Read plan",
+          "agent": "Agent 1",
+          "why": "Read first",
+          "state": "unread"
+        }
+      ]
+    },
+    {
+      "pendingCase": "quote suffix disambiguates duplicate heading",
+      "expected": [
+        {
+          "id": "10000000-0000-4000-8000-000000000002",
+          "title": "Read plan",
+          "agent": "Agent 1",
+          "why": "Read first",
+          "state": "read"
+        }
+      ]
+    },
+    {
+      "pendingCase": "ID shared with proposal counted once first",
+      "expected": []
+    }
+  ]
+}

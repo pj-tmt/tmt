@@ -162,6 +162,8 @@ pub const QUESTION_PAGE: usize = 50;
 /// `tmt-review` sections a page may hold (`REVIEW_LIMIT` in the app's `questions.ts`).
 pub const REVIEW_PAGE: usize = 50;
 pub const READING_PAGE: usize = 50;
+/// Complete owner-only chapter detail reply; numeric discovery keeps its separate 1 MiB cap.
+pub const SUMMARY_DETAILS_BYTES: usize = 128 * 1024;
 /// Maximum time spent projecting quote anchors for one owner summary.
 pub const SUMMARY_PROJECTION_TIMEOUT: Duration = Duration::from_millis(200);
 /// Maximum admitted proposal, question, review and reading items in one page summary.

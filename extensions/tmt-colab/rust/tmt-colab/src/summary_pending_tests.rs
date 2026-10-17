@@ -150,3 +150,39 @@ fn a_page_without_admitted_blocks_keeps_its_summary_above_the_quote_text_budget(
     assert_eq!(pending[0].kind, "proposal");
     assert_eq!(pending[0].id, case["expected"][0]["id"].as_str().unwrap());
 }
+
+#[test]
+fn complete_reading_descriptors_match_the_shared_browser_cases() {
+    let inputs: Value =
+        serde_json::from_str(include_str!("../../../contracts/vectors/needs-you-v1.json")).unwrap();
+    let vectors: Value = serde_json::from_str(include_str!(
+        "../../../contracts/vectors/reading-details-v1.json"
+    ))
+    .unwrap();
+    for vector in vectors["cases"].as_array().unwrap() {
+        let case = inputs["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|case| case["name"] == vector["pendingCase"])
+            .expect("named input exists");
+        let conversations = view(case);
+        let writers = case["deviceWriters"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|value| value.as_str().unwrap().to_owned())
+            .collect();
+        let (report, anchors) =
+            crate::page_check::summary(case["source"].as_str().unwrap(), &conversations.threads)
+                .unwrap();
+        let pending = items(&report, &anchors, &conversations, &writers);
+        let actual = crate::summary_readings::descriptors(&report, &anchors, &pending);
+        assert_eq!(
+            serde_json::to_value(actual).unwrap(),
+            vector["expected"],
+            "{}",
+            vector["pendingCase"]
+        );
+    }
+}

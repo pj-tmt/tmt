@@ -1,3 +1,4 @@
+import { readReadingDetails } from './reading-details.js';
 import { RemotePresence } from './remote-presence.js';
 import { createRemoteClient, type RemoteClient } from './ask-remote.js';
 import {
@@ -53,6 +54,7 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
     );
   let current: LiveSession;
   let replacement: Promise<LiveSession> | undefined;
+  let detailReads: Promise<unknown> = Promise.resolve();
   let titleGeneration = new AbortController();
   let titleReads: Promise<void> = Promise.resolve();
   let titleCleanupConfirmed = true;
@@ -230,6 +232,23 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
             ),
           };
         });
+      },
+      readingDetails(id, signal) {
+        // A new Home generation joins the previous aborted request before starting its read.
+        const request = detailReads.then(() =>
+          owned(async () => {
+            const readSignal = AbortSignal.any([signal, lifetime.signal]);
+            readSignal.throwIfAborted();
+            const bound = replacement ? await replacement : current;
+            readSignal.throwIfAborted();
+            const details = await readReadingDetails(mount, id, readSignal);
+            readSignal.throwIfAborted();
+            requireValue(bound === current);
+            return details;
+          }),
+        );
+        detailReads = request.catch(() => undefined);
+        return request;
       },
       readTitle(id, budget, signal) {
         // A new Home generation can start while the old read is joining. One owner serializes

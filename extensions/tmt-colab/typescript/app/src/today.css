@@ -205,3 +205,47 @@
     gap: 16px 32px;
   }
 }
+.today-readings {
+  align-self: stretch;
+  min-width: 0;
+}
+.today-readings-kicker,
+.today-readings ul {
+  margin: 0;
+  padding: 0;
+}
+.today-readings-kicker {
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+}
+.today-readings ul {
+  list-style: none;
+}
+.today-readings li {
+  margin: 8px 0;
+}
+.today-readings a {
+  color: var(--tmt-ui-color-text);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.today-readings a:hover,
+.today-readings a:focus-visible {
+  text-decoration: underline;
+}
+.today-readings a:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: 2px;
+}
+.today-reading-reason {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+}
+.today-readings .today-readings-more {
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+}

@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react';
 import { NeedsYouBar } from './components/needs-you-bar.js';
 import { useHomeSpace, useSpaceTitle } from './home-space.js';
 import { HomeTitleLink, type HomeTitleHints } from './home-titles.js';
+import { TodayReadingLinks, useTodayReadings } from './today-readings.js';
+import type { ReadingDetails } from './reading-details.js';
 import { pageUpdate } from './page-index.js';
 import { text } from './strings.js';
 import { dateLine, greetingPart, todayModel } from './today-model.js';
@@ -70,6 +72,7 @@ function Chapter({
   first,
   now,
   hints,
+  details,
 }: {
   page: PageSummary;
   waiting: boolean;
@@ -78,6 +81,7 @@ function Chapter({
   first: readonly Jump[];
   now: number;
   hints?: HomeTitleHints;
+  details?: ReadingDetails;
 }) {
   const updated = pageUpdate(page.lastUpdateAtMs, now);
   const when = updated.dateTime ? t.kickerUpdated(updated.label) : updated.label;
@@ -124,6 +128,7 @@ function Chapter({
         </div>
         <div className="today-chapter-state">
           {waiting && <NeedsYouBar tone="needs" word={t.pendingCount(page.summary!.needsYou)} />}
+          <TodayReadingLinks pageId={page.id} details={details} />
           {comments ? (
             <span className="today-comments">{text.pageList.commentCount(comments)}</span>
           ) : null}
@@ -136,6 +141,7 @@ function Chapter({
 export function Today() {
   const space = todayRoute.useLoaderData();
   const { pages, hints } = useHomeSpace(space);
+  const readingDetails = useTodayReadings(space);
   useSpaceTitle(space.title, text.product);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => setNow(Date.now()), [space.pages]);
@@ -241,6 +247,7 @@ export function Today() {
                 ]}
                 now={now}
                 hints={hints}
+                details={readingDetails.get(page.id)}
               />
             ))}
           </ul>

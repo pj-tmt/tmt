@@ -184,6 +184,9 @@ for (const width of [1440, 390])
   for (const theme of ['light', 'dark'] as const)
     for (const kind of [
       'few',
+      'readings',
+      'reading-one',
+      'reading-unknown',
       'long',
       'quiet',
       'none',
@@ -293,3 +296,45 @@ test('known pending items are a lower bound until every active page summary is k
     '◆ Needs you 1',
   ]);
 });
+
+for (const kind of ['readings', 'reading-one', 'reading-unknown'] as const) {
+  test(`chapter reading links are cosmetic and bounded (${kind})`, async ({ page }) => {
+    await mount(page, kind);
+    const first = chapters(page).first();
+    await expect(first.locator('.needs-you-bar')).toContainText(
+      kind === 'reading-one' ? 'Needs you 1' : 'Needs you 5',
+    );
+    await expect
+      .poll(() =>
+        page.evaluate(async () => {
+          const fixture = '/test/today-browser.tsx';
+          return (await import(/* @vite-ignore */ fixture)).readingDetailReads();
+        }),
+      )
+      .toEqual(['d0000001-1111-4111-8111-000000000001']);
+    if (kind === 'reading-unknown') {
+      await expect(first.locator('.today-readings')).toHaveCount(0);
+      await expect(first.locator('.today-comments')).toHaveText('2 comments');
+      return;
+    }
+    const list = first.locator('.today-chapter-state .today-readings');
+    await expect(list.locator('.today-readings-kicker')).toHaveText('Please read');
+    await expect(list.getByRole('listitem')).toHaveCount(kind === 'reading-one' ? 1 : 3);
+    const link = list.getByRole('link', { name: 'Deployment plan', exact: true });
+    await expect(link).toHaveAttribute('href', /read=20000000-0000-4000-8000-000000000001/);
+    if (kind === 'readings') {
+      const more = list.getByRole('link', { name: '+2 more', exact: true });
+      await expect(more).toHaveAttribute('href', (await link.getAttribute('href')) as string);
+      const comments = first.locator('.today-comments');
+      const textStyle = (node: Element) => {
+        const style = getComputedStyle(node);
+        return { color: style.color, fontSize: style.fontSize };
+      };
+      expect(await more.evaluate(textStyle)).toEqual(await comments.evaluate(textStyle));
+      const reason = list.locator('.today-reading-reason').nth(1);
+      expect(await reason.evaluate((node) => getComputedStyle(node).textOverflow)).toBe('ellipsis');
+    }
+    await expect(first.locator('.today-comments')).toHaveText('2 comments');
+    await expect(first.getByRole('button', { name: 'Mark read' })).toHaveCount(0);
+  });
+}

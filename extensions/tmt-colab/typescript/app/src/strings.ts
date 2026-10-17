@@ -589,6 +589,7 @@ export const text = {
     kickerUpdated: (when: string) => `Updated ${when}`,
     waitingForYou: 'Waiting for you',
     pendingCount: (count: number) => `Needs you ${count}`,
+    readingMore: (count: number) => `+${count} more`,
     olderLabel: 'Older pages',
     byAuthor: (name: string) => `by ${name}`,
   },

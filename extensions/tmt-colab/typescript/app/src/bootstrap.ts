@@ -59,7 +59,7 @@ export interface Bootstrap {
   pageIds: PageId[];
 }
 /** The owner's display-only summary is untrusted text: bounded and typed, never trusted for more. */
-function activity(value: unknown): asserts value is PageActivity {
+export function activity(value: unknown): asserts value is PageActivity {
   requireValue(value !== null && typeof value === 'object' && !Array.isArray(value));
   exactKeys(
     value,

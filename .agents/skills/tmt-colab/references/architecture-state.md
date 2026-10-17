@@ -501,7 +501,11 @@ is added.
   single-flight background worker over at most `REFRESH_PAGES` stale pages; the worker folds
   through a second read-only `page::save::Source` (its own opener, `with_summary_source`), never
   the request path's store, keyring or decoder. A failed or timed-out page keeps no summary and
-  waits behind pages not yet tried at its fingerprint. Nothing is persisted.
+  waits behind pages not yet tried at its fingerprint. The same projection caches complete reading
+  descriptors (`summary_readings.rs`), never a second state owner. The cache retains at most
+  `PAGES` entries, including failures; catalog reads prune deleted pages. The owner-only chapter-details
+  route reads one current fingerprint without decoding on the request path; complete results are
+  bounded by `SUMMARY_DETAILS_BYTES`, pending/failed entries remain unknown. Nothing is persisted.
 - Revocation arrives as a revision-ordered device event: known devices use the owner
   transition, unknown IDs a local tombstone. Equal or older events and already-revoked
   devices write nothing and close no tunnel.

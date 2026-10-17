@@ -271,6 +271,54 @@ impl Registration {
         }
         serde_json::to_vec(&catalog).map_err(|_| Code::Unavailable)
     }
+    /// Complete cached chapter metadata. The owner read checks authority and the current
+    /// fingerprint without subscribing, touching activity or decoding on this request path.
+    pub fn page_summary_details(
+        &self,
+        context: Option<&str>,
+        page: &str,
+    ) -> std::result::Result<Vec<u8>, Code> {
+        Context::parse(context)?;
+        values::generated_id(page).map_err(|_| Code::Invalid)?;
+        let fingerprint = self
+            .store
+            .owner_read(&self.keyring.space_id, &self.keyring.owner_public(), |tx| {
+                tx.page_fingerprint(page)
+            })
+            .map_err(map_error)?
+            .ok_or(Code::Denied)?;
+        let value = match self.summaries.details(page, &fingerprint) {
+            crate::summary::CachedDetails::Ready(projection) => {
+                let digest: String = crypto::digest(fingerprint.as_bytes())
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect();
+                serde_json::json!({"pageId":page,"state":"ready","fingerprint":digest,
+                    "summary":projection.summary.json(),"readings":projection.readings})
+            }
+            crate::summary::CachedDetails::Unavailable => {
+                serde_json::json!({"pageId":page,"state":"unavailable"})
+            }
+            crate::summary::CachedDetails::Pending if self.summary_source.is_some() => {
+                // Do not call stale() on a single-page map: it also prunes the full cache.
+                crate::summary::refresh(
+                    &self.summaries,
+                    self.summary_source.as_ref().expect("source checked"),
+                    vec![(page.to_owned(), fingerprint)],
+                );
+                serde_json::json!({"pageId":page,"state":"pending"})
+            }
+            crate::summary::CachedDetails::Pending => {
+                serde_json::json!({"pageId":page,"state":"unavailable"})
+            }
+        };
+        let bytes = serde_json::to_vec(&value).map_err(|_| Code::Unavailable)?;
+        if bytes.len() > crate::limits::SUMMARY_DETAILS_BYTES {
+            return serde_json::to_vec(&serde_json::json!({"pageId":page,"state":"unavailable"}))
+                .map_err(|_| Code::Unavailable);
+        }
+        Ok(bytes)
+    }
     fn page_catalog(&self, context: Option<&str>) -> std::result::Result<serde_json::Value, Code> {
         self.page_catalog_fingerprinted(context)
             .map(|(catalog, _)| catalog)

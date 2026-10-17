@@ -84,6 +84,16 @@ Picking a row finishes menu dismissal before scrolling/opening the existing targ
 focusing its first action. Read-only targets retain content focus and navigation, never writes.
 The [contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#page-summary-2588) owns
 the shared pending-state and count rules; header state is not another read or publication owner.
+Today's `today-readings.tsx` shows unread reading links directly below a chapter's Needs-you band:
+three title links and muted agent/reason lines, then `+N more` to the first unread passage. The
+comment count follows the list. The existing owner reading hint only scrolls/highlights, never
+marks read or notifies. `reading-details.ts` validates a complete cached result and owns one
+cancellable Home-generation queue over the first 20 displayed chapters with known positive
+counts. Other chapters retain their count; unknown details show no list or false empty state.
+Mounted transport serializes reads across generations and fences replaced sessions. Hosted/member
+adapters expose no details port. The [chapter-details contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#owner-chapter-details-3578)
+owns result and response bounds; this adds no polling, Subscribe or active-page touch.
+
 The page index uses leaf List/Row presentation with newest-update-first ordering,
 then displayed title and page ID for ties. Active titles are links; archived titles
 remain plain text with their actions menu. Tab order is title then actions for

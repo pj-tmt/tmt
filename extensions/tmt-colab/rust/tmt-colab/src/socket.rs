@@ -765,6 +765,32 @@ fn serve(
         return;
     }
     if request.method == "GET"
+        && !request.upgrade
+        && let Some(page) = summary_details_page(&request.path)
+    {
+        let result = if !request.body.is_empty() {
+            Err(registration::Code::Invalid)
+        } else {
+            registration
+                .ok_or(registration::Code::Unavailable)
+                .and_then(|service| {
+                    service
+                        .lock()
+                        .map_err(|_| registration::Code::Unavailable)?
+                        .page_summary_details(request.context.as_deref(), page)
+                })
+        };
+        let (status, body) = match result {
+            Ok(bytes) => (200, bytes),
+            Err(code) => (
+                code.status(),
+                serde_json::to_vec(&serde_json::json!({"code":code.text()})).expect("error JSON"),
+            ),
+        };
+        let _ = response_as(&mut socket, status, &body, "application/json");
+        return;
+    }
+    if request.method == "GET"
         && matches!(request.path.as_str(), "/api/session" | "/api/pages")
         && !request.upgrade
     {
@@ -1622,10 +1648,18 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
             | control::STOP_PATH
             | crate::readers::CHALLENGE_PATH
             | crate::readers::SESSION_PATH
-    ) {
+    ) && summary_details_page(&request.path).is_none()
+    {
         request.owner = request.context.as_deref().map(owner_name).transpose()?;
     }
     Ok(request)
+}
+/// The route shape is recognized before context admission; Registration validates its UUID.
+fn summary_details_page(path: &str) -> Option<&str> {
+    let page = path
+        .strip_prefix("/api/pages/")?
+        .strip_suffix("/summary-details")?;
+    (!page.is_empty() && !page.contains('/')).then_some(page)
 }
 /// The owner device name from the remote door's context; anything other than
 /// an owner context with a device ID and name is malformed.
