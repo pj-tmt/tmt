@@ -229,6 +229,10 @@ the move is a bootstrap reinstall.
   recorded in the receipt exactly when present and re-verified by inspection like a companion. Its content
   is parsed at acquisition (`native_install::uses`), so a malformed file rejects the release. An older
   installer rejects the unknown path, so the supporting CLI must publish first.
+  Its optional `requiresCli` minimum is frozen in receipt `requires_cli`. Activation refuses an
+  incompatible candidate before layout creation; listing compares the verified receipt with the
+  running CLI without acquisition. The [extension contract](../../../../contracts/extension-api.md#optional-cross-extension-uses)
+  owns grammar, precedence, errors, JSON and publication ordering.
 - An extension release (never the CLI) may carry `skills/<name>/<path>`
   (`native_install::skills_tree`): the manifest declares the single asset `skills`, the inventory
   comes only from the archive (SHA-256 verified before parsing), only regular files under

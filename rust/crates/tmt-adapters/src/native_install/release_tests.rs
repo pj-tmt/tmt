@@ -75,7 +75,12 @@ fn archive(
         0o644,
     );
     for (name, bytes) in companions {
-        append_file(&mut builder, &format!("{root}/{name}"), bytes, 0o755);
+        let mode = if product.optional_files().contains(name) {
+            0o644
+        } else {
+            0o755
+        };
+        append_file(&mut builder, &format!("{root}/{name}"), bytes, mode);
     }
     builder.finish().unwrap();
     (name, builder.into_inner().unwrap().finish().unwrap())
@@ -100,7 +105,7 @@ pub(in crate::native_install) fn product_fixture(
 }
 
 /// A release that also carries `companions`, each archived and listed in
-/// the manifest as cargo-dist lists a binary.
+/// the manifest as cargo-dist lists a binary, or an optional plain release file.
 pub(in crate::native_install) fn companion_fixture(
     product: Product,
     version: &str,

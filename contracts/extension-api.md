@@ -753,7 +753,7 @@ release. At most 4 KiB of UTF-8 JSON:
 }
 ```
 
-- `version` is `1`. `uses` has at most 8 entries. Unknown keys and duplicate `feature` values are rejected.
+- `version` is `1`. `uses` has at most 8 entries. The only optional top-level key is `requiresCli` below; other unknown keys and duplicate `feature` values are rejected.
 - `feature` matches `[a-z][a-z0-9-]{0,31}`. `label` is 1 to 48 printable characters: no control,
   bidirectional-override or line-separator characters, so it is safe on one terminal line (the same rule
   as notice display fields).
@@ -762,6 +762,27 @@ release. At most 4 KiB of UTF-8 JSON:
   versioning precedence (a prerelease sorts below its release). No other operator or range exists.
 
 Core never interprets a feature; `label` and `feature` are display and lookup data from the declarer.
+
+**Minimum CLI.** Version 1 may additionally declare one optional `requiresCli` string using the same
+grammar, bound and Semantic Versioning precedence as `requires`. For example,
+`{"version":1,"requiresCli":">=5.0.0-alpha.255","uses":[]}`. No declaration means no CLI minimum.
+The native installer freezes the minimum as optional `requires_cli` in the installed receipt;
+older receipts without it remain valid. The receipt value must match its verified declaration.
+
+Before publishing a candidate extension, install and upgrade compare that minimum with the running
+CLI build. A too-old CLI refuses before prefix, release, activation, receipt, link or skill changes,
+retaining the existing command error envelope and one suggestion: `tmt upgrade` (the CLI keeps
+its own channel and consent flow). There is no start-time or network compatibility check and no
+automatic CLI upgrade. This comparison uses ordinary SemVer precedence: `5.0.0-dev` is newer than
+`5.0.0-alpha.N`; release tooling's preparation-version ordering is separate.
+Damaged repair checks the acquired, verified release's minimum before republishing and preserves the
+prefix on refusal; healthy repair remains a no-op.
+
+`extension ls` determines CLI compatibility from the verified installed receipt only. A declared minimum adds
+`cli: {requires, running, compatible}` to that extension's JSON row. An incompatible minimum adds one
+dim human warning alongside the existing optional-use lines, without marking the installation damaged.
+No declaration adds no `cli` field or warning. The supporting CLI must publish before extensions carry
+`requiresCli`: older installers reject the unknown declaration key rather than ignoring the requirement.
 
 **`extensions.uses`** answers from the installed receipts of the calling and the named extension. It reads
 no network, application storage or extension process, and never installs or changes anything. `extension`

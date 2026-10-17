@@ -14,6 +14,7 @@ pub struct ManagedInstallation {
     pub active_executable: PathBuf,
     pub state: InstalledVersion,
     pub target: String,
+    pub requires_cli: Option<semver::Version>,
     pub(super) prefix: PathBuf,
     pub(super) id: Uuid,
     pub(super) provenance: Option<super::receipt::Provenance>,
@@ -22,6 +23,12 @@ pub struct ManagedInstallation {
 impl ManagedInstallation {
     pub fn release_id(&self) -> Uuid {
         self.id
+    }
+
+    pub fn cli_compatibility(&self) -> Option<super::CliCompatibility> {
+        self.requires_cli
+            .as_ref()
+            .map(super::uses::cli_compatibility)
     }
 }
 
@@ -120,6 +127,7 @@ fn inspect_layout(layout: Layout) -> io::Result<ManagedInstallation> {
         prefix: layout.prefix,
         id: current.id,
         provenance: current.provenance,
+        requires_cli: current.requires_cli,
     })
 }
 

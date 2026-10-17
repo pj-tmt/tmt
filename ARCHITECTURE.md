@@ -385,11 +385,10 @@ current release. CLI self-upgrade delegates to the verified candidate under the
 [handoff contract](contracts/native-install-handoff-v1.md); PR channel trust,
 compiled schema export and admission are owned by the [PR channel contract](contracts/native-pr-channel.md). The candidate then lets that CLI
 run the consented extension phase; there is no rollback or second installer.
-`tmt extension install|upgrade|rm|ls` is the public surface for extensions and
-requires consent; install and upgrade accept `--to`. Retention, discovery, receipts, skills, repair and handoff are in the
-[installer architecture reference](.agents/skills/tmt-core-runtime/references/install-architecture.md);
-build, publication and verification procedures are in the
-[tmt-release skill](.agents/skills/tmt-release/SKILL.md).
+`tmt extension` owns consented install/upgrade/removal and read-only listing; install/upgrade accept `--to`.
+Receipt-frozen [CLI minima](contracts/extension-api.md#optional-cross-extension-uses) gate activation; listing compares locally.
+[Installer architecture](.agents/skills/tmt-core-runtime/references/install-architecture.md) owns retention,
+discovery, receipts, skills, repair and handoff; [release procedures](.agents/skills/tmt-release/SKILL.md) own verification and publication.
 
 Digest owns [history, pricing and valuation](extensions/tmt-digest/contracts/digest-v1.md); tick collects, status reads.
 The [usage report](extensions/tmt-digest/contracts/usage-v1.md) joins Core's rollup, limits and `x flow --bucket` per run; it stores nothing.

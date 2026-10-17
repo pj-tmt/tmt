@@ -28,6 +28,7 @@ pub(super) struct Artifact {
     pub sha256: String,
     pub files: BTreeMap<String, Vec<u8>>,
     pub executable_files: BTreeSet<String>,
+    pub requires_cli: Option<Version>,
 }
 
 impl Artifact {
@@ -118,6 +119,7 @@ fn verified_archive(
     let Decoded {
         files,
         executable_files,
+        requires_cli,
     } = decode(product, compressed, archive_root(name)?, inventory)?;
     Ok(Artifact {
         name: name.into(),
@@ -126,6 +128,7 @@ fn verified_archive(
         sha256,
         files,
         executable_files,
+        requires_cli,
     })
 }
 
@@ -325,6 +328,7 @@ pub(super) fn acquire_candidate(
 struct Decoded {
     files: BTreeMap<String, Vec<u8>>,
     executable_files: BTreeSet<String>,
+    requires_cli: Option<Version>,
 }
 
 /// One decoder owns archive safety. An installer additionally supplies its
@@ -462,9 +466,15 @@ fn decode(
             "Native archive is missing its installer executable.",
         ));
     }
-    if strict && let Some(bytes) = files.get(super::uses::FILE) {
-        super::uses::parse(product, bytes)?;
-    }
+    let requires_cli = if strict {
+        files
+            .get(super::uses::FILE)
+            .map(|bytes| super::uses::parse(product, bytes))
+            .transpose()?
+            .and_then(|declaration| declaration.requires_cli)
+    } else {
+        None
+    };
     for name in files.keys() {
         if directories.contains(&format!("{root}/{name}"))
             || name
@@ -506,5 +516,6 @@ fn decode(
     Ok(Decoded {
         files,
         executable_files,
+        requires_cli,
     })
 }

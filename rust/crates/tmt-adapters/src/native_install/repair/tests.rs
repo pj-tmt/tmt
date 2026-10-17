@@ -184,6 +184,58 @@ fn healthy_repair_is_a_noop_without_network() {
 }
 
 #[test]
+fn a_damaged_repair_requiring_a_newer_cli_preserves_the_entire_prefix() {
+    let directory = TestDirectory::new();
+    let layout = Layout::open_product(&directory.path.join("prefix"), Product::Ops).unwrap();
+    let declaration = br#"{"version":1,"requiresCli":">=999.0.0","uses":[]}"#;
+    let (_, manifest, archive, name) = release::companion_fixture(
+        Product::Ops,
+        "1.2.3",
+        TARGET,
+        42,
+        &[("TMT-USES.json", declaration)],
+    );
+    let artifact =
+        artifact::acquire_bytes(Product::Ops, &manifest, &name, &archive, TARGET).unwrap();
+    let receipt = Receipt::new(&artifact, state("1.2.3", Some("1.2.3")));
+    // Model an installation published by a newer CLI, not an admitted install
+    // through this older build's candidate gate.
+    let lock = crate::file_lock::exclusive(&layout.root.join("install.lock")).unwrap();
+    layout
+        .publish(&artifact, &receipt, None, None, &mut || Ok(()))
+        .unwrap();
+    drop(lock);
+    let old = layout.root.join("releases").join(receipt.id.to_string());
+    let healthy = tree(&layout.prefix);
+    let unchanged = repair_using(
+        Product::Ops,
+        &layout.prefix,
+        None,
+        || Ok(()),
+        |_, _| panic!("healthy repair stays a no-op"),
+    )
+    .unwrap();
+    assert!(!unchanged.installation.changed);
+    assert_eq!(tree(&layout.prefix), healthy);
+    fs::write(old.join("tmt-ops"), b"damaged").unwrap();
+    let before = tree(&layout.prefix);
+    let error = repair_using(
+        Product::Ops,
+        &layout.prefix,
+        None,
+        || Ok(()),
+        |_, _| {
+            artifact::acquire_bytes(Product::Ops, &manifest, &name, &archive, TARGET)
+                .map(|artifact| (artifact, None))
+        },
+    )
+    .unwrap_err();
+    let required = crate::native_install::cli_required(&error).expect("typed CLI refusal");
+    assert_eq!(required.compatibility.minimum.to_string(), "999.0.0");
+    assert_eq!(tree(&layout.prefix), before);
+}
+
+#[test]
 fn a_symlink_in_the_old_release_is_refused_without_following_or_repair_hint() {
     let fixture = Fixture::new(false);
     let outside = fixture.layout.prefix.join("outside");

@@ -300,6 +300,7 @@ fn repair_using(
             "The original release artifact does not match its receipt; repair was refused.",
         ));
     }
+    super::uses::admit_cli(product, artifact.requires_cli.as_ref())?;
     checkpoint()?;
     let _lock = crate::file_lock::exclusive(&layout.root.join("install.lock"))?;
     let mut next = Receipt::new(&artifact, old.state.clone());
