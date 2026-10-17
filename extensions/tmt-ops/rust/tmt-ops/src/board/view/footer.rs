@@ -147,9 +147,13 @@ fn hint_text(hints: &[Hint]) -> String {
 }
 fn names_hint(app: &App, mut hints: Vec<Hint>, width: usize) -> Vec<Hint> {
     if app.row_names_hint() {
-        hints.push(("@".into(), "names".into()));
+        let at = hints
+            .iter()
+            .position(|(_, label)| matches!(label.as_str(), "help" | "quit"))
+            .unwrap_or(hints.len());
+        hints.insert(at, ("@".into(), "names".into()));
         if hint_text(&hints).width() > width {
-            hints.pop();
+            hints.remove(at);
         }
     }
     hints
