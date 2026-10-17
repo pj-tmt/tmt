@@ -550,8 +550,8 @@ registry, release catalog, process runner, archive parser or memory/MCP layer.
 Store owns managed/adopted SQLite transactions and typed newer refusals.
 Document/Guard own atomic byte updates/fail-fast ownership.
 Existing Store files use lstat to preserve locks.
-Only Remote, Colab and Ops consume it; `nix`/`rusqlite` pins, no TMT/crypto.
-Core, adapters and Colab's model cannot consume it. Guards check reviewed
+Remote, Colab, Ops, adapters' config and Digest history consume it; no TMT/crypto.
+Core and Colab's model cannot consume it. Guards check reviewed
 manifest/source edges across dependency kinds, aliases and targets.
 
 [Crate docs](rust/crates/tmt-extension-state/src/lib.rs) own admission and publication.

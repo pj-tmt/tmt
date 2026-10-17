@@ -2463,6 +2463,7 @@ dependencies = [
  "time",
  "tmt-core",
  "tmt-driver-protocol",
+ "tmt-extension-state",
  "tmt-sys",
  "tmt-test-support",
  "toml_edit",
@@ -2589,6 +2590,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tmt-cli-style",
+ "tmt-extension-state",
  "tmt-invoke",
  "toml_edit",
 ]

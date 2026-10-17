@@ -189,8 +189,9 @@ fn matched_period_restart_overlap_gaps_and_profile_changes_are_observable() {
     );
     assert_eq!(
         store
-            .0
-            .query_row("SELECT COUNT(*) FROM usage_minutes", [], |r| number(r, 0))
+            .read(|tx| tx
+                .query_row("SELECT COUNT(*) FROM usage_minutes", [], |r| number(r, 0))
+                .map_err(io))
             .unwrap(),
         1440
     );
@@ -220,11 +221,13 @@ fn matched_period_restart_overlap_gaps_and_profile_changes_are_observable() {
         .unwrap();
     assert!(store.status(ID, Window::Day, through, Some(2)).unwrap()["cost"].is_null());
     store
-        .0
-        .execute(
-            "DELETE FROM usage_minutes WHERE minute=?1",
-            [(start + MINUTE) as i64],
-        )
+        .write(|tx| {
+            tx.execute(
+                "DELETE FROM usage_minutes WHERE minute=?1",
+                [(start + MINUTE) as i64],
+            )
+            .map_err(io)
+        })
         .unwrap();
     assert!(store.status(ID, Window::Day, through, Some(2)).unwrap()["percent"].is_null());
 }
@@ -237,14 +240,16 @@ fn interrupted_usage_transaction_preserves_rows_watermark_and_model() {
     store.baseline(ID, start, 0, 0).unwrap();
     store.record_usage(ID, &page(start + 600000)).unwrap();
     let before: (u64, u64) = store
-        .0
-        .query_row(
-            "SELECT COUNT(*),SUM(input_tokens) FROM usage_minutes",
-            [],
-            |r| Ok((number(r, 0)?, number(r, 1)?)),
-        )
+        .read(|tx| {
+            tx.query_row(
+                "SELECT COUNT(*),SUM(input_tokens) FROM usage_minutes",
+                [],
+                |r| Ok((number(r, 0)?, number(r, 1)?)),
+            )
+            .map_err(io)
+        })
         .unwrap();
-    store.0.execute_batch(&format!("CREATE TRIGGER fail_usage BEFORE INSERT ON usage_minutes WHEN NEW.minute={} BEGIN SELECT RAISE(ABORT,'fixture interrupted'); END;",start+600000+MINUTE)).unwrap();
+    store.write(|tx| tx.execute_batch(&format!("CREATE TRIGGER fail_usage BEFORE INSERT ON usage_minutes WHEN NEW.minute={} BEGIN SELECT RAISE(ABORT,'fixture interrupted'); END;",start+600000+MINUTE)).map_err(io)).unwrap();
     let mut next = document(start + 1200000);
     next["identities"][0]["latest"]["consumption"]["modelId"] = json!("claude-opus-5-5");
     assert!(
@@ -254,22 +259,24 @@ fn interrupted_usage_transaction_preserves_rows_watermark_and_model() {
     );
     assert_eq!(
         store
-            .0
-            .query_row(
-                "SELECT COUNT(*),SUM(input_tokens) FROM usage_minutes",
-                [],
-                |r| Ok((number(r, 0)?, number(r, 1)?))
-            )
+            .read(|tx| tx
+                .query_row(
+                    "SELECT COUNT(*),SUM(input_tokens) FROM usage_minutes",
+                    [],
+                    |r| Ok((number(r, 0)?, number(r, 1)?))
+                )
+                .map_err(io))
             .unwrap(),
         before
     );
     assert_eq!(
         store
-            .0
-            .query_row("SELECT through,model_id FROM usage_state", [], |r| Ok((
-                number(r, 0)?,
-                r.get::<_, String>(1)?
-            )))
+            .read(|tx| tx
+                .query_row("SELECT through,model_id FROM usage_state", [], |r| Ok((
+                    number(r, 0)?,
+                    r.get::<_, String>(1)?
+                )))
+                .map_err(io))
             .unwrap(),
         (start + 600000, "gpt-6.1-sol".into())
     );
@@ -285,23 +292,28 @@ fn schema_one_read_is_unchanged_and_write_migration_preserves_savings() {
         .unwrap();
     store.checkpoint(ID, 4000, 1, 1).unwrap();
     store
-        .0
-        .execute_batch("DROP TABLE usage_state; DROP TABLE usage_minutes; PRAGMA user_version=1;")
+        .write(|tx| {
+            tx.execute_batch(
+                "DROP TABLE usage_state; DROP TABLE usage_minutes; PRAGMA user_version=1;",
+            )
+            .map_err(io)
+        })
         .unwrap();
     drop(store);
     let file = fixture.0.join("digest/history/history.sqlite");
     let before = fs::read(&file).unwrap();
-    let reader = Store::open(&fixture.0, false).unwrap().unwrap();
+    let mut reader = Store::open(&fixture.0, false).unwrap().unwrap();
     let old = reader.status(ID, Window::Lifetime, 4000, Some(1)).unwrap();
     assert_eq!(old["estimatedInputTokensAvoided"], 2700);
     assert!(old["cost"].is_null() && old["percent"].is_null());
     drop(reader);
     assert_eq!(fs::read(&file).unwrap(), before);
-    let writer = fixture.store();
+    let mut writer = fixture.store();
     assert_eq!(
         writer
-            .0
-            .pragma_query_value(None, "user_version", |r| number(r, 0))
+            .read(|tx| tx
+                .pragma_query_value(None, "user_version", |r| number(r, 0))
+                .map_err(io))
             .unwrap(),
         2
     );
@@ -327,37 +339,40 @@ fn usage_shares_raw_budget_and_expiry_preserves_settlement_totals() {
         .unwrap();
     store.record_usage(ID, &page(start + 600000)).unwrap();
     store.checkpoint(ID, start + 600000, 1, 1).unwrap();
-    let tx = store.0.transaction().unwrap();
-    // Both owners contribute to one budget. All minutes precede the event's
-    // collection timestamp, so they must be evicted before its raw inputs.
-    let event_bytes: u64 = tx
-        .query_row("SELECT length(inputs) FROM events", [], |r| number(r, 0))
+    store
+        .write(|tx| {
+            // Both owners contribute to one budget. All minutes precede the event's
+            // collection timestamp, so they must be evicted before its raw inputs.
+            let event_bytes: u64 = tx
+                .query_row("SELECT length(inputs) FROM events", [], |r| number(r, 0))
+                .unwrap();
+            prune(tx, start + 600000, event_bytes + 2 * ROW_BYTES).unwrap();
+            assert_eq!(
+                tx.query_row("SELECT COUNT(*) FROM usage_minutes", [], |r| number(r, 0))
+                    .unwrap(),
+                2
+            );
+            assert_eq!(
+                tx.query_row("SELECT MIN(minute) FROM usage_minutes", [], |r| number(
+                    r, 0
+                ))
+                .unwrap(),
+                start + 480000
+            );
+            prune(tx, start + 600000, 0).unwrap();
+            assert_eq!(
+                tx.query_row("SELECT COUNT(*) FROM events", [], |r| number(r, 0))
+                    .unwrap(),
+                0
+            );
+            assert_eq!(
+                tx.query_row("SELECT COUNT(*) FROM usage_minutes", [], |r| number(r, 0))
+                    .unwrap(),
+                0
+            );
+            Ok(())
+        })
         .unwrap();
-    prune(&tx, start + 600000, event_bytes + 2 * ROW_BYTES).unwrap();
-    assert_eq!(
-        tx.query_row("SELECT COUNT(*) FROM usage_minutes", [], |r| number(r, 0))
-            .unwrap(),
-        2
-    );
-    assert_eq!(
-        tx.query_row("SELECT MIN(minute) FROM usage_minutes", [], |r| number(
-            r, 0
-        ))
-        .unwrap(),
-        start + 480000
-    );
-    prune(&tx, start + 600000, 0).unwrap();
-    assert_eq!(
-        tx.query_row("SELECT COUNT(*) FROM events", [], |r| number(r, 0))
-            .unwrap(),
-        0
-    );
-    assert_eq!(
-        tx.query_row("SELECT COUNT(*) FROM usage_minutes", [], |r| number(r, 0))
-            .unwrap(),
-        0
-    );
-    tx.commit().unwrap();
     assert_eq!(
         store
             .status(ID, Window::Lifetime, start + 600000, Some(1))
@@ -370,8 +385,9 @@ fn usage_shares_raw_budget_and_expiry_preserves_settlement_totals() {
         .unwrap();
     assert_eq!(
         store
-            .0
-            .query_row("SELECT COUNT(*) FROM usage_minutes", [], |r| number(r, 0))
+            .read(|tx| tx
+                .query_row("SELECT COUNT(*) FROM usage_minutes", [], |r| number(r, 0))
+                .map_err(io))
             .unwrap(),
         0
     );
