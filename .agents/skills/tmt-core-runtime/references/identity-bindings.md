@@ -239,9 +239,12 @@ delivery. They install and launch nothing.
   owns deadline termination. Hooks open only existing compatible storage with a short lock wait,
   never migrate, and on failure emit no context and at most one fixed stderr line. A hook
   supplies observation only: the binding must match fresh server/pane/marker evidence and
-  payload session IDs never create bindings or move identities. Hook storage writer admission
-  waits at most 500 ms within the supplied remaining worker deadline, reserving 100 ms for
-  commit and context completion; budget exhaustion keeps the unavailable-context behavior.
+  payload session IDs never create bindings or move identities. `verified_caller` gets the
+  caller's host from `Host::for_verified_caller` (approved drivers, recorded server IDs only),
+  so an external caller it cannot verify is that failure line, not a silent success. Hook
+  storage writer admission waits at most 500 ms within the supplied remaining worker deadline,
+  reserving 100 ms for commit and context completion; budget exhaustion keeps the
+  unavailable-context behavior.
 - Compaction reminders use the admitted callback's normalized `LifecycleObservation::transition`,
   never a retained `last_transition` (a Codex channel startup can preserve it). Saved identities
   only receive the default-on global boolean `notes.compactionReminder` context line; invalid
