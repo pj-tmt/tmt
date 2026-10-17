@@ -1,5 +1,5 @@
-import type { AnyRouter, HistoryState } from '@tanstack/react-router';
-import { useSyncExternalStore } from 'react';
+import { useRouterState, type AnyRouter, type HistoryState } from '@tanstack/react-router';
+import { useMemo, useRef, useSyncExternalStore } from 'react';
 import type { PageTransport, SpaceHome } from './transport.js';
 
 /** A chapter opened from Today. The page route stays `/pages/<id>`; this history state is only how
@@ -46,6 +46,38 @@ export function chapterMode(
   wide: boolean,
 ): ChapterMode | undefined {
   return state ? (wide && !state.full ? 'panel' : 'full') : undefined;
+}
+
+/** The chapter that is open over Today, read-only: its page, how it is presented and the offset
+ * Today was left at. The chrome follows the page the outlet shows, so a transition's old and new
+ * views are each whole; the state is the location's, kept while the page is still shown on its way
+ * out. Today's own components read this to know a panel covers them (`mode` is `panel`). */
+export interface OpenChapter {
+  pageId: string;
+  mode: ChapterMode;
+  chapter: ChapterState;
+}
+export function useOpenChapter(): OpenChapter | undefined {
+  const shownId = useRouterState({
+    select: (state) => {
+      const last = state.matches.at(-1);
+      return last?.routeId === '/pages/$pageId'
+        ? (last.params as { pageId: string }).pageId
+        : undefined;
+    },
+  });
+  const locationState = useRouterState({ select: (state) => state.location.state });
+  const latest = useMemo(() => chapterOf(locationState), [locationState]);
+  const kept = useRef<ChapterState>(undefined);
+  if (!shownId) kept.current = undefined;
+  else if (latest) kept.current = latest;
+  const chapter = shownId ? (latest ?? kept.current) : undefined;
+  const wide = useWide();
+  const mode = chapterMode(chapter, wide);
+  return useMemo(
+    () => (shownId && chapter && mode ? { pageId: shownId, mode, chapter } : undefined),
+    [shownId, chapter, mode],
+  );
 }
 
 /** Per router: Today's offset and chapter, kept for the way back (Back, Close and ← Today all use

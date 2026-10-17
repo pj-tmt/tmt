@@ -564,7 +564,9 @@ direct visit has no state and is the plain page, so the page code is unchanged e
 Escape handler claims the key only when it left something (annotation, chat, selection). The page
 keeps the window scroll: Today is `position: fixed`, shifted by the saved offset and clipped by
 the panel, and `Shell` shows the chrome from the page the outlet shows (the state is kept while it
-leaves, so a transition's old and new views are whole). Open, switch (replace), Close, Esc,
+leaves, so a transition's old and new views are whole). `useOpenChapter()` is that read-only signal
+(`{pageId, mode, chapter}` or nothing) for anything on Today; the held copy of Today (`TodayView`'s
+`held`) is the only Today that is mounted while a chapter is open. Open, switch (replace), Close, Esc,
 outside click, `← Today` and Back all end at the same chapter, focused, at the offset it was left
 at (`prepareToday` before the router's own reset, `finishReturn` on `onRendered`). One View
 Transition per open and close, through the router's `viewTransition`; it is not started under

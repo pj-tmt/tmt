@@ -13,14 +13,7 @@ import { validPagePrefix } from './short-links.js';
 import { ownerReadingHint, ownerReadingHref, readingSearch } from './reading-link.js';
 import { ArrowUpRight, MessageCircle, MessageSquare, Moon, MousePointer2, Sun } from 'lucide-react';
 import { PageHeaderActions, type PageHeaderAction } from './page-header-actions.js';
-import {
-  chapterMode,
-  chapterOf,
-  escapeChapter,
-  finishReturn,
-  useWide,
-  type ChapterState,
-} from './chapter.js';
+import { escapeChapter, finishReturn, useOpenChapter } from './chapter.js';
 import { ChapterBar, HeldToday } from './chapter-layer.js';
 import { ColabHeader } from './colab-header.js';
 import { PageAttribution } from './page-attribution.js';
@@ -796,24 +789,11 @@ function Shell() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const isPage = pathname.startsWith('/pages/');
   const isHome = pathname === '/' || pathname === '/all';
-  // The chapter chrome follows the page the outlet shows, so a transition's old and new views are
-  // each whole: it appears with the page and leaves with it. Its state is the location's, kept
-  // while the page is still shown on its way out.
-  const shownId = useRouterState({
-    select: (state) => {
-      const last = state.matches.at(-1);
-      return last?.routeId === page.id ? (last.params as { pageId: string }).pageId : undefined;
-    },
-  });
-  const locationState = useRouterState({ select: (state) => state.location.state });
-  const latest = useMemo(() => chapterOf(locationState), [locationState]);
-  const kept = useRef<ChapterState>(undefined);
-  if (!shownId) kept.current = undefined;
-  else if (latest) kept.current = latest;
-  const opened = shownId ? (latest ?? kept.current) : undefined;
-  const wide = useWide();
-  const mode = chapterMode(opened, wide);
-  const pageId = shownId;
+  // The chapter chrome follows the page the outlet shows (see `useOpenChapter`).
+  const open = useOpenChapter();
+  const opened = open?.chapter;
+  const mode = open?.mode;
+  const pageId = open?.pageId;
   return (
     <RemotePresenceProvider owner={transport.remotePresence}>
       <QuickSwitcherHost
