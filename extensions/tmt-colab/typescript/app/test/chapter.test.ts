@@ -27,3 +27,21 @@ it('is a panel only on a wide viewport and only until the full page is chosen', 
   expect(chapterMode({ scroll: 5, full: true }, true)).toBe('full');
   expect(chapterMode(undefined, true)).toBeUndefined();
 });
+
+it('a collection chapter keeps its exact entry and always opens full without a held Today', () => {
+  const collection = {
+    id: '10000000-0000-4000-8000-000000000001',
+    item: '10000000-0000-4000-8000-000000000002',
+  };
+  expect(chapterOf({ chapter: { scroll: 72, collection } })).toEqual({
+    scroll: 72,
+    full: true,
+    collection,
+  });
+  expect(chapterMode(chapterOf({ chapter: { scroll: 72, collection } }), true)).toBe('full');
+  expect(
+    chapterOf({
+      chapter: { scroll: 72, collection: { id: '../../other', item: collection.item } },
+    }),
+  ).toEqual({ scroll: 72 });
+});

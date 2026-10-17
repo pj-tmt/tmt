@@ -853,3 +853,77 @@ it('mounted chapter acquisition and foreground opening use one page connection',
     mounted.close();
   }
 });
+
+it('joins canceled collection metadata reads and keeps them passive across Home generations', async () => {
+  setup.register.mockReset().mockResolvedValue(setup.first);
+  setup.remote.mockReset().mockResolvedValue({});
+  let release!: (response: Response) => void;
+  const fetcher = vi
+    .fn()
+    .mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          release = resolve;
+        }),
+    )
+    .mockResolvedValueOnce(Response.json({ kind: 'directory', collections: [] }));
+  vi.stubGlobal('fetch', fetcher);
+  const mounted = await mountedTransport();
+  setup.events.length = 0;
+  try {
+    const old = new AbortController();
+    const first = mounted.transport
+      .collections!.directory(old.signal)
+      .catch((error: unknown) => error);
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1));
+    old.abort();
+    const next = mounted.transport.collections!.directory(new AbortController().signal);
+    await Promise.resolve();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    release(Response.json({ kind: 'directory', collections: [] }));
+    expect(await first).toBeInstanceOf(Error);
+    expect(await next).toEqual([]);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(setup.events).toEqual([]);
+    expect(setup.titleConnections).toHaveLength(0);
+  } finally {
+    mounted.close();
+    vi.unstubAllGlobals();
+  }
+});
+
+it('fences a collection reply from an old Session and admits one successor read', async () => {
+  setup.register.mockReset().mockResolvedValueOnce(setup.first).mockResolvedValue(setup.second);
+  setup.remote.mockReset().mockResolvedValue({});
+  let release!: (response: Response) => void;
+  const fetcher = vi
+    .fn()
+    .mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          release = resolve;
+        }),
+    )
+    .mockResolvedValueOnce(Response.json({ kind: 'directory', collections: [] }));
+  vi.stubGlobal('fetch', fetcher);
+  const mounted = await mountedTransport();
+  await mounted.transport.page('page');
+  try {
+    const first = mounted.transport.collections!.directory().catch((error: unknown) => error);
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1));
+    await setup.owner!.reconnect(setup.first as never);
+    const successor = mounted.transport.collections!.directory();
+    release(Response.json({ kind: 'directory', collections: [] }));
+    expect(await first).toBeInstanceOf(Error);
+    expect(await successor).toEqual([]);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    mounted.close();
+    await expect(mounted.transport.collections!.directory()).rejects.toMatchObject({
+      name: 'AbortError',
+    });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  } finally {
+    mounted.close();
+    vi.unstubAllGlobals();
+  }
+});

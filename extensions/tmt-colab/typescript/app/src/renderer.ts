@@ -1,3 +1,4 @@
+import { validSectionId } from './section-link.js';
 import { isHostedOrigin } from './hosted-location.js';
 import { validateSelector, type QuoteSelector } from './thread-records.js';
 import { text } from './strings.js';
@@ -108,7 +109,7 @@ export type RenderState = 'ready' | 'navigation' | 'failed';
 /** Cosmetic crop only. Admitted parent layers retain every control and write capability. */
 export type ChapterPassage =
   | { kind: 'opening' }
-  | { kind: 'review' | 'answer' | 'reading'; id: string };
+  | { kind: 'review' | 'answer' | 'reading' | 'section'; id: string };
 export interface PassageBounds {
   top: number;
   height: number;
@@ -180,6 +181,8 @@ export async function mountRenderer(
   ): void;
   scrollAnchor(id: string): void;
   scrollReading(id: string): void;
+  /** Exact unique HTML id: cosmetic navigation, never action admission. */
+  scrollSection(id: string): void;
   passage(target: ChapterPassage): void;
   selectionMode(enabled: boolean): void;
   images(input: DocumentImageInput): void;
@@ -1095,9 +1098,22 @@ export async function mountRenderer(
         id,
       });
     },
+    scrollSection: (id: string) => {
+      if (stopped || !ready || !validSectionId(id)) return;
+      channel.port1.postMessage({
+        type: 'colab.render.scroll-section',
+        renderId: snapshot.renderId,
+        id,
+      });
+    },
     passage: (target: ChapterPassage) => {
       if (stopped || !ready) return;
-      if (target.kind !== 'opening' && !/^[0-9a-f-]{36}$/.test(target.id)) return;
+      if (
+        target.kind === 'section'
+          ? !validSectionId(target.id)
+          : target.kind !== 'opening' && !/^[0-9a-f-]{36}$/.test(target.id)
+      )
+        return;
       passageRequestId = crypto.randomUUID();
       options.onPassage?.(null, false);
       channel.port1.postMessage({

@@ -25,6 +25,10 @@ const SKILL_REFERENCES: &[(&str, &str)] = &[
         include_str!("../../../skills/tmt-colab/references/attachments.md"),
     ),
     (
+        "collections",
+        include_str!("../../../skills/tmt-colab/references/collections.md"),
+    ),
+    (
         "editing",
         include_str!("../../../skills/tmt-colab/references/editing.md"),
     ),

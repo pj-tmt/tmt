@@ -1,3 +1,4 @@
+import { validReadingId } from './reading-link.js';
 import { useRouterState, type AnyRouter, type HistoryState } from '@tanstack/react-router';
 import { useMemo, useRef, useSyncExternalStore } from 'react';
 import type { PageTransport, SpaceHome } from './transport.js';
@@ -9,14 +10,29 @@ export interface ChapterState {
   scroll: number;
   /** The reader chose, or the viewport left no room for, the full page. */
   full?: true;
+  /** A collection opens a full page and returns to its exact entry, never a held Today. */
+  collection?: { id: string; item: string };
 }
 /** What a history entry says about its chapter, read defensively: the state is the browser's. */
 export function chapterOf(state: object): ChapterState | undefined {
   const value = (state as { chapter?: unknown }).chapter;
   if (typeof value !== 'object' || value === null) return undefined;
-  const { scroll, full } = value as Partial<ChapterState>;
+  const { scroll, full, collection } = value as Partial<ChapterState>;
+  const origin =
+    collection &&
+    typeof collection === 'object' &&
+    typeof collection.id === 'string' &&
+    typeof collection.item === 'string' &&
+    validReadingId(collection.id) &&
+    validReadingId(collection.item)
+      ? { id: collection.id, item: collection.item }
+      : undefined;
   return typeof scroll === 'number' && Number.isFinite(scroll) && scroll >= 0
-    ? { scroll, ...(full === true ? { full } : {}) }
+    ? {
+        scroll,
+        ...(full === true || origin ? { full: true as const } : {}),
+        ...(origin ? { collection: origin } : {}),
+      }
     : undefined;
 }
 const entry = (chapter: ChapterState) => ({ chapter }) as HistoryState;
@@ -85,7 +101,7 @@ export function useOpenChapter(): OpenChapter | undefined {
 const trips = new WeakMap<
   object,
   {
-    left?: { id: string; scroll: number };
+    left?: { id: string; scroll: number; collection?: string };
     opened: boolean;
     today?: HTMLElement;
     named?: HTMLElement;
@@ -123,19 +139,40 @@ export function prepareToday(router: AnyRouter, section: HTMLElement): void {
   const state = trip(router);
   state.today = section;
   const left = state.left;
-  if (!left) return;
+  if (!left || left.collection) return;
   window.scrollTo(0, left.scroll);
   nameTitle(router, section.querySelector<HTMLElement>(`[data-page-id="${left.id}"] a`));
+}
+/** Collection return uses the same navigation owner and transition name as Today. */
+export function prepareCollection(router: AnyRouter, section: HTMLElement, id: string): void {
+  const state = trip(router);
+  const left = state.left;
+  if (!left || left.collection !== id) return;
+  state.today = section;
+  window.scrollTo(0, left.scroll);
+  nameTitle(router, section.querySelector<HTMLElement>(`[data-collection-item="${left.id}"] a`));
+  // The bounded detail read may settle after the router's rendered event. This actual row
+  // mount, rather than a timer or another navigation, completes that deferred return.
+  finishReturn(router);
 }
 /** The router has rendered Today: its own scroll reset has run, so the offset is set once more and
  * the chapter that was left takes focus. */
 export function finishReturn(router: AnyRouter): void {
   const state = trip(router);
   const { left, today } = state;
-  if (!left || !today?.isConnected || router.state.location.pathname !== '/') return;
+  if (
+    !left ||
+    !today?.isConnected ||
+    router.state.location.pathname !== (left.collection ? `/collections/${left.collection}` : '/')
+  )
+    return;
   state.left = undefined;
   window.scrollTo(0, left.scroll);
-  today.querySelector<HTMLElement>(`[data-page-id="${left.id}"] a`)?.focus({ preventScroll: true });
+  today
+    .querySelector<HTMLElement>(
+      `[${left.collection ? 'data-collection-item' : 'data-page-id'}="${left.id}"] a`,
+    )
+    ?.focus({ preventScroll: true });
 }
 /** The page's title takes the shared name while a chapter is open. */
 export function nameOpenedTitle(router: AnyRouter, element: HTMLElement | null): void {
@@ -145,16 +182,34 @@ export function nameOpenedTitle(router: AnyRouter, element: HTMLElement | null):
 export function openChapter(
   router: AnyRouter,
   pageId: string,
-  options: { scroll: number; link: HTMLElement | null; replace: boolean; full?: true },
+  options: {
+    scroll: number;
+    link: HTMLElement | null;
+    replace: boolean;
+    full?: true;
+    collection?: { id: string; item: string };
+    section?: string;
+  },
 ): void {
-  Object.assign(trip(router), { left: { id: pageId, scroll: options.scroll }, opened: true });
+  Object.assign(trip(router), {
+    left: {
+      id: options.collection?.item ?? pageId,
+      scroll: options.scroll,
+      ...(options.collection ? { collection: options.collection.id } : {}),
+    },
+    opened: true,
+  });
   nameTitle(router, options.link);
   void router.navigate({
     to: '/pages/$pageId',
     params: { pageId },
+    search: options.section ? { section: options.section } : {},
     state: entry({
       scroll: options.scroll,
-      ...(options.full || !matchMedia(WIDE).matches ? { full: true as const } : {}),
+      ...(options.collection ? { collection: options.collection } : {}),
+      ...(options.full || options.collection || !matchMedia(WIDE).matches
+        ? { full: true as const }
+        : {}),
     }),
     replace: options.replace,
     viewTransition: animated(),
@@ -172,12 +227,23 @@ export function expandChapter(router: AnyRouter, pageId: string, scroll: number)
 /** Back to Today at the same chapter and offset. */
 export function closeChapter(router: AnyRouter, pageId: string, scroll: number): void {
   const state = trip(router);
-  state.left = { id: pageId, scroll };
+  const collection = chapterOf(router.state.location.state)?.collection;
+  state.left = {
+    id: collection?.item ?? pageId,
+    scroll,
+    ...(collection ? { collection: collection.id } : {}),
+  };
   if (animated()) router.shouldViewTransition = true;
   if (state.opened) {
     state.opened = false;
     router.history.back();
-  } else void router.navigate({ to: '/', viewTransition: animated() });
+  } else if (collection)
+    void router.navigate({
+      to: '/collections/$collectionId',
+      params: { collectionId: collection.id },
+      viewTransition: animated(),
+    });
+  else void router.navigate({ to: '/', viewTransition: animated() });
 }
 /** Escape with nothing left to escape inside the page: an open panel closes, the full page stays. */
 export function escapeChapter(router: AnyRouter): void {

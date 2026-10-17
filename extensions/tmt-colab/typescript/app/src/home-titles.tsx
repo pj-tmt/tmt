@@ -69,8 +69,10 @@ export function HomeTitleLink({
   page,
   hints,
   onClick,
+  section,
 }: {
   page: PageSummary;
+  section?: string;
   hints?: HomeTitleHints;
   onClick?: (event: MouseEvent<HTMLAnchorElement>) => void;
 }) {
@@ -94,6 +96,7 @@ export function HomeTitleLink({
       ref={link}
       to="/pages/$pageId"
       params={{ pageId: page.id }}
+      search={section ? { section } : {}}
       title={title}
       onClick={onClick}
     >

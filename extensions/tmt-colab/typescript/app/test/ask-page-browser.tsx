@@ -1,3 +1,4 @@
+import type { CollectionPort } from '../src/collection-client.js';
 import { pendingVectorData, type PendingVector } from './pending-vector.js';
 /** Deterministic app data/Remote double. Never imported by production. */
 import '@tmt/browser-ui/static.css';
@@ -43,8 +44,8 @@ let answerAttempts: {
   selection: ReturnType<typeof selection>;
   operationId: string;
 }[];
-let publish: ((value: PageView) => void) | undefined;
-let fail: ((error: Error) => void) | undefined;
+const publishers = new Set<(value: PageView) => void>();
+const failures = new Set<(error: Error) => void>();
 let records: PageAsk[];
 let current: PageView;
 let seen: ThreadStatusSeen | undefined;
@@ -62,7 +63,7 @@ function emit() {
       projectThreadPresentation(thread, current.asks ?? [], seen, ownerDevice),
     ),
   };
-  publish?.(current);
+  for (const next of publishers) next(current);
 }
 let readRefusal: ConstructorParameters<typeof ReadRefusedError>[0] | undefined;
 let prepareRelease: (() => void) | undefined;
@@ -131,6 +132,10 @@ export async function mount(
   options: {
     /** Render the real Today route with its mounted-only chapter acquisition port. */
     todayPassages?: boolean;
+    /** Owner collection scenarios reuse this same admitted action fixture. */
+    collections?: CollectionPort;
+    collectionPages?: readonly import('../src/transport.js').PageSummary[];
+    collectionRoute?: string;
     refuseChapter?: boolean;
     creator?: boolean;
     /** Comment-capable binding without the independent Ask facade. */
@@ -180,9 +185,11 @@ export async function mount(
   chapterAcquisitions = 0;
   chapterReleases = 0;
   root?.unmount();
+  publishers.clear();
+  failures.clear();
   document.getElementById('ask-page-fixture')?.remove();
   document.getElementById('root')?.setAttribute('hidden', '');
-  location.hash = options.todayPassages ? '/' : '/pages/welcome';
+  location.hash = options.collectionRoute ?? (options.todayPassages ? '/' : '/pages/welcome');
   const host = document.createElement('div');
   host.id = 'ask-page-fixture';
   document.body.append(host);
@@ -684,13 +691,13 @@ export async function mount(
       emit();
     },
     subscribe(next, failed) {
-      publish = next;
-      fail = failed;
+      publishers.add(next);
+      failures.add(failed);
       next(current);
       emit();
       return () => {
-        if (publish === next) publish = undefined;
-        if (fail === failed) fail = undefined;
+        publishers.delete(next);
+        failures.delete(failed);
       };
     },
     async edit() {
@@ -768,20 +775,23 @@ export async function mount(
     : undefined;
   const transport: PageTransport = {
     management: options.management,
+    collections: options.collections,
     drafts: options.drafts ? sessionDrafts(options.drafts, draftRead) : undefined,
     async spaceHome() {
       return {
         title: 'Fixture space',
-        pages: options.todayPassages
-          ? [
-              {
-                id: id(1),
-                title: 'Chapter fixture',
-                sharing: 'private',
-                summary: { comments: 0, waiting: true, needsYou: 2 },
-              },
-            ]
-          : [],
+        pages:
+          options.collectionPages ??
+          (options.todayPassages
+            ? [
+                {
+                  id: id(1),
+                  title: 'Chapter fixture',
+                  sharing: 'private',
+                  summary: { comments: 0, waiting: true, needsYou: 2 },
+                },
+              ]
+            : []),
       };
     },
     async page(pageId) {
@@ -801,7 +811,7 @@ export async function mount(
       };
     },
   };
-  if (options.todayPassages)
+  if (options.todayPassages || options.collections)
     transport.chapter = async (pageId) => {
       chapterAcquisitions++;
       if (options.refuseChapter) throw new Error('Chapter refused');
@@ -878,7 +888,7 @@ export function change(source: string) {
   emit();
 }
 export function block() {
-  fail?.(new Error('Page unavailable'));
+  for (const failed of failures) failed(new Error('Page unavailable'));
 }
 export function pausePrepare() {
   preparing = new Promise<void>((resolve) => {
@@ -942,7 +952,7 @@ export function refuseRead(code: ConstructorParameters<typeof ReadRefusedError>[
 export function pending() {
   syncRecords('accepted');
   delete records[0].reply;
-  publish?.({ ...current, asks: [...records] });
+  for (const next of publishers) next({ ...current, asks: [...records] });
 }
 
 /** Admitted presentation double for shared Chat/annotation turns; no Remote effects. */

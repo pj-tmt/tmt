@@ -7950,7 +7950,7 @@ fn collections_keep_the_same_owner_data_offline_and_through_the_running_serve() 
         let added = pilot.call(&[
             "collection",
             "add",
-            id,
+            &id[..8],
             &reference,
             "--note",
             "Read the figures",

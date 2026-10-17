@@ -399,7 +399,9 @@ is added.
   5 nullable checked server-observed content time on `pages`, 6 nullable original content
   publication scope on `owner_operations`, 7 page labels, 8 bounded confirmed-publication metadata, 9 `link_admissions` (a live
   link's cloud admission token, dropped with the link), and 10 `link_publications` (links whose cloud
-  row may exist, until their removal completes). Migration leaves legacy times null and legacy
+  row may exist, until their removal completes), 11 `cloud_page_rows` (confirmed owner publication/expiry),
+  12 `edit_decisions` (owner edit-request decisions), 13 `home_summary` and
+  14 owner collections (`collections`, `collection_items`, `collection_seen`). Migration leaves legacy times null and legacy
   outcomes unscoped without backfill. Epoch
   secrets are local key material, not an encrypted-at-rest guarantee.
 - `Store::open` creates and migrates. `Store::read` and `Store::write_existing` open only
@@ -545,7 +547,7 @@ The home route `/` is Today (`today.tsx`; `today-model.ts` is pure: waiting page
 ten most recently updated, the older rest folded into one-line rows, counts over active pages
 and the viewer-clock greeting). Both views read the loader's `spaceHome()` pages through
 `useHomeSpace` (`home-space.ts`), which fills a missing title by the bounded hint read, and share
-`HomeNav` (Today, Waiting, All pages; the ⌘K search is the header's control). Waiting and the metric
+`HomeNav` (Today, Waiting, All pages, owner-only Collections; the ⌘K search is the header's control). Waiting and the metric
 jumps are in-page scrolls: the mounted history keeps its route in the location hash and drops
 search, so a URL anchor cannot carry them. `summary_pending.rs` derives the shared pending target
 IDs (proposals first, readings, answer groups, reviews) from the admitted owner fold and
@@ -564,6 +566,31 @@ writer is the root-local `tmt colab home summary` CLI (`cli_home.rs`): through t
 (`home_summary/ipc.rs`) when it runs, else under the serve lock; the store stamps the time and the
 CLI the caller's name. `pagesChangedSince` (`today-model.ts`) only decides whether the muted
 "pages changed since" note shows; the summary itself is never hidden.
+
+Owner collections (`collections.rs`, `store/collections.rs`, schema 14) are unsigned metadata,
+never page originals or policy. `collections/ipc.rs` owns a strict versioned protocol on the private
+socket; `Registration::collections_browser` reuses current paired-owner admission and allows
+Seen only for browser devices. Root-local commands (`cli_collections.rs`) use that socket while
+serving, or the existing owner Store transaction under the serve lock when stopped; an uncertain
+write never falls back or retries. `collection-client.ts` validates the same bounded directory/detail
+shapes and `mounted.ts` fences Session/generation changes and serializes metadata in its existing
+read lane. Hosted, member and detached adapters have no collection port. Limits and wire shapes
+live in the contract's [Collections](../../../../extensions/tmt-colab/contracts/colab-v1.md#collections-3541) section.
+
+`collections-view.tsx` owns `/collections` and `/collections/<id>`, reuses `HomeNav`,
+`useHomeSpace`, the existing All-pages filter and `ChapterRow` geometry, and never modifies Today
+ordering or needs-you counts. A metadata generation reads at most 64 collection details serially;
+no source fold or Subscribe is involved. Smart unknown evidence stays pending. Seen is a separate
+explicit person action, with no notification or source mutation. The menu is flat, using the existing
+`BrowserMenu`: Rename, Maintainer, checked sort choices, Clear seen when marks exist, Archive.
+
+Chapter slots have distinct reference keys and an underlying page ID, so repeated references
+share the existing page binding without sharing frame/action lifetime. The same three-surface
+pool owns Today and Collections. `ChapterSurface` selects only admitted semantic targets for
+controls; generic references use exact unique HTML IDs for cosmetic crop/scroll via the existing
+renderer channel. `section-link.ts` bounds owner-only fragment hints, never selectors or access
+capabilities. Collection links use the existing chapter full-page opener; its history state retains
+the collection/item and the actual row mount completes deferred scroll/focus restoration.
 
 A chapter opened from Today (`chapter.ts`, `chapter-layer.tsx`, `chapter.css`) keeps the URL
 `/pages/<id>`; how it is presented is history state, `{chapter: {scroll, full?}}` (read through

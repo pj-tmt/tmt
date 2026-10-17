@@ -95,5 +95,27 @@
         "needsYou": true
       }
     ]
-  }
+  },
+  "resolution": [
+    {
+      "id": "part:2",
+      "source": "<h2 id=\"part:2\">Section</h2><p>Live text.</p>",
+      "available": true
+    },
+    {
+      "id": "missing",
+      "source": "<h2 id=\"other\">Other</h2>",
+      "available": false
+    },
+    {
+      "id": "duplicate",
+      "source": "<h2 id=\"duplicate\">First</h2><p id=\"duplicate\">Second</p>",
+      "available": false
+    },
+    {
+      "id": "10000000-0000-4000-8000-000000000001",
+      "source": "<h2 id=\"10000000-0000-4000-8000-000000000001\">Ordinary heading, not a reading</h2>",
+      "available": true
+    }
+  ]
 }

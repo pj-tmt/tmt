@@ -1,3 +1,4 @@
+import { ChapterRow } from './chapter-row.js';
 import { getRouteApi, Link, useRouter } from '@tanstack/react-router';
 import {
   useCallback,
@@ -39,8 +40,15 @@ function jumpTo(jump: Jump): void {
 }
 
 /** Today · Waiting · All pages. The ⌘K search stays the header's existing control. */
-export function HomeNav({ current, waiting }: { current: 'today' | 'all'; waiting?: number }) {
+export function HomeNav({
+  current,
+  waiting,
+}: {
+  current: 'today' | 'all' | 'collections';
+  waiting?: number;
+}) {
   const router = useRouter();
+  const { transport } = rootRoute.useRouteContext();
   return (
     <nav className="home-nav" aria-label={t.navLabel}>
       <Link
@@ -73,6 +81,16 @@ export function HomeNav({ current, waiting }: { current: 'today' | 'all'; waitin
       >
         {t.nav.all}
       </Link>
+      {transport.collections && (
+        <Link
+          to="/collections"
+          className="today-control"
+          data-current={current === 'collections' || undefined}
+          aria-current={current === 'collections' ? 'page' : undefined}
+        >
+          {text.collections.title}
+        </Link>
+      )}
     </nav>
   );
 }
@@ -118,16 +136,15 @@ function Chapter({
   const comments = page.summary?.comments;
   const author = page.summary?.author;
   return (
-    <li
-      className="today-chapter"
+    <ChapterRow
       data-page-id={page.id}
       data-today-waiting={first.includes('waiting') || undefined}
       data-today-updated-today={first.includes('updated-today') || undefined}
       data-updated-today={today || undefined}
       data-open={open || undefined}
-    >
-      <article>
-        <div className="today-chapter-main">
+
+      main={
+        <>
           <p className="today-kicker">
             {needsOwner ? (
               <>
@@ -156,8 +173,10 @@ function Chapter({
               </span>
             ) : null}
           </p>
-        </div>
-        <div className="today-chapter-state">
+        </>
+      }
+      state={
+        <>
           {count !== undefined && (waiting || liveCounts.has(page.id)) && (
             <NeedsYouBar
               tone={count > 0 ? 'needs' : 'done'}
@@ -169,9 +188,9 @@ function Chapter({
           {comments ? (
             <span className="today-comments">{text.pageList.commentCount(comments)}</span>
           ) : null}
-        </div>
-      </article>
-    </li>
+        </>
+      }
+    />
   );
 }
 

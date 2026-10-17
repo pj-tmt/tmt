@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { todayHeading } from '../test/all-pages.js';
 import { pageAction } from '../test/page-actions.js';
 import { createServer } from 'node:http';
@@ -59,8 +60,9 @@ async function mount(page: Page, source: string) {
         onReadings: (readings: unknown[]) => {
           host.dataset.readings = JSON.stringify(readings);
         },
-        onPassage: (bounds: unknown) => {
+        onPassage: (bounds: unknown, checked?: boolean) => {
           host.dataset.passage = JSON.stringify(bounds);
+          host.dataset.passageChecked = String(checked);
         },
         onOpenThread: (id: string) => {
           host.dataset.opened = id;
@@ -1917,3 +1919,33 @@ test('chapter passage geometry rejects stale, oversized and extra-field frame re
   expect(result.rejected).toEqual(Array(7).fill(true));
   expect(result.afterRelease).toBe(JSON.stringify(result.valid));
 });
+
+const collectionReferences = JSON.parse(
+  readFileSync(new URL('../../../contracts/vectors/collection-v1.json', import.meta.url), 'utf8'),
+).resolution as { id: string; source: string; available: boolean }[];
+for (const reference of collectionReferences)
+  test(`collection exact section ${reference.id} resolves=${reference.available}`, async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await mount(page, reference.source);
+    await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+    const before = await page.evaluate(() => window.scrollY);
+    await page.evaluate((id) => {
+      const w = window as unknown as {
+        probe: { handle: Awaited<ReturnType<typeof import('../src/renderer.js').mountRenderer>> };
+      };
+      // An ordinary id equal to a semantic UUID remains cosmetic without admitted blocks.
+      w.probe.handle.questions([], [], [], [], []);
+      w.probe.handle.passage({ kind: 'section', id });
+    }, reference.id);
+    await expect(page.locator('#probe')).toHaveAttribute('data-passage-checked', 'true');
+    const bounds = JSON.parse(
+      (await page.locator('#probe').getAttribute('data-passage')) ?? 'null',
+    );
+    if (reference.available)
+      expect(bounds).toMatchObject({ top: expect.any(Number), height: expect.any(Number) });
+    else expect(bounds).toBeNull();
+    expect(await page.evaluate(() => window.scrollY)).toBe(before);
+    await expect(page.locator('#probe')).toHaveAttribute('data-readings', '[]');
+  });

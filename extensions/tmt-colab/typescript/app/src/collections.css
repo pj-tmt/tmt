@@ -1,0 +1,105 @@
+.collections .collection-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 16px;
+  margin: 32px 0;
+}
+.collection-heading h1 {
+  margin: 0 0 8px;
+}
+.collection-directory {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.collection-directory > li {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 24px;
+  padding: 24px 0;
+  border-bottom: 1px solid var(--tmt-ui-surface-rule);
+}
+.collection-directory h2 {
+  margin: 0 0 8px;
+}
+.collection-directory a {
+  color: inherit;
+  text-decoration: none;
+}
+.collection-directory a:hover,
+.collection-directory a:focus-visible {
+  text-decoration: underline;
+}
+.collection-waiting {
+  white-space: nowrap;
+}
+.collection-waiting > span {
+  color: var(--tmt-ui-color-waiting);
+}
+.collection-progress {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.collection-progress p {
+  margin: 0;
+}
+.collection-chapters [data-seen] .collection-progress,
+.collection-chapters [data-seen] .today-chapter-main {
+  color: var(--tmt-ui-color-secondary);
+}
+.collection-chapters [data-seen] .chapter-passage-source {
+  opacity: 0.6;
+}
+.collection-note {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.collection-menu form {
+  max-width: 24rem;
+  padding-top: 16px;
+}
+.collection-menu label {
+  display: grid;
+  gap: 8px;
+}
+.collection-menu input {
+  max-width: 100%;
+}
+.collection-menu form button {
+  margin: 8px 8px 0 0;
+}
+.collection-notice {
+  color: var(--tmt-ui-color-secondary);
+}
+@media (max-width: 600px) {
+  .collection-directory > li {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .collection-heading {
+    flex-wrap: wrap;
+  }
+  .collection-menu form {
+    width: 100%;
+  }
+}
+
+/* Existing menu semantics and checkmark, arranged in the leading reserved column UX ruled. */
+.collection-menu .tmt-ui-menu-item[role='menuitemradio'] {
+  display: grid;
+  grid-template-columns: 1ch minmax(0, 1fr);
+  column-gap: 8px;
+}
+.collection-menu .tmt-ui-menu-item[role='menuitemradio'] > span:first-child {
+  grid-column: 2;
+  grid-row: 1;
+}
+.collection-menu .tmt-ui-menu-item[role='menuitemradio'] > span[aria-hidden='true'] {
+  grid-column: 1;
+  grid-row: 1;
+}

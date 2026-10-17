@@ -126,7 +126,7 @@ export function ChapterBar({
             if (event.isTrusted) closeChapter(router, pageId, chapter.scroll);
           }}
         >
-          {t.back}
+          {chapter.collection ? text.collections.back : t.back}
         </button>
       </nav>
     );

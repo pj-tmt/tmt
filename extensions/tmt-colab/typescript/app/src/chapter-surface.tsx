@@ -19,6 +19,9 @@ const copy = text.today.passage;
 /** The mounted owner keeps this component alive while an admitted action settles. Its frame
  * can retire independently; the ordinary page layers remain the sole action implementation. */
 export function ChapterSurface({
+  surfaceId,
+  anchor,
+  unavailableText,
   snapshot,
   transport,
   passages,
@@ -29,6 +32,9 @@ export function ChapterSurface({
   url,
   onCount,
 }: {
+  surfaceId: string;
+  anchor?: string;
+  unavailableText?: string;
   snapshot: PageSnapshot;
   transport: PageTransport;
   passages: ChapterPassages;
@@ -69,9 +75,9 @@ export function ChapterSurface({
           retiredAnswers.current.delete(id);
         } else answering.current.delete(id);
       }
-      passages.working(snapshot.id, `${kind}:${id}`, working);
+      passages.working(surfaceId, `${kind}:${id}`, working);
     },
-    [passages, snapshot.id],
+    [passages, surfaceId],
   );
   const layers = usePageLayers({
     snapshot,
@@ -112,7 +118,18 @@ export function ChapterSurface({
       order,
     })),
   );
-  const target = selectChapterTarget(targets, selected);
+  // A reference can select only a target already admitted by the ordinary parent layers.
+  // An arbitrary matching HTML id is only a cosmetic crop, with no parent controls.
+  const referenced = anchor
+    ? targets.find(
+        (item) =>
+          item.id === anchor ||
+          (item.kind === 'answer' &&
+            markup.groups.find((group) => group.id === item.id)?.questions.includes(anchor)),
+      )
+    : undefined;
+  const target = anchor && !selected ? referenced : selectChapterTarget(targets, selected);
+  const generic = anchor && !target ? anchor : undefined;
   const targetKind = target?.kind;
   const targetId = target?.id;
   useEffect(() => {
@@ -132,7 +149,7 @@ export function ChapterSurface({
     if (pendingCount !== undefined) onCount(pendingCount);
   }, [onCount, pendingCount]);
   const reply =
-    ready && !target
+    ready && !target && !anchor
       ? [...(view.asks ?? [])]
           .filter((ask) => ask.reply !== undefined)
           .sort((a, b) => b.issuedAt - a.issuedAt || a.operationId.localeCompare(b.operationId))[0]
@@ -140,9 +157,13 @@ export function ChapterSurface({
   useEffect(() => {
     if (state === 'ready')
       renderer.current?.passage(
-        targetKind && targetId ? { kind: targetKind, id: targetId } : { kind: 'opening' },
+        targetKind && targetId
+          ? { kind: targetKind, id: targetId }
+          : generic
+            ? { kind: 'section', id: generic }
+            : { kind: 'opening' },
       );
-  }, [targetKind, targetId, state]);
+  }, [targetKind, targetId, generic, state]);
   const imageInput = useRef({
     binding: snapshot.binding?.files?.attachments,
     descriptors: view.attachments ?? [],
@@ -167,7 +188,7 @@ export function ChapterSurface({
       renderer.current?.destroy();
       renderer.current = null;
     };
-    const unframe = passages.frame(snapshot.id, retire);
+    const unframe = passages.frame(surfaceId, retire);
     setBounds(null);
     setState('loading');
     void mountRenderer(host.current!, view.source, {
@@ -198,6 +219,7 @@ export function ChapterSurface({
     passageUnavailable,
     onPassage,
     passages,
+    surfaceId,
     snapshot.id,
     view.source,
     onSlots,
@@ -241,18 +263,20 @@ export function ChapterSurface({
     >
       {unavailable ? (
         <p className="chapter-passage-unavailable">
-          {copy.unavailable} ·{' '}
+          {unavailableText ?? copy.unavailable} ·{' '}
           <BrowserAction type="button" variant="text" label={copy.open} onActivate={open} />
         </p>
       ) : (
         <>
-          <p className="chapter-passage-kicker">
-            {target
-              ? copy.kinds[target.kind]
-              : reply
-                ? copy.reply(reply.agentName, compactRelativeTime(reply.issuedAt, now))
-                : copy.opening}
-          </p>
+          {!generic && (
+            <p className="chapter-passage-kicker">
+              {target
+                ? copy.kinds[target.kind]
+                : reply
+                  ? copy.reply(reply.agentName, compactRelativeTime(reply.issuedAt, now))
+                  : copy.opening}
+            </p>
+          )}
           <div
             ref={clip}
             className="chapter-passage-clip"

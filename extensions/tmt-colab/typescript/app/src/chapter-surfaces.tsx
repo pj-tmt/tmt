@@ -17,6 +17,8 @@ import { ChapterSurface } from './chapter-surface.js';
 import type { PageTransport } from './transport.js';
 
 interface Slot {
+  anchor?: string;
+  unavailableText?: string;
   node?: HTMLDivElement;
   container: HTMLDivElement;
   open(): void;
@@ -25,7 +27,15 @@ interface Slot {
 interface ChapterSlots {
   show(generation: object): () => void;
   order(order: readonly string[]): void;
-  attach(id: string, node: HTMLDivElement | null, open: () => void, url: string): void;
+  attach(
+    id: string,
+    node: HTMLDivElement | null,
+    open: () => void,
+    url: string,
+    pageId: string,
+    anchor?: string,
+    unavailableText?: string,
+  ): void;
 }
 const Context = createContext<ChapterSlots | undefined>(undefined);
 const emptyCounts: ReadonlyMap<string, number> = new Map();
@@ -83,10 +93,17 @@ export function ChapterSurfaces({
         order.current = next;
         refresh();
       },
-      attach(id, node, open, url) {
+      attach(id, node, open, url, pageId, anchor, unavailableText) {
+        passages.source(id, node ? pageId : undefined);
         let slot = slots.current.get(id);
         if (!slot) {
-          slot = { container: document.createElement('div'), open, url };
+          slot = {
+            unavailableText,
+            container: document.createElement('div'),
+            open,
+            url,
+            anchor,
+          };
           slots.current.set(id, slot);
         }
         if (slot.node !== node) {
@@ -103,6 +120,8 @@ export function ChapterSurfaces({
         }
         slot.open = open;
         slot.url = url;
+        slot.anchor = anchor;
+        slot.unavailableText = unavailableText;
       },
     }),
     [refresh, passages],
@@ -145,6 +164,10 @@ export function ChapterSurfaces({
           return createPortal(
             view.state === 'ready' ? (
               <ChapterSurface
+                key={view.snapshot.id}
+                surfaceId={view.id}
+                anchor={slot.anchor}
+                unavailableText={slot.unavailableText}
                 snapshot={view.snapshot}
                 transport={transport}
                 passages={passages}
@@ -163,7 +186,7 @@ export function ChapterSurfaces({
               />
             ) : view.state === 'unavailable' && view.visible ? (
               <p className="chapter-passage-unavailable">
-                {text.today.passage.unavailable} ·{' '}
+                {slot.unavailableText ?? text.today.passage.unavailable} ·{' '}
                 <BrowserAction
                   type="button"
                   variant="text"
@@ -195,11 +218,26 @@ export function useChapterSurfaces(order: readonly string[], generation: object,
   );
 }
 
-export function ChapterSurfaceSlot({ id, open, url }: { id: string; open(): void; url: string }) {
+export function ChapterSurfaceSlot({
+  id,
+  pageId = id,
+  anchor,
+  unavailableText,
+  open,
+  url,
+}: {
+  id: string;
+  pageId?: string;
+  anchor?: string;
+  unavailableText?: string;
+  open(): void;
+  url: string;
+}) {
   const context = useContext(Context);
   const ref = useCallback(
-    (node: HTMLDivElement | null) => context?.attach(id, node, open, url),
-    [context, id, open, url],
+    (node: HTMLDivElement | null) =>
+      context?.attach(id, node, open, url, pageId, anchor, unavailableText),
+    [context, id, open, url, pageId, anchor, unavailableText],
   );
   return context ? (
     <div data-chapter-slot={id} ref={ref} style={{ minHeight: 1, width: '100%' }} />

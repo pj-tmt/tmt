@@ -150,3 +150,45 @@ it('a hidden and immediately reopened chapter cannot reuse its aborted lease', a
   expect(second.release).not.toHaveBeenCalled();
   await passages.dispose();
 });
+
+it('keeps repeated page references as distinct surfaces under the same global limit', async () => {
+  const acquire = vi.fn(async (id: string) => lease(id));
+  const passages = new ChapterPassages(acquire);
+  for (const key of ['first', 'second', 'third', 'fourth']) passages.source(key, 'same-page');
+  passages.update(
+    ['first', 'second', 'third', 'fourth'],
+    new Set(['first', 'second', 'third', 'fourth']),
+  );
+  await passages.settled();
+  expect(acquire.mock.calls.map(([id]) => id)).toEqual(['same-page', 'same-page', 'same-page']);
+  expect(passages.snapshot.map((view) => view.id)).toEqual(['first', 'second', 'third']);
+  for (const view of passages.snapshot) {
+    expect(view.state).toBe('ready');
+    if (view.state === 'ready') expect(view.snapshot.id).toBe('same-page');
+  }
+  await passages.dispose();
+});
+
+it('a changed reference retires its frame and joins its busy binding before borrowing the replacement', async () => {
+  const events: string[] = [];
+  const passages = new ChapterPassages(async (id) => {
+    events.push(`acquire:${id}`);
+    return lease(id, events);
+  });
+  passages.source('reference', 'before');
+  passages.update(['reference'], new Set(['reference']));
+  await passages.settled();
+  const retire = vi.fn();
+  passages.frame('reference', retire);
+  passages.working('reference', 'answer', true);
+  passages.source('reference', 'after');
+  expect(retire).toHaveBeenCalledWith(true);
+  expect(passages.snapshot[0].visible).toBe(false);
+  await Promise.resolve();
+  expect(events).toEqual(['acquire:before']);
+  passages.working('reference', 'answer', false);
+  await passages.settled();
+  expect(events).toEqual(['acquire:before', 'release:before', 'acquire:after']);
+  expect(passages.snapshot[0].visible).toBe(true);
+  await passages.dispose();
+});

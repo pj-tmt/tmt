@@ -989,6 +989,26 @@
                 top: 0,
                 height: Math.min(1000000, contentHeight()),
               };
+            } else if (target.kind === 'section') {
+              // Fixed enumeration and exact equality: the parent never supplies a selector.
+              const matches = [...document.querySelectorAll('[id]')].filter(
+                (element) => element.id === target.id,
+              );
+              if (matches.length === 1) {
+                const box = matches[0].getBoundingClientRect();
+                const top = box.top + scrollY;
+                if (
+                  box.width > 0 &&
+                  box.height > 0 &&
+                  Number.isFinite(top) &&
+                  top >= 0 &&
+                  top < 1000000
+                )
+                  bounds = {
+                    top,
+                    height: Math.min(1000000 - top, Math.max(box.height, contentHeight() - top)),
+                  };
+              }
             } else {
               const admitted =
                 target.kind === 'review'
@@ -1184,6 +1204,26 @@
           port.onmessage = (event) => {
             const v = event.data;
             if (
+              v?.type === 'colab.render.scroll-section' &&
+              Object.keys(v).length === 3 &&
+              v.renderId === renderId &&
+              typeof v.id === 'string' &&
+              /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(v.id)
+            ) {
+              const matches = [...document.querySelectorAll('[id]')].filter(
+                (element) => element.id === v.id,
+              );
+              if (matches.length === 1) {
+                matches[0].scrollIntoView({ block: 'start', behavior: 'instant' });
+                try {
+                  const range = document.createRange();
+                  range.selectNodeContents(matches[0]);
+                  CSS.highlights?.set('colab-reading', new Highlight(range));
+                } catch {}
+              }
+              return;
+            }
+            if (
               v?.type === 'colab.render.passage' &&
               Object.keys(v).length === 4 &&
               v.renderId === renderId &&
@@ -1196,7 +1236,11 @@
                 (['review', 'answer', 'reading'].includes(v.target.kind) &&
                   Object.keys(v.target).length === 2 &&
                   typeof v.target.id === 'string' &&
-                  /^[0-9a-f-]{36}$/.test(v.target.id)))
+                  /^[0-9a-f-]{36}$/.test(v.target.id)) ||
+                (v.target.kind === 'section' &&
+                  Object.keys(v.target).length === 2 &&
+                  typeof v.target.id === 'string' &&
+                  /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(v.target.id)))
             ) {
               passageRequest = { target: v.target, requestId: v.requestId };
               resolvePassage();

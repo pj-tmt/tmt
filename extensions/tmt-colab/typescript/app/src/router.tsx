@@ -1,3 +1,4 @@
+import { Collections, CollectionPage } from './collections-view.js';
 import { usePageLayers } from './page-layers.js';
 import { RemotePresenceProvider } from './remote-header.js';
 import './source-editor.css';
@@ -11,7 +12,8 @@ import {
 } from '@tmt/browser-ui/react';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { validPagePrefix } from './short-links.js';
-import { ownerReadingHint, ownerReadingHref, readingSearch } from './reading-link.js';
+import { ownerReadingHint, readingSearch } from './reading-link.js';
+import { ownerSectionHint, ownerSectionHref, sectionSearch } from './section-link.js';
 import { ArrowUpRight, MessageCircle, MessageSquare, Moon, MousePointer2, Sun } from 'lucide-react';
 import { PageHeaderActions, type PageHeaderAction } from './page-header-actions.js';
 import { escapeChapter, finishReturn, useOpenChapter } from './chapter.js';
@@ -628,10 +630,25 @@ const allPages = createRoute({
   loader: loadSpaceHome,
   component: Home,
 });
+const collections = createRoute({
+  getParentRoute: () => root,
+  path: '/collections',
+  loader: loadSpaceHome,
+  component: Collections,
+});
+const collectionPage = createRoute({
+  getParentRoute: () => root,
+  path: '/collections/$collectionId',
+  loader: loadSpaceHome,
+  component: CollectionPage,
+});
 const page = createRoute({
   getParentRoute: () => root,
   path: '/pages/$pageId',
-  validateSearch: readingSearch,
+  validateSearch: (search: Record<string, unknown>) => ({
+    ...readingSearch(search),
+    ...sectionSearch(search),
+  }),
   loader: ({ context, params, abortController }) =>
     context.transport.page(params.pageId, abortController.signal),
   component: Page,
@@ -640,7 +657,10 @@ const page = createRoute({
 const shortPage = createRoute({
   getParentRoute: () => root,
   path: '/short/$prefix',
-  validateSearch: readingSearch,
+  validateSearch: (search: Record<string, unknown>) => ({
+    ...readingSearch(search),
+    ...sectionSearch(search),
+  }),
   loader: async ({ context, params, location }) => {
     if (!validPagePrefix(params.prefix)) throw new Error('Page unavailable');
     const home = await context.transport.spaceHome();
@@ -660,7 +680,7 @@ const shortPage = createRoute({
       throw redirect({
         to: '/pages/$pageId',
         params: { pageId: pages[0].id },
-        search: readingSearch(location.search),
+        search: { ...readingSearch(location.search), ...sectionSearch(location.search) },
         replace: true,
       });
     return { pages, prefix: params.prefix };
@@ -777,7 +797,7 @@ function Shell() {
   const router = useRouter();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const isPage = pathname.startsWith('/pages/');
-  const isHome = pathname === '/' || pathname === '/all';
+  const isHome = pathname === '/' || pathname === '/all' || pathname.startsWith('/collections');
   // The chapter chrome follows the page the outlet shows (see `useOpenChapter`).
   const open = useOpenChapter();
   const opened = open?.chapter;
@@ -801,9 +821,11 @@ function Shell() {
                 ? 'Open a page'
                 : pathname === '/'
                   ? text.today.title
-                  : pathname === '/all'
-                    ? text.pages
-                    : text.error
+                  : pathname.startsWith('/collections')
+                    ? text.collections.title
+                    : pathname === '/all'
+                      ? text.pages
+                      : text.error
             }
           />
         )}
@@ -1325,7 +1347,10 @@ function Page() {
     return () => document.removeEventListener('keydown', key);
   }, [canSelect, selectionMode]);
   const host = useRef<HTMLDivElement>(null);
-  const { read: readingHint } = page.useSearch();
+  const { read: readingHint, section: sectionHint } = page.useSearch();
+  useEffect(() => {
+    if (space && state === 'ready' && sectionHint) renderer.current?.scrollSection(sectionHint);
+  }, [space, state, sectionHint, view.source]);
   const {
     readings,
     inlineSlots,
@@ -2082,10 +2107,19 @@ export function createAppRouter(transport: PageTransport, space?: string) {
         parseLocation: () => {
           const fragment = new URLSearchParams(location.hash.slice(1));
           let path = fragment.get('space') === space ? (fragment.get('path') ?? '/') : '/blocked';
-          if (!/^\/(?:all|pages\/[0-9a-f-]+|short\/[0-9a-f-]{8,36})?$/.test(path))
+          if (
+            !/^\/(?:all|collections(?:\/[0-9a-f-]{36})?|pages\/[0-9a-f-]+|short\/[0-9a-f-]{8,36})?$/.test(
+              path,
+            )
+          )
             path = '/blocked';
           const read = ownerReadingHint(new URL(location.href), space);
-          const search = read ? `?read=${read}` : '';
+          const section = ownerSectionHint(new URL(location.href), space);
+          const search = read
+            ? `?read=${read}`
+            : section
+              ? `?section=${encodeURIComponent(section)}`
+              : '';
           return {
             href: path + search,
             pathname: path,
@@ -2094,11 +2128,19 @@ export function createAppRouter(transport: PageTransport, space?: string) {
             state: { ...window.history.state, __TSR_index: window.history.state?.__TSR_index ?? 0 },
           };
         },
-        createHref: (path) => ownerReadingHref(path, location.pathname, space),
+        createHref: (path) => ownerSectionHref(path, location.pathname, space),
       })
     : createHashHistory();
   const router = createRouter({
-    routeTree: root.addChildren([home, allPages, page, shortPage, blocked]),
+    routeTree: root.addChildren([
+      home,
+      allPages,
+      collections,
+      collectionPage,
+      page,
+      shortPage,
+      blocked,
+    ]),
     history,
     context: { transport, space },
   });

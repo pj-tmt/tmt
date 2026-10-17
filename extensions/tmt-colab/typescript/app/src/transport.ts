@@ -1,3 +1,4 @@
+import type { CollectionPort } from './collection-client.js';
 import type { ReadingDetails } from './reading-details.js';
 import type { RemotePresence } from './remote-presence.js';
 import type { CompactReport, PageUsage } from './page-usage.js';
@@ -98,6 +99,8 @@ export interface PageTransport {
   /** Device-local unsent-draft persistence; absent means drafts stay in memory. */
   readonly drafts?: DraftStore;
   readonly management?: ManagementPort;
+  /** Owner-only collection metadata; absent for hosted, member and detached adapters. */
+  readonly collections?: CollectionPort;
   spaceHome(): Promise<SpaceHome>;
   /** A verified title only: no editor, discussion or live subscription. */
   readTitle?(id: string, budget: TitleReadBudget, signal: AbortSignal): Promise<string | undefined>;

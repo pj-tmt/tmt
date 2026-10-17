@@ -1,3 +1,4 @@
+import { CollectionClient, type CollectionPort } from './collection-client.js';
 import { MountedPages } from './mounted-pages.js';
 import { readReadingDetails } from './reading-details.js';
 import { RemotePresence } from './remote-presence.js';
@@ -140,6 +141,37 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
       return managed(client, () => client.setLabels(changes));
     },
   };
+  const collectionClient = new CollectionClient(mount);
+  function collectionRead<T>(
+    signal: AbortSignal | undefined,
+    action: (signal: AbortSignal) => Promise<T>,
+  ): Promise<T> {
+    // Collection metadata and reading details share one bounded owner-read lane.
+    const request = detailReads.then(() =>
+      owned(async () => {
+        const readSignal = scopedSignal(signal);
+        readSignal.throwIfAborted();
+        const bound = replacement ? await replacement : current;
+        readSignal.throwIfAborted();
+        const result = await action(readSignal);
+        readSignal.throwIfAborted();
+        requireValue(bound === current);
+        return result;
+      }),
+    );
+    detailReads = request.catch(() => undefined);
+    return request;
+  }
+  const collections: CollectionPort = {
+    directory: (signal) =>
+      collectionRead(signal, (readSignal) => collectionClient.directory(readSignal)),
+    read: (id, signal) =>
+      collectionRead(signal, (readSignal) => collectionClient.read(id, readSignal)),
+    change(command, signal) {
+      const client = managementClient;
+      return managed(client, () => collectionClient.change(command, scopedSignal(signal)));
+    },
+  };
   clearRecovery(mount);
   const owner = {
     async rememberTitle(page, title, registration) {
@@ -258,6 +290,7 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
       },
       drafts,
       management,
+      collections,
       remotePresence,
       async spaceHome() {
         const client = managementClient;

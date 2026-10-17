@@ -4272,12 +4272,38 @@ has `version:1` and one closed operation; unknown fields, kinds, IDs, scopes or 
 are refused before a write. The directory carries definitions and metadata; details carry
 only one collection's items and Seen marks, each reply within the existing 1 MiB cap.
 
+The request envelope is exactly `{version:1,command:<operation>}`. Operations are
+`{op:"list"}`, `{op:"show",id}`, `{op:"create",collection}`, `{op:"add",id,item}`,
+`{op:"remove",id,item:<item UUID>}`, `{op:"rename",id,name}`,
+`{op:"maintainer",id,maintainer}`, `{op:"sort",id,sort}`, `{op:"query",id,search,needsYou?}`,
+`{op:"archive",id,archived}`, and browser-only `{op:"seen",id,target}` / `{op:"clear-seen",id}`.
+A manual definition is `{kind:"manual",sort:"manual"|"updated"|"title"}`; a smart definition is
+`{kind:"smart",search:<canonical list search>,needsYou?:true}`. Optional values are omitted,
+never null. Collection fields are `id,name,maintainer,archived,definition`; item fields are
+`id,pageId,anchor?,note,audience`. The browser's GET directory returns
+`{kind:"directory",collections:[...]}`; one GET detail or a successful mutation returns
+`{kind:"detail",detail:{collection,items,seen:[{id,atMs}]},changed:<boolean>}`.
+IDs and response fields are closed and validated; times are nonnegative safe integers.
+The 64-definition directory and a complete selected detail each fit 1 MiB. The browser reads
+at most 64 details serially per metadata generation and cancels on route/Session replacement;
+it never presents a failed detail read as an empty Seen set.
+
+Known collection refusals are `COLAB_INPUT_INVALID`, `COLAB_CAPACITY`, `COLAB_CONFLICT`,
+`COLAB_COLLECTION_NOT_FOUND`, `COLAB_SERVER_MISMATCH` and `COLAB_UNAVAILABLE`, alongside
+existing owner admission refusals. A lost or invalid mutation reply is `COLAB_OUTCOME_UNKNOWN`.
+Error bodies contain a closed `code` and safe fixed `message`, never raw Store errors. CLI
+collection prefixes reuse the existing 8-character-minimum unambiguous ID matching; ambiguity
+names every match and refuses without writing. Manual insertion order is the default; removing
+an item never renumbers or removes a page. Archived collections are omitted from the normal
+directory view but remain accessible by ID or CLI. CLI `add --for` sets the audience label.
+
 Create, add, remove, rename, maintainer, query, sort and archive changes apply atomically
 under the Store writer transaction; reads create nothing. A request owns its frozen IDs;
 an exact repeat is unchanged, and an existing ID with different create data is a conflict.
 Capacity or invalid input changes nothing and is never truncated. A lost reply is an
 unknown outcome to inspect with show; it never triggers an automatic retry or an offline
-fallback. Management lives in the collection menu. Native commands expose the same
+fallback. Management lives in one flat collection menu (Rename, Maintainer, checked sort choices,
+Clear seen when marks exist, Archive last). Native commands expose the same
 operations except person-only Seen/Clear seen, with human/JSON parity. The bundled skill
 teaches maintainers to add references and notes rather than copy source.
 

@@ -8,6 +8,7 @@ export type ChapterPassageView = { id: string; visible: boolean; busy?: true; de
 );
 interface Entry {
   id: string;
+  pageId: string;
   controller: AbortController;
   view: ChapterPassageView;
   lease?: PageLease;
@@ -21,6 +22,7 @@ interface Entry {
  * binding until they settle, even after the frame retires. A successor always joins that release. */
 export class ChapterPassages {
   #entries = new Map<string, Entry>();
+  #pages = new Map<string, string>();
   #wanted: string[] = [];
   #view: readonly ChapterPassageView[] = [];
   #listeners = new Set<() => void>();
@@ -30,6 +32,22 @@ export class ChapterPassages {
   #cleanupFailure: unknown;
   constructor(private acquire: (id: string, signal: AbortSignal) => Promise<PageLease>) {}
 
+  /** Slots name reference identity separately from the admitted page they borrow. */
+  source(id: string, pageId?: string) {
+    if (pageId === undefined) {
+      this.#pages.delete(id);
+      return;
+    }
+    this.#pages.set(id, pageId);
+    const entry = this.#entries.get(id);
+    if (entry && entry.pageId !== pageId) {
+      entry.detached = true;
+      entry.retireFrame?.(true);
+      entry.controller.abort();
+      this.#publish();
+      this.#request();
+    }
+  }
   get snapshot() {
     return this.#view;
   }
@@ -40,7 +58,13 @@ export class ChapterPassages {
     };
   };
   #visible(id: string) {
-    return !this.#stopped && !this.#cleanupFailure && this.#wanted.includes(id);
+    const entry = this.#entries.get(id);
+    return (
+      !this.#stopped &&
+      !this.#cleanupFailure &&
+      this.#wanted.includes(id) &&
+      (!entry || entry.pageId === (this.#pages.get(id) ?? id))
+    );
   }
   #publish() {
     this.#view = [...this.#entries.values()].map((entry) => ({
@@ -162,6 +186,7 @@ export class ChapterPassages {
           continue;
         const entry: Entry = {
           id,
+          pageId: this.#pages.get(id) ?? id,
           controller: new AbortController(),
           working: new Set(),
           idle: new Set(),
@@ -170,7 +195,7 @@ export class ChapterPassages {
         this.#entries.set(id, entry);
         this.#publish();
         try {
-          entry.lease = await this.acquire(id, entry.controller.signal);
+          entry.lease = await this.acquire(entry.pageId, entry.controller.signal);
           if (!this.#visible(id) || entry.controller.signal.aborted) {
             await this.#release(entry);
             this.#dirty = true;

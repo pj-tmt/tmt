@@ -1,3 +1,4 @@
+export { validSectionId } from './section-link.js';
 import { filterPages, type PageSort } from './labels.js';
 import { orderPages, pageTitle } from './page-index.js';
 import type { HomeSearch } from './home-search.js';
@@ -44,11 +45,6 @@ export function collectionNameError(value: string): 'empty' | 'long' | 'form' | 
   if ([...value].length > COLLECTION_NAME_POINTS) return 'long';
   if (/\p{Cc}/u.test(value)) return 'form';
   return undefined;
-}
-
-/** Exact HTML fragment IDs only. This grammar never accepts selectors or grants actions. */
-export function validSectionId(value: string): boolean {
-  return /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(value);
 }
 
 /** The existing All-pages filter owns search semantics; summaries remain evidence, not defaults. */
