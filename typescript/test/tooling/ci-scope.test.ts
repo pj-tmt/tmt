@@ -3348,11 +3348,18 @@ describe('required CI gate', () => {
     expect(app).toContain('permissions:\n      contents: read');
     expect(app).toContain('pnpm --filter @tmt/colab-app --fail-if-no-match test:browser');
     expect(app).toContain('playwright install --with-deps chromium');
-    // Three shards run the one single-worker suite (#2827): none cancels another, and each keeps
+    // Whole-file shards balance the one single-worker suite (#3618): none cancels another, and each keeps
     // its own concurrency group and evidence.
     expect(app).toContain('fail-fast: false');
-    expect(app).toContain('shard: [1, 2, 3]');
-    expect(app).toContain('--shard=${{ matrix.shard }}/3');
+    expect(app).toContain('shard: [1, 2, 3, 4, 5]');
+    expect(app).toContain(
+      'shard_files="$(node scripts/colab-acceptance-shards.mjs ${{ matrix.shard }} 5 component)"'
+    );
+    expect(app).not.toContain('--shard=');
+    expect(app).toContain('--reporter=dot,json');
+    expect(app).toContain(
+      'PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/colab-app-results/results.json'
+    );
     expect(app).toContain('-${{ matrix.shard }}\n      cancel-in-progress');
     expect(app).toContain('name: colab-app-results-${{ matrix.shard }}');
     expect(app).toContain('retention-days: 7');

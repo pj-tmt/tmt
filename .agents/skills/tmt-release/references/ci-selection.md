@@ -156,7 +156,13 @@ selects `colab_app` for the app, colab-client and browser-ui paths, the workflow
 the pnpm lockfile, and also runs weekly and manually. The specs that need the native
 Colab executables skip with a named reason there, so the run proves the browser
 components only. It keeps a bounded run log and failure traces for seven days and is
-advisory like the rest of the workflow.
+advisory like the rest of the workflow. Component shards use whole-file duration weights in
+`e2e/shard-weights.json`, through the shared `typescript/scripts/colab-acceptance-shards.mjs`
+helper. The helper and workflow matrix share a guarded shard count; every spec runs exactly
+once, including new files with the default weight. The 20-minute job limit, one worker,
+no retries and 30-second test limit remain. Dot and JSON reporters share the existing results
+artifact (`results.json` holds per-test durations) for refitting weights; record source runs,
+method and variance, and verify full test-ID equality before changing the split.
 
 The advisory `colab-hosted` PR job runs the hosted bundle spec when `colab_hosted` or
 `colab_hosted_emulator` selects it. `selectHostedReaderEmulator` in `ci-scope.mjs` owns the
