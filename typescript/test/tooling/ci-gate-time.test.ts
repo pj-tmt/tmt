@@ -144,11 +144,23 @@ describe('recorded gate cohort', () => {
       { event: 'merge_group', job: 'Renamed away job' },
     ];
     expect(unmeasuredBudgets(summary, limits)).toEqual(missing);
-    expect(unmeasuredBudgets(summary, budgets)).toEqual([]);
+    const partitionJobs = [
+      'Compile workspace test closure',
+      'Execute partition 1',
+      'Execute partition 2',
+      'Verify exact workspace test identities',
+    ].map((name) => `Native Rust workspace tests / ${name}`);
+    expect(unmeasuredBudgets(summary, budgets)).toEqual(
+      ['pull_request', 'merge_group'].flatMap((event) =>
+        partitionJobs.map((job) => ({ event, job }))
+      )
+    );
     expect(renderReport(summary, limits)).toMatch(
       /## Budgeted jobs without samples\n\n.*\n\n- PR Renamed away job\n- Merge group Renamed away job\n/
     );
-    expect(renderReport(summary, budgets)).toMatch(/without samples\n\n.*\n\nNone\.\n/);
+    expect(renderReport(summary, budgets)).toContain(
+      '- PR Native Rust workspace tests / Execute partition 1'
+    );
     // A job whose every run was skipped has no sample either.
     const skipped = {
       ...summary.pull_request.jobs[0]!,
@@ -201,6 +213,46 @@ describe('gate measurement edge cases', () => {
     expect(result.jobs.find((entry) => entry.name === 'Unit tests')).toBeUndefined();
   });
 
+  it('shows budgeted partition jobs, checks their limits, and excludes their collector from the controlling worker', () => {
+    const producer = 'Native Rust workspace tests / Compile workspace test closure';
+    const p1 = 'Native Rust workspace tests / Execute partition 1';
+    const p2 = 'Native Rust workspace tests / Execute partition 2';
+    const collector = 'Native Rust workspace tests / Verify exact workspace test identities';
+    const result = summarizeGate([
+      run([
+        job(1, 'Code quality', 0, 10),
+        job(2, producer, 0, 302),
+        job(3, p1, 302, 523),
+        job(4, p2, 302, 620),
+        job(5, 'Native process contracts', 302, 630),
+        job(6, collector, 622, 640),
+        job(7, 'Native Rust contracts', 641, 660),
+        job(8, 'Native package matrix', 661, 676),
+        job(9, 'Release rehearsal (cli) / Conclude', 400, 500),
+      ]),
+    ]);
+    expect(result.pull_request.controlling[0]?.name).toBe('Native process contracts');
+    const report = renderReport(result, budgets);
+    for (const name of [producer, p1, p2, collector]) expect(report).toContain(`| ${name} | 1 |`);
+    expect(report).not.toContain('| Release rehearsal (cli) / Conclude |');
+    expect(overBudget(result, budgets)).toContainEqual({
+      event: 'pull_request',
+      what: `${producer} p90`,
+      value: 302,
+      budget: 301,
+    });
+    expect(budgets.gate.pull_request).toEqual({ median: 710, p90: 1095 });
+    expect(budgets.gate.merge_group).toEqual({ median: 790, p90: 911 });
+    for (const [name, pr] of [
+      [producer, 301],
+      [p1, 221],
+      [p2, 318],
+      [collector, 18],
+    ] as const)
+      expect(budgets.jobs[name]).toEqual({ pull_request: pr, merge_group: 861 });
+    expect(budgets.jobs['Native Rust workspace tests']).toBeUndefined();
+  });
+
   it('breaks completion ties by job ID and ignores work finishing after the gate', () => {
     const result = measure([
       job(5, 'Alpha', 2, 200),
@@ -233,8 +285,17 @@ describe('gate measurement edge cases', () => {
       new URL('../../../.github/workflows/ci.yml', import.meta.url),
       'utf8'
     );
-    for (const name of [...REQUIRED_CONTEXTS, ...AGGREGATE_JOBS])
-      expect(workflow).toMatch(new RegExp(`^ {4}name: ${name}$`, 'm'));
+    const reusable = readFileSync(
+      new URL('../../../.github/workflows/workspace-partitions.yml', import.meta.url),
+      'utf8'
+    );
+    expect(workflow).toContain('uses: ./.github/workflows/workspace-partitions.yml');
+    for (const name of [...REQUIRED_CONTEXTS, ...AGGREGATE_JOBS]) {
+      const child = name.startsWith('Native Rust workspace tests / ')
+        ? name.split(' / ')[1]
+        : undefined;
+      expect(child ? reusable : workflow).toMatch(new RegExp(`^ {4}name: ${child ?? name}$`, 'm'));
+    }
   });
 });
 

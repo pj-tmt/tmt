@@ -1,11 +1,14 @@
 {
-  "baseline": "#3230 frozen cohort, 2026-10-15: 40 successful ci.yml pull_request and 40 merge_group runs",
+  "baseline": "#3284 PR K2 series, 2026-10-17: gate median and child p90s measured (n=5); PR gate p90 retains 1095s, below the 1190s queue outlier. Unrelated jobs/all MG limits retain #3230; workspace MG rows inherit 861s until 10 natural MG runs.",
   "gate": {
-    "pull_request": { "median": 800.5, "p90": 1095 },
+    "pull_request": { "median": 710, "p90": 1095 },
     "merge_group": { "median": 790, "p90": 911 }
   },
   "jobs": {
-    "Native Rust workspace tests": { "pull_request": 866, "merge_group": 861 },
+    "Native Rust workspace tests / Compile workspace test closure": { "pull_request": 301, "merge_group": 861 },
+    "Native Rust workspace tests / Execute partition 1": { "pull_request": 221, "merge_group": 861 },
+    "Native Rust workspace tests / Execute partition 2": { "pull_request": 318, "merge_group": 861 },
+    "Native Rust workspace tests / Verify exact workspace test identities": { "pull_request": 18, "merge_group": 861 },
     "Docker E2E shard 1/2": { "pull_request": 672, "merge_group": 692 },
     "Docker E2E shard 2/2": { "pull_request": 655, "merge_group": 639 },
     "Native process contracts": { "pull_request": 592, "merge_group": 585 },

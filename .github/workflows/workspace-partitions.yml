@@ -1,0 +1,235 @@
+name: Workspace partitions
+
+on:
+  workflow_call:
+    inputs:
+      scope:
+        required: true
+        type: string
+      native-sync:
+        required: true
+        type: boolean
+      save-cache:
+        required: true
+        type: boolean
+      partitions:
+        required: true
+        type: number
+
+permissions:
+  contents: read
+
+env:
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  producer:
+    name: Compile workspace test closure
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+      - name: Record the pinned Node version
+        run: |
+          node --version
+          test "$(node --version)" = v22.23.2
+      - name: Admit scope and partition count
+        id: plan
+        env:
+          SCOPE: ${{ inputs.scope }}
+          K: ${{ inputs.partitions }}
+        run: |
+          node -e 'if (!["full","ops"].includes(process.env.SCOPE)) throw Error("unknown native scope"); const k=Number(process.env.K); if (![2,3].includes(k)) throw Error("partition count"); console.log("matrix="+JSON.stringify(Array.from({length:k},(_,i)=>i+1)));' >> "$GITHUB_OUTPUT"
+      - name: Install pinned Rust toolchains
+        id: toolchain
+        run: sh scripts/install-ci-rust.sh 1.97.0 --profile minimal --component rustfmt,clippy
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: rust
+          shared-key: native-rust
+          save-if: ${{ github.ref == 'refs/heads/main' && inputs.save-cache }}
+      - name: Install pinned nextest
+        if: inputs.scope == 'full'
+        uses: ./.github/actions/setup-nextest
+      - name: Test and build workspace
+        if: inputs.scope == 'full'
+        working-directory: rust
+        env:
+          K: ${{ inputs.partitions }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/workspace-proof"
+          node ../typescript/scripts/workspace-nextest.mjs phase "$RUNNER_TEMP/workspace-proof" remote-list cargo test --locked -p tmt-remote -- --list
+          grep -q ': test$' "$RUNNER_TEMP/workspace-proof/remote-list.log"
+          node ../typescript/scripts/private-world.mjs -- node ../typescript/scripts/workspace-nextest.mjs inventory "$RUNNER_TEMP/workspace-proof" "$K"
+      - name: Archive the verified compilation inventory
+        if: inputs.scope == 'full'
+        working-directory: rust
+        env:
+          K: ${{ inputs.partitions }}
+        run: node ../typescript/scripts/workspace-nextest.mjs archive "$RUNNER_TEMP/workspace-proof" "$K"
+      - name: Test workspace documentation separately
+        if: always() && inputs.scope == 'full' && steps.toolchain.outcome == 'success'
+        working-directory: rust
+        run: |
+          node ../typescript/scripts/workspace-nextest.mjs phase "$RUNNER_TEMP/workspace-proof" doctests cargo test --locked --workspace --doc
+      - name: Build workspace development binaries
+        if: inputs.scope == 'full'
+        working-directory: rust
+        run: node ../typescript/scripts/workspace-nextest.mjs phase "$RUNNER_TEMP/workspace-proof" dev-build cargo build --locked --workspace
+      - name: Select hosted Temurin 21 for native sync acceptance
+        if: inputs.scope == 'full' && inputs.native-sync
+        run: |
+          test -n "$JAVA_HOME_21_X64"
+          printf 'JAVA_HOME=%s\n' "$JAVA_HOME_21_X64" >> "$GITHUB_ENV"
+          printf '%s\n' "$JAVA_HOME_21_X64/bin" >> "$GITHUB_PATH"
+          "$JAVA_HOME_21_X64/bin/java" -version
+      - name: Install pinned native sync emulator tools
+        if: inputs.scope == 'full' && inputs.native-sync
+        run: npm install --global firebase-tools@15.29.0
+      - name: Prove native Auth and sealed sync against Colab Rules
+        if: inputs.scope == 'full' && inputs.native-sync
+        timeout-minutes: 8
+        run: node extensions/tmt-remote/typescript/remote-client/test/emulator/native-qualify.mjs
+      - name: Prove Colab cloud sync between real serves and Colab Rules
+        if: inputs.scope == 'full' && inputs.native-sync
+        timeout-minutes: 8
+        run: node extensions/tmt-colab/scripts/cloud-sync-emulator.mjs
+      - name: Test Ops and architecture
+        if: inputs.scope == 'ops'
+        working-directory: rust
+        run: |
+          node ../typescript/scripts/private-world.mjs -- cargo test --locked -p tmt-ops
+          cargo test --locked -p tmt-cli --test architecture
+      - name: Upload compiled closure
+        if: inputs.scope == 'full'
+        uses: actions/upload-artifact@v4
+        with:
+          name: workspace-closure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/workspace-proof/workspace.tar.zst
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+      - name: Preserve independent inventory and phase evidence
+        if: always() && inputs.scope == 'full'
+        uses: actions/upload-artifact@v4
+        with:
+          name: workspace-producer-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/workspace-proof/*.json
+            ${{ runner.temp }}/workspace-proof/*.log
+          retention-days: 1
+          if-no-files-found: error
+
+  consumers:
+    name: Execute partition ${{ matrix.partition }}
+    needs: producer
+    if: inputs.scope == 'full'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        partition: ${{ fromJSON(needs.producer.outputs.matrix || '[1]') }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+      - name: Install pinned Rust toolchains for native metadata tests
+        run: sh scripts/install-ci-rust.sh 1.97.0 --profile minimal --component rustfmt,clippy
+      - uses: ./.github/actions/setup-nextest
+      - name: Download producer inventory
+        uses: actions/download-artifact@v4
+        with:
+          name: workspace-producer-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/workspace-proof
+      - name: Download compiled closure
+        uses: actions/download-artifact@v4
+        with:
+          name: workspace-closure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/workspace-proof
+      - name: Admit extract and execute only this slice
+        working-directory: rust
+        env:
+          PARTITION: ${{ matrix.partition }}
+        run: |
+          rm "$RUNNER_TEMP/workspace-proof/phases.json"
+          node ../typescript/scripts/workspace-nextest.mjs consume "$RUNNER_TEMP/workspace-proof" "$PARTITION"
+      - name: Preserve partition identity and phase evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workspace-result-${{ matrix.partition }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/workspace-proof/result.json
+            ${{ runner.temp }}/workspace-proof/phases.json
+            ${{ runner.temp }}/workspace-proof/downloaded-extract-list.log
+            ${{ runner.temp }}/workspace-proof/nextest-execution.log
+          retention-days: 1
+          if-no-files-found: error
+
+  aggregate:
+    name: Verify exact workspace test identities
+    needs: [producer, consumers]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Reject a failed or unexpectedly skipped worker
+        env:
+          SCOPE: ${{ inputs.scope }}
+          PRODUCER_RESULT: ${{ needs.producer.result }}
+          CONSUMERS_RESULT: ${{ needs.consumers.result }}
+        run: |
+          test "$PRODUCER_RESULT" = success
+          if [ "$SCOPE" = full ]; then test "$CONSUMERS_RESULT" = success
+          elif [ "$SCOPE" = ops ]; then test "$CONSUMERS_RESULT" = skipped
+          else exit 1; fi
+      - uses: actions/checkout@v4
+        if: inputs.scope == 'full'
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        if: inputs.scope == 'full'
+        with:
+          node-version: 22.23.2
+      - name: Download producer inventory
+        if: inputs.scope == 'full'
+        uses: actions/download-artifact@v4
+        with:
+          name: workspace-producer-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/workspace-proof
+      - name: Download exact partition results
+        if: inputs.scope == 'full'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: workspace-result-*-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/workspace-proof
+          merge-multiple: false
+      - name: Prove the independent inventory ran exactly once
+        if: inputs.scope == 'full'
+        working-directory: rust
+        env:
+          PRODUCER_RESULT: ${{ needs.producer.result }}
+          CONSUMERS_RESULT: ${{ needs.consumers.result }}
+        run: node ../typescript/scripts/workspace-nextest.mjs aggregate "$RUNNER_TEMP/workspace-proof"
+      - name: Preserve aggregate result
+        if: always() && inputs.scope == 'full'
+        uses: actions/upload-artifact@v4
+        with:
+          name: workspace-union-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/workspace-proof/summary.json
+          retention-days: 1
+          if-no-files-found: error

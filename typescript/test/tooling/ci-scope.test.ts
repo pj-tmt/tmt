@@ -561,7 +561,13 @@ describe('CI area selection', () => {
     }
     expect(selectNativeScope(vectors)).toBe('full');
     const ci = readFileSync(new URL('../../../.github/workflows/ci.yml', import.meta.url), 'utf8');
-    expect(ci).toContain('cargo test --locked --workspace');
+    expect(ci).toContain('uses: ./.github/workflows/workspace-partitions.yml');
+    const workspace = readFileSync(
+      new URL('../../../.github/workflows/workspace-partitions.yml', import.meta.url),
+      'utf8'
+    );
+    expect(workspace).toContain('cargo test --locked --workspace --doc');
+    expect(workspace).toContain('workspace-nextest.mjs inventory');
   });
 
   it('keeps the extension serve leaf selected by its consumers with full native verification', () => {
@@ -1467,53 +1473,99 @@ describe('remote Rust retains full CI coverage', () => {
     { discovery: '0 tests, 0 benchmarks', listStatus: 0, testStatus: 0, status: 1 },
     { discovery: 'door_lifecycle: test', listStatus: 7, testStatus: 0, status: 7 },
     { discovery: 'door_lifecycle: test', listStatus: 0, testStatus: 8, status: 8 },
-  ])('executes the full workflow block with discovery/test status $status', (fixture) => {
+  ])('executes producer discovery/compilation with status $status', (fixture) => {
     const workflow = readFileSync(
-      new URL('../../../.github/workflows/ci.yml', import.meta.url),
+      new URL('../../../.github/workflows/workspace-partitions.yml', import.meta.url),
       'utf8'
     );
     const step = workflow
       .split('      - name: Test and build workspace\n')[1]
       ?.split('\n      - name:')[0];
-    expect(step).toContain("if: needs.changes.outputs.native_scope == 'full'");
+    expect(step).toContain("if: inputs.scope == 'full'");
     expect(step).toContain('working-directory: rust');
     const script = step.split('        run: |\n')[1].replace(/^ {10}/gm, '');
     const root = mkdtempSync(path.join(tmpdir(), 'tmt-remote-ci-'));
     try {
-      // Exercise the committed shell, including errexit, from a stand-in `rust` directory
-      // beside the real runner; the real workspace test run is integration evidence, while
-      // this injected Cargo proves empty/failure paths.
+      // Execute the committed shell and actual inventory helper with bounded fake Cargo/nextest.
+      // Native execution failure is independently guarded by the partition aggregate tests.
       mkdirSync(path.join(root, 'rust'));
       symlinkSync(fileURLToPath(new URL('../..', import.meta.url)), path.join(root, 'typescript'));
+      const executable = path.join(root, 'rust', 'fixture-tests');
+      writeExecutable(
+        executable,
+        '#!/bin/sh\ncase "$*" in *--ignored*) echo "ignored: test";; *) printf "a: test\\nb: test\\nignored: test\\n";; esac\n',
+        0o755
+      );
+      const build = JSON.stringify({
+        reason: 'compiler-artifact',
+        profile: { test: true },
+        executable,
+      });
+      const suites = {
+        'rust-suites': {
+          fixture: {
+            'binary-id': 'fixture',
+            'binary-path': executable,
+            testcases: { a: { ignored: false }, b: { ignored: false }, ignored: { ignored: true } },
+          },
+        },
+        'rust-build-meta': { 'non-test-binaries': {} },
+      };
+      writeExecutable(
+        path.join(root, 'cargo-nextest'),
+        `#!/usr/bin/env node
+const inventory = ${JSON.stringify(suites)};
+const args = process.argv.slice(2);
+const slice = args[args.indexOf('--partition') + 1];
+const selected = args.includes('--partition') ? (slice === 'slice:1/2' ? 'a' : 'b') : null;
+for (const [name,test] of Object.entries(inventory['rust-suites'].fixture.testcases)) {
+  test['filter-match'] = test.ignored ? {status:'mismatch',reason:'ignored'} :
+    selected === null || name === selected ? {status:'matches'} : {status:'mismatch',reason:'partition'};
+}
+console.log(JSON.stringify(inventory));
+`,
+        0o755
+      );
       writeExecutable(
         path.join(root, 'cargo'),
         `#!/bin/sh
 printf '%s\\n' "$*" >> "$CALLS"
 case "$*" in
   'test --locked -p tmt-remote -- --list') printf '%s\\n' "$DISCOVERY"; exit "$LIST_STATUS" ;;
-  'test --locked --workspace') exit "$TEST_STATUS" ;;
+  'test --locked --workspace --no-run --message-format=json') printf '%s\\n' "$BUILD"; exit "$TEST_STATUS" ;;
 esac
 `,
         0o755
       );
-      runPackedCommand('bash', ['--noprofile', '--norc', '-eo', 'pipefail', '-c', script], {
-        cwd: path.join(root, 'rust'),
-        env: {
-          ...process.env,
-          PATH: `${root}:${process.env.PATH}`,
-          CALLS: path.join(root, 'calls'),
-          DISCOVERY: fixture.discovery,
-          LIST_STATUS: String(fixture.listStatus),
-          TEST_STATUS: String(fixture.testStatus),
-        },
-        expectedStatus: fixture.status,
-      });
+      runPackedCommand(
+        'bash',
+        ['--noprofile', '--norc', '-eo', 'pipefail', '-c', `{\n${script}\n} 2>&1`],
+        {
+          cwd: path.join(root, 'rust'),
+          env: {
+            ...process.env,
+            PATH: `${root}:${process.env.PATH}`,
+            CALLS: path.join(root, 'calls'),
+            BUILD: build,
+            RUNNER_TEMP: path.join(root, 'temp'),
+            K: '2',
+            DISCOVERY: fixture.discovery,
+            LIST_STATUS: String(fixture.listStatus),
+            TEST_STATUS: String(fixture.testStatus),
+          },
+          expectedStatus: fixture.status === 0 ? 0 : 1,
+        }
+      );
       const calls = readFileSync(path.join(root, 'calls'), 'utf8').trim().split('\n');
       const expected = ['test --locked -p tmt-remote -- --list'];
       if (fixture.status === 0 || fixture.testStatus !== 0)
-        expected.push('test --locked --workspace');
-      if (fixture.status === 0) expected.push('build --locked --workspace');
+        expected.push('test --locked --workspace --no-run --message-format=json');
       expect(calls).toEqual(expected);
+      const phases = JSON.parse(
+        readFileSync(path.join(root, 'temp/workspace-proof/phases.json'), 'utf8')
+      );
+      if (fixture.listStatus !== 0) expect(phases[0].exit).toBe(fixture.listStatus);
+      if (fixture.testStatus !== 0) expect(phases[1].exit).toBe(fixture.testStatus);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -2816,7 +2868,12 @@ describe('required CI gate', () => {
     );
     expect(tooling).toContain('../rust/target/debug/examples/colab-runtime-fixture');
     expect(native).toContain('rust/target/release/tmt');
-    expect(native).toContain('cargo test --locked');
+    const workspace = readFileSync(
+      new URL('../../../.github/workflows/workspace-partitions.yml', import.meta.url),
+      'utf8'
+    );
+    expect(workspace).toContain('cargo test --locked --workspace --doc');
+    expect(workspace).toContain('workspace-nextest.mjs inventory');
     expect(native).toContain('cargo clippy --locked --workspace --all-targets -- -D warnings');
     expect(native).toContain('cargo +"$MSRV" check --locked --workspace --all-targets');
     expect(native).not.toMatch(/cargo \+\d/);
@@ -2904,8 +2961,8 @@ describe('required CI gate', () => {
     );
     const cachePolicies = workflow.match(/^\s+save-if:.*$/gm) ?? [];
     const writers = cachePolicies.filter((line) => line.trim() !== 'save-if: false');
-    expect(cachePolicies).toHaveLength(6);
-    expect(writers).toHaveLength(4);
+    expect(cachePolicies).toHaveLength(5);
+    expect(writers).toHaveLength(3);
     for (const writer of writers) {
       expect(writer.trim()).toBe(
         "save-if: ${{ github.ref == 'refs/heads/main' && (needs.changes.outputs.verify == 'false' || needs.changes.outputs.main_full_admitted == 'true') }}"
@@ -2924,12 +2981,21 @@ describe('required CI gate', () => {
     const sites = [
       'native-notices',
       'native-clippy',
-      'native-workspace-tests',
       'native-process-tests',
       'native-msrv',
       'native-runtime-build',
     ];
-    expect(workflow.match(/sh scripts\/install-ci-rust\.sh /g)).toHaveLength(sites.length);
+    const workspace = readFileSync(
+      new URL('../../../.github/workflows/workspace-partitions.yml', import.meta.url),
+      'utf8'
+    );
+    expect((workflow + workspace).match(/sh scripts\/install-ci-rust\.sh /g)).toHaveLength(
+      sites.length + 2
+    );
+    expect(workspace.indexOf('sh scripts/install-ci-rust.sh ')).toBeLessThan(
+      workspace.indexOf('uses: Swatinem/rust-cache@')
+    );
+    expect(workspace).toContain('install-ci-rust.sh 1.97.0 --profile minimal');
     expect(workflow).not.toContain('add-rust-environment-hash-key: false');
     for (const name of sites) {
       const body = workflow.split(`\n  ${name}:\n`)[1].split(/\n {2}[a-z0-9-]+:\n/)[0];
@@ -2948,8 +3014,10 @@ describe('required CI gate', () => {
       "install-ci-rust.sh 1.97.0 --profile minimal --target '${{ matrix.target }}'"
     );
     expect(
-      workflow.match(/install-ci-rust\.sh 1\.97\.0 --profile minimal --component rustfmt,clippy/g)
-    ).toHaveLength(3);
+      (workflow + workspace).match(
+        /install-ci-rust\.sh 1\.97\.0 --profile minimal --component rustfmt,clippy/g
+      )
+    ).toHaveLength(4);
     const colab = readFileSync(
       new URL('../../../.github/workflows/colab-browser.yml', import.meta.url),
       'utf8'
@@ -3102,8 +3170,12 @@ describe('required CI gate', () => {
         .map((step) => step.name);
     expect(scoped('native-clippy', 'full')).toEqual(['Lint workspace']);
     expect(scoped('native-clippy', 'ops')).toEqual(['Lint Ops']);
-    expect(scoped('native-workspace-tests', 'full')).toEqual(['Test and build workspace']);
-    expect(scoped('native-workspace-tests', 'ops')).toEqual(['Test Ops and architecture']);
+    expect(job('native-workspace-tests')).toContain(
+      'uses: ./.github/workflows/workspace-partitions.yml'
+    );
+    expect(job('native-workspace-tests')).toContain(
+      'scope: ${{ needs.changes.outputs.native_scope }}'
+    );
     expect(scoped('native-process-tests', 'full')).toEqual([
       'Build independent native process fixtures',
       'Verify native process and shared parser contracts',
@@ -3141,9 +3213,16 @@ describe('required CI gate', () => {
     }
     expect(job('native-clippy')).toContain('shared-key: native-rust');
     expect(job('native-clippy')).toContain('save-if: false');
-    expect(job('native-workspace-tests')).toContain('shared-key: native-rust');
+    const workspaceWorkflow = readFileSync(
+      new URL('../../../.github/workflows/workspace-partitions.yml', import.meta.url),
+      'utf8'
+    );
+    expect(workspaceWorkflow).toContain('shared-key: native-rust');
+    expect(workspaceWorkflow).toContain(
+      "save-if: ${{ github.ref == 'refs/heads/main' && inputs.save-cache }}"
+    );
     expect(job('native-workspace-tests')).toContain(
-      "save-if: ${{ github.ref == 'refs/heads/main' && (needs.changes.outputs.verify == 'false' || needs.changes.outputs.main_full_admitted == 'true') }}"
+      "save-cache: ${{ github.ref == 'refs/heads/main' && (needs.changes.outputs.verify == 'false' || needs.changes.outputs.main_full_admitted == 'true') }}"
     );
     // The process job seeds its existing dev/release builds in an isolated main-only cache.
     const processCache = job('native-process-tests');
@@ -3470,16 +3549,22 @@ it('schedules architecture CI for the map, every declaring crate file and releas
   const workflow = readFileSync(`${root}.github/workflows/ci.yml`, 'utf8');
   const job = workflow.split('\n  native-workspace-tests:\n')[1].split(/\n {2}[a-z0-9-]+:\n/)[0];
   expect(job).toContain("if: needs.changes.outputs.native == 'true'");
-  expect(job).toContain("if: needs.changes.outputs.native_scope == 'full'");
-  expect(job).toContain('cargo test --locked --workspace');
+  expect(job).toContain('scope: ${{ needs.changes.outputs.native_scope }}');
+  const workspaceWorkflow = readFileSync(
+    `${root}.github/workflows/workspace-partitions.yml`,
+    'utf8'
+  );
+  expect(workspaceWorkflow).toContain("if: inputs.scope == 'full'");
+  expect(workspaceWorkflow).toContain('cargo test --locked --workspace --doc');
+  expect(workspaceWorkflow).toContain('workspace-nextest.mjs inventory');
 });
 
 it('pins and verifies Node before native-workspace-tests executes Rust tests', () => {
   const workflow = readFileSync(
-    new URL('../../../.github/workflows/ci.yml', import.meta.url),
+    new URL('../../../.github/workflows/workspace-partitions.yml', import.meta.url),
     'utf8'
   );
-  const job = workflow.split('\n  native-workspace-tests:\n')[1].split(/\n {2}[a-z0-9-]+:\n/)[0];
+  const job = workflow.split('\n  producer:\n')[1].split(/\n {2}[a-z0-9-]+:\n/)[0];
   expect(job).toContain(`uses: actions/setup-node@v4
         with:
           node-version: 22.23.2`);
@@ -3576,12 +3661,13 @@ describe('native Auth+Firestore emulator selection', () => {
     expect(selectNativeSyncEmulator([file])).toBe(false);
   });
   it('runs one selected ignored test in the existing workspace job, with no new dependency edge', () => {
-    const ci = readFileSync(new URL('../../../.github/workflows/ci.yml', import.meta.url), 'utf8');
-    const job = ci.split('\n  native-workspace-tests:\n')[1].split('\n  native-process-tests:')[0];
-    expect(job).toContain('needs: changes');
-    expect(job).toContain(
-      "native_scope == 'full' && needs.changes.outputs.native_sync_emulator == 'true'"
+    const ci = readFileSync(
+      new URL('../../../.github/workflows/workspace-partitions.yml', import.meta.url),
+      'utf8'
     );
+    const job = ci.split('\n  producer:\n')[1].split('\n  consumers:')[0];
+    expect(job).toContain('runs-on: ubuntu-latest');
+    expect(job).toContain("inputs.scope == 'full' && inputs.native-sync");
     expect(job).toContain('firebase-tools@15.29.0');
     expect(job).toContain('timeout-minutes: 8');
     expect(job).toContain('test/emulator/native-qualify.mjs');
@@ -3599,8 +3685,11 @@ describe('native Auth+Firestore emulator selection', () => {
     expect(runner).not.toContain('docker');
   });
   it('runs the Colab cloud sync proof after the native one, from a script that names exactly its scenarios', () => {
-    const ci = readFileSync(new URL('../../../.github/workflows/ci.yml', import.meta.url), 'utf8');
-    const job = ci.split('\n  native-workspace-tests:\n')[1].split('\n  native-process-tests:')[0];
+    const ci = readFileSync(
+      new URL('../../../.github/workflows/workspace-partitions.yml', import.meta.url),
+      'utf8'
+    );
+    const job = ci.split('\n  producer:\n')[1].split('\n  consumers:')[0];
     expect(job.indexOf('native-qualify.mjs')).toBeLessThan(
       job.indexOf('extensions/tmt-colab/scripts/cloud-sync-emulator.mjs')
     );

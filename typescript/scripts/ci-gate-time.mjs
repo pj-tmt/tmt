@@ -28,7 +28,12 @@ export const REQUIRED_CONTEXTS = [
   'Native package matrix',
 ];
 /** Jobs that only wait on workers; the controlling job is never one of these. */
-export const AGGREGATE_JOBS = ['Docker E2E', 'Native package matrix', 'Native Rust contracts'];
+export const AGGREGATE_JOBS = [
+  'Docker E2E',
+  'Native package matrix',
+  'Native Rust contracts',
+  'Native Rust workspace tests / Verify exact workspace test identities',
+];
 const OTHER_JOB_ROWS = 5;
 
 const seconds = (start, end) => {
@@ -313,7 +318,7 @@ export function renderReport(summary, budgets, { workflow = 'ci.yml' } = {}) {
       '| Job | n | Wall median / p90 | Queue median / p90 | p90 budget |',
       '| --- | ---: | ---: | ---: | ---: |'
     );
-    const shown = row.jobs.filter((job) => !job.name.includes(' / '));
+    const shown = row.jobs.filter((job) => !job.name.includes(' / ') || budgets.jobs[job.name]);
     const budgeted = shown.filter((job) => budgets.jobs[job.name]);
     const others = shown.filter((job) => !budgets.jobs[job.name]).slice(0, OTHER_JOB_ROWS);
     for (const job of [...budgeted, ...others])
@@ -322,7 +327,7 @@ export function renderReport(summary, budgets, { workflow = 'ci.yml' } = {}) {
       );
     lines.push(
       '',
-      `Budgeted jobs plus the ${OTHER_JOB_ROWS} slowest others; nested rehearsal stages and the full list are in --json.`,
+      `Budgeted jobs plus the ${OTHER_JOB_ROWS} slowest others; unbudgeted nested stages and the full list are in --json.`,
       '',
       `Controlling job (${EVENT_LABELS[event]}):`
     );
