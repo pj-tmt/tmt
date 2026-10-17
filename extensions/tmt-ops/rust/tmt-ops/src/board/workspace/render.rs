@@ -880,12 +880,16 @@ fn roster_preview(
                             style,
                         )
                     });
+                    let displayed = line.to_string();
                     strip::paint_left(frame.buffer_mut(), cell, line);
                     if *field == RosterField::Task {
                         crate::board::conversation::source::publish(
                             app,
                             crate::board::app::RowTarget::Workspace(row.target.clone()),
                             cell,
+                        );
+                        crate::board::member_links::paint_plain_hits(
+                            frame, app, cell, &text, &displayed, false,
                         );
                     }
                 }

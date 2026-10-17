@@ -73,7 +73,7 @@ impl MenuSurface {
             Some(format!("Enter {action} · Esc cancel"))
         });
         let room_picker_footer = if anchored {
-            Some("j host · Enter Agents · Esc closes".into())
+            Some(FOOTER.into())
         } else {
             room_picker_footer
         };
@@ -99,7 +99,7 @@ impl MenuSurface {
         let rows: Vec<ListRow> = (0..entries.len())
             .map(|index| ListRow {
                 id: row_id(index),
-                disabled: matches!(entries[index].choice, Choice::Unavailable(_)),
+                disabled: false,
             })
             .collect();
         Self {
@@ -152,7 +152,7 @@ impl MenuSurface {
             .iter()
             .zip(&self.rows)
             .map(|(entry, row)| {
-                serde_json::json!({"id": row.id, "disabled": matches!(entry.choice, Choice::Unavailable(_)), "key": entry.key, "cursor": if self.state.picker.list.selected() == Some(row.id.as_str()) { "›" } else { "" }, "label": entry.label})
+                serde_json::json!({"id": row.id, "disabled": false, "key": entry.key, "cursor": if self.state.picker.list.selected() == Some(row.id.as_str()) { "›" } else { "" }, "label": entry.label})
             })
             .collect();
         let footer = self.room_picker_footer.as_deref().unwrap_or(FOOTER);

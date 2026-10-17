@@ -306,10 +306,7 @@ impl Session {
         look: Look,
         inventory: &super::inventory::Inventory,
     ) -> bool {
-        let identities = self
-            .text
-            .contains("#tmt:")
-            .then(|| std::sync::Arc::clone(&inventory.generation));
+        let identities = Some(std::sync::Arc::clone(&inventory.generation));
         let changed = self.rendered.as_ref().is_none_or(|rendered| {
             rendered.width != width
                 || rendered.gutter != gutter

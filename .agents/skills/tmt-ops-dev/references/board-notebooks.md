@@ -33,17 +33,28 @@ control, and the pane scrolls. A separate anchor map preserves reading position
 while source mappings retain raw identities.
 
 Markdown keeps styled text and source-line mapping; it retains no URL destinations
-or URL activation hits. `member_links` resolves explicit `#tmt:` references against
-worker-acquired global identity UUIDs and canonical names. Markdown wrapping carries
-those tags into clipped current-frame rectangles; plain composer/Recent previews use
-the same projection. Conversation source and annotation byte ranges remain unchanged.
-A single existing menu surface anchors above/below the painted reference. Its actions
-recheck the acquired UUID/membership and effective configured host action; explicit
-Agents navigation preserves drafts and changes only session visibility/search.
-Unknown references and failed inventory observations remain literal. Keyboard traversal
-uses visible conversation references only; frame invalidation discards pointer hits.
-The inventory generation invalidates mention-bearing render caches off refresh,
-without scanning all identities on ordinary frames. Built-in destination recognition grants only a text style;
+or URL activation hits. `member_links` resolves `#tmt:`, canonical `@name`, and bare
+canonical names containing a dash, underscore or digit against the worker-held
+identity inventory. Matching is case-sensitive, longest-first and word-bounded;
+simple bare words and unavailable or ambiguous identities stay literal. Source
+and annotation byte ranges never change. Normal-weight text-colour underlines
+carry UUID tags into visible wrapped/clipped cells; hover and keyboard focus use
+the selected-row background. Conversation/pane-output Markdown, plain previews,
+board task summaries, KeyValue rows and notices share that resolver and hit owner.
+Rendered projections are cached by text, width/look and inventory generation;
+plain fitted fields resolve their complete original text before deriving visible
+hits, so clipping cannot create a shorter member name. Unused plain projections
+are evicted after leaving the visible frame set.
+
+One anchored menu offers Message, Jump to host, Copy, Note to lead and Show in
+Agents, hiding unavailable actions. It uses existing row action owners and
+rechecks UUID/membership and effective bindings on activation. Explicit Agents
+navigation preserves drafts and changes only session visibility/search. Conversation references use Left/Right and Enter. On a selected row, `@` opens
+a sole visible name's menu, or enters name focus for several: Left/Right chooses,
+Enter opens, and Escape or row movement leaves. Ordinary tree fold/expand keys
+remain unchanged outside name focus. The optional `@ names` footer never evicts
+core hints; authored bindings and editors retain priority. Invalidation discards hits.
+Built-in destination recognition grants only a text style;
 custom handlers remain authored Config data with migration notices. The selected
 agent's attached URL uses existing Open/opener effects and global argv settings;
 a compatible explicit binding defines its own action. The removed notebook

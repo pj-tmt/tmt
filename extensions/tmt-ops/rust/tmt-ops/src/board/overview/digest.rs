@@ -2,9 +2,8 @@
 use crate::{
     board::{app::App, digest_dashboard, key_value},
     config::SavingsUnit,
-    look::Look,
 };
-use ratatui::{buffer::Buffer, layout::Rect};
+use ratatui::{Frame, layout::Rect};
 use unicode_width::UnicodeWidthStr;
 
 pub(super) struct Metric {
@@ -22,7 +21,7 @@ impl Metric {
             note: None,
         }
     }
-    pub fn paint(&self, buffer: &mut Buffer, area: Rect, look: Look) {
+    pub fn paint(&self, frame: &mut Frame, app: &App, area: Rect) {
         let amount = self.amount.as_deref().unwrap_or("—");
         let value = format!(
             "{}{}{}",
@@ -43,7 +42,8 @@ impl Metric {
             value
         };
         key_value::paint(
-            buffer,
+            frame,
+            app,
             area,
             &key_value::Row {
                 key: &self.key,
@@ -53,7 +53,6 @@ impl Metric {
                     key_value::Value::Unreported(&value)
                 },
             },
-            look,
         );
     }
 }

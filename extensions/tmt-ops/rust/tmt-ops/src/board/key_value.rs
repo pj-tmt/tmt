@@ -1,6 +1,7 @@
 //! KeyValue: neutral labels and right-aligned observed values.
 use crate::look::Look;
 use ratatui::{
+    Frame,
     buffer::Buffer,
     layout::Rect,
     text::{Line, Span},
@@ -67,8 +68,24 @@ pub(in crate::board) fn line(row: &Row<'_>, width: usize, look: Look) -> Line<'s
     ])
 }
 
-pub(in crate::board) fn paint(buffer: &mut Buffer, area: Rect, row: &Row<'_>, look: Look) {
-    paint_value(buffer, area, row, look);
+pub(in crate::board) fn paint(frame: &mut Frame, app: &super::app::App, area: Rect, row: &Row<'_>) {
+    let look = app.look();
+    let shown = line(row, usize::from(area.width), look);
+    let displayed = shown.to_string();
+    strip::paint_left(
+        frame.buffer_mut(),
+        Rect {
+            height: area.height.min(1),
+            ..area
+        },
+        shown,
+    );
+    let source = format!(
+        "{} {}",
+        super::notes::sanitize(row.key),
+        super::notes::sanitize(row.value.text())
+    );
+    super::member_links::paint_plain_hits(frame, app, area, &source, &displayed, false);
 }
 
 /// The same formatted line supplies the observed value's selectable geometry.
