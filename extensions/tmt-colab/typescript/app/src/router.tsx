@@ -1559,11 +1559,22 @@ function Page() {
         )}
         status={
           <div className="page-header-meta">
-            {questionLayer.ready && reviewLayer.ready && (
+            {questionLayer.ready && reviewLayer.ready && readingLayer.ready && (
               <NeedsYouHeader
-                items={pendingNeedsYou([...questionLayer.navigation, ...reviewLayer.navigation])}
+                items={pendingNeedsYou([
+                  ...readingLayer.items
+                    .filter((item) => inlineSlots.readingIds.has(item.id))
+                    .map((item) => ({
+                      ...item,
+                      kind: 'reading' as const,
+                      agent: readings.find((reading) => reading.id === item.id)?.agent ?? '',
+                    })),
+                  ...questionLayer.navigation,
+                  ...reviewLayer.navigation,
+                ])}
                 onPick={(item) => {
-                  if (item.kind === 'answer') questionLayer.jump(item.targetId ?? item.id);
+                  if (item.kind === 'reading') readingLayer.jump(item.id, true);
+                  else if (item.kind === 'answer') questionLayer.jump(item.targetId ?? item.id);
                   else if (item.kind === 'review') reviewLayer.jump(item.id);
                 }}
               />

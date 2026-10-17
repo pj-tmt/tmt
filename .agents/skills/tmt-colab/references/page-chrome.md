@@ -77,7 +77,8 @@ Only the diamond takes the attention colour. Through 640px the visible label is 
 with `Needs you: N` as its accessible name. At zero, neutral `✓ Nothing waits` is plain
 text without a caret or action; compact headers retain the check and accessible name.
 The slot keeps its width across that transition. The shared DropdownMenu supplies grouped
-labels, dismissal and keyboard handling; menu rows contain a one-line target title and muted
+labels, dismissal and keyboard handling; its modal scroll lock retains Colab's fixed-header
+and safe-area padding, so opening it does not shift the authored page. Menu rows contain a one-line target title and muted
 agent. Groups are `Please read`, `Please answer`, then `Please confirm`, each with its count.
 Picking a row finishes menu dismissal before scrolling/opening the existing target and
 focusing its first action. Read-only targets retain content focus and navigation, never writes.

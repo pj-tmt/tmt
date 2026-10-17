@@ -1,6 +1,7 @@
 import { BrowserAction } from '@tmt/browser-ui/react';
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type RefObject } from 'react';
 import { NeedsYouBar } from './components/needs-you-bar.js';
+import { focusNeedsYouTarget } from './needs-you.js';
 import { compactRelativeTime } from './display-time.js';
 import { text } from './strings.js';
 import type { Reading } from './questions.js';
@@ -46,6 +47,7 @@ export function useReadingLayer({
   const [now, setNow] = useState(0);
   useEffect(() => setNow(Date.now()), [view.threads]);
   const [anchors, setAnchors] = useState<QuestionAnchor[] | null>(null);
+  const targets = useRef(new Map<string, HTMLElement>());
   const [outcomes, setOutcomes] = useState(new Map<string, ReadingOutcome>());
   const onAnchors = useCallback(
     (next: QuestionAnchor[], checked = true) => setAnchors(checked ? next : null),
@@ -64,9 +66,11 @@ export function useReadingLayer({
   });
   const context = useRef({ snapshot, view, binding, blocked, status, renderer, rows });
   context.current = { snapshot, view, binding, blocked, status, renderer, rows };
-  const jump = useCallback((id: string) => {
-    if (context.current.rows.some((row) => row.reading.id === id && row.anchor))
+  const jump = useCallback((id: string, focus = false) => {
+    if (context.current.rows.some((row) => row.reading.id === id && row.anchor)) {
       context.current.renderer.current?.scrollReading(id);
+      if (focus) focusNeedsYouTarget(targets.current.get(id));
+    }
   }, []);
   const next = useCallback(
     (id: string) => {
@@ -193,6 +197,10 @@ export function useReadingLayer({
     return (
       <section
         key={reading.id}
+        ref={(node) => {
+          if (node) targets.current.set(reading.id, node);
+          else targets.current.delete(reading.id);
+        }}
         data-inline-reading={reading.id}
         data-inline-slot={reading.id}
         className="proposal-inline reading-inline"

@@ -1,4 +1,6 @@
+import { mkdirSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
+import { pageAction } from '../test/page-actions.js';
 
 const fixture = '/test/ask-page-browser.tsx';
 async function run(page: Page, method: string, argument?: unknown) {
@@ -136,5 +138,169 @@ test('replacement markup withdraws vanished targets and Escape returns focus wit
     page.locator('#ask-page-fixture').getByLabel('✓ Nothing waits', { exact: true }),
   ).toBeVisible();
   expect((await run(page, 'proof')).actions).toEqual([]);
+  expect(await run(page, 'discussionProof')).toHaveLength(0);
+});
+
+const mixedSource = `<style>
+body { margin:24px; font:16px/1.5 sans-serif; background:#fff; color:#222 }
+html[data-theme="dark"] body { background:#181818; color:#eee }
+tmt-read,tmt-review { display:block; margin:20px 0 }
+</style><h1>Release decisions</h1>
+<tmt-read data-id="a0000000-0000-4000-8000-000000500101" data-agent="Agent 1" data-why="Read the summary before choosing the layout."><h2 data-title>Read the summary</h2><p>Keep the page compact and make the next action clear. The new layout keeps the important material together.</p></tmt-read>
+<div>The layout has one remaining decision: <tmt-questions data-id="a0000000-0000-4000-8000-000000500102" data-form="chip"><p data-title>Choose the layout</p><tmt-question data-id="a0000000-0000-4000-8000-000000500103" data-kind="short" data-agent="Agent 1"><p data-question>Which layout should ship?</p></tmt-question></tmt-questions> Details stay on the page.</div>
+<tmt-review data-id="a0000000-0000-4000-8000-000000500104" data-agent="Agent 1"><h2 data-title>Confirm the scope</h2><p>The release includes these presentation changes. Confirm this scope after reading the summary.</p></tmt-review><p>The rest of the page remains available.</p>`;
+async function capture(page: Page, name: string) {
+  const directory = process.env.COLAB_NEEDS_YOU_CAPTURES;
+  if (!directory) return;
+  mkdirSync(directory, { recursive: true });
+  await page.screenshot({ path: `${directory}/${name}.png` });
+}
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const) {
+    test(`mixed pending actions, grouped menu and settled header ${width} ${theme}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 1100 });
+      await page.emulateMedia({ colorScheme: theme });
+      await page.goto('/');
+      await run(page, 'mount');
+      await run(page, 'change', mixedSource);
+      const root = page.locator('#ask-page-fixture');
+      await (await pageAction(root, theme === 'dark' ? 'Theme: Dark' : 'Theme: Light')).click();
+      const trigger = root.getByRole('button', { name: 'Needs you: 3', exact: true });
+      await expect(trigger).toBeVisible();
+      await expect(root.locator('[data-inline-reading]')).not.toHaveAttribute('data-detached');
+      await expect(root.locator('[data-inline-review]')).not.toHaveAttribute('data-detached');
+      await expect(root.locator('.question-chip')).toBeVisible();
+      const initialWidth = (await root.locator('.needs-you-header').boundingBox())!.width;
+      await expect
+        .poll(async () => (await trigger.innerText()).replace(/\s+/g, ''))
+        .toBe(width === 390 ? '◆3▾' : '◆Needsyou3▾');
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+      const colours = await trigger.evaluate((node) => ({
+        mark: getComputedStyle(node.querySelector('.needs-you-header-mark')!).color,
+        text: getComputedStyle(node).color,
+      }));
+      expect(colours.mark).not.toBe(colours.text);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      );
+      await capture(page, `needs-you-3-${width}-${theme}`);
+      const before = await run(page, 'proof');
+      await trigger.click();
+      const menu = page.getByRole('menu');
+      await expect(menu.getByRole('group')).toHaveCount(3);
+      expect(await menu.locator('.needs-you-header-group').allTextContents()).toEqual([
+        'Please read · 1',
+        'Please answer · 1',
+        'Please confirm · 1',
+      ]);
+      await expect(menu.getByRole('menuitem')).toHaveCount(3);
+      await capture(page, `needs-you-menu-${width}-${theme}`);
+      await menu.getByRole('menuitem', { name: 'Read the summary · Agent 1' }).click();
+      const markRead = root
+        .locator('[data-inline-reading]')
+        .getByRole('button', { name: 'Mark read', exact: true });
+      await expect(markRead).toBeFocused();
+      expect(await run(page, 'proof')).toEqual(before);
+      await markRead.press('Enter');
+      await expect(root.getByRole('button', { name: 'Needs you: 2', exact: true })).toBeVisible();
+      await root.getByRole('button', { name: 'Needs you: 2', exact: true }).click();
+      await page.getByRole('menuitem', { name: 'Choose the layout · Agent 1' }).click();
+      const panel = root.locator('[data-question-group]');
+      await expect(panel.getByRole('button', { name: 'Collapse', exact: true })).toBeFocused();
+      await panel.getByLabel('Your answer', { exact: true }).fill('Use the compact layout.');
+      await panel.getByRole('button', { name: /^Send/ }).click();
+      await expect(root.getByRole('button', { name: 'Needs you: 1', exact: true })).toBeVisible();
+      await panel.getByRole('button', { name: 'Collapse', exact: true }).click();
+      await root.getByRole('button', { name: 'Needs you: 1', exact: true }).click();
+      await page.getByRole('menuitem', { name: 'Confirm the scope · Agent 1' }).click();
+      const confirm = root
+        .locator('[data-inline-review]')
+        .getByRole('button', { name: 'Confirm and close', exact: true });
+      await expect(confirm).toBeFocused();
+      await confirm.press('Enter');
+      const zero = root.getByLabel('✓ Nothing waits', { exact: true });
+      await expect(zero).toBeVisible();
+      await expect(zero.getByRole('button')).toHaveCount(0);
+      expect((await zero.boundingBox())!.width).toBe(initialWidth);
+      expect((await run(page, 'proof')).actions).toEqual(['status:resolve', 'status:resolve']);
+      expect(await run(page, 'discussionProof')).toHaveLength(3);
+      await capture(page, `needs-you-0-${width}-${theme}`);
+    });
+  }
+
+test('the menu does not shift the authored page under the fixed header', async ({ page }) => {
+  await mount(page);
+  const padding = await page.locator('body').evaluate((node) => getComputedStyle(node).paddingTop);
+  const top = (await page.locator('#ask-page-fixture iframe').boundingBox())!.y;
+  await page.getByRole('button', { name: 'Needs you: 1', exact: true }).click();
+  await expect(page.getByRole('menu')).toBeVisible();
+  expect(await page.locator('body').evaluate((node) => getComputedStyle(node).paddingTop)).toBe(
+    padding,
+  );
+  expect((await page.locator('#ask-page-fixture iframe').boundingBox())!.y).toBe(top);
+});
+
+for (const width of [390, 320])
+  test(`long target and agent labels remain accessible in a contained one-line row ${width}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/');
+    await run(page, 'mount');
+    const title = 'A long section heading that explains the pending decision in detail. '
+      .repeat(2)
+      .trim();
+    const agent = 'Agent with a deliberately long visible name';
+    await run(
+      page,
+      'change',
+      `<h1>Long labels</h1><tmt-review data-id="a0000000-0000-4000-8000-000000500105" data-agent="${agent}"><h2 data-title>${title}</h2><p>The section remains on the page.</p></tmt-review>`,
+    );
+    const trigger = page.getByRole('button', { name: 'Needs you: 1', exact: true });
+    await trigger.click();
+    const row = page.getByRole('menuitem', { name: `${title} · ${agent}`, exact: true });
+    await expect(row).toBeVisible();
+    const shape = await row.locator('.needs-you-header-row').evaluate((node) => {
+      const style = getComputedStyle(node),
+        rect = node.getBoundingClientRect();
+      return {
+        ellipsis: style.textOverflow,
+        lines: style.whiteSpace,
+        clipped: node.scrollWidth > node.clientWidth,
+        left: rect.left,
+        right: rect.right,
+      };
+    });
+    expect(shape.ellipsis).toBe('ellipsis');
+    expect(shape.lines).toBe('nowrap');
+    expect(shape.clipped).toBe(true);
+    expect(shape.left).toBeGreaterThanOrEqual(0);
+    expect(shape.right).toBeLessThanOrEqual(width);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    await page.keyboard.press('Escape');
+    await expect(trigger).toBeFocused();
+    expect((await run(page, 'proof')).actions).toEqual([]);
+  });
+
+test('archived readings keep cosmetic focus without Mark read or a notification', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await run(page, 'mount');
+  await run(page, 'change', mixedSource);
+  const root = page.locator('#ask-page-fixture');
+  await expect(root.getByRole('button', { name: 'Needs you: 3', exact: true })).toBeVisible();
+  await run(page, 'archive');
+  const before = await run(page, 'proof');
+  await root.getByRole('button', { name: 'Needs you: 3', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Read the summary · Agent 1' }).click();
+  const reading = root.locator('[data-inline-reading]');
+  await expect(reading).toBeFocused();
+  await expect(reading.getByRole('button')).toHaveCount(0);
+  expect(await run(page, 'proof')).toEqual(before);
   expect(await run(page, 'discussionProof')).toHaveLength(0);
 });

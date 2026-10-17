@@ -135,6 +135,10 @@ footer {
 .needs-you-header-menu {
   inline-size: 320px;
 }
+/* The modal menu's scroll lock normalizes body padding; retain this host's fixed-header inset. */
+body:has(.needs-you-header-menu) {
+  padding-top: calc(var(--colab-header-height) + env(safe-area-inset-top, 0px)) !important;
+}
 .needs-you-header-group,
 .needs-you-header-agent {
   color: var(--tmt-ui-color-secondary);
