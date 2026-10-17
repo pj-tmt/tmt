@@ -77,9 +77,15 @@ fn editor_changes_only_the_winning_host_or_exact_section() {
     let row = json!({"id":"uuid", "name":"alpha", "fields":{}, "pane":{"id":"%1","location":{"host":"tmux"}}});
     let mut config = f.config();
     let (action, source) = config
-        .host_action_binding(OpsKeyScope::Reader, Some(&row), Some(&row), Some("product"))
+        .host_action_binding(
+            OpsKeyScope::Reader,
+            Some(&row),
+            Some(&row),
+            Some("product"),
+            None,
+        )
         .unwrap();
-    assert_eq!(action.text, "swap right");
+    assert_eq!(action.unwrap().text, "swap right");
     assert_eq!(source, "squad.product.section[0].bind.j");
     config.set_host_action(&source, "swap down").unwrap();
     assert_eq!(config.configured_bindings().unwrap()["j"].text, "jump");
@@ -92,7 +98,7 @@ fn editor_changes_only_the_winning_host_or_exact_section() {
         "swap down"
     );
     let (_, source) = config
-        .host_action_binding(OpsKeyScope::Overview, Some(&row), Some(&row), None)
+        .host_action_binding(OpsKeyScope::Overview, Some(&row), Some(&row), None, None)
         .unwrap();
     assert_eq!(source, "bind.tmux.j");
     config.set_host_action(&source, "swap up").unwrap();

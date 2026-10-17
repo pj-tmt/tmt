@@ -13,6 +13,8 @@ pub(in crate::board) struct Selection {
     pub row: Option<Value>,
     /// A squad's host action targets its current lead, not the squad record.
     pub recipient: Option<Value>,
+    /// Factory j before authored overrides, held with the opening workspace context.
+    pub default_action: Option<Action>,
     pub squad: Option<String>,
     pub scope: OpsKeyScope,
     pub invoker_tmux: bool,
@@ -108,11 +110,12 @@ impl HostAction {
             self.selection.row.as_ref(),
             self.selection.recipient.as_ref(),
             self.selection.squad.as_deref(),
+            self.selection.default_action.as_ref(),
         )?;
         self.source = source.clone();
         let mut settings = config.settings(None, false, None)?;
         settings.entries.clear();
-        settings.push("bind.j", json!(action.text), source);
+        settings.push("bind.j", json!(action.map(|action| action.text)), source);
         settings.entries[0].editable = true;
         settings.entries[0].description = Some(format!(
             "Preview uses {} · {}",
@@ -168,7 +171,6 @@ impl HostAction {
             Ok(action) if action.verb == Verb::Jump && action.args.is_empty() => {
                 format!("Focus {name}")
             }
-            Ok(action) if action.verb == Verb::Jump => action.workspace_description(),
             Ok(action) if action.verb == Verb::Swap => format!(
                 "Swap {name} into the pane {} the board",
                 match action.args[0].literal().unwrap() {
@@ -179,6 +181,7 @@ impl HostAction {
                     _ => unreachable!("validated direction"),
                 }
             ),
+            Ok(action) if action.verb != Verb::Run => action.workspace_description(),
             _ => format!("Run a custom command for {name}"),
         }
     }

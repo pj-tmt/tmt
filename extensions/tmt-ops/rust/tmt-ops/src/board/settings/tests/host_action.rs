@@ -6,6 +6,7 @@ fn open(f: &mut Fixture, board_pane: Option<&str>) {
     f.app.open_host_action(Config::read(f.path.clone()).unwrap(), Selection {
         row: Some(json!({"id":"11111111-1111-4111-8111-111111111111", "name":"alpha", "presence":"active", "fields":{"pr_link":"https://example.com/pull/42"}, "pane":{"id":"%3","location":{"host":"tmux"}}})),
         recipient: Some(json!({"id":"11111111-1111-4111-8111-111111111111", "name":"alpha", "presence":"active", "fields":{"pr_link":"https://example.com/pull/42"}, "pane":{"id":"%3","location":{"host":"tmux"}}})),
+        default_action: Some(crate::action::Action::parse("jump").unwrap()),
         squad: Some("product".into()), scope: OpsKeyScope::Member, invoker_tmux: true,
     }, board_pane.map(str::to_owned)).unwrap();
 }
@@ -267,6 +268,7 @@ fn squad_editor_previews_the_lead_and_saves_its_host_binding_without_a_member_se
             Selection {
                 row: Some(context),
                 recipient: Some(recipient),
+                default_action: Some(crate::action::Action::parse("jump").unwrap()),
                 squad: None,
                 scope: OpsKeyScope::Squad,
                 invoker_tmux: true,
@@ -333,4 +335,50 @@ fn a_retired_lead_binding_uses_the_effective_default_without_rewriting_the_file(
         Input::Close
     ));
     assert_eq!(std::fs::read_to_string(&f.path).unwrap(), f.original);
+}
+
+#[test]
+fn a_retired_host_binding_keeps_its_effective_value_and_repairs_that_exact_owner() {
+    for (index, retired, effective) in [
+        (0, "agents-filter needs-you", None),
+        (1, "jump lead", Some("jump")),
+    ] {
+        let mut f = fixture(
+            &format!("host-retired-{index}"),
+            &format!("[bind]\no='open {{pr_link}}'\n[bind.tmux]\nj='{retired}'\n"),
+        );
+        open(&mut f, Some("%9"));
+        let overlay = f.app.settings.as_mut().unwrap();
+        assert_eq!(overlay.settings.entries[0].value, json!(effective));
+        assert_eq!(overlay.settings.entries[0].source, "bind.tmux.j");
+        assert_eq!(
+            overlay.picks[0].value,
+            if effective.is_some() { "(current)" } else { "" }
+        );
+        if effective.is_none() {
+            assert!(overlay.picks.iter().all(|pick| pick.value.is_empty()));
+        }
+        assert_eq!(std::fs::read_to_string(&f.path).unwrap(), f.original);
+        overlay.surface.borrow_mut().select("pick:host-left");
+        overlay.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(overlay.save());
+        let saved = std::fs::read_to_string(&f.path)
+            .unwrap()
+            .parse::<toml_edit::DocumentMut>()
+            .unwrap();
+        assert_eq!(saved["bind"]["tmux"]["j"].as_str(), Some("swap left"));
+        assert!(saved["bind"].get("j").is_none());
+        assert_eq!(saved["bind"]["o"].as_str(), Some("open {pr_link}"));
+        assert_eq!(overlay.settings.entries[0].value, "swap left");
+        assert_eq!(overlay.picks[1].value, "(current)");
+        assert_eq!(
+            Config::read(f.path.clone())
+                .unwrap()
+                .workspace_keys(OpsKeyScope::Reader, Some("tmux"), None)
+                .unwrap()
+                .bindings["j"]
+                .text,
+            "swap left"
+        );
+    }
 }
