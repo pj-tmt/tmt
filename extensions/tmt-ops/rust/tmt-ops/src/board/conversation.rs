@@ -285,10 +285,7 @@ impl Session {
         look: Look,
         inventory: &super::inventory::Inventory,
     ) -> bool {
-        let identities = self
-            .text
-            .contains("#tmt:")
-            .then(|| std::sync::Arc::clone(&inventory.generation));
+        let identities = Some(std::sync::Arc::clone(&inventory.generation));
         let changed = self.rendered.as_ref().is_none_or(|rendered| {
             rendered.width != width
                 || rendered.gutter != gutter
@@ -334,7 +331,7 @@ impl Session {
                 sources,
                 mentions,
             };
-            let transcript = self.merge_pane_output(mapped, width, look);
+            let transcript = self.merge_pane_output(mapped, width, look, inventory);
             self.anchor.reconcile(&transcript.anchor_text);
             self.rendered = Some(Rendered {
                 width,

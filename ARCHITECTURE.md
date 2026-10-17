@@ -429,7 +429,7 @@ own module/drawing boundaries and verification.
   [supplier estimates](extensions/tmt-digest/contracts/digest-v1.md#savings), never provider history.
   `usage_report::Reader` reads the Digest tab's [Usage report](extensions/tmt-digest/contracts/usage-v1.md)
   on its own thread, only while that panel is shown; the panel projects the held document.
-  Explicit member markup resolves through the acquired global identity inventory;
+  Member references resolve through the acquired global identity inventory;
   Markdown carries UUID tags into clipped frame hits. Existing menu/actions own
   navigation, while copy/annotation retain raw source. No text grants new delivery
   authority or paint/input I/O. [Reference ownership](.agents/skills/tmt-ops-dev/references/board-notebooks.md).

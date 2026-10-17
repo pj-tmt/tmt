@@ -245,6 +245,7 @@ fn new_output_does_not_replace_a_paused_request_and_end_reads_latest() {
 
 #[test]
 fn append_and_resize_keep_source_anchor_without_reparsing_unchanged_text() {
+    let inventory = crate::board::inventory::Inventory::default();
     let mut session = Session::default();
     let source = format!(
         "# Header\n\n{}",
@@ -252,10 +253,10 @@ fn append_and_resize_keep_source_anchor_without_reparsing_unchanged_text() {
     );
     session.update(Some(reply("r", &source)));
     let look = Look::default();
-    assert!(session.prepare(60, look, &Default::default()));
+    assert!(session.prepare(60, look, &inventory));
     let cached = session.rendered.as_ref().unwrap().mapped.lines.as_ptr();
     session.update(Some(reply("r", &source)));
-    assert!(!session.prepare(60, look, &Default::default()));
+    assert!(!session.prepare(60, look, &inventory));
     assert_eq!(
         cached,
         session.rendered.as_ref().unwrap().mapped.lines.as_ptr()
@@ -271,7 +272,7 @@ fn append_and_resize_keep_source_anchor_without_reparsing_unchanged_text() {
     assert!(session.change == Change::NewOutput);
     assert_eq!(session.anchor.source, source_line);
     for width in [60, 80, 100, 140, 160] {
-        session.prepare(width, look, &Default::default());
+        session.prepare(width, look, &inventory);
         let mapped = &session.rendered.as_ref().unwrap().mapped;
         let visual = session.anchor.visual(&mapped.sources).unwrap();
         assert_eq!(mapped.sources[visual], source_line);
@@ -494,16 +495,17 @@ fn source_reader_opens_the_paused_response_and_rejects_stale_annotation() {
 
 #[test]
 fn membership_context_changes_do_not_invent_unread_output_or_reparse_source() {
+    let inventory = crate::board::inventory::Inventory::default();
     let mut session = Session::default();
     session.update(Some(reply("r", "same immutable final")));
-    session.prepare(80, Look::default(), &Default::default());
+    session.prepare(80, Look::default(), &inventory);
     let cached = session.rendered.as_ref().unwrap().mapped.lines.as_ptr();
     session.follow = false;
     let mut moved = reply("r", "same immutable final");
     moved.key.as_mut().unwrap().squad = "another membership".into();
     session.update(Some(moved));
     assert!(session.change == Change::Current);
-    assert!(!session.prepare(80, Look::default(), &Default::default()));
+    assert!(!session.prepare(80, Look::default(), &inventory));
     assert_eq!(
         cached,
         session.rendered.as_ref().unwrap().mapped.lines.as_ptr()
@@ -1483,4 +1485,66 @@ fn grouped_wrap_keeps_the_full_body_and_invalidates_only_layout_not_source() {
         assert!(!session.prepare_grouped(width, Look::default(), &Default::default()));
         assert!(session.prepare(width, Look::default(), &Default::default()));
     }
+}
+
+#[test]
+fn bare_and_at_only_sources_invalidate_on_inventory_change_without_acquiring_authority() {
+    use crate::board::{
+        inventory::Inventory,
+        recent_responses::{Item, Observation},
+    };
+    let inventory = Inventory::from_listed(
+        &[],
+        &Ok(json!({"identities":[
+            {"id":"a", "name":"Night", "canonicalName":"night-2"}
+        ]})),
+    );
+    let mut session = Session::default();
+    session.update(Some(reply("r", "ask @night-2 or night-2")));
+    session.transcript_context = transcript::Context {
+        enabled: true,
+        name: "reader".into(),
+        exchanges_observed: true,
+        ..Default::default()
+    };
+    session.pane_output = Observation::Observed(vec![Item {
+        text: "output asks night-2".into(),
+        ended_ms: 1,
+        truncated: false,
+    }]);
+    assert!(session.prepare(80, Look::default(), &inventory));
+    assert!(!session.prepare(80, Look::default(), &inventory));
+    let rendered = session.rendered.as_ref().unwrap();
+    assert_eq!(rendered.mapped.mentions.iter().flatten().count(), 3);
+    let pane = rendered
+        .mapped
+        .lines
+        .iter()
+        .position(|line| line.to_string().contains("output asks"))
+        .unwrap();
+    assert_eq!(rendered.mapped.mentions[pane].len(), 1);
+    assert!(
+        session
+            .response_key_at(rendered.mapped.sources[pane])
+            .is_none()
+    );
+    assert_eq!(
+        session.reply.as_ref().unwrap().body,
+        "ask @night-2 or night-2"
+    );
+    let unavailable = Inventory {
+        error: Some("unavailable".into()),
+        ..Default::default()
+    };
+    assert!(session.prepare(80, Look::default(), &unavailable));
+    assert!(
+        session
+            .rendered
+            .as_ref()
+            .unwrap()
+            .mapped
+            .mentions
+            .iter()
+            .all(Vec::is_empty)
+    );
 }

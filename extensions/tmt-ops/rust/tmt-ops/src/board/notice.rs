@@ -90,6 +90,31 @@ pub(super) fn paint(buffer: &mut Buffer, area: Rect, text: &str, failed: bool, l
     }
 }
 
+pub(super) fn paint_links(
+    frame: &mut ratatui::Frame,
+    app: &super::app::App,
+    area: Rect,
+    text: &str,
+    failed: bool,
+) -> Rect {
+    let hints = paint(frame.buffer_mut(), area, text, failed, app.look());
+    if hints == area {
+        return hints;
+    }
+    let text = text.trim_start_matches("✗ ");
+    let marker = if failed { 2 } else { 0 };
+    let width = (text.width() + marker + 2).min(usize::from(area.width.div_ceil(2))) as u16;
+    let content = Rect::new(
+        area.right() - width + 1 + marker as u16,
+        area.y,
+        width.saturating_sub(marker as u16 + 2),
+        1,
+    );
+    let shown = super::view::fit(text, usize::from(content.width));
+    super::member_links::paint_plain_hits(frame, app, content, text, &shown, false);
+    hints
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

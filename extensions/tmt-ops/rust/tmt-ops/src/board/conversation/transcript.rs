@@ -140,6 +140,7 @@ impl Session {
         mapped: Mapped,
         width: usize,
         look: Look,
+        inventory: &super::super::inventory::Inventory,
     ) -> RenderedTranscript {
         let Context {
             enabled,
@@ -234,14 +235,18 @@ impl Session {
                         vec![],
                         None,
                     );
-                    // Pane text is untrusted display data; no request source or member-action hits.
-                    let body = markdown::render(
+                    // Display-only member links never give pane text request-source authority.
+                    let body = markdown::render_with_members(
                         &sanitize(&item.text),
                         width.saturating_sub(3).max(1),
                         look,
+                        Some(inventory),
                     );
-                    for line in body {
-                        append(super::super::exchange_view::body(line, look), vec![], None);
+                    for (line, mut links) in body.lines.into_iter().zip(body.mentions) {
+                        for link in &mut links {
+                            link.column += 3;
+                        }
+                        append(super::super::exchange_view::body(line, look), links, None);
                     }
                     if item.truncated {
                         append(

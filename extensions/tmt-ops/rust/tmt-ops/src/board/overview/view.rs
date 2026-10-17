@@ -327,7 +327,19 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                     x += unicode_width::UnicodeWidthStr::width(span.content.as_ref());
                 }
             }
+            let displayed = line.to_string();
             strip::paint_left(frame.buffer_mut(), slot, line);
+            let source = if agents {
+                monitor::summary_text(snapshot.rows.get(&row.target))
+            } else {
+                scene
+                    .squads
+                    .get(at - LIST_HEADER_ROWS)
+                    .map_or_else(String::new, |squad| squad.now.clone())
+            };
+            crate::board::member_links::paint_plain_hits(
+                frame, app, slot, &source, &displayed, false,
+            );
             app.workspace_state_cells.borrow_mut().push(
                 Rect::new(
                     slot.x

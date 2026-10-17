@@ -863,7 +863,13 @@ fn roster_preview(
                             style,
                         )
                     });
+                    let displayed = line.to_string();
                     strip::paint_left(frame.buffer_mut(), cell, line);
+                    if *field == RosterField::Task {
+                        crate::board::member_links::paint_plain_hits(
+                            frame, app, cell, &text, &displayed, false,
+                        );
+                    }
                 }
                 if interactive {
                     app.workspace_action_hits.borrow_mut().push((

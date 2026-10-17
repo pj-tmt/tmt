@@ -254,6 +254,11 @@ pub enum Choice {
         jump: bool,
     },
     Unavailable(String),
+    MemberLinkAction {
+        target: super::workspace::OpsTarget,
+        action: Action,
+    },
+    WorkspaceTimers,
     AgentsFilter(super::workspace::AgentsFilter),
     WorkspaceTarget(super::workspace::OpsTarget),
     WorkspaceBegin(super::workspace::manage::Kind),
@@ -2042,7 +2047,7 @@ impl App {
         }
         self.perform_context(action, Some(target))
     }
-    fn perform_context(
+    pub(super) fn perform_context(
         &mut self,
         action: &Action,
         member: Option<&super::workspace::OpsTarget>,
@@ -2664,6 +2669,10 @@ impl App {
         match choice {
             Choice::MemberLink { target, jump } => self.member_link_action(&target, jump),
             Choice::Unavailable(reason) => self.say(reason),
+            Choice::MemberLinkAction { target, action } => {
+                self.member_link_command(&target, &action)
+            }
+            Choice::WorkspaceTimers => self.workspace_owner_timers(None, None),
             Choice::AgentsFilter(filter) => self.agents_filter(filter),
             Choice::WorkspaceTarget(target) => {
                 if self
@@ -3870,7 +3879,12 @@ impl App {
             (event.column, event.row).into(),
             !self.modal_open() && self.input.is_none() && !self.searching && !self.loading(),
         );
-        let changed = resize_changed || buttons_changed || next != self.meter_hover;
+        let links_changed = self.member_links.borrow_mut().move_pointer(
+            (event.column, event.row).into(),
+            !self.modal_open() && !self.loading(),
+        );
+        let changed =
+            resize_changed || buttons_changed || links_changed || next != self.meter_hover;
         self.meter_hover = next;
         changed
     }
