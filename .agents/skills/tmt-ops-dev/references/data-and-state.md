@@ -222,7 +222,9 @@ codecs; the database stores bytes. Constructing or reading an absent store creat
   write transaction, so a corrupt or foreign file refuses and changes nothing.
 - **Archive.** After that commit the file is renamed to `<name>.migrated-<YYYY-MM-DD>`
   (`-<n>` when taken) by hard-linking to the first free name and then dropping the old name:
-  nothing is ever overwritten or deleted. A crash between commit and rename is safe: the next
+  nothing is ever overwritten or deleted. The step runs under the database write lock, because
+  two unserialized archivers can both unlink the name (macOS reports both as successful) and
+  leave two archives of one generation. A crash between commit and rename is safe: the next
   access sees the row and the file, trusts the row and finishes the rename. An older Ops
   that keeps writing the old file is archived the same way and never read again. The lock
   files and staging names of the old stores are no longer created.

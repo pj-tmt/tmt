@@ -39,6 +39,21 @@ impl Drop for World {
     }
 }
 
+type Probe = Box<dyn FnMut(&Path)>;
+
+thread_local! {
+    static ARCHIVING: std::cell::RefCell<Option<Probe>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Called by the archive step, inside its database lock, so a test can look at that moment.
+pub(super) fn archiving(path: &Path) {
+    ARCHIVING.with(|probe| {
+        if let Some(probe) = probe.borrow_mut().as_mut() {
+            probe(path);
+        }
+    });
+}
+
 fn keep(bytes: Option<&[u8]>) -> Result<Option<Vec<u8>>, String> {
     Ok(bytes.map(<[u8]>::to_vec))
 }
@@ -194,4 +209,37 @@ fn only_a_newer_history_is_reported_as_newer() {
     };
     assert_eq!(refusal.cause, Cause::Failed);
     assert!(Database::open_existing(&world.root(), &slot.legacy).is_err());
+}
+
+#[test]
+fn an_archive_runs_only_while_it_holds_the_database_write_lock() {
+    let world = World::new();
+    let slot = world.slot(1024);
+    world.legacy(b"first");
+    let mut database = Database::open(&world.root()).unwrap();
+    let database_file = world.root().join("ops.db");
+    let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let observed = seen.clone();
+    ARCHIVING.with(|probe| {
+        *probe.borrow_mut() = Some(Box::new(move |path| {
+            // Another writer cannot start while the archive step runs, so archivers
+            // never overlap in one directory.
+            let other = rusqlite::Connection::open(&database_file).unwrap();
+            other.busy_timeout(std::time::Duration::ZERO).unwrap();
+            let refused = other.execute_batch("BEGIN IMMEDIATE").is_err();
+            observed.borrow_mut().push((path.to_owned(), refused));
+        }));
+    });
+    database.read(&slot, keep).map_err(|_| ()).unwrap();
+    // A leftover that appears later is archived again, under the lock again.
+    world.legacy(b"second");
+    database.read(&slot, keep).map_err(|_| ()).unwrap();
+    ARCHIVING.with(|probe| *probe.borrow_mut() = None);
+    assert_eq!(
+        *seen.borrow(),
+        [(slot.legacy.clone(), true), (slot.legacy.clone(), true)]
+    );
+    // Reading with nothing to archive takes no write lock at all.
+    database.read(&slot, keep).map_err(|_| ()).unwrap();
+    assert_eq!(seen.borrow().len(), 2);
 }
