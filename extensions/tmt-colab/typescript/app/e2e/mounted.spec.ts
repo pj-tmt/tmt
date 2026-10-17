@@ -280,6 +280,9 @@ test('verified metadata with no wraps keeps the page blocked and opens no render
   await page.goto(mount);
   await page.locator(`[data-page-id="${pageId}"] a`).click();
   await expect(page.getByRole('alert')).toContainText('no verified page key');
+  // The mounted history keeps its route in the fragment; the chapter state rides in the entry.
+  expect(new URL(page.url()).hash).toContain(encodeURIComponent(`/pages/${pageId}`));
+  expect(await page.evaluate(() => history.state?.chapter)).toEqual({ scroll: 0 });
   await expect(page.locator('iframe')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Source', exact: true })).toHaveCount(0);
   await expect(page.locator('.page-header-actions')).toHaveCount(0);

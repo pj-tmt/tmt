@@ -1,5 +1,6 @@
 import { getRouteApi, Link, useRouter } from '@tanstack/react-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
+import { holdSpace, openChapter, prepareToday } from './chapter.js';
 import { NeedsYouBar } from './components/needs-you-bar.js';
 import { useHomeSpace, useSpaceTitle } from './home-space.js';
 import { HomeTitleLink, type HomeTitleHints } from './home-titles.js';
@@ -8,11 +9,12 @@ import type { ReadingDetails } from './reading-details.js';
 import { pageUpdate } from './page-index.js';
 import { text } from './strings.js';
 import { dateLine, greetingPart, todayModel } from './today-model.js';
-import type { PageSummary } from './transport.js';
+import type { PageSummary, SpaceHome } from './transport.js';
 import './today.css';
 
 const t = text.today;
 const todayRoute = getRouteApi('/');
+const rootRoute = getRouteApi('__root__');
 
 type Jump = 'waiting' | 'updated-today';
 /** Waiting asked for from All pages: Today scrolls once it has rendered. */
@@ -73,6 +75,8 @@ function Chapter({
   now,
   hints,
   details,
+  onOpen,
+  open,
 }: {
   page: PageSummary;
   waiting: boolean;
@@ -82,6 +86,9 @@ function Chapter({
   now: number;
   hints?: HomeTitleHints;
   details?: ReadingDetails;
+  onOpen: (event: MouseEvent<HTMLAnchorElement>, page: PageSummary) => void;
+  /** The chapter that is open beside Today. */
+  open: boolean;
 }) {
   const updated = pageUpdate(page.lastUpdateAtMs, now);
   const when = updated.dateTime ? t.kickerUpdated(updated.label) : updated.label;
@@ -94,6 +101,7 @@ function Chapter({
       data-today-waiting={first.includes('waiting') || undefined}
       data-today-updated-today={first.includes('updated-today') || undefined}
       data-updated-today={today || undefined}
+      data-open={open || undefined}
     >
       <article>
         <div className="today-chapter-main">
@@ -110,7 +118,7 @@ function Chapter({
             )}
           </p>
           <h2 className="today-title">
-            <HomeTitleLink page={page} hints={hints} />
+            <HomeTitleLink page={page} hints={hints} onClick={(event) => onOpen(event, page)} />
           </h2>
           <p className="today-meta">
             {author ? <span>{t.byAuthor(author)}</span> : null}
@@ -140,16 +148,62 @@ function Chapter({
 
 export function Today() {
   const space = todayRoute.useLoaderData();
+  return <TodayView space={space} />;
+}
+
+/** Today's page, or its held copy behind an open chapter (`held`: the offset it keeps). */
+export function TodayView({
+  space,
+  held,
+}: {
+  space: SpaceHome;
+  /** The held copy behind an open chapter: the offset it keeps and the chapter that is open. */
+  held?: { scroll: number; open: string };
+}) {
+  const router = useRouter();
+  const { transport } = rootRoute.useRouteContext();
   const { pages, hints } = useHomeSpace(space);
-  const readingDetails = useTodayReadings(space);
-  useSpaceTitle(space.title, text.product);
+  // The held copy hides the column the reading links sit in, so it reads none.
+  const noPages = useMemo(() => ({ ...space, pages: [] }), [space]);
+  const readingDetails = useTodayReadings(held ? noPages : space);
+  // The panel over Today shows this same list, so it paints at once.
+  useLayoutEffect(() => {
+    if (!held) holdSpace(transport, space);
+  }, [held, transport, space]);
+  useSpaceTitle(held ? undefined : space.title, text.product);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => setNow(Date.now()), [space.pages]);
   useEffect(() => {
+    if (held) return;
     const jump = pendingJump;
     pendingJump = undefined;
     if (jump) jumpTo(jump);
-  }, []);
+  }, [held]);
+  // Coming back from a chapter: same offset, same chapter focused.
+  const section = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    if (!held && section.current) prepareToday(router, section.current);
+  }, [held, router]);
+  /** A plain click opens the chapter beside Today (wide) or as the full page; a modified click
+   * keeps the link's own behaviour. Another chapter, while one is open, replaces it. */
+  function onOpen(event: MouseEvent<HTMLAnchorElement>, page: PageSummary) {
+    if (
+      !event.isTrusted ||
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    )
+      return;
+    event.preventDefault();
+    openChapter(router, page.id, {
+      scroll: held ? held.scroll : window.scrollY,
+      link: event.currentTarget,
+      replace: !!held,
+    });
+  }
   const model = todayModel(pages, now);
   const { counts } = model;
   const startOfDay = new Date(now).setHours(0, 0, 0, 0);
@@ -161,7 +215,7 @@ export function Today() {
     page.lastUpdateAtMs != null && page.lastUpdateAtMs >= startOfDay;
   const firstToday = chapters.findIndex(({ page }) => isToday(page));
   return (
-    <section className="today">
+    <section ref={section} className="today">
       <HomeNav current="today" waiting={counts.waiting} />
       <header className="today-hero">
         <p className="today-date">{dateLine(now)}</p>
@@ -248,6 +302,8 @@ export function Today() {
                 now={now}
                 hints={hints}
                 details={readingDetails.get(page.id)}
+                onOpen={onOpen}
+                open={held?.open === page.id}
               />
             ))}
           </ul>
@@ -256,8 +312,16 @@ export function Today() {
               {model.folded.map((page) => {
                 const updated = pageUpdate(page.lastUpdateAtMs, now);
                 return (
-                  <li key={page.id} data-page-id={page.id}>
-                    <HomeTitleLink page={page} hints={hints} />
+                  <li
+                    key={page.id}
+                    data-page-id={page.id}
+                    data-open={held?.open === page.id || undefined}
+                  >
+                    <HomeTitleLink
+                      page={page}
+                      hints={hints}
+                      onClick={(event) => onOpen(event, page)}
+                    />
                     <span className="today-fold-time">{updated.label}</span>
                   </li>
                 );

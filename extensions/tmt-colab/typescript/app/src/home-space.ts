@@ -42,8 +42,9 @@ export function useHomeSpace(space: SpaceHome): {
 }
 
 /** The tab title both home views share. */
-export function useSpaceTitle(title: string, product: string): void {
+export function useSpaceTitle(title: string | undefined, product: string): void {
   useEffect(() => {
+    if (title === undefined) return;
     document.title = title === product ? product : `${title} · ${product}`;
   }, [title, product]);
 }

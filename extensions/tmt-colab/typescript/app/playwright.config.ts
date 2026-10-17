@@ -8,7 +8,9 @@ export default defineConfig({
   workers: 1,
   retries: 0,
   timeout: 30000,
-  use: { baseURL, trace: 'retain-on-failure' },
+  // The app's View Transitions animate for about half a second; tests that are not about motion
+  // run without them (a spec that is calls `emulateMedia({ reducedMotion: 'no-preference' })`).
+  use: { baseURL, trace: 'retain-on-failure', reducedMotion: 'reduce' },
   webServer: {
     command: `./node_modules/.bin/vp dev --host 127.0.0.1 --port ${port} --strictPort`,
     url: baseURL,

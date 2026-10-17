@@ -13,6 +13,8 @@ import { validPagePrefix } from './short-links.js';
 import { ownerReadingHint, ownerReadingHref, readingSearch } from './reading-link.js';
 import { ArrowUpRight, MessageCircle, MessageSquare, Moon, MousePointer2, Sun } from 'lucide-react';
 import { PageHeaderActions, type PageHeaderAction } from './page-header-actions.js';
+import { escapeChapter, finishReturn, useOpenChapter } from './chapter.js';
+import { ChapterBar, HeldToday } from './chapter-layer.js';
 import { ColabHeader } from './colab-header.js';
 import { PageAttribution } from './page-attribution.js';
 import { NoticeCard } from './notice-card.js';
@@ -787,6 +789,11 @@ function Shell() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const isPage = pathname.startsWith('/pages/');
   const isHome = pathname === '/' || pathname === '/all';
+  // The chapter chrome follows the page the outlet shows (see `useOpenChapter`).
+  const open = useOpenChapter();
+  const opened = open?.chapter;
+  const mode = open?.mode;
+  const pageId = open?.pageId;
   return (
     <RemotePresenceProvider owner={transport.remotePresence}>
       <QuickSwitcherHost
@@ -811,7 +818,9 @@ function Shell() {
             }
           />
         )}
-        <main className={isPage ? 'page-main' : undefined}>
+        {mode === 'panel' && pageId && opened && <HeldToday pageId={pageId} chapter={opened} />}
+        <main className={isPage ? 'page-main' : undefined} data-chapter={mode}>
+          {mode && pageId && opened && <ChapterBar mode={mode} pageId={pageId} chapter={opened} />}
           <Outlet />
         </main>
         {!isPage && (
@@ -822,6 +831,7 @@ function Shell() {
   );
 }
 function Page() {
+  const router = useRouter();
   const quickSwitcher = useQuickSwitcher();
   const quickSwitcherOwner = useRef(quickSwitcher);
   quickSwitcherOwner.current = quickSwitcher;
@@ -1037,7 +1047,7 @@ function Page() {
     setPanel((current) => (current === 'agents' || current === 'export' ? null : current));
   }, [archived]);
   const toggleSelectionMode = useRef<() => void>(() => {});
-  const escapeAnnotation = useRef<() => void>(() => {});
+  const escapeAnnotation = useRef<() => boolean>(() => false);
   const chatBusy = useRef(false);
   const [selector, setSelector] = useState<QuoteSelector | null>(null);
   const currentSelector = useRef<QuoteSelector | null>(null);
@@ -1272,11 +1282,15 @@ function Page() {
     );
     return true;
   };
+  /** Whether there was anything to escape; an Escape with nothing to leave stays free for the
+   * chapter panel to close. */
   escapeAnnotation.current = () => {
     if (panel === 'chat') {
       if (!chatBusy.current) setPanel(null);
     } else if (annotationRef.current) closeRef.current(true);
-    else if (canSelect) setSelectionMode(false);
+    else if (canSelect && selectionMode) setSelectionMode(false);
+    else return false;
+    return true;
   };
   toggleSelectionMode.current = () => {
     if (canSelect) setSelectionMode((enabled) => !enabled);
@@ -1310,9 +1324,12 @@ function Page() {
         if (activateChat.current()) event.preventDefault();
         return;
       }
+      if (event.key === 'Escape') {
+        if (escapeAnnotation.current()) event.preventDefault();
+        return;
+      }
       event.preventDefault();
-      if (event.key === 'Escape') escapeAnnotation.current();
-      else if (!selectionMode && currentSelector.current && currentRectangle.current) annotate();
+      if (!selectionMode && currentSelector.current && currentRectangle.current) annotate();
       else toggleSelectionMode.current();
     };
     document.addEventListener('keydown', key);
@@ -1436,8 +1453,9 @@ function Page() {
       onToggleSelectionMode: () => toggleSelectionMode.current(),
       onKey: (key) => {
         if (quickSwitcherOwner.current?.open) return;
-        if (key === 'Escape') escapeAnnotation.current();
-        else if (key === '@') activateChat.current();
+        if (key === 'Escape') {
+          if (!escapeAnnotation.current()) escapeChapter(router);
+        } else if (key === '@') activateChat.current();
         else quickSwitcherOwner.current?.activate();
       },
       onOpenThread: (id) => {
@@ -1467,7 +1485,7 @@ function Page() {
       controller.abort();
       renderer.current = null;
     };
-  }, [view.source, endedError, inlineSlots.onSlots, onQuestionAnchors, onReadingAnchors]);
+  }, [view.source, endedError, inlineSlots.onSlots, onQuestionAnchors, onReadingAnchors, router]);
   useEffect(() => {
     if (state !== 'ready') return;
     renderer.current?.highlight(
@@ -2140,6 +2158,7 @@ export function createAppRouter(transport: PageTransport, space?: string) {
     context: { transport, space },
   });
   router.subscribe('onResolved', () => void buildWatch.check());
+  router.subscribe('onRendered', () => finishReturn(router));
   return router;
 }
 declare module '@tanstack/react-router' {

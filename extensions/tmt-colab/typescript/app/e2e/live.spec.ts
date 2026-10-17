@@ -1881,6 +1881,9 @@ for (const surface of ['Chat', 'annotation'] as const)
     const f = await draftRecoveryWire(context);
     await page.goto(mount);
     await page.locator(`[data-page-id="${v.page}"] a`).click();
+    // This spec is about the popover's geometry at the viewport edge, not about Today: read it on
+    // the full page (a 560 px panel moves the popover to the right edge).
+    await page.getByRole('button', { name: 'Open full page →' }).click();
     const heading = page.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' });
     await expect(heading).toBeVisible();
     if (surface === 'Chat') await (await pageAction(page, 'Chat')).click();
@@ -2295,7 +2298,10 @@ test('paired checkpoints precede an authenticated interleaved tail, preserve edi
   const f = await wire(context, undefined, {});
   await page.goto(mount);
   await page.locator(`[data-page-id="${v.page}"] a`).click();
-  await expect(page.getByRole('heading', { name: 'Checkpoint', exact: true })).toBeVisible();
+  // The chapter's panel header repeats the title: read the page header's.
+  await expect(
+    page.locator('.tmt-ui-header').getByRole('heading', { name: 'Checkpoint', exact: true }),
+  ).toBeVisible();
   await expect(page.getByTestId('comments-panel')).toContainText('No comments yet.');
   await expect(page.getByTestId('comment-entry')).toHaveCount(0);
   await (await pageAction(page, 'Source')).click();
@@ -2610,9 +2616,10 @@ test('failed export preparation requests no files and closing clears pending pre
   await wire(context);
   await page.goto(mount);
   await page.locator(`[data-page-id="${v.page}"] a`).click();
-  // Today lists the page title as a heading too: wait for the page route itself.
-  await expect(page.locator('section.today')).toHaveCount(0);
-  await expect(page.getByRole('heading', { name: 'Live fixture', exact: true })).toBeVisible();
+  // Today, held beside the opened page, lists its title as a heading too: wait for the page itself.
+  await expect(
+    page.locator('section.page').getByRole('heading', { name: 'Live fixture', exact: true }),
+  ).toBeVisible();
   let downloads = 0;
   page.on('download', () => downloads++);
   await page.evaluate(() => {
