@@ -2856,7 +2856,7 @@ draft without the creator mention hides the creator-default toggle; a fresh defa
 draft shows it again. The stored preference and send decision are unchanged. Failed delivery shows
 `✗ Not delivered` and the existing ask-again action labelled `Retry`; waiting,
 held and uncertain states retain their existing recovery and announcements.
-Thread actions retain their existing Lucide icons and accessible labels. Agent activity follows the bounded observation below; after its two-hour horizon the status is static and keeps its accepted ledger state and read-only recheck action. No
+Thread actions retain their existing Lucide icons and accessible labels. Agent activity follows the bounded working-state observation above; after its two-hour horizon the status is static and keeps its accepted ledger state and read-only recheck action. No
 elapsed time authorizes a resend or changes durable ordering. Chat text never enters
 the author-code renderer; highlights carry only anchor IDs, quote selectors and bounded paint-only ordinals.
 The internal highlight message separates an optional unsaved quote from numbered anchors;
