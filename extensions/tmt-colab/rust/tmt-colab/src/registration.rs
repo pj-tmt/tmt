@@ -269,6 +269,17 @@ impl Registration {
                 .stale(&fingerprints, crate::summary::REFRESH_PAGES);
             crate::summary::refresh(&self.summaries, open, stale);
         }
+        // The home summary is display-only owner data, read in its own short transaction; a
+        // space without one has no `homeSummary` key.
+        let home = self
+            .store
+            .owner_read(&self.keyring.space_id, &self.keyring.owner_public(), |tx| {
+                tx.home_summary()
+            })
+            .map_err(map_error)?;
+        if let Some(home) = home {
+            catalog["homeSummary"] = serde_json::to_value(home).map_err(|_| Code::Unavailable)?;
+        }
         serde_json::to_vec(&catalog).map_err(|_| Code::Unavailable)
     }
     /// Complete cached chapter metadata. The owner read checks authority and the current
@@ -393,6 +404,19 @@ impl Registration {
     {
         self.engine
             .set_labels(&mut self.store, &self.keyring, changes)
+    }
+    /// Store or clear the home summary (contract: Home summary): display-only, so no statement, no
+    /// receipt and no head change. The caller serializes with sync before this mutex.
+    pub fn set_home_summary(
+        &mut self,
+        write: crate::home_summary::ipc::Write,
+    ) -> crate::Result<crate::home_summary::ipc::Outcome> {
+        let (summary, changed) = self.store.label_transaction(
+            &self.keyring.space_id,
+            &self.keyring.owner_public(),
+            |tx| tx.set_home_summary(write.lines.as_ref(), write.author.as_deref()),
+        )?;
+        Ok(crate::home_summary::ipc::Outcome { summary, changed })
     }
     /// The public key that must have signed a root-local batch; never request-selected.
     pub(crate) fn author_key(&self) -> crate::Result<[u8; 32]> {

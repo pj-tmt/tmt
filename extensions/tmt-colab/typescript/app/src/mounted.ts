@@ -266,6 +266,7 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
           return {
             title: text.product,
             pageIds: boot.pageIds,
+            ...(boot.homeSummary ? { homeSummary: boot.homeSummary } : {}),
             pages: await Promise.all(
               boot.pages.map(async (page) => {
                 const policy = project(page, log).page;

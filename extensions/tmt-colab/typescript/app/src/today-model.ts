@@ -1,3 +1,4 @@
+import type { HomeSummary } from './bootstrap.js';
 import { orderPages } from './page-index.js';
 import type { PageSummary } from './transport.js';
 
@@ -57,4 +58,14 @@ export function dateLine(now: number): string {
     month: 'long',
     day: 'numeric',
   }).format(now);
+}
+
+/** Whether an active page changed after the summary was written, so the summary may be behind. */
+export function pagesChangedSince(
+  summary: Pick<HomeSummary, 'atMs'>,
+  pages: readonly PageSummary[],
+): boolean {
+  return pages.some(
+    (page) => !page.archived && page.lastUpdateAtMs != null && page.lastUpdateAtMs > summary.atMs,
+  );
 }
