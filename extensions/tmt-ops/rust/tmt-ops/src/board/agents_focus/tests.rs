@@ -55,11 +55,23 @@ fn observed(body: &str) -> App {
 #[test]
 fn sparse_exchange_grows_down_and_overflow_alone_pins_the_same_input() {
     let mut app = observed("One short observed response.");
+    let target = app.workspace.selected.clone().unwrap();
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .rows
+        .get_mut(&target)
+        .unwrap()["pane"]["target"] = json!("work:2.1");
     let sparse = draw(&mut app, 148, 51);
     let text = screen(&sparse);
     for value in [
         "Exchanges with you",
         "One short observed response.",
+        "tmux work:2.1",
         "TOK 1h",
         "STATE",
         "DIGEST",

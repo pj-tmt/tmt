@@ -20,6 +20,12 @@ pub(super) fn render(
     let room = room_id.as_deref();
     let look = app.look();
     let observed = app.references.agents.get(id);
+    let host = row["pane"]["location"]["host"].as_str().map(|host| {
+        row["pane"]["target"]
+            .as_str()
+            .filter(|target| !target.is_empty())
+            .map_or_else(|| host.to_owned(), |target| format!("{host} {target}"))
+    });
     line(
         frame,
         area,
@@ -34,7 +40,7 @@ pub(super) fn render(
                 model: observed
                     .and_then(|agent| agent.model.as_deref())
                     .or_else(|| row["fields"]["model"].as_str()),
-                host: row["pane"]["location"]["host"].as_str(),
+                host: host.as_deref(),
             },
             look,
         ),
