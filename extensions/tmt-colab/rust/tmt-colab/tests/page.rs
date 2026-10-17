@@ -3105,7 +3105,9 @@ mod native_preparation {
                 attachments: None,
             },
             expected,
-            &mut Decoder::new(BINARY.into()).unwrap(),
+            // Admission is semantic, not a production-deadline benchmark. Match the legacy
+            // preparation path's fixture budget, including its large own-stream checkpoint.
+            &mut f.decoder(),
             NOW,
         )
     }
