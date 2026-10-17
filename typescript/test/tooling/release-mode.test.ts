@@ -49,7 +49,7 @@ function workflowRun(id = 1, ageMinutes = 10, event = 'schedule') {
     event,
     head_branch: 'main',
     status: 'completed',
-    conclusion: 'success',
+    conclusion: 'success' as string | null,
     run_attempt: 1,
     run_started_at: new Date(NOW - ageMinutes * 60_000).toISOString(),
     display_title: 'Release cut (live dispatch)',
@@ -150,6 +150,44 @@ describe('push cut cadence admission', () => {
   it('fails closed when a recent push has no admission job evidence', () => {
     expect(() => gate([workflowRun(1, 1, 'push')], { total_count: 0, jobs: [] })).toThrow(
       'no cut admission evidence'
+    );
+  });
+  it('does not count a cancelled push with a complete zero-job attempt', () => {
+    const cancelled = { ...workflowRun(1, 1, 'push'), conclusion: 'cancelled' };
+    const empty = { total_count: 0, jobs: [] };
+    expect(gate([cancelled], empty).mode).toEqual({
+      live: true,
+      reason: 'push cadence elapsed',
+    });
+    // No-job evidence cannot hide another admitted cut inside the cadence window.
+    expect(gate([cancelled, workflowRun(2, 30)], empty).mode).toEqual({
+      live: false,
+      reason: 'cadence',
+    });
+  });
+  it.each([true, false])(
+    'uses admission evidence for a cancelled push whose cut job was admitted: %s',
+    (admitted) => {
+      const cancelled = { ...workflowRun(1, 1, 'push'), conclusion: 'cancelled' };
+      expect(gate([cancelled], pushJobs(admitted)).mode.live).toBe(!admitted);
+    }
+  );
+  it.each(['success', 'failure', null])(
+    'refuses a zero-job push whose conclusion is %s',
+    (conclusion) => {
+      expect(() =>
+        gate([{ ...workflowRun(1, 1, 'push'), conclusion }], { total_count: 0, jobs: [] })
+      ).toThrow('no cut admission evidence');
+    }
+  );
+  it.each([
+    { total_count: 2, jobs: [...pushJobs(true).jobs, ...pushJobs(true).jobs] },
+    { total_count: 1, jobs: [{ ...pushJobs(true).jobs[0], name: 'An unrelated job' }] },
+    { total_count: 1, jobs: [] },
+    { total_count: 0, jobs: pushJobs(true).jobs },
+  ])('refuses ambiguous or incomplete jobs even for a cancelled push: %j', (jobs) => {
+    expect(() => gate([{ ...workflowRun(1, 1, 'push'), conclusion: 'cancelled' }], jobs)).toThrow(
+      'refusing live push cut'
     );
   });
   it.each([425, 10_000, 100_000])(
