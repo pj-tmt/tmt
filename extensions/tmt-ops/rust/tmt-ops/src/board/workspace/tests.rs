@@ -279,6 +279,87 @@ fn search_counts_distinct_identities_and_keeps_only_matching_ancestors() {
 }
 
 #[test]
+fn search_counts_match_expanded_rows_across_visibility_pins_and_partial_rosters() {
+    let mut roster = roster();
+    roster.squads.push(OpsSquad {
+        room_id: "second".into(),
+        name: "Other team".into(),
+        members: vec!["one".into(), "one".into(), "missing".into()],
+        ..roster.squads[0].clone()
+    });
+    for observation in [
+        OpsObservation::Complete,
+        OpsObservation::Partial,
+        OpsObservation::Stale,
+    ] {
+        roster.observation = observation;
+        roster.squads[1].observation = observation;
+        for visibility in [
+            OpsVisibility::default(),
+            OpsVisibility {
+                reveal_hidden: true,
+                ..Default::default()
+            },
+            OpsVisibility {
+                scope: vec!["room".into()],
+                ..Default::default()
+            },
+            OpsVisibility {
+                scope: vec!["second".into()],
+                ..Default::default()
+            },
+        ] {
+            for filter in [AgentsFilter::All, AgentsFilter::Pinned] {
+                for squad_pin in [false, true] {
+                    let preferences = OpsPreferences {
+                        hidden: ["room".into()].into(),
+                        pinned: if squad_pin {
+                            ["second".into()].into()
+                        } else {
+                            Default::default()
+                        },
+                        agent_pins: ["lead".into(), "free".into()].into(),
+                        ..Default::default()
+                    };
+                    for query in [
+                        "",
+                        "ALICE",
+                        "product",
+                        "Other",
+                        "Common pool",
+                        "Free",
+                        "missing",
+                    ] {
+                        let workspace = OpsWorkspace {
+                            query: query.into(),
+                            visibility: visibility.clone(),
+                            filter,
+                            ..Default::default()
+                        };
+                        let identities = |query| {
+                            workspace
+                                .project_rows(&roster, &preferences, query, true)
+                                .into_iter()
+                                .filter_map(|row| match row.target {
+                                    OpsTarget::Member { identity_id, .. } => Some(identity_id),
+                                    _ => None,
+                                })
+                                .collect::<BTreeSet<_>>()
+                                .len()
+                        };
+                        assert_eq!(
+                            workspace.search_counts(&roster, &preferences),
+                            (identities(query), identities("")),
+                            "{observation:?} {visibility:?} {filter:?} pin={squad_pin} query={query}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn all_filter_keeps_incomplete_observations_visible_without_claiming_counts() {
     let mut roster = roster();
     let workspace = OpsWorkspace::default();

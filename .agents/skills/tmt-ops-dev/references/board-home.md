@@ -114,8 +114,10 @@ switchable Squads/Agents list. The shared FilterBar paints mode chips and the
 in-place search field; section rules own right-aligned counts. `v` switches the
 view through the effective binding table; active searches show matching squads or
 agents out of that mode's admitted unsearched total. Agents counts deduplicate
-identities across memberships and include collapsed matching children. Explicit
-authored keys win; App retains the only search query and editing state.
+identities across memberships and include collapsed matching children, without
+building or sorting display rows. Binding resolution shares the existing immutable
+row scope and releases it before any input or model change. Explicit authored keys
+win; App retains the only search query and editing state.
 `overview::monitor` caches canonical rows and the scoped numeric summary; acquired
 roster, preferences, label and meter/job updates invalidate it. Waiting membership
 occurrences are admitted before UUID deduplication, so an unobserved or nonwaiting

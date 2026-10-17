@@ -14,8 +14,8 @@ use crate::{
 };
 use std::rc::Rc;
 
-/// Rows are shared only within an immutable paint, never across an input or
-/// snapshot update. Nested paints and unwinding restore the previous scope.
+/// Rows are shared only within an immutable paint or binding projection, never
+/// across an input or snapshot update. Nested scopes and unwinding restore it.
 pub(in crate::board) struct FrameRows<'a> {
     slot: &'a RefCell<Option<Rc<[OpsTreeRow]>>>,
     previous: Option<Rc<[OpsTreeRow]>>,
@@ -362,13 +362,18 @@ impl App {
     }
     /// A squad selection grants a conversation only to its observed, current lead.
     pub(in crate::board) fn workspace_message_target(&self) -> Option<OpsTarget> {
-        if matches!(self.shell.tab, OpsTab::Overview | OpsTab::Agents)
-            && self.workspace_selection_visible()
-            && let Some(OpsTarget::Squad(room)) = self.workspace.selected.as_ref()
-        {
-            return self.workspace_squad_lead(room);
+        match self.workspace.selected.as_ref()? {
+            OpsTarget::Squad(room)
+                if matches!(self.shell.tab, OpsTab::Overview | OpsTab::Agents)
+                    && self.workspace_selection_visible() =>
+            {
+                self.workspace_squad_lead(room)
+            }
+            member @ OpsTarget::Member { .. } if self.workspace_selection_visible() => {
+                Some(member.clone())
+            }
+            _ => None,
         }
-        self.workspace_selected_member().cloned()
     }
 
     /// Read-only search preview admission is distinct from message authority.
@@ -404,7 +409,7 @@ impl App {
     }
     pub(in crate::board) fn workspace_selected_member(&self) -> Option<&OpsTarget> {
         self.workspace.selected.as_ref().filter(|target| {
-            self.workspace_selection_visible() && matches!(target, OpsTarget::Member { .. })
+            matches!(target, OpsTarget::Member { .. }) && self.workspace_selection_visible()
         })
     }
     pub(in crate::board) fn workspace_scope(&self) -> OpsKeyScope {
@@ -479,6 +484,7 @@ impl App {
         self.invalidate_frame_geometry();
     }
     pub(in crate::board) fn workspace_bindings(&self) -> Bindings {
+        let _rows = self.workspace_frame_rows();
         let mut keys = self.workspace_effective_bindings();
         if self.shell.tab != OpsTab::Agents {
             keys.retain(|_, action| {
@@ -580,7 +586,7 @@ impl App {
             host,
         );
         if self.shell.tab == OpsTab::Agents
-            && self.workspace_message_target().is_some()
+            && let Some(target) = self.workspace_message_target()
             && let Some(sources) = self.workspace_binding_sources()
         {
             // Factory actions follow the selected recipient in either pane.
@@ -590,8 +596,8 @@ impl App {
                 .is_some_and(|source| source == "workspace default")
             {
                 let pending = self
-                    .workspace_message_target()
-                    .and_then(|target| self.workspace_snapshot()?.rows.get(&target))
+                    .workspace_snapshot()
+                    .and_then(|snapshot| snapshot.rows.get(&target))
                     .is_some_and(crate::attention::waits_on_you);
                 keys.insert(
                     "enter".into(),

@@ -439,22 +439,50 @@ impl OpsWorkspace {
     }
 
     /// Count identities, not their repeated memberships or collapsed rows.
-    pub fn search_counts(
+    pub fn search_counts<'a>(
         &self,
-        roster: &OpsRoster,
+        roster: &'a OpsRoster,
         preferences: &OpsPreferences,
     ) -> (usize, usize) {
-        let count = |query: &str| {
-            self.project_rows(roster, preferences, query, true)
-                .into_iter()
-                .filter_map(|row| match row.target {
-                    OpsTarget::Member { identity_id, .. } => Some(identity_id),
-                    _ => None,
-                })
-                .collect::<BTreeSet<_>>()
-                .len()
+        let query = self.query.to_lowercase();
+        let mut total = BTreeSet::new();
+        let mut matched = BTreeSet::new();
+        let mut admit = |member: &'a OpsMember, group_matches: bool| {
+            total.insert(&member.id);
+            if !query.is_empty() && (group_matches || member.name.to_lowercase().contains(&query)) {
+                matched.insert(&member.id);
+            }
         };
-        (count(&self.query), count(""))
+        if self.visibility.scope.is_empty() {
+            let group_matches = "common pool".contains(&query);
+            for member in roster.pool().filter(|member| {
+                self.filter != AgentsFilter::Pinned || preferences.agent_pins.contains(&member.id)
+            }) {
+                admit(member, group_matches);
+            }
+        }
+        for squad in roster
+            .squads
+            .iter()
+            .filter(|squad| self.visibility.shows_squad(&squad.room_id, preferences))
+        {
+            let group_matches = squad.name.to_lowercase().contains(&query);
+            for member in roster.members(squad).filter(|member| {
+                self.filter != AgentsFilter::Pinned
+                    || preferences.pinned.contains(&squad.room_id)
+                    || preferences.agent_pins.contains(&member.id)
+            }) {
+                admit(member, group_matches);
+            }
+        }
+        (
+            if query.is_empty() {
+                total.len()
+            } else {
+                matched.len()
+            },
+            total.len(),
+        )
     }
 
     fn project_rows(

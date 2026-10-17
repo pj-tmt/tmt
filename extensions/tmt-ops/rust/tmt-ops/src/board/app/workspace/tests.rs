@@ -734,7 +734,11 @@ fn frame_rows_share_one_projection_and_release_it_after_nested_paint_or_unwind()
             assert!(Rc::ptr_eq(&rows, &app.workspace_rows()));
         }
         assert!(Rc::ptr_eq(&rows, &app.workspace_rows()));
+        app.bindings();
+        assert!(Rc::ptr_eq(&rows, &app.workspace_rows()));
     }
+    assert!(app.frame_workspace_rows.borrow().is_none());
+    app.bindings();
     assert!(app.frame_workspace_rows.borrow().is_none());
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let _frame = app.workspace_frame_rows();
