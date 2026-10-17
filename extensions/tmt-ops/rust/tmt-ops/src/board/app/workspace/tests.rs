@@ -2076,10 +2076,10 @@ fn a_composer_with_its_own_key_legend_does_not_advertise_list_shortcuts() {
                 .iter()
                 .any(|line| line.contains("⏎ send · Esc cancel"))
         );
-        assert!(
-            lines.last().unwrap().trim().is_empty(),
-            "{width}: {:?}",
-            lines.last()
+        assert_eq!(
+            lines.last().unwrap().trim(),
+            "Alt+Enter new line  Ctrl-P paste",
+            "{width}: only editing keys accompany the filled composer"
         );
         key(&mut app, KeyCode::Char('j'));
         assert_eq!(app.input.as_ref().unwrap().text.as_str(), "j");
@@ -2253,7 +2253,10 @@ fn passive_composer_preserves_footer_bindings_notice_error_modal_and_reload_prec
         assert!(paint(&app, width, 18).last().unwrap().contains("j host"));
         assert!(app.input_band.get().is_some() && app.input.is_none());
         key(&mut app, KeyCode::Enter);
-        assert!(paint(&app, width, 18).last().unwrap().trim().is_empty());
+        assert_eq!(
+            paint(&app, width, 18).last().unwrap().trim(),
+            "Alt+Enter new line  Ctrl-P paste"
+        );
         app.reload = crate::board::reload::Watch::due();
         let lines = paint(&app, width, 18);
         assert!(lines.last().unwrap().contains("reload waiting"));
