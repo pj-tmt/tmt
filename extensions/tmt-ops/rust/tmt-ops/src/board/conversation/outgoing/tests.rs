@@ -693,6 +693,9 @@ fn delivery_and_acquired_agent_freshness_remain_independent_after_failed_reads()
             "document",
         ] {
             let mut app = crate::board::app::workspace::tests::board();
+            let view = app.view.as_mut().unwrap();
+            view.look.depth = tmt_cli_style::Depth::None;
+            view.home.as_mut().unwrap().workspace.squad_looks.clear();
             provider_observation(&mut app, crate::board::activity::Phase::Working, SENT);
             let fake = Fake::new(json!({"requestId":"req-freshness","status":"sent"}), false);
             let completed = send(&mut app, &fake, "one explicit message");
@@ -1482,6 +1485,9 @@ fn provider_feedback_names_are_literal_and_do_not_create_authored_member_links()
     const NAME: &str = "*night-2* #tmt:worker";
     crate::status::with_now_ms(SENT, || {
         let mut app = crate::board::app::workspace::tests::board();
+        let view = app.view.as_mut().unwrap();
+        view.look.depth = tmt_cli_style::Depth::None;
+        view.home.as_mut().unwrap().workspace.squad_looks.clear();
         provider_observation(&mut app, crate::board::activity::Phase::Working, SENT);
         let fake = Fake::new(json!({"requestId":"literal-name","status":"sent"}), false);
         let completed = send(&mut app, &fake, "**Authored bold** #tmt:worker");
