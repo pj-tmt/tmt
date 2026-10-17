@@ -160,8 +160,11 @@ it; visible drift refuses, while ambiguity after a possible effect is unknown wi
 Fake process/HTTP tests use a vendored layout stub and canary credentials, never real login.
 Real account/project provisioning remains separately authorized acceptance, not fixture proof.
 
-The deployment owner defaults to a plan and saves one local draft identity,
-without a provider effect. Preview keeps a changed unfinished intent visible without refusing it;
+Automation previews and saves one draft identity without provider effects; a terminal may
+confirm one captured plan, or continue its saved digest without another question. `deploy_cli`
+owns that decision, `deploy_command` retains the inputs/record across it, and `deploy_run` keeps
+the creation/release fences. Only a new terminal confirmation may abandon a known or unknown
+unreleased Version; it never supersedes unknown web-app/site/config creation. Preview keeps a changed unfinished intent visible without refusing it;
 `deploy_run` gates replacement before calls and archives accepted unfinished runs as `superseded`
 in the additive `supersededRuns` list, preserving checkpoints and step outcomes. Missing history
 remains omitted, so existing records read unchanged. Explicit digest authorization names the whole envelope; foreign

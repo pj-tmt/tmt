@@ -402,6 +402,12 @@ fn step(id: &str, kind: StepKind) -> DeployStep {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Authorization {
     plan_digest: String,
+    abandon_unreleased_hosting: bool,
+}
+impl Authorization {
+    pub(crate) fn interactive(&self) -> bool {
+        self.abandon_unreleased_hosting
+    }
 }
 /// Authorize a plan from the digest (or a prefix of at least 12 hex characters) the
 /// owner typed. The plan digest also covers any foreign Rules replacement fingerprint.
@@ -411,6 +417,7 @@ pub fn authorize(plan: &DeployPlan, typed_digest: &str) -> Result<Authorization,
     }
     Ok(Authorization {
         plan_digest: plan.digest.clone(),
+        abandon_unreleased_hosting: false,
     })
 }
 
@@ -724,7 +731,11 @@ pub fn run(
     if authorization.plan_digest != plan.digest || record.deployment_id != plan.deployment_id() {
         return Err(DeployError::Refused(DeployRefusal::AuthorizationStale));
     }
-    if let Some(reason) = supersession_refusal(plan, &record) {
+    if let Some(reason) = if authorization.abandon_unreleased_hosting {
+        interactive_supersession_refusal(plan, &record)
+    } else {
+        supersession_refusal(plan, &record)
+    } {
         return Err(DeployError::Refused(reason));
     }
     match port.account() {
@@ -1374,4 +1385,36 @@ impl Run {
                 .iter()
                 .any(|s| s.id == "hosting:release" && s.state != StepState::Pending)
     }
+}
+
+/// A terminal confirmation of these captured bytes may leave an unreleased Version
+/// behind, but never discards an unconfirmed web-app/site/config creation.
+pub fn authorize_interactive(
+    plan: &DeployPlan,
+    record: &DeployRecord,
+) -> Result<Authorization, DeployRefusal> {
+    if let Some(reason) = interactive_supersession_refusal(plan, record) {
+        return Err(reason);
+    }
+    Ok(Authorization {
+        plan_digest: plan.digest.clone(),
+        abandon_unreleased_hosting: true,
+    })
+}
+pub fn interactive_supersession_refusal(
+    plan: &DeployPlan,
+    record: &DeployRecord,
+) -> Option<DeployRefusal> {
+    let previous = superseded_run(plan, record)?;
+    previous
+        .steps
+        .iter()
+        .any(|step| {
+            matches!(
+                step.id.as_str(),
+                "web-app:create" | "hosting-site:create" | "hosting-site:configure"
+            ) && (step.state == StepState::Unknown
+                || (step.id == "web-app:create" && step.state == StepState::Building))
+        })
+        .then_some(DeployRefusal::PreviousCreateUnconfirmed)
 }

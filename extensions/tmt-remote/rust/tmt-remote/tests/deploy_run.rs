@@ -2118,3 +2118,107 @@ fn supersession_refuses_staged_versions_and_each_unconfirmed_creation_before_cal
         assert!(saved.saved.is_empty());
     }
 }
+
+#[test]
+fn interactive_supersession_requires_one_new_consent_and_keeps_unknown_app_fenced() {
+    use tmt_remote::{deploy_cli, deploy_run::authorize_interactive};
+    let old = hosted_plan();
+    let next = hosted_plan_with_content(b"updated");
+    let mut port = HostedFake::new();
+    let mut sink = Mem::default();
+    port.inner
+        .faults
+        .insert("hosting:stage:create".into(), When::AfterEffectUnknown);
+    let record = run(
+        &old,
+        &authorized(&old),
+        DeployRecord::new(DEPLOYMENT),
+        &mut port,
+        &mut sink,
+        1,
+    )
+    .unwrap();
+    assert!(matches!(
+        run(
+            &next,
+            &authorized(&next),
+            record.clone(),
+            &mut port,
+            &mut sink,
+            2
+        ),
+        Err(DeployError::Refused(
+            DeployRefusal::PreviousCreateUnconfirmed
+        ))
+    ));
+    let notice = deploy_cli::confirmation_notice(&next, &record, true, Some(true));
+    assert!(notice.contains(deploy_cli::UNKNOWN_VERSION));
+    assert!(
+        notice.starts_with("Security rules: will be updated.\nWebsite files: will be updated.\n")
+    );
+    let mut known = record.clone();
+    known
+        .run
+        .as_mut()
+        .unwrap()
+        .hosting
+        .as_mut()
+        .unwrap()
+        .version = Some(format!("sites/{PROJECT}/versions/old"));
+    known
+        .run
+        .as_mut()
+        .unwrap()
+        .steps
+        .iter_mut()
+        .find(|s| s.id == "hosting:stage:create")
+        .unwrap()
+        .state = StepState::Done;
+    assert!(
+        deploy_cli::confirmation_notice(&next, &known, false, Some(false))
+            .starts_with("Security rules: no change.\nWebsite files: no change.\n")
+    );
+    assert!(
+        deploy_cli::confirmation_notice(&next, &known, false, None)
+            .contains(deploy_cli::KNOWN_VERSION)
+    );
+    assert!(
+        !deploy_cli::confirmation_notice(&next, &known, false, None).contains("Website files:")
+    );
+    assert!(authorize_interactive(&next, &known).is_ok());
+    known.run.as_mut().unwrap().rules_attempted = true;
+    assert!(
+        deploy_cli::confirmation_notice(&next, &known, true, Some(true))
+            .contains(deploy_cli::KNOWN_VERSION)
+    );
+    for id in [
+        "web-app:create",
+        "hosting-site:create",
+        "hosting-site:configure",
+    ] {
+        let mut unsafe_record = record.clone();
+        unsafe_record
+            .run
+            .as_mut()
+            .unwrap()
+            .steps
+            .iter_mut()
+            .find(|s| s.id == id)
+            .unwrap()
+            .state = StepState::Unknown;
+        assert_eq!(
+            authorize_interactive(&next, &unsafe_record),
+            Err(DeployRefusal::PreviousCreateUnconfirmed)
+        );
+    }
+    let consent = authorize_interactive(&next, &record).unwrap();
+    let original_steps = record.run.as_ref().unwrap().steps.clone();
+    let complete = run(&next, &consent, record, &mut port, &mut sink, 2).unwrap();
+    assert_eq!(complete.run.as_ref().unwrap().state, RunState::Complete);
+    assert_eq!(complete.superseded_runs[0].steps, original_steps);
+    assert_eq!(
+        port.inner.effects_of("hosting:stage:create"),
+        1,
+        "the old uncertain call was not repeated"
+    );
+}

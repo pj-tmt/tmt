@@ -2445,7 +2445,7 @@ persist project-local v1 drafts without binding a region. The first authorized s
 `REMOTE_DEPLOY_PROJECT_CONFLICT` before provider setup, login or inventory, without reset.
 A changed unfinished intent never refuses a plan-only preview. Human output and optional
 `supersededRun:{planDigest,safe,reason,next}` explain replacement without undoing anything.
-Authorization of the current digest may replace it only without an unknown web-app/site/config
+Explicit `--authorize` of the current digest may replace it only without an unknown web-app/site/config
 or Version creation and without a staged Version, except the explicit expired-Version abandonment
 path. Unsafe replacement returns `REMOTE_DEPLOY_PREVIOUS_CREATE_UNCONFIRMED` with the existing
 no-repeat/recovery guidance or `REMOTE_DEPLOY_PREVIOUS_VERSION_STAGED` with the earlier-build or
@@ -2603,8 +2603,20 @@ and raw child errors are never disclosed. Missing bytes never select a fixture.
 
 **Current implementation.** `tmt remote deploy firestore` composes captured installed
 extension inputs through the existing deployment owner and real provider port. It defaults
-to a plan with no provider effects;
-only an explicit digest authorization can run it. A private deployment record preserves the
+to a plan with no provider effects for agents, CI, `--json` and non-interactive input;
+only an explicit digest authorization can run those invocations. An interactive terminal instead
+displays the captured account, target, changes, Rules/website deltas and asks once:
+`Deploy these changes to your Firebase project? [y/N]`. Yes authorizes precisely those captured
+bytes: discovery, inventory and plan preparation are not repeated after the answer; live account
+and effect guards still run. No, EOF or cancellation while waiting makes no provider changes;
+decline/EOF exits zero. There is no `--yes` flag. A saved identical authorized digest continues
+without another question, including an unfinished run. A changed unfinished intent requires one
+new confirmation and retains its superseded outcomes. That explicit terminal decision may leave
+a known or possibly created unreleased Hosting Version untouched and unreleased, with the
+corresponding warning before confirmation; it never bypasses an unknown web-app/site/config
+creation. Already released content retains the existing observation/release checks. This exception
+does not change non-interactive exact-digest authorization, the plan grammar, cause codes or
+same-digest create no-repeat/upload-origin fences. A private deployment record preserves the
 draft identity and saves run outcomes under a separate writer lock, publishing complete files
 by atomic rename. Readers never take that lock, so status need not wait for a deployment run.
 Running `status --layers` reads recorded project, sign-in, verified Rules and composite-index outcomes without

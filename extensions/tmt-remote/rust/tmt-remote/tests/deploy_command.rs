@@ -742,6 +742,199 @@ mod cli_composition {
         deploy_cli::arguments(&matches)
     }
     #[test]
+    fn interactive_yes_executes_only_the_displayed_snapshot_once() {
+        let root = Root::new();
+        let layout = root.layout();
+        let mut source = DeployCliSource(0, true);
+        let mut provider = DeployCliProvider(Fake::new(ACCOUNT), 0);
+        let mut shown = None;
+        let mut prompt = |out: &tmt_remote::deploy_command::DeployCommandOutput| {
+            assert!(shown.is_none());
+            shown = Some(out.json["planDigest"].as_str().unwrap().to_string());
+            Ok(true)
+        };
+        let out = deploy_cli::execute_with_confirmation(
+            &args(&[]).unwrap(),
+            &mut source,
+            &["colab"],
+            || Ok(&mut provider),
+            || Ok(layout.clone()),
+            || Ok(1),
+            Some(&mut prompt),
+        )
+        .unwrap();
+        assert_eq!(out.json["authorized"], true);
+        assert_eq!(out.json["planDigest"].as_str(), shown.as_deref());
+        assert_eq!(
+            out.json["record"]["run"]["planDigest"],
+            out.json["planDigest"]
+        );
+        assert_eq!(source.0, 1, "no rediscovery between display and answer");
+        assert_eq!(provider.0.effects_of("rules"), 1);
+    }
+    #[test]
+    fn interactive_decline_has_no_effect_and_plain_or_json_never_asks() {
+        let root = Root::new();
+        let layout = root.layout();
+        let mut source = DeployCliSource(0, true);
+        let mut provider = DeployCliProvider(Fake::new(ACCOUNT), 0);
+        let mut asked = 0;
+        let mut no = |_: &tmt_remote::deploy_command::DeployCommandOutput| {
+            asked += 1;
+            Ok(false)
+        };
+        let out = deploy_cli::execute_with_confirmation(
+            &args(&[]).unwrap(),
+            &mut source,
+            &["colab"],
+            || Ok(&mut provider),
+            || Ok(layout.clone()),
+            || Ok(1),
+            Some(&mut no),
+        )
+        .unwrap();
+        assert_eq!(asked, 1);
+        assert!(
+            out.human
+                .ends_with("Not deployed. Nothing in your Firebase project changed.\n")
+        );
+        assert!(provider.0.effects.is_empty());
+        let mut json_args = args(&[]).unwrap();
+        json_args.json = true;
+        let mut never =
+            |_: &tmt_remote::deploy_command::DeployCommandOutput| -> Result<bool, DeployCliError> {
+                panic!("JSON cannot prompt")
+            };
+        let out = deploy_cli::execute_with_confirmation(
+            &json_args,
+            &mut source,
+            &["colab"],
+            || Ok(&mut provider),
+            || Ok(layout.clone()),
+            || Ok(1),
+            Some(&mut never),
+        )
+        .unwrap();
+        assert_eq!(out.json["authorized"], false);
+        assert!(provider.0.effects.is_empty());
+    }
+    #[test]
+    fn same_digest_partial_run_continues_without_another_question() {
+        let root = Root::new();
+        let layout = root.layout();
+        let mut source = DeployCliSource(0, true);
+        let mut provider = DeployCliProvider(Fake::new(ACCOUNT), 0);
+        provider.0.owner_pending.insert(
+            "sign-in:anonymous".into(),
+            deploy_run::DeployOwnerAction::InitializeAuth,
+        );
+        let mut yes = |_: &tmt_remote::deploy_command::DeployCommandOutput| Ok(true);
+        let partial = deploy_cli::execute_with_confirmation(
+            &args(&[]).unwrap(),
+            &mut source,
+            &["colab"],
+            || Ok(&mut provider),
+            || Ok(layout.clone()),
+            || Ok(1),
+            Some(&mut yes),
+        )
+        .unwrap();
+        assert_eq!(partial.json["record"]["run"]["state"], "partial");
+        provider.0.owner_pending.clear();
+        let mut never =
+            |_: &tmt_remote::deploy_command::DeployCommandOutput| -> Result<bool, DeployCliError> {
+                panic!("already authorized")
+            };
+        let completed = deploy_cli::execute_with_confirmation(
+            &args(&[]).unwrap(),
+            &mut source,
+            &["colab"],
+            || Ok(&mut provider),
+            || Ok(layout.clone()),
+            || Ok(2),
+            Some(&mut never),
+        )
+        .unwrap();
+        assert_eq!(partial.json["planDigest"], completed.json["planDigest"]);
+        assert_eq!(completed.json["record"]["run"]["state"], "complete");
+        assert!(
+            completed
+                .human
+                .starts_with("Continuing the deploy you already approved.\n")
+        );
+    }
+    #[test]
+    fn interrupted_confirmation_saves_only_a_resumable_draft() {
+        let root = Root::new();
+        let layout = root.layout();
+        let mut source = DeployCliSource(0, true);
+        let mut provider = DeployCliProvider(Fake::new(ACCOUNT), 0);
+        let mut interrupted =
+            |_: &tmt_remote::deploy_command::DeployCommandOutput| -> Result<bool, DeployCliError> {
+                Err(DeployCliError::Local(
+                    std::io::Error::from(std::io::ErrorKind::Interrupted).into(),
+                ))
+            };
+        assert!(
+            deploy_cli::execute_with_confirmation(
+                &args(&[]).unwrap(),
+                &mut source,
+                &["colab"],
+                || Ok(&mut provider),
+                || Ok(layout.clone()),
+                || Ok(1),
+                Some(&mut interrupted)
+            )
+            .is_err()
+        );
+        assert!(provider.0.effects.is_empty());
+        assert!(deploy_record::read(&layout).unwrap().unwrap().run.is_none());
+    }
+    #[test]
+    fn declining_changed_work_does_not_relabel_an_earlier_unknown_effect() {
+        let root = Root::new();
+        let layout = root.layout();
+        let mut source = DeployCliSource(0, true);
+        let mut provider = DeployCliProvider(Fake::new(ACCOUNT), 0);
+        provider
+            .0
+            .faults
+            .insert("rules".into(), When::AfterEffectUnknown);
+        let mut yes = |_: &tmt_remote::deploy_command::DeployCommandOutput| Ok(true);
+        let old = deploy_cli::execute_with_confirmation(
+            &args(&[]).unwrap(),
+            &mut source,
+            &["colab"],
+            || Ok(&mut provider),
+            || Ok(layout.clone()),
+            || Ok(1),
+            Some(&mut yes),
+        )
+        .unwrap();
+        assert_eq!(old.json["record"]["run"]["state"], "partial");
+        let before = deploy_record::read(&layout).unwrap();
+        let effects = provider.0.effects.clone();
+        let mut changed = args(&[]).unwrap();
+        changed.sign_in.push(SignInProvider::Google);
+        let mut no = |_: &tmt_remote::deploy_command::DeployCommandOutput| Ok(false);
+        let output = deploy_cli::execute_with_confirmation(
+            &changed,
+            &mut source,
+            &["colab"],
+            || Ok(&mut provider),
+            || Ok(layout.clone()),
+            || Ok(2),
+            Some(&mut no),
+        )
+        .unwrap();
+        assert_eq!(
+            output.human,
+            "Not deployed. Nothing in your Firebase project changed.\n"
+        );
+        assert_eq!(deploy_record::read(&layout).unwrap(), before);
+        assert_eq!(provider.0.effects, effects);
+    }
+    #[test]
     fn authorization_shape_is_usage_before_discovery_or_setup() {
         for extra in [
             vec![
@@ -1452,4 +1645,98 @@ fn refused_replacement_keeps_typed_recovery_instead_of_the_preview_loop() {
             }
         }
     }
+}
+
+#[test]
+fn only_an_interactive_person_can_implicitly_authorize_and_the_copy_is_pinned() {
+    use tmt_remote::deploy_cli::*;
+    let terminal = tmt_cli_style::Interaction {
+        json: false,
+        stdin: true,
+        stdout: true,
+        stderr: true,
+        dumb: false,
+    };
+    assert!(may_prompt(terminal, false, false));
+    assert!(!may_prompt(terminal, true, false));
+    assert!(!may_prompt(terminal, false, true));
+    assert!(!may_prompt(
+        tmt_cli_style::Interaction {
+            json: true,
+            ..terminal
+        },
+        false,
+        false
+    ));
+    assert!(!may_prompt(
+        tmt_cli_style::Interaction {
+            stdin: false,
+            ..terminal
+        },
+        false,
+        false
+    ));
+    assert!(!may_prompt(
+        tmt_cli_style::Interaction {
+            stderr: false,
+            ..terminal
+        },
+        false,
+        false
+    ));
+    assert_eq!(
+        DEPLOY_PROMPT,
+        "Deploy these changes to your Firebase project? [y/N]"
+    );
+    assert_eq!(
+        DECLINED,
+        "Not deployed. Nothing in your Firebase project changed."
+    );
+    assert_eq!(CONTINUING, "Continuing the deploy you already approved.");
+    assert_eq!(
+        REPLACING,
+        "An earlier deploy did not finish. This one replaces it. Anything the earlier one already changed stays as it is; nothing is undone."
+    );
+    assert_eq!(
+        KNOWN_VERSION,
+        "The earlier deploy left an uploaded website version that is not live. It stays in your project, unchanged."
+    );
+    assert_eq!(
+        UNKNOWN_VERSION,
+        "Your project may already hold one uploaded website version that is not live. It stays that way, and this deploy may upload another."
+    );
+}
+
+#[test]
+fn account_changed_after_the_displayed_snapshot_refuses_before_effects() {
+    let root = Root::new();
+    let layout = root.layout();
+    let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
+    let extensions = plan();
+    let body = fixture("deploy_run", "rules-body.rules");
+    let input = input(&extensions, &body);
+    let mut provider = Fake::new(ACCOUNT);
+    let prepared =
+        tmt_remote::deploy_command::prepare_with_hosting(&input, &mut store, &mut provider, None)
+            .unwrap();
+    let preview = prepared.preview(&input, &mut store, None).unwrap();
+    let consent = deploy_run::authorize_interactive(prepared.plan(), prepared.record()).unwrap();
+    assert_eq!(preview.json["planDigest"], prepared.plan().digest());
+    provider.account = "different@example.test".into();
+    assert!(matches!(
+        tmt_remote::deploy_command::execute_prepared(
+            &input,
+            prepared,
+            Some(consent),
+            &mut store,
+            &mut provider,
+            1,
+            None
+        ),
+        Err(DeployCommandError::Run(DeployError::Refused(
+            DeployRefusal::AccountChanged
+        )))
+    ));
+    assert!(provider.calls.is_empty() && provider.effects.is_empty());
+    assert!(store.load_or_draft().unwrap().run.is_none());
 }

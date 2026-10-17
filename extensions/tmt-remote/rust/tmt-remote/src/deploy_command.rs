@@ -64,6 +64,51 @@ pub fn execute_with_hosting(
     now_ms: u64,
     hosting: Option<&crate::hosting::HostingDeploymentView>,
 ) -> Result<DeployCommandOutput, DeployCommandError> {
+    let prepared = prepare_with_hosting(input, store, port, hosting)?;
+    let authorization = options
+        .authorize
+        .map(|typed| deploy_run::authorize(&prepared.plan, typed))
+        .transpose()
+        .map_err(DeployCommandError::Refused)?;
+    execute_prepared(input, prepared, authorization, store, port, now_ms, hosting)
+}
+
+/// Immutable inputs retained across the terminal's single decision.
+pub struct PreparedDeploy {
+    plan: deploy_run::DeployPlan,
+    record: DeployRecord,
+}
+impl PreparedDeploy {
+    pub fn plan(&self) -> &deploy_run::DeployPlan {
+        &self.plan
+    }
+    pub fn record(&self) -> &DeployRecord {
+        &self.record
+    }
+    pub fn preview(
+        &self,
+        input: &DeployCommandInput<'_>,
+        store: &mut DeployRecordStore,
+        hosting: Option<&crate::hosting::HostingDeploymentView>,
+    ) -> Result<DeployCommandOutput, DeployCommandError> {
+        store.persist(&self.record)?;
+        Ok(render(
+            input,
+            self,
+            &self.record,
+            false,
+            store,
+            hosting,
+            false,
+        ))
+    }
+}
+pub fn prepare_with_hosting(
+    input: &DeployCommandInput<'_>,
+    store: &mut DeployRecordStore,
+    port: &mut dyn DeployPort,
+    hosting: Option<&crate::hosting::HostingDeploymentView>,
+) -> Result<PreparedDeploy, DeployCommandError> {
     store.check_target(input.project, input.location)?;
     let record = store.load_or_draft()?;
     let account = port
@@ -90,31 +135,58 @@ pub fn execute_with_hosting(
     .map_err(DeployCommandError::Refused)?;
     let plan =
         deploy_run::retain_hosting_plan(plan, &record).map_err(DeployCommandError::Refused)?;
-    let superseded = deploy_run::superseded_run(&plan, &record).map(|run| {
-        (
-            run.plan_digest.clone(),
-            deploy_run::supersession_refusal(&plan, &record),
-        )
-    });
-    let record = match options.authorize {
+    Ok(PreparedDeploy { plan, record })
+}
+pub fn execute_prepared(
+    input: &DeployCommandInput<'_>,
+    prepared: PreparedDeploy,
+    authorization: Option<deploy_run::Authorization>,
+    store: &mut DeployRecordStore,
+    port: &mut dyn DeployPort,
+    now_ms: u64,
+    hosting: Option<&crate::hosting::HostingDeploymentView>,
+) -> Result<DeployCommandOutput, DeployCommandError> {
+    let plan = &prepared.plan;
+    let record = prepared.record.clone();
+    let authorized = authorization.is_some();
+    let hint = !authorization.as_ref().is_some_and(|a| a.interactive());
+    let record = match authorization {
         None => {
             store.persist(&record)?;
             record
         }
-        Some(typed) => {
-            let authorization =
-                deploy_run::authorize(&plan, typed).map_err(DeployCommandError::Refused)?;
+        Some(authorization) => {
             if hosting.is_some() && !port.supports_hosting() {
                 return Err(DeployCommandError::Refused(
                     DeployRefusal::HostingUnavailable,
                 ));
             }
             store.bind_target(input.project, input.location)?;
-            deploy_run::run(&plan, &authorization, record, port, store, now_ms)
+            deploy_run::run(plan, &authorization, record, port, store, now_ms)
                 .map_err(DeployCommandError::Run)?
         }
     };
-    let authorized = options.authorize.is_some();
+
+    Ok(render(
+        input, &prepared, &record, authorized, store, hosting, hint,
+    ))
+}
+fn render(
+    input: &DeployCommandInput<'_>,
+    prepared: &PreparedDeploy,
+    record: &DeployRecord,
+    authorized: bool,
+    store: &DeployRecordStore,
+    hosting: Option<&crate::hosting::HostingDeploymentView>,
+    hint: bool,
+) -> DeployCommandOutput {
+    let plan = &prepared.plan;
+    let superseded = deploy_run::superseded_run(plan, &prepared.record).map(|run| {
+        (
+            run.plan_digest.clone(),
+            deploy_run::supersession_refusal(plan, &prepared.record),
+        )
+    });
     let mut json = json!({ "authorized": authorized, "plan": plan.view(), "planDigest": plan.digest(),
         "extensions": input.extensions.view(), "record": record });
     let mut human = format!(
@@ -241,24 +313,31 @@ pub fn execute_with_hosting(
     if let Some((digest, refusal)) = superseded {
         let next = refusal.map(|reason| supersession_message(reason, &store.record_path()));
         json["supersededRun"] = json!({"planDigest":digest,"safe":refusal.is_none(),"reason":refusal.map(|r| r.code()),"next":next});
-        human.push_str("An unfinished run from an older plan exists. ");
-        if let Some(next) = next {
-            human.push_str(&next);
-        } else {
-            human.push_str("Authorizing this plan supersedes it and keeps its recorded outcomes.");
+        if hint {
+            human.push_str("An unfinished run from an older plan exists. ");
+            if let Some(next) = next {
+                human.push_str(&next);
+            } else {
+                human.push_str(
+                    "Authorizing this plan supersedes it and keeps its recorded outcomes.",
+                );
+            }
+            human.push_str(" Nothing has been undone.\n");
         }
-        human.push_str(" Nothing has been undone.\n");
     }
     if authorized {
-        describe_record(&mut human, &record, &store.record_path());
-    } else {
+        if !hint {
+            human.clear();
+        }
+        describe_record(&mut human, record, &store.record_path());
+    } else if hint {
         writeln!(human, "Not authorized; nothing changed in your Firebase project.\nTo deploy this plan{}, run the same command with --authorize {}", if plan.view().rules.replaced_digest.is_some() { " and replace the live Rules" } else { "" }, &plan.digest()[..12]).expect("String write");
     }
-    if authorized && let Ok(link) = crate::remote_link::from_record(&record) {
+    if authorized && let Ok(link) = crate::remote_link::from_record(record) {
         writeln!(human, "Remote link: {link}").expect("String write");
         json["remoteLink"] = Value::String(link);
     }
-    Ok(DeployCommandOutput { json, human })
+    DeployCommandOutput { json, human }
 }
 /// One recovery instruction for both an unknown creation and a refused replacement.
 pub fn unconfirmed_creation_message(path: &std::path::Path) -> String {

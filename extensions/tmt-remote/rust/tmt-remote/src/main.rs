@@ -601,7 +601,23 @@ fn deploy_firestore_command(matches: &clap::ArgMatches) -> Result<(), RemoteErro
         .iter()
         .map(|e| e.name)
         .collect();
-    let result = deploy_cli::execute(&args, &mut declarations, &enabled,
+    let mut confirm = |preview: &tmt_remote::deploy_command::DeployCommandOutput| {
+        let mut output = tmt_cli_style::stream::stderr();
+        write!(output, "{}", preview.human)
+            .map_err(|e| deploy_cli::DeployCliError::Local(e.into()))?;
+        output
+            .flush()
+            .map_err(|e| deploy_cli::DeployCliError::Local(e.into()))?;
+        confirm_deploy(&mut std::io::stdin(), &mut output, &stop)
+            .map_err(|e| deploy_cli::DeployCliError::Local(e.into()))
+    };
+    let confirmation = deploy_cli::may_prompt(
+        Interaction::detect(args.json),
+        std::env::var_os("TMT_AGENT").is_some(),
+        std::env::var_os("CI").is_some(),
+    )
+    .then_some(&mut confirm as &mut deploy_cli::PlanConfirmation<'_>);
+    let result = deploy_cli::execute_with_confirmation(&args, &mut declarations, &enabled,
         || {
             let search = std::env::var_os("PATH").unwrap_or_default();
             let tools = deploy_tools::discover(&search).map_err(deploy_cli::DeployCliError::Tool)?;
@@ -617,6 +633,7 @@ fn deploy_firestore_command(matches: &clap::ArgMatches) -> Result<(), RemoteErro
             Layout::open(&root).map_err(deploy_cli::DeployCliError::Local)
         },
         || tmt_remote::pairing::now_ms().map_err(deploy_cli::DeployCliError::Local),
+        confirmation,
     ).map_err(|error| match error {
         deploy_cli::DeployCliError::Tool(deploy_tools::ToolDiscoveryError::FirebaseMissing) => RemoteError::new("REMOTE_DEPLOY_TOOL_MISSING", "Firebase CLI is not installed. Install it with: npm install -g firebase-tools@15.29.0"),
         deploy_cli::DeployCliError::Tool(deploy_tools::ToolDiscoveryError::NodeMissing) => RemoteError::new("REMOTE_DEPLOY_NODE_MISSING", "Node.js could not be found for the installed Firebase CLI. Install Node.js, then try again."),
@@ -635,6 +652,35 @@ fn deploy_firestore_command(matches: &clap::ArgMatches) -> Result<(), RemoteErro
         write!(output, "{}", result.human)?;
     }
     Ok(())
+}
+/// One bounded line from the terminal; signals cancel the wait without a reader thread.
+fn confirm_deploy(
+    input: &mut (impl std::io::Read + std::os::fd::AsFd),
+    output: &mut impl Write,
+    stop: &AtomicBool,
+) -> std::io::Result<bool> {
+    use nix::{
+        errno::Errno,
+        poll::{PollFd, PollFlags, poll},
+    };
+    write!(output, "{} ", tmt_remote::deploy_cli::DEPLOY_PROMPT)?;
+    output.flush()?;
+    loop {
+        if stop.load(Ordering::SeqCst) {
+            return Ok(false);
+        }
+        let mut descriptors = [PollFd::new(input.as_fd(), PollFlags::POLLIN)];
+        match poll(&mut descriptors, tmt_remote::limits::DEPLOY_CONFIRM_POLL_MS) {
+            Ok(0) | Err(Errno::EINTR) => continue,
+            Err(error) => return Err(std::io::Error::from_raw_os_error(error as i32)),
+            Ok(_) => {}
+        }
+        let mut bytes = [0; tmt_remote::limits::DEPLOY_CONFIRM_BYTES];
+        let count = input.read(&mut bytes)?;
+        return Ok(!stop.load(Ordering::SeqCst)
+            && count < bytes.len()
+            && tmt_remote::deploy_cli::confirmation_answer(&bytes[..count]));
+    }
 }
 fn discovery_root() -> Result<std::path::PathBuf, RemoteError> {
     CoreClient::discover()?
@@ -1638,6 +1684,34 @@ mod tests {
             Outcome::Failed("exit 9".into()),
         ] {
             assert_eq!(open_row(&outcome), None);
+        }
+    }
+}
+
+#[cfg(test)]
+mod deploy_prompt_tests {
+    use super::*;
+    #[test]
+    fn scripted_terminal_yes_no_eof_and_cancellation_are_bounded() {
+        use std::os::unix::net::UnixStream;
+        for (answer, stop, expected) in [
+            (b"y\n".as_slice(), false, true),
+            (b"N\n", false, false),
+            (b"", false, false),
+            (b"yes\n", true, false),
+        ] {
+            let (mut input, mut writer) = UnixStream::pair().unwrap();
+            writer.write_all(answer).unwrap();
+            writer.shutdown(std::net::Shutdown::Write).unwrap();
+            let mut output = Vec::new();
+            assert_eq!(
+                confirm_deploy(&mut input, &mut output, &AtomicBool::new(stop)).unwrap(),
+                expected
+            );
+            assert_eq!(
+                String::from_utf8(output).unwrap(),
+                "Deploy these changes to your Firebase project? [y/N] "
+            );
         }
     }
 }
