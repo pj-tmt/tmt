@@ -179,6 +179,9 @@ native publication/decoding), with one dispatch and no reload.
 reload, Remote restart after the core accepted, Remote restart before dispatch, Colab restart,
 device revocation and two tabs of one browser staying live at once. They
 drive direct Chat (`composeChat`, `sendChat`, `askEntry`, `askState`) and run against the built binaries.
+A composer is filled only through `annotationInput` (which `composeChat` uses): a fresh composer seeds its
+default mention when the agent directory resolves, and Playwright's fill (select all, then insert) lets that
+seed land between its two steps.
 Remote stores sessions and door cookies in memory. The mounted owner can replace a verified
 ended Session after a restart without a reload.
 The cases admit that in-place recovery (the page's automatic reconnect, or its explicit

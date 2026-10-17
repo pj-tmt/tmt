@@ -15,6 +15,7 @@ import {
   type PairedBrowser,
 } from './harness/browser.js';
 import {
+  annotationInput,
   askEntry,
   clientId,
   composeChat,
@@ -375,7 +376,7 @@ test('connection soak: explicit revoke ends access and cannot dispatch a retaine
     const s = await owner(world);
     await readSendReceive(s, 'revoke positive control');
     const panel = s.page.getByTestId('chat-panel');
-    const input = panel.getByRole('combobox', { name: 'Message', exact: true });
+    const input = await annotationInput(panel);
     await input.fill('@soak-agent Do not dispatch after revoke.');
     const before = world.coreCalls().filter((call) => call.operation === 'dispatch.create').length;
     run(world, world.binaries.remote, [
