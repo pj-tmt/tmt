@@ -137,7 +137,7 @@ test('answering and sending turns the chip into an answered chip that stays open
   await expect(chip).toHaveText('✓ Answered 2 questions ▴');
   await expect(panel(page).locator('.needs-you-bar').first()).toContainText('Answered 2 questions');
   await expect.poll(async () => (await run(page, 'discussionProof')).length).toBe(2);
-  // A neutral chip: the attention colour belongs to the open ◆ only.
+  // The answered check is neutral: only the open ◆ takes the attention colour.
   const colours = await chip.evaluate((node) => ({
     chip: getComputedStyle(node).color,
     mark: getComputedStyle(node.querySelector('.question-chip-mark')!).color,
@@ -204,8 +204,36 @@ for (const [width, theme] of [
       });
     await settled(page);
     expect(await inside()).toEqual({ overflow: false, outside: false });
+    // Text is the normal text colour in both themes and in every state, hover and focus included;
+    // closed has the sheet surface, open the neutral selection surface, and nothing is blue.
+    const tokens = () =>
+      page.evaluate(() => {
+        const probe = document.createElement('i');
+        document.body.append(probe);
+        const resolve = (property: 'color' | 'backgroundColor', token: string) => {
+          probe.style[property] = `var(${token})`;
+          return getComputedStyle(probe)[property];
+        };
+        const value = {
+          text: resolve('color', '--tmt-ui-color-text'),
+          sheet: resolve('backgroundColor', '--tmt-ui-surface-sheet'),
+          selection: resolve('backgroundColor', '--tmt-ui-surface-selection'),
+        };
+        probe.remove();
+        return value;
+      });
+    const look = () =>
+      chip.evaluate((node) => ({
+        color: getComputedStyle(node).color,
+        background: getComputedStyle(node).backgroundColor,
+      }));
+    const expected = await tokens();
+    expect(await look()).toEqual({ color: expected.text, background: expected.sheet });
     await page.screenshot({ path: `${directory}/chip-closed-${width}-${theme}.png` });
+    await chip.hover();
+    expect(await look()).toEqual({ color: expected.text, background: expected.sheet });
     await chip.click();
+    expect(await look()).toEqual({ color: expected.text, background: expected.selection });
     await expect(panel(page)).toBeVisible();
     await expect(panel(page).locator('.needs-you-bar').first()).toBeVisible();
     expect(await inside()).toEqual({ overflow: false, outside: false });
@@ -219,10 +247,12 @@ for (const [width, theme] of [
       .press('Enter');
     await expect(chip).toHaveText('✓ Answered 2 questions ▴');
     await settled(page);
+    expect(await look()).toEqual({ color: expected.text, background: expected.selection });
     await page.screenshot({ path: `${directory}/chip-answered-open-${width}-${theme}.png` });
     await chip.click();
     await expect(panel(page)).toBeHidden();
     await settled(page);
+    expect(await look()).toEqual({ color: expected.text, background: expected.sheet });
     await page.screenshot({ path: `${directory}/chip-answered-${width}-${theme}.png` });
     expect(await inside()).toEqual({ overflow: false, outside: false });
   });

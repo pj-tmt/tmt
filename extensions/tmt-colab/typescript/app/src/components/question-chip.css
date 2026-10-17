@@ -1,5 +1,6 @@
-/* The chip sits in running text: one line, the page's rule colour, no fill. Only an open ◆ takes the
-   attention colour; an answered chip is neutral and stays openable. */
+/* The chip sits in running text: one line in the page's rule colour. Its text is always the normal
+   text colour; only an open ◆ takes the attention colour. Closed keeps the sheet surface so it stays
+   legible on any author palette, and open adds the neutral selection surface. */
 .question-chip {
   box-sizing: border-box;
   display: inline-block;
@@ -14,16 +15,11 @@
   white-space: nowrap;
   cursor: pointer;
 }
+.question-chip[aria-expanded='true'] {
+  background: var(--tmt-ui-surface-selection);
+}
 .question-chip[data-state='needs'] .question-chip-mark {
   color: var(--tmt-ui-color-waiting);
-}
-.question-chip[data-state='done'] {
-  color: var(--tmt-ui-color-secondary);
-}
-.question-chip:hover,
-.question-chip:focus-visible {
-  background: var(--tmt-ui-surface-selection);
-  color: var(--tmt-ui-color-selected-text);
 }
 .question-chip:focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
