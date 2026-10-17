@@ -3121,7 +3121,7 @@ fn agents_wide_table_uses_hour_readings_once_and_marks_missing_members() {
                     format!(
                         "{}{}",
                         if missing || reading.partial { "~" } else { "" },
-                        crate::source::tokens(reading.tokens as f64)
+                        crate::source::tokens(reading.tokens)
                     ),
                 ),
             ] {

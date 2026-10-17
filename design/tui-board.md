@@ -209,6 +209,9 @@ Provider usage/quota and shell attention remain global under launch scope; local
 roster totals intersect the visible scoped identities. Missing, partial and stale
 observations remain distinct from measured zero. No rate or money estimate
 replaces completed-request token totals.
+Every Ops token figure uses the same format: whole counts below 1,000; scaled
+`k`/`M`/`B` values keep one decimal below 100 (`18.2k`, `1.4M`) and none at
+100 or above (`340k`, `120M`), with rounding carried into the next unit.
 
 Digest provider bars use existing approximately 18-cell labels and shared width steps:
 at 160 cells two fit side by side; narrower widths give each its own row.

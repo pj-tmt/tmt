@@ -45,7 +45,7 @@ fn usage(app: &App, width: u16) -> (Vec<Line<'static>>, std::ops::Range<usize>) 
                         |reading| format!(
                             "{}{} tok",
                             if reading.partial { "≥" } else { "" },
-                            crate::source::tokens(reading.tokens as f64)
+                            crate::source::tokens(reading.tokens)
                         )
                     )
                 )

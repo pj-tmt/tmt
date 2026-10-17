@@ -63,7 +63,7 @@ fn right(text: &str, width: usize) -> String {
 }
 
 fn tokens(value: u64) -> String {
-    crate::source::compact_tokens(u128::from(value))
+    crate::source::tokens(u128::from(value))
 }
 
 /// Hours up to two days, then days and hours.

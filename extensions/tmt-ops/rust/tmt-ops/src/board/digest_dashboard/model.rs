@@ -201,7 +201,7 @@ pub(in crate::board) fn savings_value(
         SavingsUnit::Tokens => (
             summary
                 .tokens
-                .map(|tokens| crate::source::compact_tokens(u128::from(tokens))),
+                .map(|tokens| crate::source::tokens(u128::from(tokens))),
             coverage(summary.included),
             None,
         ),

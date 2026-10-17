@@ -59,7 +59,7 @@ fn token_label(reading: Option<super::rate::Reading>) -> String {
             format!(
                 "{}{}",
                 if reading.partial { "~" } else { "" },
-                crate::source::tokens(reading.tokens as f64)
+                crate::source::tokens(reading.tokens)
             )
         },
     )

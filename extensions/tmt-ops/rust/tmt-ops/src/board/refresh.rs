@@ -1932,7 +1932,7 @@ columns = [{ name = "member" }, { name = "ctx", from = "meta.usage.count", forma
                 );
                 assert_eq!(rows[1]["waitingOnYou"][0]["requestId"], "R");
                 assert_eq!(rows[0]["fields"]["ctx"], "950");
-                assert_eq!(rows[1]["fields"]["ctx"], "1k");
+                assert_eq!(rows[1]["fields"]["ctx"], "1.2k");
             }
         }
         std::fs::remove_dir_all(root).unwrap();

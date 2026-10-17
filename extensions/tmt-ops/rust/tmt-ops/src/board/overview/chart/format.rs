@@ -1,5 +1,5 @@
 //! Compact chart labels; exact integer totals remain in bucket Details.
-pub(super) use crate::source::compact_tokens as tokens;
+pub(super) use crate::source::tokens;
 
 pub(super) fn interval(minutes: u32) -> String {
     if minutes.is_multiple_of(1_440) {
@@ -102,7 +102,7 @@ mod tests {
             (999, "999"),
             (1_000, "1.0k"),
             (23_058_051, "23.1M"),
-            (176_815_646, "176.8M"),
+            (176_815_646, "177M"),
             (1_250_000_000, "1.3B"),
         ] {
             assert_eq!(tokens(value), expected);

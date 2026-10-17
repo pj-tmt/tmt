@@ -264,9 +264,7 @@ fn animated_header_boundaries_keep_all_non_counter_cells_and_settled_bytes() {
                         area,
                         paint::usage(&usage, width, look).unwrap(),
                     );
-                    if crate::source::tokens(from as f64).len()
-                        <= crate::source::tokens(to as f64).len()
-                    {
+                    if crate::source::tokens(from).len() <= crate::source::tokens(to).len() {
                         assert_ne!(
                             first, settled,
                             "admitted values still animate within their cells"
@@ -305,9 +303,7 @@ fn animated_header_boundaries_keep_all_non_counter_cells_and_settled_bytes() {
                     assert!(state.wait(start + Duration::from_millis(600)).is_none());
                     // A narrower accepted cell refuses an oversized old display
                     // immediately, rather than truncating it or shifting neighbours.
-                    if crate::source::tokens(from as f64).len()
-                        > crate::source::tokens(to as f64).len()
-                    {
+                    if crate::source::tokens(from).len() > crate::source::tokens(to).len() {
                         assert_eq!(
                             first, settled,
                             "shrinking numeric budgets settle before painting"
@@ -326,7 +322,7 @@ fn header_usage_formats_thresholds_real_labels_and_partial_missing_values() {
     for width in [160, 100, 80, 60] {
         let line = paint::usage(&usage, width, app.look()).unwrap();
         let text = line.to_string();
-        assert!(text.contains("1h ~2k tok"), "{width}: {text}");
+        assert!(text.contains("1h ~2.0k tok"), "{width}: {text}");
         assert_eq!(text.contains("top worker ~60%"), width >= 80);
         assert!(!text.contains("5m") && !text.contains("models") && !text.contains("without data"));
         assert!(line.width() <= usize::from(width));
@@ -404,7 +400,7 @@ fn flat_header_words_counts_and_missing_evidence_are_text_while_marks_keep_roles
             .iter()
             .map(|cell| cell.symbol())
             .collect::<String>();
-        for word in ["~2k", "worker", "tok"] {
+        for word in ["~2.0k", "worker", "tok"] {
             let x = text[..text.find(word).unwrap()].width() as u16;
             assert_eq!(buffer[(x, 0)].fg, fg(Role::Muted), "{word}");
         }
