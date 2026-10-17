@@ -1,6 +1,10 @@
 //! One session chart controller shared by Overview and Digest. Source rings and
 //! frame diffs remain with their existing owners; this cache holds bounded totals.
-use super::{detail::Details, model::Selection, project};
+use super::{
+    model::{Each, Selection},
+    project,
+    viewport::Viewport,
+};
 use crate::board::spark_row::Scene;
 use crate::{
     board::{
@@ -18,6 +22,7 @@ use ratatui::{
 use std::{collections::BTreeSet, rc::Rc};
 
 mod controls;
+mod dropdown;
 mod render;
 pub(in crate::board) use render::{demand, overview_demand, render_controls, render_panel};
 #[cfg(test)]
@@ -32,7 +37,9 @@ enum Focus {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Target {
-    Each(u32),
+    OpenEach,
+    OpenRange,
+    Each(Each),
     Range(u32),
     Quota(crate::board::limits::QuotaWindow),
     Bar(usize),
@@ -46,7 +53,11 @@ pub(super) struct Hit {
 
 #[derive(Default)]
 pub(in crate::board) struct State {
+    dropdown: Option<dropdown::Dropdown>,
     selection: Selection,
+    each: Each,
+    viewport: Viewport,
+    pinned: Option<i64>,
     quota_window: crate::board::limits::QuotaWindow,
     focus: Option<Focus>,
     draft: usize,
@@ -56,9 +67,39 @@ pub(in crate::board) struct State {
     hover: Option<usize>,
     observed: Option<Rc<Series>>,
     // The scene key includes all display values, coverage and solved dimensions.
-    scene: Option<(crate::board::spark_row::Data, u16, Scene)>,
+    scene: Option<(crate::board::spark_row::Data, u16, u64, Scene)>,
 }
 impl State {
+    pub(in crate::board) fn chart_controls(&self) -> (u32, Each) {
+        (self.selection.range_minutes, self.each)
+    }
+    pub(in crate::board) fn restore_chart_controls(&mut self, range: u32, each: Each) {
+        if Selection::RANGE.contains(&range) {
+            self.each = each;
+            self.selection = each.resolve(range, self.viewport.width);
+            self.reset_series();
+        }
+    }
+    fn reset_series(&mut self) {
+        self.observed = None;
+        self.scene = None;
+        self.hover = None;
+        self.pinned = None;
+        self.viewport.reset();
+        self.bar = self.selection.bars().expect("admitted selection") - 1;
+        self.hits.clear();
+    }
+    fn resolve_width(&mut self, width: usize) {
+        self.viewport.width = width;
+        if let Some(dropdown) = &mut self.dropdown {
+            dropdown.resolve_width(self.selection.range_minutes, width);
+        }
+        let next = self.each.resolve(self.selection.range_minutes, width);
+        if next != self.selection {
+            self.selection = next;
+            self.reset_series();
+        }
+    }
     pub(in crate::board) fn quota_window(&self) -> crate::board::limits::QuotaWindow {
         self.quota_window
     }
@@ -82,11 +123,18 @@ impl State {
     pub fn release_focus(&mut self) {
         self.focus = None;
         self.hover = None;
+        self.dropdown = None;
+    }
+    pub(in crate::board) fn scrollable(&self) -> bool {
+        self.selection.bars().is_ok_and(|n| n > self.viewport.width)
     }
     pub fn focused(&self) -> bool {
         self.focus.is_some()
     }
     pub fn invalidate_geometry(&mut self) {
+        if let Some(dropdown) = &mut self.dropdown {
+            dropdown.invalidate();
+        }
         self.hits.clear();
         self.visible = false;
         self.hover = None;
@@ -98,10 +146,16 @@ impl State {
     fn set_focus(&mut self, focus: Focus) {
         self.focus = Some(focus);
         self.draft = match focus {
-            Focus::Each => Selection::each_choices(self.selection.range_minutes)
-                .iter()
-                .position(|v| *v == self.selection.each_minutes)
-                .unwrap(),
+            Focus::Each => match self.each {
+                Each::Auto => 0,
+                Each::Fixed(each) => {
+                    Selection::each_choices(self.selection.range_minutes)
+                        .iter()
+                        .position(|v| *v == each)
+                        .unwrap_or(0)
+                        + 1
+                }
+            },
             Focus::Range => Selection::RANGE
                 .iter()
                 .position(|v| *v == self.selection.range_minutes)
@@ -125,16 +179,31 @@ impl State {
                 }
                 return Ok(());
             }
-            Target::Each(v) => next.each_minutes = v,
-            Target::Range(v) => next = next.with_range(v)?,
-            Target::Bar(_) | Target::Controls => return Ok(()),
+            Target::Each(Each::Auto) => {
+                self.each = Each::Auto;
+                next = self.each.resolve(next.range_minutes, self.viewport.width);
+            }
+            Target::Each(Each::Fixed(v)) => {
+                next.each_minutes = v;
+                next.validate()?;
+                self.each = Each::Fixed(v);
+            }
+            Target::Range(v) => {
+                next = next.with_range(v)?;
+                if matches!(self.each, Each::Fixed(_)) {
+                    self.each = Each::Fixed(next.each_minutes);
+                }
+                next = self.each.resolve(v, self.viewport.width);
+            }
+            Target::Bar(_) | Target::Controls | Target::OpenEach | Target::OpenRange => {
+                return Ok(());
+            }
         }
-        self.selection.change(next)?;
-        self.bar = self.bar.min(next.bars()? - 1);
-        self.observed = None;
-        self.scene = None;
-        self.hover = None;
-        self.hits.clear();
+        next.validate()?;
+        if next != self.selection {
+            self.selection.change(next)?;
+            self.reset_series();
+        }
         if let Some(focus) = self.focus {
             self.set_focus(focus);
         }
@@ -208,7 +277,14 @@ fn refresh(app: &App, state: &mut State, now: u64) {
     )
     .expect("admitted chart clock");
     if state.observed.as_ref().is_none_or(|old| old.grid != grid) {
-        state.observed = Some(Rc::new(app.usage_series(state.selection, now)));
+        let observed = app.usage_series(state.selection, now);
+        if state
+            .pinned
+            .is_some_and(|from| !observed.buckets.iter().any(|bucket| bucket.from_ms == from))
+        {
+            state.pinned = None;
+        }
+        state.observed = Some(Rc::new(observed));
     }
 }
 pub(in crate::board) fn clock_mark(app: &App, now: u64) -> String {
@@ -239,45 +315,52 @@ pub(in crate::board) fn focus(app: &mut App) -> Effect {
         );
     }
     // Overview may omit its inline chart to keep the last usable primary row.
-    // Its freshly painted body still admits the same read-only control modal;
+    // Its freshly painted body still admits the read-only dropdown triggers;
     // a pre-frame or invalidated workspace never bypasses the visibility fence.
     let overview_table = app.shell.tab == OpsTab::Overview && app.scrolls.visible(Pane::Rows);
-    if !app.usage_chart.borrow().visible && !overview_table {
+    if !app.usage_chart.borrow().visible {
+        if overview_table {
+            return open_dropdown(app, Focus::Range);
+        }
         return app.say("Usage controls require a visible workspace frame.");
     }
     if app.in_flight > 0 {
         return app.say("Wait for the pending action before opening usage controls.");
     }
-    if (app.quota_history_visible()
-        && !app
-            .usage_chart
-            .borrow()
-            .hits
-            .iter()
-            .any(|hit| matches!(hit.target, Target::Quota(_))))
-        || !app
-            .usage_chart
-            .borrow()
-            .hits
-            .iter()
-            .any(|hit| matches!(hit.target, Target::Each(_) | Target::Range(_)))
-    {
-        app.usage_controls = true;
-        app.invalidate_frame_geometry();
-    }
-    app.usage_chart.borrow_mut().set_focus(Focus::Each);
+    app.usage_chart.borrow_mut().set_focus(Focus::Range);
     Effect::None
 }
 fn inspect(app: &mut App, index: usize) -> Effect {
-    let lines = {
-        let mut state = app.usage_chart.borrow_mut();
-        refresh(app, &mut state, crate::status::now_ms());
-        state.bar = index.min(state.selection.bars().unwrap() - 1);
-        project::details(&state.observed.as_ref().unwrap().buckets[state.bar])
-    };
-    app.usage_details = Some(std::cell::RefCell::new(Details::new(lines)));
-    app.invalidate_frame_geometry();
+    let mut state = app.usage_chart.borrow_mut();
+    refresh(app, &mut state, crate::status::now_ms());
+    state.bar = index.min(state.selection.bars().unwrap() - 1);
+    let from = state.observed.as_ref().unwrap().buckets[state.bar].from_ms;
+    state.pinned = (state.pinned != Some(from)).then_some(from);
     Effect::None
+}
+fn open_dropdown(app: &mut App, focus: Focus) -> Effect {
+    let mut state = app.usage_chart.borrow_mut();
+    state.set_focus(focus);
+    state.hover = None;
+    state.dropdown = Some(dropdown::Dropdown::new(&state, focus));
+    drop(state);
+    app.usage_controls = true;
+    Effect::None
+}
+fn commit_dropdown(app: &mut App) -> Effect {
+    let selected = app.usage_chart.borrow().dropdown.as_ref().unwrap().choose();
+    match selected {
+        Err(reason) => app.say(reason),
+        Ok(target) => {
+            let result = app.usage_chart.borrow_mut().apply(target);
+            if let Err(reason) = result {
+                return app.say(reason);
+            }
+            app.usage_chart.borrow_mut().dropdown = None;
+            app.usage_controls = false;
+            Effect::None
+        }
+    }
 }
 /// The parent forwards only after composers, search, readers and overlays own input.
 pub(in crate::board) fn key(app: &mut App, key: KeyEvent) -> Option<Effect> {
@@ -297,6 +380,22 @@ pub(in crate::board) fn key(app: &mut App, key: KeyEvent) -> Option<Effect> {
         app.usage_chart.borrow_mut().release_focus();
         return None;
     }
+    if app.usage_controls {
+        if key.code == KeyCode::Enter {
+            return Some(commit_dropdown(app));
+        }
+        if let Some(dropdown) = &mut app.usage_chart.borrow_mut().dropdown {
+            dropdown.key(key.code);
+        }
+        return Some(Effect::None);
+    }
+    if key.code == KeyCode::Esc && app.usage_chart.borrow().pinned.is_some() {
+        let mut state = app.usage_chart.borrow_mut();
+        state.pinned = None;
+        state.hover = None;
+        state.focus = None;
+        return Some(Effect::None);
+    }
     let focus = app.usage_chart.borrow().focus?;
     if !app.usage_chart.borrow().visible {
         app.usage_chart.borrow_mut().focus = None;
@@ -308,17 +407,33 @@ pub(in crate::board) fn key(app: &mut App, key: KeyEvent) -> Option<Effect> {
     }
     let mut state = app.usage_chart.borrow_mut();
     let count = match focus {
-        Focus::Each => Selection::each_choices(state.selection.range_minutes).len(),
-        Focus::Range => Selection::RANGE.len(),
+        Focus::Each | Focus::Range => 1,
         Focus::Quota => crate::board::limits::QuotaWindow::ALL.len(),
         Focus::Bars => state.selection.bars().unwrap(),
     };
     match key.code {
-        KeyCode::Esc => state.focus = None,
+        KeyCode::Esc => {
+            state.pinned = None;
+            state.focus = None;
+            state.hover = None;
+        }
+        KeyCode::Home | KeyCode::End if focus == Focus::Bars => {
+            state.bar = if key.code == KeyCode::Home {
+                0
+            } else {
+                count - 1
+            };
+            state.draft = state.bar;
+            if key.code == KeyCode::Home {
+                state.viewport.oldest();
+            } else {
+                state.viewport.newest();
+            }
+        }
         KeyCode::Tab => {
             let next = match focus {
-                Focus::Each => Focus::Range,
-                Focus::Range
+                Focus::Range => Focus::Each,
+                Focus::Each
                     if state
                         .hits
                         .iter()
@@ -326,8 +441,8 @@ pub(in crate::board) fn key(app: &mut App, key: KeyEvent) -> Option<Effect> {
                 {
                     Focus::Quota
                 }
-                Focus::Range | Focus::Quota => Focus::Bars,
-                Focus::Bars => Focus::Each,
+                Focus::Each | Focus::Quota => Focus::Bars,
+                Focus::Bars => Focus::Range,
             };
             state.set_focus(next);
         }
@@ -335,20 +450,24 @@ pub(in crate::board) fn key(app: &mut App, key: KeyEvent) -> Option<Effect> {
             state.draft = state.draft.saturating_sub(1);
             if focus == Focus::Bars {
                 state.bar = state.draft;
+                let bar = state.bar;
+                state.viewport.reveal(count, bar);
             }
         }
         KeyCode::Right | KeyCode::Down => {
             state.draft = (state.draft + 1).min(count - 1);
             if focus == Focus::Bars {
                 state.bar = state.draft;
+                let bar = state.bar;
+                state.viewport.reveal(count, bar);
             }
         }
         KeyCode::Enter => {
             let target = match focus {
-                Focus::Each => Target::Each(
-                    Selection::each_choices(state.selection.range_minutes)[state.draft],
-                ),
-                Focus::Range => Target::Range(Selection::RANGE[state.draft]),
+                Focus::Each | Focus::Range => {
+                    drop(state);
+                    return Some(open_dropdown(app, focus));
+                }
                 Focus::Quota => Target::Quota(crate::board::limits::QuotaWindow::ALL[state.draft]),
                 Focus::Bars => Target::Bar(state.bar),
             };
@@ -373,9 +492,47 @@ pub(in crate::board) fn key(app: &mut App, key: KeyEvent) -> Option<Effect> {
     }
     Some(Effect::None)
 }
+/// The session loop uses this semantic change to admit a repaint on motion.
+pub(in crate::board) fn pointer(app: &mut App, event: MouseEvent) -> bool {
+    if !app.usage_chart_available() || app.loading() {
+        return false;
+    }
+    let mut state = app.usage_chart.borrow_mut();
+    if app.usage_controls_active() {
+        return state
+            .dropdown
+            .as_mut()
+            .is_some_and(|menu| menu.pointer(event));
+    }
+    let hover = state
+        .hits
+        .iter()
+        .find(|hit| hit.area.contains((event.column, event.row).into()))
+        .and_then(|hit| match hit.target {
+            Target::Bar(index) => Some(index),
+            _ => None,
+        });
+    let changed = state.hover != hover;
+    state.hover = hover;
+    changed
+}
+
 pub(in crate::board) fn mouse(app: &mut App, event: MouseEvent) -> Option<Effect> {
     if !app.usage_chart_available() || app.loading() {
         return None;
+    }
+    if app.usage_controls {
+        let choose = app
+            .usage_chart
+            .borrow_mut()
+            .dropdown
+            .as_mut()
+            .is_some_and(|d| d.mouse(event));
+        return Some(if choose {
+            commit_dropdown(app)
+        } else {
+            Effect::None
+        });
     }
     let target = app
         .usage_chart
@@ -384,22 +541,42 @@ pub(in crate::board) fn mouse(app: &mut App, event: MouseEvent) -> Option<Effect
         .iter()
         .find(|hit| hit.area.contains((event.column, event.row).into()))
         .map(|hit| hit.target);
-    if event.kind == MouseEventKind::Moved {
-        app.usage_chart.borrow_mut().hover = match target {
-            Some(Target::Bar(index)) => Some(index),
-            _ => None,
+    if matches!(target, Some(Target::Bar(_)))
+        && matches!(
+            event.kind,
+            MouseEventKind::ScrollUp
+                | MouseEventKind::ScrollDown
+                | MouseEventKind::ScrollLeft
+                | MouseEventKind::ScrollRight
+        )
+    {
+        let mut state = app.usage_chart.borrow_mut();
+        let total = state.selection.bars().unwrap();
+        let delta = if matches!(
+            event.kind,
+            MouseEventKind::ScrollUp | MouseEventKind::ScrollLeft
+        ) {
+            -1
+        } else {
+            1
         };
-        return target.map(|_| Effect::None);
+        state.viewport.scroll(total, delta);
+        state.hover = None;
+        let window = state.viewport.window(total);
+        if state.focus == Some(Focus::Bars) {
+            state.bar = state.bar.clamp(window.start, window.end - 1);
+            state.draft = state.bar;
+        }
+        return Some(Effect::None);
     }
     if event.kind != MouseEventKind::Down(MouseButton::Left) {
         return None;
     }
     match target? {
+        Target::OpenEach => Some(open_dropdown(app, Focus::Each)),
+        Target::OpenRange => Some(open_dropdown(app, Focus::Range)),
         Target::Controls => Some(focus(app)),
-        Target::Bar(index) => {
-            app.usage_chart.borrow_mut().set_focus(Focus::Bars);
-            Some(inspect(app, index))
-        }
+        Target::Bar(index) => Some(inspect(app, index)),
         target => {
             let result = app.usage_chart.borrow_mut().apply(target);
             Some(result.map_or_else(|message| app.say(message), |_| Effect::None))

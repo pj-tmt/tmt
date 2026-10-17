@@ -39,6 +39,27 @@ const WIDE_QUOTA_WIDTH: u16 = 49;
 const QUOTA_WIDTH: u16 = 37;
 const COMPACT_QUOTA_WIDTH: u16 = 15;
 
+/// One slot rule for bars, their right remainder and the actual axis extent.
+pub(in crate::board) struct BarLayout {
+    pub pitch: usize,
+    pub gap: usize,
+    pub remainder: usize,
+    pub drawn: usize,
+}
+impl BarLayout {
+    pub fn new(width: usize, buckets: usize) -> Self {
+        assert!(buckets > 0 && width >= buckets);
+        let pitch = width / buckets;
+        let gap = usize::from(pitch >= 3);
+        Self {
+            pitch,
+            gap,
+            remainder: width % buckets,
+            drawn: pitch * buckets - gap,
+        }
+    }
+}
+
 const FILE: &str = "ops.board.spark-row.xml";
 const MARKUP: &str = r#"<tmt-view version="1" class="w-full">
 <tmt-repeat each="$.rows" as="row"><tmt-row id-bind="row.id" class="w-full h-1">
@@ -114,7 +135,7 @@ pub(in crate::board) fn minimum_width(data: &Data) -> usize {
         + 1
         + NUMERIC_TRACK_WIDTH
         + unicode_width::UnicodeWidthStr::width(data.share_caption.as_str()).max(MIN_SHARE_WIDTH)
-        + data.buckets
+        + 1 // One visible bucket; the controller slices larger loaded series.
 }
 pub(in crate::board) fn quota_width(width: u16, data: &Data) -> u16 {
     let needed = minimum_width(data);
@@ -130,12 +151,37 @@ pub(in crate::board) fn quota_width(width: u16, data: &Data) -> u16 {
         0
     }
 }
+/// Reserve numeric and quota tracks independently of the loaded bucket count.
+/// Callers may then resolve Auto or slice a larger series to this exact width.
+pub(in crate::board) fn plot_layout(width: u16, data: &Data, quota: bool) -> (usize, u16) {
+    let quota = if quota { quota_width(width, data) } else { 0 };
+    let fixed = minimum_width(data) - 1
+        + if quota > 0 {
+            usize::from(quota) + QUOTA_GAP_WIDTH
+        } else {
+            0
+        };
+    (usize::from(width).saturating_sub(fixed), quota)
+}
 impl Scene {
     pub fn rows_for(data: &Data) -> u16 {
         (1 + data.rows.len().max(1) + usize::from(!data.no_data && data.show_axis))
             .min(usize::from(u16::MAX)) as u16
     }
     pub fn new(data: &Data, width: u16, quota_width: u16) -> Result<Self, String> {
+        Self::with_scale(
+            data,
+            width,
+            quota_width,
+            scale(data.rows.iter().flat_map(|row| row.values.iter().copied())).unwrap_or(0),
+        )
+    }
+    pub fn with_scale(
+        data: &Data,
+        width: u16,
+        quota_width: u16,
+        scale: u64,
+    ) -> Result<Self, String> {
         if data.buckets == 0 || data.rows.iter().any(|row| row.values.len() != data.buckets) {
             return Err("Spark rows must share one nonempty bucket grid".into());
         }
@@ -155,10 +201,7 @@ impl Scene {
         if spark_width < data.buckets {
             return Err("Spark rows need one cell per exact bucket".into());
         }
-        let stretch = spark_width / data.buckets;
-        let padding = spark_width % data.buckets;
-        let scale = quantize::scale(data.rows.iter().flat_map(|row| row.values.iter().copied()))
-            .unwrap_or(0);
+        let bars = BarLayout::new(spark_width, data.buckets);
         let mut heading = vec![
             json!({"id":"heading-padding","text":" ".repeat(name_width+1+spark_width+2)}),
             json!({"id":"heading-total","text":format!("{:>7}","TOK")}),
@@ -194,9 +237,9 @@ impl Scene {
                 } else {
                     quantize::glyph(*reading, scale)
                 };
-                pieces.push(json!({"id":format!("spark-{provider}-bar-{index}"),"text":glyph.repeat(stretch)}));
+                pieces.push(json!({"id":format!("spark-{provider}-bar-{index}"),"text":format!("{}{}", glyph.repeat(bars.pitch-bars.gap), " ".repeat(bars.gap))}));
             }
-            pieces.push(json!({"id":"padding","text":" ".repeat(padding)}));
+            pieces.push(json!({"id":"padding","text":" ".repeat(bars.remainder)}));
             let total = text::fit_line(
                 &row.total,
                 7,
@@ -214,7 +257,7 @@ impl Scene {
             rows.push(json!({"id":format!("provider-{provider}"),"pieces":pieces}));
         }
         if !data.no_data && data.show_axis {
-            rows.push(json!({"id":"time","pieces":[{"id":"axis-padding","text":" ".repeat(name_width+1)},{"id":"time-ticks","text":time_ticks(&data.axis,spark_width-padding)}]}));
+            rows.push(json!({"id":"time","pieces":[{"id":"axis-padding","text":" ".repeat(name_width+1)},{"id":"time-ticks","text":time_ticks(&data.axis,bars.drawn)}]}));
         }
         let row_count = rows.len() as u16;
         let node = template()
@@ -377,7 +420,7 @@ mod tests {
             line(&buffer, 1),
             format!(
                 "Claude   {}{}  {:>7}  {:>8}",
-                "█".repeat(72),
+                "█████ ".repeat(12),
                 " ".repeat(3),
                 "720",
                 "60%"
@@ -387,7 +430,7 @@ mod tests {
             line(&buffer, 2),
             format!(
                 "Codex    {}{}  {:>7}  {:>8}",
-                "▄".repeat(72),
+                "▄▄▄▄▄ ".repeat(12),
                 " ".repeat(3),
                 "360",
                 "30%"
@@ -397,7 +440,7 @@ mod tests {
             line(&buffer, 3),
             format!(
                 "unknown  {}{}  {:>7}  {:>8}",
-                "▂".repeat(72),
+                "▂▂▂▂▂ ".repeat(12),
                 " ".repeat(3),
                 "120",
                 "10%"
@@ -405,8 +448,18 @@ mod tests {
         );
         let axis = line(&buffer, 4);
         assert!(axis.starts_with("         −60m"));
-        assert!(axis.chars().take(81).collect::<String>().ends_with("now"));
-        assert_eq!(axis.chars().skip(81).collect::<String>(), " ".repeat(22));
+        assert!(axis.chars().take(80).collect::<String>().ends_with("now"));
+        assert_eq!(
+            buffer[(79, 1)].symbol(),
+            "█",
+            "axis ends under the last drawn bar"
+        );
+        assert_eq!(
+            buffer[(80, 1)].symbol(),
+            " ",
+            "the final slot gap stays blank"
+        );
+        assert_eq!(axis.chars().skip(80).collect::<String>(), " ".repeat(23));
         assert!(line(&buffer, 0).ends_with("TOK  % of all"));
         for x in 9..81 {
             assert_eq!(buffer[(x, 1)].fg, buffer[(x, 2)].fg);

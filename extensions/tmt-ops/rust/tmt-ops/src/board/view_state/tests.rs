@@ -807,3 +807,38 @@ fn missing_or_unknown_quota_choice_keeps_other_committed_controls() {
         assert_eq!(Controls::decode(&value), Some(expected.clone()));
     }
 }
+
+#[test]
+fn chart_preferences_are_per_layer_authored_and_tolerant_of_old_or_invalid_hints() {
+    use crate::board::overview::chart::model::Each;
+    for each in [Each::Auto, Each::Fixed(60)] {
+        let first = board();
+        first
+            .usage_chart
+            .borrow_mut()
+            .restore_chart_controls(10_080, each);
+        let controls = Controls::capture(&first);
+        let encoded = controls.json();
+        let decoded = Controls::decode(&encoded).unwrap();
+        let mut second = board();
+        decoded.apply(&mut second);
+        assert_eq!(second.usage_chart.borrow().chart_controls(), (10_080, each));
+        assert_eq!(decoded, controls);
+        for chart in [
+            None,
+            Some(json!({"rangeMinutes":43_200,"eachMinutes":5})),
+            Some(json!({"rangeMinutes":0,"eachMinutes":null})),
+        ] {
+            let mut old = encoded.clone();
+            if let Some(chart) = chart {
+                old["chart"] = chart;
+            } else {
+                old.as_object_mut().unwrap().remove("chart");
+            }
+            let restored = Controls::decode(&old).unwrap();
+            assert_eq!(restored.chart, (60, Each::Auto));
+            assert_eq!(restored.query, controls.query);
+            assert_eq!(restored.order, controls.order);
+        }
+    }
+}
