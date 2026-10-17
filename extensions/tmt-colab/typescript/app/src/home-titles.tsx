@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type MouseEvent } from 'react';
 import { pageTitle } from './page-index.js';
 import { visibleElement } from './visible-element.js';
 import type { PageSummary, PageTransport, TitleReadBudget } from './transport.js';
@@ -65,7 +65,15 @@ export class HomeTitleHints {
 }
 
 /** The existing page link also supplies the visibility fence for optional title reads. */
-export function HomeTitleLink({ page, hints }: { page: PageSummary; hints?: HomeTitleHints }) {
+export function HomeTitleLink({
+  page,
+  hints,
+  onClick,
+}: {
+  page: PageSummary;
+  hints?: HomeTitleHints;
+  onClick?: (event: MouseEvent<HTMLAnchorElement>) => void;
+}) {
   const link = useRef<HTMLAnchorElement>(null);
   useEffect(() => {
     if (!page.titleMissing || !hints) return;
@@ -82,7 +90,13 @@ export function HomeTitleLink({ page, hints }: { page: PageSummary; hints?: Home
   }, [page.id, page.titleMissing, hints]);
   const title = pageTitle(page);
   return (
-    <Link ref={link} to="/pages/$pageId" params={{ pageId: page.id }} title={title}>
+    <Link
+      ref={link}
+      to="/pages/$pageId"
+      params={{ pageId: page.id }}
+      title={title}
+      onClick={onClick}
+    >
       {title}
     </Link>
   );

@@ -65,7 +65,10 @@ test('native page titles fill missing visible home labels without opening the pa
     expect(sent).toContain('hello');
     expect(sent).not.toContain('subscribe');
     await row().getByRole('link').click();
-    await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
+    // At 1440 the chapter opens beside Today, whose own headings repeat the title.
+    await expect(
+      page.locator('.tmt-ui-header').getByRole('heading', { name: title, exact: true }),
+    ).toBeVisible();
     await expect(page).toHaveTitle(`${title} · Colab`);
     await expect.poll(() => sent.filter((type) => type === 'subscribe').length).toBe(1);
     await captureHeader(page, testInfo, 'page');

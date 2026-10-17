@@ -593,6 +593,14 @@ export const text = {
     olderLabel: 'Older pages',
     byAuthor: (name: string) => `by ${name}`,
   },
+  /** A chapter opened from Today: a panel beside it, or the full page. */
+  chapter: {
+    panelLabel: 'Page preview',
+    navLabel: 'Back to Today',
+    close: 'Close',
+    openFull: 'Open full page →',
+    back: '← Today',
+  },
   pageList: {
     searchLabel: 'Search pages',
     searchPlaceholder: 'Search pages · label:name · by:author',
