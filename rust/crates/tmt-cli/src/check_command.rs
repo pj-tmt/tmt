@@ -9,7 +9,7 @@ use crate::{
 use std::io::{self, Write};
 use tmt_adapters::{
     config::{ConfigFiles, ConfigPaths},
-    host::{CallerEnvironment, Host},
+    host::Host,
     storage::Storage,
 };
 use tmt_cli_style::Token;
@@ -32,7 +32,6 @@ fn run(target: String, lines: Option<u64>, capture_only: bool) -> Result<Report,
     .settings;
     let lines = lines.unwrap_or(settings.capture_lines);
     // Names resolve through stored bindings; each is probed on its own host.
-    let host = Host::for_caller(&CallerEnvironment::current());
     let mut storage = Storage::open(&paths.database).map_err(|error| {
         Failure::storage_access(
             error,
@@ -42,7 +41,7 @@ fn run(target: String, lines: Option<u64>, capture_only: bool) -> Result<Report,
             "Could not open identity storage.",
         )
     })?;
-    let pending = target::resolve(&mut storage, &host, &target).and_then(|observed| {
+    let pending = target::resolve(&mut storage, &target).and_then(|observed| {
         // A capture-only read is for display data and may be repeated by a tool,
         // so it never hands a retained checklist to the pane.
         if let Some(identity) = observed.identity.as_ref().filter(|_| !capture_only) {

@@ -223,9 +223,9 @@ a working directory, active pane or sole identity.
 
 - `tmt-core::names` owns canonical names; hosts own pane-target syntax.
   `identity` owns lifetime/create/promote; `identity_metadata`/`identity_status`
-  own untrusted descriptions granting no authority ([atomic metadata](contracts/extension-api.md#conditional-identity-metadata)).
-  `binding` owns evidence, retirement, binds and UUID/name-CAS rename. [Discovery v1](contracts/discovery-v1.md)
-  owns candidate bounds and native/UUID fences; guarded `add` uses that binder.
+  own untrusted descriptions, never authority ([atomic metadata](contracts/extension-api.md#conditional-identity-metadata)).
+  `binding` owns evidence, retirement, binds and UUID/name-CAS rename.
+  [Discovery](contracts/discovery-v1.md) owns candidate bounds and native/UUID fences; guarded `add` uses `binding`.
 - Unknown or conflicting endpoint evidence is never proof of death. Saved
   identities detach and stay offline; temporary identities retire only on
   conclusive evidence or explicit unbind, and exchanges are kept. Presence is
@@ -248,7 +248,7 @@ a working directory, active pane or sole identity.
   one value for comparing local processes.
 - Concrete implementations: `storage::{identities,identity_metadata,identity_status,bindings}`
   and `tmux::{metadata,evidence,binding,caller,transport}`; `binding_command`
-  performs caller/target preflight and composes them. Module rules:
+  checks caller/target; CLI `target` selects recorded servers. Module rules:
   [identity and bindings](.agents/skills/tmt-core-runtime/references/identity-bindings.md)
   and [workspace recovery](.agents/skills/tmt-core-runtime/references/workspace.md).
 

@@ -126,9 +126,12 @@ delivery. They install and launch nothing.
   client (never a bare "current client"); it sends no input. Its target may be a name,
   pane or canonical lowercase UUIDv4. Only Focus treats a UUID as an identity before
   name/pane parsing: a missing, retired or inactive UUID refuses without falling back
-  to a UUID-shaped name. UUID lookup uses the same current-server observation and
-  binding/incarnation verification as name lookup; delivery and diagnostics retain
-  their existing target rules.
+  to a UUID-shaped name. UUID and name lookup select the recorded recipient
+  host/server and reuse strict binding/incarnation verification. Tmux focus still
+  requires the invoker's client on that server; external drivers own their views.
+- Named delivery and diagnostics select the stored UUID and recorded server before
+  the existing current-presence reconciliation. Preparation refreshes that same
+  endpoint again; no ambient-host fallback, new approval or listing authority is added.
 
 ## Sessions and driver state
 
